@@ -2139,6 +2139,7 @@ dependencies = [
  "tokio",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "wasm_thread",
  "web-sys",
 ]
 
@@ -5969,6 +5970,7 @@ dependencies = [
  "ui-proc",
  "usvg",
  "vents",
+ "web-sys",
  "web-time",
  "wgpu",
  "wgpu_text",
@@ -6868,6 +6870,18 @@ name = "wasm-bindgen-test-shared"
 version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c31d56021e873866c968588ed85ccdf56db5c426e44afdb4618c39895104b920"
+
+[[package]]
+name = "wasm_thread"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7516db7f32decdadb1c3b8deb1b7d78b9df7606c5cc2f6241737c2ab3a0258e"
+dependencies = [
+ "futures",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
 
 [[package]]
 name = "wayland-backend"

@@ -250,6 +250,56 @@ impl AppRunner {
         Window::current().fps()
     }
 
+    /// Runs the whole UI suite from the browser page, when the
+    /// `te_run_tests` query flag is set, since a page has no env vars.
+    /// The suite runs on a worker thread sharing wasm memory, exactly
+    /// like the native worker task, and the driver reads the
+    /// `TE_TEST_RESULT` console line instead of an exit code, since a
+    /// page has no exit status. `te_test_only` narrows the run to a
+    /// comma separated list of test names, camel case only, spaces do
+    /// not survive a url.
+    #[cfg(all(wasm, feature = "ui-tests"))]
+    fn spawn_test_autorun() {
+        if !crate::web::query_flag("te_run_tests") {
+            return;
+        }
+
+        UIManager::on_app_ready(|| {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            // The app marks itself ready again when the suite hands the
+            // UI back, and this callback refires. Native exits before
+            // that, a page stays alive, so run once.
+            static RAN: AtomicBool = AtomicBool::new(false);
+
+            if RAN.swap(true, Ordering::Relaxed) {
+                return;
+            }
+
+            // Read on the main thread, a worker has no window.
+            let only = crate::web::query_param("te_test_only");
+
+            hreads::spawn_thread(move || {
+                let mut tests = crate::UI_TESTS.lock().clone();
+
+                if let Some(only) = only {
+                    let keep: Vec<String> =
+                        only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                    tests.retain(|name, _| keep.contains(name));
+                }
+
+                let report = crate::ui_test::run_test_map(&tests);
+
+                for failure in &report.failures {
+                    log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
+                }
+
+                let failed = report.failures.len();
+                log::info!("TE_TEST_RESULT {} tests, {failed} failed", report.total);
+            });
+        });
+    }
+
     /// Runs the whole UI suite and exits, when `TE_RUN_TESTS` is set.
     ///
     /// The tests drive the main thread through `from_main`, so the run has to
@@ -343,6 +393,9 @@ impl crate::window::WindowEvents for AppRunner {
                 #[cfg(feature = "ui-tests")]
                 Self::spawn_test_autorun();
             }
+
+            #[cfg(all(wasm, feature = "ui-tests"))]
+            Self::spawn_test_autorun();
 
             UIManager::keymap().add(UIManager::root_view(), 'i', || {
                 fn call_inspect(mut view: WeakView) {

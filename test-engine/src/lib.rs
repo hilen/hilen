@@ -16,6 +16,7 @@ mod app_runner;
 mod assets;
 mod assets_paths;
 mod level_drawer;
+mod web;
 
 mod app;
 mod app_starter;

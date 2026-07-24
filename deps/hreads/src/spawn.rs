@@ -32,6 +32,17 @@ where O: Send + 'static {
     });
 }
 
+/// A real OS or worker thread that may block, unlike `spawn` which is a
+/// task on the async runtime. On wasm this needs the atomics build and
+/// cross origin isolation headers, and the worker starts only when the
+/// main thread yields to the browser.
+pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
+    #[cfg(wasm)]
+    wasm_thread::spawn(work);
+    #[cfg(not_wasm)]
+    std::thread::spawn(work);
+}
+
 pub fn block_on<F>(future: F)
 where F: Future<Output = ()> + 'static {
     #[cfg(wasm)]
@@ -59,12 +70,9 @@ pub async fn sleep(duration: f32) {
 pub fn now() -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
-        web_sys::window()
-            .expect("should have a window")
-            .performance()
-            .expect("should have performance")
-            .now()
-            / 1000.0
+        // Date.now exists in every scope. performance hangs off window,
+        // which a worker does not have, and the suite runs on a worker.
+        web_sys::js_sys::Date::now() / 1000.0
     }
 
     #[cfg(not(target_arch = "wasm32"))]

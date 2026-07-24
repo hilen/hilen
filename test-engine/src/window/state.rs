@@ -51,6 +51,16 @@ pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
 #[cfg(any(target_os = "android", target_arch = "wasm32"))]
 pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
+/// The browser surface cannot be copied, so screenshots there read the
+/// scene texture instead, which therefore needs the copy usage.
+#[cfg(wasm)]
+const SCENE_TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTACHMENT
+    .union(wgpu::TextureUsages::TEXTURE_BINDING)
+    .union(wgpu::TextureUsages::COPY_SRC);
+#[cfg(not_wasm)]
+const SCENE_TEXTURE_USAGE: wgpu::TextureUsages =
+    wgpu::TextureUsages::RENDER_ATTACHMENT.union(wgpu::TextureUsages::TEXTURE_BINDING);
+
 pub struct State {
     pub(crate) clear_color: Color,
 
@@ -256,6 +266,12 @@ impl State {
         // all of this and render straight to the target.
         let needs_sampling = AppHandler::current().te_window_events.needs_sampleable_frame();
 
+        // A pending read forces the scene texture path in the browser,
+        // where the surface is render attachment only and the readback
+        // has to copy the scene texture.
+        #[cfg(wasm)]
+        let needs_sampling = needs_sampling || self.read_display_request.borrow().is_some();
+
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture();
         }
@@ -301,13 +317,17 @@ impl State {
 
         AppHandler::current().te_window_events.render(&mut frame);
 
-        let encoder = frame.finish();
-        #[cfg(not_wasm)]
-        let mut encoder = encoder;
+        let mut encoder = frame.finish();
 
-        #[cfg(not_wasm)]
         let buffer = if self.read_display_request.borrow().is_some() {
-            Some(Self::read_screen(&mut encoder, texture))
+            #[cfg(not_wasm)]
+            let source = texture;
+            // The scene texture holds this frame, the pending read
+            // forced the sampling path above.
+            #[cfg(wasm)]
+            let source = self.scene_texture.as_ref().expect("Scene texture ensured by pending read");
+
+            Some(Self::read_screen(&mut encoder, source))
         } else {
             None
         };
@@ -325,6 +345,10 @@ impl State {
         #[cfg(feature = "bench")]
         self.read_gpu_time().expect("failed to read gpu time");
 
+        self.deliver_pending_read(buffer);
+    }
+
+    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, crate::gm::flat::Size<u32>)>) {
         #[cfg(not_wasm)]
         if let Some(buffer_sender) = self.read_display_request.take() {
             let (sender, receiver) = channel();
@@ -349,6 +373,27 @@ impl State {
             hreads::spawn(async move {
                 let _ = receiver.recv().unwrap();
                 Self::deliver_screenshot(buffer, &buffer_sender);
+            });
+        }
+
+        // The browser cannot block on the device. The map callback fires
+        // on the main thread once the browser completes the copy, and the
+        // waiting test thread receives through the request channel.
+        #[cfg(wasm)]
+        if let Some(buffer_sender) = self.read_display_request.take() {
+            let Some((buffer, size)) = buffer else {
+                return;
+            };
+
+            let mapped = buffer.clone();
+
+            buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+                if let Err(err) = result {
+                    warn!("Screenshot map failed: {err}");
+                    return;
+                }
+
+                Self::deliver_screenshot((mapped, size), &buffer_sender);
             });
         }
     }
@@ -500,12 +545,11 @@ impl State {
             sample_count:    1,
             dimension:       wgpu::TextureDimension::D2,
             format:          SURFACE_TEXTURE_FORMAT,
-            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage:           SCENE_TEXTURE_USAGE,
             view_formats:    &[],
         }));
     }
 
-    #[cfg(not_wasm)]
     fn deliver_screenshot(buffer: (wgpu::Buffer, crate::gm::flat::Size<u32>), sender: &ReadDisplayRequest) {
         let (buff, size) = buffer;
 
@@ -528,11 +572,14 @@ impl State {
         let mut data: Vec<crate::gm::color::U8Color> = Vec::with_capacity(width * height);
 
         for row in bytes.chunks_exact(row_bytes) {
-            data.extend(
-                bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes])
-                    .iter()
-                    .map(|color| color.bgra_to_rgba()),
-            );
+            let row = bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes]);
+
+            // The channel order follows SURFACE_TEXTURE_FORMAT, bgra on
+            // desktop and rgba elsewhere.
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            data.extend(row.iter().map(|color| color.bgra_to_rgba()));
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+            data.extend_from_slice(row);
         }
 
         sender.send(Screenshot::new(data, size)).unwrap();
@@ -546,7 +593,6 @@ impl State {
         r
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn read_screen(
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,

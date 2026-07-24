@@ -37,8 +37,12 @@ static RENDER_FRAME: AtomicU64 = AtomicU64::new(0);
 /// Mirrors `Screen::Headless` so any thread can check it. Set once at
 /// startup, never changes.
 static HEADLESS: AtomicBool = AtomicBool::new(false);
-/// Doesn't work on some Androids and on Web
-pub(crate) const SUPPORT_SCREENSHOT: bool = !Platform::ANDROID && !Platform::WASM;
+/// Doesn't work on some Androids
+pub(crate) const SUPPORT_SCREENSHOT: bool = !Platform::ANDROID;
+
+/// The browser surface is render attachment only, screenshots there
+/// read the scene texture instead of copying the surface.
+pub(crate) const SURFACE_COPY: bool = SUPPORT_SCREENSHOT && !Platform::WASM;
 
 pub struct Window {
     pub state: State,
@@ -452,7 +456,7 @@ pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceCon
     let size: Size<u32> = size.into();
 
     SurfaceConfiguration {
-        usage:        if SUPPORT_SCREENSHOT {
+        usage:        if SURFACE_COPY {
             TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
         } else {
             TextureUsages::RENDER_ATTACHMENT
