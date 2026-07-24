@@ -57,9 +57,13 @@ isolating one case on a device or simulator, where the whole suite is slow to re
 
 ## Run from the editor
 
-A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. It runs
-`cargo run -p ui-test -- --test-name X --human`, the watchable single test command. Stock
-rust-analyzer sees nothing runnable in that impl.
+A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock
+rust-analyzer sees nothing runnable in that impl. The button offers three modes of
+`cargo run -p ui-test`:
+
+- `run ui-test X` passes `--test-name X --human`, watchable, space to advance.
+- `run ui-test X headed` passes `--test-name X`, windowed, runs by itself.
+- `run ui-test X headless` passes `--headless --test-name X`, no window.
 
 The patch lives in the fork at
 [VladasZ/rust-analyzer](https://github.com/VladasZ/rust-analyzer), branch
@@ -78,9 +82,10 @@ ln -sf <patched rust-analyzer> ~/.rustup/toolchains/<channel>/bin/rust-analyzer
 
 A rustup reinstall of the toolchain restores the stock binary, then the symlink needs to be
 redone. Zed also needs `"enable_lsp_tasks": true` on its rust-analyzer entry, since it drops
-LSP runnables by default and the button rides on `experimental/runnables`. Zed refetches
-runnables only when a buffer opens or changes, so reopen the file if the button is missing
-after a server restart.
+LSP runnables by default and the button rides on `experimental/runnables`. Zed fetches
+runnables the moment a buffer opens and caches the answer until it changes, which on startup
+is before the workspace is loaded. The patch holds those early requests until the server is
+quiescent, so the button appears on its own once loading finishes.
 
 ## One registry
 
