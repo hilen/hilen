@@ -103,8 +103,41 @@ Found by jagged rounded corners in the corner radius test.
   it lands.
 - Blocks: smooth vector path and polygon edges. Nothing in the driver app today.
 
+## Frame stepped animation testing
+
+Found by an animation problem seen during the PresentRich human review, not yet
+diagnosed.
+
+- Current: `Animation` samples real elapsed time, so mid-animation pixels depend on
+  the wall clock and machine speed. Tests can only wait for `on_finish` and check the
+  settled state, the present and navigation tests poll for completion with generous
+  timeouts. Human mode pauses on injected events and checks, never inside an
+  animation.
+- Needed: one engine time source that all animation code reads. Normal runs keep real
+  time, a stepped mode advances it by a fixed delta per rendered frame, 16.666 ms for
+  a 60 fps timeline. The 0.4 s present slide becomes exactly 24 deterministic frames,
+  push and pop become 30. A `step_frames(n)` helper next to `wait_for_next_frame`
+  renders and advances n frames, so `check_colors` and `--record-colors` pin
+  mid-flight frames through the existing flow, and `on_finish` lands on an exact
+  frame count, no timeout waits. In human mode an active animation holds the run and
+  a dedicated key advances one frame per press, the window title showing the frame
+  number, the total and the virtual time, space keeps its current meaning. Stepped
+  mode is opt in per test, defaults untouched, so the corpus stays green. The
+  animation drives frames regression test must never run stepped, it proves free
+  running animations request their own frames. Anything else reading real time
+  inside the frame moves to the same source or the timeline drifts. Touches stay
+  locked during present and push, a stepped test must not expect taps to land mid
+  animation. The exact end value is currently never written, the last commit lands
+  just before expiry, and with a fixed step clamping the finishing frame to the end
+  value becomes possible, but that changes visible behavior and recorded
+  expectations, so it is its own gated decision.
+- Blocks: diagnosing the PresentRich animation problem, and any regression test
+  that pins an animation mid flight.
+
 ## Suggested order
 
-The text stack remainder waits for a real need for color emoji or font fallback.
-Shape MSAA waits for a real need for smooth path or polygon edges, since the SDF UI
-shapes people actually use are already anti-aliased.
+Frame stepped animation testing goes first, it has a live need, the unassessed
+animation problem in the present test. The text stack remainder waits for a real
+need for color emoji or font fallback. Shape MSAA waits for a real need for smooth
+path or polygon edges, since the SDF UI shapes people actually use are already
+anti-aliased.
