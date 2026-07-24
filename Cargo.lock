@@ -4675,6 +4675,7 @@ dependencies = [
  "serial_test",
  "tokio",
  "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

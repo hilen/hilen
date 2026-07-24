@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, btree_map::Entry},
     mem::transmute,
     ops::Deref,
@@ -35,6 +36,28 @@ fn insert_or_existing<T: Managed>(
         }
         Entry::Vacant(slot) => slot.insert(new).weak(),
     }
+}
+
+/// Fetch needs an absolute url, so a root relative one is
+/// resolved against the page origin in the browser.
+#[cfg(target_arch = "wasm32")]
+fn absolute_url(url: &str) -> Cow<'_, str> {
+    if !url.starts_with('/') {
+        return url.into();
+    }
+
+    let origin = web_sys::window()
+        .expect("Failed to get browser window")
+        .location()
+        .origin()
+        .expect("Failed to get location origin");
+
+    format!("{origin}{url}").into()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn absolute_url(url: &str) -> Cow<'_, str> {
+    url.into()
 }
 
 pub trait DataManager<T: Managed> {
@@ -167,7 +190,7 @@ pub trait DataManager<T: Managed> {
             name:      name.clone(),
         };
 
-        let data = reqwest::get(url).await?.bytes().await?;
+        let data = reqwest::get(absolute_url(url).as_ref()).await?.bytes().await?;
 
         Ok(Self::load(&data, &name))
     }

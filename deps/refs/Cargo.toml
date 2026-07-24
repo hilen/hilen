@@ -29,6 +29,9 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rustc-hash = "2.1.2"
 serde = { version = "1.0", optional = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Location", "Window"] }
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 serial_test = "3.4"

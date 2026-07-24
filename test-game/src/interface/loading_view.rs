@@ -99,7 +99,7 @@ impl LoadingView {
     }
 
     async fn download_asset(path: &str) -> Result<()> {
-        Image::download(&path, &format!("http://192.168.0.14:44800/assets/images/{path}")).await?;
+        Image::download(&path, &format!("/assets/images/{path}")).await?;
 
         Ok(())
     }
