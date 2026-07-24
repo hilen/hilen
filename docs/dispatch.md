@@ -53,8 +53,10 @@ iteration. So on iOS only, `request_frame` also wakes the loop from the main thr
 iteration re-checks the flag and keeps drawing. Doing that same wake on desktop livelocks the
 loop, so it is gated to iOS.
 
-Headless runs render every iteration and ignore the flag. Wasm is single threaded and browser
-driven, the loop polls every iteration and needs no waking.
+Headless runs render every iteration and ignore the flag. Wasm is browser driven, the loop
+polls every iteration and needs no waking. A normal wasm build is single threaded. The
+browser test build spawns real workers through `spawn_thread`, and they drive the main
+thread like native background threads.
 
 The `Animation drives frames` UI test guards the part of this that can be pinned down. It starts
 an animation from code, with nothing injecting input, and checks that the loop reports continuous

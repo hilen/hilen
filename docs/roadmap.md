@@ -134,9 +134,28 @@ diagnosed.
 - Blocks: diagnosing the PresentRich animation problem, and any regression test
   that pins an animation mid flight.
 
+## Browser UI tests
+
+The suite in a real browser, in flight.
+
+- Current: worker threads are proven in headed Firefox and Chromium, a worker drives
+  the main thread through `from_main` exactly like native. Needs the atomics build:
+  target features `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
+  and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
+  `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
+  `__tls_base`. rustc adds none of them itself. The page needs COOP and COEP headers.
+  The suite autorun behind the `te_run_tests` query flag and the scene texture
+  screenshot readback are written but not yet verified in a browser.
+- Needed: a `build/web/` lane driver, Bun plus Playwright, that owns the build flags,
+  serves dist with the isolation headers, runs Chromium and Firefox and parses the
+  `TE_TEST_RESULT` console line. Then verify autorun and readback, `make ui-web`, and a
+  CI job. Headless Firefox has no working WebGPU, its headless lane is WebGL only.
+- Blocks: browser regressions going unnoticed. CI only compiles the wasm target today.
+
 ## Suggested order
 
-Frame stepped animation testing goes first, it has a live need, the unassessed
+Browser UI tests are in flight already. Among the rest, frame stepped animation
+testing goes first, it has a live need, the unassessed
 animation problem in the present test. The text stack remainder waits for a real
 need for color emoji or font fallback. Shape MSAA waits for a real need for smooth
 path or polygon edges, since the SDF UI shapes people actually use are already
