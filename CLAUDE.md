@@ -48,6 +48,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.
+- [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
+  Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
+  changing backend selection or when an app dies on Windows with no message.
 - [docs/ios.md](docs/ios.md) — what keeps iOS 12 and the A7 working: `NSLog` output, the
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
   CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the

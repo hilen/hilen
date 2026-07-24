@@ -9,9 +9,9 @@ use hreads::on_main;
 use log::{info, warn};
 use plat::Platform;
 use wgpu::{
-    Adapter, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance, Limits,
-    MemoryHints, PowerPreference, PresentMode, Queue, RequestAdapterOptions, SurfaceColorSpace,
-    SurfaceConfiguration, TextureUsages, Trace,
+    Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
+    Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
+    RequestAdapterOptions, SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
@@ -197,6 +197,20 @@ impl Window {
         required_limits
     }
 
+    /// Windows asks for DX12 alone. With every backend enabled wgpu picks
+    /// Vulkan there, and the Intel driver for Gen9 integrated GPUs faults
+    /// inside `vkCreateDevice`, which kills the process with no message.
+    /// `WGPU_BACKEND` still overrides the choice on any platform.
+    fn instance() -> Instance {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+
+        if Platform::WINDOWS {
+            descriptor.backends = Backends::DX12;
+        }
+
+        Instance::new(descriptor.with_env())
+    }
+
     async fn request_device(adapter: &Adapter) -> Result<(Device, Queue)> {
         let required_limits = Self::required_limits(adapter.limits());
 
@@ -233,7 +247,7 @@ impl Window {
     ) -> Result<()> {
         let winit_window = Arc::new(window);
 
-        let instance = Instance::default();
+        let instance = Self::instance();
         let surface = instance
             .create_surface(winit_window.clone())
             .context("Failed to create surface")?;
@@ -292,7 +306,7 @@ impl Window {
 
     #[cfg(not_wasm)]
     pub(crate) async fn create_headless(size: Size<u32>) -> Result<Self> {
-        let instance = Instance::default();
+        let instance = Self::instance();
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference:       PowerPreference::HighPerformance,
