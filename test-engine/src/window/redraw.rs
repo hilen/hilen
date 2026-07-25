@@ -64,8 +64,10 @@ pub(crate) fn request_frame() {
     }
 }
 
-/// Consumes the pending flag. The winit loop calls this once per iteration and
-/// draws only when it returns true.
+/// Consumes the pending flag. The native winit loop calls this once per
+/// iteration and draws only when it returns true. Wasm never waits, so it
+/// never asks.
+#[cfg(not_wasm)]
 pub(crate) fn take_needs_render() -> bool {
     NEEDS_REDRAW.swap(false, Ordering::Relaxed)
 }

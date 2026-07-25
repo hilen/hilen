@@ -33,7 +33,9 @@ pub(crate) enum UserEvent {
     WindowReady(Box<Window>),
     /// A nudge that only exists to wake the loop from `ControlFlow::Wait` when
     /// background work queued a main thread callback. Handled by drawing a
-    /// frame in `about_to_wait`, so the handler itself does nothing.
+    /// frame in `about_to_wait`, so the handler itself does nothing. Wasm
+    /// polls every iteration and never waits, so it has no wake.
+    #[cfg(not_wasm)]
     Wake,
 }
 
@@ -44,6 +46,8 @@ enum AppHandlerState {
 }
 
 impl AppHandlerState {
+    // Only the native frame pacing asks, wasm polls every iteration.
+    #[cfg(not_wasm)]
     fn ready(&self) -> bool {
         !self.not_ready()
     }
@@ -178,6 +182,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             }
             // Waking the loop was the whole point. `about_to_wait` runs right
             // after this and draws a frame because a redraw was requested.
+            #[cfg(not_wasm)]
             UserEvent::Wake => {}
         }
     }

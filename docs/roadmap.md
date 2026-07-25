@@ -160,6 +160,20 @@ The suite in a real browser, in flight.
   through an sRGB view, then the screen matches native and the readback returns
   sRGB bytes that recorded expectations compare against directly. Android uses the
   same non sRGB surface format and is suspect too.
+- Landed: assets in the browser. test-game's build.rs writes `assets/assets.json`,
+  every image, font and sound with a content hash and a load group, the group is
+  the first folder under the kind folder, kind root files are `boot`. On wasm the
+  engine downloads the boot group into the managed stores before anything runs,
+  `Assets::load_progress` feeds the loading bar, `Assets::load_group` pulls a lazy
+  group on demand, the game sprites download on the first Physics tap. Urls carry
+  the content hash, so a host can serve `assets/` as immutable. A trunk post_build
+  hook recopies the manifest, the asset pipeline runs in parallel with cargo and
+  would ship it one build stale. Downloads now fail on HTTP error status, a 404
+  page used to be stored as asset bytes, and a font that fails to parse degrades
+  to the default font instead of killing the session.
+- Found by the Physics tap: the level scene renders black in the browser. All
+  textures arrive and the console is clean, the UI side renders fine. Likely the
+  level or scale path on wasm, near the device pixel ratio work below. Unassessed.
 - Needed: the sRGB view fix, canvas sizing for the 600 by 600 fixtures and device
   pixel ratio handling, then a `build/web/` lane driver, Bun plus Playwright, that
   owns the build flags, serves dist with the isolation headers, runs Chromium and

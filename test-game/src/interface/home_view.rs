@@ -1,8 +1,10 @@
 use test_engine::{
+    dispatch::{on_main, spawn},
+    filesystem::Assets,
     level::LevelManager,
     refs::{Weak, manage::DataManager},
     ui::{
-        Container, Font, ImageView, Label, ScrollView, Setup, Shadow, Switch, TextAlignment, Theme,
+        AlertErr, Container, Font, ImageView, Label, ScrollView, Setup, Shadow, Switch, TextAlignment, Theme,
         ThemeMode, UIManager, ViewData, ViewSubviews, view,
     },
 };
@@ -106,7 +108,14 @@ impl HomeView {
     fn open(index: usize) {
         match index {
             0 => {
-                UIManager::set_view(GameScene::new());
+                // The level sprites are a lazy asset group, the browser
+                // downloads them on the first open. Native resolves at once.
+                spawn(async {
+                    Assets::load_group("game").await.alert_err();
+                    on_main(|| {
+                        UIManager::set_view(GameScene::new());
+                    });
+                });
             }
             1 => {
                 UIManager::set_view(FrostedHud::new());

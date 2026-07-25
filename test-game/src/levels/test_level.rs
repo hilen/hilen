@@ -58,7 +58,7 @@ impl TestLevel {
     fn add_player(&mut self) {
         let mut player: Weak<Player> = self.make_sprite(Shape::Rect((1.2, 2).into()), (0, 0));
         self.player = player;
-        player.set_image("frisk.png").unit.enable_collision_detection();
+        player.set_image("game/frisk.png").unit.enable_collision_detection();
         player.weapon.set_image("ak.png");
 
         player.on_collision.sub(move || {
@@ -85,21 +85,21 @@ impl LevelSetup for TestLevel {
         self.background = Image::get("sky.png");
 
         self.make_sprite::<Wall>(Shape::Rect((10, 10).into()), (15, 3))
-            .set_image("board.png");
+            .set_image("game/board.png");
         self.make_sprite::<Wall>(Shape::Rect((257.0 * 0.04, 216.0 * 0.04).into()), (-15, 2))
             .set_image("shop.png");
 
         self.make_sprite::<Wall>(Shape::Rect((349.0 * 0.1, 32.0 * 0.1).into()), (0, -3))
-            .set_image("stone_floor.png");
+            .set_image("game/stone_floor.png");
 
         self.make_sprite::<Wall>(Shape::Rect((349.0 * 0.1, 32.0 * 0.1).into()), (-3, -3))
-            .set_image("stone_floor.png");
+            .set_image("game/stone_floor.png");
 
         self.make_sprite::<Wall>(Shape::Rect((349.0 * 0.1, 32.0 * 0.1).into()), (3, -3))
-            .set_image("stone_floor.png");
+            .set_image("game/stone_floor.png");
 
         self.make_sprite::<Body>(Shape::triangle((-2, -2), (2, -2), (-2, 2)), (0, 50))
-            .set_image("triangle.png");
+            .set_image("game/triangle.png");
 
         self.make_sprite::<Body>(Shape::triangle((-2, -2), (2, -2), (-2, 2)), (-20, 80))
             .set_color(BLUE);

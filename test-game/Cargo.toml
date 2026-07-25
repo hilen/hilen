@@ -24,7 +24,6 @@ bench = ["dep:sysinfo", "dep:serde_json", "test-engine/bench"]
 anyhow = { workspace = true }
 fake = { workspace = true }
 fastrand = { workspace = true }
-log = { workspace = true }
 netrun = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }

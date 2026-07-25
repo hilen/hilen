@@ -5,7 +5,9 @@ use hreads::{from_main, invoke_dispatched};
 #[cfg(desktop)]
 use hreads::{is_main_thread, wait_for_next_frame};
 use log::debug;
-use refs::{Own, main_lock::MainLock};
+#[cfg(not_wasm)]
+use refs::Own;
+use refs::main_lock::MainLock;
 use winit::{
     event::{KeyEvent, TouchPhase},
     keyboard::Key,
@@ -21,7 +23,7 @@ use crate::{
     level_drawer::LevelDrawer,
     pipelines::Pipelines,
     ui::{
-        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, View, ViewData, ViewSubviews,
+        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
         WeakView, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
@@ -186,7 +188,7 @@ impl AppRunner {
         actions: impl std::future::Future<Output = Result<()>> + Send + 'static,
         headless: bool,
     ) {
-        use crate::ui::Setup;
+        use crate::ui::{Setup, View};
 
         #[derive(Default)]
         struct ActorApp;
@@ -280,6 +282,10 @@ impl AppRunner {
             let only = crate::web::query_param("te_test_only");
 
             hreads::spawn_thread(move || {
+                // Fixtures sync `get` boot assets, so they must be in
+                // memory before any test runs.
+                crate::assets::wait_boot_blocking();
+
                 let mut tests = crate::UI_TESTS.lock().clone();
 
                 if let Some(only) = only {
@@ -393,6 +399,9 @@ impl crate::window::WindowEvents for AppRunner {
                 #[cfg(feature = "ui-tests")]
                 Self::spawn_test_autorun();
             }
+
+            #[cfg(wasm)]
+            crate::assets::start_boot_preload();
 
             #[cfg(all(wasm, feature = "ui-tests"))]
             Self::spawn_test_autorun();

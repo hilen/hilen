@@ -218,6 +218,16 @@ impl ResourceLoader for Font {
     }
 
     fn load_data(data: &[u8], name: impl ToString) -> Self {
-        Font::new(name, data).expect("Failed to load font")
+        let name = name.to_string();
+
+        // Bad bytes must degrade like an unreadable file does above. A
+        // corrupt download would otherwise kill a browser session.
+        match Font::new(&name, data) {
+            Ok(font) => font,
+            Err(err) => {
+                error!("Failed to load font {name}: {err}. Returning default font");
+                Font::new(name, DEFAULT_FONT_DATA).expect("Failed to load the built in default font")
+            }
+        }
     }
 }

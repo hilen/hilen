@@ -60,6 +60,18 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
     url.into()
 }
 
+/// Plain HTTP fetch with the same root relative url resolution the
+/// managed downloads use. For data that is not a managed resource,
+/// like the asset manifest.
+pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    let data = reqwest::get(absolute_url(url).as_ref())
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    Ok(data.to_vec())
+}
+
 pub trait DataManager<T: Managed> {
     fn root_path() -> &'static Path;
     fn set_root_path(path: impl Into<PathBuf>);
@@ -190,7 +202,13 @@ pub trait DataManager<T: Managed> {
             name:      name.clone(),
         };
 
-        let data = reqwest::get(absolute_url(url).as_ref()).await?.bytes().await?;
+        // Without the status check a 404 page would be stored as the
+        // resource bytes and fail later in the parser, far from here.
+        let data = reqwest::get(absolute_url(url).as_ref())
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
 
         Ok(Self::load(&data, &name))
     }

@@ -73,6 +73,7 @@ tokio = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
+event-listener = { workspace = true }
 # nightly selects the real atomics thread parker, without it parking panics on wasm workers
 parking_lot = { workspace = true, features = ["nightly"] }
 rapier2d = { workspace = true }
