@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fs::read, path::Path};
+use std::{convert::Infallible, path::Path};
 
 use anyhow::Result;
 use hreads::from_main;
@@ -15,6 +15,7 @@ use wgpu::{
 };
 
 use crate::{
+    filesystem::read_bytes as read,
     gm::flat::Size,
     window::{
         Window,

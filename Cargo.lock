@@ -6005,6 +6005,7 @@ name = "test-game-android"
 version = "0.1.0"
 dependencies = [
  "jni 0.22.4",
+ "test-engine",
  "test-game",
 ]
 

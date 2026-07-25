@@ -51,6 +51,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.
+- [docs/android.md](docs/android.md) — the docker build and the emulator lane, the
+  Vulkan-only backend, APK asset loading, the register requirement in the shell crate,
+  and the generated-project fixes the template still misses. Read before touching
+  android builds or when an APK dies at startup.
 - [docs/ios.md](docs/ios.md) — what keeps iOS 12 and the A7 working: `NSLog` output, the
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
   CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the
@@ -72,6 +76,8 @@ make ui                                                                      # d
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check
 make ui-ios                                                                  # iOS simulator suite only
+make android                                                                 # APKs with every ABI, docker only
+make android-emu                                                             # arm64 debug APK for the emulator
 make ci                                                                      # typos, formatting, lints, unused dependencies
 make lint                                                                    # clippy, pedantic, zero warnings
 cargo machete                                                                # unused dependencies, zero findings

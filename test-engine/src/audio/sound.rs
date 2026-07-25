@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Formatter},
-    fs::read,
     io::Cursor,
     path::{Path, PathBuf},
 };
@@ -9,7 +8,7 @@ use kira::sound::static_sound::StaticSoundData;
 use log::error;
 use refs::manage::ResourceLoader;
 
-use crate::audio::manager::audio_manager;
+use crate::{audio::manager::audio_manager, filesystem::read_bytes as read};
 
 pub struct Sound {
     path: PathBuf,

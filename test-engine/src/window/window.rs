@@ -177,21 +177,6 @@ impl Window {
 
         if Platform::IOS {
             required_limits.max_color_attachments = 4;
-        } else if Platform::ANDROID {
-            // TODO:
-            required_limits.max_compute_invocations_per_workgroup = 0;
-            required_limits.max_compute_workgroups_per_dimension = 0;
-            required_limits.max_compute_workgroup_storage_size = 0;
-            required_limits.max_compute_workgroup_size_x = 0;
-            required_limits.max_compute_workgroup_size_y = 0;
-            required_limits.max_compute_workgroup_size_z = 0;
-            required_limits.max_storage_buffer_binding_size = 0;
-            required_limits.max_storage_textures_per_shader_stage = 0;
-            required_limits.max_storage_buffers_per_shader_stage = 0;
-            required_limits.max_dynamic_storage_buffers_per_pipeline_layout = 0;
-            required_limits.max_texture_dimension_3d = 1024;
-            required_limits.max_texture_dimension_2d = 4096;
-            required_limits.max_texture_dimension_1d = 4096;
         }
 
         required_limits
@@ -200,12 +185,21 @@ impl Window {
     /// Windows asks for DX12 alone. With every backend enabled wgpu picks
     /// Vulkan there, and the Intel driver for Gen9 integrated GPUs faults
     /// inside `vkCreateDevice`, which kills the process with no message.
+    /// Android asks for Vulkan alone. With GL and Vulkan both enabled they
+    /// race for the one `ANativeWindow`, the loser gets
+    /// `ERROR_NATIVE_WINDOW_IN_USE_KHR` and wgpu-hal panics instead of
+    /// skipping that backend. GL is no floor anyway, GLES may report zero
+    /// fragment stage storage buffers and the UI pipelines need one.
     /// `WGPU_BACKEND` still overrides the choice on any platform.
     fn instance() -> Instance {
         let mut descriptor = InstanceDescriptor::new_without_display_handle();
 
         if Platform::WINDOWS {
             descriptor.backends = Backends::DX12;
+        }
+
+        if Platform::ANDROID {
+            descriptor.backends = Backends::VULKAN;
         }
 
         Instance::new(descriptor.with_env())
@@ -272,6 +266,12 @@ impl Window {
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
         let (device, queue) = Self::request_device(&adapter).await?;
+
+        // Shadowing would keep the adapter probe surface alive to the end of
+        // the function. Android allows one producer per native window, so it
+        // must go before `Surface::new` connects its own, or Vulkan fails
+        // with `ERROR_NATIVE_WINDOW_IN_USE_KHR`.
+        drop(surface);
 
         let surface = if size.width != 0 && size.height != 0 {
             Surface::new(

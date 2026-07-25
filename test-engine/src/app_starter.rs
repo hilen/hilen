@@ -55,6 +55,7 @@ static ANDROID_APP: crate::__internal_macro_deps::Mutex<Option<crate::AndroidApp
 
 #[cfg(target_os = "android")]
 pub fn test_engine_start_app(android_app: crate::AndroidApp) -> std::ffi::c_int {
+    crate::filesystem::set_android_app(android_app.clone());
     ANDROID_APP.lock().replace(android_app);
     #[allow(unused_unsafe)]
     test_engine_start_with_app(unsafe { test_engine_create_app() })

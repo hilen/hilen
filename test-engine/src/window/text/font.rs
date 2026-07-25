@@ -1,5 +1,3 @@
-use std::fs::read;
-
 use anyhow::{Result, anyhow, bail};
 use log::error;
 use refs::{
@@ -19,6 +17,7 @@ use wgpu_text::{
 };
 
 use crate::{
+    filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     window::{
         surface_texture_format,

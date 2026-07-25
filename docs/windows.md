@@ -2,9 +2,9 @@
 
 ## The backend is DX12, not Vulkan
 
-`Window::instance` asks for `Backends::DX12` on Windows. Every other platform keeps the
-wgpu default. This is not a preference, Vulkan crashes the process on Intel integrated
-GPUs.
+`Window::instance` asks for `Backends::DX12` on Windows. Android pins its backend too,
+see [android.md](android.md), every other platform keeps the wgpu default. This is not
+a preference, Vulkan crashes the process on Intel integrated GPUs.
 
 With every backend enabled wgpu picks Vulkan on Windows. Intel's Vulkan driver
 `igvk64.dll` for Gen9 integrated parts, a UHD Graphics 620 for example, faults inside
