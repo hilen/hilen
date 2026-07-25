@@ -76,6 +76,7 @@ make ui                                                                      # d
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check
 make ui-ios                                                                  # iOS simulator suite only
+make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator
 make ci                                                                      # typos, formatting, lints, unused dependencies
@@ -95,6 +96,6 @@ After touching any `Cargo.toml` or removing code, run `cargo machete`. It must r
 zero unused dependencies.
 
 Always run `make ci` and `make smoke` before every commit. The full lanes,
-`make ui` and `make ui-ios`, are not part of the routine pre-commit check.
+`make ui`, `make ui-ios` and `make ui-web`, are not part of the routine pre-commit check.
 Run them only when asked, or when a change reworks rendering or another
 engine-wide path where a smoke miss is likely.

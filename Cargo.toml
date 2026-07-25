@@ -112,7 +112,14 @@ tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["full"] }
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Location", "Window"] }
+web-sys = { version = "0.3", features = [
+    "CloseEvent",
+    "Location",
+    "MessageEvent",
+    "WebSocket",
+    "Window",
+    "XmlHttpRequest",
+] }
 web-time = "1.1"
 wgpu = { git = "https://github.com/VladasZ/wgpu", rev = "47e55304a59f0c8d933cb3be3dc84b29a1b871f6" }
 wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "deb50e912148d660e938e69eb27225753b5353a0" }

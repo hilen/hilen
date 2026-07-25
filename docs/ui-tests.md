@@ -56,6 +56,14 @@ desktop. Under `make ui` the lane sets `TE_IOS_QUIET` and goes back to buffering
 `TE_TEST_ONLY` narrows a `TE_RUN_TESTS` run to a comma separated list of test names. It is for
 isolating one case on a device or simulator, where the whole suite is slow to reach it.
 
+The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
+atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
+by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the
+`te_run_tests` query flag and `te_test_only` narrows it the way `TE_TEST_ONLY` does natively.
+The report arrives over the inspect WebSocket instead of the console, and on failure the
+driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
+See [inspect.md](inspect.md).
+
 ## Run from the editor
 
 A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock

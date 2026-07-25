@@ -314,6 +314,21 @@ impl AppRunner {
 
             let failed = report.failures.len();
             log::info!("TE_TEST_RESULT {} tests, {failed} failed", report.total);
+
+            // A driver has no console access without a browser automation
+            // protocol, it reads the report over the inspect socket instead.
+            #[cfg(feature = "inspect")]
+            crate::inspect::web_transport::push(crate::inspect::AppCommand::TestResults {
+                total:    report.total,
+                failures: report
+                    .failures
+                    .into_iter()
+                    .map(|f| crate::inspect::protocol::TestFailureRepr {
+                        name:   f.name,
+                        detail: f.detail,
+                    })
+                    .collect(),
+            });
         });
     }
 
@@ -413,6 +428,9 @@ impl crate::window::WindowEvents for AppRunner {
 
             #[cfg(wasm)]
             crate::assets::start_boot_preload();
+
+            #[cfg(all(wasm, feature = "inspect"))]
+            crate::inspect::web_transport::start_if_requested();
 
             #[cfg(all(wasm, feature = "ui-tests"))]
             Self::spawn_test_autorun();

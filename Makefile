@@ -20,6 +20,12 @@ smoke:
 ui-ios:
 	rust ./build/ios/sim-test.rs
 
+# The wasm suite in headless Chrome on the real GPU. TESTS narrows the run,
+# comma separated camel case names: make ui-web TESTS=FontZoo
+ui-web:
+	cd ./build/web && bun install --frozen-lockfile
+	bun ./build/web/ui-web.ts --min-tests 90 $(if $(TESTS),--tests $(TESTS))
+
 all:
 	order
 	make wasm
@@ -90,6 +96,14 @@ wasm:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./test-game && trunk build
+
+# The suite in a real installed browser, driven over the inspect socket.
+BROWSER ?= chrome
+ui-web:
+	rustup target add wasm32-unknown-unknown
+	rustup component add rust-src
+	command -v trunk >/dev/null || cargo install --locked trunk
+	bun build/web/drive.ts --browser $(BROWSER)
 
 .PHONY: import
 import:

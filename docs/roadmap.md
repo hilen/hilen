@@ -136,16 +136,25 @@ diagnosed.
 
 ## Browser UI tests
 
-The suite in a real browser, in flight.
+Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
+0 failed, through `make ui-web` and the `web-ui-tests` CI job.
 
-- Current: the full suite passes end to end in headed Chrome, 100 tests, 0
-  failed, a clean `TE_TEST_RESULT` line. The `te_run_tests` autorun fires, the
-  suite worker runs every test, the scene texture readback feeds `check_colors`
-  and failures report without a filesystem. Needs the atomics build: target
-  features `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
+- The lane: `build/web/drive.ts`, run by Bun, builds the atomics wasm, serves
+  `dist` with the COOP and COEP headers, launches a real installed browser
+  with a throwaway profile and reads the report over the inspect WebSocket,
+  see [inspect.md](inspect.md). No automation protocol and no console
+  scraping, so any browser works. Chrome is the default, `BROWSER=firefox`
+  switches. On a failure or a timeout the driver asks the app for a
+  screenshot over the same socket and saves it to
+  `target/web-test/ui-web-failure.png`, CI uploads it as an artifact. A panic
+  reaches the driver through the `/te-panic` beacon and fails the run.
+- The atomics build the driver owns: target features
+  `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
   and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
   `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
-  `__tls_base`. rustc adds none of them itself. The page needs COOP and COEP headers.
+  `__tls_base`. rustc adds none of them itself. The `te_run_tests` autorun
+  fires, the suite worker runs every test, the scene texture readback feeds
+  `check_colors` and failures report without a filesystem.
 - Landed, rendering: wasm now renders through an sRGB view of the surface, so
   colors match native and readbacks return the bytes recorded expectations
   compare against. The canvas format is the browser's preferred one, resolved at
@@ -186,22 +195,19 @@ The suite in a real browser, in flight.
   sync `get` miss fell through to a filesystem read wasm does not have. The test
   autorun now downloads every manifest group before the suite starts, native
   equivalence, any file reachable on demand.
-- Firefox is blocked by the browser, not the engine. Playwright's Firefox Nightly
-  throttles requestAnimationFrame for the engine page down to an exponential
-  backoff, one second to four seconds per frame, while a plain page from the same
-  server with the same headers holds 60 fps. The engine paces itself off rAF, so
-  everything main thread crawls to a stop. Firefox also reproducibly fails the
-  `diagonal.bmp` fetch with a body decode error. Retest when the Playwright
-  Firefox build updates. Headless Firefox has no working WebGPU at all.
-- Needed: canvas sizing for the 600 by 600 fixtures and device pixel ratio
-  handling, then a `build/web/` lane driver, Bun plus Playwright, that owns the
-  build flags, serves dist with the isolation headers, runs Chromium and parses
-  the `TE_TEST_RESULT` console line. Then `make ui-web` and a CI job.
-- Blocks: browser regressions going unnoticed. CI only compiles the wasm target today.
+- Resolved, Firefox: the blocker was Playwright's patched Firefox Nightly, not
+  Firefox. That build throttled requestAnimationFrame for the engine page down
+  to an exponential backoff, one second to four seconds per frame, and failed
+  the `diagonal.bmp` fetch with a body decode error. Real installed Firefox
+  runs the full suite green with none of that, verified on a clean throwaway
+  profile and on a normal user profile. Headless Firefox still has no working
+  WebGPU, the lane always runs headed. The driver made this reachable, results
+  ride the inspect socket, so no automation protocol is needed at all.
+- Blocks: nothing. CI compiles the wasm target and runs the suite in Chrome.
 
 ## Suggested order
 
-Browser UI tests are in flight already. Among the rest, frame stepped animation
+Browser UI tests have landed. Among the rest, frame stepped animation
 testing goes first, it has a live need, the unassessed
 animation problem in the present test. The text stack remainder waits for a real
 need for color emoji or font fallback. Shape MSAA waits for a real need for smooth

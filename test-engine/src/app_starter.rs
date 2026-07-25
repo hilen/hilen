@@ -117,7 +117,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         run_app(event_loop, app);
     }
 
-    #[cfg(all(not_wasm, feature = "inspect"))]
+    #[cfg(feature = "inspect")]
     crate::inspect::InspectService::record_app_start();
 
     let headless = headless || std::env::var("TE_HEADLESS").is_ok();
@@ -144,8 +144,9 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
     #[cfg(wasm)]
     {
-        // Sets up panics to go to the console.error in browser environments
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        // Panics go to console.error and, under a test driver, to its
+        // `/te-panic` endpoint, since the driver has no console access.
+        crate::web::install_panic_hook();
         console_log::init_with_level(log::Level::Debug).expect("Couldn't initialize logger");
 
         log::info!("Hello from wasm");

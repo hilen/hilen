@@ -69,6 +69,21 @@ reply with `Error(String)` instead of being silently ignored. All UI access happ
 main thread via `from_main`. Responses hold `Own` pointers, so the transport hands them to
 the main thread for dropping (see [refs.md](refs.md)).
 
+## Browser transport
+
+A page cannot listen on TCP and has no mDNS, so on wasm the direction inverts.
+With the `te_inspect` query flag set, the app dials out to the server that
+served the page, same origin, at `/te-inspect`, in `web_transport.rs`. One
+WebSocket text message carries one JSON frame, request in, response out, the
+same protocol types as TCP. Requests are processed on one dedicated worker
+thread, since commands block on `from_main` and `RunTests` runs the whole
+suite. Responses serialize on that worker and their `Own` pointers drop on the
+main thread, like the TCP transport. The test autorun also pushes its report
+over the socket as an unsolicited frame, which is how the browser test lane
+reads results without console access, see [ui-tests.md](ui-tests.md). Panics
+POST to `/te-panic` on the page origin from the panic hook through a sync XHR,
+which delivers before the wasm instance dies and works from workers too.
+
 ## Edit log
 
 Every applied edit (`edit_log.rs`) is kept in memory for `ListEdits` and appended as a JSON

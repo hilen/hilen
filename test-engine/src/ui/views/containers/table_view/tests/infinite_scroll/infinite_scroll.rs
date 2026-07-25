@@ -1,5 +1,5 @@
 use anyhow::Result;
-use hreads::{from_main, on_main, sleep, spawn};
+use hreads::{from_main, on_main, sleep, spawn, wait_for_next_frame};
 use refs::Weak;
 
 use crate::{
@@ -58,6 +58,21 @@ impl Setup for InfiniteScrollTest {
 }
 
 impl InfiniteScrollTest {
+    /// Waits until the table holds `expected` cells and no fetch is in
+    /// flight. The scroll that presses the bottom lands first, the
+    /// `bottom_reached` event fires on a later layout frame, so a flag
+    /// check right after the scroll can run before the fetch even starts.
+    fn wait_for_cells(view: Weak<Self>, expected: usize) {
+        for _ in 0..1200 {
+            let settled = from_main(move || view.data_size == expected && !view.requesting);
+            if settled {
+                return;
+            }
+            wait_for_next_frame();
+        }
+        panic!("Pagination did not reach {expected} cells");
+    }
+
     async fn on_fetch(mut self: Weak<Self>) {
         let _spin = Spinner::lock();
 
@@ -100,8 +115,7 @@ impl ViewTest for InfiniteScrollTest {
             inject_scroll(-10);
         }
 
-        #[allow(clippy::while_immutable_condition)]
-        while view.requesting {}
+        Self::wait_for_cells(view, 300);
 
         for _ in 0..100 {
             inject_scroll(-10);

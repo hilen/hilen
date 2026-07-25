@@ -71,6 +71,32 @@ jobs:
       - name: Run UI tests
         run: cargo run -p ui-test --profile=ci -- --headless
 
+  web-ui-tests:
+    name: Web UI Tests
+    runs-on: mac
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{secrets.GITHUB_TOKEN}}
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Run UI tests in ${{ matrix.browser }}
+        run: make ui-web BROWSER=${{ matrix.browser }}
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ui-failure-${{ matrix.browser }}
+          path: target/web-test/ui-web-failure.png
+          if-no-files-found: ignore
+
   ios-ui-tests:
     name: iOS UI Tests
     runs-on: mac
