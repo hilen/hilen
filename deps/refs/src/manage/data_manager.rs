@@ -38,21 +38,27 @@ fn insert_or_existing<T: Managed>(
     }
 }
 
-/// Fetch needs an absolute url, so a root relative one is
-/// resolved against the page origin in the browser.
+/// Fetch needs an absolute url. A relative one is resolved against the
+/// document base url, so a page hosted under a path prefix points its
+/// asset fetches there with a base tag instead of hitting the site root.
 #[cfg(target_arch = "wasm32")]
 fn absolute_url(url: &str) -> Cow<'_, str> {
-    if !url.starts_with('/') {
+    if url.contains("://") {
         return url.into();
     }
 
-    let origin = web_sys::window()
+    let base = web_sys::window()
         .expect("Failed to get browser window")
-        .location()
-        .origin()
-        .expect("Failed to get location origin");
+        .document()
+        .expect("Failed to get browser document")
+        .base_uri()
+        .expect("Failed to get document base URI")
+        .unwrap_or_default();
 
-    format!("{origin}{url}").into()
+    web_sys::Url::new_with_base(url, &base)
+        .expect("Failed to resolve url against document base")
+        .href()
+        .into()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

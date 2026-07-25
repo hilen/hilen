@@ -77,10 +77,13 @@ event-listener = { workspace = true }
 # nightly selects the real atomics thread parker, without it parking panics on wasm workers
 parking_lot = { workspace = true, features = ["nightly"] }
 rapier2d = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = { workspace = true }
+jni = { workspace = true }
+ndk-context = { workspace = true }
 winit = { workspace = true, features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -91,6 +94,11 @@ rfd = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-foundation = { workspace = true }
+objc2-ui-kit = { workspace = true }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
+arboard = { workspace = true }
+open = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

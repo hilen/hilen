@@ -123,7 +123,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     let headless = headless || std::env::var("TE_HEADLESS").is_ok();
 
     #[cfg(all(not_wasm, not_android))]
-    AppRunner::setup_log();
+    AppRunner::setup_log(app.log_targets());
 
     // Android swallows stdout and stderr, logcat is the only output that
     // reaches the developer, so both logs and panics go through it.

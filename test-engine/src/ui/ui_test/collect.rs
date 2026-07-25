@@ -29,12 +29,6 @@ pub fn take_failures() -> Vec<TestFailure> {
     std::mem::take(&mut FAILURES.lock())
 }
 
-/// How many tests failed so far, for the watchdog's abort tally.
-#[cfg(not_wasm)]
-pub(crate) fn failed_count() -> usize {
-    FAILURES.lock().len()
-}
-
 pub fn any_failed() -> bool {
     !FAILURES.lock().is_empty()
 }

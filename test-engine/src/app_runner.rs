@@ -59,7 +59,7 @@ impl AppRunner {
     }
 
     #[cfg(not_wasm)]
-    pub(crate) fn setup_log() {
+    pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
         use fern::Dispatch;
         use log::{Level, LevelFilter};
 
@@ -68,11 +68,17 @@ impl AppRunner {
         #[cfg(not(target_os = "ios"))]
         let output = std::io::stdout();
 
-        Dispatch::new()
+        let mut dispatch = Dispatch::new()
             .level(LevelFilter::Warn)
             .level_for("test_engine", LevelFilter::Debug)
             .level_for("inspector", LevelFilter::Debug)
-            .level_for("netrun", LevelFilter::Debug)
+            .level_for("netrun", LevelFilter::Debug);
+
+        for target in app_targets {
+            dispatch = dispatch.level_for(*target, LevelFilter::Debug);
+        }
+
+        dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -130,8 +136,18 @@ impl AppRunner {
     }
 
     pub fn new(app: Box<dyn App>) -> Self {
+        // A crate nested in a monorepo runs from its own directory and keeps
+        // its assets there, so a cwd with an assets folder wins over the git
+        // root, which would be the monorepo root.
         #[cfg(desktop)]
-        crate::assets::Assets::init(crate::filesystem::Paths::git_root().expect("git_root()"));
+        {
+            let root = std::env::current_dir()
+                .ok()
+                .filter(|dir| dir.join("assets").exists())
+                .unwrap_or_else(|| crate::filesystem::Paths::git_root().expect("git_root()"));
+
+            crate::assets::Assets::init(root);
+        }
         #[cfg(mobile)]
         crate::assets::Assets::init(std::path::PathBuf::default());
 

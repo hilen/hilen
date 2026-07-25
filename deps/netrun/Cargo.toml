@@ -90,6 +90,12 @@ version = "0.3"
 [build-dependencies.plat]
 version = "0.9"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures-util = "0.3"
+rustls = "0.23"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+webpki-roots = "1.0"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.infisical]
 version = "0.0.3"
 
@@ -105,3 +111,6 @@ version = "0.7"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.zeromq]
 version = "0.5.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { workspace = true, features = ["WebSocket", "MessageEvent"] }

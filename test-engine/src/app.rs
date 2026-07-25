@@ -31,6 +31,13 @@ pub trait App {
         (1200, 1000).into()
     }
 
+    /// Log targets of the app itself, usually just the crate name. The
+    /// engine logger silences everything except its own crates to warnings,
+    /// targets listed here come through at debug level like the engine's.
+    fn log_targets(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn start()
     where Self: Default + Sized + 'static {
         test_engine_start_with_app(Box::new(Self::default()));

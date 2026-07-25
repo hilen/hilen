@@ -42,7 +42,9 @@ fn svg_data(name: &str) -> Option<Vec<u8>> {
 
     let path = Image::full_path(name);
 
-    std::fs::read(&path)
+    // Through the filesystem layer, not std::fs. Android assets live inside
+    // the APK and only the AAssetManager can read them.
+    crate::filesystem::read_bytes(&path)
         .inspect_err(|err| error!("Failed to read image file: {}. Error: {err}", path.display()))
         .ok()
 }

@@ -37,12 +37,10 @@ static RENDER_FRAME: AtomicU64 = AtomicU64::new(0);
 /// Mirrors `Screen::Headless` so any thread can check it. Set once at
 /// startup, never changes.
 static HEADLESS: AtomicBool = AtomicBool::new(false);
-/// Doesn't work on some Androids
-pub(crate) const SUPPORT_SCREENSHOT: bool = !Platform::ANDROID;
-
-/// The browser surface is render attachment only, screenshots there
+/// The browser surface is render attachment only, and the android
+/// swapchain rejects the copy usage on some devices. Screenshots there
 /// read the scene texture instead of copying the surface.
-pub(crate) const SURFACE_COPY: bool = SUPPORT_SCREENSHOT && !Platform::WASM;
+pub(crate) const SURFACE_COPY: bool = !Platform::WASM && !Platform::ANDROID;
 
 pub struct Window {
     pub state: State,

@@ -64,7 +64,10 @@ pub async fn sleep(duration: f32) {
     #[cfg(not_wasm)]
     tokio::time::sleep(std::time::Duration::from_secs_f32(duration)).await;
     #[cfg(wasm)]
-    gloo_timers::future::TimeoutFuture::new((duration * 1000.0) as _).await;
+    {
+        let millis = std::time::Duration::from_secs_f32(duration.max(0.0)).as_millis();
+        gloo_timers::future::TimeoutFuture::new(u32::try_from(millis).unwrap_or(u32::MAX)).await;
+    }
 }
 
 pub fn now() -> f64 {

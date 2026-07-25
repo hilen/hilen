@@ -108,7 +108,14 @@ fn notify_secs() -> u64 {
 /// stuck test may be holding exactly that, so the report would hang too.
 fn abort_run(name: &str, elapsed: u64) -> ! {
     let total = STARTED_TESTS.load(Ordering::Relaxed);
-    let failed = super::collect::failed_count() + 1;
+
+    // The failures collected so far die with the process, so they print here.
+    let failures = super::take_failures();
+    let failed = failures.len() + 1;
+
+    for failure in &failures {
+        println!("TEST FAILED: {}\n{}", failure.name, failure.detail);
+    }
 
     error!("TEST FAILED: {name}\nstuck for {elapsed} seconds, run aborted");
 

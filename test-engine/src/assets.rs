@@ -203,7 +203,7 @@ mod web_assets {
     }
 
     async fn fetch_manifest() -> Result<Manifest> {
-        let data = fetch_bytes("/assets/assets.json").await?;
+        let data = fetch_bytes("assets/assets.json").await?;
         Ok(serde_json::from_slice(&data)?)
     }
 
@@ -241,7 +241,7 @@ mod web_assets {
     }
 
     async fn download_entry(entry: &ManifestFile) -> Result<()> {
-        let url = format!("/assets/{}/{}?h={}", entry.kind, entry.name, entry.hash);
+        let url = format!("assets/{}/{}?h={}", entry.kind, entry.name, entry.hash);
 
         match entry.kind.as_str() {
             "images" => {

@@ -36,6 +36,7 @@ pub mod inspect;
 pub mod level;
 pub mod render;
 pub mod store;
+pub mod system;
 pub mod ui;
 pub mod window;
 
@@ -63,14 +64,15 @@ pub mod time {
 }
 
 pub use app_runner::AppRunner;
+pub use assets::Assets;
 pub use vents::{Event, OnceEvent};
 
 pub use crate::window::{RenderPass, VertexBuffer, Window, cast_slice, image::ToImage};
 
 pub mod net {
-    pub use netrun::rest::*;
     #[cfg(not_wasm)]
     pub use netrun::secret::*;
+    pub use netrun::{rest::*, ws::*};
 }
 
 pub mod dispatch {

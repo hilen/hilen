@@ -53,6 +53,7 @@ manual_assert = "allow"
 android_logger = "0.15"
 anyhow = "1.0"
 arbitrary = { version = "1.4", features = ["derive"] }
+arboard = "3.6"
 async-std = "1.13"
 atomic_float = "1.1"
 base64 = "0.22"
@@ -83,9 +84,12 @@ kira = "0.12"
 log = "0.4"
 lyon = "1.0"
 mdns-sd = "0.20"
+ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
-objc2-foundation = { version = "0.3", features = ["NSException", "NSString"] }
+objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSException", "NSString", "NSURL"] }
+objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
+open = "5.4"
 parking_lot = "0.12"
 paste = "1.0"
 pollster = "0.4"
@@ -113,9 +117,11 @@ tokio = { version = "1.52", features = ["full"] }
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
+    "Clipboard",
     "CloseEvent",
     "Location",
     "MessageEvent",
+    "Navigator",
     "WebSocket",
     "Window",
     "XmlHttpRequest",

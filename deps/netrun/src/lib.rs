@@ -12,6 +12,9 @@ pub mod serde;
 mod system;
 mod tests;
 #[cfg(not_wasm)]
+mod tls;
+pub mod ws;
+#[cfg(not_wasm)]
 pub mod zmq;
 
 #[cfg(not_wasm)]

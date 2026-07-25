@@ -48,8 +48,11 @@ struct GpuTimer {
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
+// Srgb, or every shader's linear output lands in the swapchain raw and
+// the whole screen renders too dark. Rgba, not Bgra, android swapchains
+// have no Bgra.
 #[cfg(target_os = "android")]
-const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
 /// The format every frame renders into. Fixed at compile time
 /// everywhere but the browser, which picks its canvas format at
@@ -110,15 +113,15 @@ pub(crate) mod web_formats {
     }
 }
 
-/// The browser surface cannot be copied, so screenshots there read the
-/// scene texture instead, which therefore needs the copy usage.
-#[cfg(wasm)]
-const SCENE_TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::RENDER_ATTACHMENT
-    .union(wgpu::TextureUsages::TEXTURE_BINDING)
-    .union(wgpu::TextureUsages::COPY_SRC);
-#[cfg(not_wasm)]
-const SCENE_TEXTURE_USAGE: wgpu::TextureUsages =
-    wgpu::TextureUsages::RENDER_ATTACHMENT.union(wgpu::TextureUsages::TEXTURE_BINDING);
+/// Where the surface cannot be copied, screenshots read the scene texture
+/// instead, which therefore needs the copy usage.
+const SCENE_TEXTURE_USAGE: wgpu::TextureUsages = if crate::window::SURFACE_COPY {
+    wgpu::TextureUsages::RENDER_ATTACHMENT.union(wgpu::TextureUsages::TEXTURE_BINDING)
+} else {
+    wgpu::TextureUsages::RENDER_ATTACHMENT
+        .union(wgpu::TextureUsages::TEXTURE_BINDING)
+        .union(wgpu::TextureUsages::COPY_SRC)
+};
 
 pub struct State {
     pub(crate) clear_color: Color,
@@ -325,11 +328,10 @@ impl State {
         // all of this and render straight to the target.
         let needs_sampling = AppHandler::current().te_window_events.needs_sampleable_frame();
 
-        // A pending read forces the scene texture path in the browser,
-        // where the surface is render attachment only and the readback
-        // has to copy the scene texture.
-        #[cfg(wasm)]
-        let needs_sampling = needs_sampling || self.read_display_request.borrow().is_some();
+        // A pending read forces the scene texture path where the surface
+        // cannot be copied, the readback copies the scene texture instead.
+        let needs_sampling =
+            needs_sampling || (!crate::window::SURFACE_COPY && self.read_display_request.borrow().is_some());
 
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture();
@@ -385,12 +387,14 @@ impl State {
         let mut encoder = frame.finish();
 
         let buffer = if self.read_display_request.borrow().is_some() {
-            #[cfg(not_wasm)]
-            let source = texture;
-            // The scene texture holds this frame, the pending read
-            // forced the sampling path above.
-            #[cfg(wasm)]
-            let source = self.scene_texture.as_ref().expect("Scene texture ensured by pending read");
+            // Where the surface cannot be copied the pending read forced
+            // the sampling path above, so the scene texture holds this
+            // frame. The headless offscreen texture is copyable as is.
+            let source = if crate::window::SURFACE_COPY || surface_texture.is_none() {
+                texture
+            } else {
+                self.scene_texture.as_ref().expect("Scene texture ensured by pending read")
+            };
 
             Some(Self::read_screen(&mut encoder, source))
         } else {
@@ -665,18 +669,6 @@ impl State {
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
     ) -> (wgpu::Buffer, crate::gm::flat::Size<u32>) {
-        if !crate::window::SUPPORT_SCREENSHOT {
-            return (
-                Window::device().create_buffer(&wgpu::BufferDescriptor {
-                    label:              Some("Empty Buffer"),
-                    size:               0,
-                    usage:              wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
-                crate::gm::flat::Size::default(),
-            );
-        }
-
         let screen_width_bytes: u64 = u64::from(texture.size().width) * std::mem::size_of::<u32>() as u64;
 
         let width_bytes = screen_width_bytes.next_multiple_of(u64::from(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));

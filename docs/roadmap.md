@@ -10,6 +10,21 @@ It is a rewrite of skaityk, a Tauri and Vue reader app for Lithuanian learners a
 acceptance bar. The news feed part is done with the engine as is. The reader and the
 app-wide look need the features below.
 
+A second driver is web-te, the beekeeper homelab UI port in the `local` repo at
+`beekeeper/web-te`, see its PORT.md. It drove the networking and system layer, all
+landed: `netrun::ws::WebSocket`, one API over tokio-tungstenite with rustls on native
+and web-sys in the browser, with native and browser tests. netrun REST verbs Patch and
+Delete with simple post, patch and delete helpers, every 2xx accepted and an empty
+response body parsed as JSON null so `()` outputs work. One shared rustls client config
+with a named provider, without it two crypto providers in the graph leave no default
+and connects panic. `system::Clipboard` and `system::open_url` on desktop, wasm, iOS
+and Android, clipboard covered by the `Clipboard test` UI test. The `App::log_targets`
+hook so apps see their own debug logs. The assets root prefers a cwd with an `assets`
+folder, so a crate nested in a monorepo keeps its own assets. Wasm asset urls are
+relative and resolve against the document base, so a dist hosted under a path prefix
+like `/te/` fetches from its own mount point through a `<base data-trunk-public-url />`
+tag, and `Assets` is exported so an app can await the boot group before building views.
+
 Already proven sufficient during the port, for reference: `TableView` with columns and
 `bottom_reached` paging, `ImageMode::AspectFill`, `Image::download`, SVG in textures,
 `size_changed`, `ModalView`, `OnDisk` storage, `NavigationView` push and pop,
@@ -102,6 +117,18 @@ Found by jagged rounded corners in the corner radius test.
   has a real per frame cost, so it needs an A/B per [benchmark.md](benchmark.md) before
   it lands.
 - Blocks: smooth vector path and polygon edges. Nothing in the driver app today.
+
+## Vector path rendering reconnect
+
+Found by the beekeeper node card sparklines, blank on every platform.
+
+- Current: `DrawingView` collects `PathData` and `UIPathPipeline` exists, but no
+  drawer calls it, so paths produce no visuals anywhere. The view's own doc comment
+  says rendering is disconnected and planned for reimplementation.
+- Needed: draw the collected paths in the UI pass, with a UI test on every UI test
+  platform like any engine change. Until then web-te approximates sparklines with
+  bars built from plain containers.
+- Blocks: line charts, the beekeeper node metrics and VPN traffic sparklines.
 
 ## Frame stepped animation testing
 
@@ -207,9 +234,9 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
 
 ## Suggested order
 
-Browser UI tests have landed. Among the rest, frame stepped animation
-testing goes first, it has a live need, the unassessed
-animation problem in the present test. The text stack remainder waits for a real
-need for color emoji or font fallback. Shape MSAA waits for a real need for smooth
-path or polygon edges, since the SDF UI shapes people actually use are already
-anti-aliased.
+Browser UI tests have landed. Among the rest, the path rendering reconnect and
+frame stepped animation testing go first, both have live needs, the beekeeper
+sparklines and the unassessed animation problem in the present test. The text stack
+remainder waits for a real need for color emoji or font fallback. Shape MSAA waits
+for a real need for smooth path or polygon edges, since the SDF UI shapes people
+actually use are already anti-aliased.
