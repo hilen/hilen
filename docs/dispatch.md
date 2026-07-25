@@ -53,11 +53,17 @@ iteration. So on iOS only, `request_frame` also wakes the loop from the main thr
 iteration re-checks the flag and keeps drawing. Doing that same wake on desktop livelocks the
 loop, so it is gated to iOS.
 
-Headless runs render every iteration and ignore the flag. Wasm is browser driven, the loop
-polls every iteration and needs no waking. A normal wasm build is single threaded. The
-browser test build spawns real workers through `spawn_thread`, and they drive the main
-thread like native background threads. Workers may block, the browser main thread must
-never block on a contended lock, `Atomics.wait` traps there.
+Headless runs render every iteration and ignore the flag. Wasm uses `ControlFlow::Wait` with an
+unconditional `request_redraw` in `about_to_wait`, so the loop runs one iteration per display
+frame off requestAnimationFrame. It must not use `Poll`: winit implements web `Poll` with a
+continuous `scheduler.postTask` chain, and Firefox starves requestAnimationFrame under that
+flood, which freezes the app. A normal wasm build is single threaded. The browser test build
+spawns real workers through `spawn_thread`, and they drive the main thread like native
+background threads. Workers may block, the browser main thread must never block on a contended
+lock, `Atomics.wait` traps there. That rule is why the hottest shared locks spin on wasm
+instead of parking: the refs pointer stamp map, the managed asset storages and the hreads
+dispatch queue. A full suite run used to die at Navigation rich exactly this way, a main
+thread read of the stamp map parked while a worker held it for a write.
 
 The `Animation drives frames` UI test guards the part of this that can be pinned down. It starts
 an animation from code, with nothing injecting input, and checks that the loop reports continuous

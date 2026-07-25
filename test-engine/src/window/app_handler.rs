@@ -288,8 +288,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             });
         }
 
+        // Wait, not Poll. The redraw below re-arms a rAF every
+        // iteration, so the loop is paced by the display. Poll spins
+        // the runner through scheduler.postTask between frames, and
+        // Firefox starves rAF under that flood, freezing the app.
         #[cfg(wasm)]
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(ControlFlow::Wait);
 
         window.request_redraw();
     }

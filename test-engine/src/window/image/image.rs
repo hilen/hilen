@@ -111,8 +111,18 @@ impl ResourceLoader for Image {
     fn load_data(data: &[u8], name: impl ToString) -> Self {
         let name = name.to_string();
 
+        #[cfg(wasm)]
+        crate::window::image::svg_sources::store(&name, data);
+
+        let decode_started = web_time::Instant::now();
+
         let raw_data = Texture::parse_file_from_bytes(data)
             .unwrap_or_else(|err| panic!("Failed to load image {name} to wgpu. Err: {err}"));
+
+        let decode_time = decode_started.elapsed();
+        if decode_time.as_millis() > 100 {
+            log::debug!("Decoding image {name} took {} ms", decode_time.as_millis());
+        }
 
         from_main(move || Image::from_texture(&Texture::from_raw_data(raw_data, &name)))
     }

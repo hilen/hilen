@@ -138,28 +138,33 @@ diagnosed.
 
 The suite in a real browser, in flight.
 
-- Current: the lane runs end to end in headed Firefox. The `te_run_tests` autorun
-  fires, the suite worker runs a test, the scene texture readback delivers pixels to
-  `check_colors`, the failure report prints and the `TE_TEST_RESULT` line arrives.
-  Getting there took three fixes. parking_lot needs its `nightly` feature on wasm,
-  without it the fallback parker panics on the first contended lock. Chrome's WGSL
-  validator rejects a `fwidth` inside the border branch, ui_image and ui_backdrop now
-  hoist it like ui_rect, one invalid pipeline blacked out every Chrome frame. The
-  failure report no longer saves a screenshot file on wasm, `temp_dir` is a hard
-  panic there. Needs the atomics build: target features
-  `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
+- Current: the full suite runs end to end in headed Chrome, 100 tests, 3 real
+  failures, a clean `TE_TEST_RESULT` line. The `te_run_tests` autorun fires, the
+  suite worker runs every test, the scene texture readback feeds `check_colors`
+  and failures report without a filesystem. Needs the atomics build: target
+  features `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
   and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
   `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
   `__tls_base`. rustc adds none of them itself. The page needs COOP and COEP headers.
-- Found by the first run: wasm renders every color darker than native. The browser
-  surface is plain `Rgba8Unorm`, there is no hardware sRGB encode, so shaders write
-  linear bytes and the browser reads them as sRGB. Measured on the menu, `BG`
-  0.95 0.96 0.98 shows as 242 245 250 instead of 249 250 252, and the test
-  background reads back 26 51 77 for recorded 89 124 149, the exact linear encoding.
-  Fix direction: add `Rgba8UnormSrgb` to the surface `view_formats` and render
-  through an sRGB view, then the screen matches native and the readback returns
-  sRGB bytes that recorded expectations compare against directly. Android uses the
-  same non sRGB surface format and is suspect too.
+- Landed, rendering: wasm now renders through an sRGB view of the surface, so
+  colors match native and readbacks return the bytes recorded expectations
+  compare against. The canvas format is the browser's preferred one, resolved at
+  runtime from the surface capabilities during window creation. Hardcoding
+  `Rgba8Unorm` made Chrome convert every frame and made Firefox present it with
+  red and blue swapped. The readback swizzles by the actual format. Android still
+  hardcodes non sRGB `Rgba8Unorm` and stays suspect for the same darker colors.
+- Landed, main thread rules: the frame loop uses `Wait` plus a rAF chain, never
+  `Poll`, and the hot shared locks spin on wasm, both per
+  [dispatch.md](dispatch.md). std `Instant` panics on wasm, `web_time` replaces
+  it in the test corpus, and `recv_timeout` in the animation test polls with
+  short sleeps on a worker, the only timed block wasm has. Tinted SVGs read
+  their source from memory kept at download time, the browser cannot reread the
+  file, and an invalid tinted source degrades to the default image.
+- Landed, dev profile decode speed: boot spent ten seconds decoding the asset
+  fixtures in a debug wasm build, `diagonal.bmp`, `svg_rendered.png` and
+  `full_hd.jpg` cost multiple seconds each. The workspace now builds the decoder
+  crates optimized in dev, boot dropped to 0.7 seconds. Boot time and slow
+  decodes log at debug level, a regression shows in the console immediately.
 - Landed: assets in the browser. test-game's build.rs writes `assets/assets.json`,
   every image, font and sound with a content hash and a load group, the group is
   the first folder under the kind folder, kind root files are `boot`. On wasm the
@@ -171,14 +176,23 @@ The suite in a real browser, in flight.
   would ship it one build stale. Downloads now fail on HTTP error status, a 404
   page used to be stored as asset bytes, and a font that fails to parse degrades
   to the default font instead of killing the session.
-- Found by the Physics tap: the level scene renders black in the browser. All
-  textures arrive and the console is clean, the UI side renders fine. Likely the
-  level or scale path on wasm, near the device pixel ratio work below. Unassessed.
-- Needed: the sRGB view fix, canvas sizing for the 600 by 600 fixtures and device
-  pixel ratio handling, then a `build/web/` lane driver, Bun plus Playwright, that
-  owns the build flags, serves dist with the isolation headers, runs Chromium and
-  Firefox and parses the `TE_TEST_RESULT` console line. Then `make ui-web` and a
-  CI job. Headless Firefox has no working WebGPU, its headless lane is WebGL only.
+- The 3 failures left in Chrome, each one probe point. Game view: the level scene
+  renders transparent black, all textures arrive and the console is clean, likely
+  the level or scale path on wasm. Label image and Nine segment: the `cat.png`
+  image inside a label and inside a button does not draw, the same asset renders
+  fine elsewhere, so the image in text glyph path is suspect.
+- Firefox is blocked by the browser, not the engine. Playwright's Firefox Nightly
+  throttles requestAnimationFrame for the engine page down to an exponential
+  backoff, one second to four seconds per frame, while a plain page from the same
+  server with the same headers holds 60 fps. The engine paces itself off rAF, so
+  everything main thread crawls to a stop. Firefox also reproducibly fails the
+  `diagonal.bmp` fetch with a body decode error. Retest when the Playwright
+  Firefox build updates. Headless Firefox has no working WebGPU at all.
+- Needed: the three failures above, canvas sizing for the 600 by 600 fixtures and
+  device pixel ratio handling, then a `build/web/` lane driver, Bun plus
+  Playwright, that owns the build flags, serves dist with the isolation headers,
+  runs Chromium and parses the `TE_TEST_RESULT` console line. Then `make ui-web`
+  and a CI job.
 - Blocks: browser regressions going unnoticed. CI only compiles the wasm target today.
 
 ## Suggested order

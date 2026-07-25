@@ -1,9 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Result, ensure};
 use test_engine::{
     dispatch::{from_main, wait_for_next_frame},
     refs::{Own, Weak},
+    time::Instant,
     ui::{
         BLACK, Button, CLEAR, ImageView, Label, NavigationView, Setup, View, ViewController, ViewData,
         ViewSubviews, ViewTest, WHITE, view,

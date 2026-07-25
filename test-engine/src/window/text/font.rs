@@ -21,7 +21,7 @@ use wgpu_text::{
 use crate::{
     gm::{LossyConvert, ToF32, flat::Size},
     window::{
-        SURFACE_TEXTURE_FORMAT,
+        surface_texture_format,
         text::{ShapedLayout, ShapedParams},
         window::Window,
     },
@@ -79,7 +79,7 @@ impl Font {
             bias:                DepthBiasState::default(),
         }.into())
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
-            .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), SURFACE_TEXTURE_FORMAT);
+            .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {
             name: name.to_string(),
             brush,

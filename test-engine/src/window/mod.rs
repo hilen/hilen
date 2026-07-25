@@ -29,7 +29,7 @@ pub(crate) use self::redraw::set_wake_proxy;
 #[cfg(not_wasm)]
 pub(crate) use self::redraw::take_needs_render;
 pub use self::{
-    app_handler::AppHandler, render_frame::RenderFrame, screenshot::*, state::SURFACE_TEXTURE_FORMAT,
+    app_handler::AppHandler, render_frame::RenderFrame, screenshot::*, state::surface_texture_format,
     text::*, vertex_buffer::VertexBuffer, window::*, window_events::*,
 };
 pub(crate) use self::{

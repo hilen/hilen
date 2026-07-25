@@ -6,10 +6,13 @@ use std::{
     },
 };
 
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::FxHashMap;
 
-use crate::{Stamp, own::Addr};
+use crate::{
+    __internal_deps::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    Stamp,
+    own::Addr,
+};
 
 static COUNTER: OnceLock<RefCounter> = OnceLock::new();
 

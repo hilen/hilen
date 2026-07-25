@@ -64,7 +64,28 @@ impl ViewTest for AnimationDrivesFrames {
         ensure!(continuous, "a live animation must keep the loop drawing");
 
         // Nothing may touch the main thread until this returns.
-        if finished.recv_timeout(GIVE_UP_AFTER).is_err() {
+        #[cfg(not_wasm)]
+        let finished_in_time = finished.recv_timeout(GIVE_UP_AFTER).is_ok();
+
+        // recv_timeout needs std Instant, which panics in the browser.
+        // The only timed block wasm has is Atomics.wait with a timeout,
+        // which is what thread::sleep is on a worker, so the timeout
+        // arm polls the channel in short sleeps.
+        #[cfg(wasm)]
+        let finished_in_time = {
+            let start = web_time::Instant::now();
+            loop {
+                if finished.try_recv().is_ok() {
+                    break true;
+                }
+                if start.elapsed() > GIVE_UP_AFTER {
+                    break false;
+                }
+                std::thread::sleep(Duration::from_millis(16));
+            }
+        };
+
+        if !finished_in_time {
             bail!("animation never finished, the loop stopped drawing frames for it");
         }
 

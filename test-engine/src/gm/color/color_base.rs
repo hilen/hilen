@@ -26,7 +26,6 @@ impl<T> Color<T> {
         Self { r, g, b, a }
     }
 
-    #[cfg(not_wasm)]
     pub(crate) fn bgra_to_rgba(self) -> Self {
         Self {
             r: self.b,

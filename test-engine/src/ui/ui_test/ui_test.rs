@@ -1,13 +1,13 @@
 use std::{
     any::type_name,
     sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
 };
 
 use hreads::{from_main, wait_for_next_frame};
 use log::{debug, trace};
 use parking_lot::Mutex;
 use refs::{Own, Weak};
+use web_time::Instant;
 
 use crate::{
     UI_TESTS,

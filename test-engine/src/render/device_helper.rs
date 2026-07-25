@@ -9,7 +9,7 @@ use wgpu::{
 
 use crate::{
     render::to_bytes::ToBytes,
-    window::{BufferUsages, PolygonMode, SURFACE_TEXTURE_FORMAT},
+    window::{BufferUsages, PolygonMode, surface_texture_format},
 };
 
 pub(crate) trait DeviceHelper {
@@ -78,7 +78,7 @@ impl DeviceHelper for Device {
                 entry_point:         "f_main".into(),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
-                    format:     SURFACE_TEXTURE_FORMAT,
+                    format:     surface_texture_format(),
                     blend:      BlendState::ALPHA_BLENDING.into(),
                     write_mask: ColorWrites::ALL,
                 }

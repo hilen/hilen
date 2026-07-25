@@ -163,6 +163,7 @@ mod web_assets {
     /// not wedge the app, the failed assets just fall back to defaults.
     pub(crate) fn start_boot_preload() {
         hreads::spawn(async {
+            let boot_started = web_time::Instant::now();
             match fetch_manifest().await {
                 Ok(manifest) => {
                     let manifest = MANIFEST.get_or_init(|| manifest);
@@ -182,6 +183,8 @@ mod web_assets {
             BOOT_CONDVAR.notify_all();
             BOOT_EVENT.notify(usize::MAX);
             on_main(|| super::PROGRESS.trigger(1.0));
+
+            log::debug!("Boot assets ready in {} ms", boot_started.elapsed().as_millis());
         });
     }
 

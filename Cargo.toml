@@ -130,3 +130,30 @@ test-engine = { path = "test-engine" }
 test-game = { path = "test-game" }
 ui-test-suite = { path = "ui-test-suite" }
 ui-proc = { path = "deps/ui-proc" }
+
+# Image decoding dominates dev build startup, a debug decode of the
+# asset fixtures takes ten seconds in the browser. Decoders are leaf
+# crates that never need debugging here, so dev builds them optimized.
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+[profile.dev.package.adler2]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.resvg]
+opt-level = 3
+
+[profile.dev.package.tiny-skia]
+opt-level = 3

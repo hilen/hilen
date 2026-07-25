@@ -10,9 +10,9 @@ use std::{
 use anyhow::{Result, anyhow};
 use event_listener::Event;
 use hreads::on_main;
-use parking_lot::{Mutex, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
+    __internal_deps::{Mutex, RwLockReadGuard, RwLockWriteGuard},
     Own, Weak,
     manage::{DataStorage, Managed},
 };

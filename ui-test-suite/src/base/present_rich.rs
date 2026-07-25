@@ -1,10 +1,11 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Result, ensure};
 use parking_lot::Mutex;
 use test_engine::{
     dispatch::wait_for_next_frame,
     refs::{Own, Weak},
+    time::Instant,
     ui::{
         BLACK, BLUE, Button, CLEAR, CheckBox, CircleView, Container, GREEN, ImageView, Label, NavigationView,
         NumberView, ProgressView, Setup, Shadow, Slider, Switch, TURQUOISE, View, ViewController, ViewData,

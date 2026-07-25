@@ -47,9 +47,68 @@ struct GpuTimer {
 }
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
-#[cfg(any(target_os = "android", target_arch = "wasm32"))]
-pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
+#[cfg(target_os = "android")]
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+
+/// The format every frame renders into. Fixed at compile time
+/// everywhere but the browser, which picks its canvas format at
+/// runtime.
+pub fn surface_texture_format() -> TextureFormat {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_formats::render_format()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SURFACE_TEXTURE_FORMAT
+    }
+}
+
+/// The format the surface itself is configured with. WebGPU rejects
+/// sRGB canvas formats, so on wasm the surface holds the non sRGB
+/// canvas format and every frame renders through an sRGB view of it,
+/// which encodes shader output like the sRGB surfaces on other
+/// platforms do.
+pub(crate) fn surface_present_format() -> TextureFormat {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_formats::present_format()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SURFACE_TEXTURE_FORMAT
+    }
+}
+
+/// The canvas format has to be what the browser prefers. Both allowed
+/// formats are valid to configure, but rendering the non preferred one
+/// makes Chrome convert every frame and makes Firefox present it with
+/// red and blue swapped.
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_formats {
+    use std::sync::OnceLock;
+
+    use wgpu::TextureFormat;
+
+    static PRESENT: OnceLock<TextureFormat> = OnceLock::new();
+
+    /// The first capability entry is the browser's preferred canvas
+    /// format. Called during window creation, before anything that
+    /// needs the format exists.
+    pub(crate) fn resolve(surface: &wgpu::Surface, adapter: &wgpu::Adapter) {
+        let format = surface.get_capabilities(adapter).formats[0];
+        PRESENT.get_or_init(|| format);
+    }
+
+    pub(crate) fn present_format() -> TextureFormat {
+        *PRESENT.get().expect("Surface format is not resolved yet")
+    }
+
+    pub(crate) fn render_format() -> TextureFormat {
+        present_format().add_srgb_suffix()
+    }
+}
 
 /// The browser surface cannot be copied, so screenshots there read the
 /// scene texture instead, which therefore needs the copy usage.
@@ -281,7 +340,13 @@ impl State {
             None => self.offscreen_texture.as_ref().unwrap(),
         };
 
-        let target_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // The explicit format matters only for the wasm surface, whose
+        // texture is not sRGB. Rendering must go through the sRGB view
+        // so shader output gets encoded.
+        let target_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(surface_texture_format()),
+            ..Default::default()
+        });
 
         let (scene_view, present_view) = if needs_sampling && surface_texture.is_some() {
             let scene = self.scene_texture.as_ref().unwrap();
@@ -509,7 +574,7 @@ impl State {
             mip_level_count: 1,
             sample_count:    1,
             dimension:       wgpu::TextureDimension::D2,
-            format:          SURFACE_TEXTURE_FORMAT,
+            format:          surface_texture_format(),
             usage:           wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -544,7 +609,7 @@ impl State {
             mip_level_count: 1,
             sample_count:    1,
             dimension:       wgpu::TextureDimension::D2,
-            format:          SURFACE_TEXTURE_FORMAT,
+            format:          surface_texture_format(),
             usage:           SCENE_TEXTURE_USAGE,
             view_formats:    &[],
         }));
@@ -571,15 +636,18 @@ impl State {
 
         let mut data: Vec<crate::gm::color::U8Color> = Vec::with_capacity(width * height);
 
+        // The channel order follows the render format, bgra on desktop
+        // and in mac browsers, rgba elsewhere.
+        let swaps_channels = surface_texture_format() == TextureFormat::Bgra8UnormSrgb;
+
         for row in bytes.chunks_exact(row_bytes) {
             let row = bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes]);
 
-            // The channel order follows SURFACE_TEXTURE_FORMAT, bgra on
-            // desktop and rgba elsewhere.
-            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-            data.extend(row.iter().map(|color| color.bgra_to_rgba()));
-            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-            data.extend_from_slice(row);
+            if swaps_channels {
+                data.extend(row.iter().map(|color| color.bgra_to_rgba()));
+            } else {
+                data.extend_from_slice(row);
+            }
         }
 
         sender.send(Screenshot::new(data, size)).unwrap();
