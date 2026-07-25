@@ -225,15 +225,20 @@ impl ViewTest for PresentRich {
 }
 
 /// Present deallocates the old view when its animation finishes, so a dead
-/// weak pointer is the completion signal.
+/// weak pointer is the completion signal. The bound counts a suspended gap
+/// as one frame. A browser stops rendering entirely while the window is
+/// covered, and a paused run must resume, not fail. A live run that renders
+/// 10 seconds of real frames without finishing is truly stuck.
 fn wait_until_gone<T>(view: Weak<T>) -> Result<()> {
-    let start = Instant::now();
+    let mut waited = Duration::ZERO;
     while view.is_ok() {
         ensure!(
-            start.elapsed() < Duration::from_secs(10),
+            waited < Duration::from_secs(10),
             "present animation never finished"
         );
+        let frame = Instant::now();
         wait_for_next_frame();
+        waited += frame.elapsed().min(Duration::from_millis(100));
     }
     Ok(())
 }

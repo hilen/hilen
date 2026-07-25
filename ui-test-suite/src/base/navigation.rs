@@ -136,14 +136,18 @@ impl ViewTest for NavigationRich {
     }
 }
 
+/// The bound counts a suspended gap as one frame, a browser stops rendering
+/// while the window is covered and a paused run must resume, not fail.
 fn wait_until(action: &str, mut done: impl FnMut() -> bool) -> Result<()> {
-    let start = Instant::now();
+    let mut waited = Duration::ZERO;
     while !done() {
         ensure!(
-            start.elapsed() < Duration::from_secs(10),
+            waited < Duration::from_secs(10),
             "{action} animation never finished"
         );
+        let frame = Instant::now();
         wait_for_next_frame();
+        waited += frame.elapsed().min(Duration::from_millis(100));
     }
     Ok(())
 }

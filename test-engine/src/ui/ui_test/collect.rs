@@ -29,6 +29,12 @@ pub fn take_failures() -> Vec<TestFailure> {
     std::mem::take(&mut FAILURES.lock())
 }
 
+/// How many tests failed so far, for the watchdog's abort tally.
+#[cfg(not_wasm)]
+pub(crate) fn failed_count() -> usize {
+    FAILURES.lock().len()
+}
+
 pub fn any_failed() -> bool {
     !FAILURES.lock().is_empty()
 }
@@ -61,6 +67,9 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 /// failure, and returns without propagating, so the run keeps going and every
 /// failure is reported at the end.
 pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
+    #[cfg(not_wasm)]
+    super::watchdog::test_started(name);
+
     match catch_unwind(AssertUnwindSafe(test)) {
         Ok(Ok(())) => {}
         Ok(Err(err)) => record(name, format!("{err:?}")),
@@ -69,4 +78,7 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
             record(name, format!("panic: {}\n{report}", panic_message(&*panic)));
         }
     }
+
+    #[cfg(not_wasm)]
+    super::watchdog::test_finished();
 }

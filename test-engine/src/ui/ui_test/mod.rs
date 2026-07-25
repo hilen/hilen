@@ -8,6 +8,10 @@ mod report;
 pub mod state;
 mod suite;
 mod ui_test;
+/// The web driver carries its own stuck handling, and a page cannot spawn
+/// the plain watchdog thread.
+#[cfg(not_wasm)]
+mod watchdog;
 
 use std::{
     fmt::Display,

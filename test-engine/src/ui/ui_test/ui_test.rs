@@ -4,7 +4,7 @@ use std::{
 };
 
 use hreads::{from_main, wait_for_next_frame};
-use log::{debug, trace};
+use log::{info, trace};
 use parking_lot::Mutex;
 use refs::{Own, Weak};
 use web_time::Instant;
@@ -131,11 +131,13 @@ impl UITest {
             let test_name = TEST_NAME.lock().clone();
 
             if !test_name.is_empty() {
-                debug!("{test_name}: OK");
+                info!("{test_name}: OK");
                 hold_for_human();
             }
 
-            debug!("{new_test_name}: Started");
+            // Info, not debug. Android's logger filters debug out, and these
+            // two lines are what names a hung test in logcat.
+            info!("{new_test_name}: Started");
 
             reset_record_probe_count();
 
@@ -170,7 +172,7 @@ impl UITest {
         let test_name = TEST_NAME.lock().clone();
 
         if !test_name.is_empty() {
-            debug!("{test_name}: OK");
+            info!("{test_name}: OK");
             hold_for_human();
         }
 

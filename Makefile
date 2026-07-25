@@ -20,12 +20,6 @@ smoke:
 ui-ios:
 	rust ./build/ios/sim-test.rs
 
-# The wasm suite in headless Chrome on the real GPU. TESTS narrows the run,
-# comma separated camel case names: make ui-web TESTS=FontZoo
-ui-web:
-	cd ./build/web && bun install --frozen-lockfile
-	bun ./build/web/ui-web.ts --min-tests 90 $(if $(TESTS),--tests $(TESTS))
-
 all:
 	order
 	make wasm
