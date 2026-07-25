@@ -81,11 +81,16 @@ impl ViewTest for TestColorChecker {
           90  214 -   0   0 255 ->   0 255   0"
             ));
 
-            let screenshot_path = temp_dir().join("ui_test_Test_color_checker.png");
+            if cfg!(target_arch = "wasm32") {
+                // The browser report skips the file, see report.rs.
+                assert!(error.contains("no filesystem"));
+            } else {
+                let screenshot_path = temp_dir().join("ui_test_Test_color_checker.png");
 
-            assert!(error.contains(&format!("Failure screenshot: {}", screenshot_path.display())));
+                assert!(error.contains(&format!("Failure screenshot: {}", screenshot_path.display())));
+                assert!(screenshot_path.exists());
+            }
             assert!(error.contains("View tree"));
-            assert!(screenshot_path.exists());
         }
 
         check_colors(

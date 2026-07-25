@@ -1,14 +1,12 @@
 use std::{
-    env::temp_dir,
     fmt::{self, Write},
     ops::Deref,
 };
 
 use anyhow::Result;
-use hreads::{from_main, is_main_thread, wait_for_next_frame};
+use hreads::{from_main, is_main_thread};
 
 use crate::{
-    AppRunner,
     gm::flat::Rect,
     ui::{UIManager, View, ViewData, ViewFrame, ViewSubviews},
     ui_test::TEST_NAME,
@@ -37,7 +35,14 @@ but frames only run when the main thread is free - calling this from the main th
     Ok(report)
 }
 
+#[cfg(not_wasm)]
 fn save_failure_screenshot(test_name: &str) -> String {
+    use std::env::temp_dir;
+
+    use hreads::wait_for_next_frame;
+
+    use crate::AppRunner;
+
     wait_for_next_frame();
 
     let screenshot = match AppRunner::take_screenshot() {
@@ -51,6 +56,12 @@ fn save_failure_screenshot(test_name: &str) -> String {
         Ok(()) => format!("Failure screenshot: {}", path.display()),
         Err(e) => format!("Failed to save failure screenshot: {e}"),
     }
+}
+
+// `temp_dir` is a hard panic on wasm, a page has nowhere to save a file.
+#[cfg(wasm)]
+fn save_failure_screenshot(test_name: &str) -> String {
+    format!("No failure screenshot for {test_name}, the browser has no filesystem")
 }
 
 fn dump_view_tree() -> Result<String> {

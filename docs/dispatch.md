@@ -56,7 +56,8 @@ loop, so it is gated to iOS.
 Headless runs render every iteration and ignore the flag. Wasm is browser driven, the loop
 polls every iteration and needs no waking. A normal wasm build is single threaded. The
 browser test build spawns real workers through `spawn_thread`, and they drive the main
-thread like native background threads.
+thread like native background threads. Workers may block, the browser main thread must
+never block on a contended lock, `Atomics.wait` traps there.
 
 The `Animation drives frames` UI test guards the part of this that can be pinned down. It starts
 an animation from code, with nothing injecting input, and checks that the loop reports continuous

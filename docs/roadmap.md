@@ -138,17 +138,32 @@ diagnosed.
 
 The suite in a real browser, in flight.
 
-- Current: worker threads are proven in headed Firefox and Chromium, a worker drives
-  the main thread through `from_main` exactly like native. Needs the atomics build:
-  target features `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
+- Current: the lane runs end to end in headed Firefox. The `te_run_tests` autorun
+  fires, the suite worker runs a test, the scene texture readback delivers pixels to
+  `check_colors`, the failure report prints and the `TE_TEST_RESULT` line arrives.
+  Getting there took three fixes. parking_lot needs its `nightly` feature on wasm,
+  without it the fallback parker panics on the first contended lock. Chrome's WGSL
+  validator rejects a `fwidth` inside the border branch, ui_image and ui_backdrop now
+  hoist it like ui_rect, one invalid pipeline blacked out every Chrome frame. The
+  failure report no longer saves a screenshot file on wasm, `temp_dir` is a hard
+  panic there. Needs the atomics build: target features
+  `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
   and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
   `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
   `__tls_base`. rustc adds none of them itself. The page needs COOP and COEP headers.
-  The suite autorun behind the `te_run_tests` query flag and the scene texture
-  screenshot readback are written but not yet verified in a browser.
-- Needed: a `build/web/` lane driver, Bun plus Playwright, that owns the build flags,
-  serves dist with the isolation headers, runs Chromium and Firefox and parses the
-  `TE_TEST_RESULT` console line. Then verify autorun and readback, `make ui-web`, and a
+- Found by the first run: wasm renders every color darker than native. The browser
+  surface is plain `Rgba8Unorm`, there is no hardware sRGB encode, so shaders write
+  linear bytes and the browser reads them as sRGB. Measured on the menu, `BG`
+  0.95 0.96 0.98 shows as 242 245 250 instead of 249 250 252, and the test
+  background reads back 26 51 77 for recorded 89 124 149, the exact linear encoding.
+  Fix direction: add `Rgba8UnormSrgb` to the surface `view_formats` and render
+  through an sRGB view, then the screen matches native and the readback returns
+  sRGB bytes that recorded expectations compare against directly. Android uses the
+  same non sRGB surface format and is suspect too.
+- Needed: the sRGB view fix, canvas sizing for the 600 by 600 fixtures and device
+  pixel ratio handling, then a `build/web/` lane driver, Bun plus Playwright, that
+  owns the build flags, serves dist with the isolation headers, runs Chromium and
+  Firefox and parses the `TE_TEST_RESULT` console line. Then `make ui-web` and a
   CI job. Headless Firefox has no working WebGPU, its headless lane is WebGL only.
 - Blocks: browser regressions going unnoticed. CI only compiles the wasm target today.
 

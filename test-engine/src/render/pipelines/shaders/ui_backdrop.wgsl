@@ -106,8 +106,8 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
 }
 
 // One pixel wide analytic edge coverage. See ui_rect.wgsl.
-fn edge_coverage(dist: f32) -> f32 {
-    return clamp(0.5 - dist / fwidth(dist), 0.0, 1.0);
+fn edge_coverage(dist: f32, width: f32) -> f32 {
+    return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
 // The blurred scene is sampled at the fragment's own screen position,
@@ -121,7 +121,11 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
 
-    let coverage: f32 = edge_coverage(dist);
+    // One derivative for the whole shader. A `fwidth` inside the border
+    // branch is non uniform control flow, Chrome rejects the shader.
+    let width: f32 = fwidth(dist);
+
+    let coverage: f32 = edge_coverage(dist, width);
     if coverage < 0.004 {
         discard;
     }
@@ -131,7 +135,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var rgb: vec3<f32> = mix(blur.rgb, instance.color.rgb, instance.color.a);
 
     if instance.border_width > 0.0 {
-        let fill: f32 = clamp(0.5 - (dist + instance.border_width) / fwidth(dist), 0.0, 1.0);
+        let fill: f32 = edge_coverage(dist + instance.border_width, width);
         rgb = mix(instance.border_color.rgb, rgb, fill);
     }
 
