@@ -84,7 +84,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if out.a == 0.0 {
         discard;
-    } else {
-        return out;
     }
+
+    return out;
 }

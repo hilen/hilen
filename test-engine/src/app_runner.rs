@@ -281,28 +281,39 @@ impl AppRunner {
             // Read on the main thread, a worker has no window.
             let only = crate::web::query_param("te_test_only");
 
-            hreads::spawn_thread(move || {
-                // Fixtures sync `get` boot assets, so they must be in
-                // memory before any test runs.
-                crate::assets::wait_boot_blocking();
-
-                let mut tests = crate::UI_TESTS.lock().clone();
-
-                if let Some(only) = only {
-                    let keep: Vec<String> =
-                        only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                    tests.retain(|name, _| keep.contains(name));
+            // A browser serves sync `get` only from memory, so every
+            // asset group downloads before the suite starts. Native
+            // reads any file from disk on demand, this keeps both
+            // runs seeing the same assets.
+            hreads::spawn(async move {
+                if let Err(err) = crate::assets::Assets::load_all_groups().await {
+                    log::error!("Asset preload for tests failed: {err}");
                 }
 
-                let report = crate::ui_test::run_test_map(&tests);
-
-                for failure in &report.failures {
-                    log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
-                }
-
-                let failed = report.failures.len();
-                log::info!("TE_TEST_RESULT {} tests, {failed} failed", report.total);
+                Self::spawn_test_worker(only);
             });
+        });
+    }
+
+    #[cfg(all(wasm, feature = "ui-tests"))]
+    fn spawn_test_worker(only: Option<String>) {
+        hreads::spawn_thread(move || {
+            let mut tests = crate::UI_TESTS.lock().clone();
+
+            if let Some(only) = only {
+                let keep: Vec<String> =
+                    only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                tests.retain(|name, _| keep.contains(name));
+            }
+
+            let report = crate::ui_test::run_test_map(&tests);
+
+            for failure in &report.failures {
+                log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
+            }
+
+            let failed = report.failures.len();
+            log::info!("TE_TEST_RESULT {} tests, {failed} failed", report.total);
         });
     }
 

@@ -70,6 +70,7 @@ cargo run -p ui-test -- --headless --test-name <name> --record-colors        # p
 cargo run -p render-test                                                     # render tests
 make ui                                                                      # desktop suite, plus the iOS simulator suite on macOS, one report
 make uui                                                                     # desktop suite only, headless, release mode
+make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check
 make ui-ios                                                                  # iOS simulator suite only
 make ci                                                                      # typos, formatting, lints, unused dependencies
 make lint                                                                    # clippy, pedantic, zero warnings
@@ -87,4 +88,7 @@ it unless `--screenshot` already selects the offscreen runner.
 After touching any `Cargo.toml` or removing code, run `cargo machete`. It must report
 zero unused dependencies.
 
-Always run `make ci` before every commit.
+Always run `make ci` and `make smoke` before every commit. The full lanes,
+`make ui` and `make ui-ios`, are not part of the routine pre-commit check.
+Run them only when asked, or when a change reworks rendering or another
+engine-wide path where a smoke miss is likely.

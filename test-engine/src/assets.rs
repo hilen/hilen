@@ -69,7 +69,7 @@ impl Assets {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web_assets::{start_boot_preload, wait_boot_blocking};
+pub(crate) use web_assets::start_boot_preload;
 
 #[cfg(target_arch = "wasm32")]
 impl Assets {
@@ -83,6 +83,14 @@ impl Assets {
     pub async fn load_group(group: &str) -> Result<()> {
         Self::await_boot().await;
         web_assets::load_group(group).await
+    }
+
+    /// Downloads every group in the manifest. The UI suite needs it,
+    /// a browser serves sync `get` only from memory, while a native
+    /// run reads any file from disk on demand.
+    pub(crate) async fn load_all_groups() -> Result<()> {
+        Self::await_boot().await;
+        web_assets::load_all_groups().await
     }
 }
 
@@ -114,8 +122,6 @@ mod web_assets {
 
     static BOOT_DONE: AtomicBool = AtomicBool::new(false);
     static BOOT_EVENT: event_listener::Event = event_listener::Event::new();
-    static BOOT_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-    static BOOT_CONDVAR: parking_lot::Condvar = parking_lot::Condvar::new();
     static MANIFEST: OnceLock<Manifest> = OnceLock::new();
 
     #[derive(Deserialize)]
@@ -148,16 +154,6 @@ mod web_assets {
         listener.await;
     }
 
-    /// The blocking twin of `await_boot` for the test worker, which
-    /// may block, unlike the browser main thread. event_listener has
-    /// no blocking wait on wasm, so this side is a condvar.
-    pub(crate) fn wait_boot_blocking() {
-        let mut guard = BOOT_LOCK.lock();
-        while !boot_done() {
-            BOOT_CONDVAR.wait(&mut guard);
-        }
-    }
-
     /// Fetches the manifest and loads the boot group. Called once from
     /// `window_ready`. Finishes even on error, a missing manifest must
     /// not wedge the app, the failed assets just fall back to defaults.
@@ -174,13 +170,7 @@ mod web_assets {
                 Err(err) => error!("Asset manifest fetch failed: {err}"),
             }
 
-            // The flag flips under the lock, so a blocking waiter
-            // between its flag check and the wait cannot miss this.
-            {
-                let _guard = BOOT_LOCK.lock();
-                BOOT_DONE.store(true, Ordering::Release);
-            }
-            BOOT_CONDVAR.notify_all();
+            BOOT_DONE.store(true, Ordering::Release);
             BOOT_EVENT.notify(usize::MAX);
             on_main(|| super::PROGRESS.trigger(1.0));
 
@@ -191,6 +181,25 @@ mod web_assets {
     pub(crate) async fn load_group(group: &str) -> Result<()> {
         let manifest = MANIFEST.get().ok_or_else(|| anyhow!("No asset manifest"))?;
         load_entries(manifest, group).await
+    }
+
+    /// Boot is already in memory when this runs, so only the lazy
+    /// groups actually download.
+    pub(crate) async fn load_all_groups() -> Result<()> {
+        let manifest = MANIFEST.get().ok_or_else(|| anyhow!("No asset manifest"))?;
+
+        let mut groups: Vec<&str> = manifest.files.iter().map(|f| f.group.as_str()).collect();
+        groups.sort_unstable();
+        groups.dedup();
+
+        for group in groups {
+            if group == "boot" {
+                continue;
+            }
+            load_entries(manifest, group).await?;
+        }
+
+        Ok(())
     }
 
     async fn fetch_manifest() -> Result<Manifest> {

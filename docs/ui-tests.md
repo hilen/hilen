@@ -14,6 +14,7 @@ cargo run -p ui-test -- --test-name "Rest request"  # one test
 cargo run -p ui-test -- --headless            # offscreen, much faster, for CI and agents
 cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  # one offscreen capture
 make uui                                      # full suite, headless, release mode
+make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
 cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, space to advance
 cargo run -p ui-test -- --record-colors --headless --test-name "Font zoo"  # print check_colors blocks
 ```
@@ -119,9 +120,13 @@ a temp file — with a plain pipe (`| tail`) you lose everything printed before 
 cargo run -p ui-test -- --headless 2>&1 | tee /tmp/ui-test.log | tail -12
 ```
 
-Don't run the suite after every change. Run it only when the change can affect UI or
-rendering behavior, or once before a commit/push. Mechanical changes (renames, comments,
-docs) only need `cargo build` and `make lint`.
+Don't run the suite after every change. During development run only the single tests the
+change affects. The routine pre-commit check is `make smoke`, a curated one-test-per-pillar
+subset, desktop only, debug, headless. The list lives in the Makefile as `SMOKE_TESTS` and
+rides on `--test-name` taking a comma separated list. The full suite and the platform
+lanes run only when asked, or when a change reworks rendering or another engine-wide
+path where a smoke miss is likely. Mechanical changes (renames, comments, docs) only
+need `cargo build` and `make lint`.
 
 On failure a report is printed: window resolution and scale, a path to a screenshot of
 the actual screen, and the view tree with frames. For `check_colors` failures the failing

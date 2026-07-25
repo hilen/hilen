@@ -138,8 +138,8 @@ diagnosed.
 
 The suite in a real browser, in flight.
 
-- Current: the full suite runs end to end in headed Chrome, 100 tests, 3 real
-  failures, a clean `TE_TEST_RESULT` line. The `te_run_tests` autorun fires, the
+- Current: the full suite passes end to end in headed Chrome, 100 tests, 0
+  failed, a clean `TE_TEST_RESULT` line. The `te_run_tests` autorun fires, the
   suite worker runs every test, the scene texture readback feeds `check_colors`
   and failures report without a filesystem. Needs the atomics build: target
   features `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
@@ -176,11 +176,16 @@ The suite in a real browser, in flight.
   would ship it one build stale. Downloads now fail on HTTP error status, a 404
   page used to be stored as asset bytes, and a font that fails to parse degrades
   to the default font instead of killing the session.
-- The 3 failures left in Chrome, each one probe point. Game view: the level scene
-  renders transparent black, all textures arrive and the console is clean, likely
-  the level or scale path on wasm. Label image and Nine segment: the `cat.png`
-  image inside a label and inside a button does not draw, the same asset renders
-  fine elsewhere, so the image in text glyph path is suspect.
+- Landed: the last 3 Chrome failures. Game view rendered the level transparent
+  black because Tint rejected `sprite_textured.wgsl`, a value returning fragment
+  fn ended in an if else where one branch discards, and spec `discard` demotes
+  and continues, so the function could fall off the end. naga accepts that shape,
+  which is why native passed. Now it discards then returns unconditionally, like
+  every other engine shader. Label image and Nine segment probed the default
+  image because the nine segment textures live in the lazy `button` group and a
+  sync `get` miss fell through to a filesystem read wasm does not have. The test
+  autorun now downloads every manifest group before the suite starts, native
+  equivalence, any file reachable on demand.
 - Firefox is blocked by the browser, not the engine. Playwright's Firefox Nightly
   throttles requestAnimationFrame for the engine page down to an exponential
   backoff, one second to four seconds per frame, while a plain page from the same
@@ -188,11 +193,10 @@ The suite in a real browser, in flight.
   everything main thread crawls to a stop. Firefox also reproducibly fails the
   `diagonal.bmp` fetch with a body decode error. Retest when the Playwright
   Firefox build updates. Headless Firefox has no working WebGPU at all.
-- Needed: the three failures above, canvas sizing for the 600 by 600 fixtures and
-  device pixel ratio handling, then a `build/web/` lane driver, Bun plus
-  Playwright, that owns the build flags, serves dist with the isolation headers,
-  runs Chromium and parses the `TE_TEST_RESULT` console line. Then `make ui-web`
-  and a CI job.
+- Needed: canvas sizing for the 600 by 600 fixtures and device pixel ratio
+  handling, then a `build/web/` lane driver, Bun plus Playwright, that owns the
+  build flags, serves dist with the isolation headers, runs Chromium and parses
+  the `TE_TEST_RESULT` console line. Then `make ui-web` and a CI job.
 - Blocks: browser regressions going unnoticed. CI only compiles the wasm target today.
 
 ## Suggested order

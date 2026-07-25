@@ -10,6 +10,13 @@ ui:
 uui:
 	cargo run -p ui-test --release -- --headless
 
+# One test per engine pillar, the fast pre-commit check. Desktop only,
+# debug, headless. Full lanes still run for rendering-heavy changes.
+SMOKE_TESTS = TestColorChecker,ButtonPress,InjectTouch,AnchorLayoutTest,TableView2Test,WheelScrollTest,LabelFitText,LabelFont,ImageView,NineSegment,GameView,AnimationDrivesFrames,ShowModally,BackdropBlurTest
+
+smoke:
+	cargo run -p ui-test -- --headless --test-name $(SMOKE_TESTS)
+
 ui-ios:
 	rust ./build/ios/sim-test.rs
 
