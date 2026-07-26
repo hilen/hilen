@@ -46,10 +46,11 @@ live view tree in one walk and fires `UIEvents::theme_changed`, the draw path ke
 reading plain resolved colors. The OS theme arrives through winit `ThemeChanged` and
 is read once at startup. This unblocked dark mode. Hover events landed as opt-in
 `enable_hover` plus a `hovered` event that fires true on enter and false on exit. Only
-the topmost hover enabled view under the cursor is hovered, desktop only, and modal
-layers block hover like they block touches. Hover follows mouse moves and wheel scroll,
-and clears when the cursor leaves the window. Everything runs on input events, nothing
-per frame. This unblocked card lift and button hover colors. Drop shadows landed as an
+the topmost hover enabled view under the cursor is hovered, on desktop and in the
+browser since a touch screen has no pointer, and modal layers block hover like they
+block touches. Hover follows mouse moves and wheel scroll, and clears when the cursor
+leaves the window. Everything runs on input events, nothing per frame. This unblocked
+card lift and button hover colors. Drop shadows landed as an
 opt-in `Shadow { offset, radius, color }` set through `set_shadow`. A dedicated shadow
 pipeline draws a blurred rounded rect under the view, following its corner radii. The
 view masks the shadow inside its own shape and hidden views cast nothing. Per-corner

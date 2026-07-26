@@ -119,6 +119,7 @@ pub struct ViewTouchEvents {
     pub moved:     Event<Touch>,
     pub up_inside: UIEvent<Touch>,
     /// Fires true on hover enter and false on exit. Only the topmost
-    /// hover enabled view under the cursor is hovered. Desktop only.
+    /// hover enabled view under the cursor is hovered. Desktop and the
+    /// browser, since a touch screen has no pointer.
     pub hovered:   UIEvent<bool>,
 }

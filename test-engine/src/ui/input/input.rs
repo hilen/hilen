@@ -2,7 +2,7 @@ use log::warn;
 use refs::Weak;
 pub use winit::keyboard::NamedKey;
 
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
 use crate::{
     gm::{color::Color, flat::Point},
@@ -36,7 +36,7 @@ impl Input {
         // Scroll moves content under a still cursor. Re-pick the hovered
         // view. Frames update on the next layout, so a scroll burst is
         // one event behind until the cursor moves again.
-        #[cfg(desktop)]
+        #[cfg(any(desktop, wasm))]
         Hover::update(UIManager::cursor_position());
     }
 
@@ -54,7 +54,7 @@ impl Input {
         UIManager::set_cursor_position(touch.position);
         UIEvents::on_touch().trigger(touch);
 
-        #[cfg(desktop)]
+        #[cfg(any(desktop, wasm))]
         if touch.is_moved() {
             Hover::update(touch.position);
         }

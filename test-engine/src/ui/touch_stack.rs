@@ -52,7 +52,7 @@ impl TouchStack {
         Self::get().stack.last().views().into_iter().rev()
     }
 
-    #[cfg(desktop)]
+    #[cfg(any(desktop, wasm))]
     pub(crate) fn hover_views() -> impl Iterator<Item = WeakView> {
         Self::get().stack.last().hovered().into_iter().rev()
     }

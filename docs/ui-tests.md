@@ -294,15 +294,16 @@ fixture layout, screenshot workflow or convenient reproduction is never a valid 
 
 Platform gating is allowed only when the production feature itself is compiled out or cannot
 exist on that platform. Gate such a test where the feature is gated, not with a runtime skip.
-`Hover::update` is `#[cfg(desktop)]`, so `hover.rs` is too. Typing goes through the screen keyboard
-on a phone rather than injected key events, so the text field tests are desktop only as well.
+`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. Typing goes through the
+screen keyboard on a phone rather than injected key events, so the text field tests are desktop
+only as well.
 Test counts may differ between platforms only for these feature-availability gates. Never gate a
 cross-platform rendering, layout or interaction regression merely to make the current fixture fit.
 Gate the module in its `mod.rs`, with a comment saying which feature is missing:
 
 ```rust
 /// Hover needs a pointer, and there is no such thing on a touch screen.
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 mod hover;
 ```
 
