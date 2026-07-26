@@ -60,7 +60,7 @@ fn svg_data(name: &str) -> Option<Vec<u8>> {
 
 impl ToImage for Tinted {
     fn to_image(&self) -> Weak<Image> {
-        let stored_name = format!("{}:{}", self.name, self.tint.hex());
+        let stored_name = format!("{}:{}", self.name, self.tint.as_hex());
 
         let Some(data) = svg_data(&self.name) else {
             return Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name);
@@ -68,7 +68,7 @@ impl ToImage for Tinted {
 
         match std::str::from_utf8(&data) {
             Ok(text) => {
-                let tinted = text.replace("#000000", &self.tint.hex());
+                let tinted = text.replace("#000000", &self.tint.as_hex());
                 Image::from_file_data(tinted.as_bytes(), &stored_name)
             }
             Err(err) => {

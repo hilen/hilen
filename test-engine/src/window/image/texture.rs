@@ -103,12 +103,13 @@ impl Texture {
             depth_or_array_layers: 1,
         };
 
-        // Image bytes are sRGB encoded, the texture format has to say so or
-        // sampling skips the decode and the image renders one encode too
-        // bright. The android surface used to be non sRGB, which hid this.
+        // Plain Unorm, the whole pipeline works on encoded sRGB values.
+        // Image bytes are already encoded, sampling must return them
+        // unchanged. An sRGB format here would decode on sample and the
+        // image would render one decode too dark.
         let (channels, format) = match channels {
             1 => (1, TextureFormat::R8Unorm),
-            3 | 4 => (4, TextureFormat::Rgba8UnormSrgb),
+            3 | 4 => (4, TextureFormat::Rgba8Unorm),
             ch => panic!("Invalid number of channels: {ch}"),
         };
 

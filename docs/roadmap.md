@@ -94,9 +94,11 @@ Found by the FontZoo emoji page. Parked until a real need.
   atlas and `draw_label`, and invalidates every recorded text expectation in the UI
   tests.
 - Blocks: colorful emoji. Nothing in the driver app today.
-- Landed: gamma aware text blending in the wgpu_text pipeline. On sRGB targets
-  the shader remaps coverage so the linear blend lands on the sRGB space result
-  browsers produce, so ports use nominal font weights on both polarities.
+- Landed: browser matched text blending. The UI pipeline blends encoded sRGB
+  values on plain Unorm targets, see [colors.md](colors.md), so glyph coverage
+  composites exactly like browser text and ports use nominal font weights on
+  both polarities. The wgpu_text coverage remap remains in the fork but only
+  activates on sRGB targets, which the engine no longer uses.
 
 ## Shape edge anti-aliasing
 
@@ -182,13 +184,14 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   `__tls_base`. rustc adds none of them itself. The `te_run_tests` autorun
   fires, the suite worker runs every test, the scene texture readback feeds
   `check_colors` and failures report without a filesystem.
-- Landed, rendering: wasm now renders through an sRGB view of the surface, so
-  colors match native and readbacks return the bytes recorded expectations
-  compare against. The canvas format is the browser's preferred one, resolved at
-  runtime from the surface capabilities during window creation. Hardcoding
-  `Rgba8Unorm` made Chrome convert every frame and made Firefox present it with
-  red and blue swapped. The readback swizzles by the actual format. Android still
-  hardcodes non sRGB `Rgba8Unorm` and stays suspect for the same darker colors.
+- Landed, rendering: every platform renders into a plain Unorm target with
+  encoded sRGB values, see [colors.md](colors.md), so wasm, android and native
+  produce the same bytes and readbacks return what recorded expectations
+  compare against. The canvas format is still the browser's preferred one,
+  resolved at runtime from the surface capabilities during window creation,
+  because rendering the non preferred one makes Chrome convert every frame and
+  makes Firefox present it with red and blue swapped. The readback swizzles by
+  the actual format.
 - Landed, main thread rules: the frame loop uses `Wait` plus a rAF chain, never
   `Poll`, and the hot shared locks spin on wasm, both per
   [dispatch.md](dispatch.md). std `Instant` panics on wasm, `web_time` replaces

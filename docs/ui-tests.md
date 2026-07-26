@@ -381,6 +381,10 @@ screenshot, picks probe pixels automatically, and prints them labeled with the t
 check index. Write the test with empty `check_colors("")?` placeholders, run once with the
 flag, paste each block over its placeholder, rerun normally to verify.
 
+A probe line is `x y - #rrggbb`, coordinates right aligned to four columns, the color a
+lowercase CSS hex. The parser accepts nothing else, and the recorder and the failure
+report print the same shape, so pasted lines always stay aligned.
+
 The picker is deterministic, the same screen always produces the same block. It is bounded
 to the canvas, the frame around it is not part of the test and does not exist on a device.
 It samples a 4px grid, keeps only pixels whose neighborhood is near uniform along at least

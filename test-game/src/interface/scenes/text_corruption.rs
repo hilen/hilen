@@ -36,12 +36,16 @@ impl ViewTest for TextCorruption {
     }
 
     fn perform_test(_view: Weak<Self>) -> Result<()> {
-        set_record_probe_count(1280);
-        from_main(|| UIManager::override_scale(2));
-        wait_for_next_frame();
-        wait_for_next_frame();
-        capture_screenshot()?;
-        check_colors(CLEAN_TEXT)?;
+        // Cleanup must run even when the check fails. A leaked scale
+        // override or theme poisons every test after this one.
+        let check = (|| {
+            set_record_probe_count(1280);
+            from_main(|| UIManager::override_scale(2));
+            wait_for_next_frame();
+            wait_for_next_frame();
+            capture_screenshot()?;
+            check_colors(CLEAN_TEXT)
+        })();
 
         if !human_mode() {
             let theme_mode = *PREVIOUS_THEME_MODE.lock();
@@ -51,6 +55,6 @@ impl ViewTest for TextCorruption {
             });
         }
 
-        Ok(())
+        check
     }
 }

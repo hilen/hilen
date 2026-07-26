@@ -25,7 +25,7 @@ use crate::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
         screen::Screen,
-        state::{State, surface_present_format, surface_texture_format},
+        state::{State, surface_texture_format},
         surface::Surface,
     },
 };
@@ -472,31 +472,23 @@ impl Window {
 pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceConfiguration {
     let size: Size<u32> = size.into();
 
-    // On wasm the present format is not sRGB and frames render through
-    // an sRGB view, which the surface must declare here.
-    let view_formats = if surface_present_format() == surface_texture_format() {
-        vec![]
-    } else {
-        vec![surface_texture_format()]
-    };
-
     SurfaceConfiguration {
-        usage: if SURFACE_COPY {
+        usage:        if SURFACE_COPY {
             TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
         } else {
             TextureUsages::RENDER_ATTACHMENT
         },
-        format: surface_present_format(),
-        color_space: SurfaceColorSpace::Auto,
-        width: size.width,
-        height: size.height,
+        format:       surface_texture_format(),
+        color_space:  SurfaceColorSpace::Auto,
+        width:        size.width,
+        height:       size.height,
         present_mode: if VSYNC.load(Ordering::Relaxed) || Platform::MOBILE {
             PresentMode::AutoVsync
         } else {
             PresentMode::AutoNoVsync
         },
-        alpha_mode: CompositeAlphaMode::Auto,
-        view_formats,
+        alpha_mode:   CompositeAlphaMode::Auto,
+        view_formats: vec![],
 
         desired_maximum_frame_latency: MAX_FRAME_LATENCY.load(Ordering::Relaxed),
     }

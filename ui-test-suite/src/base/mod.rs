@@ -3,6 +3,7 @@ mod clipboard;
 mod color_checker;
 mod colors;
 mod corner_radius;
+mod css_colors;
 mod dispatch;
 mod global_styles;
 mod keymap;

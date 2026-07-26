@@ -29,6 +29,8 @@ See [docs/ui-tests.md](docs/ui-tests.md) for how UI tests work.
 
 Do not read these upfront. Read the matching file only when the task touches that area:
 
+- [docs/colors.md](docs/colors.md) — the encoded sRGB convention, `Color::hex`, why targets
+  are plain Unorm. Read before touching color types, surface formats, or blending.
 - [docs/refs.md](docs/refs.md) — `Own`/`Weak` smart pointers, the memory model. Read before
   working with view lifetimes, pointers, or anything from the `refs` crate.
 - [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop.

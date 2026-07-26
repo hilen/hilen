@@ -54,11 +54,11 @@ is always center.
 
 ## Matching other renderers
 
-Browsers composite text in sRGB space, an sRGB render target blends in linear
-space. The wgpu_text fragment shader compensates on sRGB targets: it remaps
-glyph coverage so the linear blend lands where the sRGB space blend would.
-The destination pixel is not readable in the pass, so the background is
-assumed to contrast with the glyph luminance, exact for dark on light and
-light on dark, close in between. Ports therefore use nominal font weights on
-both polarities. Measuring workflow, scripts and the trak table details live
-in the test-engine skill's migration chapter, next to this repo's users.
+Browsers composite text in sRGB space and so does the engine: render targets
+are plain Unorm and color values are encoded sRGB end to end, see
+[colors.md](colors.md). Glyph coverage therefore blends exactly like browser
+text with no compensation, and ports use nominal font weights on both
+polarities. The wgpu_text fork still carries a coverage remap entry point,
+but it activates only on sRGB targets, which the engine no longer uses.
+Measuring workflow, scripts and the trak table details live in the
+test-engine skill's migration chapter, next to this repo's users.

@@ -46,34 +46,21 @@ struct GpuTimer {
     readback:  wgpu::Buffer,
 }
 
+// Plain Unorm, never an sRGB format. Color values are encoded sRGB end
+// to end and the hardware must blend the written values as they are,
+// the same math browsers, design tools and every UI stack use. An sRGB
+// target would decode, blend in linear and encode back, which shifts
+// every translucent and antialiased pixel away from the design.
+// Rgba, not Bgra, android swapchains have no Bgra.
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
-// Srgb, or every shader's linear output lands in the swapchain raw and
-// the whole screen renders too dark. Rgba, not Bgra, android swapchains
-// have no Bgra.
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8Unorm;
 #[cfg(target_os = "android")]
-const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
 /// The format every frame renders into. Fixed at compile time
 /// everywhere but the browser, which picks its canvas format at
 /// runtime.
 pub fn surface_texture_format() -> TextureFormat {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_formats::render_format()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        SURFACE_TEXTURE_FORMAT
-    }
-}
-
-/// The format the surface itself is configured with. WebGPU rejects
-/// sRGB canvas formats, so on wasm the surface holds the non sRGB
-/// canvas format and every frame renders through an sRGB view of it,
-/// which encodes shader output like the sRGB surfaces on other
-/// platforms do.
-pub(crate) fn surface_present_format() -> TextureFormat {
     #[cfg(target_arch = "wasm32")]
     {
         web_formats::present_format()
@@ -106,10 +93,6 @@ pub(crate) mod web_formats {
 
     pub(crate) fn present_format() -> TextureFormat {
         *PRESENT.get().expect("Surface format is not resolved yet")
-    }
-
-    pub(crate) fn render_format() -> TextureFormat {
-        present_format().add_srgb_suffix()
     }
 }
 
@@ -342,13 +325,7 @@ impl State {
             None => self.offscreen_texture.as_ref().unwrap(),
         };
 
-        // The explicit format matters only for the wasm surface, whose
-        // texture is not sRGB. Rendering must go through the sRGB view
-        // so shader output gets encoded.
-        let target_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(surface_texture_format()),
-            ..Default::default()
-        });
+        let target_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let (scene_view, present_view) = if needs_sampling && surface_texture.is_some() {
             let scene = self.scene_texture.as_ref().unwrap();
@@ -642,7 +619,7 @@ impl State {
 
         // The channel order follows the render format, bgra on desktop
         // and in mac browsers, rgba elsewhere.
-        let swaps_channels = surface_texture_format() == TextureFormat::Bgra8UnormSrgb;
+        let swaps_channels = surface_texture_format() == TextureFormat::Bgra8Unorm;
 
         for row in bytes.chunks_exact(row_bytes) {
             let row = bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes]);
