@@ -71,9 +71,11 @@ jobs:
       - name: Run UI tests
         run: cargo run -p ui-test --profile=ci -- --headless
 
+  # A real installed browser, headed as the driver wants, but drawing into a
+  # virtual display, so a run never opens a window on anyone's desktop.
   web-ui-tests:
     name: Web UI Tests
-    runs-on: mac
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -86,8 +88,21 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mesa-vulkan-drivers
+
+      - name: Browser version
+        run: ${{ matrix.browser == 'chrome' && 'google-chrome --version' || 'firefox --version' }}
+
       - name: Run UI tests in ${{ matrix.browser }}
-        run: make ui-web BROWSER=${{ matrix.browser }}
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" make ui-web BROWSER=${{ matrix.browser }}
 
       - name: Upload failure screenshot
         if: failure()

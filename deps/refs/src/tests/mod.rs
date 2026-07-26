@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use serial_test::serial;
 use wasm_bindgen_test::wasm_bindgen_test;
 
-use crate::{AsAny, Own, Weak};
+use crate::{AsAny, Own, Weak, ref_counter::RefCounter};
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -269,22 +269,33 @@ fn raw_and_dump() {
 fn stale_weak_after_address_reuse() {
     set_current_thread_as_main();
 
-    for _ in 0..1000 {
-        let own = Own::new(5_u64);
-        let weak = own.weak();
-        let addr = own.addr();
-        drop(own);
+    let own = Own::new(10_u64);
+    let mut stale = own.weak();
 
-        let new_own = Own::new(10_u64);
+    // A weak made before this address was reused carries the stamp of the
+    // older object. No allocator can be told to reuse an address, so the older
+    // stamp is set by hand. Looping until a real reuse happened made this test
+    // panic with "inconclusive" on a macOS CI runner.
+    stale.stamp -= 1;
 
-        if new_own.addr() == addr {
-            assert!(weak.is_null());
-            assert!(!weak.is_ok());
-            assert_eq!(weak.get(), None);
-            assert_eq!(*new_own, 10);
-            return;
-        }
-    }
+    assert!(stale.is_null());
+    assert!(!stale.is_ok());
+    assert_eq!(stale.get(), None);
+    assert_eq!(*own, 10);
+}
 
-    panic!("Allocator never reused the address. Test is inconclusive.");
+/// Dropping an `Own` must unregister its address, otherwise the next object
+/// that lands there cannot register and `RefCounter::add` panics.
+#[serial]
+#[wasm_bindgen_test(unsupported = test)]
+fn address_is_free_after_drop() {
+    set_current_thread_as_main();
+
+    let own = Own::new(5_u64);
+    let weak = own.weak();
+    let addr = own.addr();
+    drop(own);
+
+    assert!(weak.is_null());
+    assert!(RefCounter::stamp_for_address(addr).is_none());
 }
