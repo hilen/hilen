@@ -54,9 +54,6 @@ version = "0.13"
 [dependencies.parking_lot]
 version = "0.12"
 
-[dependencies.plat]
-version = "0.9"
-
 [dependencies.reqwest]
 version = "0.13"
 features = ["rustls"]

@@ -55,7 +55,7 @@ pub fn open_url(url: impl ToString) -> Result<()> {
 
 #[cfg(android)]
 fn android_open(url: &str) -> anyhow::Result<()> {
-    use jni::objects::JValue;
+    use jni::{jni_sig, jni_str, objects::JValue};
 
     use crate::system::android_jni::with_activity;
 
@@ -63,24 +63,24 @@ fn android_open(url: &str) -> anyhow::Result<()> {
         let uri_string = env.new_string(url)?;
         let uri = env
             .call_static_method(
-                "android/net/Uri",
-                "parse",
-                "(Ljava/lang/String;)Landroid/net/Uri;",
+                jni_str!("android/net/Uri"),
+                jni_str!("parse"),
+                jni_sig!("(Ljava/lang/String;)Landroid/net/Uri;"),
                 &[JValue::Object(&uri_string)],
             )?
             .l()?;
 
         let action = env.new_string("android.intent.action.VIEW")?;
         let intent = env.new_object(
-            "android/content/Intent",
-            "(Ljava/lang/String;Landroid/net/Uri;)V",
+            jni_str!("android/content/Intent"),
+            jni_sig!("(Ljava/lang/String;Landroid/net/Uri;)V"),
             &[JValue::Object(&action), JValue::Object(&uri)],
         )?;
 
         env.call_method(
             activity,
-            "startActivity",
-            "(Landroid/content/Intent;)V",
+            jni_str!("startActivity"),
+            jni_sig!("(Landroid/content/Intent;)V"),
             &[JValue::Object(&intent)],
         )?;
 

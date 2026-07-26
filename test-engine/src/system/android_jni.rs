@@ -2,13 +2,15 @@
 //! activity object the app runs in.
 
 use anyhow::Result;
-use jni::{JNIEnv, objects::JObject};
+use jni::{Env, JavaVM, objects::JObject};
 
-pub(crate) fn with_activity<T>(action: impl FnOnce(&mut JNIEnv, &JObject) -> Result<T>) -> Result<T> {
+pub(crate) fn with_activity<T>(action: impl FnOnce(&mut Env, &JObject) -> Result<T>) -> Result<T> {
     let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
-    let mut env = vm.attach_current_thread()?;
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) };
 
-    action(&mut env, &activity)
+    vm.attach_current_thread(|env| {
+        let activity = unsafe { JObject::from_raw(env, ctx.context().cast()) };
+
+        action(env, &activity)
+    })
 }

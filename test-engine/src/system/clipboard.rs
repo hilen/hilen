@@ -100,7 +100,10 @@ fn with_clipboard<T>(action: impl FnOnce(&mut arboard::Clipboard) -> Result<T>) 
 #[cfg(android)]
 mod android {
     use anyhow::{Result, anyhow};
-    use jni::objects::{JString, JValue};
+    use jni::{
+        jni_sig, jni_str,
+        objects::{JString, JValue},
+    };
 
     use crate::system::android_jni::with_activity;
 
@@ -110,8 +113,8 @@ mod android {
             let manager = env
                 .call_method(
                     activity,
-                    "getSystemService",
-                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    jni_str!("getSystemService"),
+                    jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
                     &[JValue::Object(&service)],
                 )?
                 .l()?;
@@ -120,17 +123,17 @@ mod android {
             let value = env.new_string(text)?;
             let clip = env
                 .call_static_method(
-                    "android/content/ClipData",
-                    "newPlainText",
-                    "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;",
+                    jni_str!("android/content/ClipData"),
+                    jni_str!("newPlainText"),
+                    jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"),
                     &[JValue::Object(&label), JValue::Object(&value)],
                 )?
                 .l()?;
 
             env.call_method(
                 &manager,
-                "setPrimaryClip",
-                "(Landroid/content/ClipData;)V",
+                jni_str!("setPrimaryClip"),
+                jni_sig!("(Landroid/content/ClipData;)V"),
                 &[JValue::Object(&clip)],
             )?;
 
@@ -144,14 +147,19 @@ mod android {
             let manager = env
                 .call_method(
                     activity,
-                    "getSystemService",
-                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    jni_str!("getSystemService"),
+                    jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
                     &[JValue::Object(&service)],
                 )?
                 .l()?;
 
             let clip = env
-                .call_method(&manager, "getPrimaryClip", "()Landroid/content/ClipData;", &[])?
+                .call_method(
+                    &manager,
+                    jni_str!("getPrimaryClip"),
+                    jni_sig!("()Landroid/content/ClipData;"),
+                    &[],
+                )?
                 .l()?;
 
             if clip.is_null() {
@@ -161,21 +169,32 @@ mod android {
             let item = env
                 .call_method(
                     &clip,
-                    "getItemAt",
-                    "(I)Landroid/content/ClipData$Item;",
+                    jni_str!("getItemAt"),
+                    jni_sig!("(I)Landroid/content/ClipData$Item;"),
                     &[JValue::Int(0)],
                 )?
                 .l()?;
 
-            let text = env.call_method(&item, "getText", "()Ljava/lang/CharSequence;", &[])?.l()?;
+            let text = env
+                .call_method(
+                    &item,
+                    jni_str!("getText"),
+                    jni_sig!("()Ljava/lang/CharSequence;"),
+                    &[],
+                )?
+                .l()?;
 
             if text.is_null() {
                 return Err(anyhow!("The clipboard holds no text"));
             }
 
-            let string = env.call_method(&text, "toString", "()Ljava/lang/String;", &[])?.l()?;
+            let string = env
+                .call_method(&text, jni_str!("toString"), jni_sig!("()Ljava/lang/String;"), &[])?
+                .l()?;
 
-            Ok(env.get_string(&JString::from(string))?.into())
+            let string = env.cast_local::<JString>(string)?;
+
+            Ok(string.try_to_string(env)?)
         })
     }
 }

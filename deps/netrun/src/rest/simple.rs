@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::rest::{Method, client::client, request::request_object};
@@ -44,7 +44,16 @@ pub async fn delete<T: DeserializeOwned>(url: impl ToString) -> Result<T> {
 
 pub async fn download(url: impl ToString) -> Result<Vec<u8>> {
     let url = url.to_string();
-    let bytes = client().get(&url).send().await?.bytes().await?;
+    let response = client().get(&url).send().await?;
+    let status = response.status();
+
+    // Without this a block page or an error page downloads as if it were the
+    // file, and the caller only sees a body of the wrong size.
+    if !status.is_success() {
+        return Err(anyhow!("[{status}] Failed to download {url}"));
+    }
+
+    let bytes = response.bytes().await?;
     Ok(bytes.to_vec())
 }
 
@@ -58,10 +67,29 @@ mod tests {
     mod not_wasm_tests {
         use super::*;
 
+        /// The url points at one pinned commit, so the bytes cannot change
+        /// under the test. It used to download an image from a news site and
+        /// one CI run got a 134 byte page in place of the image.
         #[tokio::test]
         async fn test_download() -> Result<()> {
-            let bytes = download("https://www.lrt.lt/img/2026/02/26/2327389-490277-615x345.jpg").await?;
-            assert_eq!(bytes.len(), 40246);
+            let bytes = download(
+                "https://raw.githubusercontent.com/VladasZ/netrun/4b28fc5e444f0b4f9d08f4b26e3a3241995d6daf/Cargo.lock",
+            )
+            .await?;
+            assert_eq!(bytes.len(), 97126);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_download_missing_file() -> Result<()> {
+            let error = download(
+                "https://raw.githubusercontent.com/VladasZ/netrun/4b28fc5e444f0b4f9d08f4b26e3a3241995d6daf/no-such-file",
+            )
+            .await
+            .expect_err("A missing file must not download as bytes");
+
+            assert!(error.to_string().starts_with("[404 Not Found]"));
+
             Ok(())
         }
 

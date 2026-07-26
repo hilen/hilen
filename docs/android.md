@@ -27,6 +27,13 @@ GL is no fallback. GLES may report zero fragment stage storage buffers, the lega
 minimum, and the UI pipelines bind one. The emulator's GLES does exactly that while its
 Vulkan works.
 
+## No host lane compiles the android code
+
+Everything behind `#[cfg(android)]` is invisible to `make ci` and `make smoke`, so it can
+break while every desktop lane stays green. The docker build is the only check it has.
+That is how the jni bump from 0.21 to 0.22 left `Clipboard` and `open_url` calling
+methods that no longer existed, and the break only showed up in CI.
+
 ## Assets come from the APK
 
 Android assets live inside the APK, not on the filesystem. `filesystem::read_bytes`
