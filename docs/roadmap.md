@@ -154,6 +154,32 @@ frames heavier.
   source below since scroll inertia samples real elapsed time.
 - Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
 
+## URL routing for wasm apps
+
+Found porting the beekeeper UI. The Vue original gives every page its own URL,
+`/deployments/:id`, `/vpn/:id`, so a detail page is bookmarkable, reload keeps
+the place, and browser back walks up instead of leaving the site. A test-engine
+wasm app is one URL, navigation is invisible to the browser.
+
+- Current: apps navigate by swapping views, `web_sys` history is untouched. The
+  beekeeper port always boots on its first page and browser back exits the app.
+- Needed: an engine navigation hook for wasm, read the path at startup, push a
+  history entry on navigation, surface popstate as a back event. Desktop and
+  mobile no-op. The app maps paths to pages, the engine owns the history API.
+- Blocks: retiring the Vue beekeeper UI without losing deep links.
+
+## Tooltips
+
+Found porting the beekeeper UI, which hangs real data on hover titles, full
+shas, container statuses, deploy errors, button hints.
+
+- Current: no tooltip view exists, ports drop every `title` attribute. The one
+  load bearing tooltip, the deploy error, got a tap fallback in the port.
+- Needed: a tooltip layer, show a floating label after a hover delay near the
+  cursor, dismiss on move out or tap, touch platforms substitute long press or
+  skip. Needs the hover machinery already in `src/ui/hover.rs`.
+- Blocks: hover parity for web ports.
+
 ## Frame stepped animation testing
 
 Found by an animation problem seen during the PresentRich human review, not yet

@@ -1,9 +1,13 @@
 use anyhow::Result;
 use test_engine::{
+    dispatch::from_main,
     gm::Apply,
     refs::Weak,
     ui::{DropDown, Setup, ViewData, ViewTest, view},
-    ui_test::{inject_touches, inject_touches_delayed, state::append_state},
+    ui_test::{
+        inject_touches, inject_touches_delayed,
+        state::{append_state, get_state},
+    },
 };
 
 #[view]
@@ -49,6 +53,57 @@ impl ViewTest for DropDownTestView {
         );
 
         assert_eq!(view.top.value(), &"Cat");
+        assert_eq!(view.bot.value(), &"Boat");
+
+        let picked = get_state::<String>();
+
+        assert!(from_main(move || {
+            let mut bot = view.bot;
+            bot.set_value(&"Plane")
+        }));
+        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.text(), "Plane");
+
+        assert!(!from_main(move || {
+            let mut bot = view.bot;
+            bot.set_value(&"Train")
+        }));
+        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.text(), "Plane");
+
+        // A rebuilt list falls back to the first entry, and set_value is
+        // what puts the old pick back.
+        from_main(move || {
+            let mut bot = view.bot;
+            bot.set_values(vec!["Car", "Plane", "Rocket"]);
+        });
+        assert_eq!(view.bot.value(), &"Car");
+        assert_eq!(view.bot.text(), "Car");
+
+        assert!(from_main(move || {
+            let mut bot = view.bot;
+            bot.set_value(&"Plane")
+        }));
+        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.text(), "Plane");
+
+        assert_eq!(get_state::<String>(), picked);
+
+        // The drop down is still collapsed, so one tap opens it and the
+        // next one lands on a cell. A programmatic select that opened it
+        // would swallow both taps.
+        inject_touches_delayed(
+            r"
+            352  585  b
+            352  585  e
+            352  575  b
+            352  575  e
+        ",
+        );
+
+        assert_eq!(view.bot.value(), &"Rocket");
+        assert_eq!(view.bot.text(), "Rocket");
+        assert_eq!(get_state::<String>(), format!("{picked}Rocket\n"));
 
         inject_touches(
             "
