@@ -35,7 +35,10 @@ pub use self::{
 pub use crate::{
     gm::{
         color::*,
-        flat::{CornerRadii, Point, PointsPath, Rect, Size},
+        flat::{
+            CornerRadii, FillRule, LineCap, LineJoin, Point, PointsPath, Rect, Size, StrokeStyle, VectorPath,
+            VectorPathBuilder,
+        },
     },
     window::{
         Font, PolygonMode, Screenshot,

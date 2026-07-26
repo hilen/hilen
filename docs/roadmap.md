@@ -110,27 +110,48 @@ Found by jagged rounded corners in the corner radius test.
   scale, and blends over what is already drawn. Border to fill boundaries ramp the
   same way. The shadow pipeline was already soft through its own `smoothstep`. Covered
   by the re-recorded `CornerRadius`, `Gradient` and `Outline` tests.
-- Current: `ui_path` and `polygon` fill arbitrary triangulated geometry, so there is
-  no distance field to ramp and their edges stay hard. `sprite_textured` hard discards
-  on zero texture alpha, so sprite cutout edges are aliased too.
-- Needed: MSAA on the render pass. All pipelines in one pass must share the sample
-  count, so this is count 4 for the whole UI pass plus a multisampled color target and
-  a resolve step, or a separate multisampled pass just for the geometry pipelines. It
-  has a real per frame cost, so it needs an A/B per [benchmark.md](benchmark.md) before
-  it lands.
-- Blocks: smooth vector path and polygon edges. Nothing in the driver app today.
+- Landed: whole pass MSAA 4x. The frame renders into a multisampled color target
+  with a matching depth buffer and resolves into the presentable texture at every
+  pass end, so blur sampling and readback see resolved pixels. Every pipeline in
+  the pass and the text brush share `msaa_sample_count()`, `TE_MSAA=1` switches it
+  off as the benchmark A/B lever. 4 is the ceiling everywhere: the WebGPU spec
+  guarantees only 1 and 4, and this Mac's GPU rejects 8 outright. Cost measured
+  unguarded at the 297 panel stop scene: CPU identical, capacity identical, GPU
+  2.1 ms to 3.4 ms, far under budget.
+- Current: `sprite_textured` still hard discards on zero texture alpha, so sprite
+  cutout edges stay aliased when a sprite scales.
 
 ## Vector path rendering reconnect
 
 Found by the beekeeper node card sparklines, blank on every platform.
 
-- Current: `DrawingView` collects `PathData` and `UIPathPipeline` exists, but no
-  drawer calls it, so paths produce no visuals anywhere. The view's own doc comment
-  says rendering is disconnected and planned for reimplementation.
-- Needed: draw the collected paths in the UI pass, with a UI test on every UI test
-  platform like any engine change. Until then web-te approximates sparklines with
-  bars built from plain containers.
-- Blocks: line charts, the beekeeper node metrics and VPN traffic sparklines.
+- Landed: lyon backed vector paths drawn in the UI pass. `VectorPath` builds
+  polylines, polygons, circles and bezier curves through a Canvas style builder,
+  `DrawingView::add_stroke` takes width, caps, joins and miter limit,
+  `add_fill` takes a fill rule, and a second circle sub path cuts a hole under
+  EvenOdd. `PathData` is an indexed mesh with a compare and write placement
+  uniform, so paths follow scrolling and cost nothing per frame when static.
+  Fully transparent paths are skipped, they would only write invisible depth.
+  `CircleView` renders for the first time, and its `set_color` became
+  `set_circle_color`, the `&self` trait method always shadowed the `&mut self`
+  inherent one. Pinned by the `Drawing paths` test, 320 recorded probes passing
+  identically on desktop, the iOS simulator and Chrome WebGPU.
+
+## Web lane scroll injection determinism
+
+Found by `Table view 2 test` failing only in the browser lane once MSAA 4x made
+frames heavier.
+
+- Current: the test injects 100 wheel scrolls and taps the rows it expects at the
+  bottom. On desktop and the iOS simulator the landed offset is stable, in Chrome
+  the run lands at a different offset every time, 50 rows, 33 rows, zero rows, so
+  how many deltas take effect depends on frame pacing. With `TE_MSAA=1` the lane
+  passes by timing luck. Rendering is not involved, `Drawing paths` pins the same
+  pixels in all three lanes.
+- Needed: make injected scrolls on wasm land deterministically, one applied delta
+  per injection regardless of frame rate, likely together with the stepped time
+  source below since scroll inertia samples real elapsed time.
+- Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
 
 ## Frame stepped animation testing
 
@@ -237,9 +258,8 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
 
 ## Suggested order
 
-Browser UI tests have landed. Among the rest, the path rendering reconnect and
-frame stepped animation testing go first, both have live needs, the beekeeper
-sparklines and the unassessed animation problem in the present test. The text stack
-remainder waits for a real need for color emoji or font fallback. Shape MSAA waits
-for a real need for smooth path or polygon edges, since the SDF UI shapes people
-actually use are already anti-aliased.
+Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
+Among the rest, frame stepped animation testing goes first, it has two live
+needs, the unassessed animation problem in the present test and the web lane
+scroll determinism flake it would also fix. The text stack remainder waits for
+a real need for color emoji or font fallback.

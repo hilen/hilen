@@ -7,7 +7,9 @@ use refs::{
     managed,
 };
 use rustybuzz::{Face, ttf_parser::Tag};
-use wgpu::{CompareFunction, DepthBiasState, DepthStencilState, StencilState, TextureFormat};
+use wgpu::{
+    CompareFunction, DepthBiasState, DepthStencilState, MultisampleState, StencilState, TextureFormat,
+};
 use wgpu_text::{
     BrushBuilder, TextBrush,
     glyph_brush::{
@@ -20,7 +22,7 @@ use crate::{
     filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     window::{
-        surface_texture_format,
+        msaa_sample_count, surface_texture_format,
         text::{ShapedLayout, ShapedParams},
         window::Window,
     },
@@ -77,6 +79,11 @@ impl Font {
             stencil:             StencilState::default(),
             bias:                DepthBiasState::default(),
         }.into())
+            .with_multisample(MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            })
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
             .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {

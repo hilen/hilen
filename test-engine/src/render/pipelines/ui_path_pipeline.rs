@@ -1,5 +1,6 @@
 use wgpu::{
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveTopology, RenderPass, RenderPipeline, include_wgsl,
+    IndexFormat, PipelineLayoutDescriptor, PolygonMode, PrimitiveTopology, RenderPass, RenderPipeline,
+    include_wgsl,
 };
 
 use crate::{
@@ -30,7 +31,7 @@ impl Default for UIPathPipeline {
             &pipeline_layout,
             &shader,
             PolygonMode::Fill,
-            PrimitiveTopology::TriangleStrip,
+            PrimitiveTopology::TriangleList,
             &[Point::VERTEX_LAYOUT],
         );
 
@@ -43,7 +44,8 @@ impl UIPathPipeline {
         render_pass.set_pipeline(&self.pipeline);
 
         render_pass.set_bind_group(0, path.uniform_bind(), &[]);
-        render_pass.set_vertex_buffer(0, path.buffer().slice(..));
-        render_pass.draw(path.vertex_range(), 0..1);
+        render_pass.set_vertex_buffer(0, path.vertex_buffer().slice(..));
+        render_pass.set_index_buffer(path.index_buffer().slice(..), IndexFormat::Uint32);
+        render_pass.draw_indexed(0..path.index_count(), 0, 0..1);
     }
 }

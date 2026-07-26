@@ -538,7 +538,7 @@ impl Setup for BenchPanel {
         self.progress.set_progress(progress / 10.0);
 
         self.circle.set_radius(6);
-        self.circle.set_color(shade(i, 3));
+        self.circle.set_circle_color(shade(i, 3));
         self.circle.place().between(self.button, self.image);
 
         self.number.set_color(shade(i, 26));

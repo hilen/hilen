@@ -1,6 +1,9 @@
 use std::{
     cell::RefCell,
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::{
+        OnceLock,
+        mpsc::{Receiver, Sender, channel},
+    },
 };
 
 #[cfg(feature = "bench")]
@@ -71,6 +74,25 @@ pub fn surface_texture_format() -> TextureFormat {
     }
 }
 
+/// Samples per pixel of the frame's render pass. 4 anti-aliases the
+/// triangulated geometry the SDF pipelines cannot smooth, vector paths,
+/// polygons and sprite cutouts. Every pipeline drawing into the pass
+/// and the pass attachments must agree on this count. `TE_MSAA=1`
+/// switches multisampling off, the A/B lever for benchmarks.
+pub fn msaa_sample_count() -> u32 {
+    static COUNT: OnceLock<u32> = OnceLock::new();
+    *COUNT.get_or_init(|| {
+        let count = std::env::var("TE_MSAA").map_or(4, |value| {
+            value.parse().unwrap_or_else(|_| panic!("Invalid TE_MSAA value: {value}"))
+        });
+        assert!(
+            matches!(count, 1 | 2 | 4),
+            "TE_MSAA must be 1, 2 or 4, got {count}"
+        );
+        count
+    })
+}
+
 /// The canvas format has to be what the browser prefers. Both allowed
 /// formats are valid to configure, but rendering the non preferred one
 /// makes Chrome convert every frame and makes Firefox present it with
@@ -114,6 +136,7 @@ pub struct State {
 
     offscreen_texture: Option<wgpu::Texture>,
     scene_texture:     Option<wgpu::Texture>,
+    msaa_texture:      Option<wgpu::Texture>,
     depth_texture:     Option<Texture>,
 
     update_work: f32,
@@ -139,6 +162,7 @@ impl Default for State {
             frame_counter:                            FrameCounter::default(),
             offscreen_texture:                        None,
             scene_texture:                            None,
+            msaa_texture:                             None,
             depth_texture:                            None,
             update_work:                              0.0,
             frame_work_time:                          0.0,
@@ -300,6 +324,7 @@ impl State {
             self.ensure_offscreen_texture();
         }
         self.ensure_depth_texture();
+        self.ensure_msaa_texture();
 
         #[cfg(feature = "bench")]
         self.ensure_gpu_timer();
@@ -350,11 +375,17 @@ impl State {
         #[cfg(not(feature = "bench"))]
         let timestamp_writes = None;
 
+        let msaa_view = self
+            .msaa_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
         let mut frame = RenderFrame::new(
             encoder,
             scene_view,
             present_view,
             self.depth_texture.as_ref().unwrap().view.clone(),
+            msaa_view,
             self.clear_color,
             timestamp_writes,
         );
@@ -527,8 +558,47 @@ impl State {
         self.depth_texture = Some(Texture::create_depth_texture(
             Window::device(),
             size,
+            msaa_sample_count(),
             "depth_texture",
         ));
+    }
+
+    /// The multisampled color target the frame renders into before
+    /// resolving to the presentable texture. Not created when
+    /// multisampling is off, then the frame renders straight into the
+    /// resolve target.
+    fn ensure_msaa_texture(&mut self) {
+        if msaa_sample_count() == 1 {
+            return;
+        }
+
+        let size = Window::render_size();
+        let width: u32 = size.width.lossy_convert();
+        let height: u32 = size.height.lossy_convert();
+
+        let up_to_date = self
+            .msaa_texture
+            .as_ref()
+            .is_some_and(|texture| texture.size().width == width && texture.size().height == height);
+
+        if up_to_date {
+            return;
+        }
+
+        self.msaa_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
+            label:           Some("MSAA Render Texture"),
+            size:            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    msaa_sample_count(),
+            dimension:       wgpu::TextureDimension::D2,
+            format:          surface_texture_format(),
+            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats:    &[],
+        }));
     }
 
     fn ensure_offscreen_texture(&mut self) {

@@ -164,7 +164,12 @@ impl Texture {
         }
     }
 
-    pub(crate) fn create_depth_texture(device: &Device, size: Size<u32>, label: &str) -> Self {
+    pub(crate) fn create_depth_texture(
+        device: &Device,
+        size: Size<u32>,
+        sample_count: u32,
+        label: &str,
+    ) -> Self {
         let extend = Extent3d {
             width:                 size.width,
             height:                size.height,
@@ -172,14 +177,14 @@ impl Texture {
         };
 
         let texture = device.create_texture(&TextureDescriptor {
-            label:           label.into(),
-            size:            extend,
+            label: label.into(),
+            size: extend,
             mip_level_count: 1,
-            sample_count:    1,
-            dimension:       TextureDimension::D2,
-            format:          Self::DEPTH_FORMAT,
-            usage:           TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats:    &[],
+            sample_count,
+            dimension: TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
 
         let view = texture.create_view(&TextureViewDescriptor::default());

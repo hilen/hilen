@@ -79,7 +79,7 @@ impl Setup for Slider {
             self.on_touch(&touch);
         });
 
-        self.circle.set_color(BLUE);
+        self.circle.set_circle_color(BLUE);
     }
 }
 

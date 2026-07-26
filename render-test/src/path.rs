@@ -1,7 +1,7 @@
 use refs::main_lock::MainLock;
 use test_engine::{
     render::data::{PathData, RectView, UIRectInstance},
-    ui::{BLUE, CLEAR, CornerRadii, RED},
+    ui::{BLUE, CLEAR, CornerRadii, FillRule, RED, VectorPath},
     window::{RenderPass, Window},
 };
 
@@ -10,22 +10,15 @@ use crate::pipelines::{PATH, UI_RECT};
 static PATH_DATA: MainLock<Option<PathData>> = MainLock::new();
 
 pub(crate) fn render_path(pass: &mut RenderPass) {
-    let path = PATH_DATA.set(
-        PathData::new(
-            BLUE,
-            Window::render_size(),
-            (200, 200).into(),
-            0.5,
-            &[
-                (0, 0).into(),
-                (80, 100).into(),
-                (20, 200).into(),
-                (200, 20).into(),
-                (20, 50).into(),
-            ],
-        )
-        .into(),
-    );
+    let path = PATH_DATA.set({
+        let (vertices, indices) = VectorPath::polygon([(0, 0), (80, 100), (20, 200), (200, 20), (20, 50)])
+            .fill_mesh(FillRule::NonZero);
+
+        let mut path = PathData::new(BLUE, &vertices, &indices);
+        path.prepare((200, 200).into(), Window::render_size(), 1.0, 0.5);
+
+        path.into()
+    });
 
     let path = path.as_ref().unwrap();
 
