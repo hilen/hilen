@@ -1,11 +1,19 @@
 # Inspect
 
-Remote UI inspector. Debug builds only.
+Remote UI inspector.
 
-Every app in a debug build starts an inspect server at launch (`test-engine/src/inspect/`):
-a TCP listener on an OS-assigned port, advertised over mDNS as `_te-inspect._tcp.local.`
-with the app instance id in the TXT record. No config, no fixed ports, any number of apps
-per machine.
+The whole inspect module sits behind the `inspect` cargo feature, off by default
+(`test-engine/src/inspect/mod.rs`). An app opts in on its `test-engine` dependency:
+`features = ["inspect"]`. Without the feature there is no server, no listener and
+nothing to discover, so `te-inspect apps` finds nothing no matter how fresh the CLI is.
+An app whose shipped artifact is a browser dist keeps the feature off the wasm target by
+enabling it only through a target-conditional dependency section, see `beekeeper/web-te`
+in the `local` repo for the pattern.
+
+With the feature on, the app starts an inspect server at launch
+(`test-engine/src/inspect/`): a TCP listener on an OS-assigned port, advertised over mDNS
+as `_te-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
+fixed ports, any number of apps per machine.
 
 Two clients exist:
 
@@ -15,10 +23,17 @@ Two clients exist:
   `cargo install --path te-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `ui`, `screenshot`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
+  `tree`, `view`, `ui`, `screenshot`, `tap`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
+
+`te-inspect tap` takes a query, not only an id: exact view id, exact visible text, label
+substring, then text substring, all case insensitive, first rung with a match decides.
+One match taps, several list the candidates and error. Hidden views and their subtrees
+never match a query, only an exact id reaches them, and the app refuses to tap a hidden
+view. Dropdowns work like a human drives them: tap the dropdown to open it, the reply
+tree already contains the open cells, then tap the wanted cell by its text.
 
 ## Protocol
 
@@ -26,8 +41,11 @@ Lives in `test-engine/src/inspect/protocol/`. Length-prefixed JSON frames over T
 (`transport.rs`), request in, response out:
 
 - `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames,
-  colors, texts and placer rules.
+  colors, texts, hidden flags and placer rules.
 - `SetScale(f32)` — applies the scale on the main thread.
+- `Tap { view_id }` — injects a touch began plus ended at the view's center through the
+  real input pipeline, exactly like a click. Refuses hidden views. Replies with a fresh
+  tree one frame later, so a page swap or a modal the tap triggered is already in it.
 - `EditRule { view_id, rule_index, offset, enabled }` — edits a placer rule of the live
   view. Offset applies to Side and Anchor rules and edits the ratio of Relative rules.
 - `SetText { view_id, text }` — sets the text of a live `Label`, `Button` or `TextField`.
@@ -93,12 +111,13 @@ on a device for example, only the in-memory list works.
 
 ## Release builds
 
-The server parts — `inspect_service`, `edit_log`, `view_conversion` and the `serve`
-transport — are `cfg(debug_assertions)` and do not exist in release builds.
-`test-engine/build.rs` fails any release-profile build that enables debug-assertions, so
-the server can never ship. The protocol and the `inspect::views` widgets stay available
-in release, so the host-side tools `inspector` and `te-inspect` build in release like any
-other crate. `te-inspect` is excluded from default workspace members.
+The `inspect` cargo feature is the one and only gate, by design. With the feature on the
+server works the same in debug and release builds, there is no `debug_assertions` gating.
+The flip side: an app that enables the feature carries the server in its release builds
+too, so a shipping app keeps the feature out of its shipped targets, which is what the
+target-conditional dependency pattern above does. The host-side tools `inspector` and
+`te-inspect` build in release like any other crate, `te-inspect` is excluded from default
+workspace members.
 
 ## Local hook
 

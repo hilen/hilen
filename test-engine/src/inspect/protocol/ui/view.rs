@@ -13,6 +13,7 @@ pub struct ViewRepr {
     pub frame:    Rect,
     pub color:    Color,
     pub text:     Option<String>,
+    pub hidden:   bool,
     pub placer:   Placer,
     pub subviews: Vec<Own<ViewRepr>>,
 }
@@ -25,6 +26,7 @@ impl Default for ViewRepr {
             frame:    Rect::default(),
             color:    Color::default(),
             text:     None,
+            hidden:   false,
             placer:   Placer::empty(),
             subviews: vec![],
         }

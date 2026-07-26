@@ -35,9 +35,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   Read before touching threading, async, or dispatch code.
 - [docs/ui-tests.md](docs/ui-tests.md) — how UI tests work and how to run a single one.
   Read before writing or debugging UI tests.
-- [docs/inspect.md](docs/inspect.md) — the remote UI inspector, its protocol and debug-only
-  gating. Read before touching `test-engine/src/inspect`, the `inspector` app, or the
-  `te-inspect` CLI.
+- [docs/inspect.md](docs/inspect.md) — the remote UI inspector, its protocol and the
+  off-by-default `inspect` feature gate. Read before touching `test-engine/src/inspect`,
+  the `inspector` app, or the `te-inspect` CLI.
 - [docs/benchmark.md](docs/benchmark.md) — the UI benchmark, its consistency guard, and the
   results history in `bench/`. Read before touching the benchmark or measuring performance.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before

@@ -25,7 +25,11 @@ use crate::{
         protocol::{AppCommand, EditEntry, InspectorCommand, TestFailureRepr, UIRequest, UIResponse},
         view_conversion::{ViewToInspect, weak_to_id},
     },
-    ui::{Button, Label, TextField, UIManager, ViewData, ViewSubviews, WeakView},
+    ui::{
+        Button, Input, Label, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame, ViewSubviews,
+        WeakView,
+    },
+    window::MouseButton,
 };
 
 pub struct InspectService;
@@ -204,6 +208,37 @@ impl InspectService {
                 view.set_color(color);
                 Ok(entry(view, "color", format!("{old}"), format!("{color}")))
             }),
+            UIRequest::Tap { view_id } => {
+                let result = from_main(move || -> Result<(), String> {
+                    let view = find_view(&view_id)?;
+
+                    if view.is_hidden_in_tree() {
+                        return Err(format!("View {} is hidden", view.label()));
+                    }
+
+                    // The touch pipeline takes physical pixels and converts
+                    // to points itself, so the center scales up first.
+                    let position = view.absolute_frame().center() * UIManager::scale();
+
+                    for event in [TouchEvent::Began, TouchEvent::Ended] {
+                        Input::process_touch_event(Touch {
+                            id: 1,
+                            position,
+                            event,
+                            button: MouseButton::Left,
+                        });
+                    }
+
+                    Ok(())
+                });
+
+                match result {
+                    // The snapshot runs a frame later, so a page swap or
+                    // modal the tap triggered is already in the tree.
+                    Ok(()) => Self::send_ui(),
+                    Err(err) => AppCommand::Error(err),
+                }
+            }
         }
     }
 
