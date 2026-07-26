@@ -15,10 +15,10 @@ use test_engine::{
 struct CssColors {
     #[init]
     green: Container,
-    dark: Container,
+    dark:  Container,
     muted: Container,
-    tint: Container,
-    mid: Container,
+    tint:  Container,
+    mid:   Container,
 }
 
 impl Setup for CssColors {
