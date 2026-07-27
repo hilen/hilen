@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use refs::{Weak, main_lock::MainLock};
 use wgpu::RenderPass;
-use wgpu_text::glyph_brush::{HorizontalAlign, Section, Text};
+use wgpu_text::{Section, Text, TextBuilder, glyph_brush::HorizontalAlign};
 
 use crate::{
     gm::{
@@ -14,7 +14,7 @@ use crate::{
     render::{
         UIBackdropPipeline, UIBlurPipeline, UIGradientPipeline, UIImageRectPipeline, UIPathPipeline,
         UIRectPipeline, UIShadowPipeline,
-        data::{PathData, RectView, UIGradientInstance, UIImageInstance, UIRectInstance, UIShadowInstance},
+        data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
         BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, View, ViewData,
@@ -314,17 +314,13 @@ impl UIDrawer {
                     ctx.scale,
                 ));
             }
-        } else if view.end_gradient_color().a > 0.0 {
-            GRADIENT_DRAWER.get_mut().add(UIGradientInstance {
-                position:     frame.origin,
-                size:         frame.size,
-                start_color:  *view.color(),
-                end_color:    *view.end_gradient_color(),
-                corner_radii: view.corner_radii(),
-                z_position:   view.z_position(),
-                scale:        ctx.scale,
-                padding:      [0.0; 2],
-            });
+        } else if let Some(gradient) = view.gradient() {
+            GRADIENT_DRAWER.get_mut().add(gradient.instance(
+                frame,
+                view.corner_radii(),
+                view.z_position(),
+                ctx.scale,
+            ));
         } else if view.color().a > 0.0 || view.border_color().a > 0.0 {
             Pipelines::rect().add(UIRectInstance::new(
                 frame,
@@ -413,13 +409,19 @@ impl UIDrawer {
             },
         };
 
-        let section = Section::default()
-            .add_text(
-                Text::new(&label.text)
-                    .with_scale(label.text_size() * scale * font.em_scale())
-                    .with_color(label.text_color().as_slice())
-                    .with_z(label.z_position() - UIManager::additional_z_offset()),
-            )
+        let mut text = Text::new(&label.text)
+            .with_scale(label.text_size() * scale * font.em_scale())
+            .with_color(label.text_color().as_slice())
+            .with_z(label.z_position() - UIManager::additional_z_offset());
+
+        // After `with_color`, which sets both ends of the ramp so that a label
+        // without a gradient stays flat.
+        if let Some(end) = label.text_end_color() {
+            text = text.with_end_color(end.as_slice());
+        }
+
+        let section = Section::new()
+            .add_text(text)
             .with_bounds((
                 frame.width() - if label.alignment.center() { 0.0 } else { margin },
                 frame.height(),

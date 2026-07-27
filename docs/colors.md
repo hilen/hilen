@@ -33,6 +33,29 @@ lighter linear blend. Gradients interpolate like CSS gradients. Text
 antialiasing blends like browser text with no shader compensation. The
 `Css colors` UI test pins all of this with hand computed expectations.
 
+## Gradients
+
+Every view has them, `Label` and `Button` included, since `set_gradient` and
+`apply_gradient` live on `ViewData`. They fill the view box behind its content
+and follow its corner radii.
+
+- `set_gradient(start, end)` is the vertical ramp, CSS `linear-gradient(180deg,
+  start, end)`.
+- `apply_gradient` takes a `Gradient` for everything else. `Gradient::linear`
+  takes a CSS angle, `Gradient::radial` and `radial_at` take a center as a
+  fraction of the box, and `with_end_stop` is the CSS stop position such as
+  `transparent 60%`.
+- The ending shape of a radial is the CSS `ellipse`, the one through the
+  farthest corner, so it follows the box aspect. A square box gives a round
+  one. The CSS `circle` shape does not exist yet.
+- Stops interpolate premultiplied, like CSS, so a ramp into `transparent` fades
+  without sliding through black.
+
+Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
+CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
+glyphs themselves from the top of the label frame to its bottom, see
+[text.md](text.md). The `Gradient` UI test covers all of these.
+
 ## History
 
 The pipeline used to render into sRGB targets, which made the hardware

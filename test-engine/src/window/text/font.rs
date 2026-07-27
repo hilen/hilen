@@ -11,11 +11,8 @@ use wgpu::{
     CompareFunction, DepthBiasState, DepthStencilState, MultisampleState, StencilState, TextureFormat,
 };
 use wgpu_text::{
-    BrushBuilder, TextBrush,
-    glyph_brush::{
-        Section, Text,
-        ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, VariableFont},
-    },
+    BrushBuilder, Section, Text, TextBrush,
+    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, VariableFont},
 };
 
 use crate::{
@@ -114,7 +111,7 @@ impl Font {
             return Size::default();
         }
 
-        let section = Section::default()
+        let section = Section::new()
             .add_text(Text::new(text).with_scale(size.to_f32() * self.em_scale))
             .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
 

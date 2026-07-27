@@ -62,3 +62,21 @@ polarities. The wgpu_text fork still carries a coverage remap entry point,
 but it activates only on sRGB targets, which the engine no longer uses.
 Measuring workflow, scripts and the trak table details live in the
 test-engine skill's migration chapter, next to this repo's users.
+
+## Gradient text
+
+`Label::set_text_gradient(start, end)` fades the glyphs from the top of the
+label frame to its bottom, the CSS `background-clip: text` case. A gradient set
+with `apply_gradient` paints the label box instead, see [colors.md](colors.md).
+Both ends accept a `DynamicColor`, so a themed title resolves on a theme change
+like a plain text color does.
+
+The section extra in the wgpu_text fork carries a second color, and `to_vertex`
+packs it into the glyph vertex along with the section box, which glyph_brush
+already hands over as `bounds`. The ramp is applied in the vertex stage, so the
+corner colors interpolate across the glyph quad, no value crosses between the
+stages and the fragment shader is untouched. Flat text sets both ends to the
+same color, which costs one `mix` and no branch. Per glyph this is 12 bytes,
+`Vertex` went from 52 to 64.
+
+`set_text_color` clears a gradient, so the two cannot both be live on one label.

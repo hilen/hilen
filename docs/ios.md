@@ -84,7 +84,7 @@ It is an Apple driver bug on a deprecated chip and there is nothing to fix in th
 The UI shaders stay under the limit by keeping per-instance constants out of the
 interpolator. Almost nothing a rect shader carries actually varies across the shape, only
 `uv` does, so the rest is read from a storage buffer indexed by a flat `@builtin(instance_index)`.
-`ui_rect` went from 17 components to 3 that way, `ui_image` 15 to 5, `ui_gradient` 17 to 4,
+`ui_rect` went from 17 components to 3 that way, `ui_image` 15 to 5, `ui_gradient` 17 to 3,
 `ui_shadow` 13 to 3 and `ui_backdrop` 17 to 3, with no visual change at all and every
 `check_colors` block still passing untouched.
 

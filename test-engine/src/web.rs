@@ -30,6 +30,7 @@ pub(crate) fn install_panic_hook() {
 /// and it exists on workers too, where the suite actually runs.
 fn report_panic(info: &PanicHookInfo) {
     let Some(url) = PANIC_BEACON_URL.get() else {
+        log::error!("Panic beacon has no url, the panic reaches no driver");
         return;
     };
 
@@ -38,8 +39,12 @@ fn report_panic(info: &PanicHookInfo) {
         return;
     };
 
-    let thread = std::thread::current();
-    let body = format!("{}: {info}", thread.name().unwrap_or("unnamed thread"));
+    log::error!("Panic beacon sending");
+
+    // Nothing here may touch thread local state. A second panic inside the
+    // hook aborts the instance at once, with no console output and no beacon,
+    // which is indistinguishable from the driver's own timeout.
+    let body = format!("{info}");
 
     if request.open_with_async("POST", url, false).is_err() || request.send_with_opt_str(Some(&body)).is_err()
     {

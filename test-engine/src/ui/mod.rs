@@ -1,3 +1,4 @@
+mod gradient;
 mod hover;
 mod images;
 mod input;
@@ -28,9 +29,9 @@ pub use ui_proc::*;
 
 pub(crate) use self::touch_layer::*;
 pub use self::{
-    hover::*, images::*, input::*, layout::*, modal_view::*, navigation_view::*, shadow::*, style::*,
-    text_field_constraint::*, theme::*, to_label::*, touch_stack::*, ui_drawer::UIDrawer, ui_event::*,
-    ui_manager::*, view::*, views::*, with_header::*,
+    gradient::*, hover::*, images::*, input::*, layout::*, modal_view::*, navigation_view::*, shadow::*,
+    style::*, text_field_constraint::*, theme::*, to_label::*, touch_stack::*, ui_drawer::UIDrawer,
+    ui_event::*, ui_manager::*, view::*, views::*, with_header::*,
 };
 pub use crate::{
     gm::{

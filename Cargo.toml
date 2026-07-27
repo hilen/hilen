@@ -128,7 +128,7 @@ web-sys = { version = "0.3", features = [
 ] }
 web-time = "1.1"
 wgpu = { git = "https://github.com/VladasZ/wgpu", rev = "47e55304a59f0c8d933cb3be3dc84b29a1b871f6" }
-wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "deb50e912148d660e938e69eb27225753b5353a0" }
+wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "b865aae2c29600cf83c61447565152fddd274d60" }
 winit = "0.30"
 
 hreads = { path = "deps/hreads" }

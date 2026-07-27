@@ -22,7 +22,14 @@ struct UIGradientInstance {
     corner_radii: vec4<f32>,
     z_position: f32,
     scale: f32,
+    linear_axis: vec2<f32>,
+    radial_center: vec2<f32>,
+    radial_radii: vec2<f32>,
+    linear_bias: f32,
+    kind: u32,
 }
+
+const GRADIENT_RADIAL: u32 = 1u;
 
 @group(0) @binding(0)
 var<uniform> view: RectView;
@@ -31,13 +38,13 @@ var<uniform> view: RectView;
 var<storage, read> instances: array<UIGradientInstance>;
 
 // An A7 GPU draws nothing at all from a shader carrying more than eight float
-// components between the stages, see docs/ios.md. Only `uv` and the gradient
-// ramp really vary across the shape, so the colors are read from `instances`.
+// components between the stages, see docs/ios.md. Only `uv` really varies
+// across the shape, so the colors and the ramp shape are read from
+// `instances` and the ramp itself is computed in the fragment stage.
 struct VertexOutput {
     @builtin(position) pos:   vec4<f32>,
           @location(0) uv:   vec2<f32>,
-          @location(1) gradient_pos:  f32,
-          @location(2) @interpolate(flat) index: u32,
+          @location(1) @interpolate(flat) index: u32,
 }
 
 @vertex
@@ -75,7 +82,6 @@ fn v_main(
     out.pos   = out_pos;
 
     out.uv = model * 0.5;
-    out.gradient_pos = (model.y + 1.0) / 2.0;
     out.index = index;
 
     return out;
@@ -107,11 +113,39 @@ fn edge_coverage(dist: f32) -> f32 {
     return clamp(0.5 - dist / fwidth(dist), 0.0, 1.0);
 }
 
+// How far along the ramp this pixel is, 0 at the start color and 1 at the
+// end. The CSS math is baked into the instance, so a linear gradient costs
+// one dot product and a radial one length.
+fn gradient_ramp(uv: vec2<f32>, instance: UIGradientInstance) -> f32 {
+    var ramp: f32;
+
+    if instance.kind == GRADIENT_RADIAL {
+        ramp = length((uv - instance.radial_center) / instance.radial_radii);
+    } else {
+        ramp = instance.linear_bias + dot(uv, instance.linear_axis);
+    }
+
+    return clamp(ramp, 0.0, 1.0);
+}
+
+// CSS interpolates a gradient with premultiplied alpha, so a stop fading to
+// `transparent` keeps its hue instead of sliding towards black.
+fn gradient_color(instance: UIGradientInstance, ramp: f32) -> vec4<f32> {
+    let start = vec4<f32>(instance.start_color.rgb * instance.start_color.a, instance.start_color.a);
+    let end = vec4<f32>(instance.end_color.rgb * instance.end_color.a, instance.end_color.a);
+
+    let color = mix(start, end, ramp);
+
+    // The pipeline blends with plain alpha, so the color goes back to
+    // straight alpha here. A fully transparent pixel is discarded below.
+    return vec4<f32>(color.rgb / max(color.a, 0.0001), color.a);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIGradientInstance = instances[in.index];
 
-    let color = mix(instance.start_color, instance.end_color, in.gradient_pos);
+    let color = gradient_color(instance, gradient_ramp(in.uv, instance));
 
     let local_pos: vec2<f32> = in.uv * instance.size;
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);

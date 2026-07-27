@@ -9,7 +9,7 @@ use crate::{
         color::Color,
         flat::{CornerRadii, Rect},
     },
-    ui::{DynamicColor, NavigationView, Shadow, Touch, UIEvent, View, WeakView, layout::Placer},
+    ui::{DynamicColor, Gradient, NavigationView, Shadow, Touch, UIEvent, View, WeakView, layout::Placer},
 };
 
 #[derive(Educe)]
@@ -21,7 +21,7 @@ pub struct ViewBase {
     pub(crate) dynamic_color: Option<DynamicColor>,
 
     #[educe(Debug(ignore))]
-    pub(crate) end_gradient_color: Color,
+    pub(crate) gradient: Option<Gradient>,
 
     #[educe(Debug(ignore))]
     pub(crate) corner_radii:         CornerRadii,
