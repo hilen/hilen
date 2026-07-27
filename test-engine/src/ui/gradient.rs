@@ -88,6 +88,8 @@ impl Gradient {
         &self,
         frame: Rect,
         corner_radii: CornerRadii,
+        border_color: Color,
+        border_width: f32,
         z_position: f32,
         scale: f32,
     ) -> UIGradientInstance {
@@ -108,7 +110,9 @@ impl Gradient {
             radial_radii: Size::default(),
             linear_bias: 0.0,
             kind: UIGradientInstance::LINEAR,
-            padding: [0.0; 2],
+            border_width,
+            padding: [0.0; 1],
+            border_color,
         };
 
         match self.kind {

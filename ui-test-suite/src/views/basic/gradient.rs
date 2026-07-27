@@ -4,10 +4,8 @@ use test_engine::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        self,
-        Anchor::Left,
-        BLACK, BLUE, Button, CLEAR, Container, GREEN, Label, PURPLE, RED, Screenshot, Setup, TURQUOISE,
-        U8Color, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view,
+        self, Anchor::Left, BLACK, BLUE, Button, CLEAR, Container, GREEN, Label, PURPLE, RED, Screenshot,
+        Setup, TURQUOISE, U8Color, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, set_record_probe_count},
 };
@@ -22,6 +20,12 @@ const RAMP_FRAME: (u32, u32, u32, u32) = (20, 168, 560, 66);
 /// Five times the default density, since most of this canvas is text ink and
 /// soft gradient falloff, where a sparse grid pins very little.
 const PROBES: usize = 160;
+
+/// The bordered box sits in the empty strip right of the button, so it adds no
+/// pixels where the recorded block already probes.
+const BORDERED_FRAME: (u32, u32) = (240, 344);
+/// Screen pixels, so the band can be probed without a float cast.
+const BORDER: u32 = 6;
 
 #[view]
 struct Gradient {
@@ -38,7 +42,8 @@ struct Gradient {
 
     button_container: Container,
 
-    angled: Container,
+    angled:   Container,
+    bordered: Container,
 
     radial_top:    Container,
     radial_center: Container,
@@ -79,6 +84,13 @@ impl Setup for Gradient {
         self.angled.apply_gradient(ui::Gradient::linear(135, RED, BLUE));
         self.angled.place().t(254).size(70, 70).anchor(Left, self.grad_3, 20);
 
+        // A gradient fills the box, so the border has to be drawn on top of the
+        // ramp. It used to be dropped entirely, which left every gradient view
+        // with no outline at all.
+        self.bordered.set_gradient(RED, BLUE).set_corner_radius(12);
+        self.bordered.set_border_color(GREEN).set_border_width(BORDER);
+        self.bordered.place().l(BORDERED_FRAME.0).t(BORDERED_FRAME.1).size(120, 60);
+
         self.button_container.place().l(20).t(344).size(200, 60);
 
         self.button = self.button_container.add_view();
@@ -102,8 +114,16 @@ impl Setup for Gradient {
         // wider box the same gradient stretches to the box aspect, which looks
         // like a bug next to nothing that explains it.
         self.radial_top.place().l(20).t(424).size(170, 170);
-        self.radial_center.place().t(424).size(170, 170).anchor(Left, self.radial_top, 20);
-        self.radial_corner.place().t(424).size(170, 170).anchor(Left, self.radial_center, 20);
+        self.radial_center
+            .place()
+            .t(424)
+            .size(170, 170)
+            .anchor(Left, self.radial_top, 20);
+        self.radial_corner
+            .place()
+            .t(424)
+            .size(170, 170)
+            .anchor(Left, self.radial_center, 20);
     }
 }
 
@@ -112,9 +132,15 @@ impl ViewTest for Gradient {
         set_record_probe_count(PROBES);
 
         check_text_gradient(view)?;
+        check_gradient_border(view)?;
 
-        check_colors(
-            r"
+        check_colors(COLORS)?;
+
+        Ok(())
+    }
+}
+
+const COLORS: &str = r"
               20   24 - #000000
              212   32 - #fe0000
              312   32 - #7a0000
@@ -275,12 +301,7 @@ impl ViewTest for Gradient {
              400  592 - #fd01fe
              464  592 - #b537d0
              592  592 - #597c95
-        ",
-        )?;
-
-        Ok(())
-    }
-}
+        ";
 
 /// Glyph gradients are checked by relation instead of by recorded probes. The
 /// text is antialiased and its ink covers a small part of each frame, so a
@@ -326,6 +347,47 @@ fn check_text_gradient(view: Weak<Gradient>) -> Result<()> {
 
     from_main(move || {
         view.ramp_text.set_text_gradient(RED, BLUE);
+    });
+
+    Ok(())
+}
+
+/// The border is checked by relation for the same reason the glyph ramp is.
+/// Probing it would mean re-recording the whole block, since the recorder picks
+/// its probes across the canvas and one new box moves them everywhere.
+fn check_gradient_border(view: Weak<Gradient>) -> Result<()> {
+    // Half the band in from the left edge at mid height, so no corner and no
+    // antialiased boundary is involved.
+    let band = (BORDERED_FRAME.0 + BORDER / 2, BORDERED_FRAME.1 + 30);
+    let inside = (BORDERED_FRAME.0 + 60, BORDERED_FRAME.1 + 30);
+
+    let shot = AppRunner::take_screenshot()?;
+
+    let bordered = shot.get_pixel(band);
+    let ramp = shot.get_pixel(inside);
+
+    assert!(
+        bordered.g > bordered.r && bordered.g > bordered.b,
+        "the border band is not the border color, got {bordered:?}"
+    );
+    assert!(
+        ramp.g < ramp.r || ramp.g < ramp.b,
+        "the box interior took the border color instead of the ramp, got {ramp:?}"
+    );
+
+    from_main(move || {
+        view.bordered.set_border_width(0);
+    });
+
+    let borderless = AppRunner::take_screenshot()?.get_pixel(band);
+
+    assert!(
+        borderless.g < bordered.g,
+        "clearing the border width left the band painted, got {borderless:?}"
+    );
+
+    from_main(move || {
+        view.bordered.set_border_width(BORDER);
     });
 
     Ok(())

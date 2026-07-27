@@ -50,6 +50,9 @@ and follow its corner radii.
   one. The CSS `circle` shape does not exist yet.
 - Stops interpolate premultiplied, like CSS, so a ramp into `transparent` fades
   without sliding through black.
+- A border draws on top of the ramp, the same band `UIRectInstance` draws over a
+  flat fill. The gradient pipeline used to carry no border at all, so setting
+  one on a gradient view silently did nothing.
 
 Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
 CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the

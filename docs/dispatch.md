@@ -53,6 +53,12 @@ iteration. So on iOS only, `request_frame` also wakes the loop from the main thr
 iteration re-checks the flag and keeps drawing. Doing that same wake on desktop livelocks the
 loop, so it is gated to iOS.
 
+A resize draws inside its own event rather than waiting for the next frame. Reconfiguring the
+surface resizes the backing buffer and clears it, and a window drag fires resizes far faster
+than frames arrive, so waiting presents an empty buffer for the whole drag. In a browser that
+reads as the page going black while it is dragged, since the cleared canvas shows the page
+background behind it.
+
 Headless runs render every iteration and ignore the flag. Wasm uses `ControlFlow::Wait` with an
 unconditional `request_redraw` in `about_to_wait`, so the loop runs one iteration per display
 frame off requestAnimationFrame. It must not use `Poll`: winit implements web `Poll` with a

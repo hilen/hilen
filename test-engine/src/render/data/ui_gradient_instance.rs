@@ -37,7 +37,15 @@ pub(crate) struct UIGradientInstance {
     pub linear_bias:   f32,
     pub kind:          u32,
 
-    pub padding: [f32; 2],
+    /// The border rides on top of the ramp, exactly like `UIRectInstance`
+    /// draws it on top of a flat fill.
+    pub border_width: f32,
+
+    /// A `vec4` needs 16 byte alignment, so `border_color` lands here rather
+    /// than next to the width it belongs with.
+    pub padding: [f32; 1],
+
+    pub border_color: Color,
 }
 
 impl UIGradientInstance {
@@ -76,6 +84,8 @@ mod test {
         assert_eq!(offset_of!(UIGradientInstance, radial_radii), 88);
         assert_eq!(offset_of!(UIGradientInstance, linear_bias), 96);
         assert_eq!(offset_of!(UIGradientInstance, kind), 100);
-        assert_eq!(size_of::<UIGradientInstance>(), 112);
+        assert_eq!(offset_of!(UIGradientInstance, border_width), 104);
+        assert_eq!(offset_of!(UIGradientInstance, border_color), 112);
+        assert_eq!(size_of::<UIGradientInstance>(), 128);
     }
 }

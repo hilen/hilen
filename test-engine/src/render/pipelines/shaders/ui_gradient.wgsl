@@ -27,6 +27,8 @@ struct UIGradientInstance {
     radial_radii: vec2<f32>,
     linear_bias: f32,
     kind: u32,
+    border_width: f32,
+    border_color: vec4<f32>,
 }
 
 const GRADIENT_RADIAL: u32 = 1u;
@@ -108,9 +110,11 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-// One pixel wide analytic edge coverage. See ui_rect.wgsl.
-fn edge_coverage(dist: f32) -> f32 {
-    return clamp(0.5 - dist / fwidth(dist), 0.0, 1.0);
+// One pixel wide analytic edge coverage. See ui_rect.wgsl. The derivative is
+// passed in, because a `fwidth` inside the border branch below would sit in
+// non uniform control flow, where the result is undefined.
+fn edge_coverage(dist: f32, width: f32) -> f32 {
+    return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
 // How far along the ramp this pixel is, 0 at the start color and 1 at the
@@ -151,11 +155,25 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
 
-    let alpha: f32 = color.a * edge_coverage(dist);
+    // One derivative for the whole shader, see ui_rect.wgsl.
+    let width: f32 = fwidth(dist);
+
+    var rgb: vec3<f32> = color.rgb;
+    var alpha: f32 = color.a;
+
+    if instance.border_width > 0.0 {
+        // 1 in the ramp interior, 0 in the border band, one pixel ramp at
+        // the boundary between them.
+        let fill: f32 = edge_coverage(dist + instance.border_width, width);
+        rgb = mix(instance.border_color.rgb, color.rgb, fill);
+        alpha = mix(instance.border_color.a, color.a, fill);
+    }
+
+    alpha *= edge_coverage(dist, width);
 
     if alpha < 0.004 {
         discard;
     }
 
-    return vec4<f32>(color.rgb, alpha);
+    return vec4<f32>(rgb, alpha);
 }

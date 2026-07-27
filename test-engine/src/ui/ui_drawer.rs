@@ -318,6 +318,8 @@ impl UIDrawer {
             GRADIENT_DRAWER.get_mut().add(gradient.instance(
                 frame,
                 view.corner_radii(),
+                *view.border_color(),
+                view.border_width(),
                 view.z_position(),
                 ctx.scale,
             ));

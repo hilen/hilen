@@ -234,7 +234,15 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 if self.state.not_ready() {
                     return;
                 }
+
                 State::resize();
+
+                // Configuring the surface resizes the backing buffer, which
+                // clears it. Leaving that for the next frame presents an empty
+                // buffer, and a window drag fires resizes far faster than
+                // frames, so the app reads as blank the whole time it is
+                // dragged. Drawing here means nothing empty is ever shown.
+                Self::window().state.render();
             }
             WindowEvent::ScaleFactorChanged {
                 scale_factor,
