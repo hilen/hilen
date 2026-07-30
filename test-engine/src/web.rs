@@ -46,8 +46,20 @@ fn report_panic(info: &PanicHookInfo) {
     // which is indistinguishable from the driver's own timeout.
     let body = format!("{info}");
 
-    if request.open_with_async("POST", url, false).is_err() || request.send_with_opt_str(Some(&body)).is_err()
-    {
+    if request.open_with_async("POST", url, false).is_err() {
+        log::error!("Failed to send the panic beacon");
+        return;
+    }
+
+    // The driver relaunches the suite past a panicked test, so it needs the
+    // test's name. Only a try lock is safe, the panicking thread may hold it.
+    if let Some(name) = crate::ui_test::current_test_name_nonblocking() {
+        if request.set_request_header("X-TE-Test", &name).is_err() {
+            log::error!("Failed to set the panic beacon test header");
+        }
+    }
+
+    if request.send_with_opt_str(Some(&body)).is_err() {
         log::error!("Failed to send the panic beacon");
     }
 }

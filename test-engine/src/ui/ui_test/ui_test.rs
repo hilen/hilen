@@ -25,6 +25,15 @@ pub fn current_test_name() -> String {
     TEST_NAME.lock().clone()
 }
 
+/// Like [`current_test_name`], but never blocks. For the wasm panic beacon,
+/// where the panicking thread may hold the lock and a hook that blocks or
+/// panics again aborts the instance with the beacon unsent.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn current_test_name_nonblocking() -> Option<String> {
+    let name = TEST_NAME.try_lock()?;
+    if name.is_empty() { None } else { Some(name.clone()) }
+}
+
 struct FpsRecord {
     name:    String,
     frames:  u32,

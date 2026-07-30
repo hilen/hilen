@@ -64,6 +64,11 @@ The report arrives over the inspect WebSocket instead of the console, and on fai
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
 See [inspect.md](inspect.md).
 
+A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
+runner does. The panic beacon names the running test, the driver records it as failed,
+relaunches the browser with the dead tests in `te_test_skip`, and merges them into the
+final report, so one panicking test cannot hide the rest of the suite.
+
 ## Run from the editor
 
 A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock

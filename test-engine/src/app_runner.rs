@@ -275,7 +275,9 @@ impl AppRunner {
     /// `TE_TEST_RESULT` console line instead of an exit code, since a
     /// page has no exit status. `te_test_only` narrows the run to a
     /// comma separated list of test names, camel case only, spaces do
-    /// not survive a url.
+    /// not survive a url. `te_test_skip` drops tests the same way, the
+    /// driver relists panicked ones there when it relaunches the page,
+    /// since a wasm panic aborts the instance and cannot be caught.
     #[cfg(all(wasm, feature = "ui-tests"))]
     fn spawn_test_autorun() {
         if !crate::web::query_flag("te_run_tests") {
@@ -296,6 +298,7 @@ impl AppRunner {
 
             // Read on the main thread, a worker has no window.
             let only = crate::web::query_param("te_test_only");
+            let skip = crate::web::query_param("te_test_skip");
 
             // A browser serves sync `get` only from memory, so every
             // asset group downloads before the suite starts. Native
@@ -306,13 +309,13 @@ impl AppRunner {
                     log::error!("Asset preload for tests failed: {err}");
                 }
 
-                Self::spawn_test_worker(only);
+                Self::spawn_test_worker(only, skip);
             });
         });
     }
 
     #[cfg(all(wasm, feature = "ui-tests"))]
-    fn spawn_test_worker(only: Option<String>) {
+    fn spawn_test_worker(only: Option<String>, skip: Option<String>) {
         hreads::spawn_thread(move || {
             let mut tests = crate::UI_TESTS.lock().clone();
 
@@ -320,6 +323,14 @@ impl AppRunner {
                 let keep: Vec<String> =
                     only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
                 tests.retain(|name, _| keep.contains(name));
+            }
+
+            // The driver reports skipped tests as failures itself, this
+            // rerun only has to survive them.
+            if let Some(skip) = skip {
+                let drop: Vec<String> =
+                    skip.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                tests.retain(|name, _| !drop.contains(name));
             }
 
             let report = crate::ui_test::run_test_map(&tests);
