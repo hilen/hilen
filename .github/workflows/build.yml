@@ -79,7 +79,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chrome, firefox]
+        # Chrome is off for now. Dawn on SwiftShader draws the readback
+        # frame at quarter scale, so 33 tests read wrong pixels while the
+        # screen is correct. Restore chrome here once that bug is fixed.
+        browser: [firefox]
     steps:
       - uses: actions/checkout@v5
         with:
