@@ -89,14 +89,14 @@ winit = { workspace = true, features = ["android-game-activity"] }
 [target.'cfg(not(target_os = "android"))'.dependencies]
 winit = { workspace = true }
 
-[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 
-[target.'cfg(target_os = "ios")'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }
 
-[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }
 open = { workspace = true }
 

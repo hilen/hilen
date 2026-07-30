@@ -35,4 +35,4 @@ wasm-bindgen-test = "0.3"
 fake = "4.4"
 
 [build-dependencies]
-plat = "0.8"
+plat = { path = "../plat" }

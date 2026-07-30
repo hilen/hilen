@@ -57,7 +57,8 @@ flags.
 
 TestEngine currently supports Windows, Linux, macOS, iOS, Android and WebAssembly. The Android
 APK builds fully inside docker via `make android`, so no host Android tooling is needed.
-Minimum supported Android version is 8.0, API 26.
+Minimum supported Android version is 8.0, API 26. tvOS builds and renders in the Apple TV
+simulator, display only with no input path yet, see [docs/tvos.md](docs/tvos.md).
 
 ---
 

@@ -6,6 +6,7 @@ members = [
   "bench",
   "deps/hreads",
   "deps/netrun",
+  "deps/plat",
   "deps/refs",
   "deps/ui-proc-test",
   "deps/vents",
@@ -129,13 +130,13 @@ web-sys = { version = "0.3", features = [
 web-time = "1.1"
 wgpu = { git = "https://github.com/VladasZ/wgpu", rev = "47e55304a59f0c8d933cb3be3dc84b29a1b871f6" }
 wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "b865aae2c29600cf83c61447565152fddd274d60" }
-winit = "0.30"
+winit = { git = "https://github.com/VladasZ/winit", rev = "77675c2e414661bdbcafb58abc0b6ab4dca5602c" }
 
 hreads = { path = "deps/hreads" }
 refs = { path = "deps/refs", default-features = true }
 vents = { path = "deps/vents" }
 netrun = { path = "deps/netrun" }
-plat = "0.9"
+plat = { path = "deps/plat" }
 reflected = "0.30"
 
 level-proc = { path = "deps/level-proc" }

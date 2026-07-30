@@ -28,4 +28,4 @@ wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
 
 [build-dependencies]
-plat = "0.8"
+plat = { path = "../plat" }

@@ -283,10 +283,25 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   ride the inspect socket, so no automation protocol is needed at all.
 - Blocks: nothing. CI compiles the wasm target and runs the suite in Chrome.
 
+## Siri Remote input for tvOS
+
+Found by the tvOS display bring-up, see [tvos.md](tvos.md).
+
+- Current: the engine builds for tvOS and renders in the Apple TV simulator, but the
+  UI is touch driven through `WindowEvent::Touch` and Apple TV has no touch screen.
+  The app draws and nothing can drive it.
+- Needed: a remote input path. Siri Remote events arrive through the UIKit focus
+  engine and `UIPress`, and winit's UIKit backend forwards direct touches only, so
+  the winit fork needs press and focus forwarding, and the engine needs to map that
+  onto its views, most likely a focus model over the existing key and touch events.
+- Blocks: any interactive tvOS app, and the tvOS UI test lane, since what a test can
+  assert depends on this path.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Among the rest, frame stepped animation testing goes first, it has two live
 needs, the unassessed animation problem in the present test and the web lane
 scroll determinism flake it would also fix. The text stack remainder waits for
-a real need for color emoji or font fallback.
+a real need for color emoji or font fallback, and tvOS remote input waits for a real
+tvOS app need.

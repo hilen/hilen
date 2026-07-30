@@ -5,7 +5,7 @@ Supports: Windows, Linux, Mac, iOS, Android and WebAssembly.
 
 The engine is one library crate, `test-engine`, with modules like `gm`, `ui`, `window`,
 `render`, `level` under `test-engine/src/`. `deps/` holds the proc macro crates plus the
-vendored foundational crates `hreads`, `refs`, `vents` and `netrun`, used as path
+vendored foundational crates `hreads`, `refs`, `vents`, `netrun` and `plat`, used as path
 dependencies so the whole tree resolves to one `hreads` with no crates.io patch.
 Apps and test binaries are separate crates on top. Internals are `pub(crate)`, the
 app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, so the
@@ -61,6 +61,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
   CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
+- [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
+  display only, no input path yet. The vendored plat, the winit fork pin, the hand made
+  simulator shell and how to run it. Read before touching platform cfg aliases, the
+  winit pin, or anything tvOS.
 
 Docs should be concise.
 
