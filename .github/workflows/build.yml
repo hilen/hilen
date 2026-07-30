@@ -102,7 +102,9 @@ jobs:
         run: ${{ matrix.browser == 'chrome' && 'google-chrome --version' || 'firefox --version' }}
 
       - name: Run UI tests in ${{ matrix.browser }}
-        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" make ui-web BROWSER=${{ matrix.browser }}
+        # The screen must fit the browser window the driver opens, which is
+        # sized for the biggest test canvas. See WINDOW_HEIGHT in drive.ts.
+        run: xvfb-run -a --server-args="-screen 0 1600x1500x24" make ui-web BROWSER=${{ matrix.browser }}
 
       - name: Upload failure screenshot and browser log
         if: failure()
