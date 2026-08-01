@@ -15,10 +15,10 @@ macro_rules! managed {
 
                 if let Some(path) = __MANAGED_ROOT_PATH.get() {
                     return path;
-                } else {
-                    $($refs_path)::+::__internal_deps::warn!("Managed root path for type {} is not set.", stringify!($type));
-                    return &DEFAULT_PATH
                 }
+
+                $($refs_path)::+::__internal_deps::warn!("Managed root path for type {} is not set.", stringify!($type));
+                &DEFAULT_PATH
             }
 
             fn set_root_path(path: impl Into<std::path::PathBuf>) {

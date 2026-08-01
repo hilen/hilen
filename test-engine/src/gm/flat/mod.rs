@@ -5,6 +5,7 @@ mod process_points;
 mod rect;
 mod shape;
 mod size;
+mod vector_path;
 mod vertex2d;
 
 pub use corner_radii::CornerRadii;
@@ -14,4 +15,5 @@ pub use process_points::*;
 pub use rect::Rect;
 pub use shape::Shape;
 pub use size::*;
+pub use vector_path::{FillRule, LineCap, LineJoin, StrokeStyle, VectorPath, VectorPathBuilder};
 pub use vertex2d::Vertex2D;

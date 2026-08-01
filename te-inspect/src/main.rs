@@ -22,8 +22,7 @@ use test_engine::{
 };
 use tokio::time::{Instant, timeout, timeout_at};
 
-const NO_APPS: &str =
-    "No running apps discovered. The app must be a debug build running on the same network.";
+const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
 
 #[derive(Parser)]
 #[command(
@@ -81,6 +80,13 @@ enum Command {
         b:       f32,
         #[arg(default_value_t = 1.0)]
         a:       f32,
+    },
+    /// Tap the center of a view: touch began plus ended, like a real click
+    Tap {
+        /// Exact view id, exact visible text, label substring or text
+        /// substring, tried in that order. An ambiguous query lists the
+        /// candidates instead of guessing.
+        query: String,
     },
     /// Set the UI scale of the app
     SetScale { scale: f32 },
@@ -164,6 +170,7 @@ async fn main() -> Result<()> {
             };
             println!("{}", to_string_pretty(&edits)?);
         }
+        Command::Tap { query } => tap(&client, &query).await?,
         Command::SetScale { scale } => {
             send(&client, UIRequest::SetScale(scale).into()).await?;
             println!("ok");
@@ -197,6 +204,29 @@ async fn main() -> Result<()> {
             print_edited(&client, request, &view_id).await?;
         }
     }
+
+    Ok(())
+}
+
+async fn tap(client: &Client, query: &str) -> Result<()> {
+    let (_, root) = get_ui(client).await?;
+    let target = resolve_tap_target(&root, query)?;
+    println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
+
+    // The tapped view is often gone from the fresh tree, a tab swaps the
+    // page and a modal button closes the modal, so no lookup afterwards.
+    let AppCommand::UI(UIResponse::SendUI { .. }) = send(
+        client,
+        UIRequest::Tap {
+            view_id: target.id.clone(),
+        }
+        .into(),
+    )
+    .await?
+    else {
+        bail!("Unexpected response to tap");
+    };
+    println!("tapped");
 
     Ok(())
 }
@@ -253,17 +283,90 @@ async fn print_edited(client: &Client, request: UIRequest, view_id: &str) -> Res
 fn print_tree(view: &ViewRepr, depth: usize) {
     let frame = &view.frame;
     println!(
-        "{}{}  [{}, {}] {}x{}  {}",
+        "{}{}{}  [{}, {}] {}x{}  {}{}",
         "  ".repeat(depth),
         view.label,
+        shortened_text(view),
         frame.origin.x,
         frame.origin.y,
         frame.size.width,
         frame.size.height,
         view.id,
+        if view.hidden { "  hidden" } else { "" },
     );
     for sub in &view.subviews {
         print_tree(sub, depth + 1);
+    }
+}
+
+fn shortened_text(view: &ViewRepr) -> String {
+    let Some(text) = &view.text else {
+        return String::new();
+    };
+
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() > 30 {
+        let short: String = chars.into_iter().take(30).collect();
+        format!(" \"{short}...\"")
+    } else {
+        format!(" \"{text}\"")
+    }
+}
+
+fn quoted_text(view: &ViewRepr) -> String {
+    view.text.as_ref().map_or_else(|| "-".to_string(), |text| format!("\"{text}\""))
+}
+
+/// Exact id, exact text, label substring, then text substring, all case
+/// insensitive. The first rung with any match decides: one match wins, more
+/// than one errors listing the candidates. Hidden views and everything under
+/// them never match a query, a hidden view is only reachable by exact id.
+fn resolve_tap_target<'a>(root: &'a ViewRepr, query: &str) -> Result<&'a ViewRepr> {
+    if let Some(view) = find_by_id(root, query) {
+        return Ok(view);
+    }
+
+    let query = query.to_lowercase();
+
+    let rungs: [&dyn Fn(&ViewRepr) -> bool; 3] = [
+        &|view| view.text.as_ref().is_some_and(|text| text.to_lowercase() == query),
+        &|view| view.label.to_lowercase().contains(&query),
+        &|view| view.text.as_ref().is_some_and(|text| text.to_lowercase().contains(&query)),
+    ];
+
+    for matches_query in rungs {
+        let mut found = vec![];
+        collect_visible(root, matches_query, &mut found);
+
+        match found.as_slice() {
+            [] => {}
+            [only] => return Ok(only),
+            candidates => {
+                let listed: Vec<String> = candidates
+                    .iter()
+                    .map(|view| format!("  {} {} {}", view.label, quoted_text(view), view.id))
+                    .collect();
+                bail!("Ambiguous query: {query}\n{}", listed.join("\n"));
+            }
+        }
+    }
+
+    bail!("No view matches: {query}");
+}
+
+fn collect_visible<'a>(
+    view: &'a ViewRepr,
+    matches_query: &dyn Fn(&ViewRepr) -> bool,
+    found: &mut Vec<&'a ViewRepr>,
+) {
+    if view.hidden {
+        return;
+    }
+    if matches_query(view) {
+        found.push(view);
+    }
+    for sub in &view.subviews {
+        collect_visible(sub, matches_query, found);
     }
 }
 

@@ -18,16 +18,6 @@ rustflags = ["-Zshare-generics=off"]
 linker = "rust-lld.exe"
 rustflags = ["-Zshare-generics=off"]
 
-# A linker minimum, not the deployment target. It must stay at 13.0 because aws-lc-sys
-# references __chkstk_darwin, which libSystem only exports from iOS 13, and a lower value
-# fails the link of the dylib crates. It only affects intermediate dylibs, never the
-# shipped staticlib, and it does not feed `objc2::available!`. See docs/ios.md.
-[target.aarch64-apple-ios]
-rustflags = ["-C", "link-arg=-Wl,-platform_version,ios,13.0,13.0"]
-
-[target.x86_64-apple-ios]
-rustflags = ["-C", "link-arg=-Wl,-platform_version,ios-simulator,13.0,13.0"]
-
 [profile.size]
 codegen-units = 1
 debug = false

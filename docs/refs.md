@@ -70,7 +70,8 @@ on this: `RectPipeline` keys instance batches by `Weak<Image>` and never removes
 
 Storage access is race-safe. Concurrent `download` calls for the same name share one HTTP
 request: the first caller fetches, the rest wait and get the same `Weak`. If the fetch
-fails, all of them get an error. The sync paths `get`, `load` and `store_with_name`
+fails, all of them get an error. In the browser a url starting with `/` is resolved
+against the page origin before the request, so root relative asset urls work from any host. The sync paths `get`, `load` and `store_with_name`
 insert atomically. When two threads race, the losing duplicate is dropped on the main thread.
 
 ## Rules

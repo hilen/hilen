@@ -26,11 +26,19 @@ pub use winit::{
 
 #[cfg(not_wasm)]
 pub(crate) use self::redraw::set_wake_proxy;
+#[cfg(not_wasm)]
+pub(crate) use self::redraw::take_needs_render;
 pub use self::{
-    app_handler::AppHandler, render_frame::RenderFrame, screenshot::*, state::SURFACE_TEXTURE_FORMAT,
-    text::*, vertex_buffer::VertexBuffer, window::*, window_events::*,
+    app_handler::AppHandler,
+    render_frame::RenderFrame,
+    screenshot::*,
+    state::{msaa_sample_count, surface_texture_format},
+    text::*,
+    vertex_buffer::VertexBuffer,
+    window::*,
+    window_events::*,
 };
 pub(crate) use self::{
     app_handler::UserEvent,
-    redraw::{request_frame, take_needs_render},
+    redraw::{continuous_render_active, request_frame},
 };

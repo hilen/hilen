@@ -1,9 +1,9 @@
 use refs::main_lock::MainLock;
 
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 use crate::gm::flat::Point;
 use crate::ui::WeakView;
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 use crate::ui::{
     TouchStack,
     view::{ViewData, ViewFrame},
@@ -13,10 +13,14 @@ static HOVERED: MainLock<WeakView> = MainLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
+///
+/// Everything that picks a view under the cursor is compiled only where a
+/// cursor exists, which is desktop and the browser. A touch screen has no
+/// pointer, so on iOS and Android there is nothing to track.
 pub struct Hover;
 
 impl Hover {
-    #[cfg(desktop)]
+    #[cfg(any(desktop, wasm))]
     pub(crate) fn update(cursor: Point) {
         Self::set_hovered(Self::view_under(cursor));
     }
@@ -26,7 +30,7 @@ impl Hover {
         Self::set_hovered(WeakView::default());
     }
 
-    #[cfg(desktop)]
+    #[cfg(any(desktop, wasm))]
     fn view_under(cursor: Point) -> WeakView {
         TouchStack::hover_views()
             .find(|view| view.is_ok() && !view.is_hidden_in_tree() && view.absolute_frame().contains(cursor))

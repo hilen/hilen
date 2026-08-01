@@ -248,8 +248,6 @@ mod tests {
     #[test]
     #[serial]
     fn check_drop() {
-        set_current_thread_as_main();
-
         struct ToDrop {
             _a: bool,
         }
@@ -259,6 +257,8 @@ mod tests {
                 VAL.store(20, Ordering::Relaxed);
             }
         }
+
+        set_current_thread_as_main();
 
         assert_eq!(VAL.load(Ordering::Relaxed), 0);
 

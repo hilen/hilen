@@ -37,4 +37,7 @@ pub enum UIRequest {
         view_id: String,
         color:   Color,
     },
+    Tap {
+        view_id: String,
+    },
 }

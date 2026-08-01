@@ -1,4 +1,4 @@
-use std::{any::type_name, collections::HashMap, mem::take, ops::DerefMut};
+use std::{any::type_name, collections::HashMap, mem::take, ops::DerefMut, panic::Location};
 
 use refs::{Weak, main_lock::MainLock};
 
@@ -14,15 +14,30 @@ static ALLOWED_TYPES: &[&str] = &[
     type_name::<NumberView>(),
 ];
 
-#[allow(unpredictable_function_pointer_comparisons)] // TODO:
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Style {
-    action: fn(&mut dyn View),
+    action:   fn(&mut dyn View),
+    location: &'static Location<'static>,
 }
 
+/// Function pointers are not stable identity. The compiler can merge two
+/// identical bodies into one function or duplicate one body across codegen
+/// units, so styles compare by their declaration site instead.
+impl PartialEq for Style {
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location
+    }
+}
+
+impl Eq for Style {}
+
 impl Style {
+    #[track_caller]
     pub const fn new(action: fn(&mut dyn View)) -> Self {
-        Self { action }
+        Self {
+            action,
+            location: Location::caller(),
+        }
     }
 
     pub(crate) fn apply(self, view: &mut dyn View) {
@@ -87,23 +102,16 @@ impl Style {
 
 #[cfg(test)]
 mod test {
-    use std::hint::black_box;
-
     use hreads::set_current_thread_as_main;
 
     use crate::ui::{Button, Label, Style, Switch};
 
-    // Styles compare by function pointer. Empty identical bodies can be
-    // merged by the compiler into one function, which would make these
-    // styles equal and trip the duplicate check in apply_globally.
-    // black_box with distinct strings keeps the bodies distinct.
+    // Identical empty bodies on purpose. The compiler may merge them into one
+    // function, and the styles must still compare as three distinct values
+    // because identity comes from the declaration site.
     const STYLE: Style = Style::new(|_v| {});
-    const STYLE2: Style = Style::new(|_v| {
-        black_box("a");
-    });
-    const STYLE3: Style = Style::new(|_v| {
-        black_box("b");
-    });
+    const STYLE2: Style = Style::new(|_v| {});
+    const STYLE3: Style = Style::new(|_v| {});
 
     #[test]
     fn valid_global_style_type() {

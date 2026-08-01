@@ -1,5 +1,3 @@
-use std::fs::read;
-
 use anyhow::{Result, anyhow, bail};
 use log::error;
 use refs::{
@@ -9,19 +7,19 @@ use refs::{
     managed,
 };
 use rustybuzz::{Face, ttf_parser::Tag};
-use wgpu::{CompareFunction, DepthBiasState, DepthStencilState, StencilState, TextureFormat};
+use wgpu::{
+    CompareFunction, DepthBiasState, DepthStencilState, MultisampleState, StencilState, TextureFormat,
+};
 use wgpu_text::{
-    BrushBuilder, TextBrush,
-    glyph_brush::{
-        Section, Text,
-        ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, VariableFont},
-    },
+    BrushBuilder, Section, Text, TextBrush,
+    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, VariableFont},
 };
 
 use crate::{
+    filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     window::{
-        SURFACE_TEXTURE_FORMAT,
+        msaa_sample_count, surface_texture_format,
         text::{ShapedLayout, ShapedParams},
         window::Window,
     },
@@ -78,8 +76,13 @@ impl Font {
             stencil:             StencilState::default(),
             bias:                DepthBiasState::default(),
         }.into())
+            .with_multisample(MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            })
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
-            .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), SURFACE_TEXTURE_FORMAT);
+            .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {
             name: name.to_string(),
             brush,
@@ -108,7 +111,7 @@ impl Font {
             return Size::default();
         }
 
-        let section = Section::default()
+        let section = Section::new()
             .add_text(Text::new(text).with_scale(size.to_f32() * self.em_scale))
             .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
 
@@ -218,6 +221,16 @@ impl ResourceLoader for Font {
     }
 
     fn load_data(data: &[u8], name: impl ToString) -> Self {
-        Font::new(name, data).expect("Failed to load font")
+        let name = name.to_string();
+
+        // Bad bytes must degrade like an unreadable file does above. A
+        // corrupt download would otherwise kill a browser session.
+        match Font::new(&name, data) {
+            Ok(font) => font,
+            Err(err) => {
+                error!("Failed to load font {name}: {err}. Returning default font");
+                Font::new(name, DEFAULT_FONT_DATA).expect("Failed to load the built in default font")
+            }
+        }
     }
 }

@@ -114,6 +114,14 @@ impl TableView {
     pub fn bottom_reached(&self) -> &UIEvent {
         &self.scroll.bottom_reached
     }
+
+    /// Scrolls all the way down so the last row is visible, the log tail
+    /// case. The offset clamps against the current content size, so call
+    /// it after `reload_data` when rows were appended.
+    pub fn scroll_to_bottom(&mut self) {
+        self.scroll.set_content_offset(f32::MIN);
+        self.layout_cells(LayoutMode::Scroll);
+    }
 }
 
 impl TableView {

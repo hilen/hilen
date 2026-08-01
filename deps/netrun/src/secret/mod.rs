@@ -69,6 +69,7 @@ mod test {
             .await
     }
 
+    #[ignore = "needs the Infisical client secret in .env"]
     #[tokio::test]
     async fn test_secret() -> Result<()> {
         dotenvy::dotenv()?;
@@ -86,6 +87,7 @@ mod test {
         Ok(())
     }
 
+    #[ignore = "needs the Infisical client secret in .env"]
     #[tokio::test]
     async fn test_global_managersecret() -> Result<()> {
         dotenvy::dotenv()?;

@@ -29,7 +29,7 @@ impl RestAPI {
     }
 
     pub(crate) fn client(&self) -> &Client {
-        self.client.get_or_init(Client::new)
+        self.client.get_or_init(crate::rest::client::client)
     }
 
     pub fn headers(&self) -> BTreeMap<String, String> {

@@ -7,8 +7,8 @@ use test_engine::{
     ui::{
         AddLabel, Anchor,
         Anchor::{Top, X},
-        BLACK, Button, Container, DrawingView, Image, ImageView, Label, NumberView, Point, PointsPath, Setup,
-        Size, TURQUOISE, ViewData, ViewSubviews, ViewTouch, WHITE, view,
+        BLACK, Button, Container, DrawingView, FillRule, Image, ImageView, Label, NumberView, Point, Setup,
+        Size, TURQUOISE, VectorPath, ViewData, ViewSubviews, ViewTouch, WHITE, view,
     },
 };
 
@@ -66,7 +66,7 @@ impl NoiseView {
         self.islands = islands;
 
         self.drawing_view
-            .add_path(PointsPath::circle_triangles_with((200, 100), 50, 5), TURQUOISE);
+            .add_fill(&VectorPath::circle((200, 100), 50), TURQUOISE, FillRule::NonZero);
     }
 
     fn update_level(self: Weak<Self>) {

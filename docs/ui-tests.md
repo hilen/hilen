@@ -14,6 +14,7 @@ cargo run -p ui-test -- --test-name "Rest request"  # one test
 cargo run -p ui-test -- --headless            # offscreen, much faster, for CI and agents
 cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  # one offscreen capture
 make uui                                      # full suite, headless, release mode
+make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
 cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, space to advance
 cargo run -p ui-test -- --record-colors --headless --test-name "Font zoo"  # print check_colors blocks
 ```
@@ -42,7 +43,63 @@ touches, so an app with a loading screen marks itself not ready until assets lan
 inspector and no mDNS, so it runs while the desktop lane runs. `make ui` uses it: on macOS
 it runs the desktop suite and the iOS simulator suite in parallel, then prints one report.
 The simulator lane is `build/ios/sim-test.rs`, an iPhone 8 on iOS 16.4, the oldest device
-this toolchain can boot. See [ios.md](ios.md).
+this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
+and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
+the storyboard build fails and the whole lane reports `0 passed 0 failed`. See [ios.md](ios.md).
+
+`make ui-ios` streams the suite live, the same `Started`/`OK` lines the desktop lane prints, so
+a hang names the test it stuck on. The app logs through NSLog, which tags every console line
+with a timestamp and process name, and the lane strips that prefix so the stream reads like
+desktop. Under `make ui` the lane sets `TE_IOS_QUIET` and goes back to buffering, printing only
+`[ios]` milestones, so three parallel lanes do not mangle each other's output.
+
+`TE_TEST_ONLY` narrows a `TE_RUN_TESTS` run to a comma separated list of test names. It is for
+isolating one case on a device or simulator, where the whole suite is slow to reach it.
+
+The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
+atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
+by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the
+`te_run_tests` query flag and `te_test_only` narrows it the way `TE_TEST_ONLY` does natively.
+The report arrives over the inspect WebSocket instead of the console, and on failure the
+driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
+See [inspect.md](inspect.md).
+
+A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
+runner does. The panic beacon names the running test, the driver records it as failed,
+relaunches the browser with the dead tests in `te_test_skip`, and merges them into the
+final report, so one panicking test cannot hide the rest of the suite.
+
+## Run from the editor
+
+A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock
+rust-analyzer sees nothing runnable in that impl. The button offers three modes of
+`cargo run -p ui-test`:
+
+- `run ui-test X` passes `--test-name X --human`, watchable, space to advance.
+- `run ui-test X headed` passes `--test-name X`, windowed, runs by itself.
+- `run ui-test X headless` passes `--headless --test-name X`, no window.
+
+The patch lives in the fork at
+[VladasZ/rust-analyzer](https://github.com/VladasZ/rust-analyzer), branch
+`view-test-runnable`. It adds a `ViewTest` runnable kind. `ide` detects the impl,
+`target_spec` maps it to the fixed `ui-test` invocation, and it is exposed through both the
+code lens and `experimental/runnables`, so VS Code lenses and Zed gutter tasks both get it.
+
+To use it, build the fork in release and make it the binary the editor runs. One gotcha for
+Zed. When `rust-toolchain.toml` lists the `rust-analyzer` component, Zed asks rustup first
+and checks PATH only after that, so a patched binary earlier on PATH is never found. Replace
+the toolchain's own binary with a symlink to the patched build:
+
+```bash
+ln -sf <patched rust-analyzer> ~/.rustup/toolchains/<channel>/bin/rust-analyzer
+```
+
+A rustup reinstall of the toolchain restores the stock binary, then the symlink needs to be
+redone. Zed also needs `"enable_lsp_tasks": true` on its rust-analyzer entry, since it drops
+LSP runnables by default and the button rides on `experimental/runnables`. Zed fetches
+runnables the moment a buffer opens and caches the answer until it changes, which on startup
+is before the workspace is loaded. The patch holds those early requests until the server is
+quiescent, so the button appears on its own once loading finishes.
 
 ## One registry
 
@@ -76,9 +133,13 @@ a temp file — with a plain pipe (`| tail`) you lose everything printed before 
 cargo run -p ui-test -- --headless 2>&1 | tee /tmp/ui-test.log | tail -12
 ```
 
-Don't run the suite after every change. Run it only when the change can affect UI or
-rendering behavior, or once before a commit/push. Mechanical changes (renames, comments,
-docs) only need `cargo build` and `make lint`.
+Don't run the suite after every change. During development run only the single tests the
+change affects. The routine pre-commit check is `make smoke`, a curated one-test-per-pillar
+subset, desktop only, debug, headless. The list lives in the Makefile as `SMOKE_TESTS` and
+rides on `--test-name` taking a comma separated list. The full suite and the platform
+lanes run only when asked, or when a change reworks rendering or another engine-wide
+path where a smoke miss is likely. Mechanical changes (renames, comments, docs) only
+need `cargo build` and `make lint`.
 
 On failure a report is printed: window resolution and scale, a path to a screenshot of
 the actual screen, and the view tree with frames. For `check_colors` failures the failing
@@ -238,15 +299,16 @@ fixture layout, screenshot workflow or convenient reproduction is never a valid 
 
 Platform gating is allowed only when the production feature itself is compiled out or cannot
 exist on that platform. Gate such a test where the feature is gated, not with a runtime skip.
-`Hover::update` is `#[cfg(desktop)]`, so `hover.rs` is too. Typing goes through the screen keyboard
-on a phone rather than injected key events, so the text field tests are desktop only as well.
+`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. Typing goes through the
+screen keyboard on a phone rather than injected key events, so the text field tests are desktop
+only as well.
 Test counts may differ between platforms only for these feature-availability gates. Never gate a
 cross-platform rendering, layout or interaction regression merely to make the current fixture fit.
 Gate the module in its `mod.rs`, with a comment saying which feature is missing:
 
 ```rust
 /// Hover needs a pointer, and there is no such thing on a touch screen.
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 mod hover;
 ```
 
@@ -325,6 +387,10 @@ screenshot, picks probe pixels automatically, and prints them labeled with the t
 check index. Write the test with empty `check_colors("")?` placeholders, run once with the
 flag, paste each block over its placeholder, rerun normally to verify.
 
+A probe line is `x y - #rrggbb`, coordinates right aligned to four columns, the color a
+lowercase CSS hex. The parser accepts nothing else, and the recorder and the failure
+report print the same shape, so pasted lines always stay aligned.
+
 The picker is deterministic, the same screen always produces the same block. It is bounded
 to the canvas, the frame around it is not part of the test and does not exist on a device.
 It samples a 4px grid, keeps only pixels whose neighborhood is near uniform along at least
@@ -350,10 +416,20 @@ it survives the next re-record.
 `--record-colors --human` combined shows the freshly picked probes the same way normal
 human runs show existing ones, to review what gets pinned before pasting.
 
-Re-recording an existing block to make a failing test pass is editing expectations — same
-rule as above, only with explicit approval. Approval to record is not approval of the
-result: paste the block, show the render with `--test-name <name> --human --record-colors`,
-and wait. A passing rerun proves nothing, the expectation came from that same render.
+Re-recording an existing block rewrites the spec. Approval of a code change is not
+approval to re-record, and approval to record is not approval of the recorded result.
+The gates, every one mandatory:
+
+1. Inspect the failure screenshot and confirm the render is intentionally different.
+2. Name the test, explain why its pixels moved, ask permission to record, and wait.
+3. Record only that test with `--headless --test-name <name> --record-colors`.
+4. Paste the block over the old one and compare the two. Keep every probe inside the
+   declared canvas.
+5. Show the recorded render and probe markers with `--test-name <name> --human
+   --record-colors`.
+6. Stop and wait for explicit acceptance. Run no other test, suite, check or commit while
+   that review is pending. A passing rerun proves nothing, the expectation came from that
+   same render.
 
 A recorded block is large. Keep it in a `const` next to the test rather than inline, so
 the function stays readable and within the line limit.

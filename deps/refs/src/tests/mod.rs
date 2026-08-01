@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use serial_test::serial;
 use wasm_bindgen_test::wasm_bindgen_test;
 
-use crate::{AsAny, Own, Weak};
+use crate::{AsAny, Own, Weak, ref_counter::RefCounter};
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -26,15 +26,15 @@ fn weak_misc() {
     assert_ne!(five, ten);
 
     let mut weak = five.weak();
-    let another_weak = weak.clone();
+    let another_weak = weak;
 
-    assert_eq!(weak.is_null(), false);
+    assert!(!weak.is_null());
     assert_eq!(weak.deref(), another_weak.deref());
 
     let null = Weak::<i32>::default();
 
     assert!(null.is_null());
-    assert_eq!(null.is_ok(), false);
+    assert!(!null.is_ok());
     assert_eq!(null.get(), None);
 
     let five_ref = weak.get_mut().unwrap();
@@ -46,14 +46,14 @@ fn weak_misc() {
     assert_eq!(weak.deref(), &10);
 
     assert!(!weak.is_null());
-    assert_eq!(weak.is_ok(), true);
+    assert!(weak.is_ok());
     assert_eq!(weak.get(), Some(10).as_ref());
 
     set_current_thread_as_main();
     drop(five);
 
     assert!(weak.is_null());
-    assert_eq!(weak.is_ok(), false);
+    assert!(!weak.is_ok());
     assert_eq!(weak.get(), None);
 }
 
@@ -87,7 +87,7 @@ fn addr() {
 #[should_panic(expected = "Dereferencing never initialized weak pointer: i32")]
 fn null_weak_panic() {
     let default = Weak::<i32>::default();
-    assert_eq!(default.is_ok(), false);
+    assert!(!default.is_ok());
     let _ = default.deref();
 }
 
@@ -101,7 +101,7 @@ fn freed_unsized_weak_panic() {
     drop(own);
 
     assert_eq!(weak.type_name, "i32");
-    assert_eq!(weak.is_ok(), false);
+    assert!(!weak.is_ok());
     let _ = weak.deref();
 }
 
@@ -114,18 +114,18 @@ fn const_weak_default() {
 }
 
 #[serial]
-#[should_panic]
+#[should_panic(expected = "Dereferencing never initialized weak pointer: u32")]
 #[wasm_bindgen_test(unsupported = test)]
 fn deref_null() {
     set_current_thread_as_main();
     let null = Weak::<u32>::default();
     assert!(null.is_null());
-    assert_eq!(null.is_ok(), false);
+    assert!(!null.is_ok());
     let _ = null.deref();
 }
 
 #[serial]
-#[should_panic]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
 #[wasm_bindgen_test(unsupported = test)]
 fn deref_async() {
     set_current_thread_as_main();
@@ -142,12 +142,13 @@ fn deref_async() {
 #[serial]
 #[wasm_bindgen_test(unsupported = test)]
 fn default_weak() {
-    let weak = Weak::<i32>::default();
-    assert!(weak.is_null());
-
     trait Trait {
         fn _a(&self);
     }
+
+    let weak = Weak::<i32>::default();
+    assert!(weak.is_null());
+
     let weak = Weak::<dyn Trait>::default();
     assert!(weak.is_null());
 }
@@ -155,39 +156,6 @@ fn default_weak() {
 #[serial]
 #[wasm_bindgen_test(unsupported = test)]
 fn downcast_weak() {
-    set_current_thread_as_main();
-
-    trait Tr: AsAny {}
-    struct St {
-        _a: i32,
-    }
-
-    impl Tr for St {}
-    impl AsAny for St {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-
-        fn into_any_box(self: Box<Self>) -> Box<dyn Any> {
-            self
-        }
-    }
-
-    let own: Own<dyn Tr> = Own::new(St { _a: 50 });
-    let downcasted: Weak<St> = own.downcast_weak().unwrap();
-
-    assert_eq!(downcasted._a, 50);
-}
-
-#[serial]
-#[wasm_bindgen_test(unsupported = test)]
-fn downcast_own() {
-    set_current_thread_as_main();
-
     trait Tr: AsAny {}
     struct St {
         a: i32,
@@ -208,6 +176,39 @@ fn downcast_own() {
         }
     }
 
+    set_current_thread_as_main();
+
+    let own: Own<dyn Tr> = Own::new(St { a: 50 });
+    let downcasted: Weak<St> = own.downcast_weak().unwrap();
+
+    assert_eq!(downcasted.a, 50);
+}
+
+#[serial]
+#[wasm_bindgen_test(unsupported = test)]
+fn downcast_own() {
+    trait Tr: AsAny {}
+    struct St {
+        a: i32,
+    }
+
+    impl Tr for St {}
+    impl AsAny for St {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+
+        fn into_any_box(self: Box<Self>) -> Box<dyn Any> {
+            self
+        }
+    }
+
+    set_current_thread_as_main();
+
     let own: Own<dyn Tr> = Own::new(St { a: 100 });
     let downcasted: Own<St> = own.downcast::<St>();
 
@@ -217,11 +218,12 @@ fn downcast_own() {
 #[serial]
 #[wasm_bindgen_test(unsupported = test)]
 fn weak_map_key() {
-    set_current_thread_as_main();
-
     struct NonHash {
         _a: u8,
     }
+
+    set_current_thread_as_main();
+
     let own = Own::new(NonHash { _a: 0 });
     let weak = own.weak();
 
@@ -267,22 +269,33 @@ fn raw_and_dump() {
 fn stale_weak_after_address_reuse() {
     set_current_thread_as_main();
 
-    for _ in 0..1000 {
-        let own = Own::new(5_u64);
-        let weak = own.weak();
-        let addr = own.addr();
-        drop(own);
+    let own = Own::new(10_u64);
+    let mut stale = own.weak();
 
-        let new_own = Own::new(10_u64);
+    // A weak made before this address was reused carries the stamp of the
+    // older object. No allocator can be told to reuse an address, so the older
+    // stamp is set by hand. Looping until a real reuse happened made this test
+    // panic with "inconclusive" on a macOS CI runner.
+    stale.stamp -= 1;
 
-        if new_own.addr() == addr {
-            assert!(weak.is_null());
-            assert!(!weak.is_ok());
-            assert_eq!(weak.get(), None);
-            assert_eq!(*new_own, 10);
-            return;
-        }
-    }
+    assert!(stale.is_null());
+    assert!(!stale.is_ok());
+    assert_eq!(stale.get(), None);
+    assert_eq!(*own, 10);
+}
 
-    panic!("Allocator never reused the address. Test is inconclusive.");
+/// Dropping an `Own` must unregister its address, otherwise the next object
+/// that lands there cannot register and `RefCounter::add` panics.
+#[serial]
+#[wasm_bindgen_test(unsupported = test)]
+fn address_is_free_after_drop() {
+    set_current_thread_as_main();
+
+    let own = Own::new(5_u64);
+    let weak = own.weak();
+    let addr = own.addr();
+    drop(own);
+
+    assert!(weak.is_null());
+    assert!(RefCounter::stamp_for_address(addr).is_none());
 }

@@ -30,6 +30,64 @@ work must use `on_main` or `from_main` before triggering a UI event.
   Panics when called on the main thread: the future may need `from_main`, which needs the frame
   loop, which the blocked main thread cannot run. That is a guaranteed deadlock.
 
+## Frames on demand
+
+The winit loop draws only when a frame is requested, so a static screen with nothing moving
+burns no CPU. `request_frame` in `test-engine/src/window/redraw.rs` sets a redraw flag and is
+safe from any thread. Window and input events call it, and so does the dispatch waker, which
+`hreads` fires on every background `on_main`/`from_main` enqueue, so a queued closure never
+waits on an idle loop.
+
+Continuous work keeps the loop running by itself. While a live animation or a loaded level
+exists, `continuous_render_active` is true and `about_to_wait` sets `ControlFlow::Poll`, so the
+loop iterates and each requested frame is delivered. Once neither exists it goes back to
+`ControlFlow::Wait` and sleeps. The choice keys off the presence of the work, not a per-frame
+flag, because under `Poll` `about_to_wait` also runs on the empty iterations between draws and a
+flag would read false there.
+
+The two platforms order the loop differently and it matters. On desktop `about_to_wait` runs
+after the render, so it sees an animation added mid-frame and switches to `Poll` on its own. On
+iOS `about_to_wait` runs before the render, so it misses that animation, and a `request_frame`
+made while drawing, like the one from `commit_animations`, comes too late for the current
+iteration. So on iOS only, `request_frame` also wakes the loop from the main thread, and the next
+iteration re-checks the flag and keeps drawing. Doing that same wake on desktop livelocks the
+loop, so it is gated to iOS.
+
+A resize draws inside its own event rather than waiting for the next frame. Reconfiguring the
+surface resizes the backing buffer and clears it, and a window drag fires resizes far faster
+than frames arrive, so waiting presents an empty buffer for the whole drag. In a browser that
+reads as the page going black while it is dragged, since the cleared canvas shows the page
+background behind it.
+
+Headless runs render every iteration and ignore the flag. Wasm uses `ControlFlow::Wait` with an
+unconditional `request_redraw` in `about_to_wait`, so the loop runs one iteration per display
+frame off requestAnimationFrame. It must not use `Poll`: winit implements web `Poll` with a
+continuous `scheduler.postTask` chain, and Firefox starves requestAnimationFrame under that
+flood, which freezes the app. A normal wasm build is single threaded. The browser test build
+spawns real workers through `spawn_thread`, and they drive the main thread like native
+background threads. Workers may block, the browser main thread must never block on a contended
+lock, `Atomics.wait` traps there. That rule is why the hottest shared locks spin on wasm
+instead of parking: the refs pointer stamp map, the managed asset storages and the hreads
+dispatch queue. A full suite run used to die at Navigation rich exactly this way, a main
+thread read of the stamp map parked while a worker held it for a write.
+
+The `Animation drives frames` UI test guards the part of this that can be pinned down. It starts
+an animation from code, with nothing injecting input, and checks that the loop reports continuous
+work and that the animation finishes on its own. It does not reproduce the iOS stall, which only
+showed up part way through a full suite run and never on its own, so the iOS lane is what catches
+that one. Note that any `from_main` between starting an animation and waiting for it wakes the
+loop and hides exactly this class of bug.
+
+### Known issue: windowed screenshots starve
+
+A screenshot, the path behind `check_colors` in UI tests, waits for one rendered frame driven by
+a single `request_frame`. On the desktop windowed loop that frame is starved when the window is
+not focused, most likely by macOS App Nap throttling the wake, so each screenshot can take a
+second or more and a windowed suite crawls. Headless is unaffected since it renders every
+iteration, and the iOS simulator is unaffected since its display link keeps frames flowing. This
+arrived with render on demand and is not yet fixed. It costs only the speed of a windowed run,
+not correctness.
+
 ## Rules
 
 - Never block the main thread waiting for background work.

@@ -1,5 +1,4 @@
 use std::{
-    borrow::Borrow,
     fmt::Display,
     hash::{Hash, Hasher},
     ops::{Div, Mul},
@@ -9,8 +8,7 @@ use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 
 use crate::gm::{
-    axis::Axis,
-    flat::{Point, Rect},
+    flat::Point,
     num::{IsZero, into_f32::ToF32, lossy_convert::LossyConvert},
 };
 
@@ -84,20 +82,6 @@ impl Size<f32> {
         }
     }
 
-    pub(crate) fn side<const AXIS: Axis>(self) -> f32 {
-        match AXIS {
-            Axis::X => self.width,
-            Axis::Y => self.height,
-        }
-    }
-
-    pub(crate) fn other_size<const AXIS: Axis>(self) -> f32 {
-        match AXIS {
-            Axis::X => self.height,
-            Axis::Y => self.width,
-        }
-    }
-
     pub fn fit_height(&self, height: impl ToF32) -> Size {
         let ratio = height.to_f32() / self.height;
         *self * ratio
@@ -106,25 +90,6 @@ impl Size<f32> {
     pub fn fit_width(&self, width: impl ToF32) -> Size {
         let ratio = width.to_f32() / self.width;
         *self * ratio
-    }
-
-    pub(crate) fn ratios(self, other: Size) -> Size {
-        Size::new(other.width / self.width, other.height / self.height)
-    }
-
-    pub(crate) fn fit_in_rect<const AXIS: Axis>(self, rect: impl Borrow<Rect>) -> Rect {
-        let rect = rect.borrow();
-        let ratio = rect.length::<AXIS>() / self.side::<AXIS>();
-        let size = self * ratio;
-        let pos = rect.other_position::<AXIS>() + rect.other_length::<AXIS>() / 2.0
-            - size.other_size::<AXIS>() / 2.0;
-
-        let mut result: Rect = (0, 0, size.width, size.height).into();
-
-        result.set_position::<AXIS>(rect.position::<AXIS>());
-        result.set_other_position::<AXIS>(pos);
-
-        result
     }
 }
 
@@ -186,12 +151,4 @@ impl Display for Size<u32> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "width: {}, height: {}", self.width, self.height)
     }
-}
-
-#[test]
-fn size_ratios() {
-    let a = Size::new(2.0, 2.0);
-    let b = Size::new(6.0, 12.0);
-
-    assert_eq!(a.ratios(b), Size::new(3.0, 6.0));
 }

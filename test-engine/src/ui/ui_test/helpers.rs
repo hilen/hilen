@@ -45,17 +45,11 @@ pub fn check_colors(data: &str) -> Result<()> {
             let color = parts[1];
 
             let pos: Vec<_> = pos.split(' ').filter(|a| !a.is_empty()).collect();
-            let color: Vec<_> = color.split(' ').filter(|a| !a.is_empty()).collect();
+            let color = color.trim();
 
             let pos: Point = Point::new(pos[0].parse().unwrap(), pos[1].parse().unwrap());
-            let color: U8Color = U8Color::rgba(
-                color[0].parse().unwrap(),
-                color[1].parse().unwrap(),
-                color[2].parse().unwrap(),
-                255,
-            );
 
-            Some((pos, color))
+            Some((pos, U8Color::parse_hex(color)))
         })
         .collect();
 

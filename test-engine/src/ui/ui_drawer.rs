@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use refs::{Weak, main_lock::MainLock};
 use wgpu::RenderPass;
-use wgpu_text::glyph_brush::{HorizontalAlign, Section, Text};
+use wgpu_text::{Section, Text, TextBuilder, glyph_brush::HorizontalAlign};
 
 use crate::{
     gm::{
@@ -12,13 +12,13 @@ use crate::{
     },
     pipelines::Pipelines,
     render::{
-        UIBackdropPipeline, UIBlurPipeline, UIGradientPipeline, UIImageRectPipeline, UIRectPipeline,
-        UIShadowPipeline,
-        data::{RectView, UIGradientInstance, UIImageInstance, UIRectInstance, UIShadowInstance},
+        UIBackdropPipeline, UIBlurPipeline, UIGradientPipeline, UIImageRectPipeline, UIPathPipeline,
+        UIRectPipeline, UIShadowPipeline,
+        data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
-        BlurView, ImageView, Label, ScrimView, TextAlignment, UIManager, View, ViewData, ViewFrame,
-        ViewLayout, ViewSubviews,
+        BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, View, ViewData,
+        ViewFrame, ViewLayout, ViewSubviews,
     },
     window::{Font, RenderFrame, ShapedParams},
 };
@@ -29,6 +29,7 @@ static SHADOW_DRAWER: MainLock<UIShadowPipeline> = MainLock::new();
 static SCRIM_DRAWER: MainLock<UIRectPipeline> = MainLock::new();
 static BLUR_DRAWER: MainLock<UIBlurPipeline> = MainLock::new();
 static BACKDROP_DRAWER: MainLock<UIBackdropPipeline> = MainLock::new();
+static PATH_DRAWER: MainLock<UIPathPipeline> = MainLock::new();
 
 /// Set during update when a visible `BlurView` wants a blur, read by
 /// the window before it picks the frame's render target.
@@ -38,6 +39,9 @@ type TextSections<'a> = Vec<(Weak<Font>, Vec<(Section<'a>, ShapedParams)>)>;
 
 struct DrawContext<'a> {
     text_sections: TextSections<'a>,
+    /// Paths collected since the last flush, drawn under the scissor
+    /// that was current when their view was visited.
+    paths:         Vec<&'a PathData>,
     debug_frames:  bool,
     scale:         f32,
     resolution:    Size,
@@ -69,6 +73,7 @@ impl UIDrawer {
 
         let mut ctx = DrawContext {
             text_sections: vec![],
+            paths: vec![],
             debug_frames: UIManager::should_draw_debug_frames(),
             scale: UIManager::scale(),
             resolution,
@@ -79,7 +84,7 @@ impl UIDrawer {
         Self::precache_text(root, ctx.scale);
         Self::draw_view(render_frame, root, &mut ctx);
 
-        Self::flush_pipelines(render_frame.pass(), resolution);
+        Self::flush_pipelines(render_frame.pass(), resolution, &mut ctx.paths);
         scissor(render_frame.pass(), display_rect);
 
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
@@ -103,7 +108,7 @@ impl UIDrawer {
         }
     }
 
-    fn flush_pipelines(pass: &mut RenderPass, resolution: Size) {
+    fn flush_pipelines(pass: &mut RenderPass, resolution: Size, paths: &mut Vec<&PathData>) {
         let rect_view = RectView {
             resolution,
             _padding: 0,
@@ -112,6 +117,13 @@ impl UIDrawer {
         Pipelines::rect().draw(pass, rect_view);
         IMAGE_RECT_DRAWER.get_mut().draw(pass, rect_view);
         GRADIENT_DRAWER.get_mut().draw(pass, rect_view);
+
+        let path_drawer = PATH_DRAWER.get_mut();
+        for path in paths.drain(..) {
+            if path.visible() {
+                path_drawer.draw(pass, path);
+            }
+        }
 
         // Shadows go last. A shadow shares its view's z, so the view
         // drawn above already owns the depth buffer inside its shape
@@ -168,7 +180,7 @@ impl UIDrawer {
     /// blurred, then the pass reopens and the blurred backdrop draws
     /// at the view's frame. Subviews and later views draw on top.
     fn blur_barrier(render_frame: &mut RenderFrame, view: &BlurView, frame: &Rect, ctx: &mut DrawContext) {
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution);
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         let (encoder, scene) = render_frame.split();
@@ -244,7 +256,7 @@ impl UIDrawer {
             // Text is deferred, so everything queued outside this clip
             // flushes now under the parent scissor. The subtree's text
             // then flushes under this clip before it is restored.
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution);
+            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             let mut frame = frame * ctx.scale;
             frame.origin.clip_positive();
@@ -302,17 +314,15 @@ impl UIDrawer {
                     ctx.scale,
                 ));
             }
-        } else if view.end_gradient_color().a > 0.0 {
-            GRADIENT_DRAWER.get_mut().add(UIGradientInstance {
-                position:     frame.origin,
-                size:         frame.size,
-                start_color:  *view.color(),
-                end_color:    *view.end_gradient_color(),
-                corner_radii: view.corner_radii(),
-                z_position:   view.z_position(),
-                scale:        ctx.scale,
-                padding:      [0.0; 2],
-            });
+        } else if let Some(gradient) = view.gradient() {
+            GRADIENT_DRAWER.get_mut().add(gradient.instance(
+                frame,
+                view.corner_radii(),
+                *view.border_color(),
+                view.border_width(),
+                view.z_position(),
+                ctx.scale,
+            ));
         } else if view.color().a > 0.0 || view.border_color().a > 0.0 {
             Pipelines::rect().add(UIRectInstance::new(
                 frame,
@@ -348,6 +358,8 @@ impl UIDrawer {
             && !label.text.is_empty()
         {
             Self::draw_label(&frame, label, &mut ctx.text_sections, ctx.scale);
+        } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {
+            ctx.paths.extend(drawing.paths());
         }
 
         if ctx.debug_frames {
@@ -373,7 +385,7 @@ impl UIDrawer {
         }
 
         if clips {
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution);
+            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             scissor(render_frame.pass(), parent_scissor);
             ctx.scissor = parent_scissor;
@@ -399,13 +411,19 @@ impl UIDrawer {
             },
         };
 
-        let section = Section::default()
-            .add_text(
-                Text::new(&label.text)
-                    .with_scale(label.text_size() * scale * font.em_scale())
-                    .with_color(label.text_color().as_slice())
-                    .with_z(label.z_position() - UIManager::additional_z_offset()),
-            )
+        let mut text = Text::new(&label.text)
+            .with_scale(label.text_size() * scale * font.em_scale())
+            .with_color(label.text_color().as_slice())
+            .with_z(label.z_position() - UIManager::additional_z_offset());
+
+        // After `with_color`, which sets both ends of the ramp so that a label
+        // without a gradient stays flat.
+        if let Some(end) = label.text_end_color() {
+            text = text.with_end_color(end.as_slice());
+        }
+
+        let section = Section::new()
+            .add_text(text)
             .with_bounds((
                 frame.width() - if label.alignment.center() { 0.0 } else { margin },
                 frame.height(),

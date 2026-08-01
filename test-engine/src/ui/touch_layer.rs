@@ -57,7 +57,7 @@ impl TouchLayer {
         self.listeners.clone()
     }
 
-    #[cfg(desktop)]
+    #[cfg(any(desktop, wasm))]
     pub(crate) fn hovered(&self) -> Vec<WeakView> {
         self.hovered.clone()
     }

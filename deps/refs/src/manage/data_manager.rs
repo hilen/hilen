@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, btree_map::Entry},
     mem::transmute,
     ops::Deref,
@@ -9,9 +10,9 @@ use std::{
 use anyhow::{Result, anyhow};
 use event_listener::Event;
 use hreads::on_main;
-use parking_lot::{Mutex, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
+    __internal_deps::{Mutex, RwLockReadGuard, RwLockWriteGuard},
     Own, Weak,
     manage::{DataStorage, Managed},
 };
@@ -35,6 +36,46 @@ fn insert_or_existing<T: Managed>(
         }
         Entry::Vacant(slot) => slot.insert(new).weak(),
     }
+}
+
+/// Fetch needs an absolute url. A relative one is resolved against the
+/// document base url, so a page hosted under a path prefix points its
+/// asset fetches there with a base tag instead of hitting the site root.
+#[cfg(target_arch = "wasm32")]
+fn absolute_url(url: &str) -> Cow<'_, str> {
+    if url.contains("://") {
+        return url.into();
+    }
+
+    let base = web_sys::window()
+        .expect("Failed to get browser window")
+        .document()
+        .expect("Failed to get browser document")
+        .base_uri()
+        .expect("Failed to get document base URI")
+        .unwrap_or_default();
+
+    web_sys::Url::new_with_base(url, &base)
+        .expect("Failed to resolve url against document base")
+        .href()
+        .into()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn absolute_url(url: &str) -> Cow<'_, str> {
+    url.into()
+}
+
+/// Plain HTTP fetch with the same root relative url resolution the
+/// managed downloads use. For data that is not a managed resource,
+/// like the asset manifest.
+pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    let data = reqwest::get(absolute_url(url).as_ref())
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    Ok(data.to_vec())
 }
 
 pub trait DataManager<T: Managed> {
@@ -120,6 +161,21 @@ pub trait DataManager<T: Managed> {
 
     #[allow(async_fn_in_trait)]
     async fn download(name: impl ToString, url: &str) -> Result<Weak<T>> {
+        /// Wakes the waiters even if the leading download errors,
+        /// panics, or its task is dropped mid await.
+        struct FinishGuard {
+            in_flight: &'static InFlightDownloads,
+            name:      String,
+        }
+
+        impl Drop for FinishGuard {
+            fn drop(&mut self) {
+                if let Some(event) = self.in_flight.lock().remove(&self.name) {
+                    event.notify(usize::MAX);
+                }
+            }
+        }
+
         let name = name.to_string();
 
         if let Some(existing) = Self::get_existing(&name) {
@@ -147,27 +203,18 @@ pub trait DataManager<T: Managed> {
                 .ok_or_else(|| anyhow!("Download of '{name}' failed in the task which started it"));
         }
 
-        /// Wakes the waiters even if the leading download errors,
-        /// panics, or its task is dropped mid await.
-        struct FinishGuard {
-            in_flight: &'static InFlightDownloads,
-            name:      String,
-        }
-
-        impl Drop for FinishGuard {
-            fn drop(&mut self) {
-                if let Some(event) = self.in_flight.lock().remove(&self.name) {
-                    event.notify(usize::MAX);
-                }
-            }
-        }
-
         let _guard = FinishGuard {
             in_flight: Self::in_flight_downloads(),
             name:      name.clone(),
         };
 
-        let data = reqwest::get(url).await?.bytes().await?;
+        // Without the status check a 404 page would be stored as the
+        // resource bytes and fail later in the parser, far from here.
+        let data = reqwest::get(absolute_url(url).as_ref())
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
 
         Ok(Self::load(&data, &name))
     }

@@ -8,6 +8,10 @@ mod report;
 pub mod state;
 mod suite;
 mod ui_test;
+/// The web driver carries its own stuck handling, and a page cannot spawn
+/// the plain watchdog thread.
+#[cfg(not_wasm)]
+mod watchdog;
 
 use std::{
     fmt::Display,
@@ -263,10 +267,7 @@ pub(crate) fn record_colors() -> Result<()> {
     for (touch, color) in touches.deref() {
         let x: u32 = touch.position.x.lossy_convert();
         let y: u32 = touch.position.y.lossy_convert();
-        println!(
-            "            {:>4} {:>4} - {:>3} {:>3} {:>3}",
-            x, y, color.r, color.g, color.b
-        );
+        println!("            {:>4} {:>4} - {}", x, y, color.as_hex());
     }
 
     println!("        \"");

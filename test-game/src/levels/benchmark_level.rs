@@ -72,10 +72,10 @@ impl LevelSetup for BenchmarkLevel {
         self.player = self.make_sprite(Shape::Rect((2, 2).into()), (0, 5));
         self.player.set_color(Color::random());
 
-        self.player.set_image("frisk.png");
+        self.player.set_image("game/frisk.png");
 
         self.player.weapon.set_image("ak.png");
-        self.player.weapon.bullet_image = Image::get("bullet.png");
+        self.player.weapon.bullet_image = Image::get("game/bullet.png");
         self.player.weapon.bullet_speed = 100.0;
         self.player.weapon.bullet_shape = Shape::Rect((1, 0.28).into());
 

@@ -111,7 +111,7 @@ mod test {
         Ok(())
     }
 
-    #[ignore]
+    #[ignore = "scans the local network by hand"]
     #[test(tokio::test)]
     async fn find() -> Result<()> {
         dbg!(scan_for_port(55400).await?);
@@ -119,7 +119,7 @@ mod test {
         Ok(())
     }
 
-    #[ignore]
+    #[ignore = "long range scan, run by hand"]
     #[test(tokio::test)]
     async fn full_scan() -> Result<()> {
         dbg!(scan_for_port_range(10000, 15000, 2_000_000).await?);

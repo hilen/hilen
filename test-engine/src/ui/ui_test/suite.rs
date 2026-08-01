@@ -69,6 +69,9 @@ pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
     let state = prepare_harness();
     clear_failures();
 
+    #[cfg(not_wasm)]
+    super::watchdog::start_run();
+
     for (name, test) in tests {
         run_test(name, test.run);
     }

@@ -5,7 +5,10 @@ use vents::Event;
 
 use crate::{
     gm::{ToF32, color::Color, flat::CornerRadii},
-    ui::{NavigationView, Shadow, Style, UIAnimation, UIColor, UIManager, View, WeakView, layout::Placer},
+    ui::{
+        Gradient, NavigationView, Shadow, Style, UIAnimation, UIColor, UIManager, View, WeakView,
+        layout::Placer,
+    },
 };
 
 pub trait ViewData {
@@ -21,8 +24,11 @@ pub trait ViewData {
     fn color(&self) -> &Color;
     fn set_color(&self, color: impl Into<UIColor>) -> &Self;
 
-    fn end_gradient_color(&self) -> &Color;
+    fn gradient(&self) -> Option<Gradient>;
+    /// The plain top to bottom ramp. `apply_gradient` takes an angle or a
+    /// radial shape.
     fn set_gradient(&self, start: impl Into<Color>, end: impl Into<Color>) -> &Self;
+    fn apply_gradient(&self, gradient: Gradient) -> &Self;
 
     fn border_color(&self) -> &Color;
     fn set_border_color(&self, color: impl Into<UIColor>) -> &Self;
@@ -102,19 +108,23 @@ impl<T: ?Sized + View> ViewData for T {
                 base.dynamic_color = Some(color);
             }
         }
-        base.end_gradient_color = Color::default();
+        base.gradient = None;
         self
     }
 
-    fn end_gradient_color(&self) -> &Color {
-        &self.__base_view().end_gradient_color
+    fn gradient(&self) -> Option<Gradient> {
+        self.__base_view().gradient
     }
 
     fn set_gradient(&self, start: impl Into<Color>, end: impl Into<Color>) -> &Self {
+        self.apply_gradient(Gradient::vertical(start, end))
+    }
+
+    fn apply_gradient(&self, gradient: Gradient) -> &Self {
         let base = self.__base_view();
-        base.color = start.into();
-        base.end_gradient_color = end.into();
+        base.color = gradient.start;
         base.dynamic_color = None;
+        base.gradient = Some(gradient);
         self
     }
 

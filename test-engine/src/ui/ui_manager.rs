@@ -392,6 +392,10 @@ impl UIManager {
         ANIMATIONS.lock().push(anim);
     }
 
+    pub(crate) fn has_live_animations() -> bool {
+        !ANIMATIONS.lock().is_empty()
+    }
+
     pub(crate) fn commit_animations() {
         let mut animations = ANIMATIONS.lock();
 

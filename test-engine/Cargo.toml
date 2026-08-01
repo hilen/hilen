@@ -24,6 +24,7 @@ webgl = ["wgpu/webgl"]
 anyhow = { workspace = true }
 arbitrary = { workspace = true }
 atomic_float = { workspace = true }
+base64 = { workspace = true }
 bit_ops = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
@@ -64,7 +65,6 @@ level-proc = { workspace = true }
 ui-proc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-base64 = { workspace = true }
 mdns-sd = { workspace = true }
 rapier2d = { workspace = true, features = ["parallel"] } # simd can crash if there are too many active objects
 sentry = { workspace = true }
@@ -73,20 +73,32 @@ tokio = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
+event-listener = { workspace = true }
+# nightly selects the real atomics thread parker, without it parking panics on wasm workers
+parking_lot = { workspace = true, features = ["nightly"] }
 rapier2d = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = { workspace = true }
+jni = { workspace = true }
+ndk-context = { workspace = true }
 winit = { workspace = true, features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 winit = { workspace = true }
 
-[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 
-[target.'cfg(target_os = "ios")'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2-foundation = { workspace = true }
+objc2-ui-kit = { workspace = true }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
+arboard = { workspace = true }
+open = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

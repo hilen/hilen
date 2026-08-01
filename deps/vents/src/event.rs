@@ -72,6 +72,6 @@ impl<T> Default for Event<T> {
 
 impl<T> Debug for Event<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Event<{}>", type_name::<T>(),)
+        write!(f, "Event<{}>", type_name::<T>())
     }
 }

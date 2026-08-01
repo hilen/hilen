@@ -3,6 +3,7 @@ struct PathView {
     resolution: vec2<f32>,
     color: vec4<f32>,
     z_position: f32,
+    scale: f32,
 }
 
 @group(0) @binding(0) var<uniform> path_view: PathView;
@@ -11,13 +12,12 @@ struct PathView {
 fn v_main(
     @location(0) vertex: vec2<f32>,
 ) -> @builtin(position) vec4<f32>  {
-    var x: f32 = (vertex.x + path_view.position.x) * 2.0;
-    var y: f32 = (vertex.y + path_view.position.y) * 2.0;
+    let p = (vertex + path_view.position) * path_view.scale;
 
-    x /= path_view.resolution.x;
-    y /= path_view.resolution.y;
+    let x = p.x * 2.0 / path_view.resolution.x - 1.0;
+    let y = 1.0 - p.y * 2.0 / path_view.resolution.y;
 
-    return vec4<f32>(-1.0 + x, 1.0 - y, path_view.z_position, 1.0);
+    return vec4<f32>(x, y, path_view.z_position, 1.0);
 }
 
 @fragment

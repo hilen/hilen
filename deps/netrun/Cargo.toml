@@ -28,12 +28,10 @@ repository = "https://github.com/VladasZ/netrun"
 
 [lib]
 name = "netrun"
-crate-type = [
-    "dylib",
-    "rlib",
-    "staticlib",
-]
 path = "src/lib.rs"
+
+[lints]
+workspace = true
 
 [dependencies.anyhow]
 version = "1.0"
@@ -55,9 +53,6 @@ version = "0.13"
 
 [dependencies.parking_lot]
 version = "0.12"
-
-[dependencies.plat]
-version = "0.9"
 
 [dependencies.reqwest]
 version = "0.13"
@@ -83,11 +78,20 @@ version = "0.11"
 [dev-dependencies.pretty_assertions]
 version = "1.4"
 
+[dev-dependencies.test-log]
+version = "0.2"
+
 [dev-dependencies.wasm-bindgen-test]
 version = "0.3"
 
 [build-dependencies.plat]
-version = "0.9"
+path = "../plat"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures-util = "0.3"
+rustls = "0.23"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+webpki-roots = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.infisical]
 version = "0.0.3"
@@ -104,3 +108,6 @@ version = "0.7"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.zeromq]
 version = "0.5.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { workspace = true, features = ["WebSocket", "MessageEvent"] }

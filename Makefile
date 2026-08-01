@@ -10,6 +10,16 @@ ui:
 uui:
 	cargo run -p ui-test --release -- --headless
 
+# One test per engine pillar, the fast pre-commit check. Desktop only,
+# debug, headless. Full lanes still run for rendering-heavy changes.
+SMOKE_TESTS = TestColorChecker,ButtonPress,InjectTouch,AnchorLayoutTest,TableView2Test,WheelScrollTest,LabelFitText,LabelFont,ImageView,NineSegment,GameView,AnimationDrivesFrames,ShowModally,BackdropBlurTest
+
+smoke:
+	cargo run -p ui-test -- --headless --test-name $(SMOKE_TESTS)
+
+ui-ios:
+	rust ./build/ios/sim-test.rs
+
 all:
 	order
 	make wasm
@@ -55,6 +65,7 @@ ci:
 	typos
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy -p test-game --features bench --all-targets -- -D warnings
 	cargo machete
 
 lint:
@@ -62,23 +73,31 @@ lint:
 
 serve:
 	rustup target add wasm32-unknown-unknown
-	cargo install --locked trunk
+	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./test-game && trunk serve --features webgl --address 0.0.0.0 --port 44800
 
 serve-release:
 	rustup target add wasm32-unknown-unknown
-	cargo install --locked trunk
+	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./test-game && trunk serve --features webgl --release --address 0.0.0.0 --port 44800
 
 serve-size:
 	rustup target add wasm32-unknown-unknown
-	cargo install --locked trunk
+	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./test-game && trunk serve --features webgl --cargo-profile=size --address 0.0.0.0 --port 44800
 
 wasm:
 	rustup target add wasm32-unknown-unknown
-	cargo install --locked trunk
+	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./test-game && trunk build
+
+# The suite in a real installed browser, driven over the inspect socket.
+BROWSER ?= chrome
+ui-web:
+	rustup target add wasm32-unknown-unknown
+	rustup component add rust-src
+	command -v trunk >/dev/null || cargo install --locked trunk
+	bun build/web/drive.ts --browser $(BROWSER)
 
 .PHONY: import
 import:

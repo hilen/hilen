@@ -46,6 +46,12 @@ pub struct Label {
 
     dynamic_text_color: Option<DynamicColor>,
 
+    /// The bottom of the glyph ramp, `None` for flat text. The top is
+    /// `text_color`, so a gradient and a plain color cannot both be set.
+    text_end_color: Option<Color>,
+
+    dynamic_text_end_color: Option<DynamicColor>,
+
     #[educe(Default = DEFAULT_TEXT_SIZE.load(Ordering::Relaxed))]
     text_size: f32,
 
@@ -81,6 +87,32 @@ impl Label {
             UIColor::Dynamic(color) => {
                 this.text_color = color.resolve();
                 this.dynamic_text_color = Some(color);
+            }
+        }
+        this.text_end_color = None;
+        this.dynamic_text_end_color = None;
+        self
+    }
+
+    pub(crate) fn text_end_color(&self) -> Option<Color> {
+        self.text_end_color
+    }
+
+    /// Fades the glyphs from `start` at the top of the label frame to `end` at
+    /// its bottom. This is what CSS paints with a linear gradient and
+    /// `background-clip: text`. [`Label::set_text_color`] clears it.
+    pub fn set_text_gradient(&self, start: impl Into<UIColor>, end: impl Into<UIColor>) -> &Self {
+        self.set_text_color(start);
+
+        let mut this = weak_from_ref(self);
+        match end.into() {
+            UIColor::Plain(color) => {
+                this.text_end_color = Some(color);
+                this.dynamic_text_end_color = None;
+            }
+            UIColor::Dynamic(color) => {
+                this.text_end_color = Some(color.resolve());
+                this.dynamic_text_end_color = Some(color);
             }
         }
         self
@@ -212,6 +244,9 @@ impl ViewCallbacks for Label {
     fn theme_changed(&mut self) {
         if let Some(color) = self.dynamic_text_color {
             self.text_color = color.resolve();
+        }
+        if let Some(color) = self.dynamic_text_end_color {
+            self.text_end_color = Some(color.resolve());
         }
     }
 }

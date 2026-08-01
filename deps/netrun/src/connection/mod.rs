@@ -41,7 +41,7 @@ mod test {
         assert_eq!(5, connection.receive().await?);
 
         connection.send(true).await?;
-        assert_eq!(true, client.receive().await?);
+        assert!(client.receive().await?);
 
         drop(client);
 
@@ -69,25 +69,25 @@ mod test {
         Ok(())
     }
 
+    async fn test_connection(port: u16) -> Result<()> {
+        let server = Server::<i32, bool>::start(port).await?;
+
+        let client = Client::<bool, i32>::connect((Ipv4Addr::LOCALHOST, port)).await?;
+        let connection = server.wait_for_new_connection().await;
+
+        client.send(5).await?;
+        assert_eq!(5, connection.receive().await?);
+
+        connection.send(true).await?;
+        assert!(client.receive().await?);
+
+        drop(client);
+
+        Ok(())
+    }
+
     #[test(tokio::test)]
     async fn stress_test_connection() -> Result<()> {
-        async fn test_connection(port: u16) -> Result<()> {
-            let server = Server::<i32, bool>::start(port).await?;
-
-            let client = Client::<bool, i32>::connect((Ipv4Addr::LOCALHOST, port)).await?;
-            let connection = server.wait_for_new_connection().await;
-
-            client.send(5).await?;
-            assert_eq!(5, connection.receive().await?);
-
-            connection.send(true).await?;
-            assert_eq!(true, client.receive().await?);
-
-            drop(client);
-
-            Ok(())
-        }
-
         let mut set = JoinSet::new();
 
         for i in 64000..64100 {

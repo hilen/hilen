@@ -1,8 +1,11 @@
 mod app_command;
 mod inspector_command;
+#[cfg(not_wasm)]
 mod transport;
 pub mod ui;
 
-pub use self::{app_command::*, inspector_command::*, transport::*};
+#[cfg(not_wasm)]
+pub use self::transport::*;
+pub use self::{app_command::*, inspector_command::*};
 
 pub const SERVICE_TYPE: &str = "_te-inspect._tcp.local.";

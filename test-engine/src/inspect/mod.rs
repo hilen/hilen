@@ -1,10 +1,12 @@
-#![cfg(all(not_wasm, feature = "inspect"))]
+#![cfg(feature = "inspect")]
 
 pub mod protocol;
 
 mod edit_log;
 mod inspect_service;
 mod view_conversion;
+#[cfg(wasm)]
+pub(crate) mod web_transport;
 
 pub mod views;
 

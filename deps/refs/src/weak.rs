@@ -161,9 +161,9 @@ impl<T: ?Sized> Weak<T> {
         );
 
         if self.ptr.is_null() {
-            error!("Dereferencing never initialized weak pointer: {}", self.type_name,);
+            error!("Dereferencing never initialized weak pointer: {}", self.type_name);
             // backtrace();
-            panic!("Dereferencing never initialized weak pointer: {}", self.type_name,);
+            panic!("Dereferencing never initialized weak pointer: {}", self.type_name);
         }
 
         if self.is_null() {
@@ -175,7 +175,7 @@ impl<T: ?Sized> Weak<T> {
             );
 
             #[cfg(not(feature = "pointers_info"))]
-            let message = format!("Dereferencing already freed weak pointer: {}", self.type_name,);
+            let message = format!("Dereferencing already freed weak pointer: {}", self.type_name);
 
             error!("{message}");
             panic!("{message}");

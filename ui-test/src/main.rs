@@ -16,6 +16,7 @@ use test_engine::{
 
 #[derive(Parser)]
 struct Args {
+    /// One test, or a comma separated subset, `make smoke` uses that.
     #[arg(long, short)]
     test_name: Option<String>,
 
@@ -89,7 +90,10 @@ fn run(args: Args) -> Result<()> {
     }
 
     if let Some(path) = args.display.screenshot.clone() {
-        anyhow::ensure!(args.test_name.is_some(), "--screenshot requires --test-name");
+        anyhow::ensure!(
+            args.test_name.as_ref().is_some_and(|names| !names.contains(',')),
+            "--screenshot requires exactly one --test-name"
+        );
         enable_screenshot_capture(path);
     }
 
@@ -121,7 +125,7 @@ fn run(args: Args) -> Result<()> {
 
     let test_name = args.test_name;
     let human = args.display.human;
-    let total = if test_name.is_some() { 1 } else { tests.len() };
+    let total = test_name.as_ref().map_or(tests.len(), |names| names.split(',').count());
 
     let actor = async move {
         Label::set_default_text_size(32);
@@ -144,18 +148,29 @@ fn run(args: Args) -> Result<()> {
             // deriving the spaced name itself. `spaced_test_name` is the one
             // place that rule lives, and drifting from it is what made the old
             // generated `#[test]` pass a name the runner rejected.
-            let key = spaced_test_name(&test_name);
+            let names: Vec<&str> = test_name.split(',').map(str::trim).collect();
 
-            let Some(test) = tests.get(&key) else {
-                eprintln!("UI test not found: {test_name}");
+            // Every name resolves before anything runs, so a typo in a
+            // subset never looks like a shorter green run.
+            let mut missing = false;
+            for name in &names {
+                if !tests.contains_key(&spaced_test_name(name)) {
+                    eprintln!("UI test not found: {name}");
+                    missing = true;
+                }
+            }
+            if missing {
                 eprintln!("Run `cargo run -p ui-test -- --list` to see every registered test.");
                 exit(1);
-            };
+            }
 
-            run_test(&key, test.run);
+            for name in names {
+                let key = spaced_test_name(name);
+                run_test(&key, tests[&key].run);
 
-            if let Err(error) = capture_requested_screenshot() {
-                push_failure(&key, format!("screenshot capture failed: {error}"));
+                if let Err(error) = capture_requested_screenshot() {
+                    push_failure(&key, format!("screenshot capture failed: {error}"));
+                }
             }
 
             UITest::finish();

@@ -5,7 +5,9 @@ use hreads::{from_main, invoke_dispatched};
 #[cfg(desktop)]
 use hreads::{is_main_thread, wait_for_next_frame};
 use log::debug;
-use refs::{Own, main_lock::MainLock};
+#[cfg(not_wasm)]
+use refs::Own;
+use refs::main_lock::MainLock;
 use winit::{
     event::{KeyEvent, TouchPhase},
     keyboard::Key,
@@ -21,7 +23,7 @@ use crate::{
     level_drawer::LevelDrawer,
     pipelines::Pipelines,
     ui::{
-        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, View, ViewData, ViewSubviews,
+        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
         WeakView, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
@@ -57,7 +59,7 @@ impl AppRunner {
     }
 
     #[cfg(not_wasm)]
-    pub(crate) fn setup_log() {
+    pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
         use fern::Dispatch;
         use log::{Level, LevelFilter};
 
@@ -66,11 +68,17 @@ impl AppRunner {
         #[cfg(not(target_os = "ios"))]
         let output = std::io::stdout();
 
-        Dispatch::new()
+        let mut dispatch = Dispatch::new()
             .level(LevelFilter::Warn)
             .level_for("test_engine", LevelFilter::Debug)
             .level_for("inspector", LevelFilter::Debug)
-            .level_for("netrun", LevelFilter::Debug)
+            .level_for("netrun", LevelFilter::Debug);
+
+        for target in app_targets {
+            dispatch = dispatch.level_for(*target, LevelFilter::Debug);
+        }
+
+        dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -128,8 +136,18 @@ impl AppRunner {
     }
 
     pub fn new(app: Box<dyn App>) -> Self {
+        // A crate nested in a monorepo runs from its own directory and keeps
+        // its assets there, so a cwd with an assets folder wins over the git
+        // root, which would be the monorepo root.
         #[cfg(desktop)]
-        crate::assets::Assets::init(crate::filesystem::Paths::git_root().expect("git_root()"));
+        {
+            let root = std::env::current_dir()
+                .ok()
+                .filter(|dir| dir.join("assets").exists())
+                .unwrap_or_else(|| crate::filesystem::Paths::git_root().expect("git_root()"));
+
+            crate::assets::Assets::init(root);
+        }
         #[cfg(mobile)]
         crate::assets::Assets::init(std::path::PathBuf::default());
 
@@ -186,7 +204,7 @@ impl AppRunner {
         actions: impl std::future::Future<Output = Result<()>> + Send + 'static,
         headless: bool,
     ) {
-        use crate::ui::Setup;
+        use crate::ui::{Setup, View};
 
         #[derive(Default)]
         struct ActorApp;
@@ -250,6 +268,97 @@ impl AppRunner {
         Window::current().fps()
     }
 
+    /// Runs the whole UI suite from the browser page, when the
+    /// `te_run_tests` query flag is set, since a page has no env vars.
+    /// The suite runs on a worker thread sharing wasm memory, exactly
+    /// like the native worker task, and the driver reads the
+    /// `TE_TEST_RESULT` console line instead of an exit code, since a
+    /// page has no exit status. `te_test_only` narrows the run to a
+    /// comma separated list of test names, camel case only, spaces do
+    /// not survive a url. `te_test_skip` drops tests the same way, the
+    /// driver relists panicked ones there when it relaunches the page,
+    /// since a wasm panic aborts the instance and cannot be caught.
+    #[cfg(all(wasm, feature = "ui-tests"))]
+    fn spawn_test_autorun() {
+        if !crate::web::query_flag("te_run_tests") {
+            return;
+        }
+
+        UIManager::on_app_ready(|| {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            // The app marks itself ready again when the suite hands the
+            // UI back, and this callback refires. Native exits before
+            // that, a page stays alive, so run once.
+            static RAN: AtomicBool = AtomicBool::new(false);
+
+            if RAN.swap(true, Ordering::Relaxed) {
+                return;
+            }
+
+            // Read on the main thread, a worker has no window.
+            let only = crate::web::query_param("te_test_only");
+            let skip = crate::web::query_param("te_test_skip");
+
+            // A browser serves sync `get` only from memory, so every
+            // asset group downloads before the suite starts. Native
+            // reads any file from disk on demand, this keeps both
+            // runs seeing the same assets.
+            hreads::spawn(async move {
+                if let Err(err) = crate::assets::Assets::load_all_groups().await {
+                    log::error!("Asset preload for tests failed: {err}");
+                }
+
+                Self::spawn_test_worker(only, skip);
+            });
+        });
+    }
+
+    #[cfg(all(wasm, feature = "ui-tests"))]
+    fn spawn_test_worker(only: Option<String>, skip: Option<String>) {
+        hreads::spawn_thread(move || {
+            let mut tests = crate::UI_TESTS.lock().clone();
+
+            if let Some(only) = only {
+                let keep: Vec<String> =
+                    only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                tests.retain(|name, _| keep.contains(name));
+            }
+
+            // The driver reports skipped tests as failures itself, this
+            // rerun only has to survive them.
+            if let Some(skip) = skip {
+                let drop: Vec<String> =
+                    skip.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                tests.retain(|name, _| !drop.contains(name));
+            }
+
+            let report = crate::ui_test::run_test_map(&tests);
+
+            for failure in &report.failures {
+                log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
+            }
+
+            let failed = report.failures.len();
+            log::info!("TE_TEST_RESULT {} tests, {failed} failed", report.total);
+
+            // A driver has no console access without a browser automation
+            // protocol, it reads the report over the inspect socket instead.
+            #[cfg(feature = "inspect")]
+            crate::inspect::web_transport::push(crate::inspect::AppCommand::TestResults {
+                total:    report.total,
+                failures: report
+                    .failures
+                    .into_iter()
+                    .map(|f| crate::inspect::protocol::TestFailureRepr {
+                        name:   f.name,
+                        detail: f.detail,
+                    })
+                    .collect(),
+            });
+        });
+    }
+
     /// Runs the whole UI suite and exits, when `TE_RUN_TESTS` is set.
     ///
     /// The tests drive the main thread through `from_main`, so the run has to
@@ -272,7 +381,18 @@ impl AppRunner {
         // touches. An app with no loading phase is ready at once.
         UIManager::on_app_ready(|| {
             hreads::spawn(async {
-                let report = crate::ui_test::run_all_tests();
+                let mut tests = crate::UI_TESTS.lock().clone();
+
+                // Run only the named tests when set, a comma separated list, to
+                // isolate cases on a device or simulator where the whole suite
+                // is slow to reach them. Order in the map is still alphabetical.
+                if let Ok(only) = std::env::var("TE_TEST_ONLY") {
+                    let keep: Vec<String> =
+                        only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
+                    tests.retain(|name, _| keep.contains(name));
+                }
+
+                let report = crate::ui_test::run_test_map(&tests);
 
                 for failure in &report.failures {
                     println!("TEST FAILED: {}\n{}", failure.name, failure.detail);
@@ -332,6 +452,15 @@ impl crate::window::WindowEvents for AppRunner {
                 #[cfg(feature = "ui-tests")]
                 Self::spawn_test_autorun();
             }
+
+            #[cfg(wasm)]
+            crate::assets::start_boot_preload();
+
+            #[cfg(all(wasm, feature = "inspect"))]
+            crate::inspect::web_transport::start_if_requested();
+
+            #[cfg(all(wasm, feature = "ui-tests"))]
+            Self::spawn_test_autorun();
 
             UIManager::keymap().add(UIManager::root_view(), 'i', || {
                 fn call_inspect(mut view: WeakView) {

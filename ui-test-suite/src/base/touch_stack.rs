@@ -60,6 +60,13 @@ impl ViewTest for TouchStackTestView {
 
         Alert::show("Hello");
 
+        {
+            use test_engine::ui::{UIManager, ViewFrame};
+            let root = from_main(|| UIManager::root_view().frame().size);
+            let scale = from_main(UIManager::scale);
+            log::error!("PROBE root {root:?} scale {scale}");
+        }
+
         assert_eq!(
             TouchStack::dump(),
             vec![

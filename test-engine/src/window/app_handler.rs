@@ -9,7 +9,7 @@ use refs::main_lock::MainLock;
 use winit::{
     application::ApplicationHandler,
     event::{MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
 };
@@ -33,7 +33,9 @@ pub(crate) enum UserEvent {
     WindowReady(Box<Window>),
     /// A nudge that only exists to wake the loop from `ControlFlow::Wait` when
     /// background work queued a main thread callback. Handled by drawing a
-    /// frame in `about_to_wait`, so the handler itself does nothing.
+    /// frame in `about_to_wait`, so the handler itself does nothing. Wasm
+    /// polls every iteration and never waits, so it has no wake.
+    #[cfg(not_wasm)]
     Wake,
 }
 
@@ -44,6 +46,8 @@ enum AppHandlerState {
 }
 
 impl AppHandlerState {
+    // Only the native frame pacing asks, wasm polls every iteration.
+    #[cfg(not_wasm)]
     fn ready(&self) -> bool {
         !self.not_ready()
     }
@@ -178,6 +182,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             }
             // Waking the loop was the whole point. `about_to_wait` runs right
             // after this and draws a frame because a redraw was requested.
+            #[cfg(not_wasm)]
             UserEvent::Wake => {}
         }
     }
@@ -229,7 +234,15 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 if self.state.not_ready() {
                     return;
                 }
+
                 State::resize();
+
+                // Configuring the surface resizes the backing buffer, which
+                // clears it. Leaving that for the next frame presents an empty
+                // buffer, and a window drag fires resizes far faster than
+                // frames, so the app reads as blank the whole time it is
+                // dragged. Drawing here means nothing empty is ever shown.
+                Self::window().state.render();
             }
             WindowEvent::ScaleFactorChanged {
                 scale_factor,
@@ -259,7 +272,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.not_ready() {
             return;
         }
@@ -268,12 +281,27 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             return;
         };
 
-        // Native sleeps in `ControlFlow::Wait` and draws only when a frame was
-        // requested. Wasm keeps polling and drawing every iteration.
         #[cfg(not_wasm)]
-        if !crate::window::take_needs_render() {
-            return;
+        {
+            let continuous = crate::window::continuous_render_active();
+            let pending = crate::window::take_needs_render();
+            if !continuous && !pending {
+                event_loop.set_control_flow(ControlFlow::Wait);
+                return;
+            }
+            event_loop.set_control_flow(if continuous {
+                ControlFlow::Poll
+            } else {
+                ControlFlow::Wait
+            });
         }
+
+        // Wait, not Poll. The redraw below re-arms a rAF every
+        // iteration, so the loop is paced by the display. Poll spins
+        // the runner through scheduler.postTask between frames, and
+        // Firefox starves rAF under that flood, freezing the app.
+        #[cfg(wasm)]
+        event_loop.set_control_flow(ControlFlow::Wait);
 
         window.request_redraw();
     }

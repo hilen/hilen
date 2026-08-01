@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use image::{GenericImageView, ImageBuffer, Rgba};
-use plat::Platform;
 use usvg::{ImageRendering, ShapeRendering, TextRendering, Transform};
 use wgpu::{
     AddressMode, Device, Extent3d, FilterMode, MipmapFilterMode, Origin3d, Sampler, SamplerDescriptor,
@@ -98,21 +97,19 @@ impl Texture {
     }
 
     pub fn from_raw_data(TextureRawData { data, size, channels }: TextureRawData, label: &str) -> Self {
-        const RGBA_TEXTURE_FORMAT: TextureFormat = if Platform::ANDROID {
-            TextureFormat::Rgba8Unorm
-        } else {
-            TextureFormat::Rgba8UnormSrgb
-        };
-
         let extend_size = Extent3d {
             width:                 size.width,
             height:                size.height,
             depth_or_array_layers: 1,
         };
 
+        // Plain Unorm, the whole pipeline works on encoded sRGB values.
+        // Image bytes are already encoded, sampling must return them
+        // unchanged. An sRGB format here would decode on sample and the
+        // image would render one decode too dark.
         let (channels, format) = match channels {
             1 => (1, TextureFormat::R8Unorm),
-            3 | 4 => (4, RGBA_TEXTURE_FORMAT),
+            3 | 4 => (4, TextureFormat::Rgba8Unorm),
             ch => panic!("Invalid number of channels: {ch}"),
         };
 
@@ -167,7 +164,12 @@ impl Texture {
         }
     }
 
-    pub(crate) fn create_depth_texture(device: &Device, size: Size<u32>, label: &str) -> Self {
+    pub(crate) fn create_depth_texture(
+        device: &Device,
+        size: Size<u32>,
+        sample_count: u32,
+        label: &str,
+    ) -> Self {
         let extend = Extent3d {
             width:                 size.width,
             height:                size.height,
@@ -175,14 +177,14 @@ impl Texture {
         };
 
         let texture = device.create_texture(&TextureDescriptor {
-            label:           label.into(),
-            size:            extend,
+            label: label.into(),
+            size: extend,
             mip_level_count: 1,
-            sample_count:    1,
-            dimension:       TextureDimension::D2,
-            format:          Self::DEPTH_FORMAT,
-            usage:           TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats:    &[],
+            sample_count,
+            dimension: TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
 
         let view = texture.create_view(&TextureViewDescriptor::default());

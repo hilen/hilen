@@ -4,7 +4,14 @@ use std::{
 };
 
 use anyhow::Result;
+// The main thread drains the queue every frame while workers push into
+// it. In the browser the main thread must never park, a contended
+// parking lock there raises an Atomics.wait error, so wasm spins. The
+// critical sections are single vec operations.
+#[cfg(not_wasm)]
 use parking_lot::Mutex;
+#[cfg(wasm)]
+use spin::Mutex;
 #[cfg(not_wasm)]
 use tokio::{
     runtime::{Handle, RuntimeFlavor},

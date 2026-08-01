@@ -1,6 +1,9 @@
 use std::{
     cell::RefCell,
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::{
+        OnceLock,
+        mpsc::{Receiver, Sender, channel},
+    },
 };
 
 #[cfg(feature = "bench")]
@@ -46,10 +49,84 @@ struct GpuTimer {
     readback:  wgpu::Buffer,
 }
 
+// Plain Unorm, never an sRGB format. Color values are encoded sRGB end
+// to end and the hardware must blend the written values as they are,
+// the same math browsers, design tools and every UI stack use. An sRGB
+// target would decode, blend in linear and encode back, which shifts
+// every translucent and antialiased pixel away from the design.
+// Rgba, not Bgra, android swapchains have no Bgra.
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8UnormSrgb;
-#[cfg(any(target_os = "android", target_arch = "wasm32"))]
-pub const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Bgra8Unorm;
+#[cfg(target_os = "android")]
+const SURFACE_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+
+/// The format every frame renders into. Fixed at compile time
+/// everywhere but the browser, which picks its canvas format at
+/// runtime.
+pub fn surface_texture_format() -> TextureFormat {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_formats::present_format()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SURFACE_TEXTURE_FORMAT
+    }
+}
+
+/// Samples per pixel of the frame's render pass. 4 anti-aliases the
+/// triangulated geometry the SDF pipelines cannot smooth, vector paths,
+/// polygons and sprite cutouts. Every pipeline drawing into the pass
+/// and the pass attachments must agree on this count. `TE_MSAA=1`
+/// switches multisampling off, the A/B lever for benchmarks.
+pub fn msaa_sample_count() -> u32 {
+    static COUNT: OnceLock<u32> = OnceLock::new();
+    *COUNT.get_or_init(|| {
+        let count = std::env::var("TE_MSAA").map_or(4, |value| {
+            value.parse().unwrap_or_else(|_| panic!("Invalid TE_MSAA value: {value}"))
+        });
+        assert!(
+            matches!(count, 1 | 2 | 4),
+            "TE_MSAA must be 1, 2 or 4, got {count}"
+        );
+        count
+    })
+}
+
+/// The canvas format has to be what the browser prefers. Both allowed
+/// formats are valid to configure, but rendering the non preferred one
+/// makes Chrome convert every frame and makes Firefox present it with
+/// red and blue swapped.
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web_formats {
+    use std::sync::OnceLock;
+
+    use wgpu::TextureFormat;
+
+    static PRESENT: OnceLock<TextureFormat> = OnceLock::new();
+
+    /// The first capability entry is the browser's preferred canvas
+    /// format. Called during window creation, before anything that
+    /// needs the format exists.
+    pub(crate) fn resolve(surface: &wgpu::Surface, adapter: &wgpu::Adapter) {
+        let format = surface.get_capabilities(adapter).formats[0];
+        PRESENT.get_or_init(|| format);
+    }
+
+    pub(crate) fn present_format() -> TextureFormat {
+        *PRESENT.get().expect("Surface format is not resolved yet")
+    }
+}
+
+/// Where the surface cannot be copied, screenshots read the scene texture
+/// instead, which therefore needs the copy usage.
+const SCENE_TEXTURE_USAGE: wgpu::TextureUsages = if crate::window::SURFACE_COPY {
+    wgpu::TextureUsages::RENDER_ATTACHMENT.union(wgpu::TextureUsages::TEXTURE_BINDING)
+} else {
+    wgpu::TextureUsages::RENDER_ATTACHMENT
+        .union(wgpu::TextureUsages::TEXTURE_BINDING)
+        .union(wgpu::TextureUsages::COPY_SRC)
+};
 
 pub struct State {
     pub(crate) clear_color: Color,
@@ -59,6 +136,7 @@ pub struct State {
 
     offscreen_texture: Option<wgpu::Texture>,
     scene_texture:     Option<wgpu::Texture>,
+    msaa_texture:      Option<wgpu::Texture>,
     depth_texture:     Option<Texture>,
 
     update_work: f32,
@@ -84,6 +162,7 @@ impl Default for State {
             frame_counter:                            FrameCounter::default(),
             offscreen_texture:                        None,
             scene_texture:                            None,
+            msaa_texture:                             None,
             depth_texture:                            None,
             update_work:                              0.0,
             frame_work_time:                          0.0,
@@ -245,6 +324,7 @@ impl State {
             self.ensure_offscreen_texture();
         }
         self.ensure_depth_texture();
+        self.ensure_msaa_texture();
 
         #[cfg(feature = "bench")]
         self.ensure_gpu_timer();
@@ -255,6 +335,11 @@ impl State {
         // texture is sampleable as is. Frames that do not sample skip
         // all of this and render straight to the target.
         let needs_sampling = AppHandler::current().te_window_events.needs_sampleable_frame();
+
+        // A pending read forces the scene texture path where the surface
+        // cannot be copied, the readback copies the scene texture instead.
+        let needs_sampling =
+            needs_sampling || (!crate::window::SURFACE_COPY && self.read_display_request.borrow().is_some());
 
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture();
@@ -290,24 +375,36 @@ impl State {
         #[cfg(not(feature = "bench"))]
         let timestamp_writes = None;
 
+        let msaa_view = self
+            .msaa_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
         let mut frame = RenderFrame::new(
             encoder,
             scene_view,
             present_view,
             self.depth_texture.as_ref().unwrap().view.clone(),
+            msaa_view,
             self.clear_color,
             timestamp_writes,
         );
 
         AppHandler::current().te_window_events.render(&mut frame);
 
-        let encoder = frame.finish();
-        #[cfg(not_wasm)]
-        let mut encoder = encoder;
+        let mut encoder = frame.finish();
 
-        #[cfg(not_wasm)]
         let buffer = if self.read_display_request.borrow().is_some() {
-            Some(Self::read_screen(&mut encoder, texture))
+            // Where the surface cannot be copied the pending read forced
+            // the sampling path above, so the scene texture holds this
+            // frame. The headless offscreen texture is copyable as is.
+            let source = if crate::window::SURFACE_COPY || surface_texture.is_none() {
+                texture
+            } else {
+                self.scene_texture.as_ref().expect("Scene texture ensured by pending read")
+            };
+
+            Some(Self::read_screen(&mut encoder, source))
         } else {
             None
         };
@@ -325,6 +422,10 @@ impl State {
         #[cfg(feature = "bench")]
         self.read_gpu_time().expect("failed to read gpu time");
 
+        self.deliver_pending_read(buffer);
+    }
+
+    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, crate::gm::flat::Size<u32>)>) {
         #[cfg(not_wasm)]
         if let Some(buffer_sender) = self.read_display_request.take() {
             let (sender, receiver) = channel();
@@ -349,6 +450,27 @@ impl State {
             hreads::spawn(async move {
                 let _ = receiver.recv().unwrap();
                 Self::deliver_screenshot(buffer, &buffer_sender);
+            });
+        }
+
+        // The browser cannot block on the device. The map callback fires
+        // on the main thread once the browser completes the copy, and the
+        // waiting test thread receives through the request channel.
+        #[cfg(wasm)]
+        if let Some(buffer_sender) = self.read_display_request.take() {
+            let Some((buffer, size)) = buffer else {
+                return;
+            };
+
+            let mapped = buffer.clone();
+
+            buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+                if let Err(err) = result {
+                    warn!("Screenshot map failed: {err}");
+                    return;
+                }
+
+                Self::deliver_screenshot((mapped, size), &buffer_sender);
             });
         }
     }
@@ -436,8 +558,47 @@ impl State {
         self.depth_texture = Some(Texture::create_depth_texture(
             Window::device(),
             size,
+            msaa_sample_count(),
             "depth_texture",
         ));
+    }
+
+    /// The multisampled color target the frame renders into before
+    /// resolving to the presentable texture. Not created when
+    /// multisampling is off, then the frame renders straight into the
+    /// resolve target.
+    fn ensure_msaa_texture(&mut self) {
+        if msaa_sample_count() == 1 {
+            return;
+        }
+
+        let size = Window::render_size();
+        let width: u32 = size.width.lossy_convert();
+        let height: u32 = size.height.lossy_convert();
+
+        let up_to_date = self
+            .msaa_texture
+            .as_ref()
+            .is_some_and(|texture| texture.size().width == width && texture.size().height == height);
+
+        if up_to_date {
+            return;
+        }
+
+        self.msaa_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
+            label:           Some("MSAA Render Texture"),
+            size:            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    msaa_sample_count(),
+            dimension:       wgpu::TextureDimension::D2,
+            format:          surface_texture_format(),
+            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats:    &[],
+        }));
     }
 
     fn ensure_offscreen_texture(&mut self) {
@@ -464,7 +625,7 @@ impl State {
             mip_level_count: 1,
             sample_count:    1,
             dimension:       wgpu::TextureDimension::D2,
-            format:          SURFACE_TEXTURE_FORMAT,
+            format:          surface_texture_format(),
             usage:           wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -499,13 +660,12 @@ impl State {
             mip_level_count: 1,
             sample_count:    1,
             dimension:       wgpu::TextureDimension::D2,
-            format:          SURFACE_TEXTURE_FORMAT,
-            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            format:          surface_texture_format(),
+            usage:           SCENE_TEXTURE_USAGE,
             view_formats:    &[],
         }));
     }
 
-    #[cfg(not_wasm)]
     fn deliver_screenshot(buffer: (wgpu::Buffer, crate::gm::flat::Size<u32>), sender: &ReadDisplayRequest) {
         let (buff, size) = buffer;
 
@@ -527,12 +687,18 @@ impl State {
 
         let mut data: Vec<crate::gm::color::U8Color> = Vec::with_capacity(width * height);
 
+        // The channel order follows the render format, bgra on desktop
+        // and in mac browsers, rgba elsewhere.
+        let swaps_channels = surface_texture_format() == TextureFormat::Bgra8Unorm;
+
         for row in bytes.chunks_exact(row_bytes) {
-            data.extend(
-                bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes])
-                    .iter()
-                    .map(|color| color.bgra_to_rgba()),
-            );
+            let row = bytemuck::cast_slice::<u8, crate::gm::color::U8Color>(&row[..real_row_bytes]);
+
+            if swaps_channels {
+                data.extend(row.iter().map(|color| color.bgra_to_rgba()));
+            } else {
+                data.extend_from_slice(row);
+            }
         }
 
         sender.send(Screenshot::new(data, size)).unwrap();
@@ -546,23 +712,10 @@ impl State {
         r
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn read_screen(
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
     ) -> (wgpu::Buffer, crate::gm::flat::Size<u32>) {
-        if !crate::window::SUPPORT_SCREENSHOT {
-            return (
-                Window::device().create_buffer(&wgpu::BufferDescriptor {
-                    label:              Some("Empty Buffer"),
-                    size:               0,
-                    usage:              wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
-                crate::gm::flat::Size::default(),
-            );
-        }
-
         let screen_width_bytes: u64 = u64::from(texture.size().width) * std::mem::size_of::<u32>() as u64;
 
         let width_bytes = screen_width_bytes.next_multiple_of(u64::from(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));

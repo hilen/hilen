@@ -29,9 +29,9 @@ jobs:
           sudo apt-get install -y cmake pkg-config libssl-dev xorg-dev libasound2-dev
 
       - name: Install quality tools
-        run: |
-          cargo install typos-cli --version 1.48.0 --locked
-          cargo install cargo-machete --version 0.9.2 --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli@1.48.0,cargo-machete@0.9.2
 
       - name: Run quality checks
         run: make ci
@@ -44,6 +44,11 @@ jobs:
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
+
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
 
       - name: Build
         run: make wasm
@@ -65,6 +70,52 @@ jobs:
 
       - name: Run UI tests
         run: cargo run -p ui-test --profile=ci -- --headless
+
+  # A real installed browser, headed as the driver wants, but drawing into a
+  # virtual display, so a run never opens a window on anyone's desktop.
+  web-ui-tests:
+    name: Web UI Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Chrome is off for now. Dawn on SwiftShader draws the readback
+        # frame at quarter scale, so 33 tests read wrong pixels while the
+        # screen is correct. Restore chrome here once that bug is fixed.
+        browser: [firefox]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{secrets.GITHUB_TOKEN}}
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mesa-vulkan-drivers
+
+      - name: Browser version
+        run: ${{ matrix.browser == 'chrome' && 'google-chrome --version' || 'firefox --version' }}
+
+      - name: Run UI tests in ${{ matrix.browser }}
+        # The screen must fit the browser window the driver opens, which is
+        # sized for the biggest test canvas. See WINDOW_HEIGHT in drive.ts.
+        run: xvfb-run -a --server-args="-screen 0 1600x1500x24" make ui-web BROWSER=${{ matrix.browser }}
+
+      - name: Upload failure screenshot and browser log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ui-failure-${{ matrix.browser }}
+          path: target/web-test/
+          if-no-files-found: ignore
 
   ios-ui-tests:
     name: iOS UI Tests

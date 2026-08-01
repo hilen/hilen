@@ -10,10 +10,11 @@ mod custom_text_field;
 mod font_zoo;
 mod gradient;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`
-/// only calls `Hover::update` under `#[cfg(desktop)]`, so on a phone this test
-/// waits for an event the engine never sends, asserts on the main thread and
-/// takes the whole run down with it. Gated where the feature is gated.
-#[cfg(desktop)]
+/// only calls `Hover::update` under `#[cfg(any(desktop, wasm))]`, so on a phone
+/// this test waits for an event the engine never sends, asserts on the main
+/// thread and takes the whole run down with it. Gated where the feature is
+/// gated.
+#[cfg(any(desktop, wasm))]
 mod hover;
 mod image_scissor;
 mod inject_touch;

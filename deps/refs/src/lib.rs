@@ -43,7 +43,14 @@ pub mod hreads {
 
 pub mod __internal_deps {
     pub use log::warn;
+    /// The browser main thread must never park, a contended parking
+    /// lock there raises an Atomics.wait error and kills the page. The
+    /// managed storage critical sections are single map operations, so
+    /// on wasm they spin instead.
+    #[cfg(not(target_arch = "wasm32"))]
     pub use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+    #[cfg(target_arch = "wasm32")]
+    pub use spin::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 }
 
 #[cfg(feature = "stats")]

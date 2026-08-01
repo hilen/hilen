@@ -9,9 +9,9 @@ use hreads::on_main;
 use log::{info, warn};
 use plat::Platform;
 use wgpu::{
-    Adapter, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance, Limits,
-    MemoryHints, PowerPreference, PresentMode, Queue, RequestAdapterOptions, SurfaceColorSpace,
-    SurfaceConfiguration, TextureUsages, Trace,
+    Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
+    Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
+    RequestAdapterOptions, SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
@@ -25,7 +25,7 @@ use crate::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
         screen::Screen,
-        state::{SURFACE_TEXTURE_FORMAT, State},
+        state::{State, surface_texture_format},
         surface::Surface,
     },
 };
@@ -37,8 +37,10 @@ static RENDER_FRAME: AtomicU64 = AtomicU64::new(0);
 /// Mirrors `Screen::Headless` so any thread can check it. Set once at
 /// startup, never changes.
 static HEADLESS: AtomicBool = AtomicBool::new(false);
-/// Doesn't work on some Androids and on Web
-pub(crate) const SUPPORT_SCREENSHOT: bool = !Platform::ANDROID && !Platform::WASM;
+/// The browser surface is render attachment only, and the android
+/// swapchain rejects the copy usage on some devices. Screenshots there
+/// read the scene texture instead of copying the surface.
+pub(crate) const SURFACE_COPY: bool = !Platform::WASM && !Platform::ANDROID;
 
 pub struct Window {
     pub state: State,
@@ -173,24 +175,32 @@ impl Window {
 
         if Platform::IOS {
             required_limits.max_color_attachments = 4;
-        } else if Platform::ANDROID {
-            // TODO:
-            required_limits.max_compute_invocations_per_workgroup = 0;
-            required_limits.max_compute_workgroups_per_dimension = 0;
-            required_limits.max_compute_workgroup_storage_size = 0;
-            required_limits.max_compute_workgroup_size_x = 0;
-            required_limits.max_compute_workgroup_size_y = 0;
-            required_limits.max_compute_workgroup_size_z = 0;
-            required_limits.max_storage_buffer_binding_size = 0;
-            required_limits.max_storage_textures_per_shader_stage = 0;
-            required_limits.max_storage_buffers_per_shader_stage = 0;
-            required_limits.max_dynamic_storage_buffers_per_pipeline_layout = 0;
-            required_limits.max_texture_dimension_3d = 1024;
-            required_limits.max_texture_dimension_2d = 4096;
-            required_limits.max_texture_dimension_1d = 4096;
         }
 
         required_limits
+    }
+
+    /// Windows asks for DX12 alone. With every backend enabled wgpu picks
+    /// Vulkan there, and the Intel driver for Gen9 integrated GPUs faults
+    /// inside `vkCreateDevice`, which kills the process with no message.
+    /// Android asks for Vulkan alone. With GL and Vulkan both enabled they
+    /// race for the one `ANativeWindow`, the loser gets
+    /// `ERROR_NATIVE_WINDOW_IN_USE_KHR` and wgpu-hal panics instead of
+    /// skipping that backend. GL is no floor anyway, GLES may report zero
+    /// fragment stage storage buffers and the UI pipelines need one.
+    /// `WGPU_BACKEND` still overrides the choice on any platform.
+    fn instance() -> Instance {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+
+        if Platform::WINDOWS {
+            descriptor.backends = Backends::DX12;
+        }
+
+        if Platform::ANDROID {
+            descriptor.backends = Backends::VULKAN;
+        }
+
+        Instance::new(descriptor.with_env())
     }
 
     async fn request_device(adapter: &Adapter) -> Result<(Device, Queue)> {
@@ -229,7 +239,7 @@ impl Window {
     ) -> Result<()> {
         let winit_window = Arc::new(window);
 
-        let instance = Instance::default();
+        let instance = Self::instance();
         let surface = instance
             .create_surface(winit_window.clone())
             .context("Failed to create surface")?;
@@ -248,7 +258,18 @@ impl Window {
 
         info!("Backend: {}", info.backend);
 
+        // Everything down the line asks for the render format, so the
+        // browser canvas format resolves first.
+        #[cfg(wasm)]
+        crate::window::state::web_formats::resolve(&surface, &adapter);
+
         let (device, queue) = Self::request_device(&adapter).await?;
+
+        // Shadowing would keep the adapter probe surface alive to the end of
+        // the function. Android allows one producer per native window, so it
+        // must go before `Surface::new` connects its own, or Vulkan fails
+        // with `ERROR_NATIVE_WINDOW_IN_USE_KHR`.
+        drop(surface);
 
         let surface = if size.width != 0 && size.height != 0 {
             Surface::new(
@@ -288,7 +309,7 @@ impl Window {
 
     #[cfg(not_wasm)]
     pub(crate) async fn create_headless(size: Size<u32>) -> Result<Self> {
-        let instance = Instance::default();
+        let instance = Self::instance();
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference:       PowerPreference::HighPerformance,
@@ -452,12 +473,12 @@ pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceCon
     let size: Size<u32> = size.into();
 
     SurfaceConfiguration {
-        usage:        if SUPPORT_SCREENSHOT {
+        usage:        if SURFACE_COPY {
             TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
         } else {
             TextureUsages::RENDER_ATTACHMENT
         },
-        format:       SURFACE_TEXTURE_FORMAT,
+        format:       surface_texture_format(),
         color_space:  SurfaceColorSpace::Auto,
         width:        size.width,
         height:       size.height,

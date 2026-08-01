@@ -1,31 +1,35 @@
-#![cfg(not_wasm)]
-
-use std::{
-    sync::OnceLock,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(not_wasm)]
 use chrono::Local;
-use hreads::{from_main, log_spawn, on_main};
+#[cfg(not_wasm)]
+use hreads::log_spawn;
+use hreads::{from_main, on_main};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+#[cfg(not_wasm)]
 use log::info;
+#[cfg(not_wasm)]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use refs::manage::DataManager;
+#[cfg(not_wasm)]
 use tokio::net::TcpListener;
 
+#[cfg(not_wasm)]
+use crate::inspect::protocol::{SERVICE_TYPE, serve};
 use crate::{
     audio::Sound,
     inspect::{
         edit_log,
-        protocol::{
-            AppCommand, EditEntry, InspectorCommand, SERVICE_TYPE, TestFailureRepr, UIRequest, UIResponse,
-            serve,
-        },
+        protocol::{AppCommand, EditEntry, InspectorCommand, TestFailureRepr, UIRequest, UIResponse},
         view_conversion::{ViewToInspect, weak_to_id},
     },
-    ui::{Button, Label, TextField, UIManager, ViewData, ViewSubviews, WeakView},
+    ui::{
+        Button, Input, Label, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame, ViewSubviews,
+        WeakView,
+    },
+    window::MouseButton,
 };
 
 pub struct InspectService;
@@ -34,14 +38,10 @@ static APP_STARTED: OnceLock<u64> = OnceLock::new();
 
 impl InspectService {
     pub(crate) fn record_app_start() {
-        APP_STARTED.get_or_init(|| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("System clock is before the unix epoch")
-                .as_secs()
-        });
+        APP_STARTED.get_or_init(current_unix_seconds);
     }
 
+    #[cfg(not_wasm)]
     pub(crate) fn start_listening() {
         log_spawn(async {
             let listener = TcpListener::bind("0.0.0.0:0").await?;
@@ -67,7 +67,7 @@ impl InspectService {
         });
     }
 
-    fn process_command(command: InspectorCommand) -> AppCommand {
+    pub(crate) fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
             InspectorCommand::PlaySound => {
                 on_main(|| {
@@ -94,9 +94,13 @@ impl InspectService {
         }
     }
 
-    // Runs on a tokio task, never the main thread, which is what the tests need
-    // since they drive the main thread through `from_main`.
+    // Runs off the main thread, on a tokio task natively and on the inspect
+    // worker on wasm, which is what the tests need since they drive the main
+    // thread through `from_main`.
     fn run_tests() -> AppCommand {
+        #[cfg(wasm)]
+        Self::preload_assets();
+
         let report = crate::ui_test::run_all_tests();
 
         AppCommand::TestResults {
@@ -110,6 +114,25 @@ impl InspectService {
                 })
                 .collect(),
         }
+    }
+
+    /// A browser serves sync asset `get` only from memory, so every group
+    /// downloads before the suite starts, same as the test autorun. Blocks the
+    /// calling worker while the download runs on the main thread.
+    #[cfg(wasm)]
+    fn preload_assets() {
+        let (send, recv) = std::sync::mpsc::channel();
+
+        on_main(move || {
+            hreads::spawn(async move {
+                if let Err(err) = crate::assets::Assets::load_all_groups().await {
+                    log::error!("Asset preload for tests failed: {err}");
+                }
+                send.send(()).expect("Asset preload signal receiver is gone");
+            });
+        });
+
+        recv.recv().expect("Asset preload signal sender is gone");
     }
 
     fn screenshot() -> Result<AppCommand> {
@@ -185,6 +208,37 @@ impl InspectService {
                 view.set_color(color);
                 Ok(entry(view, "color", format!("{old}"), format!("{color}")))
             }),
+            UIRequest::Tap { view_id } => {
+                let result = from_main(move || -> Result<(), String> {
+                    let view = find_view(&view_id)?;
+
+                    if view.is_hidden_in_tree() {
+                        return Err(format!("View {} is hidden", view.label()));
+                    }
+
+                    // The touch pipeline takes physical pixels and converts
+                    // to points itself, so the center scales up first.
+                    let position = view.absolute_frame().center() * UIManager::scale();
+
+                    for event in [TouchEvent::Began, TouchEvent::Ended] {
+                        Input::process_touch_event(Touch {
+                            id: 1,
+                            position,
+                            event,
+                            button: MouseButton::Left,
+                        });
+                    }
+
+                    Ok(())
+                });
+
+                match result {
+                    // The snapshot runs a frame later, so a page swap or
+                    // modal the tap triggered is already in the tree.
+                    Ok(()) => Self::send_ui(),
+                    Err(err) => AppCommand::Error(err),
+                }
+            }
         }
     }
 
@@ -212,12 +266,41 @@ impl InspectService {
 
 fn entry(view: WeakView, what: impl ToString, old: impl ToString, new: impl ToString) -> EditEntry {
     EditEntry {
-        timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        timestamp: timestamp(),
         view:      view.label().to_string(),
         view_id:   weak_to_id(view),
         what:      what.to_string(),
         old:       old.to_string(),
         new:       new.to_string(),
+    }
+}
+
+fn current_unix_seconds() -> u64 {
+    #[cfg(not_wasm)]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System clock is before the unix epoch")
+            .as_secs()
+    }
+    #[cfg(wasm)]
+    {
+        use crate::gm::LossyConvert;
+
+        hreads::now().lossy_convert()
+    }
+}
+
+fn timestamp() -> String {
+    #[cfg(not_wasm)]
+    {
+        Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    }
+    #[cfg(wasm)]
+    {
+        String::from(web_sys::js_sys::Date::new_0().to_iso_string())
     }
 }
 

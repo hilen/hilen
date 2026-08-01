@@ -108,10 +108,7 @@ pub(crate) fn print_recorded_colors() -> Result<()> {
     println!("            r\"");
 
     for ((x, y), color) in &probes {
-        println!(
-            "            {:>4} {:>4} - {:>3} {:>3} {:>3}",
-            x, y, color.r, color.g, color.b
-        );
+        println!("            {:>4} {:>4} - {}", x, y, color.as_hex());
     }
 
     println!("            \",");

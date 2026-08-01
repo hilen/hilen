@@ -51,7 +51,7 @@ impl<In: Serialize, Out: DeserializeOwned> Request<In, Out> {
     }
 
     pub fn description(&self) -> String {
-        format!("{} {}->{}", self.path, type_name::<In>(), type_name::<Out>(),)
+        format!("{} {}->{}", self.path, type_name::<In>(), type_name::<Out>())
     }
 }
 
@@ -103,7 +103,7 @@ where
 
     if response.status == 404 {
         Err(anyhow!("Endpoint {url} not found. 404."))
-    } else if response.status != 200 {
+    } else if !response.status.is_success() {
         Err(anyhow!("[{}] {}", response.status, response.body))
     } else {
         Ok(parse(&response.body)?)
@@ -111,7 +111,14 @@ where
 }
 
 fn parse<T: DeserializeOwned>(json: impl ToString) -> Result<T> {
-    let json = json.to_string();
+    let mut json = json.to_string();
+
+    // A 204 or an empty 200 body parses as JSON null, so endpoints that
+    // answer with nothing work with `()` outputs.
+    if json.trim().is_empty() {
+        json = "null".to_string();
+    }
+
     match from_str(&json) {
         Ok(obj) => Ok(obj),
         Err(error) => {
@@ -136,6 +143,8 @@ async fn raw_request(
     let mut request = match method {
         Method::Get => client.get(&url),
         Method::Post => client.post(&url),
+        Method::Patch => client.patch(&url),
+        Method::Delete => client.delete(&url),
     };
 
     request = request.header("content-type", "application/json");
@@ -177,5 +186,18 @@ impl<Out: DeserializeOwned + 'static> IntoFuture for Request<(), Out> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.send(()).await })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+
+    #[test]
+    fn empty_body_parses_as_null() {
+        parse::<()>("").unwrap();
+        parse::<()>("  \n").unwrap();
+        assert_eq!(parse::<Option<u32>>("").unwrap(), None);
+        assert!(parse::<u32>("").is_err());
     }
 }

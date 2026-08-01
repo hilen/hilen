@@ -122,3 +122,4 @@ example-app/dist/*
 .env
 
 .claude/
+assets/assets.json

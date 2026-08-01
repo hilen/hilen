@@ -1,0 +1,7 @@
+# The asset pipeline copies assets/ in parallel with the cargo build,
+# but build.rs rewrites assets.json during that build, so the copied
+# manifest can be one build stale. Recopy the fresh one after the build.
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", "cp ../assets/assets.json $TRUNK_STAGING_DIR/assets/assets.json"]

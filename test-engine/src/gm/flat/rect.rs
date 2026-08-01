@@ -146,20 +146,6 @@ impl Rect {
 }
 
 impl Rect {
-    pub(crate) fn position<const AXIS: Axis>(&self) -> f32 {
-        match AXIS {
-            Axis::X => self.origin.x,
-            Axis::Y => self.origin.y,
-        }
-    }
-
-    pub(crate) fn other_position<const AXIS: Axis>(&self) -> f32 {
-        match AXIS {
-            Axis::X => self.origin.y,
-            Axis::Y => self.origin.x,
-        }
-    }
-
     pub(crate) fn length<const AXIS: Axis>(&self) -> f32 {
         match AXIS {
             Axis::X => self.size.width,

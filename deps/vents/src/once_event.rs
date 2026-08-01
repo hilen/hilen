@@ -87,7 +87,7 @@ impl<T> Default for OnceEvent<T> {
 
 impl<T> Debug for OnceEvent<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OnceEvent<{}>", type_name::<T>(),)
+        write!(f, "OnceEvent<{}>", type_name::<T>())
     }
 }
 
@@ -158,7 +158,7 @@ mod test {
     fn double_subscriber() {
         let event = EVENT.lock().unwrap();
         event.sub(|| {});
-        event.val(|_| {});
+        event.val(|()| {});
     }
 
     #[wasm_bindgen_test(unsupported = test)]

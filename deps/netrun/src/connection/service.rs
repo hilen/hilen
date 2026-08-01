@@ -10,7 +10,7 @@ pub trait Service<
 
 #[cfg(test)]
 mod test {
-    use std::{net::Ipv4Addr, time::Duration};
+    use std::{future::ready, net::Ipv4Addr, time::Duration};
 
     use hreads::log_spawn;
     use test_log::test;
@@ -24,7 +24,7 @@ mod test {
 
     impl Service<i32, bool> for IsEvenService {
         fn respond(&self, i: i32) -> impl Future<Output = Result<bool>> + Send {
-            async move { Ok(i % 2 == 0) }
+            ready(Ok(i % 2 == 0))
         }
     }
 
@@ -42,10 +42,10 @@ mod test {
         let client = Client::<bool, i32>::connect((Ipv4Addr::LOCALHOST, 65238)).await?;
 
         client.send(5).await?;
-        assert_eq!(false, client.receive().await?);
+        assert!(!client.receive().await?);
 
         client.send(6).await?;
-        assert_eq!(true, client.receive().await?);
+        assert!(client.receive().await?);
 
         Ok(())
     }

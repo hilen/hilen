@@ -2,15 +2,14 @@
 [workspace]
 
 default-members = ["test-game"]
-exclude = [
-  "deps/hreads",
-  "deps/refs",
-  "deps/vents",
-  "deps/netrun",
-]
 members = [
   "bench",
+  "deps/hreads",
+  "deps/netrun",
+  "deps/plat",
+  "deps/refs",
   "deps/ui-proc-test",
+  "deps/vents",
   "example-app",
   "fuzz",
   "inspector",
@@ -55,6 +54,7 @@ manual_assert = "allow"
 android_logger = "0.15"
 anyhow = "1.0"
 arbitrary = { version = "1.4", features = ["derive"] }
+arboard = "3.6"
 async-std = "1.13"
 atomic_float = "1.1"
 base64 = "0.22"
@@ -70,6 +70,7 @@ ctor = "1.0"
 dirs = "6.0"
 dotenvy = "0.15"
 educe = "0.6"
+event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
@@ -84,9 +85,12 @@ kira = "0.12"
 log = "0.4"
 lyon = "1.0"
 mdns-sd = "0.20"
+ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
-objc2-foundation = { version = "0.3", features = ["NSException", "NSString"] }
+objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSException", "NSString", "NSURL"] }
+objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
+open = "5.4"
 parking_lot = "0.12"
 paste = "1.0"
 pollster = "0.4"
@@ -113,16 +117,26 @@ tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["full"] }
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Clipboard",
+    "CloseEvent",
+    "Location",
+    "MessageEvent",
+    "Navigator",
+    "WebSocket",
+    "Window",
+    "XmlHttpRequest",
+] }
 web-time = "1.1"
 wgpu = { git = "https://github.com/VladasZ/wgpu", rev = "47e55304a59f0c8d933cb3be3dc84b29a1b871f6" }
-wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "deb50e912148d660e938e69eb27225753b5353a0" }
-winit = "0.30"
+wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "b865aae2c29600cf83c61447565152fddd274d60" }
+winit = { git = "https://github.com/VladasZ/winit", rev = "77675c2e414661bdbcafb58abc0b6ab4dca5602c" }
 
 hreads = { path = "deps/hreads" }
 refs = { path = "deps/refs", default-features = true }
 vents = { path = "deps/vents" }
 netrun = { path = "deps/netrun" }
-plat = "0.9"
+plat = { path = "deps/plat" }
 reflected = "0.30"
 
 level-proc = { path = "deps/level-proc" }
@@ -130,3 +144,30 @@ test-engine = { path = "test-engine" }
 test-game = { path = "test-game" }
 ui-test-suite = { path = "ui-test-suite" }
 ui-proc = { path = "deps/ui-proc" }
+
+# Image decoding dominates dev build startup, a debug decode of the
+# asset fixtures takes ten seconds in the browser. Decoders are leaf
+# crates that never need debugging here, so dev builds them optimized.
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+[profile.dev.package.adler2]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.resvg]
+opt-level = 3
+
+[profile.dev.package.tiny-skia]
+opt-level = 3

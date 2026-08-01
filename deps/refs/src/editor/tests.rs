@@ -43,7 +43,7 @@ fn test_editor() {
     assert_eq!(*test, 0);
 
     let mut data = DataHolder {
-        data:     Default::default(),
+        data:     Data::default(),
         callback: Box::new(move |a| {
             *test += a;
         }),

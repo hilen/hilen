@@ -122,7 +122,7 @@ mod test {
     fn null_rglica() {
         let null = Rglica::<i32>::default();
         assert!(null.is_null());
-        assert_eq!(null.is_ok(), false);
+        assert!(!null.is_ok());
         _ = null.deref();
     }
 
@@ -131,7 +131,7 @@ mod test {
     fn null_rglica_mut() {
         let mut null = Rglica::<i32>::default();
         assert!(null.is_null());
-        assert_eq!(null.is_ok(), false);
+        assert!(!null.is_ok());
         _ = null.deref_mut();
     }
 
@@ -143,12 +143,12 @@ mod test {
 
         let mut val = Rglica::from_ref(five);
 
-        assert_eq!(val.is_null(), false);
-        assert_eq!(val.is_ok(), true);
+        assert!(!val.is_null());
+        assert!(val.is_ok());
 
         assert_eq!("5", &format!("{val:?}"));
 
-        let cloned = val.clone();
+        let cloned = val;
 
         assert_eq!(val.deref(), cloned.deref());
 

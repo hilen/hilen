@@ -1,13 +1,13 @@
 use std::{
     any::type_name,
     sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
 };
 
 use hreads::{from_main, wait_for_next_frame};
-use log::{debug, trace};
+use log::{info, trace};
 use parking_lot::Mutex;
 use refs::{Own, Weak};
+use web_time::Instant;
 
 use crate::{
     UI_TESTS,
@@ -23,6 +23,15 @@ pub(crate) static TEST_NAME: Mutex<String> = Mutex::new(String::new());
 /// hook where the returned error is not available.
 pub fn current_test_name() -> String {
     TEST_NAME.lock().clone()
+}
+
+/// Like [`current_test_name`], but never blocks. For the wasm panic beacon,
+/// where the panicking thread may hold the lock and a hook that blocks or
+/// panics again aborts the instance with the beacon unsent.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn current_test_name_nonblocking() -> Option<String> {
+    let name = TEST_NAME.try_lock()?;
+    if name.is_empty() { None } else { Some(name.clone()) }
 }
 
 struct FpsRecord {
@@ -131,11 +140,13 @@ impl UITest {
             let test_name = TEST_NAME.lock().clone();
 
             if !test_name.is_empty() {
-                debug!("{test_name}: OK");
+                info!("{test_name}: OK");
                 hold_for_human();
             }
 
-            debug!("{new_test_name}: Started");
+            // Info, not debug. Android's logger filters debug out, and these
+            // two lines are what names a hung test in logcat.
+            info!("{new_test_name}: Started");
 
             reset_record_probe_count();
 
@@ -170,7 +181,7 @@ impl UITest {
         let test_name = TEST_NAME.lock().clone();
 
         if !test_name.is_empty() {
-            debug!("{test_name}: OK");
+            info!("{test_name}: OK");
             hold_for_human();
         }
 

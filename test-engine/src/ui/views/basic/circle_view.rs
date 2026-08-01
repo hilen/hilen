@@ -2,7 +2,11 @@ use refs::Weak;
 use ui_proc::view;
 
 use crate::{
-    gm::{ToF32, color::Color, flat::PointsPath},
+    gm::{
+        ToF32,
+        color::Color,
+        flat::{FillRule, VectorPath},
+    },
     ui::{
         DrawingView, Setup,
         view::{ViewData, ViewFrame},
@@ -34,7 +38,11 @@ impl CircleView {
         self
     }
 
-    pub fn set_color(&mut self, color: Color) {
+    /// Not `set_color`, which would collide with the `ViewData` method
+    /// for the background. A `&self` trait method wins resolution over a
+    /// `&mut self` inherent one, so a same named method here would be
+    /// silently unreachable.
+    pub fn set_circle_color(&mut self, color: Color) {
         self.color = color;
         self.redraw();
     }
@@ -42,9 +50,10 @@ impl CircleView {
     fn redraw(&mut self) {
         self.drawing.remove_all_paths();
         let frame = self.frame().with_zero_origin();
-        self.drawing.add_path(
-            PointsPath::circle_triangles_with(frame.size.center(), frame.size.width / 2.0, 50),
+        self.drawing.add_fill(
+            &VectorPath::circle(frame.size.center(), frame.size.width / 2.0),
             self.color,
+            FillRule::NonZero,
         );
     }
 }

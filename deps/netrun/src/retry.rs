@@ -54,33 +54,32 @@ impl Retry {
 
 #[cfg(test)]
 mod test {
-    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use anyhow::anyhow;
-    use plat::Platform;
     use pretty_assertions::assert_eq;
     use test_log::test;
     use tokio::time::sleep;
 
     use super::*;
-    use crate::Client;
 
+    /// This used to connect to a dead port and assert the errno of the refusal,
+    /// which named the mac number for every platform except linux. On windows
+    /// the same connect never got refused, it timed out, so the run ended with
+    /// "Retry exceeded" and the test failed on every CI run.
     #[test(tokio::test)]
     async fn test_retry_failure() -> Result<()> {
-        let result: Result<Client<(), ()>> =
-            Retry::times(5).run(|| Client::connect((Ipv4Addr::LOCALHOST, 60000))).await;
+        let attempts = AtomicUsize::new(0);
 
-        if Platform::LINUX {
-            assert_eq!(
-                anyhow!("Connection refused (os error 111)").to_string(),
-                result.err().unwrap().to_string()
-            );
-        } else {
-            assert_eq!(
-                anyhow!("Connection refused (os error 61)").to_string(),
-                result.err().unwrap().to_string()
-            );
-        }
+        let result: Result<()> = Retry::times(5)
+            .run(|| async {
+                let attempt = attempts.fetch_add(1, Ordering::Relaxed) + 1;
+                Err(anyhow!("Attempt {attempt} failed"))
+            })
+            .await;
+
+        assert_eq!("Attempt 5 failed", result.err().unwrap().to_string());
+        assert_eq!(5, attempts.load(Ordering::Relaxed));
 
         Ok(())
     }

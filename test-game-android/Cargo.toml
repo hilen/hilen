@@ -11,6 +11,7 @@ name = "test_game"
 [dependencies]
 jni = { workspace = true }
 
+test-engine = { workspace = true }
 test-game = { workspace = true }
 
 [package.metadata.android]

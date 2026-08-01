@@ -17,6 +17,7 @@ impl<T: View + ?Sized> ViewToInspect for T {
             frame:    *self.frame(),
             color:    *self.color(),
             text:     text_of(self.weak_view()),
+            hidden:   self.is_hidden(),
             placer:   self.placer_copy(),
             subviews: self
                 .subviews()

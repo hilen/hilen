@@ -11,7 +11,7 @@ use wgpu::{
 use crate::{
     gm::flat::{Point, Size},
     render::uniform::{UniformBind, make_uniform_layout},
-    window::{SURFACE_TEXTURE_FORMAT, Window, image::Image},
+    window::{Window, image::Image, surface_texture_format},
 };
 
 const BLUR_CODE: &str = include_str!("shaders/blur.wgsl");
@@ -238,7 +238,7 @@ impl UIBlurPipeline {
             mip_level_count: 1,
             sample_count:    1,
             dimension:       TextureDimension::D2,
-            format:          SURFACE_TEXTURE_FORMAT,
+            format:          surface_texture_format(),
             usage:           TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats:    &[],
         });
@@ -271,7 +271,7 @@ fn effect_pipeline(
             entry_point:         entry.into(),
             compilation_options: PipelineCompilationOptions::default(),
             targets:             &[ColorTargetState {
-                format:     SURFACE_TEXTURE_FORMAT,
+                format:     surface_texture_format(),
                 blend:      BlendState::REPLACE.into(),
                 write_mask: ColorWrites::ALL,
             }

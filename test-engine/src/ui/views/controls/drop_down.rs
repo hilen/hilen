@@ -40,21 +40,17 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
         self.values.get(self.selected_index).unwrap()
     }
 
+    /// The text shown while the drop down is collapsed.
+    pub fn text(&self) -> &str {
+        self.label.text()
+    }
+
     pub fn set_values(&mut self, values: Vec<T>) {
-        self.selected_index = 0;
         self.values = values;
+        self.select_index(0);
 
         if self.values.is_empty() {
-            self.label.set_text("");
             return;
-        }
-
-        let first = self.values.first().unwrap().clone();
-
-        if let Some(format) = &self.custom_format {
-            self.label.set_text(format(first));
-        } else {
-            self.label.set_text(first);
         }
 
         let size: Size = (
@@ -69,6 +65,21 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
     pub fn custom_format(&mut self, format: impl Fn(T) -> String + 'static) {
         self.custom_format = Some(Box::new(format));
         self.set_values(self.values.clone());
+    }
+
+    fn select_index(&mut self, index: usize) {
+        self.selected_index = index;
+
+        let Some(value) = self.values.get(index).cloned() else {
+            self.label.set_text("");
+            return;
+        };
+
+        if let Some(format) = &self.custom_format {
+            self.label.set_text(format(value));
+        } else {
+            self.label.set_text(value);
+        }
     }
 
     fn tapped(&mut self) {
@@ -92,6 +103,22 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
                 self.table.set_y(0);
             }
         }
+    }
+}
+
+impl<T: ToLabel + Clone + PartialEq + 'static> DropDown<T> {
+    /// Points the drop down at `value` and updates the collapsed text.
+    /// The list stays closed and `changed` does not fire, so restoring a
+    /// selection is never mistaken for a user pick. Returns false and
+    /// changes nothing when the value is not among the current ones.
+    pub fn set_value(&mut self, value: &T) -> bool {
+        let Some(index) = self.values.iter().position(|existing| existing == value) else {
+            return false;
+        };
+
+        self.select_index(index);
+
+        true
     }
 }
 
@@ -135,14 +162,8 @@ impl<T: ToLabel + Clone + 'static> TableData for DropDown<T> {
     }
 
     fn cell_selected(&mut self, index: usize) {
-        self.selected_index = index;
-        let val = &self.values[index];
-        if let Some(format) = &self.custom_format {
-            self.label.set_text(format(val.clone()));
-        } else {
-            self.label.set_text(val.clone());
-        }
-        self.changed.trigger(val.clone());
+        self.select_index(index);
+        self.changed.trigger(self.values[index].clone());
         self.tapped();
     }
 }

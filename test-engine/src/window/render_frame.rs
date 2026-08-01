@@ -20,6 +20,11 @@ pub struct RenderFrame {
 
     scene_view:   TextureView,
     depth_view:   TextureView,
+    /// The multisampled color target. When present the passes render
+    /// into it and resolve to `scene_view` at every pass end, so the
+    /// scene view always holds the resolved frame for sampling and
+    /// readback.
+    msaa_view:    Option<TextureView>,
     present_view: Option<TextureView>,
 }
 
@@ -29,6 +34,7 @@ impl RenderFrame {
         scene_view: TextureView,
         present_view: Option<TextureView>,
         depth_view: TextureView,
+        msaa_view: Option<TextureView>,
         clear_color: Color,
         timestamp_writes: Option<RenderPassTimestampWrites>,
     ) -> Self {
@@ -36,7 +42,8 @@ impl RenderFrame {
         // benchmark never blurs, so its frame is exactly one pass.
         let pass = begin_pass(
             &mut encoder,
-            &scene_view,
+            msaa_view.as_ref().unwrap_or(&scene_view),
+            msaa_view.as_ref().map(|_| &scene_view),
             &depth_view,
             LoadOp::Clear(wgpu::Color {
                 r: f64::from(clear_color.r),
@@ -53,6 +60,7 @@ impl RenderFrame {
             pass: Some(pass),
             scene_view,
             depth_view,
+            msaa_view,
             present_view,
         }
     }
@@ -63,7 +71,8 @@ impl RenderFrame {
         if self.pass.is_none() {
             self.pass = Some(begin_pass(
                 &mut self.encoder,
-                &self.scene_view,
+                self.msaa_view.as_ref().unwrap_or(&self.scene_view),
+                self.msaa_view.as_ref().map(|_| &self.scene_view),
                 &self.depth_view,
                 LoadOp::Load,
                 LoadOp::Load,
@@ -127,6 +136,7 @@ impl RenderFrame {
 fn begin_pass(
     encoder: &mut CommandEncoder,
     color: &TextureView,
+    resolve_target: Option<&TextureView>,
     depth: &TextureView,
     color_load: LoadOp<wgpu::Color>,
     depth_load: LoadOp<f32>,
@@ -136,10 +146,13 @@ fn begin_pass(
         .begin_render_pass(&RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view:           color,
-                depth_slice:    None,
-                resolve_target: None,
-                ops:            Operations {
+                view: color,
+                depth_slice: None,
+                resolve_target,
+                // The multisampled attachment is stored, not discarded,
+                // so a reopened pass after a blur split can load it and
+                // keep drawing on the samples.
+                ops: Operations {
                     load:  color_load,
                     store: StoreOp::Store,
                 },
