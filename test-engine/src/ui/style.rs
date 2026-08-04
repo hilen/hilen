@@ -103,6 +103,7 @@ impl Style {
 #[cfg(test)]
 mod test {
     use hreads::set_current_thread_as_main;
+    use serial_test::serial;
 
     use crate::ui::{Button, Label, Style, Switch};
 
@@ -114,6 +115,7 @@ mod test {
     const STYLE3: Style = Style::new(|_v| {});
 
     #[test]
+    #[serial]
     fn valid_global_style_type() {
         set_current_thread_as_main();
         STYLE.apply_globally::<Button>();

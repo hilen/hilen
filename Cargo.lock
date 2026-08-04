@@ -6086,6 +6086,7 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
+ "serial_test",
  "tiny-skia 0.12.0",
  "tokio",
  "ui-proc",

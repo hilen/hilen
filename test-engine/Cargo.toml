@@ -103,5 +103,8 @@ open = { workspace = true }
 [build-dependencies]
 plat = { workspace = true }
 
+[dev-dependencies]
+serial_test = "3.4"
+
 [lints]
 workspace = true

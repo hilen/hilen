@@ -364,9 +364,12 @@ the harness scale of 1 is not the screen's 2.
 
 One test per file. Deliberate decision to keep files small.
 
-A new UI test is not finished when it passes. Always show it to the user for approval:
-run it with `--human`, let them watch it, and wait for their verdict before treating
-the work as done.
+A new UI test is not finished when it passes. Always show it to the user for approval.
+The agent launches the `--human` run of every new or changed test itself, tells the user
+the window is up and asks them to check it, then waits for their verdict. Never hand the
+user the command to run. After the verdict, stop and wait. Do not mention, plan, or run
+`make ci`, `make smoke`, or any commit step until the user brings up committing or
+pushing.
 
 ## Human mode
 
