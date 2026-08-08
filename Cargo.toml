@@ -120,9 +120,13 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "Clipboard",
     "CloseEvent",
+    "Document",
+    "History",
     "Location",
     "MessageEvent",
     "Navigator",
+    "Node",
+    "Url",
     "WebSocket",
     "Window",
     "XmlHttpRequest",

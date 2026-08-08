@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use hreads::from_main;
 
-use super::{TestFailure, UITestEntry, clear_failures, run_test, take_failures};
+use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_failures};
 use crate::{
     gm::color::Color,
     ui::{Label, Style, UIManager, ViewData, style::GlobalStyles},
@@ -75,6 +75,12 @@ pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
     for (name, test) in tests {
         run_test(name, test.run);
     }
+
+    // The last test's OK line and the human mode hold both live in
+    // `finish`. Only the desktop runner called it, so in-app runs
+    // dropped the last OK and a browser human run never held. Before
+    // `restore_app`, the held view must still be on screen.
+    UITest::finish();
 
     let report = TestRunReport {
         total:    tests.len(),

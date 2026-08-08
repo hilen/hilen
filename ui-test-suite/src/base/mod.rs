@@ -17,6 +17,10 @@ mod present;
 mod present_rich;
 mod rest_request;
 mod root_view;
+/// Browser history is the production behavior, everywhere else the
+/// router API is a no-op, so there is nothing to test.
+#[cfg(wasm)]
+mod router;
 mod scale;
 mod selection;
 mod styles;

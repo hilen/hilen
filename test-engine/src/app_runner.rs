@@ -278,6 +278,8 @@ impl AppRunner {
     /// not survive a url. `te_test_skip` drops tests the same way, the
     /// driver relists panicked ones there when it relaunches the page,
     /// since a wasm panic aborts the instance and cannot be caught.
+    /// `te_human` is the browser spelling of `--human`, the driver must
+    /// drop its report timeout since the run holds until space.
     #[cfg(all(wasm, feature = "ui-tests"))]
     fn spawn_test_autorun() {
         if !crate::web::query_flag("te_run_tests") {
@@ -297,6 +299,10 @@ impl AppRunner {
             }
 
             // Read on the main thread, a worker has no window.
+            if crate::web::query_flag("te_human") {
+                crate::ui_test::enable_human_mode();
+            }
+
             let only = crate::web::query_param("te_test_only");
             let skip = crate::web::query_param("te_test_skip");
 

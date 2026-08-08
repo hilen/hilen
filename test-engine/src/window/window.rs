@@ -6,7 +6,9 @@ use std::sync::{
 
 use anyhow::{Context, Result, bail};
 use hreads::on_main;
-use log::{info, warn};
+use log::info;
+#[cfg(not_wasm)]
+use log::warn;
 use plat::Platform;
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
@@ -346,6 +348,18 @@ impl Window {
         let title = title.into();
         on_main(move || {
             Self::current().title_set = true;
+
+            // winit's web backend writes the title into the canvas alt
+            // attribute, which nobody sees. The tab title is the visible
+            // one, and human mode prompts live in the title.
+            #[cfg(wasm)]
+            web_sys::window()
+                .expect("Failed to get browser window")
+                .document()
+                .expect("Failed to get browser document")
+                .set_title(&title);
+
+            #[cfg(not_wasm)]
             if let Some(window) = Self::winit_window() {
                 if Platform::DESKTOP {
                     window.set_title(&title);

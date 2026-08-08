@@ -6677,6 +6677,7 @@ dependencies = [
  "serde",
  "serde_json",
  "test-engine",
+ "web-sys",
 ]
 
 [[package]]

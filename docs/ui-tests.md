@@ -382,6 +382,18 @@ is telling apart from one sitting on the glyph. The window title names the check
 run holds until space before asserting. After each test the title shows the result and the
 run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 
+The browser lane has the same mode. `bun build/web/drive.ts --human --only "Name"` puts
+the `te_human` query flag on the page, the browser spelling of `--human`, and drops the
+driver's report timeout, which would otherwise kill the held run it exists to protect.
+Prompts land in the tab title, `Window::set_title` writes `document.title` on wasm since
+winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
+page once so key events reach the canvas, then space advances the same way.
+
+`human_checkpoint(label)` holds until space with `label` in the title, for a test whose
+state change no injection paces, like a browser URL change that would otherwise flash
+by. A no-op outside human mode, so headless runs keep full speed. `Router test` steps
+through every history change with it.
+
 ## Recording color probes
 
 `check_colors` expectations are recorded, not written by hand. With `--record-colors` every

@@ -55,6 +55,18 @@ pub(crate) fn human_pause_quick() {
     }
 }
 
+/// Holds until space with `label` in the title, so a test can make a
+/// state visible that no injection paces, like a browser URL change
+/// that would otherwise flash by. A no-op outside human mode.
+pub fn human_checkpoint(label: &str) {
+    if !human_mode() {
+        return;
+    }
+
+    Window::set_title(format!("{label} - space to continue"));
+    wait_for_space();
+}
+
 pub(crate) fn hold_for_human() {
     if !human_mode() {
         return;

@@ -111,7 +111,10 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
             hreads::set_dispatch_waker(crate::window::request_frame);
         }
         #[cfg(wasm)]
-        event_loop.set_control_flow(ControlFlow::Poll);
+        {
+            event_loop.set_control_flow(ControlFlow::Poll);
+            crate::system::install_popstate_listener();
+        }
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
         run_app(event_loop, app);

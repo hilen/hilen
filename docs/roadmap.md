@@ -76,7 +76,13 @@ The modal scrim blur landed as an opt-in `modal_blur` override on `ModalView`, z
 by default. With a radius the modal wrapper is a `BlurView` tinted by
 `modal_scrim_color` instead of a plain scrim, so the whole scene behind the dialog
 blurs and dims while the dialog stays crisp. This closed the last visual parity gap
-of the skaityk port.
+of the skaityk port. URL routing for wasm apps landed as `system::Router`. The engine
+owns the history API: `current_path` reads the path the page loaded on relative to
+the document base, `push` and `replace` write history entries without a reload, and
+browser back and forward surface through the `on_pop` event. Outside the browser
+every call is a no-op, so app navigation code carries no platform cfg. Covered by
+the wasm-only `Router test`. This unblocked bookmarkable pages and deep links for
+the beekeeper port.
 
 ## Text stack rework
 
@@ -153,20 +159,6 @@ frames heavier.
   per injection regardless of frame rate, likely together with the stepped time
   source below since scroll inertia samples real elapsed time.
 - Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
-
-## URL routing for wasm apps
-
-Found porting the beekeeper UI. The Vue original gives every page its own URL,
-`/deployments/:id`, `/vpn/:id`, so a detail page is bookmarkable, reload keeps
-the place, and browser back walks up instead of leaving the site. A test-engine
-wasm app is one URL, navigation is invisible to the browser.
-
-- Current: apps navigate by swapping views, `web_sys` history is untouched. The
-  beekeeper port always boots on its first page and browser back exits the app.
-- Needed: an engine navigation hook for wasm, read the path at startup, push a
-  history entry on navigation, surface popstate as a back event. Desktop and
-  mobile no-op. The app maps paths to pages, the engine owns the history API.
-- Blocks: retiring the Vue beekeeper UI without losing deep links.
 
 ## Tooltips
 

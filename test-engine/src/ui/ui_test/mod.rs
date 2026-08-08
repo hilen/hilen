@@ -24,7 +24,7 @@ pub use capture::{capture_requested_screenshot, capture_screenshot, enable_scree
 pub use collect::{TestFailure, any_failed, clear_failures, push_failure, run_test, take_failures};
 pub use helpers::*;
 use hreads::{from_main, is_main_thread, on_main, wait_for_next_frame};
-pub use human::{enable_human_mode, human_mode};
+pub use human::{enable_human_mode, human_checkpoint, human_mode};
 pub(crate) use human::{hold_for_human, human_pause, human_pause_quick};
 use log::{error, warn};
 use parking_lot::Mutex;
