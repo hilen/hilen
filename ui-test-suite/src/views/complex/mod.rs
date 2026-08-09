@@ -7,4 +7,5 @@ mod modal_scrim;
 mod number_view;
 mod number_view_design;
 mod point_view;
+mod radio_group;
 mod table_view_resize;

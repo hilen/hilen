@@ -77,6 +77,16 @@ impl Label {
         &self.text_color
     }
 
+    /// The text color as it was set, keeping the theme pair when there is
+    /// one. See `ViewData::ui_color` for why restoring a color through
+    /// `text_color()` is not enough.
+    pub fn ui_text_color(&self) -> UIColor {
+        match self.dynamic_text_color {
+            Some(dynamic) => UIColor::Dynamic(dynamic),
+            None => UIColor::Plain(self.text_color),
+        }
+    }
+
     pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
         let mut this = weak_from_ref(self);
         match color.into() {

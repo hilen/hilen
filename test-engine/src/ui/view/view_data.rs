@@ -22,6 +22,7 @@ pub trait ViewData {
     fn content_offset(&self) -> f32;
 
     fn color(&self) -> &Color;
+    fn ui_color(&self) -> UIColor;
     fn set_color(&self, color: impl Into<UIColor>) -> &Self;
 
     fn gradient(&self) -> Option<Gradient>;
@@ -94,6 +95,18 @@ impl<T: ?Sized + View> ViewData for T {
 
     fn color(&self) -> &Color {
         &self.__base_view().color
+    }
+
+    /// The color as it was set, keeping the theme pair when there is one.
+    /// `color()` only returns what the pair resolved to, so restoring a
+    /// color through it would flatten a dynamic color into a plain one and
+    /// the view would stop following theme switches.
+    fn ui_color(&self) -> UIColor {
+        let base = self.__base_view();
+        match base.dynamic_color {
+            Some(dynamic) => UIColor::Dynamic(dynamic),
+            None => UIColor::Plain(base.color),
+        }
     }
 
     fn set_color(&self, color: impl Into<UIColor>) -> &Self {
