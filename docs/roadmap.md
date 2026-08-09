@@ -4,7 +4,7 @@ Missing engine features, found by porting a real app. Each entry lists the curre
 in code, what is needed, and what it blocks. When one of these lands it needs UI tests
 like any other engine change.
 
-The driver app is skaityk-te at `~/dev/apps/skaityk-te`, github.com/gebling-studio/skaityk-te.
+The driver app is skaityk-te at `~/dev/apps/skaityk-te`, github.com/hilen/skaityk-te.
 It is a rewrite of skaityk, a Tauri and Vue reader app for Lithuanian learners at
 `~/dev/apps/skaityk`. Full visual and functional parity with the original is the
 acceptance bar. The news feed part is done with the engine as is. The reader and the
