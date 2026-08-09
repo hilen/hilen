@@ -84,6 +84,29 @@ every call is a no-op, so app navigation code carries no platform cfg. Covered b
 the wasm-only `Router test`. This unblocked bookmarkable pages and deep links for
 the beekeeper port.
 
+Form input landed. `RadioGroup<T>` is a vertical list of options where exactly one is
+selected, a ring that fills with a dot, mirroring the `DropDown` API down to
+`set_value` not firing `changed` so restoring a saved pick is never mistaken for a
+user action. `Button` gained `set_enabled`, which swaps in disabled colors and stops
+`on_tap` firing while still taking the touch, so a dead button does not become a hole
+that whatever sits behind it starts catching. Restoring the original colors needed
+`ViewData::ui_color` and `Label::ui_text_color`, which give back the color as it was
+set rather than what a theme pair resolved to. Without them a disabled and re-enabled
+button kept a flattened plain color and stopped following theme switches.
+
+## TextField theme colors
+
+Found by a port with a text field on several of its screens.
+
+- Current: `Label::set_text_color` takes `impl Into<UIColor>` and so accepts a
+  `DynamicColor` pair, but `TextField::set_text_color`, `set_selected_color` and
+  `set_color` take a plain `Color`. A field cannot hold a theme pair, so the port
+  resolves the pair itself at setup and the text keeps the theme it launched with.
+- Needed: widen those setters to `impl Into<UIColor>` like every other view. The
+  field already owns a `Label` internally, which resolves pairs correctly, so this
+  is a signature change rather than new machinery.
+- Blocks: a live theme switch looking right on any screen with a text field.
+
 ## Text stack rework
 
 Found by the FontZoo emoji page. Parked until a real need.
