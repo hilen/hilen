@@ -178,6 +178,7 @@ impl Placer {
 }
 
 impl Placer {
+    #[cfg(feature = "ui-tests")]
     pub(crate) fn sides(&self, sides: &str, offset: impl ToF32) -> &Self {
         for ch in sides.chars() {
             match ch {

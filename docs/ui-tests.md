@@ -288,6 +288,10 @@ ctors at all. The switch is on the proc macro crate, `ui-proc/ui-tests`, not on 
 so there is exactly one of it and no crate can forget its own and silently lose its tests.
 `ui-test`, `ui-test-suite` and `test-game` turn it on.
 
+The engine's own test modules are gated behind the same feature with `#[cfg]`, so a
+default-features build compiles none of them. Without the gate an app pulling the engine as a
+path dependency sees their dead code warnings, since an unregistered test view is unused.
+
 ## Platform gating
 
 Every UI test must run on every supported UI-test platform where the production behavior exists.

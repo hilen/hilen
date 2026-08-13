@@ -184,6 +184,7 @@ impl TableView {
     }
 }
 
+#[cfg(feature = "ui-tests")]
 mod test {
     use std::ops::Deref;
 

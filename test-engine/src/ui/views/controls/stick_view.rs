@@ -70,6 +70,7 @@ impl Setup for StickView {
     }
 }
 
+#[cfg(feature = "ui-tests")]
 mod test {
     use anyhow::Result;
     use refs::Weak;

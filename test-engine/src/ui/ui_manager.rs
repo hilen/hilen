@@ -225,6 +225,7 @@ impl UIManager {
     /// Runs `action` once the app is ready, right now if it already is. The
     /// store and this check share the queue lock, so a concurrent
     /// `set_app_ready` can neither drop the action nor run it twice.
+    #[cfg(feature = "ui-tests")]
     pub(crate) fn on_app_ready(action: impl FnOnce() + Send + 'static) {
         let mut queue = ON_APP_READY.lock();
         if APP_READY.load(Ordering::Relaxed) {

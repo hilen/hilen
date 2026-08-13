@@ -7,6 +7,7 @@ mod modal_view;
 mod navigation_view;
 mod shadow;
 mod style;
+#[cfg(feature = "ui-tests")]
 mod tests;
 mod text_field_constraint;
 mod theme;

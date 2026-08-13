@@ -207,6 +207,7 @@ impl ModalView for Spinner {
     }
 }
 
+#[cfg(feature = "ui-tests")]
 mod test {
 
     use anyhow::Result;
