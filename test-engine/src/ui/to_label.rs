@@ -57,7 +57,19 @@ impl ToLabel for u8 {
     }
 }
 
+impl ToLabel for i8 {
+    fn to_label(&self) -> String {
+        self.to_string()
+    }
+}
+
 impl ToLabel for i16 {
+    fn to_label(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl ToLabel for u16 {
     fn to_label(&self) -> String {
         self.to_string()
     }
@@ -94,6 +106,12 @@ impl ToLabel for usize {
 }
 
 impl ToLabel for &usize {
+    fn to_label(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl ToLabel for isize {
     fn to_label(&self) -> String {
         self.to_string()
     }
