@@ -44,7 +44,12 @@ light and dark pairs accepted by every color setter. `Theme` picks the effective
 `ThemeMode` follows the OS or forces one. A switch re-resolves bound colors on the
 live view tree in one walk and fires `UIEvents::theme_changed`, the draw path keeps
 reading plain resolved colors. The OS theme arrives through winit `ThemeChanged` and
-is read once at startup. This unblocked dark mode. Hover events landed as opt-in
+is read once at startup. This unblocked dark mode. The screen background followed.
+`UIManager::set_clear_color` takes the same pair and re-resolves it on a switch, so an
+app paints its background with the clear color and leaves the root view transparent.
+That keeps the iOS safe areas the same color as the screen, where a colored root view
+stops at the safe area edge. `NavigationView::push` and `present` no longer force the
+new screen white for the same reason. Hover events landed as opt-in
 `enable_hover` plus a `hovered` event that fires true on enter and false on exit. Only
 the topmost hover enabled view under the cursor is hovered, on desktop and in the
 browser since a touch screen has no pointer, and modal layers block hover like they

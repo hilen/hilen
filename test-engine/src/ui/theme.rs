@@ -68,6 +68,7 @@ impl Theme {
         }
 
         reapply_theme(UIManager::root_view().weak_view());
+        UIManager::reapply_clear_color();
         UIEvents::theme_changed().trigger(Self::current());
     }
 }

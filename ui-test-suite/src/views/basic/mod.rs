@@ -8,6 +8,7 @@ mod corner_radii;
 /// receives the text and then probe for glyphs that were never drawn.
 #[cfg(desktop)]
 mod custom_text_field;
+mod dynamic_clear_color;
 mod font_zoo;
 mod gradient;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`

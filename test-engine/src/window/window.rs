@@ -147,7 +147,7 @@ impl Window {
         window.scale_factor().lossy_convert()
     }
 
-    pub fn set_clear_color(color: impl Into<Color>) {
+    pub(crate) fn set_clear_color(color: impl Into<Color>) {
         Self::current().state.clear_color = color.into();
     }
 

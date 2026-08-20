@@ -20,6 +20,9 @@ smoke:
 ui-ios:
 	rust ./build/ios/sim-test.rs
 
+ui-ios-human:
+	rust ./build/ios/sim-test.rs --human
+
 all:
 	order
 	make wasm

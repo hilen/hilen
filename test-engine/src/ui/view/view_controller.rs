@@ -4,7 +4,7 @@ use hreads::on_main;
 use refs::Own;
 
 use crate::{
-    gm::{Animation, color::WHITE},
+    gm::Animation,
     ui::{NavigationView, Touch, UIAnimation, UIManager, View, ViewData, ViewFrame, ViewSubviews},
 };
 
@@ -40,7 +40,6 @@ impl<T: ?Sized + View + 'static> ViewController for T {
         let (se, rc) = channel();
 
         on_main(move || {
-            view.set_color(WHITE);
             let view = UIManager::root_view().add_subview_to_root(view);
             view.set_frame(self.frame().with_zero_origin());
             let anim = UIAnimation::new(|view, y| {

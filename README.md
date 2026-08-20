@@ -85,6 +85,8 @@ struct MainScreen {
 
 impl Setup for MainScreen {
     fn setup(self: Weak<Self>) {
+        // The screen background. Leave the root view transparent, a colored root
+        // view stops at the iOS safe area edge while the clear color fills the screen.
         UIManager::set_clear_color("#4E4D5C");
 
         self.hello_label

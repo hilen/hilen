@@ -82,6 +82,7 @@ make ui                                                                      # d
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check
 make ui-ios                                                                  # iOS simulator suite only
+make ui-ios-human                                                            # the same lane held for a human, a tap on the phone screen advances, TE_TEST_ONLY narrows it
 make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator

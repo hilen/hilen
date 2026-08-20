@@ -1,6 +1,5 @@
 use anyhow::Result;
 use test_engine::{
-    Window,
     dispatch::from_main,
     refs::Weak,
     ui::{GRAY_BLUE, GREEN, NoImage, Setup, UIImages, UIManager, ViewTest, view},
@@ -12,7 +11,7 @@ struct Background {}
 
 impl Setup for Background {
     fn setup(self: Weak<Self>) {
-        Window::set_clear_color(GREEN);
+        UIManager::set_clear_color(GREEN);
     }
 }
 
@@ -68,7 +67,7 @@ fn green_clear_color() -> Result<()> {
 
 fn gray_blue_clear_color() -> Result<()> {
     from_main(|| {
-        Window::set_clear_color(GRAY_BLUE);
+        UIManager::set_clear_color(GRAY_BLUE);
     });
 
     check_colors(

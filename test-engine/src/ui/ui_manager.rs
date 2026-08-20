@@ -16,16 +16,20 @@ use refs::{Own, Weak};
 use crate::{
     gm::{
         ToF32,
-        color::Color,
         flat::{Point, Rect, Size},
     },
-    ui::{Keymap, RootView, Setup, TouchStack, UIAnimation, UIEvent, View, ViewData, ViewFrame, WeakView},
+    ui::{
+        DynamicColor, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View, ViewData,
+        ViewFrame, WeakView,
+    },
     window::Window,
 };
 
 pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new());
 
 static ANIMATIONS: Mutex<Vec<UIAnimation>> = Mutex::new(Vec::new());
+
+static DYNAMIC_CLEAR_COLOR: Mutex<Option<DynamicColor>> = Mutex::new(None);
 
 static UI_MANAGER: OnceLock<UIManager> = OnceLock::new();
 
@@ -385,8 +389,35 @@ impl UIManager {
         Self::get().on_drop_file.val(subscriber, action);
     }
 
-    pub fn set_clear_color(color: impl Into<Color>) {
-        Window::set_clear_color(color);
+    /// The screen background, what shows where no view paints. The root view of
+    /// an app stays transparent and this is the color of the whole surface,
+    /// the safe areas on a phone included. A dynamic pair follows the theme
+    /// like a view color.
+    pub fn set_clear_color(color: impl Into<UIColor>) {
+        let resolved = match color.into() {
+            UIColor::Plain(color) => {
+                *DYNAMIC_CLEAR_COLOR.lock() = None;
+                color
+            }
+            UIColor::Dynamic(color) => {
+                *DYNAMIC_CLEAR_COLOR.lock() = Some(color);
+                color.resolve()
+            }
+        };
+        Window::set_clear_color(resolved);
+    }
+
+    pub(crate) fn clear_color() -> UIColor {
+        match *DYNAMIC_CLEAR_COLOR.lock() {
+            Some(color) => UIColor::Dynamic(color),
+            None => UIColor::Plain(Window::clear_color()),
+        }
+    }
+
+    pub(crate) fn reapply_clear_color() {
+        if let Some(color) = *DYNAMIC_CLEAR_COLOR.lock() {
+            Window::set_clear_color(color.resolve());
+        }
     }
 
     pub(crate) fn add_animation(anim: UIAnimation) {

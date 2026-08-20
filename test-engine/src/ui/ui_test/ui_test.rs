@@ -170,7 +170,7 @@ impl UITest {
             root.clear_root();
             root.reset_background();
             root.set_test_canvas((width, height).into());
-            Window::set_clear_color(GRAY_BLUE);
+            UIManager::set_clear_color(GRAY_BLUE);
             root.add_subview_to_root(view).place().back();
 
             trace!("{width} - {height}");

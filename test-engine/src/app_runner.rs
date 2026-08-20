@@ -385,6 +385,11 @@ impl AppRunner {
         // can swap a loading screen for its real UI once assets land, and
         // tearing that root down mid load frees views the load task still
         // touches. An app with no loading phase is ready at once.
+        // The device spelling of `--human`, see the browser `te_human` above.
+        if std::env::var("TE_HUMAN").is_ok() {
+            crate::ui_test::enable_human_mode();
+        }
+
         UIManager::on_app_ready(|| {
             hreads::spawn(async {
                 let mut tests = crate::UI_TESTS.lock().clone();

@@ -3,7 +3,7 @@ use refs::{Own, Weak};
 use ui_proc::view;
 
 use crate::{
-    gm::{Animation, color::WHITE},
+    gm::Animation,
     ui::{
         Setup, Touch, TouchStack, UIAnimation, View, ViewData, WeakView,
         view::{ViewFrame, ViewSubviews},
@@ -45,7 +45,6 @@ impl NavigationView {
 
         let prev_view = self.subviews().last().unwrap().weak_view();
 
-        view.set_color(WHITE);
         let mut view = self.add_subview(view);
         view.place().back();
         view.set_navigation_view(self);

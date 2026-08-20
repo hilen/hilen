@@ -3,11 +3,7 @@ use std::collections::BTreeMap;
 use hreads::from_main;
 
 use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_failures};
-use crate::{
-    gm::color::Color,
-    ui::{Label, Style, UIManager, ViewData, style::GlobalStyles},
-    window::Window,
-};
+use crate::ui::{Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles};
 
 pub struct TestRunReport {
     pub total:    usize,
@@ -24,7 +20,7 @@ struct AppState {
     styles:         GlobalStyles,
     text_size:      f32,
     scale_override: f32,
-    clear_color:    Color,
+    clear_color:    UIColor,
 }
 
 /// Tests expect scale 1 and 32 point text. Any host that runs them must match,
@@ -34,7 +30,7 @@ fn prepare_harness() -> AppState {
         styles:         Style::take_globals(),
         text_size:      Label::default_text_size(),
         scale_override: UIManager::scale_override(),
-        clear_color:    Window::clear_color(),
+        clear_color:    UIManager::clear_color(),
     });
 
     Label::set_default_text_size(32);
@@ -53,7 +49,7 @@ fn restore_app(state: AppState) {
     from_main(move || {
         Style::restore_globals(state.styles);
         UIManager::restore_scale_override(state.scale_override);
-        Window::set_clear_color(state.clear_color);
+        UIManager::set_clear_color(state.clear_color);
 
         let mut root = UIManager::root_view();
         root.clear_root();

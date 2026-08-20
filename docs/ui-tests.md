@@ -54,7 +54,10 @@ desktop. Under `make ui` the lane sets `TE_IOS_QUIET` and goes back to buffering
 `[ios]` milestones, so three parallel lanes do not mangle each other's output.
 
 `TE_TEST_ONLY` narrows a `TE_RUN_TESTS` run to a comma separated list of test names. It is for
-isolating one case on a device or simulator, where the whole suite is slow to reach it.
+isolating one case on a device or simulator, where the whole suite is slow to reach it. The
+simulator lane forwards it, `simctl` only passes `SIMCTL_CHILD_` prefixed variables into the
+app and the lane adds that prefix itself. `make ui-ios-human` is the watchable simulator run,
+see Human mode below.
 
 The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
 atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
@@ -393,7 +396,16 @@ Prompts land in the tab title, `Window::set_title` writes `document.title` on wa
 winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
 page once so key events reach the canvas, then space advances the same way.
 
-`human_checkpoint(label)` holds until space with `label` in the title, for a test whose
+The simulator lane has it too. `make ui-ios-human`, or `rust build/ios/sim-test.rs --human`,
+passes `TE_HUMAN` into the app, the device spelling of `--human`, and always streams.
+Combine it with `TE_TEST_ONLY` to watch one test, `TE_TEST_ONLY="Font zoo" make
+ui-ios-human`. A phone has no window title and no space key, so there every hold draws a
+translucent bar with the prompt over the bottom 40 px of the canvas and a tap anywhere on
+the screen advances. The overlay is its own touch layer, the tap never reaches the views
+under review, and it is gone between holds. The run still ends like the plain lane, the
+simulator shuts down after the last tap.
+
+`human_checkpoint(label)` holds with `label` as the prompt, for a test whose
 state change no injection paces, like a browser URL change that would otherwise flash
 by. A no-op outside human mode, so headless runs keep full speed. `Router test` steps
 through every history change with it.
