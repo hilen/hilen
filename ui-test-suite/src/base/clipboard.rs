@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     link_button,
     refs::Weak,
@@ -8,7 +8,7 @@ use test_engine::{
     ui_test::inject_touches,
 };
 
-const COPIED_TEXT: &str = "test-engine clipboard test";
+const COPIED_TEXT: &str = "hilen clipboard test";
 
 #[view]
 struct ClipboardTest {

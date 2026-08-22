@@ -1,9 +1,9 @@
 // use std::time::Duration;
 //
 // use anyhow::Result;
-// use test_engine::{
+// use hilen::{
 //     dispatch::from_main,
-//     test_engine::ui::{Question, UI, view},
+//     hilen::ui::{Question, UI, view},
 //     ui_test::inject_touches,
 // };
 // use tokio::{spawn, sync::oneshot::channel, time::sleep};

@@ -2,7 +2,7 @@
 #![feature(specialization)]
 #![feature(arbitrary_self_types)]
 
-use test_engine::App;
+use hilen::App;
 
 use crate::app::InspectorApp;
 

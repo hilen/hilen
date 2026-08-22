@@ -44,19 +44,19 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
     fields.named.insert(
         0,
         Field::parse_named
-            .parse2(quote! { __level_base: test_engine::level::LevelBase })
-            .expect("parse2(quote! { __level_base: test_engine::level::LevelBase })"),
+            .parse2(quote! { __level_base: hilen::level::LevelBase })
+            .expect("parse2(quote! { __level_base: hilen::level::LevelBase })"),
     );
 
     quote! {
         #stream
 
-        impl #generics test_engine::level::Level for #name <#type_params> { }
+        impl #generics hilen::level::Level for #name <#type_params> { }
 
-        impl #generics test_engine::level::LevelInternal for #name <#type_params> {
+        impl #generics hilen::level::LevelInternal for #name <#type_params> {
             fn __internal_setup(&self) {
-                use test_engine::level::LevelSetup;
-                let mut level = test_engine::refs::weak_from_ref(self);
+                use hilen::level::LevelSetup;
+                let mut level = hilen::refs::weak_from_ref(self);
                 if level.needs_physics() {
                     level.init_physics();
                 }
@@ -64,15 +64,15 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
             }
 
             fn __internal_update(&self, frame_time: f32) {
-                use test_engine::level::Level;
-                use test_engine::level::LevelSetup;
-                let mut level = test_engine::refs::weak_from_ref(self);
+                use hilen::level::Level;
+                use hilen::level::LevelSetup;
+                let mut level = hilen::refs::weak_from_ref(self);
                 level.update_physics(frame_time);
                 level.update();
             }
         }
 
-        impl #generics test_engine::refs::AsAny for #name <#type_params> {
+        impl #generics hilen::refs::AsAny for #name <#type_params> {
             fn as_any(&self) -> &dyn std::any::Any {
                self
             }
@@ -87,13 +87,13 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
         }
 
         impl #generics std::ops::Deref for #name <#type_params> {
-            type Target = test_engine::level::LevelBase;
-            fn deref(&self) -> &test_engine::level::LevelBase {
+            type Target = hilen::level::LevelBase;
+            fn deref(&self) -> &hilen::level::LevelBase {
                 &self.__level_base
             }
         }
         impl #generics std::ops::DerefMut for #name <#type_params>  {
-            fn deref_mut(&mut self) -> &mut test_engine::level::LevelBase {
+            fn deref_mut(&mut self) -> &mut hilen::level::LevelBase {
                 &mut self.__level_base
             }
         }

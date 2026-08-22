@@ -6,7 +6,7 @@
 android-emu` builds an arm64 debug APK only, for the emulator on an Apple Silicon host.
 No Android tooling on the host, docker is the only requirement.
 
-The `TEST_ENGINE_ANDROID_ABI` env var carries the single ABI choice into the container.
+The `HILEN_ANDROID_ABI` env var carries the single ABI choice into the container.
 The generated gradle project always lists all four ABIs, `build.rs` trims the list after
 every regeneration and runs `assembleDebug` instead of the full `build`.
 
@@ -45,13 +45,13 @@ repo `assets/` folder via `sourceSets`.
 ## The app must register from the shell crate
 
 `register_app!` in an app lib behind `cfg(ios)` never reaches the android cdylib. The
-weak `test_engine_create_app` stub wins the link and panics at startup. The android
-shell crate, `test-game-android`, invokes the macro itself, the same way the desktop
+weak `hilen_create_app` stub wins the link and panics at startup. The android
+shell crate, `demo-android`, invokes the macro itself, the same way the desktop
 binary does in `main.rs`.
 
 ## Pending template fixes
 
-The generated project comes from the test-mobile template cloned at `main` on every
+The generated project comes from the hilen-mobile template cloned at `main` on every
 build. Four fixes still live only in the generated files, so a regeneration reverts
 them until they land in the template:
 

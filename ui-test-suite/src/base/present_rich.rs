@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Result, ensure};
-use parking_lot::Mutex;
-use test_engine::{
+use hilen::{
     dispatch::wait_for_next_frame,
     refs::{Own, Weak},
     time::Instant,
@@ -13,6 +12,7 @@ use test_engine::{
     },
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
+use parking_lot::Mutex;
 
 // Present creates the next view inside a tap closure, so each setup publishes
 // its weak pointer for the test to wait on.

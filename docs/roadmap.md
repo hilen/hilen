@@ -44,7 +44,12 @@ light and dark pairs accepted by every color setter. `Theme` picks the effective
 `ThemeMode` follows the OS or forces one. A switch re-resolves bound colors on the
 live view tree in one walk and fires `UIEvents::theme_changed`, the draw path keeps
 reading plain resolved colors. The OS theme arrives through winit `ThemeChanged` and
-is read once at startup. This unblocked dark mode. Hover events landed as opt-in
+is read once at startup. This unblocked dark mode. The screen background followed.
+`UIManager::set_clear_color` takes the same pair and re-resolves it on a switch, so an
+app paints its background with the clear color and leaves the root view transparent.
+That keeps the iOS safe areas the same color as the screen, where a colored root view
+stops at the safe area edge. `NavigationView::push` and `present` no longer force the
+new screen white for the same reason. Hover events landed as opt-in
 `enable_hover` plus a `hovered` event that fires true on enter and false on exit. Only
 the topmost hover enabled view under the cursor is hovered, on desktop and in the
 browser since a touch screen has no pointer, and modal layers block hover like they
@@ -76,7 +81,36 @@ The modal scrim blur landed as an opt-in `modal_blur` override on `ModalView`, z
 by default. With a radius the modal wrapper is a `BlurView` tinted by
 `modal_scrim_color` instead of a plain scrim, so the whole scene behind the dialog
 blurs and dims while the dialog stays crisp. This closed the last visual parity gap
-of the skaityk port.
+of the skaityk port. URL routing for wasm apps landed as `system::Router`. The engine
+owns the history API: `current_path` reads the path the page loaded on relative to
+the document base, `push` and `replace` write history entries without a reload, and
+browser back and forward surface through the `on_pop` event. Outside the browser
+every call is a no-op, so app navigation code carries no platform cfg. Covered by
+the wasm-only `Router test`. This unblocked bookmarkable pages and deep links for
+the beekeeper port.
+
+Form input landed. `RadioGroup<T>` is a vertical list of options where exactly one is
+selected, a ring that fills with a dot, mirroring the `DropDown` API down to
+`set_value` not firing `changed` so restoring a saved pick is never mistaken for a
+user action. `Button` gained `set_enabled`, which swaps in disabled colors and stops
+`on_tap` firing while still taking the touch, so a dead button does not become a hole
+that whatever sits behind it starts catching. Restoring the original colors needed
+`ViewData::ui_color` and `Label::ui_text_color`, which give back the color as it was
+set rather than what a theme pair resolved to. Without them a disabled and re-enabled
+button kept a flattened plain color and stopped following theme switches.
+
+## TextField theme colors
+
+Found by a port with a text field on several of its screens.
+
+- Current: `Label::set_text_color` takes `impl Into<UIColor>` and so accepts a
+  `DynamicColor` pair, but `TextField::set_text_color`, `set_selected_color` and
+  `set_color` take a plain `Color`. A field cannot hold a theme pair, so the port
+  resolves the pair itself at setup and the text keeps the theme it launched with.
+- Needed: widen those setters to `impl Into<UIColor>` like every other view. The
+  field already owns a `Label` internally, which resolves pairs correctly, so this
+  is a signature change rather than new machinery.
+- Blocks: a live theme switch looking right on any screen with a text field.
 
 ## Text stack rework
 
@@ -114,7 +148,7 @@ Found by jagged rounded corners in the corner radius test.
 - Landed: whole pass MSAA 4x. The frame renders into a multisampled color target
   with a matching depth buffer and resolves into the presentable texture at every
   pass end, so blur sampling and readback see resolved pixels. Every pipeline in
-  the pass and the text brush share `msaa_sample_count()`, `TE_MSAA=1` switches it
+  the pass and the text brush share `msaa_sample_count()`, `HILEN_MSAA=1` switches it
   off as the benchmark A/B lever. 4 is the ceiling everywhere: the WebGPU spec
   guarantees only 1 and 4, and this Mac's GPU rejects 8 outright. Cost measured
   unguarded at the 297 panel stop scene: CPU identical, capacity identical, GPU
@@ -146,27 +180,13 @@ frames heavier.
 - Current: the test injects 100 wheel scrolls and taps the rows it expects at the
   bottom. On desktop and the iOS simulator the landed offset is stable, in Chrome
   the run lands at a different offset every time, 50 rows, 33 rows, zero rows, so
-  how many deltas take effect depends on frame pacing. With `TE_MSAA=1` the lane
+  how many deltas take effect depends on frame pacing. With `HILEN_MSAA=1` the lane
   passes by timing luck. Rendering is not involved, `Drawing paths` pins the same
   pixels in all three lanes.
 - Needed: make injected scrolls on wasm land deterministically, one applied delta
   per injection regardless of frame rate, likely together with the stepped time
   source below since scroll inertia samples real elapsed time.
 - Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
-
-## URL routing for wasm apps
-
-Found porting the beekeeper UI. The Vue original gives every page its own URL,
-`/deployments/:id`, `/vpn/:id`, so a detail page is bookmarkable, reload keeps
-the place, and browser back walks up instead of leaving the site. A test-engine
-wasm app is one URL, navigation is invisible to the browser.
-
-- Current: apps navigate by swapping views, `web_sys` history is untouched. The
-  beekeeper port always boots on its first page and browser back exits the app.
-- Needed: an engine navigation hook for wasm, read the path at startup, push a
-  history entry on navigation, surface popstate as a back event. Desktop and
-  mobile no-op. The app maps paths to pages, the engine owns the history API.
-- Blocks: retiring the Vue beekeeper UI without losing deep links.
 
 ## Tooltips
 
@@ -229,7 +249,7 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
   and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
   `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
-  `__tls_base`. rustc adds none of them itself. The `te_run_tests` autorun
+  `__tls_base`. rustc adds none of them itself. The `hilen_run_tests` autorun
   fires, the suite worker runs every test, the scene texture readback feeds
   `check_colors` and failures report without a filesystem.
 - Landed, rendering: every platform renders into a plain Unorm target with
@@ -252,7 +272,7 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   `full_hd.jpg` cost multiple seconds each. The workspace now builds the decoder
   crates optimized in dev, boot dropped to 0.7 seconds. Boot time and slow
   decodes log at debug level, a regression shows in the console immediately.
-- Landed: assets in the browser. test-game's build.rs writes `assets/assets.json`,
+- Landed: assets in the browser. demo's build.rs writes `assets/assets.json`,
   every image, font and sound with a content hash and a load group, the group is
   the first folder under the kind folder, kind root files are `boot`. On wasm the
   engine downloads the boot group into the managed stores before anything runs,

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     inspect::{ViewRepr, ViewToInspect, views::PlacerView},
     refs::{Own, Weak},
@@ -17,7 +17,7 @@ struct PlacerViewTest {
 
 impl Setup for PlacerViewTest {
     fn setup(self: Weak<Self>) {
-        test_engine::ui::UIManager::override_scale(2.0);
+        hilen::ui::UIManager::override_scale(2.0);
 
         self.placer_view.set_size(200, 800);
 
@@ -36,10 +36,10 @@ impl ViewTest for PlacerViewTest {
             view.placer_view.set_view(view.repr.weak());
         });
 
-        // test_engine::ui_test::record_ui_test();
+        // hilen::ui_test::record_ui_test();
 
         from_main(|| {
-            test_engine::ui::UIManager::override_scale(1.0);
+            hilen::ui::UIManager::override_scale(1.0);
         });
 
         Ok(())

@@ -1,8 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
-use serde::Deserialize;
-use test_engine::{
+use hilen::{
     Window,
     dispatch::{from_main, on_main},
     net::{Request, RestAPI},
@@ -10,6 +9,7 @@ use test_engine::{
     ui::{Button, Label, Setup, Spinner, ViewFrame, ViewTest, async_link_button, view},
     ui_test::inject_touches,
 };
+use serde::Deserialize;
 
 static REST_API: RestAPI = RestAPI::new("https://jsonplaceholder.typicode.com/");
 static NOT_REQUESTED: AtomicBool = AtomicBool::new(false);

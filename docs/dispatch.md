@@ -33,7 +33,7 @@ work must use `on_main` or `from_main` before triggering a UI event.
 ## Frames on demand
 
 The winit loop draws only when a frame is requested, so a static screen with nothing moving
-burns no CPU. `request_frame` in `test-engine/src/window/redraw.rs` sets a redraw flag and is
+burns no CPU. `request_frame` in `hilen/src/window/redraw.rs` sets a redraw flag and is
 safe from any thread. Window and input events call it, and so does the dispatch waker, which
 `hreads` fires on every background `on_main`/`from_main` enqueue, so a queued closure never
 waits on an idle loop.

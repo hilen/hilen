@@ -27,9 +27,9 @@ type Mode = (
 );
 
 const MODES: &[Mode] = &[
-    ("debug", "target/debug/test-game", &[]),
-    ("release", "target/release/test-game", &[]),
-    ("headless", "target/release/test-game", &[("TE_HEADLESS", "1")]),
+    ("debug", "target/debug/demo", &[]),
+    ("release", "target/release/demo", &[]),
+    ("headless", "target/release/demo", &[("HILEN_HEADLESS", "1")]),
 ];
 
 fn main() -> Result<()> {
@@ -105,7 +105,7 @@ fn git_commit() -> Result<String> {
 
 fn build(args: &[&str]) -> Result<()> {
     let status = Command::new("cargo")
-        .args(["build", "-p", "test-game", "--features", "bench"])
+        .args(["build", "-p", "demo", "--features", "bench"])
         .args(args)
         .status()?;
     if !status.success() {

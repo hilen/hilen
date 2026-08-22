@@ -12,7 +12,7 @@ use syn::{
 pub(crate) static VIEWS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// `#[view(crate = some::path)]` - the path providing `ui`, `refs` and
-/// `educe`. Defaults to `test_engine`.
+/// `educe`. Defaults to `hilen`.
 struct ViewArgs {
     root: Path,
 }
@@ -21,7 +21,7 @@ impl Parse for ViewArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
             return Ok(Self {
-                root: parse_quote!(test_engine),
+                root: parse_quote!(hilen),
             });
         }
 

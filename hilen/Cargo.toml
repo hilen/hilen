@@ -1,0 +1,141 @@
+[package]
+authors.workspace = true
+description = "Cross platform game engine and UI framework rendering on WGPU."
+edition.workspace = true
+license.workspace = true
+name = "hilen"
+readme = "../README.md"
+repository.workspace = true
+version.workspace = true
+
+[lib]
+#crate-type = ["rlib", "staticlib", "dylib"]
+crate-type = ["rlib", "staticlib"]
+name = "hilen"
+
+[features]
+bench = []
+# Runtime pointer checks from the vendored `refs`. On by default, the engine
+# has always run with them.
+checks = []
+default = ["checks"]
+# The inspect server listens on the network and can edit any view, so it must
+# never reach a shipped app by accident. Off unless an app asks for it.
+inspect = []
+# Registers every `impl ViewTest` into `UI_TESTS`. The switch lives on the proc
+# macro, so off means `view` emits no ctor in any crate and a shipped app
+# carries none. One switch for the whole graph, so no crate can forget it and
+# silently lose its tests.
+ui-tests = ["ui-proc/ui-tests"]
+
+# From the vendored `refs`, both off by default and both diagnostics only.
+pointers_info = []
+stats = []
+webgl = ["wgpu/webgl"]
+
+[dependencies]
+anyhow = { workspace = true }
+arbitrary = { workspace = true }
+atomic_float = { workspace = true }
+base64 = { workspace = true }
+bit_ops = { workspace = true }
+byte-unit = { workspace = true }
+bytemuck = { workspace = true }
+chrono = { workspace = true }
+contour = { workspace = true }
+ctor = { workspace = true }
+dirs = { workspace = true }
+educe = { workspace = true }
+event-listener = { workspace = true }
+fastrand = { workspace = true }
+fern = { workspace = true }
+hex = { workspace = true }
+image = { workspace = true }
+indexmap = { workspace = true }
+kira = { workspace = true }
+log = { workspace = true }
+local-ip-address = { workspace = true }
+lyon = { workspace = true }
+noise = { workspace = true }
+nonempty = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+resvg = { workspace = true }
+rustc-hash = { workspace = true }
+rust_decimal = { workspace = true }
+rustybuzz = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sysinfo = { workspace = true }
+tiny-skia = { workspace = true }
+usvg = { workspace = true }
+web-time = { workspace = true }
+wgpu = { workspace = true }
+wgpu_text = { workspace = true }
+
+plat = { workspace = true }
+reflected = { workspace = true }
+
+level-proc = { workspace = true }
+ui-proc = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures-util = { workspace = true }
+infisical = { workspace = true }
+mdns-sd = { workspace = true }
+rapier2d = { workspace = true, features = ["parallel"] } # simd can crash if there are too many active objects
+pollster = { workspace = true }
+rustls = { workspace = true }
+sentry = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+webpki-roots = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+gloo-timers = { workspace = true }
+# nightly selects the real atomics thread parker, without it parking panics on wasm workers
+parking_lot = { workspace = true, features = ["nightly"] }
+rapier2d = { workspace = true }
+spin = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+wasm_thread = { workspace = true }
+web-sys = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = { workspace = true }
+jni = { workspace = true }
+ndk-context = { workspace = true }
+winit = { workspace = true, features = ["android-game-activity"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+winit = { workspace = true }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
+rfd = { workspace = true }
+
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+objc2-foundation = { workspace = true }
+objc2-ui-kit = { workspace = true }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
+arboard = { workspace = true }
+open = { workspace = true }
+
+[build-dependencies]
+plat = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+env_logger = { workspace = true }
+fake = { workspace = true }
+pretty_assertions = { workspace = true }
+serial_test = { workspace = true }
+test-log = { workspace = true }
+tokio = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

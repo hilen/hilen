@@ -15,8 +15,8 @@ pub(crate) fn async_link_button_impl(input: TokenStream) -> TokenStream {
     let expanded = if let Some(arg) = args.arg {
         quote! {
             #button_path.on_tap(move || {
-                test_engine::dispatch::spawn(async move {
-                    use test_engine::ui::AlertErr;
+                hilen::dispatch::spawn(async move {
+                    use hilen::ui::AlertErr;
                     self.#method(#arg).await.alert_err();
                 });
             });
@@ -24,8 +24,8 @@ pub(crate) fn async_link_button_impl(input: TokenStream) -> TokenStream {
     } else {
         quote! {
             #button_path.on_tap(move || {
-                test_engine::dispatch::spawn(async move {
-                    use test_engine::ui::AlertErr;
+                hilen::dispatch::spawn(async move {
+                    use hilen::ui::AlertErr;
                     self.#method().await.alert_err();
                 });
             });

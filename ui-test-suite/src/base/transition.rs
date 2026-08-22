@@ -1,10 +1,10 @@
 use anyhow::Result;
-use parking_lot::Mutex;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{BLUE, Button, Setup, ViewData, ViewTest, ViewTransition, view},
     ui_test::{check_colors, inject_touches},
 };
+use parking_lot::Mutex;
 
 static ACTIONS: Mutex<Vec<&str>> = Mutex::new(vec![]);
 
@@ -42,37 +42,37 @@ impl ViewTest for Transition {
     fn perform_test(_view: Weak<Self>) -> Result<()> {
         check_colors(
             r"
-             452    4 - #597c95
-              24   24 - #ffffff
-             152   24 - #ffffff
-             216   24 - #ffffff
-              76   60 - #000000
-             116   60 - #ffffff
-             120   60 - #ffffff
-              76   64 - #000000
-             176   64 - #ffffff
+             160   20 - #ffffff
+             216   20 - #ffffff
+              20   24 - #ffffff
+              72   60 - #585858
+              80   60 - #585858
+             124   60 - #000000
+             116   64 - #a4a4a4
+             120   64 - #ffffff
               76   68 - #000000
               92   68 - #ffffff
-              28   72 - #ffffff
+             116   68 - #000000
+             128   68 - #ffffff
+             140   68 - #909090
+             152   68 - #000000
+             164   68 - #ffffff
               76   72 - #000000
-              92   72 - #ffffff
-             116   72 - #ffffff
-             120   72 - #ffffff
+             100   72 - #000000
+             116   72 - #a4a4a4
+             140   72 - #909090
+             168   72 - #000000
               76   76 - #000000
-             216   76 - #ffffff
-              24  116 - #ffffff
-             100  116 - #ffffff
-             148  116 - #ffffff
-             204  116 - #ffffff
-             592  196 - #597c95
-             380  236 - #597c95
-             220  284 - #597c95
+              92   76 - #ffffff
+             116   76 - #a4a4a4
+             152   76 - #000000
+             164   80 - #000000
+              20  116 - #ffffff
+             216  116 - #ffffff
+             592  180 - #597c95
               68  356 - #597c95
-             516  396 - #597c95
              300  436 - #597c95
                4  592 - #597c95
-             192  592 - #597c95
-             404  592 - #597c95
              592  592 - #597c95
         ",
         )?;

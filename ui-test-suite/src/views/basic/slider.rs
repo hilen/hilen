@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{Anchor, Label, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view},
@@ -9,7 +9,7 @@ use test_engine::{
 #[view]
 pub struct Slider {
     #[init]
-    slider: test_engine::ui::Slider,
+    slider: hilen::ui::Slider,
     label:  Label,
 }
 

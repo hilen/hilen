@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     AppRunner,
     gm::color::{Color, WHITE},
     refs::Weak,

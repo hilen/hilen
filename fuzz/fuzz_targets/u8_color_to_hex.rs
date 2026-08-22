@@ -1,9 +1,9 @@
 #![no_main]
 
 use colors_transform::Rgb;
+use hilen::gm::color::{Color, U8Color};
 use libfuzzer_sys::fuzz_target;
 use palette::{LinSrgb, Srgb};
-use test_engine::gm::color::{Color, U8Color};
 
 fuzz_target!(|color: U8Color| {
     let my_hex = color.as_hex();

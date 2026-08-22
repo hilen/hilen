@@ -12,7 +12,10 @@ pretty_assertions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-test-engine = { workspace = true, features = ["inspect", "ui-tests"] }
+hilen = { workspace = true, features = ["inspect", "ui-tests"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

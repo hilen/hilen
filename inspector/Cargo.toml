@@ -9,12 +9,11 @@ name = "inspector"
 
 [dependencies]
 anyhow = { workspace = true }
-hreads = { workspace = true }
 log = { workspace = true }
 mdns-sd = { workspace = true }
 parking_lot = { workspace = true }
 
-test-engine = { workspace = true, features = ["inspect"] }
+hilen = { workspace = true, features = ["inspect"] }
 
 [lints]
 workspace = true

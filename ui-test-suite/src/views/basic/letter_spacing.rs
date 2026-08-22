@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     AppRunner,
     dispatch::from_main,
     refs::Weak,

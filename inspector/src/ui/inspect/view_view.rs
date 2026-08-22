@@ -1,5 +1,4 @@
-use parking_lot::Mutex;
-use test_engine::{
+use hilen::{
     inspect::protocol::ui::ViewRepr,
     refs::Weak,
     ui::{
@@ -7,6 +6,7 @@ use test_engine::{
         ViewTouch, WHITE, view,
     },
 };
+use parking_lot::Mutex;
 
 use crate::ui::VIEW_SELECTED;
 

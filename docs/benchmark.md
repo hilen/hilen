@@ -13,12 +13,12 @@ builds (so a shipped game carries none of it, not even the `sysinfo` guard).
 ```bash
 make bench                                                       # full suite, results saved to bench/
 BENCH_RUNS=3 make bench                                          # fewer runs per mode
-UI_BENCHMARK=1 cargo run -p test-game --release --features bench # single run, prints and exits
-TE_HEADLESS=1                                                    # add to run without a window
+UI_BENCHMARK=1 cargo run -p demo --release --features bench # single run, prints and exits
+HILEN_HEADLESS=1                                                    # add to run without a window
 -- --no-guard                                                    # run even on a busy machine (see Consistency)
 ```
 
-Also launchable from the test-game menu ("ui bench"), in a build made with
+Also launchable from the demo menu ("ui bench"), in a build made with
 `--features bench` — same run, shows an Alert and keeps the app alive.
 
 ## How it works

@@ -2,7 +2,7 @@
 #![feature(specialization)]
 #![feature(arbitrary_self_types)]
 
-use test_engine::{
+use hilen::{
     App,
     refs::{Own, Weak},
     ui::{Label, Setup, U8Color, UIManager, View, ViewData, view},

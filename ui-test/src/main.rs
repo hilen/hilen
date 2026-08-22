@@ -2,8 +2,7 @@ use std::{collections::BTreeMap, env::var, hint::black_box, panic::set_hook, pat
 
 use anyhow::Result;
 use clap::Parser;
-use log::info;
-use test_engine::{
+use hilen::{
     AppRunner, Window,
     dispatch::{from_main, is_main_thread},
     ui::{Label, UIManager},
@@ -13,6 +12,7 @@ use test_engine::{
         push_failure, run_test, spaced_test_name, take_failures,
     },
 };
+use log::info;
 
 #[derive(Parser)]
 struct Args {
@@ -64,17 +64,17 @@ struct DisplayArgs {
 /// linker drops a whole rlib and takes its tests with it. Nothing reports that,
 /// the suite just quietly runs fewer tests. This is the same trap that hid
 /// every test on iOS, see `keep_ctor_linked` in
-/// `test-engine/src/app_starter.rs`.
+/// `hilen/src/app_starter.rs`.
 fn keep_tests_linked() {
     ui_test_suite::keep_linked();
-    black_box(test_game::TestGameApp);
+    black_box(demo::DemoApp);
 }
 
 /// Every registered test, from the corpus, the app and the engine. They all
 /// register into the one engine owned map, so there is nothing to merge.
 fn all_tests() -> BTreeMap<String, UITestEntry> {
     keep_tests_linked();
-    test_engine::UI_TESTS.lock().clone()
+    hilen::UI_TESTS.lock().clone()
 }
 
 fn run(args: Args) -> Result<()> {
@@ -111,7 +111,7 @@ fn run(args: Args) -> Result<()> {
     // whole crate, never that there are no tests.
     anyhow::ensure!(
         !tests.is_empty(),
-        "No UI tests registered. Either the `test-engine/ui-tests` feature is off, or a linker \
+        "No UI tests registered. Either the `hilen/ui-tests` feature is off, or a linker \
          dropped a test crate whose ctors nothing references, see `keep_tests_linked`.",
     );
 

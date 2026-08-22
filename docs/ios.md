@@ -32,10 +32,10 @@ no such selector. `make build-ios` pins 12.0. Never raise it to or above a versi
 code guards against.
 
 There used to be a look-alike second setting, a `-platform_version,ios,13.0` linker flag
-in `.cargo/config.toml`. It existed only because the vendored foundational crates built
-intermediate dylibs whose link needed `__chkstk_darwin`, an iOS 13 `aws-lc-sys` symbol.
-Those crates are rlib only now, nothing links a dylib during the lib build, and the flag
-is gone, verified with `make build-ios`.
+in `.cargo/config.toml`. It existed only because the foundational crates, back when they
+were separate crates, built intermediate dylibs whose link needed `__chkstk_darwin`, an
+iOS 13 `aws-lc-sys` symbol. That code is plain modules inside `hilen` now, nothing links a
+dylib during the lib build, and the flag is gone, verified with `make build-ios`.
 
 `cargo build --lib` links nothing, so it cannot reproduce a link error that
 `make build-ios` hits. Check with the Makefile target.

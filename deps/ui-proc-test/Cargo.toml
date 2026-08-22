@@ -4,7 +4,7 @@ name = "ui-proc-test"
 version.workspace = true
 
 [dependencies]
-test-engine = { workspace = true }
+hilen = { workspace = true }
 ui-proc = { workspace = true }
 
 [lints]

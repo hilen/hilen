@@ -20,6 +20,9 @@ smoke:
 ui-ios:
 	rust ./build/ios/sim-test.rs
 
+ui-ios-human:
+	rust ./build/ios/sim-test.rs --human
+
 all:
 	order
 	make wasm
@@ -35,8 +38,8 @@ bench:
 	cargo run -p bench --release
 
 mobile:
-	cargo install test-mobile
-	test-mobile --path=../test-mobile/mobile-template
+	cargo install hilen-mobile
+	hilen-mobile --path=../hilen-mobile/mobile-template
 
 OS := $(shell uname)
 
@@ -47,15 +50,15 @@ IOS_TARGET := IPHONEOS_DEPLOYMENT_TARGET=12.0
 
 build-ios:
 ifeq ($(OS), Darwin)
-	env CFLAGS="" SDKROOT="" $(IOS_TARGET) cargo lipo -p test-game
+	env CFLAGS="" SDKROOT="" $(IOS_TARGET) cargo lipo -p demo
 else
 	@echo " build-ios can only be run on macOS."
 endif
 
 ios-debug:
-	env $(IOS_TARGET) cargo lipo -p test-game
-	rm -f ./target/universal/release/libtest_game.a
-	cp ./target/universal/debug/libtest_game.a ./target/universal/release/libtest_game.a
+	env $(IOS_TARGET) cargo lipo -p demo
+	rm -f ./target/universal/release/libdemo.a
+	cp ./target/universal/debug/libdemo.a ./target/universal/release/libdemo.a
 
 fix-lint:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
@@ -65,7 +68,7 @@ ci:
 	typos
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
-	cargo clippy -p test-game --features bench --all-targets -- -D warnings
+	cargo clippy -p demo --features bench --all-targets -- -D warnings
 	cargo machete
 
 lint:
@@ -74,22 +77,22 @@ lint:
 serve:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
-	cd ./test-game && trunk serve --features webgl --address 0.0.0.0 --port 44800
+	cd ./demo && trunk serve --features webgl --address 0.0.0.0 --port 44800
 
 serve-release:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
-	cd ./test-game && trunk serve --features webgl --release --address 0.0.0.0 --port 44800
+	cd ./demo && trunk serve --features webgl --release --address 0.0.0.0 --port 44800
 
 serve-size:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
-	cd ./test-game && trunk serve --features webgl --cargo-profile=size --address 0.0.0.0 --port 44800
+	cd ./demo && trunk serve --features webgl --cargo-profile=size --address 0.0.0.0 --port 44800
 
 wasm:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
-	cd ./test-game && trunk build
+	cd ./demo && trunk build
 
 # The suite in a real installed browser, driven over the inspect socket.
 BROWSER ?= chrome

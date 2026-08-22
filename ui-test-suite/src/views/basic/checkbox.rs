@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{CheckBox, Setup, ViewFrame, ViewTest, view},
     ui_test::inject_touches,

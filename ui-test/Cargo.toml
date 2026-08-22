@@ -13,8 +13,8 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 
-test-engine = { workspace = true, features = ["inspect", "ui-tests"] }
-test-game = { workspace = true }
+hilen = { workspace = true, features = ["inspect", "ui-tests"] }
+demo = { workspace = true }
 ui-test-suite = { workspace = true }
 
 [lints]

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{ImageMode, Setup, UIManager, ViewData, ViewTest, ViewTouch, view},
@@ -9,7 +9,7 @@ use test_engine::{
 #[view]
 struct ImageView {
     #[init]
-    image_view: test_engine::ui::ImageView,
+    image_view: hilen::ui::ImageView,
 }
 
 impl Setup for ImageView {

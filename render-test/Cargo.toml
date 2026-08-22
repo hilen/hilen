@@ -11,9 +11,8 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 log = { workspace = true }
 
-refs = { workspace = true }
 
-test-engine = { workspace = true }
+hilen = { workspace = true }
 
 [lints]
 workspace = true

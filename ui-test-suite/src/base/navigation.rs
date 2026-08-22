@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Result, ensure};
-use test_engine::{
+use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::{Own, Weak},
     time::Instant,

@@ -1,4 +1,4 @@
-# TestEngine
+# Hilen
 
 My attempt to create a cross platform game engine and UI framework from scratch using Rust.
 Rendering based on WGPU.
@@ -14,7 +14,7 @@ Inspired by `Cross++`: https://github.com/maxon887/Cross
 
 ## Rust toolchain
 
-TestEngine requires nightly Rust. The repository pins a known working nightly in
+Hilen requires nightly Rust. The repository pins a known working nightly in
 `rust-toolchain.toml`.
 
 Two nightly features are fundamental to the view API.
@@ -55,7 +55,7 @@ flags.
 
 ## Platform support
 
-TestEngine currently supports Windows, Linux, macOS, iOS, Android and WebAssembly. The Android
+Hilen currently supports Windows, Linux, macOS, iOS, Android and WebAssembly. The Android
 APK builds fully inside docker via `make android`, so no host Android tooling is needed.
 Minimum supported Android version is 8.0, API 26. tvOS builds and renders in the Apple TV
 simulator, display only with no input path yet, see [docs/tvos.md](docs/tvos.md).
@@ -71,7 +71,7 @@ Simplest example:
 #![feature(specialization)]
 #![feature(arbitrary_self_types)]
 
-use test_engine::{
+use hilen::{
     App,
     refs::{Own, Weak},
     ui::{Label, Setup, U8Color, UIManager, View, ViewData, view},
@@ -85,6 +85,8 @@ struct MainScreen {
 
 impl Setup for MainScreen {
     fn setup(self: Weak<Self>) {
+        // The screen background. Leave the root view transparent, a colored root
+        // view stops at the iOS safe area edge while the clear color fills the screen.
         UIManager::set_clear_color("#4E4D5C");
 
         self.hello_label
