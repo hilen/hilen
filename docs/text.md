@@ -8,7 +8,7 @@ added while making the skaityk port pixel identical to its WebKit original.
 `draw_label` in `ui_drawer.rs` builds a `Section` per label and queues it on the
 label's `Font`. Each `Font` owns a `wgpu_text::TextBrush` for rasterization and a
 `rustybuzz::Face` for shaping. Glyphs are positioned by `ShapedLayout`
-(`test-engine/src/window/text/shaped_layout.rs`), a custom `GlyphPositioner` that shapes
+(`hilen/src/window/text/shaped_layout.rs`), a custom `GlyphPositioner` that shapes
 every line with rustybuzz and hands pre-positioned glyphs to glyph_brush.
 
 Before drawing, the UI tree queues every visible label once and processes each font's
@@ -19,7 +19,7 @@ unrelated glyph fragments in those earlier labels. The draw pass then queues the
 sections for their actual clipped batches against the stable atlas.
 
 Shaping through rustybuzz exists because ab_glyph reads only the legacy `kern`
-table. Modern fonts, SF Pro included, keep kerning in `GPOS`, so the builtin
+table. Modern fonts, Roboto included, keep kerning in `GPOS`, so the builtin
 glyph_brush layout renders them with no kerning at all. rustybuzz applies GPOS,
 GSUB and variation aware kerning like CoreText and browsers do.
 
@@ -28,8 +28,8 @@ GSUB and variation aware kerning like CoreText and browsers do.
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`
 means ascent minus descent, a different unit. `Font::em_scale()` converts, both
 the drawer and `Font::measure` multiply by it. For fonts whose ascent minus
-descent equals their units per em, Helvetica, nothing changes. For SF Pro the
-difference is 18 percent.
+descent equals their units per em, Special Elite, nothing changes. For the
+default font Roboto the difference is 17 percent.
 
 ## Variable fonts
 
@@ -61,7 +61,7 @@ text with no compensation, and ports use nominal font weights on both
 polarities. The wgpu_text fork still carries a coverage remap entry point,
 but it activates only on sRGB targets, which the engine no longer uses.
 Measuring workflow, scripts and the trak table details live in the
-test-engine skill's migration chapter, next to this repo's users.
+hilen skill's migration chapter, next to this repo's users.
 
 ## Gradient text
 

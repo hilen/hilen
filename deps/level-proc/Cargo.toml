@@ -1,6 +1,10 @@
 [package]
+authors.workspace = true
+description = "Proc macros for hilen physics levels."
 edition.workspace = true
+license.workspace = true
 name = "level-proc"
+repository.workspace = true
 version.workspace = true
 
 [lib]

@@ -1,6 +1,10 @@
 [package]
+authors.workspace = true
+description = "Proc macros for the hilen UI framework."
 edition.workspace = true
+license.workspace = true
 name = "ui-proc"
+repository.workspace = true
 version.workspace = true
 
 [lib]
@@ -8,7 +12,7 @@ proc-macro = true
 
 [features]
 # Makes `view` emit the ctor that registers a UI test. Enabled through
-# `test-engine/ui-tests`, never directly. Off means no ctor is generated at
+# `hilen/ui-tests`, never directly. Off means no ctor is generated at
 # all, in any crate, so a shipped app carries nothing.
 ui-tests = []
 

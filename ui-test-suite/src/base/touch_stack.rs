@@ -1,11 +1,11 @@
 use anyhow::Result;
-use log::debug;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{Alert, Button, TouchStack, ViewData, ViewSubviews, ViewTest, ViewTouch, view},
     ui_test::inject_touches,
 };
+use log::debug;
 
 #[view]
 struct TouchStackTestView {
@@ -61,7 +61,7 @@ impl ViewTest for TouchStackTestView {
         Alert::show("Hello");
 
         {
-            use test_engine::ui::{UIManager, ViewFrame};
+            use hilen::ui::{UIManager, ViewFrame};
             let root = from_main(|| UIManager::root_view().frame().size);
             let scale = from_main(UIManager::scale);
             log::error!("PROBE root {root:?} scale {scale}");

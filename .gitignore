@@ -116,7 +116,7 @@ mobile/
 profile.json
 profile.json.gz
 
-test-game/dist/*
+demo/dist/*
 example-app/dist/*
 
 .env

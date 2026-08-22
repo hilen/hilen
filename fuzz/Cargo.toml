@@ -8,14 +8,14 @@ version = "0.0.0"
 cargo-fuzz = true
 
 [package.metadata.cargo-machete]
-ignored = ["test-engine"]
+ignored = ["hilen"]
 
 [dependencies]
 colors-transform = "0.2"
 libfuzzer-sys = "0.4"
 palette = "0.7"
 
-test-engine = { workspace = true }
+hilen = { workspace = true }
 
 [[bin]]
 bench = false

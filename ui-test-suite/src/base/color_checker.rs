@@ -1,7 +1,7 @@
 use std::env::temp_dir;
 
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{Container, GREEN, Setup, ViewData, ViewFrame, ViewTest, view},
     ui_test::{check_colors, recording_colors},

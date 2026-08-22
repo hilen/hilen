@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{Button, DynamicColor, Setup, Theme, ThemeMode, UIColor, ViewData, ViewTest, view},
@@ -135,28 +135,28 @@ const ENABLED: &str = r"
              244   40 - #3b82f6
              396   40 - #3b82f6
              200   44 - #3b82f6
-             280   60 - #ffffff
-             284   60 - #ffffff
-             308   60 - #accafb
+             308   60 - #609af8
              324   60 - #ffffff
-             308   64 - #accafb
+             284   64 - #ffffff
+             308   64 - #609af8
              324   64 - #ffffff
-             280   68 - #3b82f6
-             304   68 - #3b82f6
-             308   68 - #accafb
-             312   68 - #feffff
-             316   68 - #3b82f6
-             324   68 - #feffff
+             300   68 - #3b82f6
+             308   68 - #609af8
+             324   68 - #ffffff
              276   72 - #ffffff
-             288   72 - #ffffff
+             280   72 - #9abefa
              300   72 - #3b82f6
-             304   72 - #3b82f6
-             308   72 - #accafb
-             312   72 - #feffff
-             320   72 - #3b82f6
-             324   72 - #feffff
-             308   76 - #accafb
-             324   76 - #feffff
+             304   72 - #4186f6
+             308   72 - #609af8
+             316   72 - #3b82f6
+             324   72 - #ffffff
+             288   76 - #ffffff
+             296   76 - #fcfdff
+             300   76 - #3b82f6
+             308   76 - #609af8
+             320   76 - #3b82f6
+             324   76 - #ffffff
+             300   80 - #ffffff
              224   96 - #3b82f6
              380   96 - #3b82f6
                4  192 - #597c95
@@ -171,32 +171,32 @@ const DISABLED: &str = r"
              244   40 - #d6d6d8
              396   40 - #d6d6d8
              200   44 - #d6d6d8
-             280   60 - #8e8e93
-             284   60 - #8e8e93
-             308   60 - #adadb0
              324   60 - #8e8e93
-             308   64 - #adadb0
+             364   60 - #d6d6d8
+             284   64 - #8e8e93
+             300   64 - #8e8e93
              324   64 - #8e8e93
-             280   68 - #d6d6d8
-             304   68 - #d6d6d8
-             308   68 - #adadb0
-             312   68 - #8e8e93
-             316   68 - #d6d6d8
+             296   68 - #8f8f94
+             300   68 - #d6d6d8
              324   68 - #8e8e93
              276   72 - #8e8e93
-             288   72 - #8e8e93
+             280   72 - #b3b3b7
              300   72 - #d6d6d8
-             304   72 - #d6d6d8
-             308   72 - #adadb0
-             312   72 - #8e8e93
+             304   72 - #d4d4d6
+             316   72 - #d6d6d8
              320   72 - #d6d6d8
              324   72 - #8e8e93
-             308   76 - #adadb0
+             288   76 - #8e8e93
+             296   76 - #8f8f94
+             300   76 - #d6d6d8
+             320   76 - #d6d6d8
              324   76 - #8e8e93
+             300   80 - #8e8e93
              224   96 - #d6d6d8
-             380   96 - #d6d6d8
+             376   96 - #d6d6d8
                4  192 - #597c95
              136  192 - #597c95
+             464  192 - #597c95
              592  192 - #597c95
         ";
 
@@ -204,36 +204,36 @@ const DISABLED: &str = r"
 /// instead of the pair would leave the button on the light `#3b82f6`
 /// here, which is the regression this check exists for.
 const DARK_AFTER_ROUND_TRIP: &str = r"
-              32    4 - #597c95
+              16    4 - #597c95
              584    4 - #597c95
-             224   40 - #1d4ed8
+             244   40 - #1d4ed8
              396   40 - #1d4ed8
-             280   60 - #ffffff
-             284   60 - #ffffff
-             308   60 - #9fb4ee
+             200   44 - #1d4ed8
+             308   60 - #4870df
              324   60 - #ffffff
-             308   64 - #9fb4ee
+             284   64 - #ffffff
+             308   64 - #4870df
              324   64 - #ffffff
-             280   68 - #1d4ed8
              300   68 - #1d4ed8
-             308   68 - #9fb4ee
-             312   68 - #fefeff
-             316   68 - #1d4ed8
-             324   68 - #fefeff
-             288   72 - #ffffff
+             308   68 - #4870df
+             324   68 - #ffffff
+             276   72 - #ffffff
+             280   72 - #8aa3eb
              300   72 - #1d4ed8
-             304   72 - #1d4ed8
-             308   72 - #9fb4ee
-             312   72 - #fefeff
-             320   72 - #1d4ed8
-             324   72 - #fefeff
-             308   76 - #9fb4ee
-             324   76 - #fefeff
-             200   96 - #1d4ed8
-             244   96 - #1d4ed8
+             304   72 - #2454d9
+             308   72 - #4870df
+             316   72 - #1d4ed8
+             324   72 - #ffffff
+             288   76 - #ffffff
+             296   76 - #fcfcfe
+             300   76 - #1d4ed8
+             308   76 - #4870df
+             320   76 - #1d4ed8
+             324   76 - #ffffff
+             300   80 - #ffffff
+             224   96 - #1d4ed8
              380   96 - #1d4ed8
                4  192 - #597c95
-             128  192 - #597c95
-             464  192 - #597c95
+             136  192 - #597c95
              592  192 - #597c95
         ";

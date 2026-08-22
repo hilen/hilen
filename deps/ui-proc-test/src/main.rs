@@ -2,7 +2,7 @@
 #![feature(specialization)]
 #![feature(arbitrary_self_types)]
 
-use test_engine::ui::Button;
+use hilen::ui::Button;
 use ui_proc::view;
 
 #[view]

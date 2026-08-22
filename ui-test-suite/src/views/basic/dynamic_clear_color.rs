@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{

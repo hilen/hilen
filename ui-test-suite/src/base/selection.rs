@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{Anchor, BLACK, Setup, ViewData, ViewTest, ViewTouch, WHITE, view},
     ui_test::{helpers::check_colors, inject_touches},

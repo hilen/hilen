@@ -148,7 +148,7 @@ Found by jagged rounded corners in the corner radius test.
 - Landed: whole pass MSAA 4x. The frame renders into a multisampled color target
   with a matching depth buffer and resolves into the presentable texture at every
   pass end, so blur sampling and readback see resolved pixels. Every pipeline in
-  the pass and the text brush share `msaa_sample_count()`, `TE_MSAA=1` switches it
+  the pass and the text brush share `msaa_sample_count()`, `HILEN_MSAA=1` switches it
   off as the benchmark A/B lever. 4 is the ceiling everywhere: the WebGPU spec
   guarantees only 1 and 4, and this Mac's GPU rejects 8 outright. Cost measured
   unguarded at the 297 panel stop scene: CPU identical, capacity identical, GPU
@@ -180,7 +180,7 @@ frames heavier.
 - Current: the test injects 100 wheel scrolls and taps the rows it expects at the
   bottom. On desktop and the iOS simulator the landed offset is stable, in Chrome
   the run lands at a different offset every time, 50 rows, 33 rows, zero rows, so
-  how many deltas take effect depends on frame pacing. With `TE_MSAA=1` the lane
+  how many deltas take effect depends on frame pacing. With `HILEN_MSAA=1` the lane
   passes by timing luck. Rendering is not involved, `Drawing paths` pins the same
   pixels in all three lanes.
 - Needed: make injected scrolls on wasm land deterministically, one applied delta
@@ -249,7 +249,7 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   `+atomics,+bulk-memory,+mutable-globals`, `build-std=std,panic_abort`,
   and link args `--shared-memory`, `--max-memory`, `--import-memory` plus exports
   `__heap_base`, `__data_end`, `__wasm_init_tls`, `__tls_size`, `__tls_align`,
-  `__tls_base`. rustc adds none of them itself. The `te_run_tests` autorun
+  `__tls_base`. rustc adds none of them itself. The `hilen_run_tests` autorun
   fires, the suite worker runs every test, the scene texture readback feeds
   `check_colors` and failures report without a filesystem.
 - Landed, rendering: every platform renders into a plain Unorm target with
@@ -272,7 +272,7 @@ Landed. The suite runs green in real installed Chrome and Firefox, 100 tests,
   `full_hd.jpg` cost multiple seconds each. The workspace now builds the decoder
   crates optimized in dev, boot dropped to 0.7 seconds. Boot time and slow
   decodes log at debug level, a regression shows in the console immediately.
-- Landed: assets in the browser. test-game's build.rs writes `assets/assets.json`,
+- Landed: assets in the browser. demo's build.rs writes `assets/assets.json`,
   every image, font and sound with a content hash and a load group, the group is
   the first folder under the kind folder, kind root files are `boot`. On wasm the
   engine downloads the boot group into the managed stores before anything runs,

@@ -1,10 +1,10 @@
 use anyhow::Result;
-use log::debug;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{Point, PositionView, Setup, ViewTest, view},
     ui_test::inject_touches,
 };
+use log::debug;
 
 #[view]
 struct PositionViewTest {

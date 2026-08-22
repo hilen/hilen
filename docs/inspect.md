@@ -3,24 +3,24 @@
 Remote UI inspector.
 
 The whole inspect module sits behind the `inspect` cargo feature, off by default
-(`test-engine/src/inspect/mod.rs`). An app opts in on its `test-engine` dependency:
+(`hilen/src/inspect/mod.rs`). An app opts in on its `hilen` dependency:
 `features = ["inspect"]`. Without the feature there is no server, no listener and
-nothing to discover, so `te-inspect apps` finds nothing no matter how fresh the CLI is.
+nothing to discover, so `hilen-inspect apps` finds nothing no matter how fresh the CLI is.
 An app whose shipped artifact is a browser dist keeps the feature off the wasm target by
 enabling it only through a target-conditional dependency section, see `beekeeper/web-te`
 in the `local` repo for the pattern.
 
 With the feature on, the app starts an inspect server at launch
-(`test-engine/src/inspect/`): a TCP listener on an OS-assigned port, advertised over mDNS
-as `_te-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
+(`hilen/src/inspect/`): a TCP listener on an OS-assigned port, advertised over mDNS
+as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
 fixed ports, any number of apps per machine.
 
 Two clients exist:
 
 - `inspector` — the GUI. Browses mDNS continuously, lists running apps in a dropdown,
   filters out its own advertisement.
-- `te-inspect` — the CLI, also the interface for AI agents. Install once with
-  `cargo install --path te-inspect`, reinstall after protocol changes. A serde error like
+- `hilen-inspect` — the CLI, also the interface for AI agents. Install once with
+  `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `ui`, `screenshot`, `tap`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
@@ -28,7 +28,7 @@ Two clients exist:
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
-`te-inspect tap` takes a query, not only an id: exact view id, exact visible text, label
+`hilen-inspect tap` takes a query, not only an id: exact view id, exact visible text, label
 substring, then text substring, all case insensitive, first rung with a match decides.
 One match taps, several list the candidates and error. Hidden views and their subtrees
 never match a query, only an exact id reaches them, and the app refuses to tap a hidden
@@ -37,7 +37,7 @@ tree already contains the open cells, then tap the wanted cell by its text.
 
 ## Protocol
 
-Lives in `test-engine/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
+Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 (`transport.rs`), request in, response out:
 
 - `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames,
@@ -52,18 +52,18 @@ Lives in `test-engine/src/inspect/protocol/`. Length-prefixed JSON frames over T
 - `SetColor { view_id, color }` — sets the background color of a live view.
 - `Screenshot` — returns the current frame as base64 PNG. Works headless too.
 - `ListEdits` — returns every edit applied in this session.
-- `GetBuildTime` — unix seconds of when `test-engine` was compiled, stamped by
-  `test-engine/build.rs`. `te-inspect build-time` compares it to the newest source here and
+- `GetBuildTime` — unix seconds of when `hilen` was compiled, stamped by
+  `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source here and
   combines it with `GetStartTime`, the unix seconds when the app process started. Source
   newer than the process is definitely stale. Source older than the process but newer than
   the engine build is reported as inconclusive: it can be a current app-only rebuild or a
   stale reused Rust library. The stamp has to live in the Rust code: an iOS
-  build relinks the `.app` every time while reusing a stale `libtest_game.a`, so the
+  build relinks the `.app` every time while reusing a stale `libdemo.a`, so the
   bundle's own timestamp, md5 and install all report fresh while old code runs.
 
-  It stamps **`test-engine`**, not the app, so it answers "when was the engine compiled",
-  not "is this app current". Change only `ui-test-suite` or `test-game` and cargo rightly
-  leaves `test-engine` alone, so a correctly rebuilt app reports stale. That is a false
+  It stamps **`hilen`**, not the app, so it answers "when was the engine compiled",
+  not "is this app current". Change only `ui-test-suite` or `demo` and cargo rightly
+  leaves `hilen` alone, so a correctly rebuilt app reports stale. That is a false
   positive, and it has already happened. Treat a stale verdict as a reason to check, not as
   proof: something that only the new code produces, a test count or an `nm` symbol, settles
   it. A fresh verdict is still worth having, it catches the case that matters, a `.a` that
@@ -90,8 +90,8 @@ the main thread for dropping (see [refs.md](refs.md)).
 ## Browser transport
 
 A page cannot listen on TCP and has no mDNS, so on wasm the direction inverts.
-With the `te_inspect` query flag set, the app dials out to the server that
-served the page, same origin, at `/te-inspect`, in `web_transport.rs`. One
+With the `hilen_inspect` query flag set, the app dials out to the server that
+served the page, same origin, at `/hilen-inspect`, in `web_transport.rs`. One
 WebSocket text message carries one JSON frame, request in, response out, the
 same protocol types as TCP. Requests are processed on one dedicated worker
 thread, since commands block on `from_main` and `RunTests` runs the whole
@@ -116,7 +116,7 @@ server works the same in debug and release builds, there is no `debug_assertions
 The flip side: an app that enables the feature carries the server in its release builds
 too, so a shipping app keeps the feature out of its shipped targets, which is what the
 target-conditional dependency pattern above does. The host-side tools `inspector` and
-`te-inspect` build in release like any other crate, `te-inspect` is excluded from default
+`hilen-inspect` build in release like any other crate, `hilen-inspect` is excluded from default
 workspace members.
 
 ## Local hook

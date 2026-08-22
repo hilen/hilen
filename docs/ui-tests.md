@@ -1,7 +1,7 @@
 # UI tests
 
 Real-window tests. They open the app, inject touches and scrolls, then check labels, colors and
-state. The corpus lives in `ui-test-suite/`, plus some in `test-engine` and `test-game`.
+state. The corpus lives in `ui-test-suite/`, plus some in `hilen` and `demo`.
 `ui-test/` is only the runner.
 
 ## Run
@@ -33,11 +33,11 @@ error, never `0 tests passed`, because a suite that runs nothing otherwise repor
 
 An app runs the same suite from inside itself, which is how tests run on a device.
 `ui_test::run_all_tests` reaches every registered test with no help from the app, and
-`te-inspect run-tests` triggers it over the network. `test-game` also has a "Run UI tests"
+`hilen-inspect run-tests` triggers it over the network. `demo` also has a "Run UI tests"
 button in its dev menu. See [inspect.md](inspect.md).
 
-Set `TE_RUN_TESTS` and the app runs the whole suite once it is ready, prints
-`TE_TEST_RESULT <n> tests, <m> failed` and exits with a matching code. It waits on
+Set `HILEN_RUN_TESTS` and the app runs the whole suite once it is ready, prints
+`HILEN_TEST_RESULT <n> tests, <m> failed` and exits with a matching code. It waits on
 `UIManager::on_app_ready`, since a mid load teardown frees views the load task still
 touches, so an app with a loading screen marks itself not ready until assets land. No
 inspector and no mDNS, so it runs while the desktop lane runs. `make ui` uses it: on macOS
@@ -50,10 +50,10 @@ the storyboard build fails and the whole lane reports `0 passed 0 failed`. See [
 `make ui-ios` streams the suite live, the same `Started`/`OK` lines the desktop lane prints, so
 a hang names the test it stuck on. The app logs through NSLog, which tags every console line
 with a timestamp and process name, and the lane strips that prefix so the stream reads like
-desktop. Under `make ui` the lane sets `TE_IOS_QUIET` and goes back to buffering, printing only
+desktop. Under `make ui` the lane sets `HILEN_IOS_QUIET` and goes back to buffering, printing only
 `[ios]` milestones, so three parallel lanes do not mangle each other's output.
 
-`TE_TEST_ONLY` narrows a `TE_RUN_TESTS` run to a comma separated list of test names. It is for
+`HILEN_TEST_ONLY` narrows a `HILEN_RUN_TESTS` run to a comma separated list of test names. It is for
 isolating one case on a device or simulator, where the whole suite is slow to reach it. The
 simulator lane forwards it, `simctl` only passes `SIMCTL_CHILD_` prefixed variables into the
 app and the lane adds that prefix itself. `make ui-ios-human` is the watchable simulator run,
@@ -62,14 +62,14 @@ see Human mode below.
 The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
 atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
 by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the
-`te_run_tests` query flag and `te_test_only` narrows it the way `TE_TEST_ONLY` does natively.
+`hilen_run_tests` query flag and `hilen_test_only` narrows it the way `HILEN_TEST_ONLY` does natively.
 The report arrives over the inspect WebSocket instead of the console, and on failure the
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
 See [inspect.md](inspect.md).
 
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,
-relaunches the browser with the dead tests in `te_test_skip`, and merges them into the
+relaunches the browser with the dead tests in `hilen_test_skip`, and merges them into the
 final report, so one panicking test cannot hide the rest of the suite.
 
 ## Run from the editor
@@ -106,11 +106,11 @@ quiescent, so the button appears on its own once loading finishes.
 
 ## One registry
 
-Every test, whatever crate it lives in, registers into a single map, `test_engine::UI_TESTS`,
+Every test, whatever crate it lives in, registers into a single map, `hilen::UI_TESTS`,
 holding the name, the fn to run and the source file. The count is its length.
 
-That map is a static of the engine, so a test in `test-engine`, one in `ui-test-suite` and one
-in `test-game` all land in the same place. Nothing merges maps, nothing registers a runner, and
+That map is a static of the engine, so a test in `hilen`, one in `ui-test-suite` and one
+in `demo` all land in the same place. Nothing merges maps, nothing registers a runner, and
 the engine can run the whole suite on its own.
 
 Registration is by name, and a duplicate name aborts at startup rather than silently replacing
@@ -122,7 +122,7 @@ silent, so it needs no other rule.
 **A test registers through a `ctor`, and nothing calls it by name.** A linker drops any object
 nothing references, so a crate whose only content is tests is dropped whole and its tests
 disappear without a word. Every consumer of a test-carrying crate has to name it:
-`ui_test_suite::keep_linked()` in `test-game` and in the runner. This is not theoretical, it is
+`ui_test_suite::keep_linked()` in `demo` and in the runner. This is not theoretical, it is
 how the device ran 24 tests while the desktop ran 100.
 
 A failing test does not stop the run. Every test executes, each failure is collected, and
@@ -286,10 +286,10 @@ generic view in a plain one and put the impl on the wrapper.
 
 ### The feature
 
-Registration lives behind `test-engine/ui-tests`, off by default, so a shipped app carries no
+Registration lives behind `hilen/ui-tests`, off by default, so a shipped app carries no
 ctors at all. The switch is on the proc macro crate, `ui-proc/ui-tests`, not on each consumer,
 so there is exactly one of it and no crate can forget its own and silently lose its tests.
-`ui-test`, `ui-test-suite` and `test-game` turn it on.
+`ui-test`, `ui-test-suite` and `demo` turn it on.
 
 The engine's own test modules are gated behind the same feature with `#[cfg]`, so a
 default-features build compiles none of them. Without the gate an app pulling the engine as a
@@ -390,15 +390,15 @@ run holds until space before asserting. After each test the title shows the resu
 run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 
 The browser lane has the same mode. `bun build/web/drive.ts --human --only "Name"` puts
-the `te_human` query flag on the page, the browser spelling of `--human`, and drops the
+the `hilen_human` query flag on the page, the browser spelling of `--human`, and drops the
 driver's report timeout, which would otherwise kill the held run it exists to protect.
 Prompts land in the tab title, `Window::set_title` writes `document.title` on wasm since
 winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
 page once so key events reach the canvas, then space advances the same way.
 
 The simulator lane has it too. `make ui-ios-human`, or `rust build/ios/sim-test.rs --human`,
-passes `TE_HUMAN` into the app, the device spelling of `--human`, and always streams.
-Combine it with `TE_TEST_ONLY` to watch one test, `TE_TEST_ONLY="Font zoo" make
+passes `HILEN_HUMAN` into the app, the device spelling of `--human`, and always streams.
+Combine it with `HILEN_TEST_ONLY` to watch one test, `HILEN_TEST_ONLY="Font zoo" make
 ui-ios-human`. A phone has no window title and no space key, so there every hold draws a
 translucent bar with the prompt over the bottom 40 px of the canvas and a tap anywhere on
 the screen advances. The overlay is its own touch layer, the tap never reaches the views

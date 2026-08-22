@@ -8,7 +8,7 @@ version.workspace = true
 name = "example-app"
 
 [dependencies]
-test-engine = { workspace = true }
+hilen = { workspace = true }
 
 [lints]
 workspace = true

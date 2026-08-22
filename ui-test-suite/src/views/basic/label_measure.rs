@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::from_main,
     refs::{Weak, manage::DataManager},
     ui::{Font, Label, Setup, ViewFrame, ViewTest, view},
@@ -64,7 +64,7 @@ impl ViewTest for LabelMeasure {
         );
 
         let (narrow, wide) = from_main(move || {
-            view.label.set_font(Font::helvetica());
+            view.label.set_font(Font::roboto());
             view.label.set_multiline(true);
             (view.label.size_for_width(200.0), view.label.size_for_width(500.0))
         });

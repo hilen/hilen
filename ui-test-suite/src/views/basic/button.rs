@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{Button, Setup, ViewData, ViewTest, view},
     ui_test::{check_colors, state::increment_state, test_combinations},
@@ -34,37 +34,37 @@ impl ViewTest for ButtonPress {
 fn button_text_colors() -> Result<()> {
     check_colors(
         r"
-             380    4 - #597c95
-             520    4 - #597c95
               52   28 - #ffffff
-              76   28 - #ffffff
-             108   28 - #ffffff
+              92   28 - #ffffff
              128   28 - #ffffff
-             148   28 - #ffffff
+             108   44 - #000000
+             128   44 - #000000
+              56   48 - #000000
+              68   48 - #ffffff
+              76   48 - #bdbdbd
               88   48 - #ffffff
-             132   48 - #ffffff
-              52   52 - #ffffff
-              88   52 - #ffffff
-             108   52 - #ffffff
+             100   48 - #bcbcbc
+             144   48 - #ffffff
+              76   52 - #bdbdbd
+              92   52 - #ffffff
+             100   52 - #bcbcbc
+             128   52 - #000000
              132   52 - #ffffff
-              72   56 - #ffffff
-              96   68 - #ffffff
-             128   68 - #ffffff
+             140   52 - #010101
+             144   52 - #010101
+              56   56 - #000000
+              64   56 - #020202
+              84   56 - #010101
+             100   56 - #bcbcbc
+             112   56 - #000000
+             144   56 - #ffffff
+             144   60 - #010101
               52   72 - #ffffff
-              76   72 - #ffffff
-             112   72 - #ffffff
-             148   72 - #ffffff
-             288  116 - #597c95
-             592  124 - #597c95
-             404  204 - #597c95
-             184  244 - #597c95
+             128   72 - #ffffff
+             592  136 - #597c95
               28  332 - #597c95
-             540  356 - #597c95
-             300  376 - #597c95
-             148  448 - #597c95
-             412  532 - #597c95
+             300  384 - #597c95
                4  592 - #597c95
-             232  592 - #597c95
              592  592 - #597c95
         ",
     )

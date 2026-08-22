@@ -1,23 +1,19 @@
 
 [workspace]
 
-default-members = ["test-game"]
+default-members = ["demo"]
 members = [
   "bench",
-  "deps/hreads",
-  "deps/netrun",
+  "demo",
+  "demo-android",
   "deps/plat",
-  "deps/refs",
   "deps/ui-proc-test",
-  "deps/vents",
   "example-app",
   "fuzz",
+  "hilen",
+  "hilen-inspect",
   "inspector",
   "render-test",
-  "te-inspect",
-  "test-engine",
-  "test-game",
-  "test-game-android",
   "ui-test",
   "ui-test-suite",
 ]
@@ -25,7 +21,10 @@ members = [
 resolver = "3"
 
 [workspace.package]
+authors = ["Vladas Zakrevskis <146100@gmail.com>"]
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/hilen/hilen"
 version = "0.1.0"
 
 [workspace.metadata.cargo-machete]
@@ -59,6 +58,7 @@ async-std = "1.13"
 atomic_float = "1.1"
 base64 = "0.22"
 bit_ops = "0.2"
+byte-unit = "5.2"
 bytemuck = { version = "1.25", features = ["derive"] }
 cgmath = "0.18"
 chrono = "0.4"
@@ -70,18 +70,22 @@ ctor = "1.0"
 dirs = "6.0"
 dotenvy = "0.15"
 educe = "0.6"
+env_logger = "0.11"
 event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
 gloo-timers = { version = "0.4", features = ["futures"] }
+futures-util = "0.3"
 getrandom = "0.4"
 hex = "0.4"
 image = "0.25"
 indexmap = "2.14"
+infisical = "0.0.3"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 jni = "0.22"
 kira = "0.12"
+local-ip-address = "0.6"
 log = "0.4"
 lyon = "1.0"
 mdns-sd = "0.20"
@@ -97,9 +101,12 @@ pollster = "0.4"
 pretty_assertions = "1.4"
 quote = "1.0"
 rapier2d = { version = "0.33" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 resvg = "0.47"
 rfd = "0.17"
 rust_decimal = "1.42"
+rustc-hash = "2.1"
+rustls = "0.23"
 rustybuzz = "0.20"
 sentry = { version = "0.48", default-features = false, features = [
   "backtrace",
@@ -111,12 +118,19 @@ sentry = { version = "0.48", default-features = false, features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serial_test = "3.4"
+spin = "0.9"
 syn = { version = "2.0", features = ["extra-traits", "full"] }
 sysinfo = "0.39"
+test-log = "0.2"
 tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["full"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+tokio-util = "0.7"
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = "0.3"
+wasm_thread = "0.3"
 web-sys = { version = "0.3", features = [
     "Clipboard",
     "CloseEvent",
@@ -132,22 +146,19 @@ web-sys = { version = "0.3", features = [
     "XmlHttpRequest",
 ] }
 web-time = "1.1"
-wgpu = { git = "https://github.com/VladasZ/wgpu", rev = "47e55304a59f0c8d933cb3be3dc84b29a1b871f6" }
-wgpu_text = { git = "https://github.com/VladasZ/wgpu-text", rev = "b865aae2c29600cf83c61447565152fddd274d60" }
-winit = { git = "https://github.com/VladasZ/winit", rev = "77675c2e414661bdbcafb58abc0b6ab4dca5602c" }
+webpki-roots = "1.0"
+wgpu = { package = "hilen-wgpu", version = "30.0" }
+wgpu_text = { package = "hilen-wgpu-text", version = "30.0" }
+winit = { package = "hilen-winit", version = "0.30" }
 
-hreads = { path = "deps/hreads" }
-refs = { path = "deps/refs", default-features = true }
-vents = { path = "deps/vents" }
-netrun = { path = "deps/netrun" }
-plat = { path = "deps/plat" }
+plat = { version = "0.10", path = "deps/plat" }
 reflected = "0.30"
 
-level-proc = { path = "deps/level-proc" }
-test-engine = { path = "test-engine" }
-test-game = { path = "test-game" }
+level-proc = { version = "0.1", path = "deps/level-proc" }
+hilen = { version = "0.1", path = "hilen" }
+demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }
-ui-proc = { path = "deps/ui-proc" }
+ui-proc = { version = "0.1", path = "deps/ui-proc" }
 
 # Image decoding dominates dev build startup, a debug decode of the
 # asset fixtures takes ten seconds in the browser. Decoders are leaf

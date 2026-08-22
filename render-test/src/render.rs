@@ -1,12 +1,12 @@
 use anyhow::Result;
-use log::debug;
-use test_engine::{
+use hilen::{
     RenderPass,
     dispatch::from_main,
     refs::Weak,
     ui::{ViewCallbacks, view},
     ui_test::{UITest, check_colors},
 };
+use log::debug;
 
 use crate::{
     occlusion::render_occlusion,

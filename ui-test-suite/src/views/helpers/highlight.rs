@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     refs::Weak,
     ui::{BLUE, GREEN, HighlightView, Setup, ViewTest, view},
     ui_test::check_colors,

@@ -1,7 +1,8 @@
 # refs
 
-Smart pointers `Own` and `Weak` from the [refs](https://github.com/VladasZ/refs) crate.
-The memory model of the whole engine.
+Smart pointers `Own` and `Weak`, the memory model of the whole engine. They started as the
+[refs](https://github.com/VladasZ/refs) crate and now live inside `hilen` as the module
+`hilen/src/deps/refs`, re-exported to apps as `hilen::refs`.
 
 ## Why
 
@@ -16,7 +17,7 @@ self.button.on_tap(move || self.do_thing());
 
 No `clone()`, no `borrow_mut()`, no lifetimes.
 
-This is an intentional framework tradeoff. TestEngine prioritizes convenient application and UI
+This is an intentional framework tradeoff. Hilen prioritizes convenient application and UI
 code over idiomatic Rust ownership purity. `Own` and `Weak` provide runtime checks for the
 single-main-thread UI model instead of trying to express the whole UI graph through lifetimes and
 standard smart pointers.
@@ -35,8 +36,9 @@ the old `Weak` still reports dead, because the stamp differs.
 
 ## Runtime checks
 
-TestEngine enables the `refs` crate's default `checks` feature. These are regular runtime
-assertions, so they run in release builds too:
+The `refs` crate's default `checks` feature came along as the `hilen` feature of the same
+name, on by default. These are regular runtime assertions, so they run in release builds
+too:
 
 - Immutable `Weak` dereference verifies that the pointer was initialized, its allocation is still
   alive, and its stamp still matches. Immutable access is allowed from background threads.
@@ -55,7 +57,7 @@ The `#[view]` macro rewrites `#[init]` fields to `Weak<Field>`. Real ownership l
 `ViewBase.subviews: Vec<Own<dyn View>>` — the view tree owns children, like in Swift.
 Methods take `self: Weak<Self>`, so closures capture `self` by copy.
 
-This is also why TestEngine requires nightly Rust. `Weak<Self>` is a custom smart-pointer method
+This is also why Hilen requires nightly Rust. `Weak<Self>` is a custom smart-pointer method
 receiver, enabled by `arbitrary_self_types`. Replacing it with a stable receiver would change the
 framework's method syntax and callback ownership model rather than being a mechanical toolchain
 change.

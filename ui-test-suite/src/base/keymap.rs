@@ -1,5 +1,5 @@
 use anyhow::Result;
-use test_engine::{
+use hilen::{
     dispatch::on_main,
     refs::{Own, Weak},
     ui::{UIManager, ViewTest, view},

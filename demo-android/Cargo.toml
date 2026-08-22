@@ -1,0 +1,23 @@
+[package]
+authors = ["Vladas Zakrevskis <146100@gmail.com>"]
+edition.workspace = true
+name = "demo-android"
+version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+name = "demo"
+
+[dependencies]
+jni = { workspace = true }
+
+hilen = { workspace = true }
+demo = { workspace = true }
+
+[package.metadata.android]
+build_targets = ["armv7-linux-androideabi", "aarch64-linux-android"]
+min_sdk_version = 23
+target_sdk_version = 29
+
+[lints]
+workspace = true

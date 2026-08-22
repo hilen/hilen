@@ -1,18 +1,20 @@
-# TestEngine
+# Hilen
 
 Cross platform game engine and UI framework in Rust. Rendering on WGPU.
 Supports: Windows, Linux, Mac, iOS, Android and WebAssembly.
 
-The engine is one library crate, `test-engine`, with modules like `gm`, `ui`, `window`,
-`render`, `level` under `test-engine/src/`. `deps/` holds the proc macro crates plus the
-vendored foundational crates `hreads`, `refs`, `vents`, `netrun` and `plat`, used as path
-dependencies so the whole tree resolves to one `hreads` with no crates.io patch.
+The engine is one library crate, `hilen`, with modules like `gm`, `ui`, `window`,
+`render`, `level` under `hilen/src/`. The foundational crates `hreads`, `refs`, `vents`
+and `netrun` are modules under `hilen/src/deps/`, not separate crates, so a published
+`hilen` is one self contained library. `deps/` holds only the proc macro crates plus
+`plat`, which stays its own crate because three build scripts call its `platforms()`
+to set the cfg aliases and a crate cannot use its own code in its build script.
 Apps and test binaries are separate crates on top. Internals are `pub(crate)`, the
 app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, so the
 `dead_code` lint stays meaningful.
 
-The UI test corpus is its own crate, `ui-test-suite`, so `test-game` can link it and carry
-every test onto a device. It must never depend on `test-game`, that is a cycle, since the
+The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
+every test onto a device. It must never depend on `demo`, that is a cycle, since the
 `ui-test` runner links both.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
@@ -38,15 +40,15 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/ui-tests.md](docs/ui-tests.md) — how UI tests work and how to run a single one.
   Read before writing or debugging UI tests.
 - [docs/inspect.md](docs/inspect.md) — the remote UI inspector, its protocol and the
-  off-by-default `inspect` feature gate. Read before touching `test-engine/src/inspect`,
-  the `inspector` app, or the `te-inspect` CLI.
+  off-by-default `inspect` feature gate. Read before touching `hilen/src/inspect`,
+  the `inspector` app, or the `hilen-inspect` CLI.
 - [docs/benchmark.md](docs/benchmark.md) — the UI benchmark, its consistency guard, and the
   results history in `bench/`. Read before touching the benchmark or measuring performance.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before
   proposing an optimization or a speculative fix; add new unproved ideas there, not to code.
 - [docs/text.md](docs/text.md) — the text pipeline: rustybuzz shaping, em sizing, variable
   font instances, letter spacing, line handling. Read before touching label rendering,
-  fonts, or `test-engine/src/window/text`.
+  fonts, or `hilen/src/window/text`.
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.
@@ -82,7 +84,7 @@ make ui                                                                      # d
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check
 make ui-ios                                                                  # iOS simulator suite only
-make ui-ios-human                                                            # the same lane held for a human, a tap on the phone screen advances, TE_TEST_ONLY narrows it
+make ui-ios-human                                                            # the same lane held for a human, a tap on the phone screen advances, HILEN_TEST_ONLY narrows it
 make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator
@@ -90,10 +92,10 @@ make ci                                                                      # t
 make lint                                                                    # clippy, pedantic, zero warnings
 cargo machete                                                                # unused dependencies, zero findings
 make bench                                                                   # UI benchmark suite, saves bench/<date>-<commit>.json
-UI_BENCHMARK=1 cargo run -p test-game --release --features bench             # single benchmark run, prints and exits
+UI_BENCHMARK=1 cargo run -p demo --release --features bench             # single benchmark run, prints and exits
 ```
 
-`TE_HEADLESS=1` runs any app without a window.
+`HILEN_HEADLESS=1` runs any app without a window.
 
 The suite runs every test, prints every failure at the end, then exits 1 if any failed.
 `--headless` runs without a window or a display — tests run many times faster. Always pass

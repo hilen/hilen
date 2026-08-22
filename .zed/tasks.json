@@ -1,7 +1,7 @@
 [
   {
     "label": "Test Game",
-    "command": "cargo run -p test-game",
+    "command": "cargo run -p demo",
   },
   {
     "label": "Example App",

@@ -1,4 +1,4 @@
-use test_engine::{
+use hilen::{
     App,
     refs::Own,
     ui::{Setup, Size, View},
@@ -19,6 +19,6 @@ impl App for InspectorApp {
     }
 
     fn after_launch(&self) {
-        // test_engine::ui::UIManager::enable_debug_frames();
+        // hilen::ui::UIManager::enable_debug_frames();
     }
 }

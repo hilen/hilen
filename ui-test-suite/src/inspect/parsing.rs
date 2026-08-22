@@ -1,11 +1,11 @@
 use anyhow::Result;
-use pretty_assertions::assert_eq;
-use test_engine::{
+use hilen::{
     dispatch::{from_main, on_main},
     inspect::{ViewToInspect, protocol::ui::ViewRepr},
     refs::Weak,
     ui::{BLUE, Button, Setup, ViewData, ViewTest, view},
 };
+use pretty_assertions::assert_eq;
 
 #[view]
 struct InspectParsing {
