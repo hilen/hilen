@@ -8,10 +8,19 @@ use anyhow::anyhow;
 #[cfg(desktop)]
 use parking_lot::Mutex;
 
+#[cfg(desktop)]
+use crate::window::Window;
+
 /// On X11 the clipboard holds data only while its owner lives, so the
 /// instance stays alive for the whole process instead of per call.
 #[cfg(desktop)]
 static CLIPBOARD: Mutex<Option<arboard::Clipboard>> = Mutex::new(None);
+
+/// A headless run has no display server, so a system clipboard may not
+/// exist at all. This process local store stands in for it, so clipboard
+/// code takes the same path on every headless machine.
+#[cfg(desktop)]
+static HEADLESS_CLIPBOARD: Mutex<Option<String>> = Mutex::new(None);
 
 pub struct Clipboard;
 
@@ -23,6 +32,10 @@ impl Clipboard {
 
         #[cfg(desktop)]
         {
+            if Window::headless() {
+                *HEADLESS_CLIPBOARD.lock() = Some(text);
+                return Ok(());
+            }
             with_clipboard(|clipboard| Ok(clipboard.set_text(text)?))
         }
 
@@ -66,6 +79,12 @@ impl Clipboard {
     pub fn get_text() -> Result<String> {
         #[cfg(desktop)]
         {
+            if Window::headless() {
+                return HEADLESS_CLIPBOARD
+                    .lock()
+                    .clone()
+                    .ok_or_else(|| anyhow!("The clipboard holds no text"));
+            }
             with_clipboard(|clipboard| Ok(clipboard.get_text()?))
         }
 
