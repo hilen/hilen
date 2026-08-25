@@ -24,6 +24,10 @@ pub use winit::{
     window::Theme,
 };
 
+/// On wasm only the test suite reads the flag, the frame pacing that
+/// reads it natively lives in a `not_wasm` block.
+#[cfg(any(not_wasm, feature = "ui-tests"))]
+pub(crate) use self::redraw::continuous_render_active;
 #[cfg(not_wasm)]
 pub(crate) use self::redraw::set_wake_proxy;
 #[cfg(not_wasm)]
@@ -38,7 +42,4 @@ pub use self::{
     window::*,
     window_events::*,
 };
-pub(crate) use self::{
-    app_handler::UserEvent,
-    redraw::{continuous_render_active, request_frame},
-};
+pub(crate) use self::{app_handler::UserEvent, redraw::request_frame};

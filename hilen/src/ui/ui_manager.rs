@@ -453,6 +453,8 @@ impl UIManager {
         ANIMATIONS.lock().push(anim);
     }
 
+    /// Reached only through `continuous_render_active`, gated the same.
+    #[cfg(any(not_wasm, feature = "ui-tests"))]
     pub(crate) fn has_live_animations() -> bool {
         !ANIMATIONS.lock().is_empty()
     }

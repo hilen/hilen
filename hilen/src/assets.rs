@@ -85,9 +85,10 @@ impl Assets {
         web_assets::load_group(group).await
     }
 
-    /// Downloads every group in the manifest. The UI suite needs it,
-    /// a browser serves sync `get` only from memory, while a native
-    /// run reads any file from disk on demand.
+    /// Downloads every group in the manifest. The UI suite and the
+    /// inspector need it, a browser serves sync `get` only from memory,
+    /// while a native run reads any file from disk on demand.
+    #[cfg(any(feature = "ui-tests", feature = "inspect"))]
     pub(crate) async fn load_all_groups() -> Result<()> {
         Self::await_boot().await;
         web_assets::load_all_groups().await
@@ -187,6 +188,7 @@ mod web_assets {
 
     /// Boot is already in memory when this runs, so only the lazy
     /// groups actually download.
+    #[cfg(any(feature = "ui-tests", feature = "inspect"))]
     pub(crate) async fn load_all_groups() -> Result<()> {
         let manifest = MANIFEST.get().ok_or_else(|| anyhow!("No asset manifest"))?;
 

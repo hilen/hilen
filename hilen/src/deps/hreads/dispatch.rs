@@ -30,7 +30,9 @@ static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 
 /// Register a callback that fires whenever work is queued for the main thread
 /// from another thread. An event driven main loop uses this to wake from sleep
-/// and drain the queue, instead of polling every frame just in case.
+/// and drain the queue, instead of polling every frame just in case. The wasm
+/// loop is browser driven and never sleeps, so nothing registers one there.
+#[cfg(any(not_wasm, test))]
 pub fn set_dispatch_waker(waker: impl Fn() + Send + Sync + 'static) {
     *WAKER.lock() = Some(Box::new(waker));
 }

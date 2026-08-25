@@ -90,11 +90,10 @@ pub mod net {
 
 pub mod dispatch {
     #[cfg(not_wasm)]
-    pub use crate::deps::hreads::first_ok;
+    pub use crate::deps::hreads::{first_ok, log_spawn};
     pub use crate::{
         deps::hreads::{
-            after, from_main, is_main_thread, log_spawn, ok_main, on_main, sleep, spawn, wait_async,
-            wait_for_next_frame,
+            after, from_main, is_main_thread, ok_main, on_main, sleep, spawn, wait_async, wait_for_next_frame,
         },
         dispatch_tools::*,
         gm::drop_on_main,

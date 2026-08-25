@@ -73,7 +73,9 @@ pub(crate) fn query_flag(name: &str) -> bool {
         .any(|pair| pair == name || pair.split_once('=').is_some_and(|(key, _)| key == name))
 }
 
-/// Value of `name` in the page query string.
+/// Value of `name` in the page query string. Only the browser test
+/// autorun reads parameters, the app facing flags are boolean.
+#[cfg(feature = "ui-tests")]
 pub(crate) fn query_param(name: &str) -> Option<String> {
     page_search().trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;

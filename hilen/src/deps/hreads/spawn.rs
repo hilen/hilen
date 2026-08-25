@@ -32,6 +32,16 @@ where O: Send + 'static {
     });
 }
 
+/// A real worker thread that may block, unlike `spawn` which is a task
+/// on the async runtime. Needs the atomics build and cross origin
+/// isolation headers, and the worker starts only when the main thread
+/// yields to the browser. Native code uses `std::thread::spawn` directly,
+/// and only the browser test suite and inspector spawn workers.
+#[cfg(all(wasm, any(feature = "ui-tests", feature = "inspect")))]
+pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
+    wasm_thread::spawn(work);
+}
+
 pub fn block_on<F>(future: F)
 where F: Future<Output = ()> + 'static {
     #[cfg(wasm)]

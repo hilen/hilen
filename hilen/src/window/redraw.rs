@@ -77,6 +77,9 @@ pub(crate) fn take_needs_render() -> bool {
 /// then sleeps in Wait once it clears. A redraw requested from `about_to_wait`
 /// does not re-arm a loop already asleep in Wait, so a per-frame flag is not
 /// enough to keep continuous work drawing. The presence of the work is.
+/// On wasm the loop is browser driven and never sleeps, only the test
+/// suite asserts through this.
+#[cfg(any(not_wasm, feature = "ui-tests"))]
 pub(crate) fn continuous_render_active() -> bool {
     crate::ui::UIManager::has_live_animations() || !crate::level::LevelManager::no_level()
 }
