@@ -58,15 +58,30 @@ pub trait ViewTest: View + Registrable {
 pub trait MaybeUITest {
     /// `Some` only for a type that implements [`ViewTest`].
     fn __ui_test() -> Option<fn() -> Result<()>>;
+
+    /// Builds the test view full screen and hands it over untouched, for
+    /// presentation mode. `Some` only for a type that implements [`ViewTest`].
+    fn __ui_present() -> Option<fn()>;
 }
 
 impl<T: View> MaybeUITest for T {
     default fn __ui_test() -> Option<fn() -> Result<()>> {
         None
     }
+
+    default fn __ui_present() -> Option<fn()> {
+        None
+    }
 }
 
 impl<T: View + ViewTest + Default + 'static> MaybeUITest for T {
+    fn __ui_present() -> Option<fn()> {
+        Some(|| {
+            T::before_start();
+            crate::ui_test::UITest::present_root(T::make_root(T::new()));
+        })
+    }
+
     fn __ui_test() -> Option<fn() -> Result<()>> {
         Some(|| {
             T::before_start();

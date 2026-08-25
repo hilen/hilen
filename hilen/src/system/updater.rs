@@ -1,0 +1,260 @@
+//! Self update for desktop apps. The app opts in by returning an
+//! `UpdateSource` from `App::update_source`. `check` fetches the JSON
+//! manifest, `install` downloads the platform artifact, verifies its
+//! size, checksum and ed25519 signature, then swaps the running
+//! executable, and `relaunch` starts the new binary. Mobile updates go
+//! through the stores and a wasm app updates by rehosting, so outside
+//! the desktop every call is a no-op, matching `system::Router`.
+
+use std::collections::BTreeMap;
+
+use anyhow::Result;
+use serde::Deserialize;
+
+/// Everything the updater needs from the app. The verify key is the hex
+/// encoded ed25519 public key whose private half signs release
+/// artifacts in CI, embedded in the app so a compromised host can not
+/// serve a forged binary.
+pub struct UpdateSource {
+    pub manifest_url:    String,
+    pub current_version: String,
+    pub verify_key:      String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateManifest {
+    pub version:   String,
+    #[serde(default)]
+    pub notes:     String,
+    pub platforms: BTreeMap<String, UpdateArtifact>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct UpdateArtifact {
+    pub url:    String,
+    pub size:   u64,
+    pub sha256: String,
+    pub sig:    String,
+}
+
+/// An available update, returned by `check` and consumed by `install`.
+pub struct UpdateInfo {
+    pub version:    String,
+    pub notes:      String,
+    pub artifact:   UpdateArtifact,
+    pub verify_key: String,
+}
+
+pub struct Updater;
+
+impl Updater {
+    /// `Ok(None)` means up to date, or no update source, or a platform
+    /// with no self update.
+    pub async fn check() -> Result<Option<UpdateInfo>> {
+        #[cfg(desktop)]
+        {
+            use crate::deps::hreads::from_main;
+
+            let Some(source) = from_main(|| crate::app::app().update_source()).await? else {
+                return Ok(None);
+            };
+
+            let manifest: UpdateManifest = crate::deps::netrun::rest::get(&source.manifest_url).await?;
+
+            if !newer(&manifest.version, &source.current_version)? {
+                return Ok(None);
+            }
+
+            let key = platform_key();
+
+            let Some(artifact) = manifest.platforms.get(&key) else {
+                anyhow::bail!(
+                    "Update manifest for {} has no artifact for {key}",
+                    manifest.version
+                );
+            };
+
+            Ok(Some(UpdateInfo {
+                version:    manifest.version,
+                notes:      manifest.notes,
+                artifact:   artifact.clone(),
+                verify_key: source.verify_key,
+            }))
+        }
+        #[cfg(not(desktop))]
+        {
+            log::trace!("Updater::check outside the desktop is a no-op");
+            Ok(None)
+        }
+    }
+
+    /// Downloads, verifies and swaps the executable. The new binary runs
+    /// on the next start, call `relaunch` to switch now.
+    pub async fn install(info: UpdateInfo) -> Result<()> {
+        #[cfg(desktop)]
+        {
+            use anyhow::ensure;
+
+            let bytes = crate::deps::netrun::rest::download(&info.artifact.url).await?;
+
+            ensure!(
+                bytes.len() as u64 == info.artifact.size,
+                "Update artifact size mismatch: expected {} bytes, downloaded {}",
+                info.artifact.size,
+                bytes.len()
+            );
+
+            verify_sha256(&bytes, &info.artifact.sha256)?;
+            verify_signature(&bytes, &info.artifact.sig, &info.verify_key)?;
+
+            let temp = std::env::temp_dir().join(format!("hilen-update-{}", info.version));
+            std::fs::write(&temp, &bytes)?;
+
+            let swap = self_replace::self_replace(&temp);
+            std::fs::remove_file(&temp)?;
+            swap?;
+
+            Ok(())
+        }
+        #[cfg(not(desktop))]
+        {
+            anyhow::bail!(
+                "Self update is desktop only, cannot install version {}",
+                info.version
+            )
+        }
+    }
+
+    /// Spawns the freshly installed binary and closes this one.
+    pub fn relaunch() -> Result<()> {
+        #[cfg(desktop)]
+        {
+            use crate::{AppRunner, deps::hreads::on_main};
+
+            std::process::Command::new(std::env::current_exe()?).spawn()?;
+
+            on_main(AppRunner::stop);
+
+            Ok(())
+        }
+        #[cfg(not(desktop))]
+        {
+            anyhow::bail!("Self update is desktop only, cannot relaunch")
+        }
+    }
+}
+
+#[cfg(desktop)]
+fn platform_key() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+}
+
+#[cfg(desktop)]
+fn newer(manifest_version: &str, current_version: &str) -> Result<bool> {
+    let manifest = semver::Version::parse(manifest_version)?;
+    let current = semver::Version::parse(current_version)?;
+    Ok(manifest > current)
+}
+
+#[cfg(desktop)]
+fn verify_sha256(bytes: &[u8], expected: &str) -> Result<()> {
+    use sha2::{Digest, Sha256};
+
+    let digest = hex::encode(Sha256::digest(bytes));
+
+    anyhow::ensure!(
+        digest == expected.to_lowercase(),
+        "Update artifact checksum mismatch: expected {expected}, got {digest}"
+    );
+
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn verify_signature(bytes: &[u8], sig_hex: &str, key_hex: &str) -> Result<()> {
+    use anyhow::Context;
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    let key: [u8; 32] = hex::decode(key_hex)?
+        .try_into()
+        .ok()
+        .context("Update verify key must be 32 hex encoded bytes")?;
+
+    let sig: [u8; 64] = hex::decode(sig_hex)?
+        .try_into()
+        .ok()
+        .context("Update artifact signature must be 64 hex encoded bytes")?;
+
+    VerifyingKey::from_bytes(&key)?.verify_strict(bytes, &Signature::from_bytes(&sig))?;
+
+    Ok(())
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    use super::{UpdateManifest, newer, verify_sha256, verify_signature};
+
+    #[test]
+    fn manifest_parses() {
+        let json = r#"{
+            "version": "1.2.3",
+            "notes": "fixes",
+            "platforms": {
+                "macos-aarch64": {
+                    "url": "https://example.com/app",
+                    "size": 4,
+                    "sha256": "abc",
+                    "sig": "def"
+                }
+            }
+        }"#;
+
+        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
+
+        assert_eq!(manifest.version, "1.2.3");
+        assert_eq!(manifest.notes, "fixes");
+        assert_eq!(manifest.platforms["macos-aarch64"].size, 4);
+    }
+
+    #[test]
+    fn notes_are_optional() {
+        let json = r#"{ "version": "1.0.0", "platforms": {} }"#;
+        let manifest: UpdateManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.notes, "");
+    }
+
+    #[test]
+    fn version_gate() {
+        assert!(newer("1.0.1", "1.0.0").unwrap());
+        assert!(!newer("1.0.0", "1.0.0").unwrap());
+        assert!(!newer("0.9.9", "1.0.0").unwrap());
+        assert!(newer("1.0.0", "1.0.0-beta.1").unwrap());
+        assert!(newer("2.0.0", "1.9.9").unwrap());
+        assert!(newer("10.0.0", "9.0.0").unwrap());
+    }
+
+    #[test]
+    fn sha256_verifies() {
+        let expected = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        verify_sha256(b"hello", expected).unwrap();
+        verify_sha256(b"hello", &expected.to_uppercase()).unwrap();
+        assert!(verify_sha256(b"other", expected).is_err());
+    }
+
+    #[test]
+    fn signature_verifies() {
+        let signing = SigningKey::from_bytes(&[7; 32]);
+        let key_hex = hex::encode(signing.verifying_key().to_bytes());
+
+        let artifact = b"artifact bytes";
+        let sig_hex = hex::encode(signing.sign(artifact).to_bytes());
+
+        verify_signature(artifact, &sig_hex, &key_hex).unwrap();
+        assert!(verify_signature(b"tampered", &sig_hex, &key_hex).is_err());
+
+        let wrong_key = hex::encode(SigningKey::from_bytes(&[8; 32]).verifying_key().to_bytes());
+        assert!(verify_signature(artifact, &sig_hex, &wrong_key).is_err());
+    }
+}

@@ -50,7 +50,9 @@ font's `trak` curve automatically, macOS does for the system font.
 `\n` always breaks lines, single line labels included. Multiline labels
 additionally wrap greedily at spaces to the label width. A single word wider
 than the bound overflows, same as the builtin layout did. Vertical alignment
-is always center.
+defaults to center, `Label::set_vertical_alignment` opts a label into Top,
+which the multiline `TextField` uses so a tall field starts its text at the
+top.
 
 ## Matching other renderers
 

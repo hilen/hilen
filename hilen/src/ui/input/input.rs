@@ -1,5 +1,6 @@
 use log::warn;
-pub use winit::keyboard::NamedKey;
+use parking_lot::Mutex;
+pub use winit::keyboard::{ModifiersState, NamedKey};
 
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
@@ -16,9 +17,28 @@ use crate::{
 const LOG_TOUCHES: bool = false;
 const DRAW_TOUCHES: bool = false;
 
+static MODIFIERS: Mutex<ModifiersState> = Mutex::new(ModifiersState::empty());
+
 pub(crate) struct Input;
 
 impl Input {
+    pub(crate) fn set_modifiers(modifiers: ModifiersState) {
+        *MODIFIERS.lock() = modifiers;
+    }
+
+    /// The modifier keys held right now, so a key handler can tell Shift
+    /// plus an arrow or Cmd plus a letter from the plain key.
+    pub(crate) fn modifiers() -> ModifiersState {
+        *MODIFIERS.lock()
+    }
+
+    /// Cmd on a Mac, Ctrl everywhere else, the key that turns a letter
+    /// into a command like copy or select all.
+    pub(crate) fn command_held() -> bool {
+        let modifiers = Self::modifiers();
+        modifiers.super_key() || modifiers.control_key()
+    }
+
     pub(crate) fn on_char(ch: char) {
         UIManager::keymap().check(ch);
         UIEvents::keyboard_input().trigger(ch);
@@ -68,7 +88,8 @@ impl Input {
             view.set_z_position(0.1);
             view.set_size(5, 5).set_color(Color::random());
             view.set_center(touch.position);
-            UIManager::root_view().add_subview_to_root(view);
+            let mark = UIManager::root_view().add_subview_to_root(view);
+            UIManager::add_touch_mark(mark);
         }
 
         Self::check_scroll_touches(touch);

@@ -23,14 +23,14 @@ use crate::{
         Button, Container, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
     ui_test::TEST_NAME,
-    window::Window,
+    window::{NamedKey, Window},
 };
 
 static HUMAN_MODE: AtomicBool = AtomicBool::new(false);
 static ADVANCE: OnceLock<(Sender<()>, Mutex<Receiver<()>>)> = OnceLock::new();
 
 /// Slows down injections and holds after each test until the user advances,
-/// space on desktop, a tap on a phone, so a human can watch the tests run.
+/// ctrl on desktop, a tap on a phone, so a human can watch the tests run.
 /// Enabled by `--human` in ui-test, `HILEN_HUMAN` on a device, `hilen_human` in
 /// the browser.
 pub fn enable_human_mode() {
@@ -60,6 +60,14 @@ pub(crate) fn human_pause_quick() {
     }
 }
 
+/// A thirty second of the delay per key, so typing a sentence reads as
+/// typing and not as a slideshow.
+pub(crate) fn human_pause_key() {
+    if human_mode() {
+        sleep(delay() / 32);
+    }
+}
+
 /// Holds with `label` as the prompt, so a test can make a
 /// state visible that no injection paces, like a browser URL change
 /// that would otherwise flash by. A no-op outside human mode.
@@ -68,7 +76,7 @@ pub fn human_checkpoint(label: &str) {
         return;
     }
 
-    hold(format!("{label} - continue"));
+    hold(label.to_string());
 }
 
 pub(crate) fn hold_for_human() {
@@ -77,7 +85,7 @@ pub(crate) fn hold_for_human() {
     }
 
     let test_name = TEST_NAME.lock().clone();
-    hold(format!("{test_name}: OK - continue"));
+    hold(format!("{test_name}: OK"));
 }
 
 /// Size of the swatch showing a probe's color, and of the outline drawn
@@ -129,7 +137,7 @@ pub(crate) fn show_probes(probes: &[((u32, u32), U8Color)], test_name: &str, ind
         markers
     });
 
-    hold(format!("{test_name} check {index}: continue"));
+    hold(format!("{test_name} check {index}"));
 
     from_main(move || {
         for mut marker in markers {
@@ -139,12 +147,18 @@ pub(crate) fn show_probes(probes: &[((u32, u32), U8Color)], test_name: &str, ind
 }
 
 /// Holds until the user advances. On desktop the prompt is the window
-/// title and space advances. A phone has no window title and no key to
+/// title and ctrl advances. A phone has no window title and no key to
 /// press, so there the prompt is a bar over the bottom of the canvas and
 /// a tap anywhere advances. The overlay is its own touch layer, so the
 /// tap never reaches the views under review.
 fn hold(prompt: String) {
-    Window::set_title(prompt.clone());
+    // The phone prompt says nothing about a key, its bar is tapped.
+    let title = if Platform::MOBILE {
+        prompt.clone()
+    } else {
+        format!("{prompt}, ctrl to continue")
+    };
+    Window::set_title(title);
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))
@@ -204,7 +218,10 @@ fn advance() -> &'static (Sender<()>, Mutex<Receiver<()>>) {
         let key_sender = sender.clone();
 
         from_main(move || {
-            UIManager::keymap().add(UIManager::root_view(), ' ', move || {
+            // Ctrl, not space. A space is typed into a selected text field
+            // and breaks every typing test at its first hold, while a bare
+            // modifier press has no text and no view ever consumes it.
+            UIManager::keymap().add(UIManager::root_view(), NamedKey::Control, move || {
                 if key_sender.send(()).is_err() {
                     warn!("Failed to send human continue signal");
                 }

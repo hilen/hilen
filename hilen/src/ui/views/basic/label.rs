@@ -14,7 +14,7 @@ use crate::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         view::{ViewData, ViewSubviews},
     },
-    window::{Font, image::ToImage},
+    window::{Font, TextLayout, image::ToImage},
 };
 
 static DEFAULT_TEXT_SIZE: AtomicF32 = AtomicF32::new(16.0);
@@ -33,9 +33,21 @@ impl TextAlignment {
     }
 }
 
+/// Where the block of lines sits in the frame. Center is what every
+/// label did before this existed. Top is what a text area needs, the
+/// first line at the top and the rest following it down.
+#[derive(Debug, Default, Clone, Copy)]
+pub enum VerticalAlignment {
+    Top,
+    #[default]
+    Center,
+}
+
 #[view]
 pub struct Label {
     pub alignment: TextAlignment,
+
+    pub vertical_alignment: VerticalAlignment,
 
     pub text: String,
 
@@ -194,6 +206,23 @@ impl Label {
     pub fn set_alignment(&self, alignment: TextAlignment) -> &Self {
         weak_from_ref(self).alignment = alignment;
         self
+    }
+
+    pub fn set_vertical_alignment(&self, alignment: VerticalAlignment) -> &Self {
+        weak_from_ref(self).vertical_alignment = alignment;
+        self
+    }
+
+    /// Line and caret positions of `text` drawn by this label, in points,
+    /// wrapping at the current frame width when multiline.
+    pub(crate) fn text_layout_for(&self, text: &str) -> TextLayout {
+        let bound = self.multiline.then_some(self.width() - self.alignment_margin());
+        self.font().text_layout(text, self.text_size, bound, self.letter_spacing)
+    }
+
+    /// The drawer indents left and right aligned text, see `alignment_margin`.
+    pub(crate) fn text_inset(&self) -> f32 {
+        self.alignment_margin()
     }
 
     pub(crate) fn is_multiline(&self) -> bool {

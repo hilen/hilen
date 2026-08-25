@@ -129,6 +129,12 @@ pub enum UIColor {
     Dynamic(DynamicColor),
 }
 
+impl Default for UIColor {
+    fn default() -> Self {
+        Self::Plain(Color::default())
+    }
+}
+
 impl From<Color> for UIColor {
     fn from(color: Color) -> Self {
         Self::Plain(color)

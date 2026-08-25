@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::{
+    deps::hreads::{from_main, wait_for_next_frame},
     gm::{
         LossyConvert,
         color::{LIGHT_GRAY, U8Color},
@@ -54,6 +55,9 @@ pub fn check_colors(data: &str) -> Result<()> {
         .collect();
 
     if human_mode() {
+        from_main(UIManager::clear_touch_marks);
+        wait_for_next_frame();
+
         let probes: Vec<((u32, u32), U8Color)> = checks
             .iter()
             .map(|(pos, color)| ((pos.x.lossy_convert(), pos.y.lossy_convert()), *color))

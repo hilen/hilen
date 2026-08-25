@@ -122,7 +122,11 @@ objc2-ui-kit = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }
+ed25519-dalek = { workspace = true }
 open = { workspace = true }
+self-replace = { workspace = true }
+semver = { workspace = true }
+sha2 = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

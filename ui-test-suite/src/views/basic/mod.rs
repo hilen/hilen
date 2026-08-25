@@ -3,13 +3,7 @@ mod button;
 mod button_disabled;
 mod checkbox;
 mod corner_radii;
-/// A text field is a different thing on a phone. Typing goes through the screen
-/// keyboard, not through injected key events, so these drive a field that never
-/// receives the text and then probe for glyphs that were never drawn.
-#[cfg(desktop)]
-mod custom_text_field;
 mod dynamic_clear_color;
-mod font_zoo;
 mod gradient;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`
 /// only calls `Hover::update` under `#[cfg(any(desktop, wasm))]`, so on a phone
@@ -20,19 +14,8 @@ mod gradient;
 mod hover;
 mod image_scissor;
 mod inject_touch;
-mod label;
-mod label_fit_text;
-mod label_font;
-mod label_image;
-mod label_measure;
-mod label_stress;
-mod letter_spacing;
-mod multiline_label;
 mod nine_segment;
 mod shadow;
 mod slider;
 mod switch;
-/// Desktop only for the same reason as [`custom_text_field`].
-#[cfg(desktop)]
-mod text_field;
 mod theme_switch;

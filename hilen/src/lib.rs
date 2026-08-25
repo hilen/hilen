@@ -34,6 +34,7 @@ mod ios_log;
 mod pipelines;
 
 pub mod audio;
+pub mod bug_report;
 pub mod filesystem;
 pub mod game;
 pub mod generate;
@@ -74,6 +75,7 @@ pub mod time {
 
 pub use app_runner::AppRunner;
 pub use assets::Assets;
+pub use bug_report::BugReport;
 
 pub use crate::{
     deps::vents::{Event, OnceEvent},

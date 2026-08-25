@@ -89,6 +89,26 @@ pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
     report
 }
 
+/// Show one registered test's view full screen for a human to play with.
+/// Takes the test text size so labels look like they do under test, but
+/// keeps the display scale, a test's scale 1 renders half size on a retina
+/// screen. The app's styles go like in a run. Nothing is handed back, the
+/// window is the user's now. Must not run on the main thread, like
+/// `run_test_map`.
+pub fn present_test(name: &str) -> anyhow::Result<()> {
+    let key = super::spaced_test_name(name.trim());
+    let entry = crate::UI_TESTS.lock().get(&key).copied();
+    let Some(entry) = entry else {
+        anyhow::bail!("UI test not found: {name}");
+    };
+
+    from_main(Style::take_globals);
+    Label::set_default_text_size(32);
+    (entry.present)();
+
+    Ok(())
+}
+
 /// Run every registered test. `#[view]` and `#[ui_test]` in any crate all
 /// register into the one engine owned map, so this reaches the whole suite with
 /// no help from the app.

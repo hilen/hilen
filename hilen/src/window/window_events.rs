@@ -32,6 +32,7 @@ pub trait WindowEvents {
         false
     }
     fn key_event(&mut self, _event: KeyEvent) {}
+    fn modifiers_changed(&mut self, _modifiers: winit::event::Modifiers) {}
     fn dropped_file(&mut self, _path: PathBuf) {}
     fn theme_changed(&mut self, _theme: Theme) {}
 }

@@ -77,7 +77,7 @@ cargo run -p ui-test -- --list                                               # e
 cargo run -p ui-test -- --headless                                           # full UI test suite
 cargo run -p ui-test -- --headless --test-name <name>                        # single test, the name it prints
 cargo run -p ui-test -- --test-name <name> --screenshot <path>               # capture one test offscreen
-cargo run -p ui-test -- --test-name <name> --human                           # watchable run, space to advance
+cargo run -p ui-test -- --test-name <name> --human                           # watchable run, ctrl to advance
 cargo run -p ui-test -- --headless --test-name <name> --record-colors        # print check_colors blocks
 cargo run -p render-test                                                     # render tests
 make ui                                                                      # desktop suite, plus the iOS simulator suite on macOS, one report

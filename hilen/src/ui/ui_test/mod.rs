@@ -24,7 +24,7 @@ pub use capture::{capture_requested_screenshot, capture_screenshot, enable_scree
 pub use collect::{TestFailure, any_failed, clear_failures, push_failure, run_test, take_failures};
 pub use helpers::*;
 pub use human::{enable_human_mode, human_checkpoint, human_mode};
-pub(crate) use human::{hold_for_human, human_pause, human_pause_quick};
+pub(crate) use human::{hold_for_human, human_pause, human_pause_key, human_pause_quick};
 use log::{error, warn};
 use parking_lot::Mutex;
 pub use record::{enable_color_recording, recording_colors, set_record_probe_count};
@@ -32,7 +32,7 @@ pub(crate) use record::{reset_record_probe_count, set_record_canvas};
 pub use report::failure_report;
 use serde::de::DeserializeOwned;
 pub use state::*;
-pub use suite::{TestRunReport, run_all_tests, run_test_map};
+pub use suite::{TestRunReport, present_test, run_all_tests, run_test_map};
 
 pub use self::ui_test::*;
 use crate::{
@@ -42,7 +42,7 @@ use crate::{
         refs::Own,
     },
     gm::{LossyConvert, ToF32, drop_on_main},
-    ui::{Input, NamedKey, Touch, U8Color, UIEvents, UIManager},
+    ui::{Input, ModifiersState, NamedKey, Touch, U8Color, UIEvents, UIManager},
     window::Window,
 };
 
@@ -133,21 +133,39 @@ pub fn inject_touches_delayed(data: &str) {
     }
 }
 
+/// Types a string. Outside human mode the whole string goes to the main
+/// thread in one trip, a trip per char would cost a frame per char.
 pub fn inject_keys(s: impl ToString) {
     let s = s.to_string();
-    for ch in s.chars() {
-        inject_key(ch);
+
+    if human_mode() {
+        for ch in s.chars() {
+            inject_key(ch);
+        }
+        return;
     }
+
+    from_main(move || {
+        for ch in s.chars() {
+            Input::on_char(ch);
+        }
+    });
 }
 
 pub fn inject_key(key: char) {
     from_main(move || Input::on_char(key));
-    human_pause();
+    human_pause_key();
 }
 
 pub fn inject_named_key(key: NamedKey) {
     from_main(move || Input::on_key(key));
-    human_pause();
+    human_pause_key();
+}
+
+/// Sets the held modifier keys for the injected keys that follow, until
+/// the next call. `ModifiersState::empty()` releases them.
+pub fn inject_modifiers(modifiers: ModifiersState) {
+    from_main(move || Input::set_modifiers(modifiers));
 }
 
 #[allow(dead_code)]

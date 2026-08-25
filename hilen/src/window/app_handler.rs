@@ -224,6 +224,9 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 }
                 self.te_window_events.key_event(event);
             }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.te_window_events.modifiers_changed(modifiers);
+            }
             WindowEvent::DroppedFile(path) => {
                 self.te_window_events.dropped_file(path);
             }

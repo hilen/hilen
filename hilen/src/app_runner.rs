@@ -80,6 +80,12 @@ impl AppRunner {
             dispatch = dispatch.level_for(*target, LevelFilter::Debug);
         }
 
+        // The bug report ring keeps the same formatted lines the console
+        // shows, so a report attaches exactly what the log printed.
+        let ring = fern::Output::call(|record| {
+            crate::bug_report::BugReport::push_log_line(record.args().to_string());
+        });
+
         dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
@@ -111,6 +117,7 @@ impl AppRunner {
                 out.finish(format_args!("{log}"));
             })
             .chain(output)
+            .chain(ring)
             .apply()
             .expect("Failed to initialize logging");
 
@@ -284,6 +291,25 @@ impl AppRunner {
     /// drop its report timeout since the run holds until space.
     #[cfg(all(wasm, feature = "ui-tests"))]
     fn spawn_test_autorun() {
+        // The browser spelling of `--present`, `hilen_test_only` names the
+        // one view. The page stays on that view.
+        if crate::web::query_flag("hilen_present") {
+            UIManager::on_app_ready(|| {
+                let name = crate::web::query_param("hilen_test_only").unwrap_or_default();
+                crate::deps::hreads::spawn(async move {
+                    if let Err(err) = crate::assets::Assets::load_all_groups().await {
+                        log::error!("Asset preload for present failed: {err}");
+                    }
+                    crate::deps::hreads::spawn_thread(move || {
+                        if let Err(err) = crate::ui_test::present_test(&name) {
+                            log::error!("hilen_present failed: {err}");
+                        }
+                    });
+                });
+            });
+            return;
+        }
+
         if !crate::web::query_flag("hilen_run_tests") {
             return;
         }
@@ -378,6 +404,22 @@ impl AppRunner {
     #[cfg(all(not_wasm, feature = "ui-tests"))]
     fn spawn_test_autorun() {
         use std::process::exit;
+
+        // The device spelling of `--present`, `HILEN_TEST_ONLY` names the
+        // one view. The app stays up with that view until it is killed.
+        if std::env::var("HILEN_PRESENT").is_ok() {
+            UIManager::on_app_ready(|| {
+                crate::deps::hreads::spawn(async {
+                    let name = std::env::var("HILEN_TEST_ONLY").unwrap_or_default();
+                    if let Err(err) = crate::ui_test::present_test(&name) {
+                        println!("HILEN_PRESENT failed: {err}");
+                        exit(1);
+                    }
+                    println!("HILEN_PRESENT {name}");
+                });
+            });
+            return;
+        }
 
         if std::env::var("HILEN_RUN_TESTS").is_err() {
             return;
@@ -573,6 +615,24 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
+        #[cfg(not_wasm)]
+        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+            use winit::keyboard::KeyCode;
+
+            use crate::bug_report::{BugReport, InputRing};
+
+            InputRing::record(code);
+
+            let modifiers = InputRing::modifiers();
+
+            if code == KeyCode::KeyR
+                && modifiers.shift_key()
+                && (modifiers.control_key() || modifiers.super_key())
+            {
+                BugReport::open();
+            }
+        }
+
         if let Key::Named(key) = event.logical_key {
             Input::on_key(key);
         }
@@ -580,6 +640,12 @@ impl crate::window::WindowEvents for AppRunner {
         if let Some(ch) = event.logical_key.to_text() {
             Input::on_char(ch.chars().last().unwrap());
         }
+    }
+
+    fn modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
+        Input::set_modifiers(modifiers.state());
+        #[cfg(not_wasm)]
+        crate::bug_report::InputRing::set_modifiers(modifiers.state());
     }
 
     fn dropped_file(&mut self, path: PathBuf) {

@@ -8,31 +8,50 @@ use crate::{
     },
     gm::{
         ToF32,
+        color::Color,
         flat::{Point, Size},
     },
     ui::{
-        NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent, View, ViewCallbacks,
-        ViewData, ViewFrame, ViewSubviews, view, views::containers::scrolling::ScrollContent,
+        Container, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent, UIManager, View,
+        ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view, views::containers::scrolling::ScrollContent,
     },
 };
+
+const BAR_WIDTH: f32 = 4.0;
+const BAR_INSET: f32 = 2.0;
+const BAR_MIN_LENGTH: f32 = 20.0;
+const BAR_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
 
 /// A captured touch becomes a drag only after moving this far. Until then
 /// taps on views inside the scroll work; after, the drag claims the touch.
 const DRAG_SLOP: f32 = 10.0;
 
+/// Which content dimensions the app pinned through the `set_content`
+/// calls. Automatic content sizing skips a pinned axis.
+#[derive(Default)]
+struct ManualContent {
+    width:  bool,
+    height: bool,
+}
+
 #[view]
 pub struct ScrollView {
-    inertia:               f32,
-    began_touch:           Point,
-    previous_touch:        Point,
-    dragging:              bool,
-    manual_content_width:  bool,
-    manual_content_height: bool,
-    pub on_scroll:         Event<f32>,
-    pub bottom_reached:    UIEvent,
+    inertia:            f32,
+    began_touch:        Point,
+    previous_touch:     Point,
+    dragging:           bool,
+    manual_content:     ManualContent,
+    drag_disabled:      bool,
+    pub on_scroll:      Event<f32>,
+    pub bottom_reached: UIEvent,
 
     #[init]
     pub(crate) content: ScrollContent,
+
+    /// The scroll indicator on the right edge, its length the visible
+    /// share of the content and its position the offset. Shown only
+    /// when the content is taller than the view.
+    bar: Container,
 }
 
 impl ScrollView {
@@ -43,6 +62,14 @@ impl ScrollView {
     // Content offset must be negative
     fn max_offset(&self) -> f32 {
         (self.content.content_size.height - self.height()).neg().min(0.0)
+    }
+
+    /// A drag no longer scrolls, the wheel and `set_content_offset` still
+    /// do. For a host that needs the drag itself, like a text field
+    /// selecting text.
+    pub fn disable_drag(&mut self) -> &mut Self {
+        self.drag_disabled = true;
+        self
     }
 
     pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
@@ -56,20 +83,20 @@ impl ScrollView {
     }
 
     pub fn set_content_size(&mut self, size: impl Into<Size>) -> &mut Self {
-        self.manual_content_width = true;
-        self.manual_content_height = true;
+        self.manual_content.width = true;
+        self.manual_content.height = true;
         self.content.content_size = size.into();
         self
     }
 
     pub fn set_content_width(&mut self, width: impl ToF32) -> &mut Self {
-        self.manual_content_width = true;
+        self.manual_content.width = true;
         self.content.content_size.width = width.to_f32();
         self
     }
 
     pub fn set_content_height(&mut self, height: impl ToF32) -> &mut Self {
-        self.manual_content_height = true;
+        self.manual_content.height = true;
         self.content.content_size.height = height.to_f32();
         self.clamp_offset();
         self
@@ -79,6 +106,10 @@ impl ScrollView {
         if self.content.__base_view().__content_offset < self.max_offset() {
             self.content.__base_view().__content_offset = self.max_offset();
         }
+    }
+
+    pub fn content_height(&self) -> f32 {
+        self.content.content_size.height
     }
 
     pub(crate) fn get_scroll_content_offset(&self) -> f32 {
@@ -92,10 +123,10 @@ impl ViewCallbacks for ScrollView {
     /// edge. Frames are read from the previous layout pass, so the size
     /// settles a frame after the content does.
     fn update(&mut self) {
-        if !self.manual_content_width {
+        if !self.manual_content.width {
             self.content.content_size.width = self.width();
         }
-        if !self.manual_content_height {
+        if !self.manual_content.height {
             let bottom = self
                 .content
                 .subviews()
@@ -106,6 +137,28 @@ impl ViewCallbacks for ScrollView {
             self.content.content_size.height = bottom;
             self.clamp_offset();
         }
+
+        self.update_bar();
+    }
+}
+
+impl ScrollView {
+    fn update_bar(&mut self) {
+        let height = self.height();
+        let content = self.content.content_size.height;
+
+        if content <= height || height <= 0.0 {
+            self.bar.set_hidden(true);
+            return;
+        }
+
+        let track = height - BAR_INSET * 2.0;
+        let length = (track * height / content).max(BAR_MIN_LENGTH).min(track);
+        let offset = -self.content.__base_view().__content_offset;
+        let y = BAR_INSET + (track - length) * offset / (content - height);
+
+        self.bar.set_hidden(false);
+        self.bar.set_frame((self.width() - BAR_WIDTH - BAR_INSET, y, BAR_WIDTH, length));
     }
 }
 
@@ -117,6 +170,12 @@ impl Setup for ScrollView {
     fn setup(mut self: Weak<Self>) {
         self.content.__base_view().dont_hide_off_screen = true;
         self.content.place().back();
+
+        self.bar.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
+        self.bar.set_hidden(true);
+        // A later sibling draws behind an earlier sibling's children, so
+        // the bar has to be pushed in front of everything in the content.
+        self.bar.bump_z_position(UIManager::subview_z_offset() * 2.0);
 
         self.size_changed().sub(move || {
             self.on_scroll(0.0);
@@ -150,7 +209,7 @@ impl Scrollable for ScrollView {
             return false;
         }
 
-        if self.is_hidden_in_tree() {
+        if self.is_hidden_in_tree() || self.drag_disabled {
             return false;
         }
 

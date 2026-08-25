@@ -179,6 +179,19 @@ impl UITest {
         });
     }
 
+    /// Installs a view over the whole window with nothing else around it,
+    /// no canvas, no test name, no holds. What `--present` shows.
+    pub fn present_root(view: Own<dyn View>) {
+        from_main(move || {
+            let mut root = UIManager::root_view();
+            root.clear_root();
+            root.reset_background();
+            root.clear_test_canvas();
+            UIManager::set_clear_color(GRAY_BLUE);
+            root.add_subview_to_root(view).place().back();
+        });
+    }
+
     pub fn finish() {
         let test_name = TEST_NAME.lock().clone();
 
@@ -197,9 +210,12 @@ impl UITest {
 /// One registered UI test.
 #[derive(Clone, Copy)]
 pub struct UITestEntry {
-    pub run:  fn() -> anyhow::Result<()>,
+    pub run:     fn() -> anyhow::Result<()>,
+    /// Builds the view full screen for a human to play with, never runs
+    /// `perform_test`.
+    pub present: fn(),
     /// Source file of the `impl ViewTest` that declared it.
-    pub file: &'static str,
+    pub file:    &'static str,
 }
 
 /// Registers `T` if, and only if, it implements [`ViewTest`].
@@ -209,14 +225,20 @@ pub struct UITestEntry {
 /// no second list to update, which is what stops a test from quietly ceasing to
 /// exist.
 pub fn register_if_test<T: View + Default + 'static>(file: &'static str) {
-    let Some(run) = <T as MaybeUITest>::__ui_test() else {
+    let (Some(run), Some(present)) = (
+        <T as MaybeUITest>::__ui_test(),
+        <T as MaybeUITest>::__ui_present(),
+    ) else {
         return;
     };
 
     let name = get_test_name::<T>();
 
     assert!(
-        UI_TESTS.lock().insert(name.clone(), UITestEntry { run, file }).is_none(),
+        UI_TESTS
+            .lock()
+            .insert(name.clone(), UITestEntry { run, present, file })
+            .is_none(),
         "Duplicate ui test: {name}. The registry keys on the type name alone, so \
          two test views sharing one name collide even from different crates.",
     );

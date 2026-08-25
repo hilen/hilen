@@ -4,10 +4,11 @@ use crate::{
     app_starter::hilen_start_with_app,
     deps::refs::{Own, main_lock::MainLock},
     gm::flat::Size,
+    system::UpdateSource,
     ui::View,
 };
 
-pub type PinnedFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>>>>;
+pub type PinnedFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
 
 /// The running app, reachable for as long as it runs.
 ///
@@ -49,6 +50,12 @@ pub trait App {
     /// Returns a Sentry DSN, `None` to disable Sentry, or a configuration
     /// error.
     fn sentry_url(&self) -> PinnedFuture<Option<String>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Returns where `system::Updater` checks for new versions, `None`
+    /// to disable self update, or a configuration error.
+    fn update_source(&self) -> PinnedFuture<Option<UpdateSource>> {
         Box::pin(async { Ok(None) })
     }
 }

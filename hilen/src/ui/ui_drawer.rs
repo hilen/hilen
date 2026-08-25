@@ -17,10 +17,10 @@ use crate::{
         data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
-        BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, View, ViewData,
-        ViewFrame, ViewLayout, ViewSubviews,
+        BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, VerticalAlignment,
+        View, ViewData, ViewFrame, ViewLayout, ViewSubviews,
     },
-    window::{Font, RenderFrame, ShapedParams},
+    window::{Font, RenderFrame, ShapedParams, VerticalAlign},
 };
 
 static GRADIENT_DRAWER: MainLock<UIGradientPipeline> = MainLock::new();
@@ -409,6 +409,10 @@ impl UIDrawer {
                 TextAlignment::Center => HorizontalAlign::Center,
                 TextAlignment::Right => HorizontalAlign::Right,
             },
+            v_align:   match label.vertical_alignment {
+                VerticalAlignment::Top => VerticalAlign::Top,
+                VerticalAlignment::Center => VerticalAlign::Center,
+            },
         };
 
         let mut text = Text::new(&label.text)
@@ -434,7 +438,10 @@ impl UIDrawer {
                     TextAlignment::Center => center.x,
                     TextAlignment::Right => frame.max_x() - margin,
                 },
-                center.y,
+                match label.vertical_alignment {
+                    VerticalAlignment::Top => frame.y(),
+                    VerticalAlignment::Center => center.y,
+                },
             ));
 
         match sections.iter_mut().find(|(f, _)| f.name == font.name) {

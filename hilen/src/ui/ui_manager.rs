@@ -22,7 +22,7 @@ use crate::{
     },
     ui::{
         DynamicColor, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View, ViewData,
-        ViewFrame, WeakView,
+        ViewFrame, ViewSubviews, WeakView,
     },
     window::Window,
 };
@@ -64,6 +64,10 @@ pub struct UIManager {
     on_drop_file: UIEvent<PathBuf>,
 
     draw_touches: AtomicBool,
+
+    /// The squares a human run draws at every tap, so a check can clear
+    /// them before it probes.
+    touch_marks: Mutex<Vec<WeakView>>,
 
     keymap: Own<Keymap>,
 
@@ -170,6 +174,13 @@ impl UIManager {
 
         let mut selected_view = this.selected_view.lock();
 
+        // A tap on the view that is already selected changes nothing. Going
+        // through deselect and reselect would end its editing session in
+        // the middle of a drag.
+        if selected && selected_view.addr() == view.addr() {
+            return;
+        }
+
         if let Some(selected) = selected_view.get_mut() {
             selected.__internal_on_selection_changed(false);
             *selected_view = Weak::default();
@@ -200,6 +211,7 @@ impl UIManager {
             scale_changed: UIEvent::default(),
             on_drop_file: UIEvent::default(),
             draw_touches: false.into(),
+            touch_marks: Mutex::new(Vec::new()),
             keymap: Own::default(),
             selected_view: Mutex::new(Weak::default()),
             app_instance_id: crate::deps::netrun::System::generate_app_instance_id(),
@@ -295,6 +307,21 @@ impl UIManager {
 
     pub fn set_display_touches(display: bool) {
         Self::get().draw_touches.store(display, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_touch_mark(mark: WeakView) {
+        Self::get().touch_marks.lock().push(mark);
+    }
+
+    /// Drops the tap squares a human run drew. They stay on screen for
+    /// the human, but a probe next to a tap would read the square.
+    pub(crate) fn clear_touch_marks() {
+        let marks: Vec<WeakView> = Self::get().touch_marks.lock().drain(..).collect();
+        for mut mark in marks {
+            if mark.is_ok() {
+                mark.remove_from_superview();
+            }
+        }
     }
 
     pub fn keymap() -> &'static Keymap {

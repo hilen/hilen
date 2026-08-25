@@ -15,7 +15,7 @@ cargo run -p ui-test -- --headless            # offscreen, much faster, for CI a
 cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  # one offscreen capture
 make uui                                      # full suite, headless, release mode
 make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
-cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, space to advance
+cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, ctrl to advance
 cargo run -p ui-test -- --record-colors --headless --test-name "Font zoo"  # print check_colors blocks
 ```
 
@@ -78,7 +78,7 @@ A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. S
 rust-analyzer sees nothing runnable in that impl. The button offers three modes of
 `cargo run -p ui-test`:
 
-- `run ui-test X` passes `--test-name X --human`, watchable, space to advance.
+- `run ui-test X` passes `--test-name X --human`, watchable, ctrl to advance.
 - `run ui-test X headed` passes `--test-name X`, windowed, runs by itself.
 - `run ui-test X headless` passes `--headless --test-name X`, no window.
 
@@ -361,10 +361,15 @@ coordinates). To read UI state from test code use `from_main` (see [dispatch.md]
 
 ## What a run takes from the app
 
-A run is not read only. It pins scale 1, forces 32 point text, paints its own clear color, pins
-the root to the test canvas and tears the app's root view down. `run_test_map` snapshots all of
-it and hands it back at the end, then asks the app for a new root view, so an app that runs its
-own suite lands back on its main screen at its real scale.
+A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32,
+takes the app's global styles away, paints its own clear color, pins the root to the test canvas
+and tears the app's root view down. `run_test_map` snapshots all of it and hands it back at the
+end, then asks the app for a new root view, so an app that runs its own suite lands back on its
+main screen at its real scale.
+
+The 32 points are only the default for unsized labels, `set_text_size` always wins. So an
+unsized label renders with the app default in production and with 32 in a test. Size labels
+explicitly in views under test.
 
 Leave any of it behind and the app carries on wrong. On a phone that means half sized UI, since
 the harness scale of 1 is not the screen's 2.
@@ -386,20 +391,21 @@ and every screenshot pauses first so the verified state is visible. Every `check
 outlines its checked pixels on screen, each with a swatch of the color that probe pins just
 outside the outline's top right corner, so a probe sitting on the background next to a glyph
 is telling apart from one sitting on the glyph. The window title names the check, and the
-run holds until space before asserting. After each test the title shows the result and the
-run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
+run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
+field does not type the advance key into it. After each test the title shows the result and
+the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 
 The browser lane has the same mode. `bun build/web/drive.ts --human --only "Name"` puts
 the `hilen_human` query flag on the page, the browser spelling of `--human`, and drops the
 driver's report timeout, which would otherwise kill the held run it exists to protect.
 Prompts land in the tab title, `Window::set_title` writes `document.title` on wasm since
 winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
-page once so key events reach the canvas, then space advances the same way.
+page once so key events reach the canvas, then ctrl advances the same way.
 
 The simulator lane has it too. `make ui-ios-human`, or `rust build/ios/sim-test.rs --human`,
 passes `HILEN_HUMAN` into the app, the device spelling of `--human`, and always streams.
 Combine it with `HILEN_TEST_ONLY` to watch one test, `HILEN_TEST_ONLY="Font zoo" make
-ui-ios-human`. A phone has no window title and no space key, so there every hold draws a
+ui-ios-human`. A phone has no window title and no ctrl key, so there every hold draws a
 translucent bar with the prompt over the bottom 40 px of the canvas and a tap anywhere on
 the screen advances. The overlay is its own touch layer, the tap never reaches the views
 under review, and it is gone between holds. The run still ends like the plain lane, the

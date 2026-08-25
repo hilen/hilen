@@ -99,18 +99,44 @@ that whatever sits behind it starts catching. Restoring the original colors need
 set rather than what a theme pair resolved to. Without them a disabled and re-enabled
 button kept a flattened plain color and stopped following theme switches.
 
+## Bug reporting and Sentry on wasm
+
+Found by bringing karkas style bug reporting into the engine. Desktop, iOS and
+Android landed, the browser did not.
+
+- Current: `App::sentry_url` and `BugReport` are native only. The sentry crate
+  does not run on wasm, so `setup_sentry` is gated `not_wasm` and `BugReport::open`
+  is a browser no-op like `system::Router`.
+- Needed: hand build the Sentry envelope, the event JSON plus attachment items,
+  and POST it to the DSN's envelope endpoint through `netrun`. The report dialog
+  and the rings are engine views and plain state, only the transport is missing.
+- Blocks: bug reports and crash events from web apps.
+
+## Multiline TextField
+
+Found by the bug report dialog. A bug description needs a large textarea like
+the karkas dialog has, not a single line.
+
+- Landed: opt in `TextField::set_multiline`. Enter inserts `\n` instead of
+  ending editing, the field got a caret with editing state in
+  `text_field/editing.rs`, content height, a scroll offset that follows the
+  caret, and text selection. `Label` gained an opt in Top vertical alignment
+  threaded through `ShapedParams` into `ShapedLayout`, default stays Center so
+  recorded text expectations hold. Covered by the `Multiline text field` and
+  `Label vertical alignment` tests, and human mode now advances on ctrl so
+  typing into a held field no longer collides with the advance key.
+
 ## TextField theme colors
 
 Found by a port with a text field on several of its screens.
 
-- Current: `Label::set_text_color` takes `impl Into<UIColor>` and so accepts a
-  `DynamicColor` pair, but `TextField::set_text_color`, `set_selected_color` and
-  `set_color` take a plain `Color`. A field cannot hold a theme pair, so the port
-  resolves the pair itself at setup and the text keeps the theme it launched with.
-- Needed: widen those setters to `impl Into<UIColor>` like every other view. The
-  field already owns a `Label` internally, which resolves pairs correctly, so this
-  is a signature change rather than new machinery.
-- Blocks: a live theme switch looking right on any screen with a text field.
+- Landed: `TextField::set_text_color` and `set_selected_color` widened to
+  `impl Into<UIColor>`, so a field holds theme pairs like every other view.
+  The selection color juggle saves the original pair through
+  `ViewData::ui_color` instead of the resolved plain color, so a field keeps
+  following theme switches after editing. Covered by the `Text field theme`
+  test. `is_placeholding` landed alongside, `text()` returns the placeholder
+  while empty and a reader needs to tell the hint from entered text.
 
 ## Text stack rework
 

@@ -6,7 +6,7 @@ use wgpu::{
 };
 use wgpu_text::{
     BrushBuilder, Section, Text, TextBrush,
-    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, VariableFont},
+    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, VariableFont},
 };
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
     managed,
     window::{
         msaa_sample_count, surface_texture_format,
-        text::{ShapedLayout, ShapedParams},
+        text::{ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
         window::Window,
     },
 };
@@ -122,6 +122,7 @@ impl Font {
                 tracking,
                 multiline: width.is_some(),
                 h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
+                v_align: VerticalAlign::Center,
             },
         };
 
@@ -130,6 +131,35 @@ impl Font {
         };
 
         Size::new(bounds.width(), bounds.height())
+    }
+
+    /// Line and caret positions of `text` drawn at `size`, in the same
+    /// pixels `measure` reports. `width` bounds wrapping like in `measure`.
+    pub(crate) fn text_layout(
+        &self,
+        text: &str,
+        size: impl ToF32,
+        width: Option<f32>,
+        tracking: f32,
+    ) -> TextLayout {
+        let layout = ShapedLayout {
+            face:      &self.face,
+            font_name: &self.name,
+            params:    ShapedParams {
+                tracking,
+                multiline: width.is_some(),
+                h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
+                v_align: VerticalAlign::Center,
+            },
+        };
+
+        let scale = PxScale::from(size.to_f32() * self.em_scale);
+        layout.text_layout(
+            &self.brush.fonts()[0],
+            scale,
+            text,
+            width.unwrap_or(f32::INFINITY),
+        )
     }
 
     /// Queues a section shaped with this font's face. Call

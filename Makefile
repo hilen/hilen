@@ -23,6 +23,12 @@ ui-ios:
 ui-ios-human:
 	rust ./build/ios/sim-test.rs --human
 
+ui-ios-present:
+	rust ./build/ios/sim-test.rs --present
+
+ui-web-present:
+	bun build/web/drive.ts --browser $(BROWSER) --present --only "$(HILEN_TEST_ONLY)"
+
 all:
 	order
 	make wasm

@@ -7,7 +7,7 @@ use hilen::{
     ui_test::{check_colors, set_record_probe_count},
 };
 
-use crate::views::basic::label_stress::Script::{
+use crate::views::text::label_stress::Script::{
     Chinese, Cyrillic, Greek, Hindi, Japanese, Latin, LatinExt, Thai,
 };
 

@@ -9,7 +9,7 @@ use hilen::{
     ui_test::{
         TestFailure, UITest, UITestEntry, capture_requested_screenshot, clear_failures, current_test_name,
         enable_color_recording, enable_fps_report, enable_human_mode, enable_screenshot_capture,
-        push_failure, run_test, spaced_test_name, take_failures,
+        present_test, push_failure, run_test, spaced_test_name, take_failures,
     },
 };
 use log::info;
@@ -49,13 +49,19 @@ struct DisplayArgs {
     headless: bool,
 
     /// Watchable run: slows injections, shows touches, holds after
-    /// each test until space is pressed.
+    /// each test until ctrl is pressed.
     #[arg(long)]
     human: bool,
 
     /// Save a test screenshot without opening a window. Requires --test-name.
     #[arg(long, value_name = "PATH")]
     screenshot: Option<PathBuf>,
+
+    /// Presentation mode: build one test's view over the whole window and
+    /// hand it over. Nothing is injected and `perform_test` never runs, so
+    /// a human can play with the view. Requires exactly one --test-name.
+    #[arg(long)]
+    present: bool,
 }
 
 /// Names the crates whose tests this runner covers, so a linker keeps them.
@@ -77,7 +83,9 @@ fn all_tests() -> BTreeMap<String, UITestEntry> {
     hilen::UI_TESTS.lock().clone()
 }
 
-fn run(args: Args) -> Result<()> {
+/// Validates the mode flags against each other and switches the chosen
+/// ones on.
+fn apply_modes(args: &Args) -> Result<()> {
     if args.run.fps_report {
         enable_fps_report();
     }
@@ -100,6 +108,23 @@ fn run(args: Args) -> Result<()> {
     if args.run.record_colors {
         enable_color_recording();
     }
+
+    if args.display.present {
+        anyhow::ensure!(
+            !args.display.headless && args.display.screenshot.is_none() && !args.display.human,
+            "--present is its own mode, remove --headless, --screenshot and --human"
+        );
+        anyhow::ensure!(
+            args.test_name.as_ref().is_some_and(|names| !names.contains(',')),
+            "--present requires exactly one --test-name"
+        );
+    }
+
+    Ok(())
+}
+
+fn run(args: Args) -> Result<()> {
+    apply_modes(&args)?;
 
     install_fatal_panic_hook();
 
@@ -125,6 +150,23 @@ fn run(args: Args) -> Result<()> {
 
     let test_name = args.test_name;
     let human = args.display.human;
+
+    if args.display.present {
+        let name = test_name.expect("checked above");
+        anyhow::ensure!(
+            tests.contains_key(&spaced_test_name(&name)),
+            "UI test not found: {name}. Run `cargo run -p ui-test -- --list` to see every registered test."
+        );
+        return AppRunner::start_with_actor(async move {
+            present_test(&name)?;
+            println!(
+                "{}: presented, close the window to finish",
+                spaced_test_name(&name)
+            );
+            Ok(())
+        });
+    }
+
     let total = test_name.as_ref().map_or(tests.len(), |names| names.split(',').count());
 
     let actor = async move {
