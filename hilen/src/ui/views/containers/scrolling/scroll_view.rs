@@ -112,7 +112,7 @@ impl ScrollView {
         self.content.content_size.height
     }
 
-    pub(crate) fn get_scroll_content_offset(&self) -> f32 {
+    pub fn get_scroll_content_offset(&self) -> f32 {
         self.content.content_offset()
     }
 }

@@ -4,7 +4,7 @@ use crate::{
         vec::{WeakVec, WeakVecHelper},
     },
     gm::flat::Point,
-    ui::{Touch, View, ViewData, WeakView},
+    ui::{Touch, View, ViewData, WeakView, view::ViewSubviews},
 };
 
 pub(crate) trait Scrollable: View {
@@ -17,6 +17,15 @@ pub(crate) struct TouchLayer {
     listeners:       Vec<WeakView>,
     hovered:         Vec<WeakView>,
     scrolls:         WeakVec<dyn Scrollable>,
+}
+
+/// Registrations pulled out of one layer to move into another when a
+/// layer is pushed over existing views or popped from under them.
+#[derive(Default)]
+pub(crate) struct Extracted {
+    listeners: Vec<WeakView>,
+    hovered:   Vec<WeakView>,
+    scrolls:   WeakVec<dyn Scrollable>,
 }
 
 impl TouchLayer {
@@ -50,6 +59,77 @@ impl TouchLayer {
 
     pub(crate) fn remove(&mut self, view: WeakView) {
         self.listeners.retain(|a| a.raw() != view.raw());
+    }
+
+    /// Moves every registration sitting under `root` out of this layer,
+    /// so a pre-built overlay keeps its views when it becomes a layer.
+    pub(crate) fn extract_under(&mut self, root: WeakView) -> Extracted {
+        let root_raw = root.raw();
+        let is_under = |view: WeakView| {
+            let mut cur = view;
+            while cur.is_ok() {
+                if cur.raw() == root_raw {
+                    return true;
+                }
+                cur = *cur.superview();
+            }
+            false
+        };
+        let mut extracted = Extracted::default();
+        self.listeners.retain(|v| {
+            if is_under(*v) {
+                extracted.listeners.push(*v);
+                false
+            } else {
+                true
+            }
+        });
+        self.hovered.retain(|v| {
+            if is_under(*v) {
+                extracted.hovered.push(*v);
+                false
+            } else {
+                true
+            }
+        });
+        self.scrolls.retain(|s| {
+            if s.is_ok() && is_under(s.weak_view()) {
+                extracted.scrolls.push(*s);
+                false
+            } else {
+                true
+            }
+        });
+        extracted
+    }
+
+    /// The reverse of `extract_under`: a popped overlay layer hands its
+    /// surviving registrations back, so reopening the overlay finds its
+    /// buttons and scrolls still alive.
+    pub(crate) fn absorb(&mut self, extracted: Extracted) {
+        for view in extracted.listeners {
+            if view.is_ok() {
+                self.add(view);
+            }
+        }
+        for view in extracted.hovered {
+            if view.is_ok() {
+                self.add_hover(view);
+            }
+        }
+        for scroll in extracted.scrolls {
+            if scroll.is_ok() {
+                self.add_scroll(scroll);
+            }
+        }
+    }
+
+    pub(crate) fn drain(&mut self) -> Extracted {
+        Extracted {
+            listeners: std::mem::take(&mut self.listeners),
+            hovered:   std::mem::take(&mut self.hovered),
+            scrolls:   std::mem::take(&mut self.scrolls),
+        }
     }
 
     pub(crate) fn views(&self) -> Vec<WeakView> {

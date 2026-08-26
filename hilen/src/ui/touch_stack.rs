@@ -81,16 +81,29 @@ impl TouchStack {
         Self::get().layer_for(view).remove(view);
     }
 
-    pub(crate) fn push_layer(view: WeakView) {
-        Self::get().stack.push(view.into());
+    /// Puts an overlay on top of the touch stack: only views under it
+    /// receive touches until the matching `pop_layer`. Registrations
+    /// already sitting under the new root migrate into the layer, so a
+    /// pre-built overlay keeps its buttons and scrolls when it opens.
+    pub fn push_layer(view: WeakView) {
+        let mut this = Self::get();
+        let mut layer: TouchLayer = view.into();
+        for existing in this.stack.iter_mut() {
+            layer.absorb(existing.extract_under(view));
+        }
+        this.stack.push(layer);
     }
 
     pub fn touch_root_name_for(view: WeakView) -> String {
         Self::get().layer_for(view).root_name().to_string()
     }
 
-    pub(crate) fn pop_layer(view: WeakView) {
-        let pop = Self::get().stack.pop().unwrap();
+    /// Removes the top overlay layer. Its surviving registrations go
+    /// back to the layer below, so an overlay that merely hides can
+    /// reopen with its views still registered.
+    pub fn pop_layer(view: WeakView) {
+        let mut this = Self::get();
+        let mut pop = this.stack.pop().unwrap();
         assert_eq!(
             pop.root.raw(),
             view.raw(),
@@ -98,6 +111,8 @@ impl TouchStack {
             pop.root_name(),
             view.label()
         );
+        let remaining = pop.drain();
+        this.stack.last_mut().absorb(remaining);
     }
 
     pub fn root_name() -> String {

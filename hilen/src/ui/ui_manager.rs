@@ -162,7 +162,9 @@ impl UIManager {
         });
     }
 
-    pub(crate) fn unselect_view() {
+    /// Ends the current editing session, the programmatic pair of
+    /// `TextField::focus`. A no-op when nothing is selected.
+    pub fn unselect_view() {
         let this = Self::get();
         let mut selected_view = this.selected_view.lock();
         if selected_view.is_null() {

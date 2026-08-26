@@ -16,7 +16,7 @@ use crate::{
     ui::{
         Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
         UIManager, VerticalAlignment, ViewSubviews,
-        view::{ViewData, ViewFrame, ViewTouch},
+        view::{View, ViewData, ViewFrame, ViewTouch},
     },
 };
 
@@ -204,6 +204,14 @@ impl TextField {
 
     pub(crate) fn is_editing(&self) -> bool {
         self.is_editing
+    }
+
+    /// Programmatic focus, the same editing session a tap starts. The
+    /// caret lands at the end of the entered text.
+    pub fn focus(&self) {
+        weak_from_ref(self).caret = self.entered_text().len();
+        weak_from_ref(self).anchor = None;
+        UIManager::set_selected(self.weak_view(), true);
     }
 
     pub fn clear(&self) -> &Self {

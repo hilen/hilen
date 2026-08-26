@@ -20,6 +20,9 @@ mod multiline_text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
+mod text_field_focus;
 /// Sets colors and switches themes without typing, so unlike the other
 /// text field tests it runs everywhere.
 mod text_field_theme;

@@ -119,6 +119,21 @@ can assert `Hover::cursor()`. The kukareker panel drag also made
 `UIManager::cursor_position` and the `Touch` phase checks public, drag code
 needs the pointer in absolute points while the dragged view moves.
 
+The kukareker wave 3 landed programmatic focus and overlay touch layers,
+each with a UI test. `TextField::focus` starts the same editing session a
+tap starts, the caret at the end of the text, and the public
+`UIManager::unselect_view` ends it, so the project palette opens from a
+hotkey and types straight away. `TouchStack::push_layer` and `pop_layer`
+became public with registration migration: touches dispatch by registration
+order, not depth, so a full window overlay was losing taps to views that
+re-register under it on every store event, the way modals never do because
+they own a layer. A push now pulls registrations already sitting under the
+new root into the layer, and a pop hands the survivors back to the layer
+below, so an overlay that merely hides can reopen with its views still
+registered. Covered by `Text field focus` and `Overlay touch layer`.
+`ScrollView::get_scroll_content_offset` also became public, the palette
+keeps its keyboard selection scrolled into view.
+
 ## Bug reporting and Sentry on wasm
 
 Found by bringing karkas style bug reporting into the engine. Desktop, iOS and
@@ -424,6 +439,26 @@ Found by the tvOS display bring-up, see [tvos.md](tvos.md).
   onto its views, most likely a focus model over the existing key and touch events.
 - Blocks: any interactive tvOS app, and the tvOS UI test lane, since what a test can
   assert depends on this path.
+
+## Key injection over hilen-inspect
+
+Found by the kukareker wave 3 verification. The project palette and the zoom
+hotkeys live on Cmd combos and typing, and hilen-inspect could not drive them,
+so they went unverified in the running app.
+
+- Current: the inspect protocol drives taps only. `UIRequest::Tap` injects a
+  began and ended touch pair through `Input::process_touch_event`. Key
+  injection exists in the engine, `Input::on_char` and `Input::on_key`,
+  exposed to UI tests through `inject_keys`, `inject_named_key` and
+  `inject_modifiers`, but none of it is reachable over the inspect socket.
+- Needed: an inspect request that injects keys through the same `Input` entry
+  points, a chars variant, a named key variant, and held modifiers so Cmd+P
+  style combos work, plus a `hilen-inspect keys` command in the CLI.
+  Modifiers must apply only for the injected sequence and reset after it, so
+  a stuck Cmd cannot leak into later input.
+- Blocks: driving the kukareker project palette and hotkeys from
+  hilen-inspect, and any scripted check of a keyboard driven flow in a
+  running app.
 
 ## Suggested order
 
