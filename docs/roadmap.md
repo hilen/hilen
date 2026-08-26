@@ -262,14 +262,16 @@ menus everywhere, branch rows, file rows, commit rows, stash rows.
 Found by the kukareker commit graph, a row is 30 px without ref chips and
 42 px with them.
 
-- Current: `cell_height(index)` takes an index but only `cell_height(0)` is
-  read and every cell shares that height. Offsets, recycling and tap mapping
-  all assume one height.
-- Needed: honor per-index heights, cumulative offsets for scroll position and
-  tap mapping, recycling, `set_cell_spacing`, `scroll_to_bottom` and
-  `bottom_reached` keep working. A table with uniform heights keeps the
-  current fast path.
-- Blocks: the kukareker commit graph in its core wave.
+- Landed: opt in `TableView::set_variable_heights(true)`. Every row reads
+  its own `cell_height(index)`, the index of its first cell, and the table
+  caches the running row offsets on each `reload_data`, one `cell_height`
+  call per row. Scroll position, recycling, tap mapping, `set_cell_spacing`,
+  `scroll_to_bottom` and `bottom_reached` all run off the offsets. Off by
+  default, where `cell_height(0)` is every row and the table never walks
+  the data, so a uniform table keeps the fast path with no memory per row.
+  Both paths share one `Rows` geometry in `table_view/rows.rs`. Covered by
+  `Table variable heights`.
+- Blocks: nothing. This unblocked the kukareker commit graph.
 
 ## Colored text runs in a label
 
@@ -404,8 +406,8 @@ Found by the tvOS display bring-up, see [tvos.md](tvos.md).
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
-Right-click context menus landed. The kukareker core wave needs TableView
-variable row heights next, then tooltips during the port, then colored label runs for
+Right-click context menus and TableView variable row heights landed. The
+kukareker core wave needs tooltips during the port, then colored label runs for
 its later diff highlighting wave. Among the rest, frame stepped animation
 testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.

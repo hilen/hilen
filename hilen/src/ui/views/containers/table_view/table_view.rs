@@ -1,4 +1,7 @@
-use super::layout::LayoutMode;
+use super::{
+    layout::LayoutMode,
+    rows::{Rows, row_offsets},
+};
 use crate::{
     self as hilen,
     deps::{
@@ -20,6 +23,13 @@ pub struct TableView {
     pub(super) columns: usize,
 
     pub(super) cell_spacing: f32,
+
+    /// Rows read their own `cell_height(index)` instead of sharing row 0.
+    pub(super) variable_heights: bool,
+
+    /// Row offsets of a variable height table, rebuilt on a full layout.
+    /// Empty for a uniform table, which needs no memory per row.
+    pub(super) row_offsets: Vec<f32>,
 
     pub(super) header_height: f32,
     pub(super) header_views:  Vec<WeakView>,
@@ -95,6 +105,16 @@ impl TableView {
         self
     }
 
+    /// Every row gets its own height from `cell_height(index)`, the index
+    /// of its first cell. Off by default, where `cell_height(0)` is the
+    /// height of every row and the table never walks the data. Turning
+    /// it on costs one `cell_height` call per row on every `reload_data`.
+    pub fn set_variable_heights(&mut self, variable: bool) -> &mut Self {
+        self.variable_heights = variable;
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
     /// Reserves space above the first row for header views. The header
     /// scrolls away with the content.
     pub fn set_header_height(&mut self, height: impl ToF32) -> &mut Self {
@@ -142,7 +162,6 @@ impl TableView {
         }
 
         let columns: f32 = self.columns.lossy_convert();
-        let cell_height = self.data.cell_height(0);
         let spacing = self.cell_spacing;
         let cell_width = (self.width() - spacing * (columns - 1.0)) / columns;
 
@@ -154,8 +173,14 @@ impl TableView {
         if y < 0.0 {
             return;
         }
-        let row = ((y - cell_height / 2.0) / (cell_height + spacing)).round().max(0.0);
 
+        let rows = self.rows(number_of_cells);
+
+        if y > rows.total() + spacing / 2.0 {
+            return;
+        }
+
+        let row: f32 = rows.row_for_tap(y).lossy_convert();
         let index: usize = (row * columns + col).lossy_convert();
 
         if index >= number_of_cells {
@@ -163,6 +188,39 @@ impl TableView {
         }
 
         self.data.cell_selected(index);
+    }
+
+    pub(super) fn row_count(&self, number_of_cells: usize) -> usize {
+        number_of_cells.div_ceil(self.columns)
+    }
+
+    /// The row geometry for the current data. A variable table answers
+    /// from the cached offsets, see `rebuild_row_offsets`.
+    pub(super) fn rows(&self, number_of_cells: usize) -> Rows<'_> {
+        if self.variable_heights {
+            Rows::Variable {
+                offsets: &self.row_offsets,
+                spacing: self.cell_spacing,
+            }
+        } else {
+            Rows::uniform(
+                self.row_count(number_of_cells),
+                self.data.cell_height(0),
+                self.cell_spacing,
+            )
+        }
+    }
+
+    pub(super) fn rebuild_row_offsets(&mut self, number_of_cells: usize) {
+        if !self.variable_heights {
+            self.row_offsets.clear();
+            return;
+        }
+
+        let columns = self.columns;
+        let heights = (0..self.row_count(number_of_cells)).map(|row| self.data.cell_height(row * columns));
+
+        self.row_offsets = row_offsets(heights, self.cell_spacing);
     }
 
     fn layout_cells(&mut self, mode: LayoutMode) {
@@ -179,6 +237,10 @@ impl TableView {
 
         if number_of_cells == 0 {
             return;
+        }
+
+        if matches!(mode, LayoutMode::Full) || (self.variable_heights && self.row_offsets.is_empty()) {
+            self.rebuild_row_offsets(number_of_cells);
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);

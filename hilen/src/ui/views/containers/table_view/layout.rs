@@ -12,43 +12,42 @@ pub(super) enum LayoutMode {
     Full,
 }
 
-fn cell_frame(
-    i: usize,
-    columns: usize,
-    cell_width: f32,
-    cell_height: f32,
-    spacing: f32,
-    header: f32,
-) -> (f32, f32, f32, f32) {
-    let x: f32 = (i % columns).lossy_convert() * (cell_width + spacing);
-    let y: f32 = (i / columns).lossy_convert() * (cell_height + spacing) + header;
-    (x, y, cell_width, cell_height)
-}
-
 impl TableView {
     pub(super) fn layout_fixed_cells(&mut self, number_of_cells: usize, columns: usize, mode: LayoutMode) {
-        let cell_height = self.data.cell_height(0);
         let spacing = self.cell_spacing;
-        let row_pitch = cell_height + spacing;
         let width = self.width();
         let cell_width = (width - spacing * (columns - 1).lossy_convert()) / columns.lossy_convert();
+        let header = self.header_height;
 
-        let rows: f32 = (number_of_cells.lossy_convert() / columns.lossy_convert()).ceil();
-        let total_height = rows * row_pitch - spacing + self.header_height;
+        // The offsets live in the table and the layout below mutates the
+        // table, so the geometry reads them through a second pointer.
+        let geometry_table = weak_from_ref(self);
+        let rows = geometry_table.rows(number_of_cells);
+        let mut weak_table = weak_from_ref(self);
+        let total_height = rows.total() + header;
 
         self.scroll.set_content_height(total_height);
         self.scroll.set_content_width(width);
 
-        let rows_fit: usize = (self.height() / row_pitch).ceil().lossy_convert();
         let offset = self.scroll.get_scroll_content_offset();
-        let first_visible_row: usize =
-            ((-offset - self.header_height) / row_pitch).floor().max(0.0).lossy_convert();
-        let first_index = first_visible_row * columns;
+        let top = -offset - header;
+        let bottom = top + self.height();
 
-        let mut last_index = first_index + rows_fit * columns + columns * 2;
-        if last_index > number_of_cells {
-            last_index = number_of_cells;
-        }
+        let first_visible_row = rows.row_at(top);
+        let mut last_row = rows.row_at(bottom) + 1;
+
+        // Two rows of slack past the viewport, so a small scroll shows
+        // a row that is already set up.
+        last_row = (last_row + 2).min(rows.count());
+
+        let first_index = first_visible_row * columns;
+        let last_index = (last_row * columns).min(number_of_cells);
+
+        let cell_frame = |i: usize| -> (f32, f32, f32, f32) {
+            let row = i / columns;
+            let x: f32 = (i % columns).lossy_convert() * (cell_width + spacing);
+            (x, rows.top(row) + header, cell_width, rows.height(row))
+        };
 
         let mut to_recycle = Vec::new();
         let mut shown = Vec::new();
@@ -81,8 +80,6 @@ impl TableView {
                 .collect(),
         );
 
-        let mut weak_table = weak_from_ref(self);
-
         if matches!(mode, LayoutMode::Resize) {
             for view in weak_table.scroll.content.subviews() {
                 if view.is_hidden() {
@@ -91,14 +88,7 @@ impl TableView {
                 if weak_table.header_views.iter().any(|h| h.raw() == view.weak().raw()) {
                     continue;
                 }
-                view.set_frame(cell_frame(
-                    view.tag(),
-                    columns,
-                    cell_width,
-                    cell_height,
-                    spacing,
-                    self.header_height,
-                ));
+                view.set_frame(cell_frame(view.tag()));
             }
         }
 
@@ -111,14 +101,7 @@ impl TableView {
             let cell = cell.deref_mut();
 
             cell.set_tag(i);
-            cell.set_frame(cell_frame(
-                i,
-                columns,
-                cell_width,
-                cell_height,
-                spacing,
-                self.header_height,
-            ));
+            cell.set_frame(cell_frame(i));
 
             cell.as_cell().cell_added();
         }
