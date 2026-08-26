@@ -2,7 +2,7 @@
 
 use web_time::{Duration, Instant};
 
-use super::{MULTILINE_TOP_INSET, TextField};
+use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -31,8 +31,34 @@ impl TextField {
         if self.placeholding {
             String::new()
         } else {
-            self.label.text().to_string()
+            self.text().to_string()
         }
+    }
+
+    /// The text the label draws, the mask of a secure field.
+    fn display_text(&self) -> String {
+        let text = self.entered_text();
+        if self.is_secure() { mask(&text) } else { text }
+    }
+
+    /// A byte index into the entered text as a byte index into the
+    /// displayed text. The two differ only in a secure field, where every
+    /// character becomes one mask character.
+    fn display_byte(&self, byte: usize) -> usize {
+        if !self.is_secure() {
+            return byte;
+        }
+        self.entered_text()[..byte].chars().count() * MASK.len_utf8()
+    }
+
+    /// The inverse of `display_byte`.
+    fn entered_byte(&self, display: usize) -> usize {
+        if !self.is_secure() {
+            return display;
+        }
+        let chars = display / MASK.len_utf8();
+        let text = self.entered_text();
+        text.char_indices().nth(chars).map_or(text.len(), |(index, _)| index)
     }
 
     /// The selected byte range, start before end, `None` when empty.
@@ -45,7 +71,7 @@ impl TextField {
     }
 
     fn layout(&self) -> TextLayout {
-        self.label.text_layout_for(&self.entered_text())
+        self.label.text_layout_for(&self.display_text())
     }
 
     pub(super) fn on_char(self: Weak<Self>, ch: char) {
@@ -93,7 +119,7 @@ impl TextField {
 
     fn copy(self: Weak<Self>) {
         let text = self.selected_text();
-        if text.is_empty() {
+        if text.is_empty() || self.is_secure() {
             return;
         }
         if let Err(err) = Clipboard::set_text(text) {
@@ -142,17 +168,17 @@ impl TextField {
             }
             NamedKey::Home | NamedKey::End => {
                 let layout = self.layout();
-                let line = &layout.lines[layout.line_of(self.caret)];
+                let line = &layout.lines[layout.line_of(self.display_byte(self.caret))];
                 let target = if key == NamedKey::Home {
                     line.start
                 } else {
                     line.end
                 };
-                self.move_caret(target, shift);
+                self.move_caret(self.entered_byte(target), shift);
             }
             NamedKey::ArrowUp | NamedKey::ArrowDown => {
                 let layout = self.layout();
-                let (line, x) = layout.position_of(self.caret);
+                let (line, x) = layout.position_of(self.display_byte(self.caret));
                 let target = if key == NamedKey::ArrowUp {
                     line.checked_sub(1)
                 } else {
@@ -160,7 +186,7 @@ impl TextField {
                 };
                 if let Some(target) = target {
                     let byte = layout.nearest_on_line(target, x);
-                    self.move_caret(byte, shift);
+                    self.move_caret(self.entered_byte(byte), shift);
                 }
             }
             _ => {}
@@ -267,7 +293,7 @@ impl TextField {
             .lossy_convert();
 
         let x = position.x - line_starts[line_index];
-        layout.nearest_on_line(line_index, x)
+        self.entered_byte(layout.nearest_on_line(line_index, x))
     }
 
     pub(super) fn on_touch_began(mut self: Weak<Self>, position: Point) {
@@ -386,7 +412,7 @@ impl TextField {
 
         let layout = self.layout();
         let (top, line_starts) = self.line_origins(&layout);
-        let (line, x) = layout.position_of(self.caret);
+        let (line, x) = layout.position_of(self.display_byte(self.caret));
 
         let height = layout.ascent - layout.descent;
         let y = top + line.to_f32() * layout.line_height;
@@ -423,6 +449,7 @@ impl TextField {
         let Some((start, end)) = self.selection() else {
             return;
         };
+        let (start, end) = (self.display_byte(start), self.display_byte(end));
 
         let label_z = self.label.z_position();
 

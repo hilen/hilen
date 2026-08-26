@@ -161,6 +161,18 @@ the karkas dialog has, not a single line.
   `Label vertical alignment` tests, and human mode now advances on ctrl so
   typing into a held field no longer collides with the advance key.
 
+## Secure TextField
+
+Found by the kukareker askpass modal, a token field must not show what is
+typed.
+
+- Landed: opt in `TextField::set_secure`. The entered text lives in a
+  private field, the label draws one bullet per character, `text` still
+  returns the real value and copy is disabled. The caret and the selection
+  keep working in bytes of the real text through a mapping to the bullet
+  string, so a non ascii character still moves as one character. Covered by
+  the `Secure text field` test.
+
 ## TextField theme colors
 
 Found by a port with a text field on several of its screens.

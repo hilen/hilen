@@ -19,6 +19,9 @@ mod multiline_label;
 mod multiline_text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
+mod secure_text_field;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
 mod text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
