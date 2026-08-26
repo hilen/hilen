@@ -2,6 +2,7 @@ mod background;
 mod button;
 mod button_disabled;
 mod checkbox;
+mod command_held;
 mod corner_radii;
 mod dynamic_clear_color;
 mod gradient;

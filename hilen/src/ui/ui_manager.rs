@@ -21,8 +21,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        DynamicColor, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View, ViewData,
-        ViewFrame, ViewSubviews, WeakView,
+        DynamicColor, Input, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View,
+        ViewData, ViewFrame, ViewSubviews, WeakView,
     },
     window::Window,
 };
@@ -330,6 +330,13 @@ impl UIManager {
 
     pub fn keymap() -> &'static Keymap {
         Self::get().keymap.deref()
+    }
+
+    /// Cmd on a Mac, Ctrl elsewhere. Touch handlers get no modifier state
+    /// on the touch itself, so a click that means something different with
+    /// the command key held, like adding to a multi selection, asks here.
+    pub fn command_held() -> bool {
+        Input::command_held()
     }
 
     pub fn cloud_storage_dir() -> Option<PathBuf> {
