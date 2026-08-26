@@ -103,7 +103,9 @@ impl UIManager {
         f32::from_bits(Self::get().scale.load(Ordering::Relaxed))
     }
 
-    pub(crate) fn cursor_position() -> Point {
+    /// The last known cursor or touch position in points. Drag code uses
+    /// it for deltas that stay correct while the dragged view moves.
+    pub fn cursor_position() -> Point {
         *Self::get().cursor_position.lock()
     }
 

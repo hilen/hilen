@@ -105,6 +105,20 @@ that whatever sits behind it starts catching. Restoring the original colors need
 set rather than what a theme pair resolved to. Without them a disabled and re-enabled
 button kept a flattened plain color and stopped following theme switches.
 
+The kukareker wave 1 finish landed three more, each with a UI test. Keymap
+modifier combos: `Keymap::add` takes `impl Into<KeyCombo>`, plain keys stay
+as they were except they no longer fire while the command modifier is held,
+and `KeyCombo::cmd` / `cmd_shift` bind Cmd+Enter, Cmd+B and Cmd+Shift+B
+style hotkeys, Cmd meaning Super or Ctrl. Menu row badges:
+`MenuItem::badge(text, color)` chains short colored texts at the right edge
+of a context menu row, sized into the menu width, for the recents dirty,
+ahead and behind statuses. Hover cursor icons: `set_hover_cursor(CursorIcon)`
+on any view swaps the mouse cursor while the view is hovered, applied by the
+hover tracker and reset on exit, windowless runs track the state so tests
+can assert `Hover::cursor()`. The kukareker panel drag also made
+`UIManager::cursor_position` and the `Touch` phase checks public, drag code
+needs the pointer in absolute points while the dragged view moves.
+
 ## Bug reporting and Sentry on wasm
 
 Found by bringing karkas style bug reporting into the engine. Desktop, iOS and

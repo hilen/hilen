@@ -12,8 +12,8 @@ use crate::{
         flat::{CornerRadii, Rect},
     },
     ui::{
-        DynamicColor, Gradient, NavigationView, Shadow, TooltipContent, Touch, UIEvent, View, WeakView,
-        layout::Placer,
+        CursorIcon, DynamicColor, Gradient, NavigationView, Shadow, TooltipContent, Touch, UIEvent, View,
+        WeakView, layout::Placer,
     },
 };
 
@@ -104,6 +104,9 @@ pub struct ViewBase {
 
     #[educe(Debug(ignore))]
     pub(crate) tooltip: Option<TooltipContent>,
+
+    #[educe(Debug(ignore))]
+    pub(crate) hover_cursor: Option<CursorIcon>,
 
     pub tag: usize,
 }

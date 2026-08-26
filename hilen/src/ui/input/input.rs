@@ -1,6 +1,9 @@
 use log::warn;
 use parking_lot::Mutex;
-pub use winit::keyboard::{ModifiersState, NamedKey};
+pub use winit::{
+    keyboard::{ModifiersState, NamedKey},
+    window::CursorIcon,
+};
 
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;

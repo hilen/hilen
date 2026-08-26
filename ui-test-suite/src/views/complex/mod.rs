@@ -2,6 +2,7 @@ mod alert;
 mod backdrop_blur;
 mod buttons_on_table;
 mod context_menu;
+mod context_menu_badges;
 mod drop_down;
 mod modal_blur;
 mod modal_scrim;

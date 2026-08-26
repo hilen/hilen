@@ -15,15 +15,15 @@ pub struct Touch {
 }
 
 impl Touch {
-    pub(crate) fn is_began(&self) -> bool {
+    pub fn is_began(&self) -> bool {
         self.event == TouchEvent::Began
     }
 
-    pub(crate) fn is_moved(&self) -> bool {
+    pub fn is_moved(&self) -> bool {
         self.event == TouchEvent::Moved
     }
 
-    pub(crate) fn is_ended(&self) -> bool {
+    pub fn is_ended(&self) -> bool {
         self.event == TouchEvent::Ended
     }
 

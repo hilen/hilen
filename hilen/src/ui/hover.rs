@@ -7,10 +7,11 @@ use crate::ui::{
 };
 use crate::{
     deps::refs::main_lock::MainLock,
-    ui::{Tooltip, WeakView},
+    ui::{CursorIcon, Tooltip, WeakView},
 };
 
 static HOVERED: MainLock<WeakView> = MainLock::new();
+static CURSOR: MainLock<CursorIcon> = MainLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
@@ -67,6 +68,32 @@ impl Hover {
             base.events.touch.hovered.trigger(true);
         }
 
+        let cursor = if new.is_ok() {
+            new.__base_view().hover_cursor.unwrap_or_default()
+        } else {
+            CursorIcon::default()
+        };
+        Self::apply_cursor(cursor);
+
         Tooltip::hover_changed(new);
+    }
+
+    /// The cursor icon hover currently asks for, `Default` off any view
+    /// with a custom one. Windowless runs track it too, so tests can
+    /// assert it.
+    pub fn cursor() -> CursorIcon {
+        *CURSOR
+    }
+
+    fn apply_cursor(cursor: CursorIcon) {
+        if *CURSOR == cursor {
+            return;
+        }
+        *CURSOR.get_mut() = cursor;
+
+        #[cfg(any(desktop, wasm))]
+        if let Some(window) = crate::window::Window::winit_window() {
+            window.set_cursor(cursor);
+        }
     }
 }

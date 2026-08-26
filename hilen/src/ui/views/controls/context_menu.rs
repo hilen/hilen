@@ -24,18 +24,21 @@ const HIGHLIGHT: DynamicColor = DynamicColor::new(Color::rgb(0.93, 0.93, 0.94), 
 const ITEM_HEIGHT: f32 = 28.0;
 const SEPARATOR_HEIGHT: f32 = 9.0;
 const TEXT_SIZE: f32 = 14.0;
+const BADGE_TEXT_SIZE: f32 = 11.0;
+const BADGE_GAP: f32 = 6.0;
 const PADDING: f32 = 4.0;
 const SIDE_PADDING: f32 = 8.0;
 const MIN_WIDTH: f32 = 160.0;
 const CORNER_RADIUS: f32 = 8.0;
 
 /// A row of a [`ContextMenu`]. Build with [`MenuItem::new`] or
-/// [`MenuItem::separator`], then chain `disabled` and `danger`.
+/// [`MenuItem::separator`], then chain `disabled`, `danger` and `badge`.
 pub struct MenuItem {
     title:   String,
     action:  Option<Box<dyn FnMut() + Send>>,
     enabled: bool,
     danger:  bool,
+    badges:  Vec<(String, UIColor)>,
 }
 
 impl MenuItem {
@@ -45,6 +48,7 @@ impl MenuItem {
             action:  Some(Box::new(action)),
             enabled: true,
             danger:  false,
+            badges:  vec![],
         }
     }
 
@@ -55,7 +59,16 @@ impl MenuItem {
             action:  None,
             enabled: false,
             danger:  false,
+            badges:  vec![],
         }
+    }
+
+    /// A short colored text at the right edge of the row, for status like
+    /// a dirty marker or an ahead count. Chain once per badge, they show
+    /// in call order left to right.
+    pub fn badge(mut self, text: impl ToString, color: impl Into<UIColor>) -> Self {
+        self.badges.push((text.to_string(), color.into()));
+        self
     }
 
     /// Grayed out, a tap on it does nothing and the menu stays open.
@@ -79,6 +92,7 @@ impl MenuItem {
 pub struct MenuItemView {
     action:  Option<Box<dyn FnMut() + Send>>,
     enabled: bool,
+    badges:  Vec<Weak<Label>>,
 
     #[init]
     label: Label,
@@ -93,10 +107,35 @@ impl MenuItemView {
         self.enabled
     }
 
+    /// The badge labels in visual order, left to right.
+    pub fn badges(&self) -> &[Weak<Label>] {
+        &self.badges
+    }
+
+    /// Points the badges take at the right edge of the row, including the
+    /// gap between the title and the first badge. Zero without badges.
+    fn badges_width(&self) -> f32 {
+        self.badges
+            .iter()
+            .map(|badge| badge.content_size().width.ceil() + BADGE_GAP)
+            .sum()
+    }
+
     fn fill(mut self: Weak<Self>, item: MenuItem) {
         self.enabled = item.enabled;
         self.action = item.action;
         self.label.set_text(&item.title);
+
+        let mut offset = SIDE_PADDING;
+        for (text, color) in item.badges.iter().rev() {
+            let badge = self.add_view::<Label>();
+            badge.set_text(text).set_text_size(BADGE_TEXT_SIZE).set_text_color(*color);
+            let width = badge.content_size().width.ceil();
+            badge.place().r(offset).center_y().size(width, ITEM_HEIGHT);
+            offset += width + BADGE_GAP;
+            self.badges.push(badge);
+        }
+        self.badges.reverse();
 
         let color = if !item.enabled {
             DISABLED_TEXT
@@ -245,7 +284,8 @@ impl ContextMenu {
             let view = self.add_view::<MenuItemView>();
             view.fill(item);
             view.place().t(y).lr(PADDING).h(ITEM_HEIGHT);
-            width = width.max(view.label.content_size().width + (SIDE_PADDING + PADDING) * 2.0);
+            width = width
+                .max(view.label.content_size().width + view.badges_width() + (SIDE_PADDING + PADDING) * 2.0);
             y += ITEM_HEIGHT;
 
             self.items.push(view);

@@ -12,6 +12,9 @@ mod gradient;
 /// gated.
 #[cfg(any(desktop, wasm))]
 mod hover;
+/// The cursor icon rides on hover, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_cursor;
 mod image_scissor;
 mod inject_touch;
 mod nine_segment;

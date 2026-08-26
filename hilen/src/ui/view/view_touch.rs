@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::weak_from_ref,
     ui::{
-        LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
+        CursorIcon, LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
         view::{ViewFrame, view_data::ViewData},
     },
     window::MouseButton,
@@ -17,6 +17,13 @@ pub trait ViewTouch {
     fn enable_touch(&self) -> &Self;
     fn enable_touch_low_priority(&self) -> &Self;
     fn enable_hover(&self) -> &Self;
+
+    /// The mouse cursor to show while this view is hovered, for example
+    /// `CursorIcon::ColResize` on a panel drag handle. Turns hover on for
+    /// the view. Only desktop and the browser have a cursor, everywhere
+    /// else this is inert.
+    fn set_hover_cursor(&self, icon: CursorIcon) -> &Self;
+
     fn disable_touch(&self);
     fn touch(&self) -> &ViewTouchEvents;
 }
@@ -43,6 +50,11 @@ impl<T: ?Sized + View> ViewTouch for T {
     fn enable_hover(&self) -> &Self {
         TouchStack::enable_hover(self.weak_view());
         self
+    }
+
+    fn set_hover_cursor(&self, icon: CursorIcon) -> &Self {
+        self.__base_view().hover_cursor = Some(icon);
+        self.enable_hover()
     }
 
     fn disable_touch(&self) {
