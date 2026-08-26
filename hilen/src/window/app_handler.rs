@@ -116,6 +116,16 @@ impl AppHandler {
         }
     }
 
+    #[cfg(desktop)]
+    fn placement_changed() {
+        if let Some(placement) = Window::placement() {
+            crate::app::app().window_placement_changed(&placement);
+        }
+    }
+
+    #[cfg(not(desktop))]
+    fn placement_changed() {}
+
     pub(crate) fn close() {
         Self::current().close.store(true, Ordering::Relaxed);
     }
@@ -239,6 +249,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 }
 
                 State::resize();
+                Self::placement_changed();
 
                 // Configuring the surface resizes the backing buffer, which
                 // clears it. Leaving that for the next frame presents an empty
@@ -246,6 +257,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 // frames, so the app reads as blank the whole time it is
                 // dragged. Drawing here means nothing empty is ever shown.
                 Self::window().state.render();
+            }
+            WindowEvent::Moved(_position) => {
+                if self.state.not_ready() {
+                    return;
+                }
+                Self::placement_changed();
             }
             WindowEvent::ScaleFactorChanged {
                 scale_factor,

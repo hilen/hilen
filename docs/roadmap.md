@@ -494,6 +494,38 @@ diff hunk headers pin to the viewport top in the original.
 - Blocks: nothing. This unblocked the kukareker scroll to sha centering
   and the sticky diff hunk headers.
 
+## Window placement
+
+Found by the kukareker pixel pass, the Tauri app restores its window size,
+position and maximized state from a json file and the port opened at a
+fixed size.
+
+- Landed: `WindowPlacement` in logical points with `App::window_placement`
+  to restore one at launch in place of `initial_size`, and
+  `App::window_placement_changed` fired on every desktop resize and move so
+  an app saves it as it goes. There is no close hook on purpose, Cmd+Q on
+  macOS goes through winit's `terminate:` menu item and ends the process
+  without a `CloseRequested`. A saved monitor that is no longer attached
+  centers the window on the primary display at 80 percent, `resolve` is a
+  pure function with unit tests. Headless ignores placements.
+- Blocks: nothing.
+
+## Image mip chain
+
+Found by the same pass, every tinted svg icon in the port drew thin and
+gray next to the browser's.
+
+- Landed: svgs rasterize demultiplied, tiny-skia stores premultiplied
+  pixels and the pipeline blends straight alpha, so the old upload darkened
+  every anti aliased edge twice. Every image texture uploads its whole box
+  filtered mip chain, alpha weighted so transparent texels do not bleed,
+  and samples with a linear mipmap filter, so an image drawn below its
+  bitmap size, an 8x svg or an avatar, is filtered instead of skipping
+  texels. Covered by `Image downscale`, `settings.svg` at 240, 48 and 24
+  points with the strokes probed solid on the small copies, and unit tests
+  on the chain.
+- Blocks: nothing.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.

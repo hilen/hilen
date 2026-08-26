@@ -6,6 +6,7 @@ use crate::{
     gm::flat::Size,
     system::UpdateSource,
     ui::View,
+    window::WindowPlacement,
 };
 
 pub type PinnedFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
@@ -34,6 +35,18 @@ pub trait App {
     fn initial_size(&self) -> Size {
         (1200, 1000).into()
     }
+
+    /// A saved desktop window placement to restore at launch instead of
+    /// `initial_size`. A placement whose monitor is no longer attached is
+    /// centered on the primary display instead, see `resolve`.
+    fn window_placement(&self) -> Option<WindowPlacement> {
+        None
+    }
+
+    /// Fires on every desktop window resize and move with the fresh
+    /// placement. This is the place to save it, there is no close hook
+    /// because Cmd+Q on macOS ends the process without one.
+    fn window_placement_changed(&self, _placement: &WindowPlacement) {}
 
     /// Log targets of the app itself, usually just the crate name. The
     /// engine logger silences everything except its own crates to warnings,

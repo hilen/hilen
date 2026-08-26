@@ -499,7 +499,11 @@ impl crate::window::WindowEvents for AppRunner {
             {
                 #[cfg(desktop)]
                 {
-                    Window::current().set_size(crate::app::app().initial_size().lossy_convert());
+                    let app = crate::app::app();
+                    match app.window_placement() {
+                        Some(placement) => Window::current().apply_placement(&placement),
+                        None => Window::current().set_size(app.initial_size().lossy_convert()),
+                    }
                 }
                 #[cfg(feature = "inspect")]
                 crate::inspect::InspectService::start_listening();

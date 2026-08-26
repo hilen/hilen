@@ -5,6 +5,7 @@ mod window_events;
 mod app_handler;
 mod frame_counter;
 pub mod image;
+mod placement;
 mod redraw;
 mod render_frame;
 mod screen;
@@ -34,6 +35,7 @@ pub(crate) use self::redraw::set_wake_proxy;
 pub(crate) use self::redraw::take_needs_render;
 pub use self::{
     app_handler::AppHandler,
+    placement::*,
     render_frame::RenderFrame,
     screenshot::*,
     state::{msaa_sample_count, surface_texture_format},
