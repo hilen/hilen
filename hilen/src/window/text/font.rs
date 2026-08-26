@@ -20,19 +20,20 @@ use crate::{
     managed,
     window::{
         msaa_sample_count, surface_texture_format,
-        text::{ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
+        text::{ShapeCache, ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
         window::Window,
     },
 };
 
 pub struct Font {
-    pub name:  String,
-    pub brush: TextBrush,
-    face:      Face<'static>,
+    pub name:    String,
+    pub brush:   TextBrush,
+    face:        Face<'static>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
     /// factor converts an em size into the `PxScale` that renders it.
-    em_scale:  f32,
+    em_scale:    f32,
+    shape_cache: MainLock<ShapeCache>,
 }
 
 impl Font {
@@ -88,6 +89,7 @@ impl Font {
             brush,
             face,
             em_scale,
+            shape_cache: MainLock::new(),
         })
     }
 
@@ -118,6 +120,7 @@ impl Font {
         let layout = ShapedLayout {
             face:      &self.face,
             font_name: &self.name,
+            cache:     &self.shape_cache,
             params:    ShapedParams {
                 tracking,
                 multiline: width.is_some(),
@@ -145,6 +148,7 @@ impl Font {
         let layout = ShapedLayout {
             face:      &self.face,
             font_name: &self.name,
+            cache:     &self.shape_cache,
             params:    ShapedParams {
                 tracking,
                 multiline: width.is_some(),
@@ -168,12 +172,14 @@ impl Font {
         let layout = ShapedLayout {
             face: &self.face,
             font_name: &self.name,
+            cache: &self.shape_cache,
             params,
         };
         self.brush.queue_section_with_layout(section, &layout);
     }
 
     pub(crate) fn process_queued(&mut self) -> Result<()> {
+        self.shape_cache.get_mut().sweep();
         self.brush.process_queued(&Window::current().device, Window::queue())?;
         Ok(())
     }

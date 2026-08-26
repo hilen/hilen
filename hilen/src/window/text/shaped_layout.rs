@@ -6,7 +6,7 @@ use wgpu_text::glyph_brush::{
     ab_glyph::{Font, Glyph, GlyphId, PxScale, Rect, ScaleFont, point},
 };
 
-use crate::gm::LossyConvert;
+use crate::{deps::refs::main_lock::MainLock, gm::LossyConvert, window::text::ShapeCache};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum VerticalAlign {
@@ -31,6 +31,7 @@ pub(crate) struct ShapedParams {
 pub(crate) struct ShapedLayout<'a> {
     pub face:      &'a Face<'static>,
     pub font_name: &'a str,
+    pub cache:     &'a MainLock<ShapeCache>,
     pub params:    ShapedParams,
 }
 
@@ -44,9 +45,11 @@ impl Hash for ShapedLayout<'_> {
     }
 }
 
-struct ShapedGlyph {
+#[derive(Clone)]
+pub(crate) struct ShapedGlyph {
     id:        u16,
-    /// Byte index into the whole text, not into its line.
+    /// Byte index into the whole text once `shape_line` applies the line
+    /// offset. Relative to the line start inside the shape cache.
     cluster:   usize,
     x_advance: f32,
     x_offset:  f32,
@@ -129,23 +132,31 @@ struct ShapedLine {
 
 impl ShapedLayout<'_> {
     fn shape_line(&self, line: &str, offset: usize, px_per_unit: f32) -> Vec<ShapedGlyph> {
-        let mut buffer = UnicodeBuffer::new();
-        buffer.push_str(line);
+        let mut glyphs = self.cache.get_mut().get_or_shape(line, px_per_unit, self.params.tracking, || {
+            let mut buffer = UnicodeBuffer::new();
+            buffer.push_str(line);
 
-        let shaped = shape(self.face, &[], buffer);
+            let shaped = shape(self.face, &[], buffer);
 
-        shaped
-            .glyph_infos()
-            .iter()
-            .zip(shaped.glyph_positions())
-            .map(|(info, pos)| ShapedGlyph {
-                id:        u16::try_from(info.glyph_id).unwrap_or_default(),
-                cluster:   offset + info.cluster as usize,
-                x_advance: pos.x_advance.lossy_convert() * px_per_unit + self.params.tracking,
-                x_offset:  pos.x_offset.lossy_convert() * px_per_unit,
-                y_offset:  pos.y_offset.lossy_convert() * px_per_unit,
-            })
-            .collect()
+            shaped
+                .glyph_infos()
+                .iter()
+                .zip(shaped.glyph_positions())
+                .map(|(info, pos)| ShapedGlyph {
+                    id:        u16::try_from(info.glyph_id).unwrap_or_default(),
+                    cluster:   info.cluster as usize,
+                    x_advance: pos.x_advance.lossy_convert() * px_per_unit + self.params.tracking,
+                    x_offset:  pos.x_offset.lossy_convert() * px_per_unit,
+                    y_offset:  pos.y_offset.lossy_convert() * px_per_unit,
+                })
+                .collect()
+        });
+
+        for glyph in &mut glyphs {
+            glyph.cluster += offset;
+        }
+
+        glyphs
     }
 
     /// Greedy wrap at space glyphs. A line that has no space to break at

@@ -23,6 +23,18 @@ table. Modern fonts, Roboto included, keep kerning in `GPOS`, so the builtin
 glyph_brush layout renders them with no kerning at all. rustybuzz applies GPOS,
 GSUB and variation aware kerning like CoreText and browsers do.
 
+## Shape cache
+
+Each `Font` owns a `ShapeCache` that stores rustybuzz output per line of text,
+keyed by the line, the pixel scale and the tracking. glyph_brush has its own
+shaped section cache, but every `process_queued` call drops the entries absent
+from that batch, and clip boundaries process several batches per frame, so
+nothing in it survives a frame and every label used to reshape every frame.
+Shaping was almost the entire cost of a text heavy frame in debug. The cache
+also serves `Font::measure`, which shapes through the same path. Entries unused
+for 10 seconds are dropped by a sweep that runs about once a second from
+`Font::process_queued`.
+
 ## Sizes are pixels per em
 
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`
