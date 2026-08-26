@@ -124,4 +124,8 @@ pub struct ViewTouchEvents {
     /// hover enabled view under the cursor is hovered. Desktop and the
     /// browser, since a touch screen has no pointer.
     pub hovered:   UIEvent<bool>,
+    /// A right click on desktop and in the browser, a long press on a
+    /// touch screen. The touch position is in the view's own coordinates.
+    /// A long press consumes the hold, so its release is not a tap.
+    pub secondary: UIEvent<Touch>,
 }

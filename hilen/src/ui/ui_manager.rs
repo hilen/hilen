@@ -79,6 +79,8 @@ pub struct UIManager {
 impl UIManager {
     pub(crate) const ROOT_VIEW_Z_OFFSET: f32 = 0.5;
     pub(crate) const MODAL_Z_OFFSET: f32 = 0.4;
+    /// A context menu floats over a modal, so it sits closer than one.
+    pub(crate) const MENU_Z_OFFSET: f32 = 0.35;
     pub const DEBUG_Z_OFFSET: f32 = 0.3;
 
     pub(crate) const fn subview_z_offset() -> f32 {

@@ -6,7 +6,7 @@ use parking_lot::{Mutex, MutexGuard};
 use crate::{
     deps::{hreads::from_main, refs::Weak},
     ui::{
-        NO_TOUCH_ID, UIManager, View, WeakView,
+        LongPress, NO_TOUCH_ID, UIManager, View, WeakView,
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
@@ -108,6 +108,8 @@ impl TouchStack {
     /// A scroll drag claimed the touch: views that captured it on began
     /// must let it go so the release doesn't end as a tap.
     pub(crate) fn cancel_touch(id: usize) {
+        LongPress::cancel(id);
+
         for view in Self::touch_views() {
             if view.is_ok() && view.__base_view().__touch_id == id {
                 view.__base_view().__touch_id = NO_TOUCH_ID;

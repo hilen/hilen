@@ -15,6 +15,7 @@ mod hover;
 mod image_scissor;
 mod inject_touch;
 mod nine_segment;
+mod secondary_click;
 mod shadow;
 mod slider;
 mod switch;

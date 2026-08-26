@@ -3,9 +3,10 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::weak_from_ref,
     ui::{
-        Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
+        LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
         view::{ViewFrame, view_data::ViewData},
     },
+    window::MouseButton,
 };
 
 pub(crate) const NO_TOUCH_ID: usize = 0;
@@ -68,7 +69,21 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return false;
     }
 
+    // A right press is its own event and never captures the view. Handled
+    // first so its release cannot end a left capture that shares the id,
+    // every mouse event is finger 1.
+    if touch.button == MouseButton::Right {
+        if !touch.is_began() || !view.absolute_frame().contains(touch.position) {
+            return false;
+        }
+
+        touch.position -= view.absolute_frame().origin;
+        base_view.events.touch.secondary.trigger(*touch);
+        return true;
+    }
+
     if touch.is_moved() && base_view.__touch_id == touch.id {
+        LongPress::moved(touch.id, touch.position);
         touch.position -= view.absolute_frame().origin;
         base_view.events.touch.all.trigger(*touch);
         base_view.events.touch.moved.trigger(*touch);
@@ -80,6 +95,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     }
 
     if touch.is_ended() && base_view.__touch_id == touch.id {
+        LongPress::cancel(touch.id);
         let inside = view.absolute_frame().contains(touch.position);
 
         touch.position -= view.absolute_frame().origin;
@@ -96,6 +112,11 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         touch.position -= view.absolute_frame().origin;
         if touch.is_began() {
             base_view.__touch_id = touch.id;
+            LongPress::arm(
+                weak_from_ref(view),
+                touch.id,
+                touch.position + view.absolute_frame().origin,
+            );
             base_view.events.touch.began.trigger(*touch);
             UIManager::set_selected(weak_from_ref(view), true);
         }

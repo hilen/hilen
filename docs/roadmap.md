@@ -25,6 +25,12 @@ relative and resolve against the document base, so a dist hosted under a path pr
 like `/te/` fetches from its own mount point through a `<base data-trunk-public-url />`
 tag, and `Assets` is exported so an app can await the boot group before building views.
 
+A third driver is kukareker-hilen at github.com/hilen/kukareker-hilen, a rewrite of
+kukareker, the Tauri and Vue git client at `~/dev/apps/kukareker`. Desktop only, the
+app shells out to system git and ssh. Pixel parity with the original is the acceptance
+bar. The port copies the Tauri app's Rust logic modules as they are and rebuilds the
+Vue UI on the engine. Its assessment produced the entries below marked kukareker.
+
 Already proven sufficient during the port, for reference: `TableView` with columns and
 `bottom_reached` paging, `ImageMode::AspectFill`, `Image::download`, SVG in textures,
 `size_changed`, `ModalView`, `OnDisk` storage, `NavigationView` push and pop,
@@ -217,14 +223,66 @@ frames heavier.
 ## Tooltips
 
 Found porting the beekeeper UI, which hangs real data on hover titles, full
-shas, container statuses, deploy errors, button hints.
+shas, container statuses, deploy errors, button hints. kukareker needs them
+too, full file paths, ref chip sources, full dates, and a richer hover card
+on commit avatars showing author name, email and the commit date.
 
 - Current: no tooltip view exists, ports drop every `title` attribute. The one
   load bearing tooltip, the deploy error, got a tap fallback in the port.
 - Needed: a tooltip layer, show a floating label after a hover delay near the
   cursor, dismiss on move out or tap, touch platforms substitute long press or
-  skip. Needs the hover machinery already in `src/ui/hover.rs`.
-- Blocks: hover parity for web ports.
+  skip. Needs the hover machinery already in `src/ui/hover.rs`. The floating
+  content must accept a small view, not only a text label, so the kukareker
+  avatar card with several lines can ride the same layer.
+- Blocks: hover parity for web ports, kukareker hover parity.
+
+## Right-click and context menus
+
+Found by the kukareker port assessment. The app hangs actions on right-click
+menus everywhere, branch rows, file rows, commit rows, stash rows.
+
+- Landed: a `secondary` touch event on every touch enabled view. A right
+  button press fires it on desktop and in the browser, with the position in
+  the view's own space. It never captures the view, so a right release cannot
+  end a left capture, every mouse event is finger 1. A long press fires the
+  same event on every platform, 0.5 s held within 10 points, and consumes the
+  hold so the release is not a tap. That is how a touch screen opens a menu.
+  `ContextMenu::show_at_cursor(items)` and `ContextMenu::show(items, at)`
+  float a one column list at a point and slide it back inside the screen.
+  `MenuItem::new(title, action)`, `MenuItem::separator()`, `disabled()` and
+  `danger()`. The menu is its own touch layer on a clear backdrop, dismissed
+  by a tap outside, Escape, or picking an item, and only one is open at a
+  time. Themed light and dark, hover highlight where a pointer exists. No
+  submenus. Covered by `Secondary click` and `Context menu test`, plus the
+  `inject_right_click` and `inject_long_press` test helpers.
+- Blocks: nothing. This unblocked the kukareker core wave.
+
+## TableView variable row heights
+
+Found by the kukareker commit graph, a row is 30 px without ref chips and
+42 px with them.
+
+- Current: `cell_height(index)` takes an index but only `cell_height(0)` is
+  read and every cell shares that height. Offsets, recycling and tap mapping
+  all assume one height.
+- Needed: honor per-index heights, cumulative offsets for scroll position and
+  tap mapping, recycling, `set_cell_spacing`, `scroll_to_bottom` and
+  `bottom_reached` keep working. A table with uniform heights keeps the
+  current fast path.
+- Blocks: the kukareker commit graph in its core wave.
+
+## Colored text runs in a label
+
+Found by the kukareker diff view, a syntax highlighted code line needs
+per-token colors.
+
+- Current: a `Label` has one text color for the whole string. A multi color
+  line means one label per token run placed by hand, measured and drifting.
+- Needed: per-range color runs on one label, threaded through `ShapedParams`
+  into `ShapedLayout` so shaping, kerning and letter spacing stay intact.
+  Highlighting itself stays in the app, syntect produces the ranges.
+- Blocks: kukareker syntax highlighted diffs. A later wave, the port ships
+  plain add and remove row tinting first, so this is not on the core path.
 
 ## Frame stepped animation testing
 
@@ -346,8 +404,10 @@ Found by the tvOS display bring-up, see [tvos.md](tvos.md).
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
-Among the rest, frame stepped animation testing goes first, it has two live
-needs, the unassessed animation problem in the present test and the web lane
-scroll determinism flake it would also fix. The text stack remainder waits for
-a real need for color emoji or font fallback, and tvOS remote input waits for a real
-tvOS app need.
+Right-click context menus landed. The kukareker core wave needs TableView
+variable row heights next, then tooltips during the port, then colored label runs for
+its later diff highlighting wave. Among the rest, frame stepped animation
+testing goes next, it has two live needs, the unassessed animation problem in
+the present test and the web lane scroll determinism flake it would also fix.
+The text stack remainder waits for a real need for color emoji or font
+fallback, and tvOS remote input waits for a real tvOS app need.
