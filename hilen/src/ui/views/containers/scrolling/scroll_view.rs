@@ -174,8 +174,9 @@ impl Setup for ScrollView {
         self.bar.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
         self.bar.set_hidden(true);
         // A later sibling draws behind an earlier sibling's children, so
-        // the bar has to be pushed in front of everything in the content.
-        self.bar.bump_z_position(UIManager::subview_z_offset() * 2.0);
+        // the bar has to be pushed in front of everything in the content,
+        // pinned sticky table rows and their raise included.
+        self.bar.bump_z_position(UIManager::subview_z_offset() * 10.0);
 
         self.size_changed().sub(move || {
             self.on_scroll(0.0);

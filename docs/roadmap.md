@@ -458,12 +458,36 @@ so they went unverified in the running app.
 - Blocks: nothing. This unblocked scripted checks of keyboard driven flows
   in a running app.
 
+## Table scroll position and sticky rows
+
+Found by the kukareker wave 4, scroll to sha needs to centre a row and the
+diff hunk headers pin to the viewport top in the original.
+
+- Landed: `TableView::set_content_offset`, the public scroll position
+  setter, clamped to the scrollable range on both ends, with the
+  `content_offset` getter beside it. Covered by `Table set content offset`,
+  taps and recorded probes pin each landed position.
+- Landed: sticky rows. `TableData::is_sticky` marks section header rows and
+  the opt in `TableView::set_sticky_rows(true)` walks it on every reload. A
+  sticky row pins to the top of the viewport while its section scrolls and
+  the next sticky row pushes it away. Pinned cells stay out of recycling,
+  rise in front of their siblings and drop back exactly when they unpin,
+  their touch registrations move to the front of the layer through
+  `TouchStack::raise_subtree`, and a tap on a pinned row selects it instead
+  of the row geometry under it. The scroll bar rides above pinned cells.
+  Covered by `Table sticky rows`, six scroll positions from the top to the
+  bottom clamp, each with taps, exact pinned frames and recorded probes.
+- `Color::as_hex` became public alongside, an app tinting its own inline
+  svg icons needs the hex the way `Tinted` builds it inside the engine.
+- Blocks: nothing. This unblocked the kukareker scroll to sha centering
+  and the sticky diff hunk headers.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Right-click context menus, TableView variable row heights, tooltips and
-colored label runs landed, the whole kukareker list, and key injection over
-hilen-inspect followed. Among the rest, frame
+colored label runs landed, the whole kukareker list, key injection over
+hilen-inspect, and the table scroll position and sticky rows followed. Among the rest, frame
 stepped animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

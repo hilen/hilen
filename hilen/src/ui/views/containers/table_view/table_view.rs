@@ -31,6 +31,20 @@ pub struct TableView {
     /// Empty for a uniform table, which needs no memory per row.
     pub(super) row_offsets: Vec<f32>,
 
+    /// Rows pin to the viewport top per `TableData::is_sticky`.
+    pub(super) sticky_enabled: bool,
+
+    /// Cell indices the data marks sticky, rebuilt on a full layout.
+    pub(super) sticky_rows: Vec<usize>,
+
+    /// The sticky rows currently on screen: index, y in the table's own
+    /// coordinates and height. Taps check them before the row geometry.
+    pub(super) pinned: Vec<(usize, f32, f32)>,
+
+    /// Cells drawn in front of the other cells while their row is
+    /// pinned, lowered back when it unpins or recycles.
+    pub(super) raised: Vec<(usize, WeakView)>,
+
     pub(super) header_height: f32,
     pub(super) header_views:  Vec<WeakView>,
 
@@ -143,6 +157,30 @@ impl TableView {
         self.scroll.set_content_offset(f32::MIN);
         self.layout_cells(LayoutMode::Scroll);
     }
+
+    /// Sets the scroll position: 0 is the top, negative values scroll
+    /// down. Clamped to the scrollable range on both ends, so call it
+    /// after `reload_data` when the row set changed.
+    pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
+        self.scroll.set_content_offset(offset.to_f32().min(0.0));
+        self.layout_cells(LayoutMode::Scroll);
+        self
+    }
+
+    /// The current scroll position: 0 at the top, negative below it.
+    pub fn content_offset(&self) -> f32 {
+        self.scroll.get_scroll_content_offset()
+    }
+
+    /// Rows the data marks with `TableData::is_sticky` pin to the top of
+    /// the viewport while their section scrolls by, and the next sticky
+    /// row pushes the pinned one away. Off by default, turning it on
+    /// walks `is_sticky` over the data on every `reload_data`.
+    pub fn set_sticky_rows(&mut self, sticky: bool) -> &mut Self {
+        self.sticky_enabled = sticky;
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
 }
 
 impl TableView {
@@ -159,6 +197,15 @@ impl TableView {
 
         if number_of_cells == 0 {
             return;
+        }
+
+        // A pinned sticky row covers whatever the row geometry has at its
+        // position, so it takes the tap first.
+        for (index, y, height) in self.pinned.clone() {
+            if pos.y >= y && pos.y < y + height {
+                self.data.cell_selected(index);
+                return;
+            }
         }
 
         let columns: f32 = self.columns.lossy_convert();
@@ -241,6 +288,11 @@ impl TableView {
 
         if matches!(mode, LayoutMode::Full) || (self.variable_heights && self.row_offsets.is_empty()) {
             self.rebuild_row_offsets(number_of_cells);
+            self.sticky_rows = if self.sticky_enabled {
+                (0..number_of_cells).filter(|i| self.data.is_sticky(*i)).collect()
+            } else {
+                Vec::new()
+            };
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);

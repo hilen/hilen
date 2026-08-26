@@ -81,6 +81,16 @@ impl TouchStack {
         Self::get().layer_for(view).remove(view);
     }
 
+    /// Moves every registration under `view` to the front of its layer,
+    /// keeping their relative order, so a view drawn over its siblings,
+    /// like a pinned sticky table row, also wins their touches.
+    pub(crate) fn raise_subtree(view: WeakView) {
+        let mut this = Self::get();
+        let layer = this.layer_for(view);
+        let extracted = layer.extract_under(view);
+        layer.absorb(extracted);
+    }
+
     /// Puts an overlay on top of the touch stack: only views under it
     /// receive touches until the matching `pop_layer`. Registrations
     /// already sitting under the new root migrate into the layer, so a

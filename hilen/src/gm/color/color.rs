@@ -81,7 +81,10 @@ impl Color {
         *Self::ALL.get(fastrand::usize(..Self::ALL.len())).unwrap()
     }
 
-    pub(crate) fn as_hex(&self) -> String {
+    /// The `#rrggbb` form of the color, alpha dropped. Public so an app
+    /// can tint its own inline svg icons the way the engine's `Tinted`
+    /// image does.
+    pub fn as_hex(&self) -> String {
         U8Color::from(*self).as_hex()
     }
 }
