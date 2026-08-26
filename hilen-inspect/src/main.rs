@@ -14,12 +14,13 @@ use clap::{Parser, Subcommand};
 use hilen::{
     gm::color::Color,
     inspect::protocol::{
-        AppCommand, Client, InspectorCommand, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
+        AppCommand, Client, InspectorCommand, Key, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
     },
     refs::{Own, hreads::set_current_thread_as_main},
+    ui::{ModifiersState, NamedKey},
 };
 use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
-use serde_json::{Value, from_str, json, to_string, to_string_pretty, to_value};
+use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout, timeout_at};
 
 const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
@@ -85,6 +86,25 @@ enum Command {
         /// candidates instead of guessing.
         query: String,
     },
+    /// Type text or press one named key, with modifiers held only for that
+    /// input. Keys go where a real keyboard would send them, the focused text
+    /// field and the app keymap.
+    Keys {
+        /// Text to type, every char in order
+        #[arg(required_unless_present = "key")]
+        text:  Option<String>,
+        /// A named key instead of text, a winit `NamedKey` name like Enter,
+        /// Escape, Tab, Backspace or `ArrowDown`
+        #[arg(long, conflicts_with = "text")]
+        key:   Option<String>,
+        /// Hold the command modifier, Cmd on a Mac and Ctrl elsewhere
+        #[arg(long)]
+        cmd:   bool,
+        #[arg(long)]
+        shift: bool,
+        #[arg(long)]
+        alt:   bool,
+    },
     /// Set the UI scale of the app
     SetScale { scale: f32 },
     /// Play a sound in the app, to tell which instance is which
@@ -142,19 +162,7 @@ async fn main() -> Result<()> {
                 println!("{}", to_string_pretty(&view)?);
             }
         }
-        Command::Screenshot { out } => {
-            let AppCommand::Screenshot {
-                width,
-                height,
-                png_base64,
-            } = send(&client, InspectorCommand::Screenshot).await?
-            else {
-                bail!("Unexpected response to screenshot");
-            };
-            let path = out.unwrap_or_else(|| temp_dir().join("te-screenshot.png"));
-            write(&path, STANDARD.decode(png_base64)?)?;
-            println!("{width}x{height} saved to {}", path.display());
-        }
+        Command::Screenshot { out } => screenshot(&client, out).await?,
         Command::PlaySound => {
             send(&client, InspectorCommand::PlaySound).await?;
             println!("ok");
@@ -168,6 +176,13 @@ async fn main() -> Result<()> {
             println!("{}", to_string_pretty(&edits)?);
         }
         Command::Tap { query } => tap(&client, &query).await?,
+        Command::Keys {
+            text,
+            key,
+            cmd,
+            shift,
+            alt,
+        } => keys(&client, text, key, [cmd, shift, alt]).await?,
         Command::SetScale { scale } => {
             send(&client, UIRequest::SetScale(scale).into()).await?;
             println!("ok");
@@ -226,6 +241,55 @@ async fn tap(client: &Client, query: &str) -> Result<()> {
     println!("tapped");
 
     Ok(())
+}
+
+async fn screenshot(client: &Client, out: Option<PathBuf>) -> Result<()> {
+    let AppCommand::Screenshot {
+        width,
+        height,
+        png_base64,
+    } = send(client, InspectorCommand::Screenshot).await?
+    else {
+        bail!("Unexpected response to screenshot");
+    };
+    let path = out.unwrap_or_else(|| temp_dir().join("te-screenshot.png"));
+    write(&path, STANDARD.decode(png_base64)?)?;
+    println!("{width}x{height} saved to {}", path.display());
+    Ok(())
+}
+
+async fn keys(
+    client: &Client,
+    text: Option<String>,
+    key: Option<String>,
+    [cmd, shift, alt]: [bool; 3],
+) -> Result<()> {
+    let mut modifiers = ModifiersState::empty();
+    modifiers.set(ModifiersState::SUPER, cmd);
+    modifiers.set(ModifiersState::SHIFT, shift);
+    modifiers.set(ModifiersState::ALT, alt);
+
+    let keys = match (text, key) {
+        (Some(text), None) => text.chars().map(Key::Char).collect(),
+        (None, Some(key)) => vec![Key::Named(parse_named_key(&key)?)],
+        _ => unreachable!("clap requires exactly one of text and --key"),
+    };
+
+    send(client, UIRequest::Keys { keys, modifiers }.into()).await?;
+    println!("ok");
+
+    Ok(())
+}
+
+/// `NamedKey` has no `FromStr`, its serde form is the plain variant name,
+/// so the name round trips through a JSON string.
+fn parse_named_key(name: &str) -> Result<NamedKey> {
+    match from_value(Value::String(name.to_string())) {
+        Ok(key) => Ok(key),
+        Err(_) => {
+            bail!("Unknown key: {name}. Use a winit NamedKey name like Enter, Escape, Tab or ArrowDown")
+        }
+    }
 }
 
 async fn run_tests(client: &Client) -> Result<()> {

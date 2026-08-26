@@ -24,12 +24,12 @@ use crate::{
     },
     inspect::{
         edit_log,
-        protocol::{AppCommand, EditEntry, InspectorCommand, TestFailureRepr, UIRequest, UIResponse},
+        protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
         view_conversion::{ViewToInspect, weak_to_id},
     },
     ui::{
-        Button, Input, Label, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame, ViewSubviews,
-        WeakView,
+        Button, Input, Label, ModifiersState, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame,
+        ViewSubviews, WeakView,
     },
     window::MouseButton,
 };
@@ -69,7 +69,7 @@ impl InspectService {
         });
     }
 
-    pub(crate) fn process_command(command: InspectorCommand) -> AppCommand {
+    pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
             InspectorCommand::PlaySound => {
                 on_main(|| {
@@ -240,6 +240,34 @@ impl InspectService {
                     Ok(()) => Self::send_ui(),
                     Err(err) => AppCommand::Error(err),
                 }
+            }
+            UIRequest::Keys { keys, modifiers } => {
+                // The modifiers hold only for this one request and release
+                // right after it, so a Cmd from an inspect request can never
+                // stay stuck on whatever the app receives next.
+                from_main(move || {
+                    Input::set_modifiers(modifiers);
+                    for key in keys {
+                        match key {
+                            Key::Char(ch) => Input::on_char(ch),
+                            // A real named key also arrives as its text,
+                            // Backspace as 0x08, and the text field edits
+                            // on that char. Same two calls as the winit
+                            // key handler in `app_runner`.
+                            Key::Named(key) => {
+                                Input::on_key(key);
+                                if let Some(text) = key.to_text() {
+                                    Input::on_char(text.chars().last().expect("Key text is empty"));
+                                }
+                            }
+                        }
+                    }
+                    Input::set_modifiers(ModifiersState::empty());
+                });
+
+                // The snapshot runs a frame later, so a palette or page a
+                // hotkey opened is already in the tree.
+                Self::send_ui()
             }
         }
     }

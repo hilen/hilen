@@ -6,6 +6,7 @@ mod corner_radius;
 mod css_colors;
 mod dispatch;
 mod global_styles;
+mod inspect_keys;
 mod keymap;
 mod keymap_combo;
 mod keymap_named_key;

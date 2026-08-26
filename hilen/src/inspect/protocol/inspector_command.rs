@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::gm::color::Color;
+use crate::{
+    gm::color::Color,
+    ui::{ModifiersState, NamedKey},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InspectorCommand {
@@ -40,4 +43,15 @@ pub enum UIRequest {
     Tap {
         view_id: String,
     },
+    /// Plays the keys in order with the modifiers held, then releases them.
+    Keys {
+        keys:      Vec<Key>,
+        modifiers: ModifiersState,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Key {
+    Char(char),
+    Named(NamedKey),
 }

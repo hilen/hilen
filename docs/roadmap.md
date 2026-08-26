@@ -446,25 +446,24 @@ Found by the kukareker wave 3 verification. The project palette and the zoom
 hotkeys live on Cmd combos and typing, and hilen-inspect could not drive them,
 so they went unverified in the running app.
 
-- Current: the inspect protocol drives taps only. `UIRequest::Tap` injects a
-  began and ended touch pair through `Input::process_touch_event`. Key
-  injection exists in the engine, `Input::on_char` and `Input::on_key`,
-  exposed to UI tests through `inject_keys`, `inject_named_key` and
-  `inject_modifiers`, but none of it is reachable over the inspect socket.
-- Needed: an inspect request that injects keys through the same `Input` entry
-  points, a chars variant, a named key variant, and held modifiers so Cmd+P
-  style combos work, plus a `hilen-inspect keys` command in the CLI.
-  Modifiers must apply only for the injected sequence and reset after it, so
-  a stuck Cmd cannot leak into later input.
-- Blocks: driving the kukareker project palette and hotkeys from
-  hilen-inspect, and any scripted check of a keyboard driven flow in a
-  running app.
+- Landed: `UIRequest::Keys { keys, modifiers }`, a list of `Key::Char` and
+  `Key::Named(NamedKey)` played through `Input::on_char` and `Input::on_key`
+  in one main thread trip, a named key also firing its text char like the
+  winit handler does, so Backspace edits a field. The modifiers hold for
+  that request only and reset to empty after it. The winit types cross the
+  wire through winit's `serde` feature. `hilen-inspect keys "text"`,
+  `keys --key Enter` and the `--cmd`, `--shift`, `--alt` flags drive it.
+  Covered by `Inspect keys`, keymap and modifier reset everywhere, the text
+  field part on desktop where injected chars reach a field.
+- Blocks: nothing. This unblocked scripted checks of keyboard driven flows
+  in a running app.
 
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Right-click context menus, TableView variable row heights, tooltips and
-colored label runs landed, the whole kukareker list. Among the rest, frame
+colored label runs landed, the whole kukareker list, and key injection over
+hilen-inspect followed. Among the rest, frame
 stepped animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

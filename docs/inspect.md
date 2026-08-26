@@ -23,7 +23,7 @@ Two clients exist:
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `ui`, `screenshot`, `tap`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
+  `tree`, `view`, `ui`, `screenshot`, `tap`, `keys`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
@@ -34,6 +34,12 @@ One match taps, several list the candidates and error. Hidden views and their su
 never match a query, only an exact id reaches them, and the app refuses to tap a hidden
 view. Dropdowns work like a human drives them: tap the dropdown to open it, the reply
 tree already contains the open cells, then tap the wanted cell by its text.
+
+`hilen-inspect keys` drives the keyboard. `keys "text"` types every char in order,
+`keys --key Enter` presses one winit `NamedKey` by name, and `--cmd`, `--shift` and
+`--alt` hold modifiers for that one call only, so `keys p --cmd` opens a Cmd+P palette
+and the next call types into it with nothing held. Keys go where a real keyboard sends
+them, the focused text field and the app keymap.
 
 ## Protocol
 
@@ -46,6 +52,11 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `Tap { view_id }` — injects a touch began plus ended at the view's center through the
   real input pipeline, exactly like a click. Refuses hidden views. Replies with a fresh
   tree one frame later, so a page swap or a modal the tap triggered is already in it.
+- `Keys { keys, modifiers }` — plays a list of `Key::Char` and `Key::Named(NamedKey)`
+  through `Input::on_char` and `Input::on_key` in one main thread trip, the same entry
+  points the winit key handler uses, so a named key also fires its text char like a real
+  key. The modifiers hold for this request only and reset to empty after it, a stuck Cmd
+  can never leak into later input. Replies with a fresh tree one frame later.
 - `EditRule { view_id, rule_index, offset, enabled }` — edits a placer rule of the live
   view. Offset applies to Side and Anchor rules and edits the ratio of Relative rules.
 - `SetText { view_id, text }` — sets the text of a live `Label`, `Button` or `TextField`.
