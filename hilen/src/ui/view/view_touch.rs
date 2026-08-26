@@ -83,7 +83,6 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     }
 
     if touch.is_moved() && base_view.__touch_id == touch.id {
-        LongPress::moved(touch.id, touch.position);
         touch.position -= view.absolute_frame().origin;
         base_view.events.touch.all.trigger(*touch);
         base_view.events.touch.moved.trigger(*touch);
@@ -95,7 +94,6 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     }
 
     if touch.is_ended() && base_view.__touch_id == touch.id {
-        LongPress::cancel(touch.id);
         let inside = view.absolute_frame().contains(touch.position);
 
         touch.position -= view.absolute_frame().origin;

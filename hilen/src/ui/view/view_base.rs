@@ -11,7 +11,10 @@ use crate::{
         color::Color,
         flat::{CornerRadii, Rect},
     },
-    ui::{DynamicColor, Gradient, NavigationView, Shadow, Touch, UIEvent, View, WeakView, layout::Placer},
+    ui::{
+        DynamicColor, Gradient, NavigationView, Shadow, TooltipContent, Touch, UIEvent, View, WeakView,
+        layout::Placer,
+    },
 };
 
 #[derive(Educe)]
@@ -98,6 +101,9 @@ pub struct ViewBase {
     pub(crate) size_changed:     Event,
 
     pub(crate) ignore_global_style: bool,
+
+    #[educe(Debug(ignore))]
+    pub(crate) tooltip: Option<TooltipContent>,
 
     pub tag: usize,
 }

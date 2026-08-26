@@ -9,8 +9,8 @@ use crate::{
     gm::{color::Color, flat::Point},
     level::LevelManager,
     ui::{
-        Container, Scrollable, Setup, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
-        ViewSubviews, WeakView, check_touch,
+        Container, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
+        ViewFrame, ViewSubviews, WeakView, check_touch,
     },
 };
 
@@ -74,6 +74,11 @@ impl Input {
         UIManager::set_cursor_position(touch.position);
         UIEvents::on_touch().trigger(touch);
 
+        // Any press ends a tooltip, a finger or a click is an answer to it.
+        if touch.is_began() {
+            Tooltip::hide();
+        }
+
         #[cfg(any(desktop, wasm))]
         if touch.is_moved() {
             Hover::update(touch.position);
@@ -94,10 +99,22 @@ impl Input {
 
         Self::check_scroll_touches(touch);
 
+        if touch.is_moved() {
+            LongPress::moved(touch.id, touch.position);
+        }
+
+        if touch.is_ended() {
+            LongPress::cancel(touch.id);
+        }
+
         for view in TouchStack::touch_views() {
             if check_touch(view, &mut touch) {
                 return true;
             }
+        }
+
+        if touch.is_began() {
+            LongPress::arm_tooltip_hold(touch.id, touch.position);
         }
 
         if touch.is_began() && !LevelManager::no_level() {

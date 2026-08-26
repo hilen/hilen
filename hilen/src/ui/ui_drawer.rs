@@ -7,7 +7,7 @@ use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::{
         LossyConvert,
-        color::{CLEAR, TURQUOISE},
+        color::{CLEAR, Color, TURQUOISE},
         flat::{CornerRadii, Rect, Size},
     },
     pipelines::Pipelines,
@@ -415,19 +415,48 @@ impl UIDrawer {
             },
         };
 
-        let mut text = Text::new(&label.text)
-            .with_scale(label.text_size() * scale * font.em_scale())
-            .with_color(label.text_color().as_slice())
-            .with_z(label.z_position() - UIManager::additional_z_offset());
+        let scale_px = label.text_size() * scale * font.em_scale();
+        let z = label.z_position() - UIManager::additional_z_offset();
 
-        // After `with_color`, which sets both ends of the ramp so that a label
-        // without a gradient stays flat.
-        if let Some(end) = label.text_end_color() {
-            text = text.with_end_color(end.as_slice());
+        let make_text = |slice: &'a str, color: &Color| {
+            Text::new(slice).with_scale(scale_px).with_color(color.as_slice()).with_z(z)
+        };
+
+        let mut section = Section::new();
+
+        if label.color_runs().is_empty() {
+            let mut text = make_text(&label.text, label.text_color());
+
+            // After `with_color`, which sets both ends of the ramp so that a label
+            // without a gradient stays flat.
+            if let Some(end) = label.text_end_color() {
+                text = text.with_end_color(end.as_slice());
+            }
+
+            section = section.add_text(text);
+        } else {
+            // One glyph_brush text per run and per gap between runs. The
+            // layout shapes them as one string and only picks the color
+            // per glyph, so a run boundary never breaks kerning.
+            let mut cursor = 0;
+
+            for run in label.color_runs() {
+                if cursor < run.range.start {
+                    section = section.add_text(make_text(
+                        &label.text[cursor..run.range.start],
+                        label.text_color(),
+                    ));
+                }
+                section = section.add_text(make_text(&label.text[run.range.clone()], &run.color));
+                cursor = run.range.end;
+            }
+
+            if cursor < label.text.len() {
+                section = section.add_text(make_text(&label.text[cursor..], label.text_color()));
+            }
         }
 
-        let section = Section::new()
-            .add_text(text)
+        let section = section
             .with_bounds((
                 frame.width() - if label.alignment.center() { 0.0 } else { margin },
                 frame.height(),

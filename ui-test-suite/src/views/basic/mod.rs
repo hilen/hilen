@@ -20,3 +20,7 @@ mod shadow;
 mod slider;
 mod switch;
 mod theme_switch;
+/// Hover tooltips need a pointer, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod tooltip_hover;
+mod tooltip_long_press;

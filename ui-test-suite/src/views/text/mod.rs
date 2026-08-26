@@ -5,6 +5,7 @@
 mod custom_text_field;
 mod font_zoo;
 mod label;
+mod label_color_runs;
 mod label_fit_text;
 mod label_font;
 mod label_image;

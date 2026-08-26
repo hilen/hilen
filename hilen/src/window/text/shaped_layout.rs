@@ -292,45 +292,63 @@ impl GlyphPositioner for ShapedLayout<'_> {
 
         let mut result = vec![];
 
-        for (section_index, section) in sections.iter().enumerate() {
-            let section = section.to_section_text();
-            let font = &fonts[section.font_id.0];
-            let scaled = font.as_scaled(section.scale);
+        let Some(first) = sections.first() else {
+            return result;
+        };
 
-            // The same factor ab_glyph rasterizes with, keeps shaped
-            // advances and drawn outlines consistent.
-            let px_per_unit = scaled.scale_factor().horizontal;
+        // Every text of a section is a slice of one string, split only
+        // where the color changes. Shaped as one string, so kerning across
+        // a split is what the font says, then each glyph goes back to the
+        // text its cluster came from.
+        let sections: Vec<_> = sections.iter().map(ToSectionText::to_section_text).collect();
+        let text: String = sections.iter().map(|section| section.text).collect();
 
-            let lines = self.shape_text(section.text, px_per_unit, bound_w);
+        let mut starts = Vec::with_capacity(sections.len());
+        let mut start = 0;
+        for section in &sections {
+            starts.push(start);
+            start += section.text.len();
+        }
 
-            let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
-            let mut baseline = self.first_baseline(&scaled, screen_y, lines.len());
+        let first = first.to_section_text();
+        let font = &fonts[first.font_id.0];
+        let scaled = font.as_scaled(first.scale);
 
-            for line in lines {
-                let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
+        // The same factor ab_glyph rasterizes with, keeps shaped
+        // advances and drawn outlines consistent.
+        let px_per_unit = scaled.scale_factor().horizontal;
 
-                let mut x = match self.params.h_align {
-                    HorizontalAlign::Left => screen_x,
-                    HorizontalAlign::Center => screen_x - line_width / 2.0,
-                    HorizontalAlign::Right => screen_x - line_width,
-                };
+        let lines = self.shape_text(&text, px_per_unit, bound_w);
 
-                for glyph in line.glyphs {
-                    result.push(SectionGlyph {
-                        section_index,
-                        byte_index: glyph.cluster,
-                        glyph: Glyph {
-                            id:       GlyphId(glyph.id),
-                            scale:    section.scale,
-                            position: point(x + glyph.x_offset, baseline - glyph.y_offset),
-                        },
-                        font_id: section.font_id,
-                    });
-                    x += glyph.x_advance;
-                }
+        let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
+        let mut baseline = self.first_baseline(&scaled, screen_y, lines.len());
 
-                baseline += line_height;
+        for line in lines {
+            let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
+
+            let mut x = match self.params.h_align {
+                HorizontalAlign::Left => screen_x,
+                HorizontalAlign::Center => screen_x - line_width / 2.0,
+                HorizontalAlign::Right => screen_x - line_width,
+            };
+
+            for glyph in line.glyphs {
+                let section_index = starts.partition_point(|start| *start <= glyph.cluster).saturating_sub(1);
+
+                result.push(SectionGlyph {
+                    section_index,
+                    byte_index: glyph.cluster - starts[section_index],
+                    glyph: Glyph {
+                        id:       GlyphId(glyph.id),
+                        scale:    first.scale,
+                        position: point(x + glyph.x_offset, baseline - glyph.y_offset),
+                    },
+                    font_id: first.font_id,
+                });
+                x += glyph.x_advance;
             }
+
+            baseline += line_height;
         }
 
         result

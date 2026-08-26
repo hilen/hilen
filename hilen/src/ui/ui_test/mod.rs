@@ -45,7 +45,8 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
     ui::{
-        Input, LongPress, ModifiersState, NamedKey, Touch, U8Color, UIEvents, UIManager, input::TouchEvent,
+        Input, LongPress, ModifiersState, NamedKey, Tooltip, Touch, U8Color, UIEvents, UIManager,
+        input::TouchEvent,
     },
     window::{MouseButton, Window},
 };
@@ -164,6 +165,14 @@ pub fn inject_long_press(x: impl ToF32, y: impl ToF32) {
         });
     });
 
+    human_pause();
+}
+
+/// Waits past the tooltip delay, so a tooltip the cursor is resting on
+/// has shown by the time the next check runs.
+pub fn wait_for_tooltip() {
+    sleep(Duration::from_secs_f32(Tooltip::DELAY + 0.2));
+    wait_for_next_frame();
     human_pause();
 }
 

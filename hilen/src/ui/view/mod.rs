@@ -12,6 +12,7 @@ pub(crate) mod view_internal;
 mod view_layout;
 mod view_subviews;
 mod view_test;
+mod view_tooltip;
 mod view_touch;
 mod view_transition;
 
@@ -28,5 +29,6 @@ pub use view_frame::*;
 pub use view_layout::*;
 pub use view_subviews::*;
 pub use view_test::*;
+pub use view_tooltip::*;
 pub use view_touch::*;
 pub use view_transition::*;

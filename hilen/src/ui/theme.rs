@@ -129,6 +129,24 @@ pub enum UIColor {
     Dynamic(DynamicColor),
 }
 
+impl UIColor {
+    /// The color for the current theme.
+    pub fn resolve(&self) -> Color {
+        match self {
+            Self::Plain(color) => *color,
+            Self::Dynamic(color) => color.resolve(),
+        }
+    }
+
+    /// The theme pair, if this color has one.
+    pub fn dynamic(&self) -> Option<DynamicColor> {
+        match self {
+            Self::Plain(_) => None,
+            Self::Dynamic(color) => Some(*color),
+        }
+    }
+}
+
 impl Default for UIColor {
     fn default() -> Self {
         Self::Plain(Color::default())

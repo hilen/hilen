@@ -5,7 +5,10 @@ use crate::ui::{
     TouchStack,
     view::{ViewData, ViewFrame},
 };
-use crate::{deps::refs::main_lock::MainLock, ui::WeakView};
+use crate::{
+    deps::refs::main_lock::MainLock,
+    ui::{Tooltip, WeakView},
+};
 
 static HOVERED: MainLock<WeakView> = MainLock::new();
 
@@ -63,5 +66,7 @@ impl Hover {
             base.is_hovered = true;
             base.events.touch.hovered.trigger(true);
         }
+
+        Tooltip::hover_changed(new);
     }
 }

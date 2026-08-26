@@ -65,6 +65,16 @@ but it activates only on sRGB targets, which the engine no longer uses.
 Measuring workflow, scripts and the trak table details live in the
 hilen skill's migration chapter, next to this repo's users.
 
+## Color runs
+
+`Label::set_color_runs(ranges)` paints byte ranges of the text in their own
+colors, the rest keeps the text color. The drawer emits one glyph_brush text
+per run and per gap between runs, all slices of the same string. `ShapedLayout`
+joins them back, shapes the whole string once, and maps every glyph to the
+text its cluster came from, so a run boundary never breaks kerning or letter
+spacing. Theme pairs in a run re-resolve on a switch like the text color does.
+`set_text` clears the runs.
+
 ## Gradient text
 
 `Label::set_text_gradient(start, end)` fades the glyphs from the top of the

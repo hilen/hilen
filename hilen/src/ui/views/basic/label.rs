@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::atomic::Ordering};
+use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
 use ui_proc::view;
@@ -64,6 +64,10 @@ pub struct Label {
 
     dynamic_text_end_color: Option<DynamicColor>,
 
+    /// Byte ranges of the text drawn in their own color, sorted and not
+    /// overlapping. Everything outside them keeps `text_color`.
+    color_runs: Vec<ColorRun>,
+
     #[educe(Default = DEFAULT_TEXT_SIZE.load(Ordering::Relaxed))]
     text_size: f32,
 
@@ -80,9 +84,64 @@ impl Label {
         &self.text
     }
 
+    /// Also drops the color runs, they were ranges of the old text.
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
-        weak_from_ref(self).text = text.to_label();
+        let mut this = weak_from_ref(self);
+        this.text = text.to_label();
+        this.color_runs.clear();
         self
+    }
+
+    /// Paints byte ranges of the text in their own colors, the rest keeps
+    /// the text color. Shaping runs over the whole text once, so kerning
+    /// and letter spacing across a run boundary stay as they are. Ranges
+    /// are clamped to the text, sorted, and a later range wins an overlap.
+    /// A highlighter such as syntect produces exactly this shape.
+    pub fn set_color_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) -> &Self {
+        let mut this = weak_from_ref(self);
+        let len = this.text.len();
+
+        let mut all: Vec<ColorRun> = runs
+            .into_iter()
+            .map(|(range, color)| ColorRun {
+                range:   range.start.min(len)..range.end.min(len),
+                color:   color.resolve(),
+                dynamic: color.dynamic(),
+            })
+            .filter(|run| run.range.start < run.range.end)
+            .collect();
+
+        all.sort_by_key(|run| run.range.start);
+
+        // A later range wins, so the earlier one gives up the overlap.
+        let mut runs: Vec<ColorRun> = vec![];
+        for run in all {
+            if let Some(last) = runs.last_mut()
+                && last.range.end > run.range.start
+            {
+                last.range.end = run.range.start;
+                if last.range.start >= last.range.end {
+                    runs.pop();
+                }
+            }
+            runs.push(run);
+        }
+
+        this.color_runs = runs;
+        self
+    }
+
+    pub fn clear_color_runs(&self) -> &Self {
+        weak_from_ref(self).color_runs.clear();
+        self
+    }
+
+    pub(crate) fn color_runs(&self) -> &[ColorRun] {
+        &self.color_runs
+    }
+
+    pub fn color_runs_len(&self) -> usize {
+        self.color_runs.len()
     }
 
     pub fn text_color(&self) -> &Color {
@@ -287,7 +346,19 @@ impl ViewCallbacks for Label {
         if let Some(color) = self.dynamic_text_end_color {
             self.text_end_color = Some(color.resolve());
         }
+        for run in &mut self.color_runs {
+            if let Some(color) = run.dynamic {
+                run.color = color.resolve();
+            }
+        }
     }
+}
+
+/// One colored byte range of a label's text.
+pub(crate) struct ColorRun {
+    pub range:   Range<usize>,
+    pub color:   Color,
+    pub dynamic: Option<DynamicColor>,
 }
 
 pub trait AddLabel {

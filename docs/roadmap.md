@@ -227,14 +227,18 @@ shas, container statuses, deploy errors, button hints. kukareker needs them
 too, full file paths, ref chip sources, full dates, and a richer hover card
 on commit avatars showing author name, email and the commit date.
 
-- Current: no tooltip view exists, ports drop every `title` attribute. The one
-  load bearing tooltip, the deploy error, got a tap fallback in the port.
-- Needed: a tooltip layer, show a floating label after a hover delay near the
-  cursor, dismiss on move out or tap, touch platforms substitute long press or
-  skip. Needs the hover machinery already in `src/ui/hover.rs`. The floating
-  content must accept a small view, not only a text label, so the kukareker
-  avatar card with several lines can ride the same layer.
-- Blocks: hover parity for web ports, kukareker hover parity.
+- Landed: `set_tooltip(text)` and `set_tooltip_view(make)` on every view,
+  both turn hover on. The one floating tooltip shows after the cursor rests
+  on the view for 0.5 s, a little below and right of it, slid back inside
+  the screen, and hides when the cursor leaves or anything is pressed. It
+  never takes touches. A view tooltip is built by `make` on every show and
+  dropped on hide, so the kukareker avatar card can read whatever is
+  current. On a touch screen a long press shows it, on a view that hangs
+  no `secondary` action on the hold. Themed light and dark. Covered by
+  `Tooltip hover`, gated with hover, and `Tooltip long press` everywhere,
+  plus the `wait_for_tooltip` test helper.
+- Blocks: nothing. This unblocked hover parity for the web and kukareker
+  ports.
 
 ## Right-click and context menus
 
@@ -278,13 +282,17 @@ Found by the kukareker commit graph, a row is 30 px without ref chips and
 Found by the kukareker diff view, a syntax highlighted code line needs
 per-token colors.
 
-- Current: a `Label` has one text color for the whole string. A multi color
-  line means one label per token run placed by hand, measured and drifting.
-- Needed: per-range color runs on one label, threaded through `ShapedParams`
-  into `ShapedLayout` so shaping, kerning and letter spacing stay intact.
-  Highlighting itself stays in the app, syntect produces the ranges.
-- Blocks: kukareker syntax highlighted diffs. A later wave, the port ships
-  plain add and remove row tinting first, so this is not on the core path.
+- Landed: `Label::set_color_runs(ranges)`, byte ranges of the text each
+  with its own `UIColor`, the rest keeps the text color, theme pairs
+  re-resolve on a switch. The drawer emits one glyph_brush text per run and
+  gap, and `ShapedLayout` shapes them as one string and only picks the
+  color per glyph, so kerning and letter spacing across a run boundary are
+  what the font says. Ranges are clamped, sorted and a later one wins an
+  overlap. `set_text` drops the runs, they were ranges of the old text.
+  Highlighting stays in the app, syntect produces the ranges. Covered by
+  `Label color runs`, which proves black runs render pixel for pixel like
+  a plain label before pinning the colored look.
+- Blocks: nothing. This unblocked kukareker syntax highlighted diffs.
 
 ## Frame stepped animation testing
 
@@ -406,10 +414,9 @@ Found by the tvOS display bring-up, see [tvos.md](tvos.md).
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
-Right-click context menus and TableView variable row heights landed. The
-kukareker core wave needs tooltips during the port, then colored label runs for
-its later diff highlighting wave. Among the rest, frame stepped animation
-testing goes next, it has two live needs, the unassessed animation problem in
+Right-click context menus, TableView variable row heights, tooltips and
+colored label runs landed, the whole kukareker list. Among the rest, frame
+stepped animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font
 fallback, and tvOS remote input waits for a real tvOS app need.
