@@ -13,6 +13,10 @@ Apps and test binaries are separate crates on top. Internals are `pub(crate)`, t
 app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, so the
 `dead_code` lint stays meaningful.
 
+`hilen-server` is the backend base crate for app backends, config, error type,
+base routes and helpers over axum, sqlx and redis. It never links the `hilen`
+UI crate, a backend and a client only share the wire.
+
 The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
 `ui-test` runner links both.
