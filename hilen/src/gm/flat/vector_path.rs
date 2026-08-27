@@ -1,6 +1,7 @@
 use log::error;
 use lyon::{
-    math::point,
+    geom::{Angle, Arc},
+    math::{point, vector},
     path::{Path, Winding},
     tessellation::{
         BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
@@ -109,6 +110,29 @@ impl VectorPath {
         let center = center.into();
         let mut builder = Path::builder();
         builder.add_circle(point(center.x, center.y), radius.to_f32(), Winding::Positive);
+        Self {
+            path: builder.build(),
+        }
+    }
+
+    /// An open arc of a circle. Angles are in radians, zero points right and
+    /// a positive sweep turns clockwise on screen, where y grows downward.
+    pub fn arc(center: impl Into<Point>, radius: impl ToF32, start: impl ToF32, sweep: impl ToF32) -> Self {
+        let center = center.into();
+        let radius = radius.to_f32();
+        let arc = Arc {
+            center:      point(center.x, center.y),
+            radii:       vector(radius, radius),
+            start_angle: Angle::radians(start.to_f32()),
+            sweep_angle: Angle::radians(sweep.to_f32()),
+            x_rotation:  Angle::zero(),
+        };
+        let mut builder = Path::builder();
+        builder.begin(arc.from());
+        arc.for_each_cubic_bezier(&mut |segment| {
+            builder.cubic_bezier_to(segment.ctrl1, segment.ctrl2, segment.to);
+        });
+        builder.end(false);
         Self {
             path: builder.build(),
         }

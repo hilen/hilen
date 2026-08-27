@@ -547,13 +547,38 @@ wrong next to the browser one.
   summary pixel parity, item 7 of the wave 7 fix list in the app's
   docs/roadmap.md.
 
+## Animated spinner view
+
+Found by the kukareker wave 7 modal pass. The clone modal title shows a
+spinning ring while the gh repo list streams, and the engine has no
+animated spinner, so the port shows nothing there.
+
+- Current: `Spinner` is the six dot modal one, not a ring.
+- Landed: `RingSpinner`, a stroked circle with a top quarter gap that turns
+  clockwise while visible, the browser `animate-spin` border ring. Sized
+  like any view, 12 by 12 and a 2 px line by default. `set_ring_color`
+  takes a theme pair and re-resolves on a switch, `set_line_width`,
+  `set_speed` in turns per second where zero holds it, `set_angle` in
+  turns. The arc comes from the new `VectorPath::arc`. Render on demand
+  sleeps the loop unless continuous work is live, so a visible ring runs an
+  empty `UIAnimation` whose finish condition is the ring hiding or dying,
+  and a hidden ring lets the loop sleep again. `Ring spinner test` pins the
+  held ring with the gap on top, turned half a turn, and in the dark theme,
+  then checks the loop stays continuous while a ring shows, the angle
+  advances at speed one, the loop sleeps once both rings hide and wakes when
+  one shows again. Mid rotation frames wait for frame stepped animation
+  testing. The recorder merges colors within its cluster tolerance of the
+  clear color into the background cluster, so the test strokes the light
+  ring in a darker gray than the muted browser one.
+- Blocks: nothing. This unblocked the kukareker clone title spinner.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Right-click context menus, TableView variable row heights, tooltips and
 colored label runs landed, the whole kukareker list, key injection over
-hilen-inspect, the table scroll position and sticky rows, and the TextField
-placeholder color followed. Among the rest, frame stepped
+hilen-inspect, the table scroll position and sticky rows, the TextField
+placeholder color and the ring spinner followed. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font
