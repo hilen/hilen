@@ -393,6 +393,10 @@ impl UIDrawer {
     }
 
     fn draw_label<'a>(frame: &Rect, label: &'a Label, sections: &mut TextSections<'a>, scale: f32) {
+        // The full text, or the ellipsized copy when the label opted in
+        // and the text overflows this width.
+        let text = label.display_text(frame.size.width);
+
         let frame = frame * scale;
 
         let center = frame.center();
@@ -425,34 +429,47 @@ impl UIDrawer {
         let mut section = Section::new();
 
         if label.color_runs().is_empty() {
-            let mut text = make_text(&label.text, label.text_color());
+            let mut colored = make_text(text, label.text_color());
 
             // After `with_color`, which sets both ends of the ramp so that a label
             // without a gradient stays flat.
             if let Some(end) = label.text_end_color() {
-                text = text.with_end_color(end.as_slice());
+                colored = colored.with_end_color(end.as_slice());
             }
 
-            section = section.add_text(text);
+            section = section.add_text(colored);
         } else {
             // One glyph_brush text per run and per gap between runs. The
             // layout shapes them as one string and only picks the color
             // per glyph, so a run boundary never breaks kerning.
+            //
+            // Runs are byte ranges of the full text. An ellipsized copy is
+            // shorter and ends in the multi byte ellipsis, so a clamped
+            // range backs off to a char boundary of what is drawn, which
+            // keeps the ellipsis itself in the text color.
+            let clamp = |position: usize| {
+                let mut position = position.min(text.len());
+                while !text.is_char_boundary(position) {
+                    position -= 1;
+                }
+                position
+            };
             let mut cursor = 0;
 
             for run in label.color_runs() {
-                if cursor < run.range.start {
-                    section = section.add_text(make_text(
-                        &label.text[cursor..run.range.start],
-                        label.text_color(),
-                    ));
+                let (start, end) = (clamp(run.range.start), clamp(run.range.end));
+                if start >= end {
+                    continue;
                 }
-                section = section.add_text(make_text(&label.text[run.range.clone()], &run.color));
-                cursor = run.range.end;
+                if cursor < start {
+                    section = section.add_text(make_text(&text[cursor..start], label.text_color()));
+                }
+                section = section.add_text(make_text(&text[start..end], &run.color));
+                cursor = end;
             }
 
-            if cursor < label.text.len() {
-                section = section.add_text(make_text(&label.text[cursor..], label.text_color()));
+            if cursor < text.len() {
+                section = section.add_text(make_text(&text[cursor..], label.text_color()));
             }
         }
 

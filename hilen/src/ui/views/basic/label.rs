@@ -53,6 +53,14 @@ pub struct Label {
 
     multiline: bool,
 
+    ellipsize: bool,
+
+    /// The truncation computed for the cached width: the width it was
+    /// computed at, and the shortened copy, `None` when the full text
+    /// fits there. Dropped by every setter that changes what a
+    /// truncation depends on.
+    ellipsized: Option<(f32, Option<String>)>,
+
     #[educe(Default = BLACK)]
     text_color: Color,
 
@@ -89,6 +97,7 @@ impl Label {
         let mut this = weak_from_ref(self);
         this.text = text.to_label();
         this.color_runs.clear();
+        this.ellipsized = None;
         self
     }
 
@@ -204,7 +213,9 @@ impl Label {
     }
 
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
-        weak_from_ref(self).text_size = size.to_f32();
+        let mut this = weak_from_ref(self);
+        this.text_size = size.to_f32();
+        this.ellipsized = None;
         self
     }
 
@@ -213,7 +224,9 @@ impl Label {
     }
 
     pub fn set_letter_spacing(&self, spacing: impl ToF32) -> &Self {
-        weak_from_ref(self).letter_spacing = spacing.to_f32();
+        let mut this = weak_from_ref(self);
+        this.letter_spacing = spacing.to_f32();
+        this.ellipsized = None;
         self
     }
 
@@ -226,7 +239,9 @@ impl Label {
     }
 
     pub fn set_font(&self, font: Weak<Font>) -> &Self {
-        weak_from_ref(self).font = font;
+        let mut this = weak_from_ref(self);
+        this.font = font;
+        this.ellipsized = None;
         self
     }
 
@@ -289,8 +304,85 @@ impl Label {
     }
 
     pub fn set_multiline(&self, multiline: bool) -> &Self {
-        weak_from_ref(self).multiline = multiline;
+        let mut this = weak_from_ref(self);
+        this.multiline = multiline;
+        this.ellipsized = None;
         self
+    }
+
+    /// A single line label cuts text that does not fit its width to the
+    /// longest prefix that does and draws an ellipsis after it, the CSS
+    /// `text-overflow: ellipsis`. Off by default, the overflow clips.
+    /// Multiline labels wrap instead and ignore this.
+    pub fn set_ellipsize(&self, ellipsize: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.ellipsize = ellipsize;
+        this.ellipsized = None;
+        self
+    }
+
+    /// The text the drawer paints at the given frame width: the full text
+    /// while it fits, the truncated copy with the trailing ellipsis when
+    /// it does not. The full text unless `set_ellipsize` opted in.
+    pub fn display_text(&self, width: f32) -> &str {
+        if !self.ellipsize || self.multiline || self.text.is_empty() {
+            return &self.text;
+        }
+
+        if self.ellipsized.as_ref().is_none_or(|(w, _)| (*w - width).abs() > f32::EPSILON) {
+            let truncated = self.truncate_to(width);
+            weak_from_ref(self).ellipsized = Some((width, truncated));
+        }
+
+        match &self.ellipsized.as_ref().expect("just computed").1 {
+            Some(text) => text,
+            None => &self.text,
+        }
+    }
+
+    fn truncate_to(&self, width: f32) -> Option<String> {
+        const ELLIPSIS: &str = "…";
+
+        let available = width - self.alignment_margin();
+        let mut font = self.font();
+        let mut fits =
+            |text: &str| font.measure(text, self.text_size, None, self.letter_spacing).width <= available;
+
+        if fits(&self.text) {
+            return None;
+        }
+
+        // Byte end of the prefix keeping this many characters. Keeping
+        // every character is out, the full text already does not fit.
+        let ends: Vec<usize> = self
+            .text
+            .char_indices()
+            .skip(1)
+            .map(|(index, _)| index)
+            .chain([self.text.len()])
+            .collect();
+        let candidate = |kept: usize| {
+            let end = if kept == 0 { 0 } else { ends[kept - 1] };
+            format!("{}{ELLIPSIS}", &self.text[..end])
+        };
+
+        // The longest fitting prefix by binary search. When even the bare
+        // ellipsis does not fit it still draws, like CSS does.
+        let mut best = 0;
+        let (mut low, mut high) = (0, ends.len() - 1);
+        while low <= high {
+            let mid = usize::midpoint(low, high);
+            if fits(&candidate(mid)) {
+                best = mid;
+                low = mid + 1;
+            } else if mid == 0 {
+                break;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        Some(candidate(best))
     }
 
     pub fn set_image(&self, image: impl ToImage) -> &Self {

@@ -547,6 +547,43 @@ wrong next to the browser one.
   summary pixel parity, item 7 of the wave 7 fix list in the app's
   docs/roadmap.md.
 
+## Label ellipsis
+
+Found by the kukareker wave 8 pass, truncated file paths showed no
+ellipsis, the label clipped mid glyph.
+
+- Landed: opt in `Label::set_ellipsize`. A single line label cuts text
+  that does not fit its width to the longest fitting prefix and draws an
+  ellipsis after it, the CSS `text-overflow: ellipsis`. The cut is
+  measured with the real font metrics and cached per width, every setter
+  that changes the text, size, spacing or font drops the cache. Color
+  runs clamp to what is drawn, so a run past the cut never slices the
+  multi byte ellipsis. Multiline labels wrap and ignore the flag.
+  Covered by `Label ellipsize`.
+- Blocks: nothing. This unblocked the kukareker file path ellipsis.
+
+## TextField font
+
+Found by the kukareker squash modal, its textarea is mono like the
+original and the field had no font setter.
+
+- Landed: `TextField::set_font`, forwarded to the field's label like
+  alignment, so the caret positions follow the same layout. Covered by
+  `Text field font`.
+- Blocks: nothing.
+
+## Tap modifiers over hilen-inspect
+
+Found by the kukareker squash modal, it opens only from a Cmd click
+multi selection and a right click row menu, which `tap` could not drive.
+
+- Landed: `tap --cmd`, `--shift`, `--alt` and `--right`. The modifiers
+  hold for that one tap and release right after, like the keys request,
+  and a right tap fires the secondary action, so context menus open like
+  from a real mouse. Covered by `Inspect tap modifiers`.
+- Blocks: nothing. This unblocked driving the squash flow in a running
+  app.
+
 ## Animated spinner view
 
 Found by the kukareker wave 7 modal pass. The clone modal title shows a
@@ -578,7 +615,8 @@ Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Right-click context menus, TableView variable row heights, tooltips and
 colored label runs landed, the whole kukareker list, key injection over
 hilen-inspect, the table scroll position and sticky rows, the TextField
-placeholder color and the ring spinner followed. Among the rest, frame stepped
+placeholder color and the ring spinner followed, then the wave 8 label
+ellipsis, the TextField font and the inspect tap modifiers. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

@@ -210,7 +210,11 @@ impl InspectService {
                 view.set_color(color);
                 Ok(entry(view, "color", format!("{old}"), format!("{color}")))
             }),
-            UIRequest::Tap { view_id } => {
+            UIRequest::Tap {
+                view_id,
+                modifiers,
+                right,
+            } => {
                 let result = from_main(move || -> Result<(), String> {
                     let view = find_view(&view_id)?;
 
@@ -222,14 +226,23 @@ impl InspectService {
                     // to points itself, so the center scales up first.
                     let position = view.absolute_frame().center() * UIManager::scale();
 
+                    // Held for this tap only and released right after, like
+                    // the keys request, so a Cmd cannot leak into later input.
+                    Input::set_modifiers(modifiers);
+                    let button = if right {
+                        MouseButton::Right
+                    } else {
+                        MouseButton::Left
+                    };
                     for event in [TouchEvent::Began, TouchEvent::Ended] {
                         Input::process_touch_event(Touch {
                             id: 1,
                             position,
                             event,
-                            button: MouseButton::Left,
+                            button,
                         });
                     }
+                    Input::set_modifiers(ModifiersState::empty());
 
                     Ok(())
                 });

@@ -85,6 +85,17 @@ enum Command {
         /// substring, tried in that order. An ambiguous query lists the
         /// candidates instead of guessing.
         query: String,
+        /// Hold the command modifier for this tap, Cmd on a Mac
+        #[arg(long)]
+        cmd:   bool,
+        #[arg(long)]
+        shift: bool,
+        #[arg(long)]
+        alt:   bool,
+        /// A right click instead of a left one, fires the secondary
+        /// action such as a context menu
+        #[arg(long)]
+        right: bool,
     },
     /// Type text or press one named key, with modifiers held only for that
     /// input. Keys go where a real keyboard would send them, the focused text
@@ -175,7 +186,13 @@ async fn main() -> Result<()> {
             };
             println!("{}", to_string_pretty(&edits)?);
         }
-        Command::Tap { query } => tap(&client, &query).await?,
+        Command::Tap {
+            query,
+            cmd,
+            shift,
+            alt,
+            right,
+        } => tap(&client, &query, [cmd, shift, alt], right).await?,
         Command::Keys {
             text,
             key,
@@ -220,10 +237,15 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn tap(client: &Client, query: &str) -> Result<()> {
+async fn tap(client: &Client, query: &str, [cmd, shift, alt]: [bool; 3], right: bool) -> Result<()> {
     let (_, root) = get_ui(client).await?;
     let target = resolve_tap_target(&root, query)?;
     println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
+
+    let mut modifiers = ModifiersState::empty();
+    modifiers.set(ModifiersState::SUPER, cmd);
+    modifiers.set(ModifiersState::SHIFT, shift);
+    modifiers.set(ModifiersState::ALT, alt);
 
     // The tapped view is often gone from the fresh tree, a tab swaps the
     // page and a modal button closes the modal, so no lookup afterwards.
@@ -231,6 +253,8 @@ async fn tap(client: &Client, query: &str) -> Result<()> {
         client,
         UIRequest::Tap {
             view_id: target.id.clone(),
+            modifiers,
+            right,
         }
         .into(),
     )

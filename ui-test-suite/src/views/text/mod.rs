@@ -6,6 +6,7 @@ mod custom_text_field;
 mod font_zoo;
 mod label;
 mod label_color_runs;
+mod label_ellipsize;
 mod label_fit_text;
 mod label_font;
 mod label_image;
@@ -26,6 +27,9 @@ mod text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;
+/// Sets the font and text programmatically, no typing, so it runs
+/// everywhere too.
+mod text_field_font;
 /// Enters and clears text programmatically, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_color;

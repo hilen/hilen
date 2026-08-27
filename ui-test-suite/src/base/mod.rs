@@ -7,6 +7,7 @@ mod css_colors;
 mod dispatch;
 mod global_styles;
 mod inspect_keys;
+mod inspect_tap_modifiers;
 mod keymap;
 mod keymap_combo;
 mod keymap_named_key;

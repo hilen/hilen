@@ -40,8 +40,16 @@ pub enum UIRequest {
         view_id: String,
         color:   Color,
     },
+    /// Touch began plus ended at the view center, with the modifiers held
+    /// only for the tap, so a Cmd click drives multi selection. A right
+    /// tap fires the secondary action, context menus open like from a
+    /// real mouse.
     Tap {
-        view_id: String,
+        view_id:   String,
+        #[serde(default)]
+        modifiers: ModifiersState,
+        #[serde(default)]
+        right:     bool,
     },
     /// Plays the keys in order with the modifiers held, then releases them.
     Keys {

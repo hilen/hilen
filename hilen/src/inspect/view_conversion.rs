@@ -41,7 +41,9 @@ pub(crate) fn text_of(view: WeakView) -> Option<String> {
     None
 }
 
-pub(crate) fn weak_to_id(weak_view: WeakView) -> String {
+// Public for the inspect tests, which address a view the way the CLI
+// does, by its wire id.
+pub fn weak_to_id(weak_view: WeakView) -> String {
     let raw = weak_view.raw();
     format!(
         "{}:{}",

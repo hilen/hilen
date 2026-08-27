@@ -18,6 +18,7 @@ use crate::{
         UIManager, VerticalAlignment, ViewSubviews,
         view::{View, ViewData, ViewFrame, ViewTouch},
     },
+    window::Font,
 };
 
 /// Space above the first line of a multiline field, so the text does not
@@ -138,6 +139,13 @@ impl Setup for TextField {
 impl TextField {
     pub fn set_alignment(&mut self, alignment: TextAlignment) -> &mut Self {
         self.label.set_alignment(alignment);
+        self
+    }
+
+    /// The label font, so a field renders mono or any loaded face. The
+    /// caret follows it, positions come from the same label layout.
+    pub fn set_font(&self, font: Weak<Font>) -> &Self {
+        self.label.set_font(font);
         self
     }
 

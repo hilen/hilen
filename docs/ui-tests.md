@@ -418,6 +418,12 @@ through every history change with it.
 
 ## Recording color probes
 
+A test that pins how something looks carries recorded `check_colors` blocks. Put empty
+`check_colors("")?` placeholders in from the first draft and record them with
+`--record-colors` while iterating. Region comparisons are fine on top but they do not
+replace the blocks. A test that only checks behavior, counters and state, carries no
+blocks.
+
 `check_colors` expectations are recorded, not written by hand. With `--record-colors` every
 `check_colors` call prints a ready to paste block instead of asserting: it takes a
 screenshot, picks probe pixels automatically, and prints them labeled with the test name and
