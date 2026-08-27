@@ -9,6 +9,7 @@ mod label_color_runs;
 mod label_ellipsize;
 mod label_fit_text;
 mod label_font;
+mod label_font_runs;
 mod label_image;
 mod label_measure;
 mod label_stress;

@@ -14,13 +14,14 @@ use crate::{
         Weak,
         main_lock::MainLock,
         manage::{DataManager, ResourceLoader},
+        weak_from_ref,
     },
     filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     managed,
     window::{
         msaa_sample_count, surface_texture_format,
-        text::{ShapeCache, ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
+        text::{FontRun, ShapeCache, ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
         window::Window,
     },
 };
@@ -28,6 +29,9 @@ use crate::{
 pub struct Font {
     pub name:    String,
     pub brush:   TextBrush,
+    /// The same font the brush rasterizes with, kept for measuring while
+    /// the brush is busy.
+    ab:          FontArc,
     face:        Face<'static>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
@@ -70,7 +74,7 @@ impl Font {
             .ok_or_else(|| anyhow!("Font '{}' has no units per em", name.to_string()))?;
         let em_scale = font.height_unscaled() / units_per_em;
 
-        let brush = BrushBuilder::using_font(font).with_depth_stencil( DepthStencilState {
+        let brush = BrushBuilder::using_font(font.clone()).with_depth_stencil( DepthStencilState {
             format:              TextureFormat::Depth32Float,
             depth_write_enabled: Some(true),
             depth_compare:       Some(CompareFunction::Less),
@@ -87,6 +91,7 @@ impl Font {
         Ok(Self {
             name: name.to_string(),
             brush,
+            ab: font,
             face,
             em_scale,
             shape_cache: MainLock::new(),
@@ -99,8 +104,32 @@ impl Font {
         self.em_scale
     }
 
+    pub(crate) fn face(&self) -> &Face<'static> {
+        &self.face
+    }
+
+    pub(crate) fn ab(&self) -> &FontArc {
+        &self.ab
+    }
+
+    pub(crate) fn shape_cache(&self) -> &MainLock<ShapeCache> {
+        &self.shape_cache
+    }
+
+    fn params(&self, tracking: f32, width: Option<f32>, runs: Vec<FontRun>) -> ShapedParams {
+        ShapedParams {
+            tracking,
+            multiline: width.is_some(),
+            h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
+            v_align: VerticalAlign::Center,
+            base: weak_from_ref(self),
+            runs,
+        }
+    }
+
     /// Size the text takes when drawn at `size`. `width` bounds wrapping,
-    /// `None` measures a single unbounded line. Layout params must mirror
+    /// `None` measures a single unbounded line. `runs` are the byte
+    /// ranges drawn with other fonts. Layout params must mirror
     /// `draw_label` or measured sizes will not match rendering.
     pub(crate) fn measure(
         &mut self,
@@ -108,6 +137,7 @@ impl Font {
         size: impl ToF32,
         width: Option<f32>,
         tracking: f32,
+        runs: Vec<FontRun>,
     ) -> Size {
         if text.is_empty() {
             return Size::default();
@@ -118,15 +148,8 @@ impl Font {
             .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
 
         let layout = ShapedLayout {
-            face:      &self.face,
-            font_name: &self.name,
-            cache:     &self.shape_cache,
-            params:    ShapedParams {
-                tracking,
-                multiline: width.is_some(),
-                h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
-                v_align: VerticalAlign::Center,
-            },
+            emit:   &self.name,
+            params: self.params(tracking, width, runs),
         };
 
         let Some(bounds) = self.brush.glyph_bounds_with_layout(section, &layout) else {
@@ -144,35 +167,23 @@ impl Font {
         size: impl ToF32,
         width: Option<f32>,
         tracking: f32,
+        runs: Vec<FontRun>,
     ) -> TextLayout {
         let layout = ShapedLayout {
-            face:      &self.face,
-            font_name: &self.name,
-            cache:     &self.shape_cache,
-            params:    ShapedParams {
-                tracking,
-                multiline: width.is_some(),
-                h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
-                v_align: VerticalAlign::Center,
-            },
+            emit:   &self.name,
+            params: self.params(tracking, width, runs),
         };
 
         let scale = PxScale::from(size.to_f32() * self.em_scale);
-        layout.text_layout(
-            &self.brush.fonts()[0],
-            scale,
-            text,
-            width.unwrap_or(f32::INFINITY),
-        )
+        layout.text_layout(scale, text, width.unwrap_or(f32::INFINITY))
     }
 
-    /// Queues a section shaped with this font's face. Call
+    /// Queues a section laid out with the base font of `params` and
+    /// drawn with this font, which keeps only its own glyphs. Call
     /// [`Font::process_queued`] once per frame after all sections.
     pub(crate) fn queue_shaped(&mut self, section: Section, params: ShapedParams) {
         let layout = ShapedLayout {
-            face: &self.face,
-            font_name: &self.name,
-            cache: &self.shape_cache,
+            emit: &self.name,
             params,
         };
         self.brush.queue_section_with_layout(section, &layout);

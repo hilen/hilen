@@ -609,6 +609,25 @@ animated spinner, so the port shows nothing there.
   ring in a darker gray than the muted browser one.
 - Blocks: nothing. This unblocked the kukareker clone title spinner.
 
+## Font runs in a label
+
+Found by the kukareker wave 8 modal pass. The askpass card descriptions
+wrap as one paragraph with mono and underlined spans inline, and a label
+draws its whole text with one font, so the port renders those spans in
+the plain font.
+
+- Landed: `Label::set_font_runs` takes byte ranges with a `RunStyle`, a
+  font, an underline flag, or both. Same range rules as color runs,
+  clamped to char boundaries, sorted, a later one wins an overlap,
+  dropped by `set_text`. Shaping, wrapping and measurement use the run
+  fonts, the line height and baseline stay the label font's. Every font
+  owns one brush, so a mixed label is queued on every brush it touches
+  and each keeps its own glyphs. The underline is a rect per line piece
+  in the color the text has there, see [text.md](text.md). Covered by
+  `Label font runs`.
+- Blocks: nothing. This unblocked the kukareker askpass card spans, the
+  last piece in its engine queue.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
@@ -616,7 +635,8 @@ Right-click context menus, TableView variable row heights, tooltips and
 colored label runs landed, the whole kukareker list, key injection over
 hilen-inspect, the table scroll position and sticky rows, the TextField
 placeholder color and the ring spinner followed, then the wave 8 label
-ellipsis, the TextField font and the inspect tap modifiers. Among the rest, frame stepped
+ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
+which closed the kukareker list. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

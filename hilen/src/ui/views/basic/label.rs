@@ -13,6 +13,7 @@ use crate::{
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         view::{ViewData, ViewSubviews},
+        views::basic::label_runs::StyleRun,
     },
     window::{Font, TextLayout, image::ToImage},
 };
@@ -59,7 +60,7 @@ pub struct Label {
     /// computed at, and the shortened copy, `None` when the full text
     /// fits there. Dropped by every setter that changes what a
     /// truncation depends on.
-    ellipsized: Option<(f32, Option<String>)>,
+    pub(super) ellipsized: Option<(f32, Option<String>)>,
 
     #[educe(Default = BLACK)]
     text_color: Color,
@@ -75,6 +76,10 @@ pub struct Label {
     /// Byte ranges of the text drawn in their own color, sorted and not
     /// overlapping. Everything outside them keeps `text_color`.
     color_runs: Vec<ColorRun>,
+
+    /// Byte ranges drawn in their own font or underlined, sorted and not
+    /// overlapping. See `set_font_runs`.
+    pub(super) font_runs: Vec<StyleRun>,
 
     #[educe(Default = DEFAULT_TEXT_SIZE.load(Ordering::Relaxed))]
     text_size: f32,
@@ -92,11 +97,12 @@ impl Label {
         &self.text
     }
 
-    /// Also drops the color runs, they were ranges of the old text.
+    /// Also drops the color and font runs, they were ranges of the old text.
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
         let mut this = weak_from_ref(self);
         this.text = text.to_label();
         this.color_runs.clear();
+        this.font_runs.clear();
         this.ellipsized = None;
         self
     }
@@ -256,7 +262,10 @@ impl Label {
     pub fn size_for_width(&self, width: f32) -> Size {
         let margin = self.alignment_margin();
         let bound = self.multiline.then_some(width - margin);
-        let measured = self.font().measure(&self.text, self.text_size, bound, self.letter_spacing);
+        let runs = self.shaping_runs(&self.text);
+        let measured = self
+            .font()
+            .measure(&self.text, self.text_size, bound, self.letter_spacing, runs);
 
         if measured.has_no_area() {
             return measured;
@@ -291,7 +300,8 @@ impl Label {
     /// wrapping at the current frame width when multiline.
     pub(crate) fn text_layout_for(&self, text: &str) -> TextLayout {
         let bound = self.multiline.then_some(self.width() - self.alignment_margin());
-        self.font().text_layout(text, self.text_size, bound, self.letter_spacing)
+        let runs = self.shaping_runs(text);
+        self.font().text_layout(text, self.text_size, bound, self.letter_spacing, runs)
     }
 
     /// The drawer indents left and right aligned text, see `alignment_margin`.
@@ -345,8 +355,10 @@ impl Label {
 
         let available = width - self.alignment_margin();
         let mut font = self.font();
-        let mut fits =
-            |text: &str| font.measure(text, self.text_size, None, self.letter_spacing).width <= available;
+        let mut fits = |text: &str| {
+            let runs = self.shaping_runs(text);
+            font.measure(text, self.text_size, None, self.letter_spacing, runs).width <= available
+        };
 
         if fits(&self.text) {
             return None;

@@ -358,6 +358,7 @@ impl UIDrawer {
             && !label.text.is_empty()
         {
             Self::draw_label(&frame, label, &mut ctx.text_sections, ctx.scale);
+            Self::draw_underlines(&frame, label, ctx.scale);
         } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {
             ctx.paths.extend(drawing.paths());
         }
@@ -417,6 +418,8 @@ impl UIDrawer {
                 VerticalAlignment::Top => VerticalAlign::Top,
                 VerticalAlignment::Center => VerticalAlign::Center,
             },
+            base:      font,
+            runs:      label.shaping_runs(text),
         };
 
         let scale_px = label.text_size() * scale * font.em_scale();
@@ -490,9 +493,73 @@ impl UIDrawer {
                 },
             ));
 
-        match sections.iter_mut().find(|(f, _)| f.name == font.name) {
-            Some((_, list)) => list.push((section, params)),
-            None => sections.push((font, vec![(section, params)])),
+        // A font run draws through its own font's brush, so the section
+        // is queued once per font it touches. Every copy lays the whole
+        // text out and keeps the glyphs of its own font.
+        let mut fonts = vec![font];
+        for run in &params.runs {
+            if !fonts.iter().any(|f| f.name == run.font.name) {
+                fonts.push(run.font);
+            }
+        }
+
+        for font in fonts {
+            match sections.iter_mut().find(|(f, _)| f.name == font.name) {
+                Some((_, list)) => list.push((section.clone(), params.clone())),
+                None => sections.push((font, vec![(section.clone(), params.clone())])),
+            }
+        }
+    }
+
+    /// One rect under every line piece of an underlined run, in the
+    /// color the text has there. Between the label background and its
+    /// glyphs, so a descender paints over the line like in a browser.
+    fn draw_underlines(frame: &Rect, label: &Label, scale: f32) {
+        let text = label.display_text(frame.size.width);
+        let ranges = label.underline_runs(text);
+        if ranges.is_empty() {
+            return;
+        }
+
+        let layout = label.text_layout_for(text);
+        let inset = label.text_inset();
+        let (position, thickness) = layout.underline;
+        let thickness = thickness.max(1.0 / scale);
+        let z = label.z_position() - UIManager::additional_z_offset() / 2.0;
+
+        let top = match label.vertical_alignment {
+            VerticalAlignment::Top => frame.y(),
+            VerticalAlignment::Center => frame.y() + frame.height() / 2.0 - layout.total_height() / 2.0,
+        };
+
+        for (index, line) in layout.lines.iter().enumerate() {
+            let line_x = match label.alignment {
+                TextAlignment::Left => frame.x() + inset,
+                TextAlignment::Center => frame.x() + (frame.width() - line.width) / 2.0,
+                TextAlignment::Right => frame.max_x() - inset - line.width,
+            };
+            let count: f32 = index.lossy_convert();
+            let baseline = top + layout.ascent + count * layout.line_height;
+
+            for range in &ranges {
+                let start = range.start.max(line.start);
+                let end = range.end.min(line.end);
+                if start >= end {
+                    continue;
+                }
+                let x0 = layout.x_on_line(index, start);
+                let x1 = layout.x_on_line(index, end);
+
+                Pipelines::rect().add(UIRectInstance::new(
+                    (line_x + x0, baseline - position, x1 - x0, thickness).into(),
+                    label.color_at(start),
+                    CLEAR,
+                    0.0,
+                    CornerRadii::default(),
+                    z,
+                    scale,
+                ));
+            }
         }
     }
 }

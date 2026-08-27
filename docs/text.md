@@ -87,6 +87,20 @@ text its cluster came from, so a run boundary never breaks kerning or letter
 spacing. Theme pairs in a run re-resolve on a switch like the text color does.
 `set_text` clears the runs.
 
+## Font runs
+
+`Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,
+or both, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
+per run it crosses and one per gap, each with its own face and shape cache, so
+a wider run font moves the wraps and `Font::measure` follows. The line height
+and baseline stay the label font's. Every `Font` owns one brush, so the drawer
+queues a mixed label on every brush it touches, and each layout copy lays out
+the whole text and emits only the glyphs of the font that brush draws. Kerning
+stops at a run boundary, the two sides are different fonts. An underline is
+not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
+the run from the base font's underline metrics, in the color the text has
+there, between the label background and the glyphs. `set_text` clears the runs.
+
 ## Gradient text
 
 `Label::set_text_gradient(start, end)` fades the glyphs from the top of the

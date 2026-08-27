@@ -1,12 +1,22 @@
-use std::hash::{Hash, Hasher};
-
-use rustybuzz::{Face, UnicodeBuffer, shape};
-use wgpu_text::glyph_brush::{
-    GlyphPositioner, HorizontalAlign, SectionGeometry, SectionGlyph, ToSectionText,
-    ab_glyph::{Font, Glyph, GlyphId, PxScale, Rect, ScaleFont, point},
+use std::{
+    hash::{Hash, Hasher},
+    ops::Range,
 };
 
-use crate::{deps::refs::main_lock::MainLock, gm::LossyConvert, window::text::ShapeCache};
+use rustybuzz::{UnicodeBuffer, shape};
+use wgpu_text::glyph_brush::{
+    GlyphPositioner, HorizontalAlign, SectionGeometry, SectionGlyph, ToSectionText,
+    ab_glyph::{Font as AbGlyphFont, Glyph, GlyphId, PxScale, Rect, ScaleFont, point},
+};
+
+use crate::{
+    deps::refs::Weak,
+    gm::LossyConvert,
+    window::{
+        Font,
+        text::{TextLayout, TextLine},
+    },
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum VerticalAlign {
@@ -14,114 +24,75 @@ pub(crate) enum VerticalAlign {
     Center,
 }
 
+/// A byte range of the text shaped and drawn with its own font.
+#[derive(Clone)]
+pub(crate) struct FontRun {
+    pub range: Range<usize>,
+    pub font:  Weak<Font>,
+}
+
 /// Per label shaping parameters, collected where the label is drawn.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct ShapedParams {
     /// Extra pixels added to every glyph advance, `CoreText` style tracking.
     pub tracking:  f32,
     pub multiline: bool,
     pub h_align:   HorizontalAlign,
     pub v_align:   VerticalAlign,
+    /// The label's font. Everything outside the runs shapes with it and
+    /// its metrics set the line height and the baseline.
+    pub base:      Weak<Font>,
+    /// Sorted, not overlapping, on char boundaries.
+    pub runs:      Vec<FontRun>,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
 /// and font variations apply like they do in CoreText and browsers. The
 /// builtin `glyph_brush` layout only reads the legacy kern table, which
 /// modern fonts like SF Pro do not have.
+///
+/// Every font owns one brush, so a label with font runs is queued on
+/// every brush it touches. Each copy lays out the whole text and keeps
+/// only the glyphs of the font that brush draws.
 pub(crate) struct ShapedLayout<'a> {
-    pub face:      &'a Face<'static>,
-    pub font_name: &'a str,
-    pub cache:     &'a MainLock<ShapeCache>,
-    pub params:    ShapedParams,
+    /// The name of the font whose brush receives the glyphs.
+    pub emit:   &'a str,
+    pub params: ShapedParams,
 }
 
 impl Hash for ShapedLayout<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font_name.hash(state);
+        self.emit.hash(state);
+        self.params.base.name.hash(state);
         self.params.tracking.to_bits().hash(state);
         self.params.multiline.hash(state);
         (self.params.h_align as u8).hash(state);
         self.params.v_align.hash(state);
+        for run in &self.params.runs {
+            run.range.hash(state);
+            run.font.name.hash(state);
+        }
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct ShapedGlyph {
     id:        u16,
-    /// Byte index into the whole text once `shape_line` applies the line
-    /// offset. Relative to the line start inside the shape cache.
+    /// Byte index into the whole text once `shape_segment` applies the
+    /// offset. Relative to the segment start inside the shape cache.
     cluster:   usize,
+    /// Index into the sources of the layout, the base font first.
+    source:    usize,
     x_advance: f32,
     x_offset:  f32,
     y_offset:  f32,
 }
 
-/// One laid out line: the byte range of the text it shows and where
-/// every caret position on it sits.
-pub(crate) struct TextLine {
-    pub start:      usize,
-    pub end:        usize,
-    /// Byte index and x offset from the line start of every position a
-    /// caret can take, the line end included. Ligatures give one entry
-    /// per cluster.
-    pub boundaries: Vec<(usize, f32)>,
-    pub width:      f32,
-}
-
-/// Where the glyphs of a text land, in the pixels of the size it was
-/// shaped at. What the caret and the tap to caret mapping read.
-pub(crate) struct TextLayout {
-    pub lines:       Vec<TextLine>,
-    pub ascent:      f32,
-    pub descent:     f32,
-    pub line_height: f32,
-}
-
-impl TextLayout {
-    pub(crate) fn total_height(&self) -> f32 {
-        let count: f32 = self.lines.len().lossy_convert();
-        count * self.line_height - (self.line_height - self.ascent + self.descent)
-    }
-
-    pub(crate) fn line_of(&self, byte: usize) -> usize {
-        self.lines
-            .iter()
-            .position(|line| byte <= line.end)
-            .unwrap_or(self.lines.len().saturating_sub(1))
-    }
-
-    /// The caret position closest to `x` on `line`.
-    pub(crate) fn nearest_on_line(&self, line: usize, x: f32) -> usize {
-        let line = &self.lines[line];
-        line.boundaries
-            .iter()
-            .min_by(|(_, a), (_, b)| (a - x).abs().total_cmp(&(b - x).abs()))
-            .map_or(line.start, |(byte, _)| *byte)
-    }
-
-    /// The x offset of `byte` on `line`, the line end for a byte past it.
-    pub(crate) fn x_on_line(&self, line: usize, byte: usize) -> f32 {
-        let line = &self.lines[line];
-        line.boundaries
-            .iter()
-            .find(|(b, _)| *b >= byte)
-            .or(line.boundaries.last())
-            .map_or(0.0, |(_, x)| *x)
-    }
-
-    /// Where the caret sits for `byte`, x from the line start, and the
-    /// line index.
-    pub(crate) fn position_of(&self, byte: usize) -> (usize, f32) {
-        let index = self.line_of(byte);
-        let line = &self.lines[index];
-        let x = line
-            .boundaries
-            .iter()
-            .find(|(b, _)| *b >= byte)
-            .or(line.boundaries.last())
-            .map_or(0.0, |(_, x)| *x);
-        (index, x)
-    }
+/// One font of a layout at the size the text draws at.
+struct Source {
+    font:        Weak<Font>,
+    scale:       PxScale,
+    px_per_unit: f32,
 }
 
 struct ShapedLine {
@@ -131,29 +102,84 @@ struct ShapedLine {
 }
 
 impl ShapedLayout<'_> {
-    fn shape_line(&self, line: &str, offset: usize, px_per_unit: f32) -> Vec<ShapedGlyph> {
-        let mut glyphs = self.cache.get_mut().get_or_shape(line, px_per_unit, self.params.tracking, || {
-            let mut buffer = UnicodeBuffer::new();
-            buffer.push_str(line);
+    /// The base font and every run font, at scales that draw the same em
+    /// size. `base_scale` is the base font's `PxScale`.
+    fn sources(&self, base_scale: PxScale) -> Vec<Source> {
+        let base = self.params.base;
+        let em = base_scale.x / base.em_scale();
 
-            let shaped = shape(self.face, &[], buffer);
+        let source = |font: Weak<Font>| {
+            let scale = PxScale::from(em * font.em_scale());
+            Source {
+                font,
+                scale,
+                px_per_unit: font.ab().as_scaled(scale).scale_factor().horizontal,
+            }
+        };
 
-            shaped
-                .glyph_infos()
-                .iter()
-                .zip(shaped.glyph_positions())
-                .map(|(info, pos)| ShapedGlyph {
-                    id:        u16::try_from(info.glyph_id).unwrap_or_default(),
-                    cluster:   info.cluster as usize,
-                    x_advance: pos.x_advance.lossy_convert() * px_per_unit + self.params.tracking,
-                    x_offset:  pos.x_offset.lossy_convert() * px_per_unit,
-                    y_offset:  pos.y_offset.lossy_convert() * px_per_unit,
-                })
-                .collect()
-        });
+        let mut sources = vec![source(base)];
+        sources.extend(self.params.runs.iter().map(|run| source(run.font)));
+        sources
+    }
+
+    fn shape_segment(&self, segment: &str, offset: usize, index: usize, source: &Source) -> Vec<ShapedGlyph> {
+        let font = source.font;
+        let tracking = self.params.tracking;
+
+        let mut glyphs =
+            font.shape_cache()
+                .get_mut()
+                .get_or_shape(segment, source.px_per_unit, tracking, || {
+                    let mut buffer = UnicodeBuffer::new();
+                    buffer.push_str(segment);
+
+                    let shaped = shape(font.face(), &[], buffer);
+
+                    shaped
+                        .glyph_infos()
+                        .iter()
+                        .zip(shaped.glyph_positions())
+                        .map(|(info, pos)| ShapedGlyph {
+                            id:        u16::try_from(info.glyph_id).unwrap_or_default(),
+                            cluster:   info.cluster as usize,
+                            source:    0,
+                            x_advance: pos.x_advance.lossy_convert() * source.px_per_unit + tracking,
+                            x_offset:  pos.x_offset.lossy_convert() * source.px_per_unit,
+                            y_offset:  pos.y_offset.lossy_convert() * source.px_per_unit,
+                        })
+                        .collect()
+                });
 
         for glyph in &mut glyphs {
             glyph.cluster += offset;
+            glyph.source = index;
+        }
+
+        glyphs
+    }
+
+    /// Shapes the line at `range` of `text`, one segment per font run it
+    /// crosses and one per gap between them. A line without runs is one
+    /// segment, so kerning inside it is what the font says.
+    fn shape_line(&self, text: &str, range: Range<usize>, sources: &[Source]) -> Vec<ShapedGlyph> {
+        let mut glyphs = vec![];
+        let mut cursor = range.start;
+
+        for (index, run) in self.params.runs.iter().enumerate() {
+            let start = run.range.start.max(cursor);
+            let stop = run.range.end.min(range.end);
+            if start >= stop {
+                continue;
+            }
+            if cursor < start {
+                glyphs.extend(self.shape_segment(&text[cursor..start], cursor, 0, &sources[0]));
+            }
+            glyphs.extend(self.shape_segment(&text[start..stop], start, index + 1, &sources[index + 1]));
+            cursor = stop;
+        }
+
+        if cursor < range.end {
+            glyphs.extend(self.shape_segment(&text[cursor..range.end], cursor, 0, &sources[0]));
         }
 
         glyphs
@@ -194,13 +220,13 @@ impl ShapedLayout<'_> {
         lines
     }
 
-    fn shape_text(&self, text: &str, px_per_unit: f32, bound_w: f32) -> Vec<ShapedLine> {
+    fn shape_text(&self, text: &str, sources: &[Source], bound_w: f32) -> Vec<ShapedLine> {
         let mut lines = vec![];
         let mut offset = 0;
 
         for raw_line in text.split('\n') {
-            let shaped = self.shape_line(raw_line, offset, px_per_unit);
             let line_end = offset + raw_line.len();
+            let shaped = self.shape_line(text, offset..line_end, sources);
 
             let chunks = if self.params.multiline {
                 Self::wrap(shaped, text, bound_w)
@@ -235,7 +261,12 @@ impl ShapedLayout<'_> {
         lines
     }
 
-    fn first_baseline<S: ScaleFont<F>, F: Font>(&self, scaled: &S, screen_y: f32, line_count: usize) -> f32 {
+    fn first_baseline<S: ScaleFont<F>, F: AbGlyphFont>(
+        &self,
+        scaled: &S,
+        screen_y: f32,
+        line_count: usize,
+    ) -> f32 {
         let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
         let count: f32 = line_count.lossy_convert();
         let total_height = count * line_height - scaled.line_gap();
@@ -246,18 +277,14 @@ impl ShapedLayout<'_> {
         }
     }
 
-    pub(crate) fn text_layout<F: Font>(
-        &self,
-        font: &F,
-        scale: PxScale,
-        text: &str,
-        bound_w: f32,
-    ) -> TextLayout {
-        let scaled = font.as_scaled(scale);
-        let px_per_unit = scaled.scale_factor().horizontal;
+    /// Lines and caret positions of `text` at the base font's `scale`.
+    pub(crate) fn text_layout(&self, scale: PxScale, text: &str, bound_w: f32) -> TextLayout {
+        let base = self.params.base;
+        let scaled = base.ab().as_scaled(scale);
+        let sources = self.sources(scale);
 
         let lines = self
-            .shape_text(text, px_per_unit, bound_w)
+            .shape_text(text, &sources, bound_w)
             .into_iter()
             .map(|line| {
                 let mut boundaries = vec![];
@@ -278,11 +305,23 @@ impl ShapedLayout<'_> {
             })
             .collect();
 
+        let px_per_unit = sources[0].px_per_unit;
+        let underline = base.face().underline_metrics().map_or(
+            (scaled.descent() / 2.0, scaled.ascent() * 0.05),
+            |metrics| {
+                (
+                    f32::from(metrics.position) * px_per_unit,
+                    f32::from(metrics.thickness) * px_per_unit,
+                )
+            },
+        );
+
         TextLayout {
             lines,
             ascent: scaled.ascent(),
             descent: scaled.descent(),
             line_height: scaled.ascent() - scaled.descent() + scaled.line_gap(),
+            underline,
         }
     }
 }
@@ -295,9 +334,12 @@ impl GlyphPositioner for ShapedLayout<'_> {
         sections: &[S],
     ) -> Vec<SectionGlyph>
     where
-        F: Font,
+        F: AbGlyphFont,
         S: ToSectionText,
     {
+        // Every glyph goes to font id 0, the one font the brush owns.
+        debug_assert_eq!(fonts.len(), 1, "a brush owns exactly one font");
+
         let (screen_x, screen_y) = geometry.screen_position;
         let (bound_w, _) = geometry.bounds;
 
@@ -322,14 +364,14 @@ impl GlyphPositioner for ShapedLayout<'_> {
         }
 
         let first = first.to_section_text();
-        let font = &fonts[first.font_id.0];
-        let scaled = font.as_scaled(first.scale);
+        let base = self.params.base;
+        let scaled = base.ab().as_scaled(first.scale);
 
-        // The same factor ab_glyph rasterizes with, keeps shaped
-        // advances and drawn outlines consistent.
-        let px_per_unit = scaled.scale_factor().horizontal;
+        // The same factors ab_glyph rasterizes with, keep shaped advances
+        // and drawn outlines consistent.
+        let sources = self.sources(first.scale);
 
-        let lines = self.shape_text(&text, px_per_unit, bound_w);
+        let lines = self.shape_text(&text, &sources, bound_w);
 
         let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
         let mut baseline = self.first_baseline(&scaled, screen_y, lines.len());
@@ -344,6 +386,12 @@ impl GlyphPositioner for ShapedLayout<'_> {
             };
 
             for glyph in line.glyphs {
+                let source = &sources[glyph.source];
+                if source.font.name != self.emit {
+                    x += glyph.x_advance;
+                    continue;
+                }
+
                 let section_index = starts.partition_point(|start| *start <= glyph.cluster).saturating_sub(1);
 
                 result.push(SectionGlyph {
@@ -351,7 +399,7 @@ impl GlyphPositioner for ShapedLayout<'_> {
                     byte_index: glyph.cluster - starts[section_index],
                     glyph: Glyph {
                         id:       GlyphId(glyph.id),
-                        scale:    first.scale,
+                        scale:    source.scale,
                         position: point(x + glyph.x_offset, baseline - glyph.y_offset),
                     },
                     font_id: first.font_id,
