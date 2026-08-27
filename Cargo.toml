@@ -170,7 +170,7 @@ web-sys = { version = "0.3", features = [
 web-time = "1.1"
 webpki-roots = "1.0"
 wgpu = { package = "hilen-wgpu", version = "30.0" }
-wgpu_text = { package = "hilen-wgpu-text", version = "30.0" }
+wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "dc6217091bdb9456eee7e3e32ac49c57d04f243c" }
 winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
 
 plat = { version = "0.10", path = "deps/plat" }

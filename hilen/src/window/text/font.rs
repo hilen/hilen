@@ -42,10 +42,15 @@ pub struct Font {
 
 impl Font {
     fn new(name: impl ToString, data: &[u8]) -> Result<Self> {
-        Self::new_with_variations(name, data, &[])
+        Self::new_with_variations(name, data, &[], 0.0)
     }
 
-    fn new_with_variations(name: impl ToString, data: &[u8], variations: &[([u8; 4], f32)]) -> Result<Self> {
+    fn new_with_variations(
+        name: impl ToString,
+        data: &[u8],
+        variations: &[([u8; 4], f32)],
+        stem_darkening: f32,
+    ) -> Result<Self> {
         let window = Window::current();
 
         let render_size = Window::render_size();
@@ -86,6 +91,7 @@ impl Font {
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             })
+            .with_stem_darkening(stem_darkening)
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
             .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {
@@ -116,12 +122,19 @@ impl Font {
         &self.shape_cache
     }
 
-    fn params(&self, tracking: f32, width: Option<f32>, runs: Vec<FontRun>) -> ShapedParams {
+    fn params(
+        &self,
+        tracking: f32,
+        width: Option<f32>,
+        runs: Vec<FontRun>,
+        line_height: Option<f32>,
+    ) -> ShapedParams {
         ShapedParams {
             tracking,
             multiline: width.is_some(),
             h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
             v_align: VerticalAlign::Center,
+            line_height,
             base: weak_from_ref(self),
             runs,
         }
@@ -138,25 +151,36 @@ impl Font {
         width: Option<f32>,
         tracking: f32,
         runs: Vec<FontRun>,
+        line_height: Option<f32>,
     ) -> Size {
         if text.is_empty() {
             return Size::default();
         }
 
+        let px_scale = size.to_f32() * self.em_scale;
         let section = Section::new()
-            .add_text(Text::new(text).with_scale(size.to_f32() * self.em_scale))
+            .add_text(Text::new(text).with_scale(px_scale))
             .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
 
         let layout = ShapedLayout {
             emit:   &self.name,
-            params: self.params(tracking, width, runs),
+            params: self.params(tracking, width, runs, line_height),
         };
 
         let Some(bounds) = self.brush.glyph_bounds_with_layout(section, &layout) else {
             return Size::default();
         };
 
-        Size::new(bounds.width(), bounds.height())
+        // With a custom line box the height is count boxes. The glyph
+        // bounds cover ascent to descent, one `px_scale`, so swapping
+        // that for one box turns baseline span into box count times
+        // the box.
+        let height = match line_height {
+            Some(line_height) => bounds.height() - px_scale + line_height,
+            None => bounds.height(),
+        };
+
+        Size::new(bounds.width(), height)
     }
 
     /// Line and caret positions of `text` drawn at `size`, in the same
@@ -171,7 +195,7 @@ impl Font {
     ) -> TextLayout {
         let layout = ShapedLayout {
             emit:   &self.name,
-            params: self.params(tracking, width, runs),
+            params: self.params(tracking, width, runs, None),
         };
 
         let scale = PxScale::from(size.to_f32() * self.em_scale);
@@ -222,7 +246,22 @@ impl Font {
     /// grade `(*b"GRAD", 430.0)`. Each combination is a separate managed
     /// instance, cache it under a name that includes the values.
     pub fn with_variations(name: &str, data: &[u8], variations: &[([u8; 4], f32)]) -> Result<Weak<Font>> {
-        Self::store_with_name(name, || Self::new_with_variations(name, data, variations))
+        Self::store_with_name(name, || Self::new_with_variations(name, data, variations, 0.0))
+    }
+
+    /// Like [`Font::with_variations`], with the glyph coverage boosted to
+    /// approximate the stem darkening platform rasterizers like `CoreText`
+    /// apply. Ports matching browser text on macOS need it, plain engine
+    /// text does not.
+    pub fn with_variations_darkened(
+        name: &str,
+        data: &[u8],
+        variations: &[([u8; 4], f32)],
+        darkening: f32,
+    ) -> Result<Weak<Font>> {
+        Self::store_with_name(name, || {
+            Self::new_with_variations(name, data, variations, darkening)
+        })
     }
 
     pub fn roboto() -> Weak<Font> {

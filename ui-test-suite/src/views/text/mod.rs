@@ -12,6 +12,7 @@ mod label_fit_text;
 mod label_font;
 mod label_font_runs;
 mod label_image;
+mod label_line_height;
 mod label_measure;
 mod label_stress;
 mod label_vertical_alignment;
@@ -23,6 +24,7 @@ mod multiline_text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod secure_text_field;
+mod stem_darkening;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;

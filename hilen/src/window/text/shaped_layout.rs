@@ -35,15 +35,19 @@ pub(crate) struct FontRun {
 #[derive(Clone)]
 pub(crate) struct ShapedParams {
     /// Extra pixels added to every glyph advance, `CoreText` style tracking.
-    pub tracking:  f32,
-    pub multiline: bool,
-    pub h_align:   HorizontalAlign,
-    pub v_align:   VerticalAlign,
+    pub tracking:    f32,
+    pub multiline:   bool,
+    pub h_align:     HorizontalAlign,
+    pub v_align:     VerticalAlign,
+    /// Pixels between baselines, the CSS line box. `None` keeps the
+    /// font's own line height. Glyphs center in each box with half the
+    /// leading above and below, the CSS line-height model.
+    pub line_height: Option<f32>,
     /// The label's font. Everything outside the runs shapes with it and
     /// its metrics set the line height and the baseline.
-    pub base:      Weak<Font>,
+    pub base:        Weak<Font>,
     /// Sorted, not overlapping, on char boundaries.
-    pub runs:      Vec<FontRun>,
+    pub runs:        Vec<FontRun>,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -66,6 +70,7 @@ impl Hash for ShapedLayout<'_> {
         self.params.base.name.hash(state);
         self.params.tracking.to_bits().hash(state);
         self.params.multiline.hash(state);
+        self.params.line_height.map(f32::to_bits).hash(state);
         (self.params.h_align as u8).hash(state);
         self.params.v_align.hash(state);
         for run in &self.params.runs {
@@ -261,14 +266,34 @@ impl ShapedLayout<'_> {
         lines
     }
 
+    /// The baseline pitch: the custom line box when one is set, the
+    /// font's own line height otherwise.
+    fn line_pitch<S: ScaleFont<F>, F: AbGlyphFont>(&self, scaled: &S) -> f32 {
+        self.params
+            .line_height
+            .unwrap_or_else(|| scaled.ascent() - scaled.descent() + scaled.line_gap())
+    }
+
     fn first_baseline<S: ScaleFont<F>, F: AbGlyphFont>(
         &self,
         scaled: &S,
         screen_y: f32,
         line_count: usize,
     ) -> f32 {
-        let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
         let count: f32 = line_count.lossy_convert();
+
+        // A custom line box centers the glyphs in each box with half
+        // the leading above and below, the CSS line-height model.
+        if let Some(line_height) = self.params.line_height {
+            let leading = line_height - (scaled.ascent() - scaled.descent());
+            let first = leading / 2.0 + scaled.ascent();
+            return match self.params.v_align {
+                VerticalAlign::Top => screen_y + first,
+                VerticalAlign::Center => screen_y - count * line_height / 2.0 + first,
+            };
+        }
+
+        let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
         let total_height = count * line_height - scaled.line_gap();
 
         match self.params.v_align {
@@ -320,7 +345,7 @@ impl ShapedLayout<'_> {
             lines,
             ascent: scaled.ascent(),
             descent: scaled.descent(),
-            line_height: scaled.ascent() - scaled.descent() + scaled.line_gap(),
+            line_height: self.line_pitch(&scaled),
             underline,
         }
     }
@@ -373,7 +398,7 @@ impl GlyphPositioner for ShapedLayout<'_> {
 
         let lines = self.shape_text(&text, &sources, bound_w);
 
-        let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
+        let line_height = self.line_pitch(&scaled);
         let mut baseline = self.first_baseline(&scaled, screen_y, lines.len());
 
         for line in lines {

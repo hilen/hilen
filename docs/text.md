@@ -66,6 +66,13 @@ defaults to center, `Label::set_vertical_alignment` opts a label into Top,
 which the multiline `TextField` uses so a tall field starts its text at the
 top.
 
+`Label::set_line_height(points)` replaces the font's own line pitch with a
+CSS line box: baselines advance by the box, glyphs center in each box with
+half the leading above and below, and a multiline measure returns boxes
+times the box. Without it the engine pitch is the font's ascent minus
+descent plus line gap, which for a wrapped text-sm label is around 16.5
+where CSS puts 20, and the difference compounds down a block.
+
 ## Matching other renderers
 
 Browsers composite text in sRGB space and so does the engine: render targets
@@ -76,6 +83,18 @@ polarities. The wgpu_text fork still carries a coverage remap entry point,
 but it activates only on sRGB targets, which the engine no longer uses.
 Measuring workflow, scripts and the trak table details live in the
 hilen skill's migration chapter, next to this repo's users.
+
+One real difference remains: `CoreText` applies stem darkening when it
+rasterizes, so browser text on macOS carries around 10 percent more ink
+mass than the plain outline at UI sizes. `Font::with_variations_darkened`
+opts a font into an approximation: the wgpu_text fork's darkening entry
+point takes the maximum of five coverage taps a fraction of a pixel
+apart, which moves every glyph edge outward by that fraction, and the
+glyph quads are inflated to give the widened edge room. Keep the
+strength at or under 0.5, the taps reach half a texel further through
+bilinear filtering and the atlas pads glyphs by one pixel. 0.5 landed
+the kukareker port within a few percent of WebKit mass at 12 to 14
+point text. Off by default, engine text is untouched.
 
 ## Color runs
 

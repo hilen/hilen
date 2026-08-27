@@ -12,15 +12,19 @@ use crate::{
         flat::{Point, Size},
     },
     ui::{
-        Container, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent, UIManager, View,
-        ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view, views::containers::scrolling::ScrollContent,
+        Container, DynamicColor, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent,
+        UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
+        views::containers::scrolling::ScrollContent,
     },
 };
 
 const BAR_WIDTH: f32 = 4.0;
 const BAR_INSET: f32 = 2.0;
 const BAR_MIN_LENGTH: f32 = 20.0;
-const BAR_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
+// Translucent black over light content, translucent white over dark,
+// a black thumb disappears on a dark theme.
+const BAR_COLOR: DynamicColor =
+    DynamicColor::new(Color::rgba(0.0, 0.0, 0.0, 0.35), Color::rgba(1.0, 1.0, 1.0, 0.35));
 
 /// A captured touch becomes a drag only after moving this far. Until then
 /// taps on views inside the scroll work; after, the drag claims the touch.

@@ -2696,9 +2696,8 @@ dependencies = [
 
 [[package]]
 name = "hilen-wgpu-text"
-version = "30.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d22f7e883ce2c34b3bb0e7b3f060f9b63fe753640fc8d003b04c703ac5af33a"
+version = "30.0.1"
+source = "git+https://github.com/VladasZ/wgpu-text?rev=dc6217091bdb9456eee7e3e32ac49c57d04f243c#dc6217091bdb9456eee7e3e32ac49c57d04f243c"
 dependencies = [
  "bytemuck",
  "glyph_brush",

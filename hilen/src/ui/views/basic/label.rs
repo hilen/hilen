@@ -100,6 +100,12 @@ pub struct Label {
     /// applies from the trak table, like SF Pro on macOS.
     letter_spacing: f32,
 
+    /// Points between baselines, the CSS line box. `None` keeps the
+    /// font's own line height. Glyphs center in each box with half the
+    /// leading above and below, and a multiline measure is boxes times
+    /// the box.
+    line_height: Option<f32>,
+
     font: Weak<Font>,
 }
 
@@ -247,6 +253,18 @@ impl Label {
         self
     }
 
+    pub(crate) fn line_height(&self) -> Option<f32> {
+        self.line_height
+    }
+
+    /// Points between baselines, the CSS line box, see the field.
+    pub fn set_line_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.line_height = Some(height.to_f32());
+        this.ellipsized = None;
+        self
+    }
+
     pub(crate) fn font(&self) -> Weak<Font> {
         if self.font.is_ok() {
             self.font
@@ -274,9 +292,14 @@ impl Label {
         let margin = self.alignment_margin();
         let bound = self.multiline.then_some(width - margin);
         let runs = self.shaping_runs(&self.text);
-        let measured = self
-            .font()
-            .measure(&self.text, self.text_size, bound, self.letter_spacing, runs);
+        let measured = self.font().measure(
+            &self.text,
+            self.text_size,
+            bound,
+            self.letter_spacing,
+            runs,
+            self.line_height,
+        );
 
         if measured.has_no_area() {
             return measured;
@@ -388,7 +411,7 @@ impl Label {
         let mut font = self.font();
         let mut fits = |text: &str| {
             let runs = self.shaping_runs(text);
-            font.measure(text, self.text_size, None, self.letter_spacing, runs).width <= available
+            font.measure(text, self.text_size, None, self.letter_spacing, runs, None).width <= available
         };
 
         if fits(&self.text) {

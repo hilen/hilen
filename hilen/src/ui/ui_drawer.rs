@@ -407,19 +407,20 @@ impl UIDrawer {
         let font = label.font();
 
         let params = ShapedParams {
-            tracking:  label.letter_spacing() * scale,
-            multiline: label.is_multiline(),
-            h_align:   match label.alignment {
+            tracking:    label.letter_spacing() * scale,
+            multiline:   label.is_multiline(),
+            h_align:     match label.alignment {
                 TextAlignment::Left => HorizontalAlign::Left,
                 TextAlignment::Center => HorizontalAlign::Center,
                 TextAlignment::Right => HorizontalAlign::Right,
             },
-            v_align:   match label.vertical_alignment {
+            v_align:     match label.vertical_alignment {
                 VerticalAlignment::Top => VerticalAlign::Top,
                 VerticalAlignment::Center => VerticalAlign::Center,
             },
-            base:      font,
-            runs:      label.shaping_runs(text),
+            line_height: label.line_height().map(|height| height * scale),
+            base:        font,
+            runs:        label.shaping_runs(text),
         };
 
         let scale_px = label.text_size() * scale * font.em_scale();
