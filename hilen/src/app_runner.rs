@@ -547,6 +547,10 @@ impl crate::window::WindowEvents for AppRunner {
         invoke_dispatched();
         LevelDrawer::update();
         UIDrawer::update();
+        // After layout, so a row that replaced the dead hovered one
+        // already has its frame when hover re-picks.
+        #[cfg(any(desktop, wasm))]
+        Hover::refresh_dead();
     }
 
     fn render(&mut self, frame: &mut RenderFrame) {

@@ -7,6 +7,7 @@ mod font_zoo;
 mod label;
 mod label_color_runs;
 mod label_ellipsize;
+mod label_ellipsize_head;
 mod label_fit_text;
 mod label_font;
 mod label_font_runs;

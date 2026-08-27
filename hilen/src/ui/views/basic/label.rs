@@ -44,6 +44,17 @@ pub enum VerticalAlignment {
     Center,
 }
 
+/// Which end an ellipsized label cuts. Tail keeps the front, the CSS
+/// `text-overflow: ellipsis`. Head keeps the end, what a path under
+/// `dir="rtl"` shows.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Ellipsize {
+    #[default]
+    None,
+    Tail,
+    Head,
+}
+
 #[view]
 pub struct Label {
     pub alignment: TextAlignment,
@@ -54,7 +65,7 @@ pub struct Label {
 
     multiline: bool,
 
-    ellipsize: bool,
+    ellipsize: Ellipsize,
 
     /// The truncation computed for the cached width: the width it was
     /// computed at, and the shortened copy, `None` when the full text
@@ -326,7 +337,27 @@ impl Label {
     /// Multiline labels wrap instead and ignore this.
     pub fn set_ellipsize(&self, ellipsize: bool) -> &Self {
         let mut this = weak_from_ref(self);
-        this.ellipsize = ellipsize;
+        this.ellipsize = if ellipsize {
+            Ellipsize::Tail
+        } else {
+            Ellipsize::None
+        };
+        this.ellipsized = None;
+        self
+    }
+
+    /// Like `set_ellipsize` but cuts the front and keeps the end, with
+    /// the ellipsis leading, what a path under `dir="rtl"` with CSS
+    /// `text-overflow: ellipsis` shows. Do not combine with color or
+    /// font runs, their byte ranges are of the full text and do not
+    /// follow the shifted copy.
+    pub fn set_ellipsize_head(&self, ellipsize: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.ellipsize = if ellipsize {
+            Ellipsize::Head
+        } else {
+            Ellipsize::None
+        };
         this.ellipsized = None;
         self
     }
@@ -335,7 +366,7 @@ impl Label {
     /// while it fits, the truncated copy with the trailing ellipsis when
     /// it does not. The full text unless `set_ellipsize` opted in.
     pub fn display_text(&self, width: f32) -> &str {
-        if !self.ellipsize || self.multiline || self.text.is_empty() {
+        if self.ellipsize == Ellipsize::None || self.multiline || self.text.is_empty() {
             return &self.text;
         }
 
@@ -364,24 +395,40 @@ impl Label {
             return None;
         }
 
-        // Byte end of the prefix keeping this many characters. Keeping
+        // Byte boundary of the cut keeping this many characters, prefix
+        // ends for the tail cut, suffix starts for the head cut. Keeping
         // every character is out, the full text already does not fit.
-        let ends: Vec<usize> = self
-            .text
-            .char_indices()
-            .skip(1)
-            .map(|(index, _)| index)
-            .chain([self.text.len()])
-            .collect();
+        let head = self.ellipsize == Ellipsize::Head;
+        let cuts: Vec<usize> = if head {
+            let mut starts: Vec<usize> = self.text.char_indices().map(|(index, _)| index).collect();
+            starts.reverse();
+            starts
+        } else {
+            self.text
+                .char_indices()
+                .skip(1)
+                .map(|(index, _)| index)
+                .chain([self.text.len()])
+                .collect()
+        };
         let candidate = |kept: usize| {
-            let end = if kept == 0 { 0 } else { ends[kept - 1] };
-            format!("{}{ELLIPSIS}", &self.text[..end])
+            if head {
+                let start = if kept == 0 {
+                    self.text.len()
+                } else {
+                    cuts[kept - 1]
+                };
+                format!("{ELLIPSIS}{}", &self.text[start..])
+            } else {
+                let end = if kept == 0 { 0 } else { cuts[kept - 1] };
+                format!("{}{ELLIPSIS}", &self.text[..end])
+            }
         };
 
-        // The longest fitting prefix by binary search. When even the bare
+        // The longest fitting cut by binary search. When even the bare
         // ellipsis does not fit it still draws, like CSS does.
         let mut best = 0;
-        let (mut low, mut high) = (0, ends.len() - 1);
+        let (mut low, mut high) = (0, cuts.len() - 1);
         while low <= high {
             let mid = usize::midpoint(low, high);
             if fits(&candidate(mid)) {

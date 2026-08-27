@@ -2,7 +2,7 @@
 use crate::gm::flat::Point;
 #[cfg(any(desktop, wasm))]
 use crate::ui::{
-    TouchStack,
+    TouchStack, UIManager,
     view::{ViewData, ViewFrame},
 };
 use crate::{
@@ -32,6 +32,21 @@ impl Hover {
         Self::set_hovered(WeakView::default());
     }
 
+    /// The hovered view can die without a cursor event: a rebuild
+    /// replaces the rows under a stationary cursor. Runs after the
+    /// deleted views drain each frame and re-picks under the last
+    /// cursor position, so the replacement row gets its enter without
+    /// waiting for a mouse move, like CSS hover. A no-op while the
+    /// hovered view is alive or there is none.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn refresh_dead() {
+        let old = *HOVERED;
+        if !old.was_initialized() || old.is_ok() {
+            return;
+        }
+        Self::update(UIManager::cursor_position());
+    }
+
     #[cfg(any(desktop, wasm))]
     fn view_under(cursor: Point) -> WeakView {
         TouchStack::hover_views()
@@ -51,6 +66,9 @@ impl Hover {
         }
 
         if !old_alive && !new.is_ok() {
+            // Drop a dead pointer, so `refresh_dead` stops re-picking
+            // once nothing sits under the cursor.
+            *HOVERED.get_mut() = new;
             return;
         }
 

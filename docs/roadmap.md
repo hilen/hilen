@@ -628,6 +628,38 @@ the plain font.
 - Blocks: nothing. This unblocked the kukareker askpass card spans, the
   last piece in its engine queue.
 
+## Head ellipsize
+
+Found by the kukareker scanning modal, the original truncates the
+walked path at the front with `dir="rtl"` and keeps the tail, the
+interesting half of a path.
+
+- Landed: `Label::set_ellipsize_head`, the front cut twin of
+  `set_ellipsize`. The display copy keeps the longest fitting suffix
+  with a leading ellipsis, found by the same binary search, cached and
+  dropped by the same setters, and multiline labels ignore it the same
+  way. Color and font runs do not combine with it, their byte ranges
+  are of the full text and do not follow the shifted copy. Covered by
+  `Label ellipsize head`.
+- Blocks: nothing. This unblocked the kukareker scanning modal path.
+
+## Hover re-pick on view removal
+
+Found by the kukareker sidebar, a hovered row could keep its hover
+look when a store event rebuilt the rows under a stationary cursor,
+until the next mouse move.
+
+- Landed: the hovered view can die without a cursor event, so
+  `Hover::refresh_dead` runs each frame after the deleted views drain
+  and after layout, acts only when the hovered view died, and re-picks
+  under the last cursor position. The replacement row gets its enter
+  without waiting for a mouse move, like CSS hover, and when nothing
+  sits under the cursor the dead pointer drops so later frames stay
+  quiet. With no hover history the re-pick stays off, a row appearing
+  under a cursor that never hovered waits for the next move. Covered
+  by `Hover removal`.
+- Blocks: nothing. This closed the kukareker wave 8 hover leftover.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
@@ -636,7 +668,8 @@ colored label runs landed, the whole kukareker list, key injection over
 hilen-inspect, the table scroll position and sticky rows, the TextField
 placeholder color and the ring spinner followed, then the wave 8 label
 ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
-which closed the kukareker list. Among the rest, frame stepped
+which closed the kukareker list. The head ellipsize and the hover re-pick on
+view removal closed the wave 8 leftovers. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font
