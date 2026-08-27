@@ -25,11 +25,11 @@ relative and resolve against the document base, so a dist hosted under a path pr
 like `/te/` fetches from its own mount point through a `<base data-trunk-public-url />`
 tag, and `Assets` is exported so an app can await the boot group before building views.
 
-A third driver is kukareker-hilen at github.com/hilen/kukareker-hilen, a rewrite of
-kukareker, the Tauri and Vue git client at `~/dev/apps/kukareker`. Desktop only, the
-app shells out to system git and ssh. Pixel parity with the original is the acceptance
-bar. The port copies the Tauri app's Rust logic modules as they are and rebuilds the
-Vue UI on the engine. Its assessment produced the entries below marked kukareker.
+A third driver is kukareker at github.com/hilen/kukareker, a rewrite of kukareker-karkas,
+the Tauri and Vue git client at `~/dev/apps/kukareker-karkas`. Desktop only, the app
+shells out to system git and ssh. Pixel parity with the original is the acceptance bar.
+The port copies the Tauri app's Rust logic modules as they are and rebuilds the Vue UI on
+the engine. Its assessment produced the entries below marked kukareker.
 
 Already proven sufficient during the port, for reference: `TableView` with columns and
 `bottom_reached` paging, `ImageMode::AspectFill`, `Image::download`, SVG in textures,
