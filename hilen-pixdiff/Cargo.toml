@@ -1,0 +1,23 @@
+[package]
+authors.workspace = true
+description = "Capture app windows from the screen and diff two captures into ranked difference regions."
+edition.workspace = true
+license.workspace = true
+name = "hilen-pixdiff"
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "hilen-pixdiff"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+image = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { workspace = true }
+objc2-core-graphics = { workspace = true }
+
+[lints]
+workspace = true

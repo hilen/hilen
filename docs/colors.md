@@ -59,6 +59,22 @@ CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
 glyphs themselves from the top of the label frame to its bottom, see
 [text.md](text.md). The `Gradient` UI test covers all of these.
 
+## The surface colorspace
+
+Correct bytes in the framebuffer are not the end of the story, the OS
+still decides how the window surface is interpreted on the panel. The
+metal backend used to leave the `CAMetalLayer` colorspace nil, which
+disables color matching entirely, so on a wide gamut display every
+saturated color oversaturated, `#f59e0b` displayed as `#ff9900` while
+grays matched exactly. Since `hilen-wgpu-hal` 30.0.1 the layer is tagged
+with an explicit sRGB colorspace, so the OS matches the content into the
+display space the same way it does for browser output. Framebuffer
+screenshots and UI test readback never see this layer, which is why the
+kukareker port passed framebuffer comparison for eight waves while
+looking wrong on screen. On screen colors are checked with
+[pixdiff.md](pixdiff.md), whose captures go through the display
+pipeline. If grays match but hues do not, suspect this layer first.
+
 ## History
 
 The pipeline used to render into sRGB targets, which made the hardware

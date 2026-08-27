@@ -12,6 +12,7 @@ members = [
   "fuzz",
   "hilen",
   "hilen-inspect",
+  "hilen-pixdiff",
   "hilen-server",
   "inspector",
   "render-test",
@@ -95,6 +96,8 @@ mdns-sd = "0.20"
 ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSException", "NSString", "NSURL"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
 open = "5.4"

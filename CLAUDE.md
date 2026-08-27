@@ -56,6 +56,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.
+- [docs/pixdiff.md](docs/pixdiff.md) — the `hilen-pixdiff` pixel parity tool: capture app
+  windows from the screen, resize both apps to one size, diff the captures into ranked
+  regions. Read before comparing a port against its original or touching `hilen-pixdiff`.
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.
