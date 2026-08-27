@@ -660,6 +660,18 @@ until the next mouse move.
   by `Hover removal`.
 - Blocks: nothing. This closed the kukareker wave 8 hover leftover.
 
+## Update download progress
+
+Found by the kukareker packaging wave. The old app showed `Installing 42%`
+while the Tauri updater streamed the artifact, and `Updater::install`
+downloaded in one call with nothing to report.
+
+- Landed: `rest::download_with_progress` streams the body in chunks and
+  reports bytes so far plus the Content-Length, `Updater::install_with_progress`
+  exposes it, `install` calls it with a no-op. Unit tested against a pinned
+  file.
+- Blocks: nothing. This closed the kukareker update chip percent.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
@@ -669,7 +681,8 @@ hilen-inspect, the table scroll position and sticky rows, the TextField
 placeholder color and the ring spinner followed, then the wave 8 label
 ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
 which closed the kukareker list. The head ellipsize and the hover re-pick on
-view removal closed the wave 8 leftovers. Among the rest, frame stepped
+view removal closed the wave 8 leftovers, and the update download progress
+closed the packaging wave. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

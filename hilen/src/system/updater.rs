@@ -91,11 +91,21 @@ impl Updater {
     /// Downloads, verifies and swaps the executable. The new binary runs
     /// on the next start, call `relaunch` to switch now.
     pub async fn install(info: UpdateInfo) -> Result<()> {
+        Self::install_with_progress(info, |_, _| {}).await
+    }
+
+    /// `install` with the download reported as bytes so far and the
+    /// total, `None` while the server sent no Content-Length.
+    pub async fn install_with_progress(
+        info: UpdateInfo,
+        on_progress: impl FnMut(u64, Option<u64>) + Send,
+    ) -> Result<()> {
         #[cfg(desktop)]
         {
             use anyhow::ensure;
 
-            let bytes = crate::deps::netrun::rest::download(&info.artifact.url).await?;
+            let bytes =
+                crate::deps::netrun::rest::download_with_progress(&info.artifact.url, on_progress).await?;
 
             ensure!(
                 bytes.len() as u64 == info.artifact.size,
@@ -118,6 +128,7 @@ impl Updater {
         }
         #[cfg(not(desktop))]
         {
+            drop(on_progress);
             anyhow::bail!(
                 "Self update is desktop only, cannot install version {}",
                 info.version
