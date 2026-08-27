@@ -35,13 +35,14 @@ pub(super) fn mask(text: &str) -> String {
 pub struct TextField {
     pub(crate) constraint: Option<TextFieldConstraint>,
 
-    placeholder:      String,
-    text_color:       UIColor,
-    selected_color:   UIColor,
-    background_color: UIColor,
-    placeholding:     bool,
-    is_editing:       bool,
-    multiline:        bool,
+    placeholder:       String,
+    text_color:        UIColor,
+    selected_color:    UIColor,
+    background_color:  UIColor,
+    placeholder_color: Option<UIColor>,
+    placeholding:      bool,
+    is_editing:        bool,
+    multiline:         bool,
 
     /// The real text of a secure field, `None` for a plain one. The label
     /// only ever shows one mask character per character of it.
@@ -218,7 +219,7 @@ impl TextField {
         if text.is_empty() && !self.placeholder.is_empty() {
             weak_from_ref(self).placeholding = true;
             self.label.set_text(self.placeholder.clone());
-            self.label.set_text_color(LIGHTER_GRAY);
+            self.label.set_text_color(self.placeholder_color.unwrap_or(LIGHTER_GRAY.into()));
         } else {
             weak_from_ref(self).placeholding = false;
             if self.is_secure() {
@@ -282,8 +283,25 @@ impl TextField {
     pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
         let color = color.into();
         weak_from_ref(self).text_color = color;
-        self.label.set_text_color(color);
+        // With no explicit placeholder color the visible hint follows the
+        // text color, the way it always did. With one it keeps its own.
+        if !self.placeholding || self.placeholder_color.is_none() {
+            self.label.set_text_color(color);
+        }
         self.caret_view.set_color(color);
+        self
+    }
+
+    /// Color of the hint text while the field is empty. Entering the first
+    /// character swaps the label to the text color, clearing the field
+    /// swaps it back. Theme pairs re-resolve on a switch like every other
+    /// color.
+    pub fn set_placeholder_color(&self, color: impl Into<UIColor>) -> &Self {
+        let color = color.into();
+        weak_from_ref(self).placeholder_color = Some(color);
+        if self.placeholding {
+            self.label.set_text_color(color);
+        }
         self
     }
 
@@ -296,7 +314,7 @@ impl TextField {
         weak_from_ref(self).placeholder = placeholder.to_label();
         if self.placeholding {
             self.label.set_text(self.placeholder.clone());
-            self.label.set_text_color(GRAY);
+            self.label.set_text_color(self.placeholder_color.unwrap_or(GRAY.into()));
         }
         self
     }

@@ -26,6 +26,9 @@ mod text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;
+/// Enters and clears text programmatically, no typing, so it runs
+/// everywhere like [`text_field_theme`].
+mod text_field_placeholder_color;
 /// Sets colors and switches themes without typing, so unlike the other
 /// text field tests it runs everywhere.
 mod text_field_theme;

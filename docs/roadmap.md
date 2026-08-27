@@ -526,13 +526,35 @@ gray next to the browser's.
   on the chain.
 - Blocks: nothing.
 
+## TextField placeholder color
+
+Found by the kukareker modal pass. The project palette and the commit
+summary field show a hint text, and the original renders it in the muted
+gray while entered text stays white. The engine field draws the
+placeholder with the same color as real text, so the palette input reads
+wrong next to the browser one.
+
+- Landed: `TextField::set_placeholder_color(impl Into<UIColor>)`, applied
+  to the label only while `is_placeholding`, theme pairs re-resolved on a
+  switch like every other color. Entering the first character swaps to
+  the text color, clearing the field swaps back. Without an explicit
+  placeholder color the field keeps its old grays, so existing recorded
+  expectations hold. Covered by `Text field placeholder color`, which
+  enters and clears text programmatically so it runs on every platform,
+  and probes the hint, the entered text, the cleared hint and a dark
+  theme pass.
+- Blocks: nothing. This unblocked the kukareker palette and commit
+  summary pixel parity, item 7 of the wave 7 fix list in the app's
+  docs/roadmap.md.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
 Right-click context menus, TableView variable row heights, tooltips and
 colored label runs landed, the whole kukareker list, key injection over
-hilen-inspect, and the table scroll position and sticky rows followed. Among the rest, frame
-stepped animation testing goes next, it has two live needs, the unassessed animation problem in
+hilen-inspect, the table scroll position and sticky rows, and the TextField
+placeholder color followed. Among the rest, frame stepped
+animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font
 fallback, and tvOS remote input waits for a real tvOS app need.
