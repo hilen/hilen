@@ -48,10 +48,34 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
             .expect("parse2(quote! { __level_base: hilen::level::LevelBase })"),
     );
 
+    // A ctor names one concrete type, so a generic level gets no marker and
+    // `impl LevelTest` on it fails to compile instead of never running.
+    let test_registration = if generics.params.is_empty() {
+        let ctor = if cfg!(feature = "ui-tests") {
+            let register_fn = quote::format_ident!("__register_level_test_{name}");
+            quote! {
+                #[hilen::__internal_macro_deps::ctor::ctor(unsafe, crate_path = hilen::__internal_macro_deps::ctor)]
+                fn #register_fn() {
+                    hilen::level::register_if_level_test::<#name>(file!());
+                }
+            }
+        } else {
+            quote!()
+        };
+        quote! {
+            impl hilen::level::LevelRegistrable for #name {}
+            #ctor
+        }
+    } else {
+        quote!()
+    };
+
     quote! {
         #stream
 
         impl #generics hilen::level::Level for #name <#type_params> { }
+
+        #test_registration
 
         impl #generics hilen::level::LevelInternal for #name <#type_params> {
             fn __internal_setup(&self) {

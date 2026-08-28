@@ -51,7 +51,7 @@ impl RenderFrame {
                 b: f64::from(clear_color.b),
                 a: f64::from(clear_color.a),
             }),
-            LoadOp::Clear(1.0),
+            true,
             timestamp_writes,
         );
 
@@ -75,7 +75,7 @@ impl RenderFrame {
                 self.msaa_view.as_ref().map(|_| &self.scene_view),
                 &self.depth_view,
                 LoadOp::Load,
-                LoadOp::Load,
+                false,
                 None,
             ));
         }
@@ -139,7 +139,9 @@ fn begin_pass(
     resolve_target: Option<&TextureView>,
     depth: &TextureView,
     color_load: LoadOp<wgpu::Color>,
-    depth_load: LoadOp<f32>,
+    // The first pass of a frame clears depth and stencil together, a
+    // reopened pass keeps both.
+    clear_depth_stencil: bool,
     timestamp_writes: Option<RenderPassTimestampWrites>,
 ) -> RenderPass<'static> {
     encoder
@@ -160,10 +162,21 @@ fn begin_pass(
             depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                 view:        depth,
                 depth_ops:   Some(Operations {
-                    load:  depth_load,
+                    load:  if clear_depth_stencil {
+                        LoadOp::Clear(1.0)
+                    } else {
+                        LoadOp::Load
+                    },
                     store: StoreOp::Store,
                 }),
-                stencil_ops: None,
+                stencil_ops: Some(Operations {
+                    load:  if clear_depth_stencil {
+                        LoadOp::Clear(0)
+                    } else {
+                        LoadOp::Load
+                    },
+                    store: StoreOp::Store,
+                }),
             }),
             occlusion_query_set: None,
             timestamp_writes,

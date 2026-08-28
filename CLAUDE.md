@@ -22,7 +22,9 @@ page requests at a running `trunk serve` for the dev loop. It never links the
 
 The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
-`ui-test` runner links both.
+`ui-test` runner links both. Level tests, a `#[level]` with `impl LevelTest`, register
+into `hilen::LEVEL_TESTS` the same way and run through the `level-test` crate, which
+also holds their corpus. `render-test` is only for the render pipelines drawn directly.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
@@ -92,7 +94,9 @@ cargo run -p ui-test -- --headless --test-name <name>                        # s
 cargo run -p ui-test -- --test-name <name> --screenshot <path>               # capture one test offscreen
 cargo run -p ui-test -- --test-name <name> --human                           # watchable run, ctrl to advance
 cargo run -p ui-test -- --headless --test-name <name> --record-colors        # print check_colors blocks
-cargo run -p render-test                                                     # render tests
+cargo run -p render-test                                                     # render tests, the pipelines drawn directly
+cargo run -p level-test -- --list                                            # every registered level test
+cargo run -p level-test -- --headless                                        # level test suite, same flags as ui-test
 make ui                                                                      # desktop suite, plus the iOS simulator suite on macOS, one report
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check

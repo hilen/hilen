@@ -10,8 +10,8 @@ It is a rewrite of skaityk, a Tauri and Vue reader app for Lithuanian learners a
 acceptance bar. The news feed part is done with the engine as is. The reader and the
 app-wide look need the features below.
 
-A second driver is web-te, the beekeeper homelab UI port in the `local` repo at
-`beekeeper/web-te`, see its PORT.md. It drove the networking and system layer, all
+A second driver is the beekeeper web UI in the `local` repo at `beekeeper/web`,
+the shipped hilen frontend since the Vue app retired, see its README.md. It drove the networking and system layer, all
 landed: `netrun::ws::WebSocket`, one API over tokio-tungstenite with rustls on native
 and web-sys in the browser, with native and browser tests. netrun REST verbs Patch and
 Delete with simple post, patch and delete helpers, every 2xx accepted and an empty
@@ -226,8 +226,34 @@ Found by jagged rounded corners in the corner radius test.
   guarantees only 1 and 4, and this Mac's GPU rejects 8 outright. Cost measured
   unguarded at the 297 panel stop scene: CPU identical, capacity identical, GPU
   2.1 ms to 3.4 ms, far under budget.
-- Current: `sprite_textured` still hard discards on zero texture alpha, so sprite
-  cutout edges stay aliased when a sprite scales.
+- Landed: sprite cutout edges. Bilinear sampling smeared a magnified cutout edge over
+  as many pixels as the magnification. `sprite_textured` now reads the sampled alpha
+  as a distance to the edge and keeps one screen pixel of ramp around its half way
+  line, the same one pixel coverage the SDF pipelines have, at any scale. A flat alpha
+  has no gradient and is kept as is, so a translucent sprite stays translucent. A soft
+  alpha gradient in a texture gets a hard edge, no sprite in the tree has one. Covered
+  by the `SpriteCutout` level test, the first test of the `level-test` runner.
+
+## Rounded corner clipping
+
+Found by the beekeeper web port. The Vue controller card drew its accent
+stripe as a full height 3 px child and relied on CSS `overflow: hidden`,
+the card clipped the stripe to its rounded outline so the stripe ends
+follow the corner arcs.
+
+- Landed: a view that `clips_to_bounds` and has corner radii also masks its
+  subtree to its outline through the stencil. The depth attachment is
+  `Depth24PlusStencil8`, every pipeline and the text brush share one
+  `depth_stencil_state` that draws only where the stencil equals the pass
+  reference, and `UIClipPipeline` raises the stencil inside the rounded box on
+  enter and lowers it on leave, so nested clips stack. The mask is inset by the
+  border width with the radii reduced to match, the CSS padding box, so a full
+  height child never paints over the border. Under MSAA the mask edge is graded
+  per sample through alpha to coverage. A clip with square corners stays a plain
+  scissor, so ScrollView is unchanged. The API is the existing `clips_to_bounds`
+  override. Covered by the `RoundedClip` UI test.
+- Open: the beekeeper controller stripe still ships as the square ended
+  approximation in `node_card.rs`, the app side has not switched yet.
 
 ## Vector path rendering reconnect
 
@@ -682,7 +708,8 @@ placeholder color and the ring spinner followed, then the wave 8 label
 ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
 which closed the kukareker list. The head ellipsize and the hover re-pick on
 view removal closed the wave 8 leftovers, and the update download progress
-closed the packaging wave. Among the rest, frame stepped
+closed the packaging wave, and rounded corner clipping and the sprite cutout
+edges closed the rendering leftovers. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

@@ -3393,6 +3393,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "level-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hilen",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"

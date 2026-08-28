@@ -4,6 +4,9 @@ include build/common.mk
 render:
 	cargo run -p render-test
 
+level:
+	cargo run -p level-test
+
 ui:
 	rust ./build/ui-test.rs
 

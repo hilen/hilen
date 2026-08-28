@@ -1,0 +1,17 @@
+[package]
+edition.workspace = true
+name = "level-test"
+version.workspace = true
+
+[[bin]]
+name = "level-test"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+hilen = { workspace = true, features = ["ui-tests"] }
+
+[lints]
+workspace = true

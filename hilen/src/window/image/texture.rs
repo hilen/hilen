@@ -30,7 +30,7 @@ pub struct TextureRawData {
 }
 
 impl Texture {
-    pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
+    pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 
     pub(crate) fn from_file_bytes(bytes: &[u8], label: &str) -> Result<Self> {
         let data = Self::parse_file_from_bytes(bytes)?;

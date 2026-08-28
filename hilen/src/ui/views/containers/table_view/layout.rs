@@ -54,7 +54,15 @@ impl TableView {
         self.pinned = pinned.iter().map(|&(index, y, height)| (index, y + offset, height)).collect();
 
         let first_visible_row = rows.row_at(top);
-        let mut last_row = rows.row_at(bottom) + 1;
+
+        // `bottom` is exclusive. A row that starts exactly there is not
+        // on screen, and `row_at` would still name it.
+        let last_visible_row = rows.row_at(bottom);
+        let mut last_row = if last_visible_row > first_visible_row && rows.top(last_visible_row) >= bottom {
+            last_visible_row
+        } else {
+            last_visible_row + 1
+        };
 
         // Two rows of slack past the viewport, so a small scroll shows
         // a row that is already set up.

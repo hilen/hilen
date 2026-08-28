@@ -1,9 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use log::error;
 use rustybuzz::{Face, ttf_parser::Tag};
-use wgpu::{
-    CompareFunction, DepthBiasState, DepthStencilState, MultisampleState, StencilState, TextureFormat,
-};
+use wgpu::MultisampleState;
 use wgpu_text::{
     BrushBuilder, Section, Text, TextBrush,
     glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, VariableFont},
@@ -19,6 +17,7 @@ use crate::{
     filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     managed,
+    render::depth_stencil_state,
     window::{
         msaa_sample_count, surface_texture_format,
         text::{FontRun, ShapeCache, ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
@@ -79,13 +78,8 @@ impl Font {
             .ok_or_else(|| anyhow!("Font '{}' has no units per em", name.to_string()))?;
         let em_scale = font.height_unscaled() / units_per_em;
 
-        let brush = BrushBuilder::using_font(font.clone()).with_depth_stencil( DepthStencilState {
-            format:              TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare:       Some(CompareFunction::Less),
-            stencil:             StencilState::default(),
-            bias:                DepthBiasState::default(),
-        }.into())
+        let brush = BrushBuilder::using_font(font.clone())
+            .with_depth_stencil(depth_stencil_state().into())
             .with_multisample(MultisampleState {
                 count:                     msaa_sample_count(),
                 mask:                      !0,

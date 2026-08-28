@@ -72,6 +72,23 @@ runner does. The panic beacon names the running test, the driver records it as f
 relaunches the browser with the dead tests in `hilen_test_skip`, and merges them into the
 final report, so one panicking test cannot hide the rest of the suite.
 
+## Level tests
+
+A level is not a view, so a level check is not a UI test. It is a `#[level]` struct with
+`impl LevelTest`, registered by the same kind of ctor into `hilen::LEVEL_TESTS`, and run
+by the `level-test` crate, which also holds the corpus. The runner installs an empty root
+on the test canvas, starts the level at scale 1 so a retina window does not move the
+probes, hands the level to `perform_test` and stops it afterwards. The flags match
+`ui-test`: `--list`, `--test-name`, `--headless`, `--record-colors`, `--human`,
+`--screenshot` and `--present`. `make level` runs the suite. `render-test` stays what it
+is, the pipelines drawn directly with no level and no view tree.
+
+```bash
+cargo run -p level-test -- --list
+cargo run -p level-test -- --headless --test-name SpriteCutout
+cargo run -p level-test -- --test-name SpriteCutout --human
+```
+
 ## Run from the editor
 
 A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock

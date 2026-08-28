@@ -12,8 +12,8 @@ use crate::{
     },
     pipelines::Pipelines,
     render::{
-        UIBackdropPipeline, UIBlurPipeline, UIGradientPipeline, UIImageRectPipeline, UIPathPipeline,
-        UIRectPipeline, UIShadowPipeline,
+        UIBackdropPipeline, UIBlurPipeline, UIClipPipeline, UIGradientPipeline, UIImageRectPipeline,
+        UIPathPipeline, UIRectPipeline, UIShadowPipeline,
         data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
@@ -30,6 +30,7 @@ static SCRIM_DRAWER: MainLock<UIRectPipeline> = MainLock::new();
 static BLUR_DRAWER: MainLock<UIBlurPipeline> = MainLock::new();
 static BACKDROP_DRAWER: MainLock<UIBackdropPipeline> = MainLock::new();
 static PATH_DRAWER: MainLock<UIPathPipeline> = MainLock::new();
+static CLIP_DRAWER: MainLock<UIClipPipeline> = MainLock::new();
 
 /// Set during update when a visible `BlurView` wants a blur, read by
 /// the window before it picks the frame's render target.
@@ -48,6 +49,9 @@ struct DrawContext<'a> {
     /// What the current pass has set, reapplied after a blur barrier
     /// reopens the pass.
     scissor:       Rect<u32>,
+    /// How many rounded clips the visited view is inside, the stencil
+    /// reference of the pass. Reapplied with the scissor.
+    clip_depth:    u32,
 }
 
 pub struct UIDrawer;
@@ -78,6 +82,7 @@ impl UIDrawer {
             scale: UIManager::scale(),
             resolution,
             scissor: display_rect,
+            clip_depth: 0,
         };
 
         let root = UIManager::root_view_static();
@@ -193,6 +198,7 @@ impl UIDrawer {
 
         let pass = render_frame.pass();
         scissor(pass, ctx.scissor);
+        pass.set_stencil_reference(ctx.clip_depth);
 
         BACKDROP_DRAWER.get_mut().draw(
             pass,
@@ -377,12 +383,65 @@ impl UIDrawer {
             }
         }
 
+        // A scissor is a rectangle, so a clipping view with rounded
+        // corners also masks its subtree to its outline through the
+        // stencil. The view's own shape is flushed first, under the
+        // mask of whatever clip it is inside, so only its subtree is
+        // cut at the corners.
+        let rounded_clip = clips && view.corner_radii() != CornerRadii::default();
+        // Children are cut at the inside of the border, the CSS padding
+        // box, so a full height child never paints over it. The inner
+        // arc of a border is the outer radius minus the border width.
+        let inset = if view.border_color().a > 0.0 {
+            view.border_width()
+        } else {
+            0.0
+        };
+        let radii = view.corner_radii();
+        let clip_shape = UIRectInstance::new(
+            Rect::new(
+                frame.x() + inset,
+                frame.y() + inset,
+                frame.width() - inset * 2.0,
+                frame.height() - inset * 2.0,
+            ),
+            CLEAR,
+            CLEAR,
+            0.0,
+            CornerRadii {
+                top_left:     (radii.top_left - inset).max(0.0),
+                top_right:    (radii.top_right - inset).max(0.0),
+                bottom_left:  (radii.bottom_left - inset).max(0.0),
+                bottom_right: (radii.bottom_right - inset).max(0.0),
+            },
+            view.z_position(),
+            ctx.scale,
+        );
+
+        if rounded_clip {
+            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            let pass = render_frame.pass();
+            CLIP_DRAWER.get_mut().enter(pass, ctx.resolution, clip_shape);
+            ctx.clip_depth += 1;
+            pass.set_stencil_reference(ctx.clip_depth);
+        }
+
         let root_frame = UIManager::root_view_static().frame();
 
         for view in view.subviews() {
             if view.dont_hide() || view.absolute_frame().intersects(root_frame) {
                 Self::draw_view(render_frame, view.deref(), ctx);
             }
+        }
+
+        if rounded_clip {
+            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            let pass = render_frame.pass();
+            CLIP_DRAWER.get_mut().leave(pass, ctx.resolution, clip_shape);
+            ctx.clip_depth -= 1;
+            pass.set_stencil_reference(ctx.clip_depth);
         }
 
         if clips {

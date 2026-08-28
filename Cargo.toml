@@ -15,6 +15,7 @@ members = [
   "hilen-pixdiff",
   "hilen-server",
   "inspector",
+  "level-test",
   "render-test",
   "ui-test",
   "ui-test-suite",

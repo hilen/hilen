@@ -116,3 +116,9 @@ pub type AndroidApp = winit::platform::android::activity::AndroidApp;
 pub static UI_TESTS: __internal_macro_deps::Mutex<
     std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
 > = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());
+
+/// Every level test, the same shape as `UI_TESTS`, filled by a ctor per
+/// level.
+pub static LEVEL_TESTS: __internal_macro_deps::Mutex<
+    std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
+> = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());

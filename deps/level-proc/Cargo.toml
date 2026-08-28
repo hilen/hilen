@@ -16,3 +16,8 @@ syn = { workspace = true }
 
 [lints]
 workspace = true
+
+[features]
+# Makes `level` emit the ctor that registers a level test. Enabled through
+# `hilen/ui-tests`, never directly.
+ui-tests = []

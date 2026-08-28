@@ -1,3 +1,4 @@
+mod clip_view;
 mod path_data;
 mod rect_view;
 mod sprite_instance;
@@ -7,6 +8,7 @@ mod ui_image_instance;
 mod ui_rect_instance;
 mod ui_shadow_instance;
 
+pub(crate) use clip_view::*;
 pub use path_data::*;
 pub use rect_view::*;
 pub(crate) use sprite_instance::*;

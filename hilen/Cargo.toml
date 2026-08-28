@@ -26,7 +26,7 @@ inspect = []
 # macro, so off means `view` emits no ctor in any crate and a shipped app
 # carries none. One switch for the whole graph, so no crate can forget it and
 # silently lose its tests.
-ui-tests = ["ui-proc/ui-tests"]
+ui-tests = ["ui-proc/ui-tests", "level-proc/ui-tests"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
 pointers_info = []

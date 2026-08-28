@@ -80,11 +80,21 @@ fn v_main(
 
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let out = textureSample(t_diffuse, s_diffuse, in.uv);
+    let tex = textureSample(t_diffuse, s_diffuse, in.uv);
 
-    if out.a == 0.0 {
+    // Bilinear sampling smears a cutout edge across as many screen pixels
+    // as the sprite is magnified. Reading the sampled alpha as a distance
+    // to the edge and keeping one screen pixel of ramp around its half way
+    // line gives the edge the same one pixel coverage the SDF pipelines
+    // have, at any scale. A flat alpha has no gradient and is kept as is,
+    // so a translucent sprite stays translucent.
+    let width: f32 = fwidth(tex.a);
+    let sharp: f32 = clamp((tex.a - 0.5) / max(width, 0.0001) + 0.5, 0.0, 1.0);
+    let alpha: f32 = select(sharp, tex.a, width == 0.0);
+
+    if alpha < 0.004 {
         discard;
     }
 
-    return out;
+    return vec4<f32>(tex.rgb, alpha);
 }

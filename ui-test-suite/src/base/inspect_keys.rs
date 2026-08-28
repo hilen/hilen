@@ -1,4 +1,7 @@
 use anyhow::{Result, anyhow};
+// Only the desktop field is placed.
+#[cfg(desktop)]
+use hilen::ui::ViewData;
 use hilen::{
     dispatch::{from_main, on_main},
     inspect::{
@@ -6,7 +9,7 @@ use hilen::{
         protocol::{Key, UIRequest},
     },
     refs::Weak,
-    ui::{KeyCombo, ModifiersState, NamedKey, Setup, UIManager, ViewData, ViewTest, view},
+    ui::{KeyCombo, ModifiersState, NamedKey, Setup, UIManager, ViewTest, view},
 };
 
 /// Keys injected over the inspect protocol must reach the keymap and the
