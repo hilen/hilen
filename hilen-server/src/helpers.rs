@@ -53,7 +53,13 @@ where
 }
 
 pub async fn serve(router: Router, port: u16) -> Result<()> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    serve_on(SocketAddr::from(([0, 0, 0, 0], port)), router).await
+}
+
+/// [`serve`] with an explicit bind address, for an app that must stay on
+/// loopback, for example behind a proxy sidecar sharing its network
+/// namespace.
+pub async fn serve_on(addr: SocketAddr, router: Router) -> Result<()> {
     tracing::info!("listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(
