@@ -6,7 +6,10 @@ mod corner_radius;
 mod css_colors;
 mod dispatch;
 mod global_styles;
+// The engine compiles the inspector out on wasm, so its tests go with it.
+#[cfg(not_wasm)]
 mod inspect_keys;
+#[cfg(not_wasm)]
 mod inspect_tap_modifiers;
 mod keymap;
 mod keymap_combo;

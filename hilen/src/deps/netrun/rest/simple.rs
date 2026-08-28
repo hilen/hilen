@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
+use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::deps::netrun::rest::{Method, client::client, request::request_object};
@@ -53,7 +54,7 @@ pub async fn download_with_progress(
     mut on_progress: impl FnMut(u64, Option<u64>),
 ) -> Result<Vec<u8>> {
     let url = url.to_string();
-    let mut response = client().get(&url).send().await?;
+    let response = client().get(&url).send().await?;
     let status = response.status();
 
     // Without this a block page or an error page downloads as if it were the
@@ -66,8 +67,11 @@ pub async fn download_with_progress(
     let mut bytes = Vec::with_capacity(usize::try_from(total.unwrap_or_default()).unwrap_or_default());
     on_progress(0, total);
 
-    while let Some(chunk) = response.chunk().await? {
-        bytes.extend_from_slice(&chunk);
+    // `bytes_stream` is the one chunked read reqwest has on both native and
+    // wasm, `chunk()` does not exist on the wasm target.
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        bytes.extend_from_slice(&chunk?);
         on_progress(bytes.len() as u64, total);
     }
 

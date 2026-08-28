@@ -49,6 +49,7 @@ educe = { workspace = true }
 event-listener = { workspace = true }
 fastrand = { workspace = true }
 fern = { workspace = true }
+futures-util = { workspace = true }
 hex = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
@@ -80,7 +81,6 @@ level-proc = { workspace = true }
 ui-proc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-futures-util = { workspace = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true }
 rapier2d = { workspace = true, features = ["parallel"] } # simd can crash if there are too many active objects
