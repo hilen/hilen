@@ -14,8 +14,11 @@ app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, s
 `dead_code` lint stays meaningful.
 
 `hilen-server` is the backend base crate for app backends, config, error type,
-base routes and helpers over axum, sqlx and redis. It never links the `hilen`
-UI crate, a backend and a client only share the wire.
+base routes and helpers over axum, sqlx and redis. It also carries the standard
+way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
+dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
+page requests at a running `trunk serve` for the dev loop. It never links the
+`hilen` UI crate, a backend and a client only share the wire.
 
 The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
