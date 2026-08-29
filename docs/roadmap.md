@@ -709,6 +709,24 @@ downloaded in one call with nothing to report.
   at the end state on the first frame back.
 - Blocks: nothing visible, only CPU and battery in a background window.
 
+## SVG rasterized at the drawn size
+
+Found by the demo stepper preview. An svg icon is rasterized once at
+load, 8 times its own size with anti aliasing off, `parse_svg_image` in
+`hilen/src/window/image/texture.rs`, so a 24 px Lucide icon is a 192 px
+bitmap. Drawn at icon size it is fine, drawn large it shows every pixel
+step, and turning anti aliasing on only makes it soft instead of jagged.
+
+- Current: one fixed bitmap per svg, the mip chain covers drawing it
+  smaller, nothing covers drawing it larger.
+- Needed: keep the svg tree and rasterize on demand at the size the
+  `ImageView` draws it, at the screen scale, cached per size so a
+  resize re-rasterizes once. Anti aliasing on, `GeometricPrecision`.
+  Every svg probe in the suite changes with it, `Image downscale` first,
+  so the change lands with a re-record.
+- Blocks: large svg icons anywhere, the demo stepper chevrons, and any
+  app that scales an icon with its view.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.

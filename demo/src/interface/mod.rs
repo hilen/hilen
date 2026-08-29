@@ -10,7 +10,7 @@ pub mod dev;
 mod home_view;
 mod landing;
 mod page;
-mod palette;
+pub mod palette;
 mod scenes;
 mod sidebar;
 mod styles;

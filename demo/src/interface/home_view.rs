@@ -68,7 +68,6 @@ impl Setup for TopBar {
 
 impl Setup for HomeView {
     fn setup(mut self: Weak<Self>) {
-        LevelManager::stop_level();
         UIManager::set_clear_color(BG);
         CURRENT.lock().replace(self);
 
@@ -113,6 +112,10 @@ impl HomeView {
     fn show(mut self: Weak<Self>, page: Page) {
         self.page = page;
         self.menu_open = false;
+        // The landing runs the chamber level, every other page has none.
+        if page != Page::Landing {
+            LevelManager::stop_level();
+        }
         self.content.remove_all_subviews();
         let view: Own<dyn hilen::ui::View> = page.make_view();
         self.content.add_subview(view).place().back();

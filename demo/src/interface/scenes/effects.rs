@@ -1,8 +1,10 @@
+#[cfg(not_wasm)]
+use hilen::ui::ColorMeter;
 use hilen::{
     refs::Weak,
     ui::{
-        BlurView, ColorMeter, Container, CornerRadii, ImageView, Label, ScrollView, Setup, Shadow,
-        TextAlignment, ViewData, ViewSubviews, ViewTouch, WHITE, view,
+        BlurView, Container, CornerRadii, ImageView, Label, ScrollView, Setup, Shadow, TextAlignment,
+        ViewData, ViewSubviews, ViewTouch, WHITE, view,
     },
 };
 
@@ -84,8 +86,13 @@ impl EffectsScene {
             hover.set_color(if hovered { ACCENT_END } else { ACCENT_START });
         });
 
-        let meter = self.tile("Eyedropper").add_view::<ColorMeter>();
-        meter.set_corner_radius(10).set_border_width(1).set_border_color(BORDER);
-        meter.place().t(40).center_x().size(80, 80);
+        // The meter reads the screen back through a screenshot, which the
+        // browser cannot take, so the tile would sit there doing nothing.
+        #[cfg(not_wasm)]
+        {
+            let meter = self.tile("Eyedropper").add_view::<ColorMeter>();
+            meter.set_corner_radius(10).set_border_width(1).set_border_color(BORDER);
+            meter.place().t(40).center_x().size(80, 80);
+        }
     }
 }

@@ -1,17 +1,14 @@
 use hilen::{
-    dispatch::{on_main, spawn},
-    filesystem::Assets,
     refs::Own,
-    ui::{AlertErr, Setup, UIManager, View},
+    ui::{Setup, UIManager, View},
 };
 
 use crate::interface::{
     dev::MenuView,
     landing::Landing,
     noise_view::NoiseView,
-    render_view::RenderView,
     root_layout_view::RootLayoutView,
-    scenes::{EffectsScene, FrostedHud, GameScene, ScrollTables, TextFonts, WidgetGallery},
+    scenes::{EffectsScene, ScrollTables, TextFonts, WidgetGallery},
 };
 
 /// Every screen the sidebar can open. In place pages render inside the
@@ -21,42 +18,34 @@ use crate::interface::{
 pub enum Page {
     #[default]
     Landing,
-    Physics,
-    FrostedHud,
     Widgets,
     Effects,
     Fonts,
     Scrolling,
-    Render,
     Noise,
     Layout,
     Dev,
 }
 
 impl Page {
-    pub const ALL: [Page; 10] = [
-        Page::Physics,
-        Page::FrostedHud,
+    pub const ALL: [Page; 8] = [
+        Page::Landing,
         Page::Effects,
         Page::Noise,
         Page::Widgets,
         Page::Fonts,
         Page::Scrolling,
-        Page::Render,
         Page::Layout,
         Page::Dev,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            Page::Landing => "Hilen",
-            Page::Physics => "Physics",
-            Page::FrostedHud => "Frosted HUD",
+            Page::Landing => "Home",
             Page::Widgets => "Views",
             Page::Effects => "Effects",
             Page::Fonts => "Fonts",
             Page::Scrolling => "Scrolling",
-            Page::Render => "Render",
             Page::Noise => "Noise",
             Page::Layout => "Layout",
             Page::Dev => "Dev",
@@ -66,14 +55,11 @@ impl Page {
     /// Lucide line icons, <https://lucide.dev>, ISC licensed.
     pub fn icon(self) -> &'static str {
         match self {
-            Page::Landing => "engine.png",
-            Page::Physics => "nav_physics.svg",
-            Page::FrostedHud => "nav_frosted.svg",
+            Page::Landing => "nav_home.svg",
             Page::Widgets => "nav_views.svg",
             Page::Effects => "nav_effects.svg",
             Page::Fonts => "nav_fonts.svg",
             Page::Scrolling => "nav_scrolling.svg",
-            Page::Render => "nav_render.svg",
             Page::Noise => "nav_noise.svg",
             Page::Layout => "nav_layout.svg",
             Page::Dev => "nav_dev.svg",
@@ -123,22 +109,6 @@ impl Page {
     /// Replace the root view with a full screen page.
     pub fn open_full_screen(self) {
         match self {
-            Page::Physics => {
-                // The level sprites are a lazy asset group, the browser
-                // downloads them on the first open. Native resolves at once.
-                spawn(async {
-                    Assets::load_group("game").await.alert_err();
-                    on_main(|| {
-                        UIManager::set_view(GameScene::new());
-                    });
-                });
-            }
-            Page::FrostedHud => {
-                UIManager::set_view(FrostedHud::new());
-            }
-            Page::Render => {
-                UIManager::set_view(RenderView::new());
-            }
             Page::Noise => {
                 UIManager::set_view(NoiseView::new());
             }

@@ -1,14 +1,14 @@
 use hilen::{
     refs::Weak,
     ui::{
-        Alert, Button, CheckBox, Container, DropDown, Label, NumberView, ProgressView, ScrollView, Setup,
-        Spinner, SpinnerLockOnView, Switch, TextAlignment, TextField, View, ViewData, ViewSubviews, WHITE,
-        WeakView, view,
+        Alert, BLACK, Button, CheckBox, Container, DropDown, Label, NumberView, ProgressView, ScrollView,
+        Setup, Shadow, Spinner, SpinnerLockOnView, Switch, TextAlignment, TextField, View, ViewData,
+        ViewSubviews, WHITE, WeakView, view,
     },
 };
 
 use crate::interface::{
-    palette::{ACCENT, BG, BORDER, SURFACE, TEXT},
+    palette::{ACCENT, BG, BORDER, SURFACE, SURFACE_ALT, TEXT},
     scenes::{HEADER_HEIGHT, add_title},
 };
 
@@ -115,6 +115,11 @@ impl WidgetGallery {
 
         let mut drop = self.tile("DropDown").add_view::<DropDown<&'static str>>();
         drop.set_values(vec!["One", "Two", "Three"]);
+        drop.set_text_color(TEXT).set_text_size(15);
+        drop.set_color(BG)
+            .set_corner_radius(10)
+            .set_border_width(1)
+            .set_border_color(BORDER);
         drop.place().t(52).center_x().size(140, 36);
 
         let stepper = self.tile("NumberView");
@@ -126,9 +131,22 @@ impl WidgetGallery {
             .set_alignment(TextAlignment::Center);
         value.place().b(10).lr(6).h(18);
         let number = stepper.add_view::<NumberView>();
+        number
+            .set_chevrons()
+            .set_separator_color(BORDER)
+            .set_bevel(SURFACE_ALT.resolve(), BG.resolve());
         number.set_value(1).on_change(move |v| {
             value.set_text(format!("{v:.0}"));
         });
+        number
+            .set_corner_radius(10)
+            .set_border_width(1)
+            .set_border_color(BORDER)
+            .set_shadow(Shadow {
+                offset: (0, 2).into(),
+                radius: 6.0,
+                color:  BLACK.with_alpha(0.25),
+            });
         number.place().t(34).center_x().size(52, 70);
 
         let field = self.tile("TextField").add_view::<TextField>();

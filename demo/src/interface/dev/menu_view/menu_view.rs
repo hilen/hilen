@@ -32,7 +32,7 @@ use crate::{
         polygon_view::PolygonView,
         render_view::RenderView,
         root_layout_view::RootLayoutView,
-        scenes::{GameScene, HEADER_HEIGHT, add_title},
+        scenes::{FrostedHud, GameScene, HEADER_HEIGHT, add_title},
     },
     levels::BenchmarkLevel,
     no_physics::NoPhysicsView,
@@ -77,6 +77,7 @@ impl MenuView {
     fn scenes(self: Weak<Self>) -> Weak<Container> {
         let scenes = self.section(None, "SCENES");
         Self::button(scenes, "Main level", || UIManager::set_view(GameScene::new()));
+        Self::button(scenes, "Frosted HUD", || UIManager::set_view(FrostedHud::new()));
         Self::button(scenes, "Polygon", || UIManager::set_view(PolygonView::new()));
         Self::button(scenes, "Noise", || {
             LevelManager::stop_level();

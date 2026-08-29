@@ -11,6 +11,15 @@ impl UIImages {
         Image::from_file_data(include_bytes!("images/up.png"), "up.png")
     }
 
+    /// Lucide chevrons, <https://lucide.dev>, ISC licensed.
+    pub fn chevron_up() -> Weak<Image> {
+        Image::from_file_data(include_bytes!("images/chevron_up.svg"), "chevron_up.svg")
+    }
+
+    pub fn chevron_down() -> Weak<Image> {
+        Image::from_file_data(include_bytes!("images/chevron_down.svg"), "chevron_down.svg")
+    }
+
     pub fn down() -> Weak<Image> {
         Image::from_file_data(include_bytes!("images/down.png"), "down.png")
     }

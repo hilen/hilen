@@ -79,7 +79,6 @@ impl Setup for Sidebar {
             item.place().lr(12).t(8.0 + 44.0 * i.lossy_convert()).h(40);
             self.items.push(item);
         }
-        self.mark(Page::Landing);
     }
 }
 
