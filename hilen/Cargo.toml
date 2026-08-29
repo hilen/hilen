@@ -79,6 +79,7 @@ reflected = { workspace = true }
 
 level-proc = { workspace = true }
 ui-proc = { workspace = true }
+unicode-linebreak = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 infisical = { workspace = true }

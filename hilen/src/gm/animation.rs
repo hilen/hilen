@@ -26,6 +26,11 @@ impl Animation {
         }
     }
 
+    /// A default animation has no duration, its value would divide by zero.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.duration.to_bits() == 0
+    }
+
     pub(crate) fn finished(&self) -> bool {
         Utc::now().timestamp_millis() >= self.stamp + LossyConvert::<i64>::lossy_convert(self.duration)
     }

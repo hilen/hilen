@@ -60,8 +60,15 @@ font's `trak` curve automatically, macOS does for the system font.
 ## Line handling
 
 `\n` always breaks lines, single line labels included. Multiline labels
-additionally wrap greedily at spaces to the label width. A single word wider
-than the bound overflows, same as the builtin layout did. Vertical alignment
+additionally wrap greedily at the Unicode line break opportunities of the
+text, UAX 14 through the `unicode-linebreak` crate, so Latin breaks after
+spaces and after a `/` in a path, Japanese and Chinese between characters.
+Spaces before a break are dropped. Only the first glyph of a cluster may start
+a line, a combining mark stays on its base. A Latin word wider than the bound
+overflows, the `UIKit` word wrapping behavior. Thai, Lao, Khmer and Myanmar
+have no opportunity inside a word without a dictionary, so a piece of those
+wider than the bound breaks at the cluster that overflows. `Script wrap`
+walks ten widths over Japanese, Thai, Korean and a mixed label. Vertical alignment
 defaults to center, `Label::set_vertical_alignment` opts a label into Top,
 which the multiline `TextField` uses so a tall field starts its text at the
 top.

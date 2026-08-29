@@ -35,9 +35,15 @@ impl UIAnimation {
         }
     }
 
-    pub(crate) fn animation(mut self, animation: Animation) -> Self {
+    pub fn animation(mut self, animation: Animation) -> Self {
         self.animation = animation;
         self
+    }
+
+    /// Never finishes. The value keeps bouncing between the ends until the
+    /// view is gone.
+    pub fn repeat(self) -> Self {
+        self.finish_condition(|| false)
     }
 
     pub(crate) fn finish_condition(self, mut finish: impl FnMut() -> bool + Send + 'static) -> Self {
@@ -58,10 +64,11 @@ impl UIAnimation {
     }
 
     pub(crate) fn commit(&mut self) {
-        if self.finish_condition.is_empty() {
-            (self.action)(self.view.deref_mut(), self.animation.value());
+        let value = if self.animation.is_empty() {
+            0.0
         } else {
-            (self.action)(self.view.deref_mut(), 0.0);
-        }
+            self.animation.value()
+        };
+        (self.action)(self.view.deref_mut(), value);
     }
 }

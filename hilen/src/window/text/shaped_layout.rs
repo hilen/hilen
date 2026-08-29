@@ -4,6 +4,7 @@ use std::{
 };
 
 use rustybuzz::{UnicodeBuffer, shape};
+use unicode_linebreak::{BreakClass, break_property, linebreaks};
 use wgpu_text::glyph_brush::{
     GlyphPositioner, HorizontalAlign, SectionGeometry, SectionGlyph, ToSectionText,
     ab_glyph::{Font as AbGlyphFont, Glyph, GlyphId, PxScale, Rect, ScaleFont, point},
@@ -106,6 +107,14 @@ struct ShapedLine {
     glyphs: Vec<ShapedGlyph>,
 }
 
+/// One wrapped piece of a line. `end` is where its text stops, before
+/// the spaces a break removed. The last piece has none, it ends with
+/// the line.
+struct WrappedChunk {
+    glyphs: Vec<ShapedGlyph>,
+    end:    Option<usize>,
+}
+
 impl ShapedLayout<'_> {
     /// The base font and every run font, at scales that draw the same em
     /// size. `base_scale` is the base font's `PxScale`.
@@ -190,39 +199,81 @@ impl ShapedLayout<'_> {
         glyphs
     }
 
-    /// Greedy wrap at space glyphs. A line that has no space to break at
-    /// overflows, same as the builtin layout.
-    fn wrap(line: Vec<ShapedGlyph>, text: &str, max_width: f32) -> Vec<Vec<ShapedGlyph>> {
+    /// Greedy wrap at the Unicode line break opportunities of the line,
+    /// UAX 14, so Latin breaks after spaces and Japanese between
+    /// characters. Spaces before a break die with it. A Latin word wider
+    /// than the bound overflows, the `UIKit` word wrapping behavior. Thai
+    /// and the other complex scripts have no opportunity without a
+    /// dictionary, so a too wide piece of them breaks at the cluster
+    /// that overflows.
+    fn wrap(line: Vec<ShapedGlyph>, text: &str, range: Range<usize>, max_width: f32) -> Vec<WrappedChunk> {
         let is_space = |glyph: &ShapedGlyph| text.as_bytes().get(glyph.cluster) == Some(&b' ');
+        let is_complex = |glyph: &ShapedGlyph| {
+            text[glyph.cluster..]
+                .chars()
+                .next()
+                .is_some_and(|c| break_property(u32::from(c)) == BreakClass::ComplexContext)
+        };
 
-        let mut lines = vec![];
+        // Byte positions a line may start at, in text coordinates. The
+        // mandatory break at the end of the line is not one.
+        let opportunities: Vec<usize> = linebreaks(&text[range.clone()])
+            .map(|(index, _)| range.start + index)
+            .filter(|&index| index < range.end)
+            .collect();
+
+        let mut chunks = vec![];
         let mut current: Vec<ShapedGlyph> = vec![];
         let mut width = 0.0;
-        let mut last_space: Option<usize> = None;
+        let mut last_break: Option<usize> = None;
 
         for glyph in line {
-            if width + glyph.x_advance > max_width
-                && let Some(space) = last_space
-            {
-                let mut rest = current.split_off(space);
-                // The space itself dies with the break.
-                rest.remove(0);
-                lines.push(current);
-                width = rest.iter().map(|g| g.x_advance).sum();
-                current = rest;
-                last_space = None;
+            // A mark shares the cluster of its base, so only the base
+            // glyph may start a piece, never the mark drawn over it.
+            let first_of_cluster = current.last().is_none_or(|last| last.cluster != glyph.cluster);
+            let starts_piece = first_of_cluster && opportunities.contains(&glyph.cluster);
+
+            if starts_piece && !current.is_empty() {
+                last_break = Some(current.len());
             }
 
-            if is_space(&glyph) {
-                last_space = Some(current.len());
+            if width + glyph.x_advance > max_width && !current.is_empty() {
+                let split = match last_break {
+                    Some(index) => Some(index),
+                    None if first_of_cluster && is_complex(&glyph) => Some(current.len()),
+                    None => None,
+                };
+
+                if let Some(split) = split
+                    && split > 0
+                {
+                    let rest = current.split_off(split);
+                    let mut end = rest.first().map_or(glyph.cluster, |first| first.cluster);
+                    while let Some(last) = current.last()
+                        && is_space(last)
+                    {
+                        end = last.cluster;
+                        current.pop();
+                    }
+                    chunks.push(WrappedChunk {
+                        glyphs: current,
+                        end:    Some(end),
+                    });
+                    width = rest.iter().map(|g| g.x_advance).sum();
+                    current = rest;
+                    last_break = None;
+                }
             }
 
             width += glyph.x_advance;
             current.push(glyph);
         }
 
-        lines.push(current);
-        lines
+        chunks.push(WrappedChunk {
+            glyphs: current,
+            end:    None,
+        });
+        chunks
     }
 
     fn shape_text(&self, text: &str, sources: &[Source], bound_w: f32) -> Vec<ShapedLine> {
@@ -234,33 +285,24 @@ impl ShapedLayout<'_> {
             let shaped = self.shape_line(text, offset..line_end, sources);
 
             let chunks = if self.params.multiline {
-                Self::wrap(shaped, text, bound_w)
+                Self::wrap(shaped, text, offset..line_end, bound_w)
             } else {
-                vec![shaped]
+                vec![WrappedChunk {
+                    glyphs: shaped,
+                    end:    None,
+                }]
             };
 
-            let count = chunks.len();
-            for (index, glyphs) in chunks.into_iter().enumerate() {
-                let start = glyphs.first().map_or(offset, |g| g.cluster);
+            for chunk in chunks {
+                let start = chunk.glyphs.first().map_or(offset, |g| g.cluster);
                 lines.push(ShapedLine {
                     start,
-                    end: 0,
-                    glyphs,
+                    end: chunk.end.unwrap_or(line_end),
+                    glyphs: chunk.glyphs,
                 });
-                if index + 1 == count {
-                    lines.last_mut().expect("just pushed").end = line_end;
-                }
             }
 
             offset = line_end + 1;
-        }
-
-        // A wrapped chunk ends at the space the break removed, which is one
-        // byte before the next chunk starts.
-        for index in 0..lines.len().saturating_sub(1) {
-            if lines[index].end == 0 {
-                lines[index].end = lines[index + 1].start.saturating_sub(1);
-            }
         }
 
         lines

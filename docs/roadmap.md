@@ -734,6 +734,29 @@ was a 192 px bitmap that showed every pixel step when drawn large.
   shader.
 - Blocks: nothing.
 
+## Unicode line breaking
+
+Found by the demo Fonts page. A label that breathes between the full
+panel width and a narrow column showed Japanese and Thai sentences as one
+overflowing line, the wrapper broke only at spaces and those scripts have
+none.
+
+- Landed: the wrapper takes its break opportunities from UAX 14 through
+  `unicode-linebreak`, word wrapping like `UIKit`, a too wide Latin word
+  still overflows, and a piece of a complex script, Thai, Lao, Khmer or
+  Myanmar, breaks at the overflowing cluster since there is no dictionary.
+  A mark never starts a line, see [text.md](text.md). `NotoSansJP` and
+  `NotoSansKR` joined the fonts, both variable and around 10 MB each, so
+  the browser downloads them with the boot group. Covered by `Script wrap`,
+  ten widths, and it moved `Label ellipsize` and `Label ellipsize head`,
+  whose path now breaks after each `/`.
+- Alongside: `TableView::set_cell_margins(left, right)` insets the cells
+  from the table edges, covered by `Table margins test`.
+  `UIAnimation::animation` is public and `repeat()` keeps an animation
+  bouncing forever, which is how the demo label breathes.
+- Blocks: Thai word boundaries need a dictionary, ICU style, before Thai
+  wraps at words instead of at the overflowing character.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.
@@ -745,7 +768,8 @@ ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
 which closed the kukareker list. The head ellipsize and the hover re-pick on
 view removal closed the wave 8 leftovers, and the update download progress
 closed the packaging wave, rounded corner clipping and the sprite cutout
-edges closed the rendering leftovers, and svgs now rasterize at the drawn size. Among the rest, frame stepped
+edges closed the rendering leftovers, svgs now rasterize at the drawn size, and
+Unicode line breaking gave the Fonts page its scripts. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

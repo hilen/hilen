@@ -22,6 +22,7 @@ const TABLE_ROWS: usize = 10_000_000;
 const PANEL_HEADER_HEIGHT: f32 = 92.0;
 const ROW_HEIGHT: f32 = 56.0;
 const ROW_SPACING: f32 = 8.0;
+const FIRST_ROW_GAP: f32 = 10.0;
 const MANUAL_TEXT_SEED: u64 = 0xA11C_E5EED;
 const TABLE_TEXT_SEED: u64 = 0x7AB1_E5EED;
 
@@ -97,11 +98,15 @@ impl RecycledRow {
 }
 
 impl Setup for RecycledRow {
+    fn clips_to_bounds(&self) -> bool {
+        true
+    }
+
     fn setup(self: Weak<Self>) {
         self.set_corner_radius(12).set_border_width(1).set_border_color(BORDER);
 
-        self.accent.set_gradient(ACCENT_START, ACCENT_END).set_corner_radius(2);
-        self.accent.place().l(0).tb(8).w(4);
+        self.accent.set_gradient(ACCENT_START, ACCENT_END);
+        self.accent.place().l(0).tb(0).w(4.8);
 
         self.title
             .set_text_color(TEXT)
@@ -149,7 +154,10 @@ impl Setup for ScrollTables {
             .set_border_color(BORDER)
             .set_shadow(Shadow::default());
         self.table.set_data_source(self).register_cell::<RecycledRow>();
-        self.table.set_cell_spacing(ROW_SPACING).set_header_height(PANEL_HEADER_HEIGHT);
+        self.table
+            .set_cell_spacing(ROW_SPACING)
+            .set_cell_margins(10, 10)
+            .set_header_height(PANEL_HEADER_HEIGHT + FIRST_ROW_GAP);
 
         let header = self.table.add_header_view::<PanelHeader>();
         header.set_content("TABLEVIEW", "10 million messages");
@@ -193,7 +201,7 @@ impl ScrollTables {
                 .set_border_width(1)
                 .set_border_color(BORDER);
             row.place()
-                .t(PANEL_HEADER_HEIGHT + 10.0 + (ROW_HEIGHT + ROW_SPACING) * i.lossy_convert())
+                .t(PANEL_HEADER_HEIGHT + FIRST_ROW_GAP + (ROW_HEIGHT + ROW_SPACING) * i.lossy_convert())
                 .lr(10)
                 .h(ROW_HEIGHT);
 

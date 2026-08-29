@@ -32,7 +32,7 @@ impl TableView {
     pub(super) fn layout_fixed_cells(&mut self, number_of_cells: usize, columns: usize, mode: LayoutMode) {
         let spacing = self.cell_spacing;
         let width = self.width();
-        let cell_width = (width - spacing * (columns - 1).lossy_convert()) / columns.lossy_convert();
+        let (cell_width, left) = self.cell_width(columns.lossy_convert());
         let header = self.header_height;
 
         // The offsets live in the table and the layout below mutates the
@@ -73,7 +73,7 @@ impl TableView {
 
         let cell_frame = |i: usize| -> (f32, f32, f32, f32) {
             let row = i / columns;
-            let x: f32 = (i % columns).lossy_convert() * (cell_width + spacing);
+            let x: f32 = left + (i % columns).lossy_convert() * (cell_width + spacing);
             (x, rows.top(row) + header, cell_width, rows.height(row))
         };
 
@@ -142,7 +142,7 @@ impl TableView {
             cell.as_cell().cell_added();
         }
 
-        self.layout_pinned(&pinned, columns, cell_width, spacing);
+        self.layout_pinned(&pinned, columns, (cell_width, left), spacing);
     }
 
     /// The sticky rows that are on screen at the current offset, each
@@ -189,7 +189,13 @@ impl TableView {
     /// Places the cells of the pinned rows, creating the ones whose row
     /// scrolled out of the recycled range, and keeps them drawn in front
     /// of the other cells while they are pinned.
-    fn layout_pinned(&mut self, pinned: &[(usize, f32, f32)], columns: usize, cell_width: f32, spacing: f32) {
+    fn layout_pinned(
+        &mut self,
+        pinned: &[(usize, f32, f32)],
+        columns: usize,
+        (cell_width, left): (f32, f32),
+        spacing: f32,
+    ) {
         self.raised.retain(|(_, view)| view.is_ok());
 
         if pinned.is_empty() && self.raised.is_empty() {
@@ -221,7 +227,7 @@ impl TableView {
                 cell_ref.weak_view()
             };
 
-            let x: f32 = (index % columns).lossy_convert() * (cell_width + spacing);
+            let x: f32 = left + (index % columns).lossy_convert() * (cell_width + spacing);
             cell.set_frame((x, y, cell_width, height));
 
             if !self.raised.iter().any(|(_, raised)| raised.raw() == cell.raw()) {

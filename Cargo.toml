@@ -154,6 +154,7 @@ tower = "0.5"
 tower-http = { version = "0.7", features = ["trace", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-linebreak = "0.1"
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"

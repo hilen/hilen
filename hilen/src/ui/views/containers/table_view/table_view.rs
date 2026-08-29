@@ -24,6 +24,9 @@ pub struct TableView {
 
     pub(super) cell_spacing: f32,
 
+    /// Empty space between the table edges and the cells, left and right.
+    pub(super) cell_margins: (f32, f32),
+
     /// Rows read their own `cell_height(index)` instead of sharing row 0.
     pub(super) variable_heights: bool,
 
@@ -119,6 +122,19 @@ impl TableView {
         self
     }
 
+    pub fn set_cell_margins(&mut self, left: impl ToF32, right: impl ToF32) -> &mut Self {
+        self.cell_margins = (left.to_f32(), right.to_f32());
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
+    /// Width of one cell and the x of the first column.
+    pub(super) fn cell_width(&self, columns: f32) -> (f32, f32) {
+        let (left, right) = self.cell_margins;
+        let width = (self.width() - left - right - self.cell_spacing * (columns - 1.0)) / columns;
+        (width, left)
+    }
+
     /// Every row gets its own height from `cell_height(index)`, the index
     /// of its first cell. Off by default, where `cell_height(0)` is the
     /// height of every row and the table never walks the data. Turning
@@ -210,9 +226,9 @@ impl TableView {
 
         let columns: f32 = self.columns.lossy_convert();
         let spacing = self.cell_spacing;
-        let cell_width = (self.width() - spacing * (columns - 1.0)) / columns;
+        let (cell_width, left) = self.cell_width(columns);
 
-        let col = ((pos.x - cell_width / 2.0) / (cell_width + spacing))
+        let col = ((pos.x - left - cell_width / 2.0) / (cell_width + spacing))
             .round()
             .clamp(0.0, columns - 1.0);
 
