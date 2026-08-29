@@ -87,8 +87,8 @@ impl Setup for TextFonts {
 }
 
 impl TextFonts {
-    /// The label breathes between the full panel width and a narrow
-    /// column, so the text rewraps in front of the viewer. The frame is
+    /// The label shrinks from the full panel width to a narrow column
+    /// and grows back, so the text rewraps while it moves. The frame is
     /// set on every tick from the live parent width, a window resize
     /// moves the ends with it.
     fn add_wrapping_label(mut self: Weak<Self>) {
