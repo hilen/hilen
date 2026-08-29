@@ -16,6 +16,7 @@ cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  #
 make uui                                      # full suite, headless, release mode
 make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
 cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, ctrl to advance
+cargo run -p ui-test -- --test-name "Font zoo" --present          # presentation mode, the view over the whole window, nothing injected, play with it and close
 cargo run -p ui-test -- --record-colors --headless --test-name "Font zoo"  # print check_colors blocks
 ```
 
@@ -401,6 +402,14 @@ the window is up and asks them to check it, then waits for their verdict. Never 
 user the command to run. After the verdict, stop and wait. Do not mention, plan, or run
 `make ci`, `make smoke`, or any commit step until the user brings up committing or
 pushing.
+
+## Presentation mode
+
+`--present` builds one test's view over the whole window and hands it over. Nothing is
+injected and `perform_test` never runs, the window is the user's until they close it. This
+is the mode for looking at a view or playing with it, for example a `ViewGallery` of design
+variants. Human mode is not that, it runs the test and only pauses between its steps, so a
+view with no steps flashes by and a panicking `perform_test` takes the window with it.
 
 ## Human mode
 

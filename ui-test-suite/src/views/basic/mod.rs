@@ -26,6 +26,8 @@ mod rounded_clip;
 mod secondary_click;
 mod shadow;
 mod slider;
+mod slider_horizontal;
+mod slider_sizing;
 mod switch;
 mod theme_switch;
 /// Hover tooltips need a pointer, the same gate as `hover`.

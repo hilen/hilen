@@ -6,6 +6,7 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+mod blade_tunnel;
 mod cutout;
 
 use std::{collections::BTreeMap, panic::set_hook, path::PathBuf, process::exit};

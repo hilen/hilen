@@ -4,7 +4,6 @@ use hilen::{
     gm::{LossyConvert, Shape},
     level::{Body, LevelCreation, LevelManager, LevelSetup, MovingWall, SpriteTemplates, Wall, level},
     refs::Weak,
-    time::Instant,
     ui::{Color, Point},
 };
 
@@ -36,11 +35,14 @@ pub struct ChamberLevel {
     /// Where new objects appear, above the window top. The landing sets
     /// it from the camera, the level does not know the screen.
     pub spawn_y: f32,
+    /// Blade turning speed as a multiple of the base rate, 1.0 is one
+    /// turn per `TURN_SECONDS`, 0.0 holds the blades still.
+    pub speed:   f32,
 
-    blades:    Vec<Weak<MovingWall>>,
-    objects:   Vec<Weak<Body>>,
-    started:   Option<Instant>,
-    last_drop: Option<Instant>,
+    blades:     Vec<Weak<MovingWall>>,
+    objects:    Vec<Weak<Body>>,
+    angle:      f32,
+    since_drop: f32,
 }
 
 impl ChamberLevel {
@@ -160,9 +162,7 @@ impl LevelSetup for ChamberLevel {
     fn setup(&mut self) {
         self.add_walls();
         self.add_blades();
-        let now = Instant::now();
-        self.started = Some(now);
-        self.last_drop = Some(now);
+        self.speed = 1.0;
 
         // A tap inside the chamber drops an object there, outside does nothing.
         self.on_tap.val(|pos| {
@@ -172,19 +172,13 @@ impl LevelSetup for ChamberLevel {
         });
     }
 
-    fn update(&mut self) {
-        let now = Instant::now();
-        let Some(started) = self.started else {
-            return;
-        };
-        let turns = started.elapsed().as_secs_f32() / TURN_SECONDS;
-        self.turn_blades(-turns * 2.0 * PI);
+    fn update(&mut self, dt: f32) {
+        self.angle -= dt * self.speed * 2.0 * PI / TURN_SECONDS;
+        self.turn_blades(self.angle);
 
-        if self
-            .last_drop
-            .is_none_or(|last| now.duration_since(last).as_secs_f32() >= DROP_SECONDS)
-        {
-            self.last_drop = Some(now);
+        self.since_drop += dt;
+        if self.since_drop >= DROP_SECONDS {
+            self.since_drop = 0.0;
             self.drop_from_top();
         }
     }

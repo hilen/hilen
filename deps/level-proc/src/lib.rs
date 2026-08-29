@@ -91,8 +91,16 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
                 use hilen::level::Level;
                 use hilen::level::LevelSetup;
                 let mut level = hilen::refs::weak_from_ref(self);
-                level.update_physics(frame_time);
-                level.update();
+                let steps = if level.has_physics() {
+                    hilen::level::LevelBase::PHYSICS_SUBSTEPS
+                } else {
+                    1
+                };
+                let dt = frame_time / steps as f32;
+                for _ in 0..steps {
+                    level.update(dt);
+                    level.update_physics(dt);
+                }
             }
         }
 
