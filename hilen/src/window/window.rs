@@ -56,6 +56,10 @@ pub struct Window {
 
     pub(crate) title_set: bool,
 
+    /// A label kept in front of the frame stats in the title, so a UI test
+    /// under human review still shows the frame time like an app does.
+    pub(crate) title_prefix: Option<String>,
+
     #[cfg(desktop)]
     pub(crate) is_resizing: bool,
 }
@@ -300,6 +304,7 @@ impl Window {
             #[cfg(desktop)]
             is_resizing: false,
             title_set: false,
+            title_prefix: None,
         };
 
         if proxy.send_event(UserEvent::WindowReady(Box::new(window))).is_err() {
@@ -341,7 +346,43 @@ impl Window {
             #[cfg(desktop)]
             is_resizing: false,
             title_set: false,
+            title_prefix: None,
         })
+    }
+
+    /// Put `prefix` in front of the frame stats in the title. Unlike
+    /// `set_title` this keeps the stats, so a human mode test prompt still
+    /// shows the frame time.
+    pub fn set_title_prefix(prefix: impl Into<String>) {
+        let prefix = prefix.into();
+        on_main(move || {
+            let window = Self::current();
+            window.title_prefix = Some(prefix.clone());
+
+            // The browser has no per frame title, the prefix is the title.
+            #[cfg(wasm)]
+            web_sys::window()
+                .expect("Failed to get browser window")
+                .document()
+                .expect("Failed to get browser document")
+                .set_title(&prefix);
+
+            #[cfg(not_wasm)]
+            if let Some(winit) = Self::winit_window()
+                && Platform::DESKTOP
+            {
+                winit.set_title(&prefix);
+            }
+        });
+    }
+
+    /// The title text for the frame stats, with the prefix in front when
+    /// one is set.
+    pub(crate) fn stats_title(stats: &str) -> String {
+        match &Self::current().title_prefix {
+            Some(prefix) => format!("{prefix} | {stats}"),
+            None => stats.to_string(),
+        }
     }
 
     pub fn set_title(title: impl Into<String>) {

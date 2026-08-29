@@ -153,7 +153,7 @@ impl UITest {
             reset_record_probe_count();
 
             if human_mode() {
-                Window::set_title(new_test_name.clone());
+                Window::set_title_prefix(new_test_name.clone());
             }
 
             record_test_boundary(Some(new_test_name.clone()));

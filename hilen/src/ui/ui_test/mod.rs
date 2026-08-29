@@ -300,9 +300,9 @@ pub(crate) fn record_ui_test() {
     }
 
     loop {
-        Window::set_title("Recording touches");
+        Window::set_title_prefix("Recording touches");
         record_touches();
-        Window::set_title("Recording colors");
+        Window::set_title_prefix("Recording colors");
         record_colors().unwrap();
     }
 }

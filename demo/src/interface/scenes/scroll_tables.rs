@@ -13,8 +13,8 @@ use hilen::{
 };
 
 use crate::interface::{
-    palette::{ACCENT, ACCENT_END, ACCENT_START, BG, BORDER, SURFACE, SURFACE_ALT, TEXT, TEXT_DIM},
-    scenes::{HEADER_HEIGHT, add_header},
+    palette::{ACCENT, ACCENT_END, ACCENT_START, BORDER, SURFACE, SURFACE_ALT, TEXT, TEXT_DIM},
+    scenes::{HEADER_HEIGHT, add_title},
 };
 
 const SCROLL_ROWS: usize = 200;
@@ -136,8 +136,6 @@ pub struct ScrollTables {
 
 impl Setup for ScrollTables {
     fn setup(mut self: Weak<Self>) {
-        self.set_color(BG);
-
         self.scroll
             .set_color(SURFACE_ALT)
             .set_border_width(1)
@@ -157,7 +155,11 @@ impl Setup for ScrollTables {
         header.set_content("TABLEVIEW", "10 million messages");
         header.place().t(0).lr(0).h(PANEL_HEADER_HEIGHT);
 
-        add_header(self, "Scroll and Tables");
+        add_title(
+            self,
+            "Scrolling",
+            "A plain ScrollView next to a TableView that recycles its rows.",
+        );
 
         self.size_changed().sub(move || self.arrange());
         self.arrange();
@@ -168,13 +170,13 @@ impl ScrollTables {
     /// Wide screens show the panels side by side, narrow ones stack them
     /// vertically so both stay usable.
     fn arrange(self: Weak<Self>) {
-        let top = HEADER_HEIGHT + 12.0;
+        let top = HEADER_HEIGHT + 4.0;
         if self.width() < 560.0 {
             self.scroll.place().clear().t(top).lr(12).relative_height(self, 0.42);
             self.table.place().clear().anchor(Anchor::Top, self.scroll, 12).lr(12).b(12);
         } else {
-            self.scroll.place().clear().t(top).b(16).l(16).relative_width(self, 0.46);
-            self.table.place().clear().t(top).b(16).r(16).relative_width(self, 0.46);
+            self.scroll.place().clear().t(top).b(20).l(28).relative_width(self, 0.45);
+            self.table.place().clear().t(top).b(20).r(28).relative_width(self, 0.45);
         }
     }
 

@@ -15,8 +15,7 @@ use hilen::{
     refs::{Weak, manage::DataManager},
     ui::{
         ALL_VIEWS, AfterSetup, Alert, Anchor, Button, Container, Font, InfiniteScrollTest, Label, Point,
-        ScrollView, Setup, Shadow, Spinner, TextAlignment, UIManager, ViewData, ViewSubviews, all_views,
-        view,
+        ScrollView, Setup, Spinner, TextAlignment, UIManager, ViewData, ViewSubviews, all_views, view,
     },
     ui_test::run_all_tests,
 };
@@ -29,54 +28,43 @@ use crate::{
         game_view::GameView,
         home_view::HomeView,
         noise_view::NoiseView,
-        palette::{BG, BORDER, SURFACE, TEXT, TEXT_DIM},
+        palette::{BORDER, SURFACE, TEXT, TEXT_DIM},
         polygon_view::PolygonView,
         render_view::RenderView,
         root_layout_view::RootLayoutView,
-        scenes::{GameScene, add_back_button},
+        scenes::{GameScene, HEADER_HEIGHT, add_title},
     },
     levels::BenchmarkLevel,
     no_physics::NoPhysicsView,
 };
 
-/// A flat dev launcher. A themed top bar over a scrollable set of
-/// labelled sections, each a wrapped row of buttons that fire one dev
-/// action, so every button stays reachable on small screens.
+/// A flat dev launcher. A title over a scrollable set of labelled
+/// sections, each a wrapped row of buttons that fire one dev action, so
+/// every button stays reachable on small screens.
 #[view]
 pub struct MenuView {
     #[init]
-    top_bar: Container,
-    scroll:  ScrollView,
+    status: Label,
+    scroll: ScrollView,
 }
 
 impl Setup for MenuView {
     fn setup(self: Weak<Self>) {
-        self.set_color(BG);
-
-        self.top_bar.set_color(SURFACE).set_shadow(Shadow::default());
-        self.top_bar.place().t(0).lr(0).h(64);
-
-        let title = self.top_bar.add_view::<Label>();
-        title
-            .set_text("Dev")
-            .set_text_color(TEXT)
-            .set_text_size(24)
-            .set_font(Font::get("RussoOne-Regular.ttf"))
-            .set_alignment(TextAlignment::Left);
-        title.place().l(124).center_y().size(70, 34);
+        add_title(
+            self,
+            "Dev",
+            "The raw engine menu. Every button fires one dev action.",
+        );
 
         let ip = local_ip().map_or_else(|_| "no ip".to_string(), |ip| ip.to_string());
-        let status = self.top_bar.add_view::<Label>();
-        status
+        self.status
             .set_text(format!("{ip}   {}", UIManager::app_instance_id()))
             .set_text_color(TEXT_DIM)
             .set_text_size(10)
             .set_alignment(TextAlignment::Right);
-        status.place().r(12).center_y().size(120, 30);
+        self.status.place().r(20).t(30).size(160, 20);
 
-        add_back_button(self);
-
-        self.scroll.place().t(64).lrb(0);
+        self.scroll.place().t(HEADER_HEIGHT).lrb(0);
 
         let scenes = self.scenes();
         let ui = self.ui(scenes);
@@ -208,6 +196,8 @@ impl MenuView {
                 println!("{name}: {}", test.file);
             }
         });
+        // A public web page should not offer a crash button.
+        #[cfg(not_wasm)]
         Self::button(system, "Panic", || panic!("test panic"));
     }
 
@@ -224,15 +214,15 @@ impl MenuView {
             .set_alignment(TextAlignment::Left);
         match anchor {
             Some(anchor) => label.place().anchor(Anchor::Top, anchor, 16),
-            None => label.place().t(12),
+            None => label.place().t(4),
         }
-        .lr(24)
+        .lr(28)
         .h(20);
 
         let grid = self.scroll.add_view::<Container>();
         // Anchor only the top to the header. below() would also copy the
         // header width, so lr could no longer inset the row.
-        grid.place().anchor(Anchor::Top, label, 6).lr(18).all(6).all_wrap();
+        grid.place().anchor(Anchor::Top, label, 6).lr(22).all(6).all_wrap();
         grid
     }
 

@@ -698,6 +698,17 @@ downloaded in one call with nothing to report.
   file.
 - Blocks: nothing. This closed the kukareker update chip percent.
 
+## Pause continuous work while the window is not visible
+
+- Current: a live animation or a loaded level keeps the loop polling even
+  when the window is minimized, fully covered, or on another desktop. A
+  browser tab throttles `requestAnimationFrame` on its own, native does not.
+- Needed: listen to winit's occluded event in the app handler and hold the
+  loop in `Wait` while the window is occluded, then request a frame when it
+  shows again. Animations keep their clock, so a long hold still lands them
+  at the end state on the first frame back.
+- Blocks: nothing visible, only CPU and battery in a background window.
+
 ## Suggested order
 
 Browser UI tests, the path rendering reconnect and whole pass MSAA have landed.

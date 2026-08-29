@@ -253,14 +253,10 @@ impl State {
             && Platform::DESKTOP
             && let Some(window) = Window::winit_window()
         {
-            let size = Window::render_size();
-            window.set_title(&format!(
-                "{:.2}ms frame {:.1} FPS {} x {}",
-                self.frame_counter.frame_time * 1000.0,
-                self.frame_counter.fps,
-                size.width,
-                size.height
-            ));
+            window.set_title(&Window::stats_title(&format!(
+                "{:.2}ms",
+                self.frame_counter.frame_time * 1000.0
+            )));
         }
     }
 

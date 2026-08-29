@@ -11,10 +11,7 @@ pub use frosted_hud::FrostedHud;
 pub use game_scene::GameScene;
 use hilen::{
     refs::{Weak, manage::DataManager},
-    ui::{
-        Button, Font, Label, Setup, Shadow, TextAlignment, UIManager, View, ViewData, ViewSubviews, WHITE,
-        view,
-    },
+    ui::{Button, Font, Label, Setup, TextAlignment, UIManager, View, ViewData, ViewSubviews, WHITE, view},
 };
 pub use scroll_tables::ScrollTables;
 pub use text_fonts::TextFonts;
@@ -22,13 +19,13 @@ pub use widget_gallery::WidgetGallery;
 
 use crate::interface::{
     HomeView,
-    palette::{ACCENT, SURFACE, TEXT},
+    palette::{ACCENT, TEXT, TEXT_DIM},
 };
 
-pub const HEADER_HEIGHT: f32 = 56.0;
+pub const HEADER_HEIGHT: f32 = 84.0;
 
 /// A themed "Back" button pinned top-left that returns to the home
-/// dashboard. For scenes that float controls over a game level.
+/// shell. For full screen scenes that draw a level behind the UI.
 pub fn add_back_button<T: View>(view: Weak<T>) {
     let button = view.add_view::<Button>();
     button
@@ -42,49 +39,43 @@ pub fn add_back_button<T: View>(view: Weak<T>) {
     button.place().tl(20).size(90, 40);
 }
 
-/// A shared scene top bar: a back button on the left and a left aligned
-/// title next to it, so they never overlap on narrow screens. Scenes
-/// place their content below `HEADER_HEIGHT`.
+/// The title block of an in place page: a big title and one line of
+/// detail under it. Pages place their content below `HEADER_HEIGHT`.
 #[view]
-pub struct SceneHeader {
+pub struct PageTitle {
     #[init]
-    back:  Button,
-    title: Label,
+    title:  Label,
+    detail: Label,
 }
 
-impl SceneHeader {
-    pub fn set_title(&self, text: &str) -> &Self {
-        self.title.set_text(text);
+impl PageTitle {
+    pub fn set_content(&self, title: &str, detail: &str) -> &Self {
+        self.title.set_text(title);
+        self.detail.set_text(detail);
         self
     }
 }
 
-impl Setup for SceneHeader {
+impl Setup for PageTitle {
     fn setup(self: Weak<Self>) {
-        self.set_color(SURFACE).set_shadow(Shadow::default());
-
-        self.back
-            .set_color(ACCENT)
-            .set_text_color(WHITE)
-            .set_corner_radius(10)
-            .set_text("Back");
-        self.back.on_tap(|| {
-            UIManager::set_view(HomeView::new());
-        });
-        self.back.place().l(12).center_y().size(72, 32);
-
         self.title
             .set_text_color(TEXT)
-            .set_text_size(20)
+            .set_text_size(28)
             .set_font(Font::get("RussoOne-Regular.ttf"))
             .set_alignment(TextAlignment::Left);
-        self.title.place().l(96).r(12).center_y().h(30);
+        self.title.place().l(28).t(22).r(20).h(34);
+
+        self.detail
+            .set_text_color(TEXT_DIM)
+            .set_text_size(14)
+            .set_alignment(TextAlignment::Left);
+        self.detail.place().l(28).t(56).r(20).h(20);
     }
 }
 
-pub fn add_header<T: View>(view: Weak<T>, title: &str) -> Weak<SceneHeader> {
-    let header = view.add_view::<SceneHeader>();
-    header.set_title(title);
+pub fn add_title<T: View>(view: Weak<T>, title: &str, detail: &str) -> Weak<PageTitle> {
+    let header = view.add_view::<PageTitle>();
+    header.set_content(title, detail);
     header.place().t(0).lr(0).h(HEADER_HEIGHT);
     header
 }

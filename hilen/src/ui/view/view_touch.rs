@@ -85,7 +85,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     // first so its release cannot end a left capture that shares the id,
     // every mouse event is finger 1.
     if touch.button == MouseButton::Right {
-        if !touch.is_began() || !view.absolute_frame().contains(touch.position) {
+        if !touch.is_began() || !view.contains_visible(touch.position) {
             return false;
         }
 
@@ -106,7 +106,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     }
 
     if touch.is_ended() && base_view.__touch_id == touch.id {
-        let inside = view.absolute_frame().contains(touch.position);
+        let inside = view.contains_visible(touch.position);
 
         touch.position -= view.absolute_frame().origin;
         base_view.__touch_id = NO_TOUCH_ID;
@@ -118,7 +118,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return true;
     }
 
-    if view.absolute_frame().contains(touch.position) {
+    if view.contains_visible(touch.position) {
         touch.position -= view.absolute_frame().origin;
         if touch.is_began() {
             base_view.__touch_id = touch.id;

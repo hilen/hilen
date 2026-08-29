@@ -403,12 +403,15 @@ pushing.
 ## Human mode
 
 `--human` makes a run watchable: vsync stays on, injected touches are drawn on screen, every
-injected event pauses (`UI_TEST_HUMAN_DELAY` ms, default 400, moved touches an eighth of it),
+injected event pauses (`UI_TEST_HUMAN_DELAY` ms, default 50, moved touches an eighth of it),
 and every screenshot pauses first so the verified state is visible. Every `check_colors`
 outlines its checked pixels on screen, each with a swatch of the color that probe pins just
 outside the outline's top right corner, so a probe sitting on the background next to a glyph
-is telling apart from one sitting on the glyph. The window title names the check, and the
-run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
+is telling apart from one sitting on the glyph. The window title names the check, with the
+frame time after it the way an app title shows it, `Font zoo check 1 | 1.23ms`, refreshed once a
+second while frames render and frozen while the loop sleeps, so a stalled loop is visible in the
+title. Prompts go through `Window::set_title_prefix`, which keeps the frame time, unlike
+`Window::set_title`, which replaces the whole title. The run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
 field does not type the advance key into it. After each test the title shows the result and
 the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 

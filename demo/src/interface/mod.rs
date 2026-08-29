@@ -6,11 +6,13 @@ mod polygon_view;
 mod render_view;
 mod root_layout_view;
 
-mod card;
 pub mod dev;
 mod home_view;
+mod landing;
+mod page;
 mod palette;
 mod scenes;
+mod sidebar;
 mod styles;
 
 pub use home_view::HomeView;

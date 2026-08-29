@@ -5,8 +5,8 @@ use hilen::{
 };
 
 use crate::interface::{
-    palette::{BG, TEXT, TEXT_DIM},
-    scenes::{HEADER_HEIGHT, add_header},
+    palette::{TEXT, TEXT_DIM},
+    scenes::{HEADER_HEIGHT, add_title},
 };
 
 // Font file and a short sample. Each renders in its own typeface to show
@@ -30,8 +30,6 @@ pub struct TextFonts {
 
 impl Setup for TextFonts {
     fn setup(self: Weak<Self>) {
-        self.set_color(BG);
-
         self.scroll.place().t(HEADER_HEIGHT).lrb(0);
 
         for (i, (font, sample)) in FONTS.into_iter().enumerate() {
@@ -42,7 +40,7 @@ impl Setup for TextFonts {
                 .set_text_color(TEXT)
                 .set_text_size(22)
                 .set_font(Font::get(font));
-            label.place().t(y).l(16).r(16).h(34);
+            label.place().t(y).l(28).r(28).h(34);
         }
 
         let spacing = self.scroll.add_view::<Label>();
@@ -51,7 +49,7 @@ impl Setup for TextFonts {
             .set_text_color(TEXT_DIM)
             .set_text_size(18)
             .set_letter_spacing(6);
-        spacing.place().t(226).l(16).r(16).h(30);
+        spacing.place().t(226).l(28).r(28).h(30);
 
         let multiline = self.scroll.add_view::<Label>();
         multiline
@@ -61,8 +59,8 @@ impl Setup for TextFonts {
             .set_text_color(TEXT)
             .set_text_size(18)
             .set_multiline(true);
-        multiline.place().t(266).l(16).r(16).h(180);
+        multiline.place().t(266).l(28).r(28).h(180);
 
-        add_header(self, "Text and Fonts");
+        add_title(self, "Fonts", "Shaping through rustybuzz, any face, any script.");
     }
 }

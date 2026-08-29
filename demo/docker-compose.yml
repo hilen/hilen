@@ -1,0 +1,23 @@
+name: hilen
+
+# Beekeeper managed. A push to the watched branch builds the demo wasm
+# dist and ships it, see the beekeeper skill. One nginx container serves
+# the static files on the public port.
+
+x-beekeeper:
+  public_host: hilen.vladas.xyz
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    image: registry.tailf87cbe.ts.net/hilen-demo:${VERSION}
+    ports:
+      - "8083:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped

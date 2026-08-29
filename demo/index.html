@@ -2,14 +2,22 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
-        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content="Hilen, a cross platform game engine and UI framework in Rust on WGPU. Live demo." />
+        <meta name="color-scheme" content="light dark" />
+        <base data-trunk-public-url />
         <link data-trunk rel="rust" data-bin="demo" />
         <link data-trunk rel="copy-dir" href="../assets" data-target="assets" />
-        <title>WGPU-template</title>
+        <title>Hilen</title>
         <style type="text/css">
             body {
                 margin: 0;
+                background: #f5f7fc;
+            }
+            @media (prefers-color-scheme: dark) {
+                body {
+                    background: #0d0f17;
+                }
             }
             canvas {
                 display: block;

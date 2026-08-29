@@ -42,7 +42,7 @@ pub fn human_mode() -> bool {
 }
 
 fn delay() -> Duration {
-    let ms = var("UI_TEST_HUMAN_DELAY").ok().and_then(|ms| ms.parse().ok()).unwrap_or(400);
+    let ms = var("UI_TEST_HUMAN_DELAY").ok().and_then(|ms| ms.parse().ok()).unwrap_or(50);
     Duration::from_millis(ms)
 }
 
@@ -158,7 +158,7 @@ fn hold(prompt: String) {
     } else {
         format!("{prompt}, ctrl to continue")
     };
-    Window::set_title(title);
+    Window::set_title_prefix(title);
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))

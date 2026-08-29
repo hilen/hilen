@@ -85,14 +85,14 @@ impl RingSpinner {
 
     /// Render on demand sleeps the loop unless continuous work is live. A
     /// live animation is that work, so an empty one runs while the ring is
-    /// visible and ends on its own when it hides or dies.
+    /// on screen and ends on its own when it hides, scrolls out or dies.
     fn keep_frames_coming(mut self: Weak<Self>) {
         if self.keeping_alive {
             return;
         }
         self.keeping_alive = true;
-        let anim =
-            UIAnimation::new(|_, _| {}).finish_condition(move || self.is_null() || self.is_hidden_in_tree());
+        let anim = UIAnimation::new(|_, _| {})
+            .finish_condition(move || self.is_null() || !self.is_visible_on_screen());
         anim.on_finish.sub(move || {
             if self.is_ok() {
                 self.keeping_alive = false;
@@ -115,7 +115,7 @@ impl Setup for RingSpinner {
 
 impl ViewCallbacks for RingSpinner {
     fn update(&mut self) {
-        if self.is_hidden_in_tree() {
+        if !self.is_visible_on_screen() {
             return;
         }
         self.weak().keep_frames_coming();

@@ -3,7 +3,7 @@ use crate::{
         ToF32,
         flat::{Point, Rect, Size},
     },
-    ui::{UIManager, View, ViewSubviews},
+    ui::{UIManager, View, ViewData, ViewSubviews},
 };
 
 pub trait ViewFrame {
@@ -12,6 +12,8 @@ pub trait ViewFrame {
     fn bump_z_position(&self, z: f32) -> &Self;
     fn frame(&self) -> &Rect;
     fn absolute_frame(&self) -> &Rect;
+    fn contains_visible(&self, point: Point) -> bool;
+    fn is_visible_on_screen(&self) -> bool;
     fn x(&self) -> f32;
     fn y(&self) -> f32;
     fn max_x(&self) -> f32;
@@ -55,6 +57,45 @@ impl<T: ?Sized + View> ViewFrame for T {
 
     fn frame(&self) -> &Rect {
         &self.__base_view().frame
+    }
+
+    /// True when `point` is inside this view and inside every ancestor
+    /// that clips its subviews. A row scrolled out of a `ScrollView` is
+    /// not drawn there, so it must not take a touch there either.
+    fn contains_visible(&self, point: Point) -> bool {
+        if !self.absolute_frame().contains(point) {
+            return false;
+        }
+        let mut ancestor = *self.superview();
+        while ancestor.is_ok() {
+            if ancestor.__internal_clips_to_bounds() && !ancestor.absolute_frame().contains(point) {
+                return false;
+            }
+            ancestor = *ancestor.superview();
+        }
+        true
+    }
+
+    /// True when some part of this view can actually be seen: nothing in
+    /// its chain is hidden, it overlaps the root, and it overlaps every
+    /// ancestor that clips its subviews. A spinner scrolled out of a list
+    /// is not on screen and must not keep the loop drawing for it.
+    fn is_visible_on_screen(&self) -> bool {
+        if self.is_hidden_in_tree() {
+            return false;
+        }
+        let frame = self.absolute_frame();
+        if !frame.intersects(UIManager::root_view().absolute_frame()) {
+            return false;
+        }
+        let mut ancestor = *self.superview();
+        while ancestor.is_ok() {
+            if ancestor.__internal_clips_to_bounds() && !frame.intersects(ancestor.absolute_frame()) {
+                return false;
+            }
+            ancestor = *ancestor.superview();
+        }
+        true
     }
 
     fn absolute_frame(&self) -> &Rect {
