@@ -2,7 +2,42 @@
 
 use std::{panic::PanicHookInfo, sync::OnceLock};
 
+use crate::deps::refs::main_lock::MainLock;
+
 static PANIC_BEACON_URL: OnceLock<String> = OnceLock::new();
+
+static RELOAD_SHORTCUT_LISTENER: MainLock<
+    Option<web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>>,
+> = MainLock::new();
+
+/// Winit's canvas keydown handler calls `preventDefault` on every key, which
+/// also cancels the browser reload shortcuts while the canvas has focus. This
+/// capture phase listener on `window` runs before the canvas handler and stops
+/// reload keys there, so nothing cancels them and the browser reloads.
+pub(crate) fn install_reload_shortcut_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|event: web_sys::KeyboardEvent| {
+        let reload_combo = (event.meta_key() || event.ctrl_key()) && event.code() == "KeyR";
+        if reload_combo || event.code() == "F5" {
+            event.stop_immediate_propagation();
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "keydown",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the reload shortcut listener");
+
+    RELOAD_SHORTCUT_LISTENER.set(Some(listener));
+}
 
 /// Sends panics to console.error and, when a driver flag is in the url, to
 /// the driver's `/te-panic` endpoint. The origin is captured now, on the main

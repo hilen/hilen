@@ -22,6 +22,10 @@ mod on_tap_add;
 mod out_bounds_test;
 mod present;
 mod present_rich;
+/// Reload shortcuts exist only in a browser, everywhere else the OS owns
+/// them and the engine installs nothing.
+#[cfg(wasm)]
+mod reload_shortcuts;
 mod rest_request;
 mod root_view;
 /// Browser history is the production behavior, everywhere else the

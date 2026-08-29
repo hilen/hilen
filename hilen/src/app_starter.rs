@@ -123,6 +123,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         {
             event_loop.set_control_flow(ControlFlow::Poll);
             crate::system::install_popstate_listener();
+            crate::web::install_reload_shortcut_listener();
         }
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
