@@ -267,6 +267,14 @@ impl Scrollable for ScrollView {
 }
 
 impl ScrollView {
+    /// A finger drags it or the fling after a drag still moves it. The
+    /// fling decays by a fixed factor per frame, so it ends at the same
+    /// offset on any frame rate, only sooner or later. A test that taps
+    /// rows after a drag waits for this before it taps.
+    pub fn is_scrolling(&self) -> bool {
+        self.dragging || self.inertia != 0.0
+    }
+
     fn add_inertia_animation(&self) {
         if self.inertia == 0.0 {
             return;
@@ -279,7 +287,13 @@ impl ScrollView {
             scroll.on_scroll(inertia);
             scroll.inertia *= 0.97;
         })
-        .finish_condition(move || scroll.inertia.abs() <= 0.2);
+        .finish_condition(move || {
+            if scroll.inertia.abs() > 0.2 {
+                return false;
+            }
+            scroll.inertia = 0.0;
+            true
+        });
 
         self.add_animation(anim);
     }

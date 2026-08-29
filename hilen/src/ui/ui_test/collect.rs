@@ -8,6 +8,10 @@ use log::error;
 use parking_lot::Mutex;
 
 use super::failure_report;
+use crate::{
+    dispatch::from_main,
+    ui::{Theme, ThemeMode},
+};
 
 /// One failed test. `detail` holds the returned error or the panic message
 /// together with the failure report.
@@ -63,6 +67,15 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
     #[cfg(not_wasm)]
     super::watchdog::test_started(name);
+
+    // A headed window follows the OS theme, so on a dark desktop every
+    // light color block failed while headless passed. The theme is part
+    // of the environment a test must not depend on, and a test that
+    // switched it must not leak into the next.
+    from_main(|| {
+        Theme::set_mode(ThemeMode::System);
+        Theme::set_system(Theme::Light);
+    });
 
     match catch_unwind(AssertUnwindSafe(test)) {
         Ok(Ok(())) => {}

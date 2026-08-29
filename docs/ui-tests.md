@@ -43,6 +43,10 @@ Set `HILEN_RUN_TESTS` and the app runs the whole suite once it is ready, prints
 touches, so an app with a loading screen marks itself not ready until assets land. No
 inspector and no mDNS, so it runs while the desktop lane runs. `make ui` uses it: on macOS
 it runs the desktop suite and the iOS simulator suite in parallel, then prints one report.
+Every lane's full output is kept in `target/ui-test/<lane>.log` and each failure report
+in `target/ui-test/failures/<lane>/<test>.txt`, listed at the end of the report, so a
+failed run is read back from disk, never run again to find out what broke. The dir is
+wiped at the start of every `make ui`.
 The simulator lane is `build/ios/sim-test.rs`, an iPhone 8 on iOS 16.4, the oldest device
 this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
 and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
@@ -188,6 +192,11 @@ long enough that nobody noticed.
 
 Every test prints `Name: Started` and `Name: OK`. On a hang or failure the broken test is the
 one with `Started` and no `OK` — usually the last line of the log.
+
+Every test starts in `ThemeMode::System` with the system theme pinned to light. A headed
+window follows the OS theme, so on a dark desktop every light color block failed while
+headless passed. `run_test` resets it before each test, which also stops a test that
+switched the theme from leaking into the next.
 
 The test app disables vsync and raises max frame latency at startup (`Window::set_vsync(false)`,
 `Window::set_max_frame_latency(3)`) so tests are not capped to the display refresh rate.

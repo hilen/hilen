@@ -209,6 +209,13 @@ impl ViewTest for InfiniteScrollTest {
           ",
         );
 
+        // The fling after the drag is still running. How many frames it
+        // gets before the taps below depends on the machine and the load,
+        // so under the full suite the taps once landed four rows off.
+        while from_main(move || view.table.scroll.is_scrolling()) {
+            wait_for_next_frame();
+        }
+
         from_main(move || {
             view.test_string.clear();
         });
@@ -224,7 +231,7 @@ impl ViewTest for InfiniteScrollTest {
          ",
         );
 
-        assert_eq!(view.test_string, "|198||201||205|");
+        assert_eq!(view.test_string, "|150||151||155|");
 
         // crate::ui_test::record_ui_test();
 
