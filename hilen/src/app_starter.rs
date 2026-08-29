@@ -75,6 +75,15 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
         crate::deps::hreads::set_current_thread_as_main();
+
+        // Reqwest is built without a TLS provider, so the process default
+        // has to be in place before the first connection. A second install
+        // is fine, the first one stays.
+        #[cfg(not_wasm)]
+        if rustls::crypto::ring::default_provider().install_default().is_err() {
+            log::debug!("rustls default crypto provider was already installed");
+        }
+
         app.before_launch();
 
         #[cfg(not_wasm)]

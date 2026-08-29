@@ -55,7 +55,7 @@ impl<T> MainLock<T> {
     /// # Safety
     ///
     /// Caller must ensure that this call is performed on main thread
-    /// and that walue was already initialized
+    /// and that value was already initialized
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_unchecked(&self) -> &mut T {
         unsafe { self.val.get().as_mut().unwrap().as_mut().unwrap() }
