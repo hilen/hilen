@@ -711,21 +711,28 @@ downloaded in one call with nothing to report.
 
 ## SVG rasterized at the drawn size
 
-Found by the demo stepper preview. An svg icon is rasterized once at
-load, 8 times its own size with anti aliasing off, `parse_svg_image` in
-`hilen/src/window/image/texture.rs`, so a 24 px Lucide icon is a 192 px
-bitmap. Drawn at icon size it is fine, drawn large it shows every pixel
-step, and turning anti aliasing on only makes it soft instead of jagged.
+Found by the demo stepper preview. An svg icon was rasterized once at
+load, 8 times its own size with anti aliasing off, so a 24 px Lucide icon
+was a 192 px bitmap that showed every pixel step when drawn large.
 
-- Current: one fixed bitmap per svg, the mip chain covers drawing it
-  smaller, nothing covers drawing it larger.
-- Needed: keep the svg tree and rasterize on demand at the size the
-  `ImageView` draws it, at the screen scale, cached per size so a
-  resize re-rasterizes once. Anti aliasing on, `GeometricPrecision`.
-  Every svg probe in the suite changes with it, `Image downscale` first,
-  so the change lands with a re-record.
-- Blocks: large svg icons anywhere, the demo stepper chevrons, and any
-  app that scales an icon with its view.
+- Landed: `Image` keeps the parsed svg tree in `Svg`,
+  `hilen/src/window/image/svg.rs`, and an `ImageView` rasterizes it at
+  the exact pixel size it draws, anti aliased, one texture per size, on the
+  main thread at draw time. The image pipeline keys instances by image plus
+  raster size. A size not drawn for 60 frames is dropped, so a resize that
+  goes and comes back reuses its rasters. Exact size with no buckets, the
+  same choice iced, egui and flutter_svg made. Measured in release, a Lucide
+  icon rasterizes in under 3 ms up to 240 px and 4 ms at 512 px, the
+  `svg_raster_time_per_size` ignored unit test prints the table. Sprites
+  and levels keep the old fixed 8x raster. Covered by `Svg scale`, one svg
+  at 600, 240 and 24 points, a resize to 300 and the drop of the unused
+  size, with `Image downscale` and `Image view s v g` re-recorded.
+- Left: the convert from tiny-skia's premultiplied pixels to straight
+  alpha costs 3 to 5 times the raster itself. Uploading premultiplied and
+  blending svg textures premultiplied in the image pipeline would remove
+  that loop, it needs a flag per image instance and a blend change in the
+  shader.
+- Blocks: nothing.
 
 ## Suggested order
 
@@ -737,8 +744,8 @@ placeholder color and the ring spinner followed, then the wave 8 label
 ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
 which closed the kukareker list. The head ellipsize and the hover re-pick on
 view removal closed the wave 8 leftovers, and the update download progress
-closed the packaging wave, and rounded corner clipping and the sprite cutout
-edges closed the rendering leftovers. Among the rest, frame stepped
+closed the packaging wave, rounded corner clipping and the sprite cutout
+edges closed the rendering leftovers, and svgs now rasterize at the drawn size. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

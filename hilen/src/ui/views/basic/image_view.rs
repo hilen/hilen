@@ -4,7 +4,10 @@ use ui_proc::view;
 
 use crate::{
     deps::refs::{Weak, weak_from_ref},
-    gm::flat::Rect,
+    gm::{
+        LossyConvert,
+        flat::{Rect, Size},
+    },
     ui::{NineSegmentImageView, Setup, ViewData, ViewFrame, ViewSubviews},
     window::image::{Image, ToImage},
 };
@@ -61,6 +64,25 @@ impl ImageView {
         }
     }
 
+    /// Pixels the image covers on screen, the size an svg rasterizes
+    /// at. `AspectFill` scales the image past the frame and crops, so
+    /// its raster is the scaled image, not the frame.
+    pub(crate) fn raster_size(&self, scale: f32) -> Size<u32> {
+        let size = match self.mode {
+            ImageMode::Fill | ImageMode::AspectFit => self.image_frame().size,
+            ImageMode::AspectFill => {
+                let frame = self.frame().size;
+                let image: Size = self.image.size.into();
+                let ratio = f32::max(frame.width / image.width, frame.height / image.height);
+                image * ratio
+            }
+        };
+        Size::new(
+            (size.width * scale).round().lossy_convert(),
+            (size.height * scale).round().lossy_convert(),
+        )
+    }
+
     /// Texture subrect in 0..1 UV space. `AspectFill` keeps the quad at the
     /// view frame and crops here instead of enlarging the quad, so corner
     /// radii apply to the visible rect and no scissor is needed.
@@ -69,7 +91,7 @@ impl ImageView {
             ImageMode::Fill | ImageMode::AspectFit => (0, 0, 1, 1).into(),
             ImageMode::AspectFill => {
                 let frame = self.frame().size;
-                let image: crate::gm::flat::Size = self.image.size.into();
+                let image: Size = self.image.size.into();
                 let scale = f32::max(frame.width / image.width, frame.height / image.height);
                 let uv_width = frame.width / (image.width * scale);
                 let uv_height = frame.height / (image.height * scale);

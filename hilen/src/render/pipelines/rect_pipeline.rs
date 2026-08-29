@@ -10,7 +10,7 @@ use wgpu::{
 
 use crate::{
     deps::refs::Weak,
-    gm::flat::{Point, Vertex2D},
+    gm::flat::{Point, Size, Vertex2D},
     render::{
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
@@ -18,8 +18,39 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{PolygonMode, Window, image::Image},
+    window::{
+        PolygonMode, Window,
+        image::{Image, RASTER_KEEP_FRAMES},
+    },
 };
+
+/// What one draw of the image pipeline binds. A raster size selects an
+/// svg raster, none means the image texture itself.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ImageKey {
+    pub image:  Weak<Image>,
+    pub raster: Option<(u32, u32)>,
+}
+
+impl From<Weak<Image>> for ImageKey {
+    fn from(image: Weak<Image>) -> Self {
+        Self { image, raster: None }
+    }
+}
+
+impl ImageKey {
+    fn with_bind(&self, draw: impl FnOnce(&wgpu::BindGroup)) {
+        match self.raster {
+            Some((width, height)) => self
+                .image
+                .svg
+                .as_ref()
+                .expect("raster key on an image without an svg")
+                .with_bind(Size::new(width, height), draw),
+            None => draw(self.image.bind()),
+        }
+    }
+}
 
 pub struct RectPipeline<
     const TYPE: PipelineType,
@@ -39,9 +70,10 @@ pub struct RectPipeline<
     /// the buffer bump allocates a new range for every flush of the frame.
     instances_layout: BindGroupLayout,
 
-    // Entries are never removed. Managed images live for the whole process,
-    // see docs/refs.md, so a key cannot die.
-    instances: IndexMap<Weak<Image>, VecBuffer<Instance>>,
+    // Managed images live for the whole process, see docs/refs.md, so an
+    // image key cannot die. Svg raster keys come and go with the sizes
+    // drawn and are dropped with their rasters.
+    instances: IndexMap<ImageKey, VecBuffer<Instance>>,
 }
 
 impl<
@@ -118,12 +150,12 @@ impl<
 {
     pub fn add(&mut self, instance: Instance) {
         assert!(TYPE.color());
-        self.instances.entry(Weak::default()).or_default().push(instance);
+        self.instances.entry(ImageKey::default()).or_default().push(instance);
     }
 
-    pub fn add_with_image(&mut self, instance: Instance, image: Weak<Image>) {
+    pub fn add_with_image(&mut self, instance: Instance, image: impl Into<ImageKey>) {
         assert!(TYPE.image());
-        self.instances.entry(image).or_default().push(instance);
+        self.instances.entry(image.into()).or_default().push(instance);
     }
 
     pub fn draw(&mut self, render_pass: &mut RenderPass, view: View) {
@@ -135,7 +167,7 @@ impl<
 
         self.view.update(view);
 
-        for (image, instances) in &mut self.instances {
+        for (key, instances) in &mut self.instances {
             if instances.is_empty() {
                 continue;
             }
@@ -161,7 +193,7 @@ impl<
             render_pass.set_bind_group(1, &instances_bind, &[]);
 
             if TYPE.image() {
-                render_pass.set_bind_group(2, image.bind(), &[]);
+                key.with_bind(|bind| render_pass.set_bind_group(2, bind, &[]));
             }
 
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -169,5 +201,11 @@ impl<
 
             render_pass.draw(TYPE.vertex_range(), 0..instances.len());
         }
+
+        // After the loads, a key added this frame has its frame stamped
+        // only by load and would otherwise be dropped before it draws.
+        let frame = Window::render_frame();
+        self.instances
+            .retain(|key, instances| key.raster.is_none() || instances.frame() + RASTER_KEEP_FRAMES >= frame);
     }
 }

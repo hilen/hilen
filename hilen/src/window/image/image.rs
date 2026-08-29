@@ -21,7 +21,7 @@ use crate::{
     managed,
     window::{
         Window,
-        image::{ImageBind, Texture, TextureRawData},
+        image::{ImageBind, Svg, Texture, TextureRawData},
     },
 };
 
@@ -30,36 +30,44 @@ pub struct Image {
     pub size:     Size<u32>,
     pub channels: u8,
     bind:         ImageBind,
+    /// Present for an svg, so an `ImageView` can rasterize it at the
+    /// exact size it draws. `bind` then holds the old fixed raster that
+    /// sprites and levels still draw.
+    pub svg:      Option<Svg>,
 }
 
 impl Image {
     fn load_to_wgpu(name: &str, data: &[u8]) -> Result<Self> {
         let texture = Texture::from_file_bytes(data, name)?;
-        Ok(Self::from_texture(&texture))
+        let svg = Svg::is_svg(data).then(|| Svg::parse(data)).transpose()?;
+        Ok(Self::from_texture(&texture, svg))
     }
 
-    fn from_texture(texture: &Texture) -> Self {
-        let device = Window::device();
+    pub(crate) fn bind_texture(texture: &Texture) -> ImageBind {
+        Window::device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label:   "image_bind_group".into(),
+                layout:  Self::uniform_layout(),
+                entries: &[
+                    BindGroupEntry {
+                        binding:  0,
+                        resource: BindingResource::TextureView(&texture.view),
+                    },
+                    BindGroupEntry {
+                        binding:  1,
+                        resource: BindingResource::Sampler(&texture.sampler),
+                    },
+                ],
+            })
+            .into()
+    }
 
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label:   "image_bind_group".into(),
-            layout:  Self::uniform_layout(),
-            entries: &[
-                BindGroupEntry {
-                    binding:  0,
-                    resource: BindingResource::TextureView(&texture.view),
-                },
-                BindGroupEntry {
-                    binding:  1,
-                    resource: BindingResource::Sampler(&texture.sampler),
-                },
-            ],
-        });
-
+    fn from_texture(texture: &Texture, svg: Option<Svg>) -> Self {
         Self {
-            size:     texture.size,
+            size: texture.size,
             channels: texture.channels,
-            bind:     bind.into(),
+            bind: Self::bind_texture(texture),
+            svg,
         }
     }
 
@@ -71,7 +79,7 @@ impl Image {
     ) -> Weak<Image> {
         let name = name.into();
         let texture = Texture::from_raw_data(TextureRawData { data, size, channels }, &name);
-        let image = Self::from_texture(&texture);
+        let image = Self::from_texture(&texture, None);
         Image::store_with_name::<Infallible>(&name, || Ok(image)).unwrap()
     }
 
@@ -121,13 +129,17 @@ impl ResourceLoader for Image {
 
         let raw_data = Texture::parse_file_from_bytes(data)
             .unwrap_or_else(|err| panic!("Failed to load image {name} to wgpu. Err: {err}"));
+        let svg = Svg::is_svg(data)
+            .then(|| Svg::parse(data))
+            .transpose()
+            .unwrap_or_else(|err| panic!("Failed to parse svg {name}. Err: {err}"));
 
         let decode_time = decode_started.elapsed();
         if decode_time.as_millis() > 100 {
             log::debug!("Decoding image {name} took {} ms", decode_time.as_millis());
         }
 
-        from_main(move || Image::from_texture(&Texture::from_raw_data(raw_data, &name)))
+        from_main(move || Image::from_texture(&Texture::from_raw_data(raw_data, &name), svg))
     }
 }
 

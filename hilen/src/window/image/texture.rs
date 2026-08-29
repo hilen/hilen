@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use image::{GenericImageView, ImageBuffer, Rgba};
-use usvg::{ImageRendering, ShapeRendering, TextRendering, Transform};
 use wgpu::{
     AddressMode, Device, Extent3d, FilterMode, MipmapFilterMode, Origin3d, Sampler, SamplerDescriptor,
     TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension,
@@ -10,8 +9,8 @@ use wgpu::{
 };
 
 use crate::{
-    gm::{LossyConvert, flat::Size},
-    window::Window,
+    gm::flat::Size,
+    window::{Window, image::Svg},
 };
 
 #[derive(Debug)]
@@ -38,60 +37,11 @@ impl Texture {
     }
 
     pub(crate) fn parse_file_from_bytes(bytes: &[u8]) -> Result<TextureRawData> {
-        if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") {
-            return Self::parse_svg_image(bytes);
+        if Svg::is_svg(bytes) {
+            return Svg::fixed_raster(bytes);
         }
 
         Self::parse_dynamic_image(bytes)
-    }
-
-    fn parse_svg_image(bytes: &[u8]) -> Result<TextureRawData> {
-        use resvg::{
-            render,
-            tiny_skia::Pixmap,
-            usvg::{Options, Tree},
-        };
-
-        let opt = Options {
-            shape_rendering: ShapeRendering::OptimizeSpeed,
-            text_rendering: TextRendering::OptimizeSpeed,
-            image_rendering: ImageRendering::OptimizeSpeed,
-            ..Default::default()
-        };
-
-        // dbg!(&opt);
-
-        let tree = Tree::from_data(bytes, &opt)?;
-
-        let original_size = tree.size().to_int_size();
-
-        let scale = 8.0;
-
-        let width = (original_size.width().lossy_convert() * scale).round().lossy_convert();
-        let height = (original_size.height().lossy_convert() * scale).round().lossy_convert();
-
-        let mut pixmap = Pixmap::new(width, height).unwrap();
-
-        let transform = Transform::from_scale(scale, scale);
-        render(&tree, transform, &mut pixmap.as_mut());
-
-        // tiny-skia stores premultiplied pixels and the pipeline blends
-        // straight alpha, so uploading them as they are darkens every anti
-        // aliased edge a second time.
-        let data = pixmap
-            .pixels()
-            .iter()
-            .flat_map(|pixel| {
-                let pixel = pixel.demultiply();
-                [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
-            })
-            .collect();
-
-        Ok(TextureRawData {
-            data,
-            size: (width, height).into(),
-            channels: 4,
-        })
     }
 
     fn parse_dynamic_image(bytes: &[u8]) -> Result<TextureRawData> {

@@ -108,8 +108,9 @@ impl TableData for InfiniteScrollTest {
     }
 
     fn cell_selected(&mut self, index: usize) {
-        #[allow(clippy::format_push_string)]
-        self.test_string.push_str(&format!("|{index}|"));
+        self.test_string.push('|');
+        self.test_string.push_str(&index.to_string());
+        self.test_string.push('|');
     }
 }
 

@@ -14,6 +14,7 @@ use crate::{
         refs::{Own, Weak},
     },
     gm::{LossyConvert, color::GRAY_BLUE},
+    level::LevelManager,
     ui::{MaybeUITest, Setup, UIManager, View, ViewData},
     ui_test::{clear_state, hold_for_human, human_mode, reset_record_probe_count, set_record_canvas},
     window::Window,
@@ -173,6 +174,9 @@ impl UITest {
             root.reset_background();
             root.set_test_canvas((width, height).into());
             UIManager::set_clear_color(GRAY_BLUE);
+            // A level is not in the view tree, so one started by a test
+            // would keep drawing under every test after it.
+            LevelManager::stop_level();
             root.add_subview_to_root(view).place().back();
 
             trace!("{width} - {height}");

@@ -49,6 +49,11 @@ impl<T> VecBuffer<T> {
         &self.buffer
     }
 
+    /// The last frame `load()` ran on.
+    pub(crate) fn frame(&self) -> u64 {
+        self.frame
+    }
+
     /// Bytes the last `load()` landed at. A storage binding needs this to point
     /// the shader at the same instances the vertex stage draws.
     pub(crate) fn range(&self) -> &Range<u64> {

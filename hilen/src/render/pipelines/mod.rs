@@ -45,6 +45,7 @@ pub(crate) type UIShadowPipeline =
 pub use background_pipeline::BackgroundPipeline;
 pub(crate) use lab_pipeline::LabPipeline;
 pub use polygon_pipeline::PolygonPipeline;
+pub use rect_pipeline::ImageKey;
 pub use ui_backdrop_pipeline::UIBackdropPipeline;
 pub use ui_blur_pipeline::UIBlurPipeline;
 pub(crate) use ui_clip_pipeline::UIClipPipeline;

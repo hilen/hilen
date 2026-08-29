@@ -252,7 +252,9 @@ Anything else that renders from the whole frame, such as a blur, samples the cle
 around the canvas, so probes within a blur radius of a canvas edge pick that up. That is
 consistent on every screen, since the canvas is always smaller than the frame.
 
-Global state is reset per test: the root background, the clear color and the string state.
+Global state is reset per test: the root background, the clear color, the string state
+and any running level, since a level is not in the view tree and one left by a test
+would draw under every test after it.
 A test that fails part way never reaches its own cleanup, and without the reset every
 later test would probe the leftovers.
 

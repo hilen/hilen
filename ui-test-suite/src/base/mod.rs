@@ -15,6 +15,7 @@ mod keymap;
 mod keymap_combo;
 mod keymap_named_key;
 mod layout;
+mod level_leak;
 mod modal_test;
 mod navigation;
 mod on_tap_add;

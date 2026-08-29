@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_failures};
 use crate::{
     deps::hreads::from_main,
+    level::LevelManager,
     ui::{Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
 };
 
@@ -56,6 +57,7 @@ fn restore_app(state: AppState) {
         root.clear_root();
         root.reset_background();
         root.clear_test_canvas();
+        LevelManager::stop_level();
         root.add_subview_to_root(crate::app::app().make_root_view()).place().back();
     });
 }

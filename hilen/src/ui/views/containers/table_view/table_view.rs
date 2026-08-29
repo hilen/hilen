@@ -351,31 +351,17 @@ mod test {
             cell
         }
 
-        #[allow(clippy::format_push_string)]
         fn cell_selected(&mut self, index: usize) {
-            *TEST_DATA.lock() += &format!("|{index}|");
+            let mut data = TEST_DATA.lock();
+            data.push('|');
+            data.push_str(&index.to_string());
+            data.push('|');
         }
     }
 
     impl ViewTest for TableView2Test {
-        #[allow(clippy::too_many_lines)]
         fn perform_test(mut view: Weak<Self>) -> Result<()> {
-            inject_touches(
-                "
-                    395  35   b
-                    394  35   e
-                    357  160  b
-                    357  159  e
-                    349  258  b
-                    349  258  e
-                    351  366  b
-                    351  366  e
-                    353  455  b
-                    353  455  e
-                    350  528  b
-                    350  528  e
-                ",
-            );
+            inject_touches(TOUCHES_1);
 
             assert_eq!(TEST_DATA.lock().deref(), "|0||1||2||3||4||5|");
 
@@ -387,23 +373,7 @@ mod test {
 
             inject_scroll(-1000);
 
-            inject_touches(
-                "
-                359  58   b
-                359  58   e
-                334  159  b
-                334  159  e
-                349  239  b
-                349  239  e
-                354  346  b
-                353  345  e
-                354  436  b
-                353  435  e
-                353  536  b
-                353  536  e
-
-            ",
-            );
+            inject_touches(TOUCHES_2);
 
             assert_eq!(TEST_DATA.lock().deref(), "|50||51||52||53||54||55|");
             TEST_DATA.lock().clear();
@@ -418,34 +388,7 @@ mod test {
 
             inject_scroll(-1000);
 
-            inject_touches(
-                "
-                239  57   b
-                239  57   e
-                219  174  b
-                219  174  e
-                220  248  b
-                220  248  e
-                213  358  b
-                213  358  e
-                201  453  b
-                200  453  e
-                206  537  b
-                206  537  e
-                468  531  b
-                468  531  e
-                494  420  b
-                494  420  e
-                489  350  b
-                489  350  e
-                485  244  b
-                485  244  e
-                485  138  b
-                485  138  e
-                479  48   b
-                479  48   e
-            ",
-            );
+            inject_touches(TOUCHES_3);
 
             assert_eq!(
                 TEST_DATA.lock().deref(),
@@ -458,35 +401,7 @@ mod test {
             inject_scroll(-100_000_000);
             inject_scroll(-100_000_000);
 
-            inject_touches(
-                "
-                212  565  b
-                212  565  e
-                211  455  b
-                210  455  e
-                215  365  b
-                215  365  e
-                219  262  b
-                219  262  e
-                211  139  b
-                211  139  e
-                205  62   b
-                205  62   e
-                390  56   b
-                390  56   e
-                380  144  b
-                380  144  e
-                382  264  b
-                382  264  e
-                370  351  b
-                370  351  e
-                372  432  b
-                371  432  e
-                396  569  b
-                396  569  e
-
-            ",
-            );
+            inject_touches(TOUCHES_4);
 
             assert_eq!(
                 TEST_DATA.lock().deref(),
@@ -498,4 +413,88 @@ mod test {
             Ok(())
         }
     }
+
+    const TOUCHES_1: &str = "
+    395  35   b
+    394  35   e
+    357  160  b
+    357  159  e
+    349  258  b
+    349  258  e
+    351  366  b
+    351  366  e
+    353  455  b
+    353  455  e
+    350  528  b
+    350  528  e
+    ";
+
+    const TOUCHES_2: &str = "
+    359  58   b
+    359  58   e
+    334  159  b
+    334  159  e
+    349  239  b
+    349  239  e
+    354  346  b
+    353  345  e
+    354  436  b
+    353  435  e
+    353  536  b
+    353  536  e
+    ";
+
+    const TOUCHES_3: &str = "
+    239  57   b
+    239  57   e
+    219  174  b
+    219  174  e
+    220  248  b
+    220  248  e
+    213  358  b
+    213  358  e
+    201  453  b
+    200  453  e
+    206  537  b
+    206  537  e
+    468  531  b
+    468  531  e
+    494  420  b
+    494  420  e
+    489  350  b
+    489  350  e
+    485  244  b
+    485  244  e
+    485  138  b
+    485  138  e
+    479  48   b
+    479  48   e
+    ";
+
+    const TOUCHES_4: &str = "
+    212  565  b
+    212  565  e
+    211  455  b
+    210  455  e
+    215  365  b
+    215  365  e
+    219  262  b
+    219  262  e
+    211  139  b
+    211  139  e
+    205  62   b
+    205  62   e
+    390  56   b
+    390  56   e
+    380  144  b
+    380  144  e
+    382  264  b
+    382  264  e
+    370  351  b
+    370  351  e
+    372  432  b
+    371  432  e
+    396  569  b
+    396  569  e
+    ";
 }
