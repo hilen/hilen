@@ -126,6 +126,11 @@ winit = { workspace = true }
 [target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true }
+objc2-foundation = { workspace = true }
+
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }

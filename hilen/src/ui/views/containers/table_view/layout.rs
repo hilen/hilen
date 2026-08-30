@@ -40,7 +40,7 @@ impl TableView {
         let geometry_table = weak_from_ref(self);
         let rows = geometry_table.rows(number_of_cells);
         let mut weak_table = weak_from_ref(self);
-        let total_height = rows.total() + header;
+        let total_height = rows.total() + header + self.footer_height;
 
         self.scroll.set_content_height(total_height);
         self.scroll.set_content_width(width);

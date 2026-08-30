@@ -49,6 +49,7 @@ pub struct TableView {
     pub(super) raised: Vec<(usize, WeakView)>,
 
     pub(super) header_height: f32,
+    pub(super) footer_height: f32,
     pub(super) header_views:  Vec<WeakView>,
 
     pub(super) registry: CellRegistry,
@@ -149,6 +150,15 @@ impl TableView {
     /// scrolls away with the content.
     pub fn set_header_height(&mut self, height: impl ToF32) -> &mut Self {
         self.header_height = height.to_f32();
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
+    /// Empty space after the last row, so the content can scroll past it
+    /// by this much. Gives the bottom of a list the same breathing room
+    /// the cell spacing gives every other row.
+    pub fn set_footer_height(&mut self, height: impl ToF32) -> &mut Self {
+        self.footer_height = height.to_f32();
         self.layout_cells(LayoutMode::Full);
         self
     }

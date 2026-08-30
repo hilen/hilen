@@ -5,9 +5,9 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result, bail};
-use log::info;
 #[cfg(not_wasm)]
 use log::warn;
+use log::{error, info};
 use plat::Platform;
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
@@ -26,6 +26,7 @@ use crate::{
     window::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
+        icon::apply_icon,
         screen::Screen,
         state::{State, surface_texture_format},
         surface::Surface,
@@ -407,6 +408,19 @@ impl Window {
                 } else {
                     warn!("set_title is not supported on this platform");
                 }
+            }
+        });
+    }
+
+    /// The icon the OS shows for the running process, from encoded image
+    /// bytes such as a PNG. On macOS this is the Dock icon, which a bare
+    /// binary outside an app bundle otherwise lacks. On Windows and Linux
+    /// it is the window and taskbar icon. Phones and the browser take
+    /// the icon from the bundle or the page, so the call does nothing there.
+    pub fn set_icon(data: &'static [u8]) {
+        on_main(move || {
+            if let Err(err) = apply_icon(data) {
+                error!("Failed to set the app icon: {err}");
             }
         });
     }
