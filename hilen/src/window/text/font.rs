@@ -20,23 +20,27 @@ use crate::{
     render::depth_stencil_state,
     window::{
         msaa_sample_count, surface_texture_format,
-        text::{FontRun, ShapeCache, ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
+        text::{
+            FontRun, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, TextLayout,
+            VerticalAlign,
+        },
         window::Window,
     },
 };
 
 pub struct Font {
-    pub name:    String,
-    pub brush:   TextBrush,
+    pub name:      String,
+    pub brush:     TextBrush,
     /// The same font the brush rasterizes with, kept for measuring while
     /// the brush is busy.
-    ab:          FontArc,
-    face:        Face<'static>,
+    ab:            FontArc,
+    face:          Face<'static>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
     /// factor converts an em size into the `PxScale` that renders it.
-    em_scale:    f32,
-    shape_cache: MainLock<ShapeCache>,
+    em_scale:      f32,
+    shape_cache:   MainLock<ShapeCache>,
+    measure_cache: MainLock<MeasureCache>,
 }
 
 impl Font {
@@ -95,6 +99,7 @@ impl Font {
             face,
             em_scale,
             shape_cache: MainLock::new(),
+            measure_cache: MainLock::new(),
         })
     }
 
@@ -151,6 +156,21 @@ impl Font {
             return Size::default();
         }
 
+        let key = MeasureKey {
+            text:        text.to_string(),
+            size:        size.to_f32().to_bits(),
+            width:       width.map(f32::to_bits),
+            tracking:    tracking.to_bits(),
+            line_height: line_height.map(f32::to_bits),
+            runs:        runs
+                .iter()
+                .map(|run| (run.font.name.clone(), run.range.start, run.range.end))
+                .collect(),
+        };
+        if let Some(cached) = self.measure_cache.get_mut().get(&key) {
+            return cached;
+        }
+
         let px_scale = size.to_f32() * self.em_scale;
         let section = Section::new()
             .add_text(Text::new(text).with_scale(px_scale))
@@ -174,7 +194,9 @@ impl Font {
             None => bounds.height(),
         };
 
-        Size::new(bounds.width(), height)
+        let measured = Size::new(bounds.width(), height);
+        self.measure_cache.get_mut().insert(key, measured);
+        measured
     }
 
     /// Line and caret positions of `text` drawn at `size`, in the same
@@ -209,6 +231,7 @@ impl Font {
 
     pub(crate) fn process_queued(&mut self) -> Result<()> {
         self.shape_cache.get_mut().sweep();
+        self.measure_cache.get_mut().sweep();
         self.brush.process_queued(&Window::current().device, Window::queue())?;
         Ok(())
     }

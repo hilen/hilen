@@ -8,27 +8,32 @@ use crate::{
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ViewRepr {
-    pub label:    String,
-    pub id:       String,
-    pub frame:    Rect,
-    pub color:    Color,
-    pub text:     Option<String>,
-    pub hidden:   bool,
-    pub placer:   Placer,
-    pub subviews: Vec<Own<ViewRepr>>,
+    pub label:          String,
+    pub id:             String,
+    pub frame:          Rect,
+    /// Scroll shift of this view, already part of its on screen position
+    /// but not of `frame`. Absolute positions add it up the tree.
+    #[serde(default)]
+    pub content_offset: f32,
+    pub color:          Color,
+    pub text:           Option<String>,
+    pub hidden:         bool,
+    pub placer:         Placer,
+    pub subviews:       Vec<Own<ViewRepr>>,
 }
 
 impl Default for ViewRepr {
     fn default() -> Self {
         Self {
-            label:    String::default(),
-            id:       String::default(),
-            frame:    Rect::default(),
-            color:    Color::default(),
-            text:     None,
-            hidden:   false,
-            placer:   Placer::empty(),
-            subviews: vec![],
+            label:          String::default(),
+            id:             String::default(),
+            frame:          Rect::default(),
+            content_offset: 0.0,
+            color:          Color::default(),
+            text:           None,
+            hidden:         false,
+            placer:         Placer::empty(),
+            subviews:       vec![],
         }
     }
 }

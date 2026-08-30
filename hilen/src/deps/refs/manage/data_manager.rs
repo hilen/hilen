@@ -111,6 +111,10 @@ pub trait DataManager<T: Managed> {
         storage.remove(&key);
     }
 
+    fn weak_with_name(name: &str) -> Option<Weak<T>> {
+        Some(Self::storage().get(name)?.weak())
+    }
+
     fn store_with_name<E>(name: &str, create: impl FnOnce() -> Result<T, E>) -> Result<Weak<T>, E> {
         if let Some(entry) = Self::storage().get(name) {
             return Ok(entry.weak());

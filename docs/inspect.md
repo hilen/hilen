@@ -23,17 +23,34 @@ Two clients exist:
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `ui`, `screenshot`, `tap`, `keys`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
+  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `keys`, `scroll`, `scroll-to`,
+  `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
-`hilen-inspect tap` takes a query, not only an id: exact view id, exact visible text, label
-substring, then text substring, all case insensitive, first rung with a match decides.
-One match taps, several list the candidates and error. Hidden views and their subtrees
-never match a query, only an exact id reaches them, and the app refuses to tap a hidden
-view. Dropdowns work like a human drives them: tap the dropdown to open it, the reply
-tree already contains the open cells, then tap the wanted cell by its text.
+`hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact
+view id, exact visible text, then exact label field name like `save_button` or
+`BackupPane.save_button`, all case insensitive, first rung with a match decides. Label
+and text substring rungs run only with `--fuzzy`, so a short query cannot land on an
+unrelated view. One match taps, several list the candidates and error. Hidden views and
+their subtrees never match a query, only an exact id reaches them, and the app refuses to
+tap a hidden view. The app also refuses a view whose center is outside the window instead
+of pretending the tap landed, and the reply carries a warning when another view sits over
+the tap point. `tap --near <anchor> [--type Button]` taps the view of that type nearest
+to the anchor's row, which reaches unnamed controls like the textless open button on a
+list card. The anchor is an exact text or a view id. Dropdowns work like a human drives
+them: tap the dropdown to open it, the reply tree already contains the open cells, then
+tap the wanted cell by its text.
+
+`find <query>` prints one line per match, id, label and text substrings, with window
+space coordinates and a `visible`, `hidden` or `offscreen` status, `--all` includes the
+last two. `wait <query> [--timeout]` polls until a visible view matches. `scroll <dy>
+[--at view]` injects a wheel scroll at the window center or a view's center, `scroll-to
+<query>` repeats window sized steps until the target is on screen. `resize <w> <h>`
+resizes the window in points, desktop only. Frames in the tree are local to the parent
+and do not include scrolling, absolute positions add `content_offset` down the tree,
+which `find`, `wait` and `scroll-to` already do.
 
 `hilen-inspect keys` drives the keyboard. `keys "text"` types every char in order,
 `keys --key Enter` presses one winit `NamedKey` by name, and `--cmd`, `--shift` and
@@ -46,12 +63,20 @@ them, the focused text field and the app keymap.
 Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 (`transport.rs`), request in, response out:
 
-- `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames,
-  colors, texts, hidden flags and placer rules.
+- `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames, scroll content offsets,
+    colors, texts, hidden flags and placer rules.
 - `SetScale(f32)` — applies the scale on the main thread.
 - `Tap { view_id }` — injects a touch began plus ended at the view's center through the
-  real input pipeline, exactly like a click. Refuses hidden views. Replies with a fresh
-  tree one frame later, so a page swap or a modal the tap triggered is already in it.
+  real input pipeline, exactly like a click. Refuses hidden views and views whose center
+  is outside the window, a tap there lands nowhere while looking like a success. Replies
+  with a fresh tree one frame later, so a page swap or a modal the tap triggered is
+  already in it, plus an optional `note` naming the view sitting over the tap point when
+  frame containment says the touch may land elsewhere, transparent empty overlays
+  excluded.
+- `Scroll { view_id, dx, dy }` — moves the cursor to the view's center, or the window
+  center with no view, then injects a wheel scroll, so it lands on the deepest scroll
+  view under that point like a real wheel.
+- `Resize { width, height }` — resizes the window, points, desktop only.
 - `Keys { keys, modifiers }` — plays a list of `Key::Char` and `Key::Named(NamedKey)`
   through `Input::on_char` and `Input::on_key` in one main thread trip, the same entry
   points the winit key handler uses, so a named key also fires its text char like a real

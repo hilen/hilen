@@ -56,6 +56,19 @@ pub enum UIRequest {
         keys:      Vec<Key>,
         modifiers: ModifiersState,
     },
+    /// A wheel scroll aimed at a view's center, or at the window center
+    /// with no view. It lands on the deepest scroll view under that
+    /// point, like a real wheel under a still cursor.
+    Scroll {
+        view_id: Option<String>,
+        dx:      f32,
+        dy:      f32,
+    },
+    /// Resizes the window, in points. Desktop only.
+    Resize {
+        width:  f32,
+        height: f32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

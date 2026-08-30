@@ -22,6 +22,7 @@ use crate::inspect::protocol::{SERVICE_TYPE, serve};
 use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
     deps::hreads::from_main,
+    gm::{LossyConvert, flat::Point},
     inspect::{
         edit_log,
         protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
@@ -218,45 +219,32 @@ impl InspectService {
                 modifiers,
                 right,
             } => {
-                let result = from_main(move || -> Result<(), String> {
-                    let view = find_view(&view_id)?;
-
-                    if view.is_hidden_in_tree() {
-                        return Err(format!("View {} is hidden", view.label()));
-                    }
-
-                    // The touch pipeline takes physical pixels and converts
-                    // to points itself, so the center scales up first.
-                    let position = view.absolute_frame().center() * UIManager::scale();
-
-                    // Held for this tap only and released right after, like
-                    // the keys request, so a Cmd cannot leak into later input.
-                    Input::set_modifiers(modifiers);
-                    let button = if right {
-                        MouseButton::Right
-                    } else {
-                        MouseButton::Left
-                    };
-                    for event in [TouchEvent::Began, TouchEvent::Ended] {
-                        Input::process_touch_event(Touch {
-                            id: 1,
-                            position,
-                            event,
-                            button,
-                        });
-                    }
-                    Input::set_modifiers(ModifiersState::empty());
-
-                    Ok(())
-                });
+                let result = from_main(move || Self::tap(&view_id, modifiers, right));
 
                 match result {
                     // The snapshot runs a frame later, so a page swap or
                     // modal the tap triggered is already in the tree.
-                    Ok(()) => Self::send_ui(),
+                    Ok(note) => Self::send_ui_with(note),
                     Err(err) => AppCommand::Error(err),
                 }
             }
+            UIRequest::Scroll { view_id, dx, dy } => match from_main(move || Self::scroll(view_id, dx, dy)) {
+                Ok(()) => Self::send_ui(),
+                Err(err) => AppCommand::Error(err),
+            },
+            #[cfg(desktop)]
+            UIRequest::Resize { width, height } => {
+                let size = from_main(move || {
+                    let scale = UIManager::scale();
+                    let size: (u32, u32) =
+                        ((width * scale).lossy_convert(), (height * scale).lossy_convert());
+                    size
+                });
+                crate::AppRunner::set_window_size(size);
+                Self::send_ui()
+            }
+            #[cfg(not(desktop))]
+            UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
             UIRequest::Keys { keys, modifiers } => {
                 // The modifiers hold only for this one request and release
                 // right after it, so a Cmd from an inspect request can never
@@ -288,6 +276,71 @@ impl InspectService {
         }
     }
 
+    fn scroll(view_id: Option<String>, dx: f32, dy: f32) -> Result<(), String> {
+        let position = if let Some(id) = view_id {
+            find_view(&id)?.absolute_frame().center()
+        } else {
+            let window = UIManager::root_view().frame().size;
+            Point::new(window.width / 2.0, window.height / 2.0)
+        };
+        // The wheel goes to the scroll view under the cursor, so the
+        // cursor moves to the aim point first.
+        UIManager::set_cursor_position(position);
+        Input::on_scroll(Point::new(dx, dy));
+        Ok(())
+    }
+
+    /// The tap itself, on the main thread. Refuses hidden and offscreen
+    /// targets, since such a tap lands nowhere while looking like a
+    /// success to the client, and returns a covering warning when
+    /// another view sits over the tap point.
+    fn tap(view_id: &str, modifiers: ModifiersState, right: bool) -> Result<Option<String>, String> {
+        let view = find_view(view_id)?;
+
+        if view.is_hidden_in_tree() {
+            return Err(format!("View {} is hidden", view.label()));
+        }
+
+        let center = view.absolute_frame().center();
+        let window = UIManager::root_view().frame().size;
+        if center.x < 0.0 || center.y < 0.0 || center.x > window.width || center.y > window.height {
+            return Err(format!(
+                "View {} center ({}, {}) is outside the {}x{} window. Scroll it into view or resize the window.",
+                view.label(),
+                center.x,
+                center.y,
+                window.width,
+                window.height,
+            ));
+        }
+
+        let note = covering_note(view, center);
+
+        // The touch pipeline takes physical pixels and converts to
+        // points itself, so the center scales up first.
+        let position = center * UIManager::scale();
+
+        // Held for this tap only and released right after, like the keys
+        // request, so a Cmd cannot leak into later input.
+        Input::set_modifiers(modifiers);
+        let button = if right {
+            MouseButton::Right
+        } else {
+            MouseButton::Left
+        };
+        for event in [TouchEvent::Began, TouchEvent::Ended] {
+            Input::process_touch_event(Touch {
+                id: 1,
+                position,
+                event,
+                button,
+            });
+        }
+        Input::set_modifiers(ModifiersState::empty());
+
+        Ok(note)
+    }
+
     // Applies an edit on the main thread. On success records it to the edit
     // log and replies with a fresh tree. send_ui dispatches its own
     // from_main, so the snapshot runs one frame later, after layout.
@@ -302,12 +355,61 @@ impl InspectService {
     }
 
     fn send_ui() -> AppCommand {
-        from_main(|| {
+        Self::send_ui_with(None)
+    }
+
+    fn send_ui_with(note: Option<String>) -> AppCommand {
+        from_main(move || {
             let scale = UIManager::scale();
             let root = UIManager::root_view().view_to_inspect();
-            UIResponse::SendUI { scale, root }.into()
+            UIResponse::SendUI { scale, root, note }.into()
         })
     }
+}
+
+/// A warning when the deepest visible view under the tap point is not the
+/// target or inside it, so a tap that lands on a covering view says so
+/// instead of silently doing the wrong thing. Frame containment is an
+/// approximation of the draw order, good for a warning, not a refusal.
+fn covering_note(target: WeakView, point: Point) -> Option<String> {
+    let top = deepest_at(UIManager::root_view(), point)?;
+
+    if weak_to_id(top) == weak_to_id(target) || is_inside(target, top) || is_inside(top, target) {
+        return None;
+    }
+
+    Some(format!(
+        "the deepest view at the tap point is {} {}, the touch may land there instead",
+        top.label(),
+        weak_to_id(top),
+    ))
+}
+
+fn deepest_at(view: WeakView, point: Point) -> Option<WeakView> {
+    if view.is_hidden() || !view.absolute_frame().contains(point) {
+        return None;
+    }
+    if let Some(deepest_child) = view.subviews().iter().rev().find_map(|sub| deepest_at(sub.weak(), point)) {
+        return Some(deepest_child);
+    }
+    // A fully transparent view with nothing in it, like an empty overlay
+    // host, draws nothing at the point and would only produce false
+    // covering warnings.
+    if view.color().a == 0.0 && view.subviews().is_empty() {
+        return None;
+    }
+    Some(view)
+}
+
+fn is_inside(ancestor: WeakView, view: WeakView) -> bool {
+    fn contains(view: WeakView, id: &str) -> bool {
+        if weak_to_id(view) == id {
+            return true;
+        }
+        view.subviews().iter().any(|sub| contains(sub.weak(), id))
+    }
+
+    contains(ancestor, &weak_to_id(view))
 }
 
 fn entry(view: WeakView, what: impl ToString, old: impl ToString, new: impl ToString) -> EditEntry {

@@ -35,6 +35,13 @@ also serves `Font::measure`, which shapes through the same path. Entries unused
 for 10 seconds are dropped by a sweep that runs about once a second from
 `Font::process_queued`.
 
+Each `Font` also owns a `MeasureCache` that stores whole `Font::measure`
+results, keyed by the text, size, wrap width, tracking, line height and runs.
+The shape cache removes the shaping cost, but glyph_brush still walks every
+glyph's bounds through `ttf_parser` on every measure, and a table rebuilding
+hundreds of measured spans spent seconds there. Same 10 second sweep from
+`Font::process_queued`.
+
 ## Sizes are pixels per em
 
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`

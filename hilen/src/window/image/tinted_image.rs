@@ -60,7 +60,16 @@ fn svg_data(name: &str) -> Option<Vec<u8>> {
 
 impl ToImage for Tinted {
     fn to_image(&self) -> Weak<Image> {
+        use crate::deps::refs::manage::DataManager;
+
         let stored_name = format!("{}:{}", self.name, self.tint.as_hex());
+
+        // The rasterized image is cached under name plus tint. Checking
+        // first skips the file read and the tint rewrite, which ran on
+        // every call and every relayout.
+        if let Some(cached) = Image::weak_with_name(&stored_name) {
+            return cached;
+        }
 
         let Some(data) = svg_data(&self.name) else {
             return Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name);

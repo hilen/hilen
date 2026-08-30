@@ -235,7 +235,7 @@ impl MainScreen {
 
     fn process_command(self: Weak<Self>, command: AppCommand) {
         match command {
-            AppCommand::UI(UIResponse::SendUI { scale, root }) => on_main(move || {
+            AppCommand::UI(UIResponse::SendUI { scale, root, .. }) => on_main(move || {
                 self.ui_represent.set_root(scale, root);
                 self.restore_selection();
             }),

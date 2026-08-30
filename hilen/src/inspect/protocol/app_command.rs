@@ -42,7 +42,14 @@ pub struct EditEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UIResponse {
-    SendUI { scale: f32, root: Own<ViewRepr> },
+    SendUI {
+        scale: f32,
+        root:  Own<ViewRepr>,
+        /// A warning about the request, for example a tap point that is
+        /// covered by another view.
+        #[serde(default)]
+        note:  Option<String>,
+    },
 }
 
 impl From<UIResponse> for AppCommand {
