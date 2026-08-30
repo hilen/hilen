@@ -5,12 +5,13 @@ pub use winit::{
     window::CursorIcon,
 };
 
+#[cfg(feature = "level")]
+use crate::level::LevelManager;
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
 use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
-    level::LevelManager,
     ui::{
         Container, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
         ViewFrame, ViewSubviews, WeakView, check_touch,
@@ -70,6 +71,7 @@ impl Input {
             return false;
         }
 
+        #[cfg(feature = "level")]
         let original_pos = touch.position;
 
         touch.position *= 1.0 / UIManager::scale();
@@ -120,6 +122,7 @@ impl Input {
             LongPress::arm_tooltip_hold(touch.id, touch.position);
         }
 
+        #[cfg(feature = "level")]
         if touch.is_began() && !LevelManager::no_level() {
             return LevelManager::level_weak().add_touch(original_pos);
         }

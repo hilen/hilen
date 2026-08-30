@@ -114,8 +114,22 @@ pub(crate) fn query_flag(name: &str) -> bool {
 pub(crate) fn query_param(name: &str) -> Option<String> {
     page_search().trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
-        (key == name).then(|| value.to_string())
+        (key == name).then(|| decode_query_value(value))
     })
+}
+
+/// `location.search` keeps the query percent encoded, so a spaced test
+/// name arrives as `Reload%20shortcuts%20test` and a raw compare against
+/// registered names matches nothing.
+#[cfg(feature = "ui-tests")]
+fn decode_query_value(value: &str) -> String {
+    match web_sys::js_sys::decode_uri_component(value) {
+        Ok(decoded) => decoded.into(),
+        Err(err) => {
+            log::error!("Failed to decode query value {value}: {err:?}");
+            value.to_string()
+        }
+    }
 }
 
 fn page_search() -> String {

@@ -246,6 +246,7 @@ impl TextField {
         self
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn is_editing(&self) -> bool {
         self.is_editing
     }

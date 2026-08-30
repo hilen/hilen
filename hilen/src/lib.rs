@@ -21,6 +21,7 @@ mod deps;
 mod app_runner;
 mod assets;
 mod assets_paths;
+#[cfg(feature = "level")]
 mod level_drawer;
 mod web;
 
@@ -28,18 +29,22 @@ mod app;
 mod app_starter;
 mod config;
 mod dispatch_tools;
+#[cfg(feature = "level")]
 mod game_drawer;
 #[cfg(target_os = "ios")]
 mod ios_log;
 mod pipelines;
 
+#[cfg(feature = "audio")]
 pub mod audio;
 pub mod bug_report;
 pub mod filesystem;
+#[cfg(feature = "level")]
 pub mod game;
 pub mod generate;
 pub mod gm;
 pub mod inspect;
+#[cfg(feature = "level")]
 pub mod level;
 pub mod render;
 pub mod store;
@@ -119,6 +124,7 @@ pub static UI_TESTS: __internal_macro_deps::Mutex<
 
 /// Every level test, the same shape as `UI_TESTS`, filled by a ctor per
 /// level.
+#[cfg(feature = "level")]
 pub static LEVEL_TESTS: __internal_macro_deps::Mutex<
     std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
 > = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());

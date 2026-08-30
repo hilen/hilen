@@ -110,7 +110,7 @@ fn run(args: Args) -> Result<()> {
 
     anyhow::ensure!(
         !tests.is_empty(),
-        "No level tests registered. The `hilen/ui-tests` feature is off.",
+        "No level tests registered. The `hilen/level-tests` feature is off.",
     );
 
     if args.list {

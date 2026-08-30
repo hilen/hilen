@@ -11,18 +11,15 @@ use winit::{
 use crate::deps::hreads::{is_main_thread, wait_for_next_frame};
 #[cfg(not_wasm)]
 use crate::deps::refs::Own;
+#[cfg(any(desktop, feature = "level"))]
+use crate::gm::LossyConvert;
 use crate::{
     App,
     deps::{
         hreads::{from_main, invoke_dispatched},
         refs::main_lock::MainLock,
     },
-    gm::{
-        LossyConvert,
-        flat::{Point, Size},
-    },
-    level::LevelManager,
-    level_drawer::LevelDrawer,
+    gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
         Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
@@ -30,6 +27,8 @@ use crate::{
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
 };
+#[cfg(feature = "level")]
+use crate::{level::LevelManager, level_drawer::LevelDrawer};
 
 #[cfg(not_wasm)]
 static WINDOW_READY: parking_lot::Mutex<crate::deps::vents::OnceEvent> =
@@ -353,11 +352,15 @@ impl AppRunner {
         crate::deps::hreads::spawn_thread(move || {
             let mut tests = crate::UI_TESTS.lock().clone();
 
-            if let Some(only) = only {
+            if let Some(only) = &only {
                 let keep: Vec<String> =
                     only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
                 tests.retain(|name, _| keep.contains(name));
             }
+
+            // Checked before the skip pass, a test the filter matched but a
+            // panic rerun skips is already counted failed by the driver.
+            let filter_matched_nothing = only.is_some() && tests.is_empty();
 
             // The driver reports skipped tests as failures itself, this
             // rerun only has to survive them.
@@ -367,7 +370,19 @@ impl AppRunner {
                 tests.retain(|name, _| !drop.contains(name));
             }
 
-            let report = crate::ui_test::run_test_map(&tests);
+            // A filter with a typo must fail loudly, a green `0 tests`
+            // report is indistinguishable from a pass.
+            let report = if filter_matched_nothing {
+                crate::ui_test::TestRunReport {
+                    total:    0,
+                    failures: vec![crate::ui_test::TestFailure {
+                        name:   only.unwrap_or_default(),
+                        detail: "hilen_test_only matched no registered tests".to_string(),
+                    }],
+                }
+            } else {
+                crate::ui_test::run_test_map(&tests)
+            };
 
             for failure in &report.failures {
                 log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
@@ -478,7 +493,10 @@ impl crate::window::WindowEvents for AppRunner {
             });
 
             self.update();
-            *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
+            #[cfg(feature = "level")]
+            {
+                *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
+            }
 
             crate::window::state::State::resize();
 
@@ -545,6 +563,7 @@ impl crate::window::WindowEvents for AppRunner {
     fn update(&mut self) {
         UIManager::free_deleted_views();
         invoke_dispatched();
+        #[cfg(feature = "level")]
         LevelDrawer::update();
         UIDrawer::update();
         // After layout, so a row that replaced the dead hovered one
@@ -558,6 +577,7 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
+        #[cfg(feature = "level")]
         LevelDrawer::draw(frame.pass());
         UIDrawer::draw(frame);
     }
@@ -568,6 +588,7 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn resize(&mut self, inner_pos: Point, outer_pos: Point, inner_size: Size, outer_size: Size) {
         UIManager::set_scale(UIManager::display_scale());
+        #[cfg(feature = "level")]
         LevelManager::set_scale(UIManager::display_scale());
 
         UIManager::root_view().resize_root(inner_pos, outer_pos, inner_size, outer_size, UIManager::scale());

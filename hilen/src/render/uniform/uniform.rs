@@ -1,14 +1,17 @@
+#[cfg(feature = "level")]
 use bytemuck::Pod;
+#[cfg(feature = "level")]
+use wgpu::BindGroup;
 use wgpu::{
-    BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
-    BufferBindingType, ShaderStages,
+    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
+    ShaderStages,
 };
 
-use crate::{
-    render::device_helper::DeviceHelper,
-    window::{BufferUsages, Window},
-};
+use crate::window::Window;
+#[cfg(feature = "level")]
+use crate::{render::device_helper::DeviceHelper, window::BufferUsages};
 
+#[cfg(feature = "level")]
 pub(crate) fn make_bind<T: Pod>(data: &T, layout: &BindGroupLayout) -> BindGroup {
     let device = Window::device();
     let buffer = device.buffer(data, BufferUsages::UNIFORM);

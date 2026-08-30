@@ -51,7 +51,7 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
     // A ctor names one concrete type, so a generic level gets no marker and
     // `impl LevelTest` on it fails to compile instead of never running.
     let test_registration = if generics.params.is_empty() {
-        let ctor = if cfg!(feature = "ui-tests") {
+        let ctor = if cfg!(feature = "level-tests") {
             let register_fn = quote::format_ident!("__register_level_test_{name}");
             quote! {
                 #[hilen::__internal_macro_deps::ctor::ctor(unsafe, crate_path = hilen::__internal_macro_deps::ctor)]

@@ -14,14 +14,14 @@ use tokio::net::TcpListener;
 
 #[cfg(not_wasm)]
 use crate::deps::hreads::log_spawn;
+#[cfg(any(wasm, feature = "audio"))]
+use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
 use crate::inspect::protocol::{SERVICE_TYPE, serve};
+#[cfg(feature = "audio")]
+use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
-    audio::Sound,
-    deps::{
-        hreads::{from_main, on_main},
-        refs::manage::DataManager,
-    },
+    deps::hreads::from_main,
     inspect::{
         edit_log,
         protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
@@ -71,6 +71,7 @@ impl InspectService {
 
     pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
+            #[cfg(feature = "audio")]
             InspectorCommand::PlaySound => {
                 on_main(|| {
                     Sound::get("retro.wav").play();
@@ -78,6 +79,8 @@ impl InspectService {
 
                 AppCommand::Ok
             }
+            #[cfg(not(feature = "audio"))]
+            InspectorCommand::PlaySound => AppCommand::Error("App built without the audio feature".into()),
             InspectorCommand::Screenshot => match Self::screenshot() {
                 Ok(screenshot) => screenshot,
                 Err(err) => AppCommand::Error(format!("Screenshot failed: {err}")),

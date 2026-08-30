@@ -26,6 +26,13 @@ every test onto a device. It must never depend on `demo`, that is a cycle, since
 into `hilen::LEVEL_TESTS` the same way and run through the `level-test` crate, which
 also holds their corpus. `render-test` is only for the render pipelines drawn directly.
 
+Optional engine parts sit behind cargo features, all off by default. `level` is the physics
+levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
+with their shaders. `audio` is sound playback through kira and its decoders. `inspect` is
+the remote inspector. `ui-tests` and `level-tests` register tests. A GUI only app depends
+on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
+`demo` turns `audio`, `inspect`, `level` and `ui-tests` on.
+
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
 [docs/guesses.md](docs/guesses.md), not into the code.

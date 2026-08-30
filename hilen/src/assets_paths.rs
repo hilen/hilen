@@ -7,6 +7,7 @@ use std::{
 
 pub(crate) struct AssetsPaths {
     pub(crate) images: PathBuf,
+    #[cfg(feature = "audio")]
     pub(crate) sounds: PathBuf,
     pub(crate) fonts:  PathBuf,
 }
@@ -16,9 +17,10 @@ impl AssetsPaths {
         let root = Self::root(&root);
         let assets = Self::assets(&root);
         Rc::new(Self {
-            images: assets.join("images"),
-            sounds: assets.join("sounds"),
-            fonts:  assets.join("fonts"),
+            images:                           assets.join("images"),
+            #[cfg(feature = "audio")]
+            sounds:                           assets.join("sounds"),
+            fonts:                            assets.join("fonts"),
         })
     }
 }

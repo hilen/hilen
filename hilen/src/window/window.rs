@@ -514,6 +514,7 @@ impl Window {
         }
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn display_refresh_rate() -> u32 {
         let Some(window) = Self::winit_window() else {
             return 60;

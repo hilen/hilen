@@ -21,6 +21,7 @@ impl Shape {
         Self::Triangle(a.into(), b.into(), c.into())
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn is_rect(&self) -> bool {
         matches!(self, Shape::Rect(_))
     }

@@ -11,7 +11,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 
-hilen = { workspace = true, features = ["ui-tests"] }
+hilen = { workspace = true, features = ["level-tests"] }
 
 [lints]
 workspace = true

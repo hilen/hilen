@@ -24,6 +24,7 @@ impl Assets {
         let paths = crate::assets_paths::AssetsPaths::new(root_path);
 
         crate::window::image::Image::set_root_path(&paths.images);
+        #[cfg(feature = "audio")]
         crate::audio::Sound::set_root_path(&paths.sounds);
         crate::window::Font::set_root_path(&paths.fonts);
     }
@@ -114,8 +115,9 @@ mod web_assets {
     use log::error;
     use serde::Deserialize;
 
+    #[cfg(feature = "audio")]
+    use crate::audio::Sound;
     use crate::{
-        audio::Sound,
         deps::{
             hreads::on_main,
             refs::manage::{DataManager, fetch_bytes},
@@ -254,9 +256,12 @@ mod web_assets {
             "fonts" => {
                 Font::download(&entry.name, &url).await?;
             }
+            #[cfg(feature = "audio")]
             "sounds" => {
                 Sound::download(&entry.name, &url).await?;
             }
+            #[cfg(not(feature = "audio"))]
+            "sounds" => return Err(anyhow!("Sound asset {} needs the audio feature", entry.name)),
             kind => return Err(anyhow!("Unknown asset kind: {kind}")),
         }
 
