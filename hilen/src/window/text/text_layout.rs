@@ -13,15 +13,17 @@ pub(crate) struct TextLine {
 }
 
 /// Where the glyphs of a text land, in the pixels of the size it was
-/// shaped at. What the caret and the tap to caret mapping read.
-pub(crate) struct TextLayout {
-    pub lines:       Vec<TextLine>,
-    pub ascent:      f32,
-    pub descent:     f32,
-    pub line_height: f32,
+/// shaped at. What the caret and the tap to caret mapping read. Public
+/// so a view can map a click to a byte of text a `Label` draws, the way
+/// a diff panel selects code, see `Label::text_layout_for`.
+pub struct TextLayout {
+    pub(crate) lines:     Vec<TextLine>,
+    pub ascent:           f32,
+    pub descent:          f32,
+    pub line_height:      f32,
     /// The base font's underline: how far the line sits above the
     /// baseline, negative below it, and how thick it is.
-    pub underline:   (f32, f32),
+    pub(crate) underline: (f32, f32),
 }
 
 impl TextLayout {
@@ -38,7 +40,7 @@ impl TextLayout {
     }
 
     /// The caret position closest to `x` on `line`.
-    pub(crate) fn nearest_on_line(&self, line: usize, x: f32) -> usize {
+    pub fn nearest_on_line(&self, line: usize, x: f32) -> usize {
         let line = &self.lines[line];
         line.boundaries
             .iter()
@@ -47,7 +49,7 @@ impl TextLayout {
     }
 
     /// The x offset of `byte` on `line`, the line end for a byte past it.
-    pub(crate) fn x_on_line(&self, line: usize, byte: usize) -> f32 {
+    pub fn x_on_line(&self, line: usize, byte: usize) -> f32 {
         let line = &self.lines[line];
         line.boundaries
             .iter()

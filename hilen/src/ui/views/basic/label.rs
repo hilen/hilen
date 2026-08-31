@@ -331,8 +331,10 @@ impl Label {
     }
 
     /// Line and caret positions of `text` drawn by this label, in points,
-    /// wrapping at the current frame width when multiline.
-    pub(crate) fn text_layout_for(&self, text: &str) -> TextLayout {
+    /// wrapping at the current frame width when multiline. Public so a
+    /// view can map a click on drawn text to a byte and back, the way a
+    /// diff panel selects code.
+    pub fn text_layout_for(&self, text: &str) -> TextLayout {
         let bound = self.multiline.then_some(self.width() - self.alignment_margin());
         let runs = self.shaping_runs(text);
         self.font().text_layout(text, self.text_size, bound, self.letter_spacing, runs)

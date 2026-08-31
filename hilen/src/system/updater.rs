@@ -53,6 +53,8 @@ impl Updater {
     pub async fn check() -> Result<Option<UpdateInfo>> {
         #[cfg(desktop)]
         {
+            use anyhow::Context;
+
             use crate::deps::hreads::from_main;
 
             let Some(source) = from_main(|| crate::app::app().update_source()).await? else {
@@ -73,6 +75,18 @@ impl Updater {
                     manifest.version
                 );
             };
+
+            // A binary the user cannot swap, like a deb install in
+            // /usr/bin, gets no offer. Those installs update through
+            // their package.
+            let target = swap_target()?;
+            let dir = target
+                .parent()
+                .with_context(|| format!("{} has no parent dir", target.display()))?;
+            if !dir_writable(dir) {
+                log::info!("{} is not writable, no self update", dir.display());
+                return Ok(None);
+            }
 
             Ok(Some(UpdateInfo {
                 version:    manifest.version,
@@ -117,12 +131,26 @@ impl Updater {
             verify_sha256(&bytes, &info.artifact.sha256)?;
             verify_signature(&bytes, &info.artifact.sig, &info.verify_key)?;
 
-            let temp = std::env::temp_dir().join(format!("hilen-update-{}", info.version));
-            std::fs::write(&temp, &bytes)?;
+            if let Some(target) = appimage_path() {
+                // The running executable is inside the AppImage's
+                // read-only mount, the file to swap is the AppImage
+                // itself. The temp lives next to it so the rename
+                // stays on one filesystem.
+                let temp = target.with_file_name(format!(".hilen-update-{}", info.version));
+                std::fs::write(&temp, &bytes)?;
+                let swap = replace_keeping_permissions(&temp, &target);
+                if swap.is_err() {
+                    std::fs::remove_file(&temp)?;
+                }
+                swap?;
+            } else {
+                let temp = std::env::temp_dir().join(format!("hilen-update-{}", info.version));
+                std::fs::write(&temp, &bytes)?;
 
-            let swap = self_replace::self_replace(&temp);
-            std::fs::remove_file(&temp)?;
-            swap?;
+                let swap = self_replace::self_replace(&temp);
+                std::fs::remove_file(&temp)?;
+                swap?;
+            }
 
             Ok(())
         }
@@ -142,7 +170,7 @@ impl Updater {
         {
             use crate::{AppRunner, deps::hreads::on_main};
 
-            std::process::Command::new(std::env::current_exe()?).spawn()?;
+            std::process::Command::new(swap_target()?).spawn()?;
 
             on_main(AppRunner::stop);
 
@@ -157,7 +185,68 @@ impl Updater {
 
 #[cfg(desktop)]
 fn platform_key() -> String {
-    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+    key(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        appimage_path().is_some(),
+    )
+}
+
+// An AppImage swaps the whole image file, not the bare binary, so it
+// gets its own manifest key.
+#[cfg(desktop)]
+fn key(os: &str, arch: &str, appimage: bool) -> String {
+    if appimage {
+        format!("{os}-{arch}-appimage")
+    } else {
+        format!("{os}-{arch}")
+    }
+}
+
+/// The AppImage runtime exports the image path as `APPIMAGE`.
+#[cfg(all(desktop, target_os = "linux"))]
+fn appimage_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPIMAGE").map(Into::into)
+}
+
+#[cfg(all(desktop, not(target_os = "linux")))]
+fn appimage_path() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// The file `install` replaces, the `AppImage` when running as one, the
+/// executable itself otherwise.
+#[cfg(desktop)]
+fn swap_target() -> Result<std::path::PathBuf> {
+    if let Some(image) = appimage_path() {
+        return Ok(image);
+    }
+    Ok(std::env::current_exe()?)
+}
+
+// Both swap routes create a temp file in the dir and rename, so dir
+// write access is what decides whether an update can install.
+#[cfg(desktop)]
+fn dir_writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(format!(".hilen-update-probe-{}", std::process::id()));
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(file) => {
+            drop(file);
+            if let Err(err) = std::fs::remove_file(&probe) {
+                log::warn!("Failed to remove write probe {}: {err}", probe.display());
+            }
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(desktop)]
+fn replace_keeping_permissions(temp: &std::path::Path, target: &std::path::Path) -> Result<()> {
+    let permissions = std::fs::metadata(target)?.permissions();
+    std::fs::set_permissions(temp, permissions)?;
+    std::fs::rename(temp, target)?;
+    Ok(())
 }
 
 #[cfg(desktop)]
@@ -205,7 +294,10 @@ fn verify_signature(bytes: &[u8], sig_hex: &str, key_hex: &str) -> Result<()> {
 mod tests {
     use ed25519_dalek::{Signer, SigningKey};
 
-    use super::{UpdateManifest, newer, verify_sha256, verify_signature};
+    use super::{
+        UpdateManifest, dir_writable, key, newer, replace_keeping_permissions, verify_sha256,
+        verify_signature,
+    };
 
     #[test]
     fn manifest_parses() {
@@ -252,6 +344,53 @@ mod tests {
         verify_sha256(b"hello", expected).unwrap();
         verify_sha256(b"hello", &expected.to_uppercase()).unwrap();
         assert!(verify_sha256(b"other", expected).is_err());
+    }
+
+    #[test]
+    fn platform_keys() {
+        assert_eq!(key("macos", "aarch64", false), "macos-aarch64");
+        assert_eq!(key("linux", "x86_64", false), "linux-x86_64");
+        assert_eq!(key("linux", "x86_64", true), "linux-x86_64-appimage");
+    }
+
+    #[test]
+    fn writable_probe() {
+        let dir = std::env::temp_dir().join(format!("hilen-writable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(dir_writable(&dir));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            assert!(!dir_writable(&dir));
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn replace_keeps_permissions() {
+        let dir = std::env::temp_dir().join(format!("hilen-replace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("app.AppImage");
+        let temp = dir.join(".hilen-update-1.0.0");
+        std::fs::write(&target, b"old").unwrap();
+        std::fs::write(&temp, b"new").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        replace_keeping_permissions(&temp, &target).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert!(!temp.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

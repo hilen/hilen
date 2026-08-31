@@ -78,6 +78,9 @@ impl Input {
 
         UIManager::set_cursor_position(touch.position);
         UIEvents::on_touch().trigger(touch);
+        if touch.is_began() {
+            UIEvents::touch_began().trigger(touch);
+        }
 
         // Any press ends a tooltip, a finger or a click is an answer to it.
         if touch.is_began() {

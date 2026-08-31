@@ -125,6 +125,17 @@ enum Command {
         #[arg(long, default_value_t = 10.0)]
         timeout: f32,
     },
+    /// Drag with the left button held, window points, for drag driven
+    /// behavior like selecting text
+    Drag {
+        from_x: f32,
+        from_y: f32,
+        to_x:   f32,
+        to_y:   f32,
+        /// Moved events between begin and end
+        #[arg(long, default_value_t = 8)]
+        steps:  usize,
+    },
     /// Wheel scroll at the window center, or at a view with --at.
     /// Positive dy scrolls toward the top of the content.
     Scroll {
@@ -241,6 +252,13 @@ async fn run(client: &Client, command: Command) -> Result<()> {
         } => tap(client, query, fuzzy, near, r#type, [cmd, shift, alt], right).await?,
         Command::Find { query, all } => find(client, &query, all).await?,
         Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
+        Command::Drag {
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            steps,
+        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
         Command::Scroll { dy, at } => scroll(client, dy, at).await?,
         Command::ScrollTo { query } => scroll_to(client, &query).await?,
         Command::Resize { width, height } => {
@@ -258,6 +276,15 @@ async fn run(client: &Client, command: Command) -> Result<()> {
             send(client, UIRequest::SetScale(scale).into()).await?;
             println!("ok");
         }
+        edit => run_edit(client, edit).await?,
+    }
+
+    Ok(())
+}
+
+/// The live edit commands, split out of `run` to keep it readable.
+async fn run_edit(client: &Client, command: Command) -> Result<()> {
+    match command {
         Command::EditRule {
             view_id,
             rule_index,
@@ -286,6 +313,7 @@ async fn run(client: &Client, command: Command) -> Result<()> {
             };
             print_edited(client, request, &view_id).await?;
         }
+        _ => unreachable!("only the edit commands reach run_edit"),
     }
 
     Ok(())
@@ -458,6 +486,12 @@ async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
+}
+
+async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize) -> Result<()> {
+    send(client, UIRequest::Drag { from, to, steps }.into()).await?;
+    println!("ok");
+    Ok(())
 }
 
 async fn scroll(client: &Client, dy: f32, at: Option<String>) -> Result<()> {

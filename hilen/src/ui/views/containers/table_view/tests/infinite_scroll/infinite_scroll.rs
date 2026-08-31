@@ -11,7 +11,7 @@ use crate::{
     },
     gm::color::BLACK,
     ui::{
-        CellRegistry, Setup, Spinner, TableData, TableView, View, ViewData, view,
+        CellRegistry, Setup, Spinner, TableData, TableView, UIManager, View, ViewData, view,
         views::containers::table_view::tests::infinite_scroll::infinite_cell::InfiniteCell,
     },
 };
@@ -120,6 +120,12 @@ impl TableData for InfiniteScrollTest {
 // kills every test after this one. Skipped on wasm until the race is fixed.
 #[cfg(not_wasm)]
 impl ViewTest for InfiniteScrollTest {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     fn perform_test(mut view: Weak<Self>) -> Result<()> {
         test_basic_scroll(view)?;
 

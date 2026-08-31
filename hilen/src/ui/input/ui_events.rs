@@ -10,6 +10,7 @@ static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
 #[derive(Default)]
 pub struct UIEvents {
     on_touch:       Event<Touch>,
+    touch_began:    UIEvent<Touch>,
     on_scroll:      UIEvent<Point>,
     on_debug_touch: Event<Touch>,
     size_changed:   UIEvent<()>,
@@ -22,6 +23,13 @@ pub struct UIEvents {
 impl UIEvents {
     pub(crate) fn on_touch() -> &'static Event<Touch> {
         &UI_EVENTS.on_touch
+    }
+
+    /// Every began touch of the app, before view dispatch. Public so a
+    /// view can notice a click landing outside itself, the way a
+    /// selection clears when the user clicks elsewhere.
+    pub fn touch_began() -> &'static UIEvent<Touch> {
+        &UI_EVENTS.touch_began
     }
 
     pub(crate) fn on_scroll() -> &'static UIEvent<Point> {

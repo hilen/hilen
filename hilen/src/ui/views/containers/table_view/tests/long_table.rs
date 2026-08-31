@@ -7,8 +7,8 @@ use crate::{
     deps::{hreads::from_main, refs::Weak},
     gm::color::GRAY,
     ui::{
-        CellRegistry, Container, Label, Setup, TableData, TableView, View, ViewData, ViewSubviews, ViewTest,
-        view,
+        CellRegistry, Container, Label, Setup, TableData, TableView, UIManager, View, ViewData, ViewSubviews,
+        ViewTest, view,
     },
     ui_test::inject_touches,
 };
@@ -58,6 +58,12 @@ impl TableData for LongTableTest {
 }
 
 impl ViewTest for LongTableTest {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     /// The scroll drag runs the full height, and the table needs to stay wide
     /// enough for the taps to land in it.
     fn canvas() -> (u32, u32) {

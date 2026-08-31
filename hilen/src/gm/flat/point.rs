@@ -71,7 +71,7 @@ impl Point<f32> {
         target.angle()
     }
 
-    pub(crate) fn length(self) -> f32 {
+    pub fn length(self) -> f32 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 

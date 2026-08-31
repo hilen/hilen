@@ -214,7 +214,10 @@ impl Scrollable for ScrollView {
             return false;
         }
 
-        if self.is_hidden_in_tree() || self.drag_disabled {
+        // Drag scrolling is a touch gesture. On desktop it is off by
+        // default so a mouse drag reaches the views under it, text
+        // selection first of all, see `UIManager::set_drag_scrolling`.
+        if self.is_hidden_in_tree() || self.drag_disabled || !UIManager::drag_scrolling() {
             return false;
         }
 

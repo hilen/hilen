@@ -228,6 +228,10 @@ impl InspectService {
                     Err(err) => AppCommand::Error(err),
                 }
             }
+            UIRequest::Drag { from, to, steps } => {
+                from_main(move || Self::drag(from.into(), to.into(), steps));
+                Self::send_ui()
+            }
             UIRequest::Scroll { view_id, dx, dy } => match from_main(move || Self::scroll(view_id, dx, dy)) {
                 Ok(()) => Self::send_ui(),
                 Err(err) => AppCommand::Error(err),
@@ -296,6 +300,33 @@ impl InspectService {
     /// targets, since such a tap lands nowhere while looking like a
     /// success to the client, and returns a covering warning when
     /// another view sits over the tap point.
+    // The touch pipeline takes physical pixels, so every point scales up.
+    fn drag(from: Point, to: Point, steps: usize) {
+        use crate::gm::LossyConvert;
+
+        let scale = UIManager::scale();
+        let touch = |position: Point, event: TouchEvent| {
+            Input::process_touch_event(Touch {
+                id: 1,
+                position: position * scale,
+                event,
+                button: MouseButton::Left,
+            });
+        };
+        touch(from, TouchEvent::Began);
+        let steps = steps.max(2);
+        for step in 1..=steps {
+            let t: f32 = step.lossy_convert();
+            let all: f32 = steps.lossy_convert();
+            let position = Point {
+                x: from.x + (to.x - from.x) * t / all,
+                y: from.y + (to.y - from.y) * t / all,
+            };
+            touch(position, TouchEvent::Moved);
+        }
+        touch(to, TouchEvent::Ended);
+    }
+
     fn tap(view_id: &str, modifiers: ModifiersState, right: bool) -> Result<Option<String>, String> {
         let view = find_view(view_id)?;
 

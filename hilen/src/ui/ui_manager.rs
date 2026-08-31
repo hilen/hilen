@@ -53,6 +53,12 @@ pub struct UIManager {
 
     touch_disabled: AtomicBool,
 
+    /// Whether a drag gesture scrolls scroll views. A finger drags
+    /// content on a touch platform, but a desktop mouse drag belongs to
+    /// the views under it, text selection first of all, so the default
+    /// is off on desktop and on everywhere else.
+    drag_scrolling: AtomicBool,
+
     cursor_position: Mutex<Point>,
 
     draw_debug_frames: AtomicBool,
@@ -213,6 +219,7 @@ impl UIManager {
         Self {
             root_view,
             touch_disabled: false.into(),
+            drag_scrolling: Self::default_drag_scrolling().into(),
             cursor_position: Mutex::new(Point::default()),
             draw_debug_frames: false.into(),
             scale: AtomicU32::new(1.0f32.to_bits()),
@@ -368,6 +375,24 @@ impl UIManager {
 }
 
 impl UIManager {
+    /// Off on desktop, where a mouse drag belongs to the views under it
+    /// and the wheel scrolls. On everywhere a finger drags the content.
+    pub(crate) fn default_drag_scrolling() -> bool {
+        !cfg!(desktop)
+    }
+
+    /// Whether a drag gesture scrolls scroll views, see
+    /// `set_drag_scrolling`.
+    pub fn drag_scrolling() -> bool {
+        Self::get().drag_scrolling.load(Ordering::Relaxed)
+    }
+
+    /// Overrides the platform default, for a touch first desktop setup
+    /// like a kiosk, or a test that drives finger gestures.
+    pub fn set_drag_scrolling(on: bool) {
+        Self::get().drag_scrolling.store(on, Ordering::Relaxed);
+    }
+
     pub(crate) fn touch_disabled() -> bool {
         Self::get().touch_disabled.load(Ordering::Relaxed)
     }

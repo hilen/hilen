@@ -23,7 +23,7 @@ Two clients exist:
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `keys`, `scroll`, `scroll-to`,
+  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `keys`, `drag`, `scroll`, `scroll-to`,
   `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
@@ -45,7 +45,10 @@ tap the wanted cell by its text.
 
 `find <query>` prints one line per match, id, label and text substrings, with window
 space coordinates and a `visible`, `hidden` or `offscreen` status, `--all` includes the
-last two. `wait <query> [--timeout]` polls until a visible view matches. `scroll <dy>
+last two. `wait <query> [--timeout]` polls until a visible view matches. `drag <from_x>
+<from_y> <to_x> <to_y> [--steps N]` holds the left button from one window point to
+another through the real input pipeline, for drag driven behavior like selecting text.
+`scroll <dy>
 [--at view]` injects a wheel scroll at the window center or a view's center, `scroll-to
 <query>` repeats window sized steps until the target is on screen. `resize <w> <h>`
 resizes the window in points, desktop only. Frames in the tree are local to the parent

@@ -56,6 +56,15 @@ pub enum UIRequest {
         keys:      Vec<Key>,
         modifiers: ModifiersState,
     },
+    /// A left drag from one window point to another: began, moved steps
+    /// and ended through the real input pipeline. Window coordinates in
+    /// points. For drag driven behavior like selecting text.
+    Drag {
+        from:  (f32, f32),
+        to:    (f32, f32),
+        #[serde(default)]
+        steps: usize,
+    },
     /// A wheel scroll aimed at a view's center, or at the window center
     /// with no view. It lands on the deepest scroll view under that
     /// point, like a real wheel under a still cursor.

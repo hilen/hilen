@@ -1,3 +1,4 @@
+mod drag_scrolling;
 mod footer;
 mod infinite_scroll;
 mod long_table;

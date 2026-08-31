@@ -40,11 +40,21 @@ A platform key is `std::env::consts::OS` plus `-` plus `ARCH`, so `macos`,
 executable, not an installer or a bundle. `sig` is the hex ed25519 signature
 over the whole file, `sha256` its hex digest.
 
+Linux has one more shape. An app running as an AppImage cannot swap the
+executable inside its read only mount, the file to replace is the image
+itself. The AppImage runtime exports its path as `APPIMAGE`, and when that
+is set the platform key gets an `-appimage` suffix, `linux-x86_64-appimage`,
+and the manifest entry under it is the signed AppImage, not the bare binary.
+`install` writes the temp next to the image and renames over it keeping its
+permissions, so the swap stays on one filesystem.
+
 ## The calls
 
 - `Updater::check()` fetches the manifest and returns `Ok(Some(UpdateInfo))`
-  only when the manifest version is newer by semver and has an entry for
-  this platform.
+  only when the manifest version is newer by semver, has an entry for
+  this platform, and the swap target's directory is writable. A binary the
+  user cannot swap, like a deb install in `/usr/bin`, gets no offer and
+  updates through its package manager.
 - `Updater::install(info)` downloads, checks size, sha256 and signature,
   then swaps the running executable through `self_replace`. Nothing is
   written before every check passes.

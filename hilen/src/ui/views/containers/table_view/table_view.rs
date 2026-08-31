@@ -207,31 +207,24 @@ impl TableView {
         self.layout_cells(LayoutMode::Full);
         self
     }
-}
 
-impl TableView {
-    // The whole table maps a tap to a cell index, so a tap in a
-    // spacing gap selects the nearest cell instead of dying on a
-    // pixel gap between touch areas. Taps past the last row are
-    // ignored.
-    fn select_at(mut self: Weak<Self>, pos: Point) {
+    /// Total height of the content: rows, spacing, header and footer.
+    pub fn content_height(&self) -> f32 {
+        self.scroll.content_height()
+    }
+
+    /// The cell index at a point in the table's own coordinates, from
+    /// the row geometry alone, pinned sticky rows ignored. `None` above
+    /// the first row or past the last.
+    pub fn index_at(&self, pos: Point) -> Option<usize> {
         if self.data.is_null() {
-            return;
+            return None;
         }
 
         let number_of_cells = self.data.number_of_cells();
 
         if number_of_cells == 0 {
-            return;
-        }
-
-        // A pinned sticky row covers whatever the row geometry has at its
-        // position, so it takes the tap first.
-        for (index, y, height) in self.pinned.clone() {
-            if pos.y >= y && pos.y < y + height {
-                self.data.cell_selected(index);
-                return;
-            }
+            return None;
         }
 
         let columns: f32 = self.columns.lossy_convert();
@@ -244,23 +237,58 @@ impl TableView {
 
         let y = pos.y - self.scroll.get_scroll_content_offset() - self.header_height;
         if y < 0.0 {
-            return;
+            return None;
         }
 
         let rows = self.rows(number_of_cells);
 
         if y > rows.total() + spacing / 2.0 {
-            return;
+            return None;
         }
 
         let row: f32 = rows.row_for_tap(y).lossy_convert();
         let index: usize = (row * columns + col).lossy_convert();
 
-        if index >= number_of_cells {
+        (index < number_of_cells).then_some(index)
+    }
+
+    /// The cells on screen right now, each with the index of the row it
+    /// currently shows. The views recycle, so hold the pairs only for
+    /// the current frame.
+    pub fn visible_cells(&self) -> Vec<(usize, WeakView)> {
+        self.scroll
+            .content
+            .subviews()
+            .iter()
+            .filter(|view| !view.is_hidden())
+            .filter(|view| !self.header_views.iter().any(|h| h.raw() == view.weak().raw()))
+            .map(|view| (view.tag(), view.weak()))
+            .collect()
+    }
+}
+
+impl TableView {
+    // The whole table maps a tap to a cell index, so a tap in a
+    // spacing gap selects the nearest cell instead of dying on a
+    // pixel gap between touch areas. Taps past the last row are
+    // ignored.
+    fn select_at(mut self: Weak<Self>, pos: Point) {
+        if self.data.is_null() {
             return;
         }
 
-        self.data.cell_selected(index);
+        // A pinned sticky row covers whatever the row geometry has at its
+        // position, so it takes the tap first.
+        for (index, y, height) in self.pinned.clone() {
+            if pos.y >= y && pos.y < y + height {
+                self.data.cell_selected(index);
+                return;
+            }
+        }
+
+        if let Some(index) = self.index_at(pos) {
+            self.data.cell_selected(index);
+        }
     }
 
     pub(super) fn row_count(&self, number_of_cells: usize) -> usize {

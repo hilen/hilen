@@ -8,4 +8,5 @@ pub use font::*;
 pub(crate) use measure_cache::*;
 pub(crate) use shape_cache::*;
 pub(crate) use shaped_layout::*;
-pub(crate) use text_layout::*;
+pub use text_layout::TextLayout;
+pub(crate) use text_layout::TextLine;

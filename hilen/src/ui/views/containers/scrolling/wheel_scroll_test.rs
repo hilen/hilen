@@ -6,7 +6,7 @@ use crate::{
         hreads::{from_main, wait_for_next_frame},
         refs::Weak,
     },
-    ui::{Alert, ModalView, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{Alert, ModalView, ScrollView, Setup, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
     ui_test::{inject_scroll, inject_touches},
 };
 
@@ -34,6 +34,12 @@ impl Setup for WheelScrollTest {
 }
 
 impl ViewTest for WheelScrollTest {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     fn perform_test(view: Weak<Self>) -> Result<()> {
         let offsets = move || {
             from_main(move || {
