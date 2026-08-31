@@ -22,10 +22,12 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-pub use capture::{capture_requested_screenshot, capture_screenshot, enable_screenshot_capture};
+pub use capture::{
+    capture_requested_screenshot, capture_screenshot, enable_screenshot_capture, enable_shots, shots_enabled,
+};
 pub use collect::{TestFailure, any_failed, clear_failures, push_failure, run_test, take_failures};
 pub use helpers::*;
-pub use human::{enable_human_mode, human_checkpoint, human_mode};
+pub use human::{checkpoint, enable_human_mode, human_mode};
 pub(crate) use human::{hold_for_human, human_pause, human_pause_key, human_pause_quick};
 use log::{error, warn};
 use parking_lot::Mutex;

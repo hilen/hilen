@@ -78,6 +78,9 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         Theme::set_mode(ThemeMode::System);
         Theme::set_system(Theme::Light);
         UIManager::set_drag_scrolling(UIManager::default_drag_scrolling());
+        // Fallback fonts are global too, a test that registers one must
+        // not leak it into the next.
+        crate::ui::Font::reset_fallbacks();
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {

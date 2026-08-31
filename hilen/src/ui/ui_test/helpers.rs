@@ -10,6 +10,7 @@ use crate::{
     ui::{Button, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
+        capture::save_shot,
         checks::check_colors_structured,
         human::{human_mode, show_probes},
         record::{next_check_index, print_recorded_colors, recording_colors},
@@ -29,6 +30,8 @@ pub(crate) fn add_action(action: impl FnMut() + Send + 'static) {
 }
 
 pub fn check_colors(data: &str) -> Result<()> {
+    save_shot("check")?;
+
     if recording_colors() {
         return print_recorded_colors();
     }

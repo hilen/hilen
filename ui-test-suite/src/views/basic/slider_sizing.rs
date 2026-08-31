@@ -3,7 +3,7 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{Setup, Slider, ViewData, ViewTest, view},
-    ui_test::{helpers::check_colors, human_checkpoint, inject_touches},
+    ui_test::{checkpoint, helpers::check_colors, inject_touches},
 };
 
 const TRACK: f32 = 16.0;
@@ -31,7 +31,7 @@ impl Setup for SliderSizing {
 }
 
 fn default_look() -> Result<()> {
-    human_checkpoint("default look, 8 point track, 14 point thumb");
+    checkpoint("default look, 8 point track, 14 point thumb")?;
     check_colors(
         r"
              592    4 - #597c95
@@ -75,7 +75,7 @@ fn thick_track(mut view: Weak<SliderSizing>) -> Result<()> {
         view.horizontal.set_track_thickness(TRACK);
         view.vertical.set_track_thickness(TRACK);
     });
-    human_checkpoint("track thickness 16");
+    checkpoint("track thickness 16")?;
     check_colors(
         r"
              592    4 - #597c95
@@ -121,7 +121,7 @@ fn big_thumb(mut view: Weak<SliderSizing>) -> Result<()> {
         assert!((view.horizontal.indicator_position() - (THUMB + 356.0 * 0.5)).abs() < 0.01);
         assert!((view.vertical.indicator_position() - (THUMB + 256.0 * 0.5)).abs() < 0.01);
     });
-    human_checkpoint("thumb radius 22");
+    checkpoint("thumb radius 22")?;
     check_colors(
         r"
                4    4 - #597c95

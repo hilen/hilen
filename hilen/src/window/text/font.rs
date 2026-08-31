@@ -113,6 +113,10 @@ impl Font {
         &self.face
     }
 
+    pub fn has_glyph(&self, char: char) -> bool {
+        self.face.glyph_index(char).is_some()
+    }
+
     pub(crate) fn ab(&self) -> &FontArc {
         &self.ab
     }
@@ -238,6 +242,7 @@ impl Font {
 }
 
 static DEFAULT_FONT: MainLock<Option<Weak<Font>>> = MainLock::new();
+static FALLBACK_FONTS: MainLock<Vec<Weak<Font>>> = MainLock::new();
 
 impl Font {
     #[allow(clippy::should_implement_trait)]
@@ -256,6 +261,20 @@ impl Font {
 
     pub fn reset_default() {
         *DEFAULT_FONT.get_mut() = None;
+    }
+
+    /// Fonts consulted in order for chars the label's font has no glyph
+    /// for. Each missing char shapes with the first fallback covering it.
+    pub fn set_fallbacks(fonts: impl IntoIterator<Item = Weak<Font>>) {
+        *FALLBACK_FONTS.get_mut() = fonts.into_iter().collect();
+    }
+
+    pub fn reset_fallbacks() {
+        FALLBACK_FONTS.get_mut().clear();
+    }
+
+    pub(crate) fn fallbacks() -> Vec<Weak<Font>> {
+        FALLBACK_FONTS.iter().copied().filter(Weak::is_ok).collect()
     }
 
     /// Loads a variable font with the given axis values, for example

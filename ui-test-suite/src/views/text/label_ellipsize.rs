@@ -7,7 +7,7 @@ use hilen::{
         BLACK, Label, RED, Screenshot, Setup, TextAlignment, U8Color, UIColor, ViewData, ViewFrame, ViewTest,
         WHITE, view,
     },
-    ui_test::{check_colors, human_checkpoint, set_record_probe_count},
+    ui_test::{check_colors, checkpoint, set_record_probe_count},
 };
 
 const TEXT: &str = "src/ui/settings_sheet/tools_tab.rs";
@@ -407,7 +407,7 @@ impl ViewTest for LabelEllipsize {
             "drawn pixels do not match the reported truncation"
         );
         check_colors(LABELS)?;
-        human_checkpoint("full, fitting, cut and twin labels");
+        checkpoint("full, fitting, cut and twin labels")?;
 
         // A narrower frame recomputes to a shorter prefix.
         let narrower = from_main(move || {

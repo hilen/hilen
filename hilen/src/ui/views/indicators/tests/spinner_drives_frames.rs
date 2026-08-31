@@ -8,7 +8,7 @@ use crate::{
     },
     gm::color::LIGHT_BLUE,
     ui::{ScrollView, Setup, Spinner, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
-    ui_test::human_checkpoint,
+    ui_test::checkpoint,
     window::continuous_render_active,
 };
 
@@ -56,7 +56,7 @@ impl ViewTest for SpinnerDrivesFrames {
             before != after,
             "the spinner dots did not move between frames, stayed at {before}"
         );
-        human_checkpoint("spinning on its own, no input");
+        checkpoint("spinning on its own, no input")?;
 
         // Only the scrolled out spinner is left. It is not on screen, so it
         // must not hold the loop awake.
@@ -70,7 +70,7 @@ impl ViewTest for SpinnerDrivesFrames {
             !continuous,
             "a hidden spinner and a scrolled out one must let the loop sleep"
         );
-        human_checkpoint("top spinner hidden, loop asleep");
+        checkpoint("top spinner hidden, loop asleep")?;
 
         from_main(move || {
             view.shown.set_hidden(false);
@@ -78,7 +78,7 @@ impl ViewTest for SpinnerDrivesFrames {
         wait_for_next_frame();
         let continuous = from_main(continuous_render_active);
         ensure!(continuous, "a spinner shown again must wake the loop");
-        human_checkpoint("shown again, loop awake");
+        checkpoint("shown again, loop awake")?;
 
         Ok(())
     }

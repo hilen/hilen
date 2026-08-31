@@ -4,6 +4,7 @@
 #[cfg(desktop)]
 mod custom_text_field;
 mod font_zoo;
+mod glyph_fallback;
 mod label;
 mod label_color_runs;
 mod label_ellipsize;

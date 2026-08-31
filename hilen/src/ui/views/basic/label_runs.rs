@@ -4,7 +4,7 @@ use crate::{
     deps::refs::{Weak, weak_from_ref},
     gm::color::Color,
     ui::Label,
-    window::{Font, FontRun},
+    window::{Font, FontRun, runs_with_fallbacks},
 };
 
 /// The look of one byte range of a label's text beyond its color. A
@@ -103,15 +103,18 @@ impl Label {
 
     /// The runs that shape with their own font, clamped to `text`, which
     /// is shorter than the full text when it is the ellipsized copy.
+    /// Chars the effective font misses get fallback runs on top.
     pub(crate) fn shaping_runs(&self, text: &str) -> Vec<FontRun> {
-        self.font_runs
+        let explicit = self
+            .font_runs
             .iter()
             .filter_map(|run| {
                 let font = run.style.font?;
                 let range = Self::clamp_to(text, &run.range);
                 (range.start < range.end).then_some(FontRun { range, font })
             })
-            .collect()
+            .collect();
+        runs_with_fallbacks(text, self.font(), explicit)
     }
 
     /// The underlined byte ranges, clamped like `shaping_runs`.

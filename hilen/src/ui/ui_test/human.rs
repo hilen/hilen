@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Result;
 use log::warn;
 use parking_lot::Mutex;
 use plat::Platform;
@@ -22,7 +23,7 @@ use crate::{
     ui::{
         Button, Container, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
-    ui_test::TEST_NAME,
+    ui_test::{TEST_NAME, capture::save_shot},
     window::{NamedKey, Window},
 };
 
@@ -68,15 +69,18 @@ pub(crate) fn human_pause_key() {
     }
 }
 
-/// Holds with `label` as the prompt, so a test can make a
-/// state visible that no injection paces, like a browser URL change
-/// that would otherwise flash by. A no-op outside human mode.
-pub fn human_checkpoint(label: &str) {
-    if !human_mode() {
-        return;
+/// A state worth looking at that no injection paces, like a browser URL
+/// change that would otherwise flash by. Holds with `label` as the prompt
+/// in human mode, saves a shot named after `label` in shots mode, and
+/// costs nothing otherwise.
+pub fn checkpoint(label: &str) -> Result<()> {
+    save_shot(label)?;
+
+    if human_mode() {
+        hold(label.to_string());
     }
 
-    hold(label.to_string());
+    Ok(())
 }
 
 pub(crate) fn hold_for_human() {

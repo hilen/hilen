@@ -134,6 +134,20 @@ not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
 the run from the base font's underline metrics, in the color the text has
 there, between the label background and the glyphs. `set_text` clears the runs.
 
+## Glyph fallback
+
+`Font::set_fallbacks(fonts)` registers fonts consulted in order for chars the
+label font has no glyph for, `reset_fallbacks` clears them. `runs_with_fallbacks`
+in `window/text/fallback.rs` runs at `Label::shaping_runs`, walks the text once,
+asks `Font::has_glyph` per char with the effective font, the explicit run font or
+the base, and gives each missing char a synthesized run with the first fallback
+that covers it, merged with its neighbors. So a fallback rides on the font runs
+machinery above and wrapping, measuring and the shape cache follow with no extra
+path. Whitespace and control chars stay with their font, shapers handle them
+without a glyph. A char no fallback covers keeps its font and draws notdef. The
+runner resets the fallbacks between tests, `GlyphFallback` covers the plain label
+and the split inside an explicit run.
+
 ## Gradient text
 
 `Label::set_text_gradient(start, end)` fades the glyphs from the top of the

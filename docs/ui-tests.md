@@ -13,6 +13,7 @@ UI_TEST_CYCLES=5 cargo run -p ui-test         # more cycles
 cargo run -p ui-test -- --test-name "Rest request"  # one test
 cargo run -p ui-test -- --headless            # offscreen, much faster, for CI and agents
 cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  # one offscreen capture
+cargo run -p ui-test -- --test-name "Font zoo" --shots /tmp/shots        # every checked state as a clean PNG, headless
 make uui                                      # full suite, headless, release mode
 make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
 cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, ctrl to advance
@@ -214,6 +215,13 @@ The runner saves the final tested frame when the test does not choose a capture 
 test that needs an earlier exact state calls `capture_screenshot()` there; it still saves
 only when the command requested an output path. Screenshot mode is for fast agent inspection,
 not a substitute for the required `--human` user review.
+
+`--shots <dir>` selects the headless runner too and takes any test subset or the whole
+suite. It saves a clean frame, no probe markers, at every `check_colors` and every
+`checkpoint`, as `<dir>/<test>-<NN>-<label>.png` with `NN` counting up per test, so the
+files sort in run order and an agent sees every verified state from one run. A check
+saves before it asserts, so a failing check still leaves its frame. `checkpoint` is the
+way to name a state a test wants on disk that no check pins.
 
 For profiling, pass `--fps-report` to print a report at the end of the run: frames, duration
 and average fps per test. Per-test fps varies a lot between runs — macOS sometimes paces frames
@@ -455,10 +463,11 @@ the screen advances. The overlay is its own touch layer, the tap never reaches t
 under review, and it is gone between holds. The run still ends like the plain lane, the
 simulator shuts down after the last tap.
 
-`human_checkpoint(label)` holds with `label` as the prompt, for a test whose
-state change no injection paces, like a browser URL change that would otherwise flash
-by. A no-op outside human mode, so headless runs keep full speed. `Router test` steps
-through every history change with it.
+`checkpoint(label)?` marks a state worth looking at that no injection paces, like a
+browser URL change that would otherwise flash by. In human mode it holds with `label` as
+the prompt, in shots mode it saves a frame named after `label`, and otherwise it costs
+nothing, so headless runs keep full speed. `Router test` steps through every history
+change with it.
 
 ## Recording color probes
 

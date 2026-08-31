@@ -6,7 +6,7 @@ use hilen::{
     refs::Weak,
     system::Router,
     ui::{Label, Setup, ViewData, ViewTest, view},
-    ui_test::human_checkpoint,
+    ui_test::checkpoint,
 };
 
 /// The subscription pushes into the view, this only makes the arrival
@@ -77,7 +77,7 @@ impl ViewTest for RouterTest {
             from_main(move || view.page.text().to_string()),
             "/router-test/first"
         );
-        human_checkpoint("pushed router-test/first");
+        checkpoint("pushed router-test/first")?;
 
         from_main(move || {
             Router::push("router-test/second");
@@ -91,7 +91,7 @@ impl ViewTest for RouterTest {
             from_main(move || view.page.text().to_string()),
             "/router-test/second"
         );
-        human_checkpoint("pushed router-test/second");
+        checkpoint("pushed router-test/second")?;
 
         // A push must not fire the pop event, only the browser walking
         // history does.
@@ -111,7 +111,7 @@ impl ViewTest for RouterTest {
             from_main(move || view.page.text().to_string()),
             "/router-test/first"
         );
-        human_checkpoint("back to router-test/first");
+        checkpoint("back to router-test/first")?;
 
         from_main(|| history().forward().expect("Failed to go forward"));
         wait_for_pops(2);
@@ -128,7 +128,7 @@ impl ViewTest for RouterTest {
             from_main(move || view.page.text().to_string()),
             "/router-test/second"
         );
-        human_checkpoint("forward to router-test/second");
+        checkpoint("forward to router-test/second")?;
 
         // Leave the URL where the page started so the rest of the suite
         // runs on the address it was served at.
@@ -141,7 +141,7 @@ impl ViewTest for RouterTest {
             from_main(move || view.page.text().to_string()),
             page_name(&original)
         );
-        human_checkpoint("replaced with the original path");
+        checkpoint("replaced with the original path")?;
 
         Ok(())
     }

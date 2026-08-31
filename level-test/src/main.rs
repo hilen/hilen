@@ -19,8 +19,8 @@ use hilen::{
     ui::UIManager,
     ui_test::{
         TestFailure, UITest, UITestEntry, capture_requested_screenshot, clear_failures, current_test_name,
-        enable_color_recording, enable_human_mode, enable_screenshot_capture, push_failure, run_test,
-        spaced_test_name, take_failures,
+        enable_color_recording, enable_human_mode, enable_screenshot_capture, enable_shots, push_failure,
+        run_test, spaced_test_name, take_failures,
     },
 };
 
@@ -56,6 +56,12 @@ struct DisplayArgs {
     #[arg(long, value_name = "PATH")]
     screenshot: Option<PathBuf>,
 
+    /// Save a clean frame into this dir at every `check_colors` and every
+    /// checkpoint, no window, no probe markers. For agents that need to
+    /// see every verified state of a run.
+    #[arg(long, value_name = "DIR")]
+    shots: Option<PathBuf>,
+
     /// Build one test's level over the whole window and hand it over,
     /// `perform_test` never runs. Requires exactly one --test-name.
     #[arg(long)]
@@ -69,8 +75,8 @@ fn all_tests() -> BTreeMap<String, UITestEntry> {
 fn apply_modes(args: &Args) -> Result<()> {
     if args.display.human {
         anyhow::ensure!(
-            !args.display.headless && args.display.screenshot.is_none(),
-            "--human requires a window, remove --headless and --screenshot"
+            !args.display.headless && args.display.screenshot.is_none() && args.display.shots.is_none(),
+            "--human requires a window, remove --headless, --screenshot and --shots"
         );
         enable_human_mode();
     }
@@ -83,14 +89,21 @@ fn apply_modes(args: &Args) -> Result<()> {
         enable_screenshot_capture(path);
     }
 
+    if let Some(dir) = args.display.shots.clone() {
+        enable_shots(dir)?;
+    }
+
     if args.record_colors {
         enable_color_recording();
     }
 
     if args.display.present {
         anyhow::ensure!(
-            !args.display.headless && args.display.screenshot.is_none() && !args.display.human,
-            "--present is its own mode, remove --headless, --screenshot and --human"
+            !args.display.headless
+                && args.display.screenshot.is_none()
+                && args.display.shots.is_none()
+                && !args.display.human,
+            "--present is its own mode, remove --headless, --screenshot, --shots and --human"
         );
         anyhow::ensure!(
             args.test_name.as_ref().is_some_and(|names| !names.contains(',')),
@@ -177,7 +190,7 @@ fn run(args: Args) -> Result<()> {
         Ok(())
     };
 
-    if args.display.headless || args.display.screenshot.is_some() {
+    if args.display.headless || args.display.screenshot.is_some() || args.display.shots.is_some() {
         AppRunner::start_headless_with_actor(actor)?;
     } else {
         AppRunner::start_with_actor(actor)?;

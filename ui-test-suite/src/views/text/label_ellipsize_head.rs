@@ -6,7 +6,7 @@ use hilen::{
     ui::{
         BLACK, Label, Screenshot, Setup, TextAlignment, U8Color, ViewData, ViewFrame, ViewTest, WHITE, view,
     },
-    ui_test::{check_colors, human_checkpoint, set_record_probe_count},
+    ui_test::{check_colors, checkpoint, set_record_probe_count},
 };
 
 const TEXT: &str = "src/ui/settings_sheet/tools_tab.rs";
@@ -194,7 +194,7 @@ impl ViewTest for LabelEllipsizeHead {
             "drawn pixels do not match the reported truncation"
         );
         check_colors(PROBES)?;
-        human_checkpoint("wide, cut and twin labels, the multiline one wrapping");
+        checkpoint("wide, cut and twin labels, the multiline one wrapping")?;
 
         // A narrower frame recomputes to a shorter suffix.
         let narrower = from_main(move || {
