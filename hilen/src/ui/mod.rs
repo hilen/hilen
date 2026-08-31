@@ -39,8 +39,8 @@ pub use crate::{
     gm::{
         color::*,
         flat::{
-            CornerRadii, FillRule, LineCap, LineJoin, Point, PointsPath, Rect, Size, StrokeStyle, VectorPath,
-            VectorPathBuilder,
+            CornerRadii, FillRule, LineCap, LineJoin, Paint, Point, PointsPath, Ramp, Rect, Size,
+            StrokeStyle, VectorPath, VectorPathBuilder,
         },
     },
     window::{
