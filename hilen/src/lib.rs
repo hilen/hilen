@@ -33,6 +33,8 @@ mod dispatch_tools;
 mod game_drawer;
 #[cfg(target_os = "ios")]
 mod ios_log;
+#[cfg(not_wasm)]
+mod log_file;
 mod pipelines;
 
 #[cfg(feature = "audio")]
@@ -81,6 +83,8 @@ pub mod time {
 pub use app_runner::AppRunner;
 pub use assets::Assets;
 pub use bug_report::BugReport;
+#[cfg(not_wasm)]
+pub use log_file::{log_dir, log_file_path};
 
 pub use crate::{
     deps::vents::{Event, OnceEvent},

@@ -61,8 +61,9 @@ impl AppRunner {
 
     #[cfg(not_wasm)]
     pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
+        use chrono::Local;
         use fern::Dispatch;
-        use log::{Level, LevelFilter};
+        use log::{Level, LevelFilter, info, warn};
 
         #[cfg(target_os = "ios")]
         let output = fern::Output::call(|record| crate::ios_log::log(&record.args().to_string()));
@@ -85,7 +86,29 @@ impl AppRunner {
             crate::bug_report::BugReport::push_log_line(record.args().to_string());
         });
 
-        dispatch
+        // The file gets a timestamp per line, the console stays as it is so
+        // the lines tests grep for keep their shape.
+        let file = match crate::log_file::create().and_then(|path| Ok((fern::log_file(&path)?, path))) {
+            Ok((file, path)) => Some((
+                Dispatch::new()
+                    .format(|out, message, _| {
+                        out.finish(format_args!("{} {message}", Local::now().format("%H:%M:%S%.3f")));
+                    })
+                    .chain(file),
+                path,
+            )),
+            Err(err) => {
+                eprintln!("log file: {err:#}");
+                None
+            }
+        };
+
+        let (file, path) = match file {
+            Some((file, path)) => (Some(file), Some(path)),
+            None => (None, None),
+        };
+
+        let mut dispatch = dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -116,11 +139,19 @@ impl AppRunner {
                 out.finish(format_args!("{log}"));
             })
             .chain(output)
-            .chain(ring)
-            .apply()
-            .expect("Failed to initialize logging");
+            .chain(ring);
+
+        if let Some(file) = file {
+            dispatch = dispatch.chain(file);
+        }
+
+        dispatch.apply().expect("Failed to initialize logging");
 
         debug!("logs setup");
+        match path {
+            Some(path) => info!("log file {}", path.display()),
+            None => warn!("no log file for this launch, see stderr"),
+        }
     }
 
     #[cfg(not_wasm)]

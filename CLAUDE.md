@@ -92,6 +92,15 @@ Do not read these upfront. Read the matching file only when the task touches tha
 
 Docs should be concise.
 
+## Logs
+
+Every launch logs to stdout and to a file, `~/Library/Logs/<app>/` on mac,
+`%LOCALAPPDATA%\<app>\logs\` on Windows, `~/.local/state/<app>/logs/` on Linux, named
+`<app>-<date>_<time>.log` after the exe, newest 10 kept. The first lines name the file.
+`hilen::log_file_path()` returns it, `hilen::log_dir(app)` the folder. A GUI build on
+Windows has no console and a dock launch on mac has no terminal, so the file is the only
+log of a shipped app.
+
 ## Commands
 
 ```bash
