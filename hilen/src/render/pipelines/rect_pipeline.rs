@@ -4,8 +4,8 @@ use bytemuck::Pod;
 use indexmap::IndexMap;
 use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages,
+    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
         vertex_layout::VertexLayout,
     },
     window::{
-        PolygonMode, Window,
+        Window,
         image::{Image, RASTER_KEEP_FRAMES},
     },
 };
@@ -115,7 +115,7 @@ impl<
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                PolygonMode::Fill,
+                CompareFunction::Less,
                 PrimitiveTopology::TriangleStrip,
                 &[Vertex2D::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
             )
@@ -124,7 +124,7 @@ impl<
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                PolygonMode::Fill,
+                CompareFunction::Less,
                 PrimitiveTopology::TriangleStrip,
                 &[Point::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
             )

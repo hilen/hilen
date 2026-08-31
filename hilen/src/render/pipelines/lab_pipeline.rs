@@ -2,8 +2,8 @@ use std::num::NonZeroU64;
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages,
+    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{PolygonMode, Window, image::Image},
+    window::{Window, image::Image},
 };
 
 /// A `UIRectPipeline` whose shader comes from a string at runtime instead of a
@@ -77,7 +77,7 @@ impl LabPipeline {
                 name,
                 &layout,
                 &shader,
-                PolygonMode::Fill,
+                CompareFunction::Less,
                 PrimitiveTopology::TriangleStrip,
                 &[Vertex2D::VERTEX_LAYOUT, UIRectInstance::VERTEX_LAYOUT],
             )
@@ -86,7 +86,7 @@ impl LabPipeline {
                 name,
                 &layout,
                 &shader,
-                PolygonMode::Fill,
+                CompareFunction::Less,
                 PrimitiveTopology::TriangleStrip,
                 &[Point::VERTEX_LAYOUT, UIRectInstance::VERTEX_LAYOUT],
             )

@@ -271,6 +271,32 @@ Found by the beekeeper node card sparklines, blank on every platform.
   inherent one. Pinned by the `Drawing paths` test, 320 recorded probes passing
   identically on desktop, the iOS simulator and Chrome WebGPU.
 
+## DrawingView path stacking order
+
+Found by the micbus patch board draft at `~/dev/apps/micbus`. A knob drawn as a rim
+circle, then a face circle, then a marker on top rendered as only the rim circle.
+Screw slots and knob rings drawn as strokes over earlier fills never showed at all.
+
+- Landed: painter order inside one `DrawingView`, option 1. The path pipeline
+  compares depth with `LessEqual` while every other pipeline keeps `Less`, so at
+  the equal z all paths of a view share, the later draw call wins and a later
+  `add_fill` or `add_stroke` reliably draws over earlier ones. Views never share
+  a z, siblings differ by the sibling z step, so between views depth still
+  decides. `DeviceHelper::pipeline` takes the depth compare in place of the
+  polygon mode every caller passed as `Fill`.
+- Landed alongside: gradient paints. `add_fill` and `add_stroke` take an
+  `impl Into<Paint>`, a plain `Color` still works. `Paint` carries a linear,
+  radial or conic ramp with up to 8 stops, interpolated premultiplied like CSS,
+  so a ramp into a transparent stop is a soft shadow or a glow with no blur
+  pass. A conic ramp is the turned metal sheen, and `grain` adds per pixel
+  noise that follows the angle on conic ramps, streaking along the radius like
+  machined metal. Covered by `Drawing gradients`, and by `Drawing layers`,
+  which builds a full skeuomorphic hardware panel, a knob, a VU meter, a seven
+  segment display, a fader, lamps, screws and more, from stacked paints in one
+  `DrawingView`, the painters in its `tests/panel.rs`.
+- Left: texture fills for paths, more than 8 stops, and soft edges on arbitrary
+  path outlines, a radial alpha ramp only covers circular glows.
+
 ## Web lane scroll injection determinism
 
 Found by `Table view 2 test` failing only in the browser lane once MSAA 4x made
@@ -755,7 +781,9 @@ ellipsis, the TextField font, the inspect tap modifiers and the label font runs,
 which closed the kukareker list. The head ellipsize and the hover re-pick on
 view removal closed the wave 8 leftovers, and the update download progress
 closed the packaging wave, rounded corner clipping and the sprite cutout
-edges closed the rendering leftovers, and svgs now rasterize at the drawn size. Among the rest, frame stepped
+edges closed the rendering leftovers, and svgs now rasterize at the drawn size.
+DrawingView painter order and the gradient paints landed with the drawing tests,
+unblocking the micbus board. Among the rest, frame stepped
 animation testing goes next, it has two live needs, the unassessed animation problem in
 the present test and the web lane scroll determinism flake it would also fix.
 The text stack remainder waits for a real need for color emoji or font

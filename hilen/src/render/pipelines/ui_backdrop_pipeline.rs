@@ -2,8 +2,8 @@ use std::num::NonZeroU64;
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages,
+    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{PolygonMode, Window, image::Image},
+    window::{Window, image::Image},
 };
 
 const UI_BACKDROP_CODE: &str = include_str!("shaders/ui_backdrop.wgsl");
@@ -68,7 +68,7 @@ impl Default for UIBackdropPipeline {
             "ui_backdrop_pipeline",
             &layout,
             &shader,
-            PolygonMode::Fill,
+            CompareFunction::Less,
             PrimitiveTopology::TriangleStrip,
             &[Point::VERTEX_LAYOUT, UIRectInstance::VERTEX_LAYOUT],
         );

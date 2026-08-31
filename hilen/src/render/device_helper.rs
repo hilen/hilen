@@ -47,12 +47,15 @@ pub(crate) trait DeviceHelper {
 
     fn bind(&self, buffer: &Buffer, layout: &BindGroupLayout) -> BindGroup;
 
+    /// Every pipeline passes `Less`, so at equal z the first draw wins,
+    /// except the path pipeline, which passes `LessEqual` for painter
+    /// order within one `DrawingView`. See `UIPathPipeline`.
     fn pipeline(
         &self,
         label: &str,
         layout: &PipelineLayout,
         shader: &ShaderModule,
-        polygon_mode: PolygonMode,
+        depth_compare: CompareFunction,
         topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
     ) -> RenderPipeline;
@@ -101,7 +104,7 @@ impl DeviceHelper for Device {
         label: &str,
         layout: &PipelineLayout,
         shader: &ShaderModule,
-        polygon_mode: PolygonMode,
+        depth_compare: CompareFunction,
         topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
     ) -> RenderPipeline {
@@ -133,11 +136,15 @@ impl DeviceHelper for Device {
                 front_face: FrontFace::Ccw,
                 // cull_mode: wgpu::Face::Back.into(),
                 cull_mode: None,
-                polygon_mode,
+                polygon_mode: PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil:  depth_stencil_state().into(),
+            depth_stencil:  DepthStencilState {
+                depth_compare: Some(depth_compare),
+                ..depth_stencil_state()
+            }
+            .into(),
             multisample:    MultisampleState {
                 count:                     msaa_sample_count(),
                 mask:                      !0,

@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
-    BindGroup, Buffer, BufferUsages, PipelineLayoutDescriptor, PolygonMode, PrimitiveTopology, RenderPass,
-    RenderPipeline, ShaderStages,
+    BindGroup, Buffer, BufferUsages, CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology,
+    RenderPass, RenderPipeline, ShaderStages,
 };
 
 use crate::{
@@ -82,7 +82,7 @@ impl Default for BackgroundPipeline {
             "background_pipeline",
             &pipeline_layout,
             &shader,
-            PolygonMode::Fill,
+            CompareFunction::Less,
             PrimitiveTopology::TriangleStrip,
             &[Vertex2D::VERTEX_LAYOUT],
         );

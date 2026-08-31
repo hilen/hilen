@@ -1,5 +1,5 @@
 use wgpu::{
-    IndexFormat, PipelineLayoutDescriptor, PolygonMode, PrimitiveTopology, RenderPass, RenderPipeline,
+    CompareFunction, IndexFormat, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
     include_wgsl,
 };
 
@@ -26,11 +26,17 @@ impl Default for UIPathPipeline {
             immediate_size:     0,
         });
 
+        // Every path in one DrawingView shares the z of the view, and a
+        // later add_fill or add_stroke must draw over earlier ones, like
+        // layers in a drawing tool. Paths render one draw call each in
+        // add order, so LessEqual lets the later call win at equal depth.
+        // Views never share a z, siblings differ by the sibling z step,
+        // so between views the depth still decides like everywhere else.
         let pipeline = device.pipeline(
             "Path Fill Render Pipeline",
             &pipeline_layout,
             &shader,
-            PolygonMode::Fill,
+            CompareFunction::LessEqual,
             PrimitiveTopology::TriangleList,
             &[Point::VERTEX_LAYOUT],
         );
