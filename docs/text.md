@@ -87,6 +87,15 @@ times the box. Without it the engine pitch is the font's ascent minus
 descent plus line gap, which for a wrapped text-sm label is around 16.5
 where CSS puts 20, and the difference compounds down a block.
 
+A tab has no glyph in most fonts, so the shaper returns notdef and the
+line would show a box. `expand_tabs` in `ShapedLayout` swaps every tab
+for the space glyph of its font and stretches its advance to the next
+tab stop, 4 space widths counted from the line start, so columns align
+like in an editor. It runs after shaping and before wrapping, on the
+copy the shape cache returns, so measure, wrap and drawing agree. A tab
+at the very end of a text still measures as one space, `glyph_brush`
+bounds the last glyph by its own advance. `Label tab` pins the behavior.
+
 ## Matching other renderers
 
 Browsers composite text in sRGB space and so does the engine: render targets

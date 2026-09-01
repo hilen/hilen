@@ -94,12 +94,24 @@ pub(crate) struct ShapedGlyph {
     y_offset:  f32,
 }
 
+/// The space glyph of a source, what a tab draws as and the column a
+/// tab stop is measured in.
+#[derive(Clone, Copy)]
+struct Space {
+    id:      u16,
+    advance: f32,
+}
+
 /// One font of a layout at the size the text draws at.
 struct Source {
     font:        Weak<Font>,
     scale:       PxScale,
     px_per_unit: f32,
+    space:       Option<Space>,
 }
+
+/// Columns of one tab stop, in spaces. The editor default.
+const TAB_SIZE: f32 = 4.0;
 
 struct ShapedLine {
     start:  usize,
@@ -122,12 +134,20 @@ impl ShapedLayout<'_> {
         let base = self.params.base;
         let em = base_scale.x / base.em_scale();
 
+        let tracking = self.params.tracking;
         let source = |font: Weak<Font>| {
             let scale = PxScale::from(em * font.em_scale());
+            let px_per_unit = font.ab().as_scaled(scale).scale_factor().horizontal;
+            let space = font.face().glyph_index(' ').map(|id| Space {
+                id:      id.0,
+                advance: f32::from(font.face().glyph_hor_advance(id).unwrap_or_default()) * px_per_unit
+                    + tracking,
+            });
             Source {
                 font,
                 scale,
-                px_per_unit: font.ab().as_scaled(scale).scale_factor().horizontal,
+                px_per_unit,
+                space,
             }
         };
 
@@ -276,13 +296,39 @@ impl ShapedLayout<'_> {
         chunks
     }
 
+    /// A tab is not in most cmaps, so the shaper hands back notdef and
+    /// the line shows a box. Draws it as the space glyph and stretches it
+    /// to the next `TAB_SIZE` column, so tabs align like in an editor.
+    fn expand_tabs(glyphs: &mut [ShapedGlyph], text: &str, sources: &[Source]) {
+        let mut x = 0.0;
+        for glyph in glyphs {
+            if text.as_bytes().get(glyph.cluster) == Some(&b'\t')
+                && let Some(space) = sources[glyph.source].space
+            {
+                let stop = space.advance * TAB_SIZE;
+                let mut advance = stop - x % stop;
+                // Rounding after a run of spaces can leave x a hair short
+                // of a stop, a tab still has to move a visible amount.
+                if advance < 0.5 {
+                    advance += stop;
+                }
+                glyph.id = space.id;
+                glyph.x_offset = 0.0;
+                glyph.y_offset = 0.0;
+                glyph.x_advance = advance;
+            }
+            x += glyph.x_advance;
+        }
+    }
+
     fn shape_text(&self, text: &str, sources: &[Source], bound_w: f32) -> Vec<ShapedLine> {
         let mut lines = vec![];
         let mut offset = 0;
 
         for raw_line in text.split('\n') {
             let line_end = offset + raw_line.len();
-            let shaped = self.shape_line(text, offset..line_end, sources);
+            let mut shaped = self.shape_line(text, offset..line_end, sources);
+            Self::expand_tabs(&mut shaped, text, sources);
 
             let chunks = if self.params.multiline {
                 Self::wrap(shaped, text, offset..line_end, bound_w)

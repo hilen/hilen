@@ -16,6 +16,7 @@ mod label_image;
 mod label_line_height;
 mod label_measure;
 mod label_stress;
+mod label_tab;
 mod label_vertical_alignment;
 mod letter_spacing;
 mod multiline_label;
