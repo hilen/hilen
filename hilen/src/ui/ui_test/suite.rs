@@ -24,6 +24,7 @@ struct AppState {
     text_size:      f32,
     scale_override: f32,
     clear_color:    UIColor,
+    bug_animation:  Option<&'static [u8]>,
 }
 
 /// Tests expect scale 1 and 32 point text. Any host that runs them must match,
@@ -34,6 +35,7 @@ fn prepare_harness() -> AppState {
         text_size:      Label::default_text_size(),
         scale_override: UIManager::scale_override(),
         clear_color:    UIManager::clear_color(),
+        bug_animation:  crate::BugReport::animation(),
     });
 
     Label::set_default_text_size(32);
@@ -48,6 +50,7 @@ fn prepare_harness() -> AppState {
 /// Give the app back everything the run took, and a root view to live in.
 fn restore_app(state: AppState) {
     Label::set_default_text_size(state.text_size);
+    crate::BugReport::restore_animation(state.bug_animation);
 
     from_main(move || {
         Style::restore_globals(state.styles);

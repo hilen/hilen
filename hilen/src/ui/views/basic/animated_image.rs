@@ -53,8 +53,17 @@ impl AnimatedImage {
     /// Decode a gif and start playing it from the first frame. Replaces any gif
     /// already loaded.
     pub fn set_gif(&self, data: &[u8]) -> Result<&Self> {
-        let decoded = decode_gif(data)?;
         let id = NEXT_GIF_ID.fetch_add(1, Ordering::Relaxed);
+        self.set_gif_keyed(data, &id.to_string())
+    }
+
+    /// `set_gif` with caller chosen texture names. Frame textures are managed
+    /// and never freed, so a gif loaded repeatedly, like a dialog opened many
+    /// times, reuses one texture set under a stable key instead of keeping a
+    /// new set per load.
+    pub fn set_gif_keyed(&self, data: &[u8], key: &str) -> Result<&Self> {
+        let decoded = decode_gif(data)?;
+        let id = key;
 
         let mut this = weak_from_ref(self);
         this.frames = decoded

@@ -3,10 +3,11 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use log::error;
 use ui_proc::view;
 
 use crate::{
-    bug_report::input_ring::KeyPress,
+    bug_report::{BugReport, input_ring::KeyPress},
     deps::{refs::Weak, vents::OnceEvent},
     gm::{
         color::{CLEAR, Color, WHITE},
@@ -14,8 +15,8 @@ use crate::{
     },
     ui::{
         Anchor::{Height, Left, Right, Top, Y},
-        Button, CheckBox, Container, DynamicColor, ImageMode, ImageView, Label, ModalView, ScrollView, Setup,
-        TextAlignment, TextField, UIManager, ViewData, ViewFrame, ViewSubviews,
+        AnimatedImage, Button, CheckBox, Container, DynamicColor, ImageMode, ImageView, Label, ModalView,
+        ScrollView, Setup, TextAlignment, TextField, UIManager, ViewData, ViewFrame, ViewSubviews,
     },
     window::image::Image,
 };
@@ -70,6 +71,7 @@ pub struct BugReportForm {
     desc_label:             Label,
     pub(crate) description: TextField,
     pub(crate) counter:     Label,
+    pub(crate) animation:   AnimatedImage,
     shot_caption:           Label,
     screenshot:             ImageView,
     log_caption:            Label,
@@ -115,7 +117,23 @@ impl Setup for BugReportForm {
         self.counter.place().anchor(Top, self.description, 6).l(24).size(300, 14);
 
         Self::caption(self.shot_caption, "Screenshot (will be sent)");
-        self.shot_caption.place().anchor(Top, self.counter, 14).l(24).size(300, 16);
+
+        // The karkas dialogs play a looping animation between the description
+        // and the screenshot. Only when the app registered one.
+        if let Some(gif) = BugReport::animation() {
+            match self.animation.set_gif_keyed(gif, "bug-report") {
+                Ok(anim) => {
+                    anim.set_mode(ImageMode::AspectFit);
+                }
+                Err(err) => error!("Bug report animation failed to decode: {err}"),
+            }
+            self.animation.set_corner_radius(8);
+            self.animation.place().anchor(Top, self.counter, 14).l(24).size(322, 200);
+            self.shot_caption.place().anchor(Top, self.animation, 14).l(24).size(300, 16);
+        } else {
+            self.animation.set_hidden(true);
+            self.shot_caption.place().anchor(Top, self.counter, 14).l(24).size(300, 16);
+        }
 
         self.screenshot.set_corner_radius(8).set_border_color(LINE);
         self.screenshot.place().anchor(Top, self.shot_caption, 6).l(24).size(214, 120);
@@ -249,7 +267,13 @@ impl Setup for BugReportView {
 
         let mut this = self;
         this.form = self.scroll.add_view::<BugReportForm>();
-        self.form.place().t(0).l(0).r(0).h(620);
+        // The animation slot adds its height plus one anchor gap.
+        let form_height = if BugReport::animation().is_some() {
+            834
+        } else {
+            620
+        };
+        self.form.place().t(0).l(0).r(0).h(form_height);
 
         self.bottom_line.set_color(LINE);
         self.bottom_line.place().b(56).lr(0).h(1);
