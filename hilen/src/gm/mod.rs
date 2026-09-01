@@ -1,5 +1,6 @@
 mod animation;
 pub(crate) mod axis;
+mod clock;
 pub mod color;
 pub mod converter;
 pub(crate) mod flat;
@@ -13,6 +14,7 @@ pub mod volume;
 
 pub use self::{
     animation::Animation,
+    clock::{Clock, STEP_MS},
     flat::{Direction, Shape},
     misc::{Apply, Toggle, drop_on_main},
     num::{

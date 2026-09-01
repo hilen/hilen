@@ -81,6 +81,9 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // Fallback fonts are global too, a test that registers one must
         // not leak it into the next.
         crate::ui::Font::reset_fallbacks();
+        // Frame stepped time is a global opt in, so a stepped test that
+        // returned early must not leave the clock stepped for the next.
+        crate::gm::Clock::exit_stepped();
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {

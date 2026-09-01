@@ -400,6 +400,17 @@ The corpus does this throughout, and a fixture is usually what you want anyway, 
 Test helpers: `inject_touches`, `inject_scroll`, `inject_right_click`, `inject_long_press`,
 `wait_for_tooltip`, `check_colors` (asserts pixel colors at coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
 
+An animation samples real time, so its mid flight frames depend on machine speed and
+a test can normally only check the settled state. A test that needs an exact frame
+opts into frame stepped time: `Clock::enter_stepped()` on the main thread freezes
+the engine clock, and `step_frames(n)` moves it by `n` frames of 16.666 ms, rendering
+each one. `Animation` and `AnimatedImage` read that clock, so after `step_frames(15)`
+a 0.5 s animation sits at exactly half and a gif with 100 ms frames is on frame 1
+after `step_frames(6)`, on every platform. The runner leaves stepped mode before
+every test, so a test never has to clean it up on the failure path. `Frame stepped
+animation` and `Animated gif` are the examples. `Animation drives frames` must never
+run stepped, it proves free running animations request their own frames.
+
 ## What a run takes from the app
 
 A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32,

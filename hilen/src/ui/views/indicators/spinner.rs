@@ -101,7 +101,9 @@ impl ViewCallbacks for Spinner {
 
         let current_time: i64 = Utc::now().timestamp_micros();
 
-        let val: f32 = (current_time % cycle_duration).lossy_convert() / cycle_duration.lossy_convert();
+        let elapsed: f32 = (current_time % cycle_duration).lossy_convert();
+        let cycle: f32 = cycle_duration.lossy_convert();
+        let val: f32 = elapsed / cycle;
 
         let span = PI * 2.0;
         let start = -PI;

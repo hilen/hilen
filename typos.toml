@@ -10,3 +10,5 @@ hd = "hd"
 trak = "trak"
 # UDID - Apple unique device identifier
 udid = "udid"
+# numer_denom_ms - the image crate gif frame delay accessor
+numer = "numer"

@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     deps::hreads::{from_main, wait_for_next_frame},
     gm::{
-        LossyConvert,
+        Clock, LossyConvert,
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
@@ -15,6 +15,7 @@ use crate::{
         human::{human_mode, show_probes},
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
+    window::{Window, request_frame},
 };
 
 #[allow(dead_code)]
@@ -27,6 +28,24 @@ pub(crate) fn add_action(action: impl FnMut() + Send + 'static) {
     button.set_color(LIGHT_GRAY);
     button.on_tap(action);
     button.__base_view().view_label = "Debug Action Button".into();
+}
+
+/// Advance frame stepped time by `n` rendered frames and let the loop draw each
+/// one. Only meaningful after `Clock::enter_stepped`. Each step moves the
+/// virtual clock one `STEP_MS` and waits for a real render, so an animation
+/// commits at the new time and its frames land on an exact count no matter how
+/// fast the machine runs.
+pub fn step_frames(n: u32) {
+    for _ in 0..n {
+        let before = from_main(|| {
+            Clock::advance_frame();
+            request_frame();
+            Window::render_frame()
+        });
+        while from_main(Window::render_frame) <= before {
+            wait_for_next_frame();
+        }
+    }
 }
 
 pub fn check_colors(data: &str) -> Result<()> {

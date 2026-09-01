@@ -1,3 +1,4 @@
+mod animated_image;
 mod button;
 mod checkbox;
 mod circle_view;
@@ -10,6 +11,7 @@ mod slider;
 mod switch;
 mod text_field;
 
+pub use animated_image::AnimatedImage;
 pub use button::Button;
 pub use checkbox::*;
 pub use circle_view::CircleView;
