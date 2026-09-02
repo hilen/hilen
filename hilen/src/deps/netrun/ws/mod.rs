@@ -33,17 +33,43 @@ mod test {
 
     #[cfg(not_wasm)]
     mod not_wasm_test {
-        use std::{sync::mpsc::channel, time::Duration};
+        use std::{
+            sync::{Arc, mpsc::channel},
+            time::Duration,
+        };
 
         use anyhow::Result;
         use futures_util::{SinkExt, StreamExt};
         use pretty_assertions::assert_eq;
+        use rcgen::generate_simple_self_signed;
+        use rustls::{ServerConfig, crypto::ring::default_provider, pki_types::PrivateKeyDer};
         use tokio::net::TcpListener;
+        use tokio_rustls::TlsAcceptor;
         use tokio_tungstenite::accept_async;
 
-        use crate::deps::netrun::ws::{WebSocket, WsEvent};
+        use crate::deps::netrun::{
+            tls::trust_for_tests,
+            ws::{WebSocket, WsEvent},
+        };
 
         const TIMEOUT: Duration = Duration::from_secs(10);
+
+        /// A certificate for the loopback address, trusted by the client for
+        /// the rest of the process.
+        fn tls_acceptor() -> Result<TlsAcceptor> {
+            let certified = generate_simple_self_signed(vec!["127.0.0.1".to_string()])?;
+            let cert = certified.cert.der().clone();
+            let key = PrivateKeyDer::Pkcs8(certified.signing_key.serialize_der().into());
+
+            trust_for_tests(cert.clone());
+
+            let config = ServerConfig::builder_with_provider(Arc::new(default_provider()))
+                .with_safe_default_protocol_versions()?
+                .with_no_client_auth()
+                .with_single_cert(vec![cert], key)?;
+
+            Ok(TlsAcceptor::from(Arc::new(config)))
+        }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn ws_round_trip() -> Result<()> {
@@ -88,13 +114,30 @@ mod test {
             Ok(())
         }
 
-        /// Same public echo service the wasm test uses. This exercises the
-        /// explicit rustls connector, which the local ws:// test never touches.
+        /// A local TLS echo behind a self signed certificate. This exercises
+        /// the explicit rustls connector, which the plain ws:// test never
+        /// touches.
         #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         async fn ws_tls_round_trip() -> Result<()> {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            let acceptor = tls_acceptor()?;
+
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("Failed to accept a connection");
+                let stream = acceptor.accept(stream).await.expect("Failed the TLS handshake");
+                let mut socket = accept_async(stream).await.expect("Failed the WebSocket handshake");
+
+                while let Some(Ok(message)) = socket.next().await {
+                    if message.is_text() {
+                        socket.send(message).await.expect("Failed to echo a message");
+                    }
+                }
+            });
+
             let (events, received) = channel();
 
-            let socket = WebSocket::connect("wss://ws.postman-echo.com/raw", move |event| {
+            let socket = WebSocket::connect(format!("wss://{address}"), move |event| {
                 events.send(event).expect("Failed to deliver an event");
             });
 

@@ -11,7 +11,7 @@ screen, wiring or shipped asset. If an item only matters to one app, it belongs 
 app's own docs, not here. A gap an app found still qualifies only when the fix is a
 reusable engine capability.
 
-The driver apps are skaityk-te at `~/dev/apps/skaityk-te` (a reader for Lithuanian
+The driver apps are skaityk at `~/dev/apps/skaityk` (a reader for Lithuanian
 learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kukareker at
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.

@@ -6,9 +6,10 @@ Supports: Windows, Linux, Mac, iOS, Android and WebAssembly.
 The engine is one library crate, `hilen`, with modules like `gm`, `ui`, `window`,
 `render`, `level` under `hilen/src/`. The foundational crates `hreads`, `refs`, `vents`
 and `netrun` are modules under `hilen/src/deps/`, not separate crates, so a published
-`hilen` is one self contained library. `deps/` holds only the proc macro crates plus
-`plat`, which stays its own crate because three build scripts call its `platforms()`
-to set the cfg aliases and a crate cannot use its own code in its build script.
+`hilen` is one self contained library. `deps/` holds only the proc macro crates,
+`ui-proc-test`, the compile check for the `view` macro, plus `plat`, which stays its own
+crate because three build scripts call its `platforms()` to set the cfg aliases and a
+crate cannot use its own code in its build script.
 Apps and test binaries are separate crates on top. Internals are `pub(crate)`, the
 app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, so the
 `dead_code` lint stays meaningful.

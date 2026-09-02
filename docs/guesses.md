@@ -17,7 +17,7 @@ Evidence found: panic is reproducible only synthetically. No live crash path exi
 `TextField` hand-guards with `is_null` and unsubscribes on deselect, buttons subscribe
 to their own events and die with them, the root view never dies. Liveness checks cost
 5-20 ns per trigger; the "faster" rewrite attempted alongside measured 2.6x SLOWER
-(`cargo bench -p ui --bench ui_event`).
+(measured in the old standalone `ui` crate, its `ui_event` bench did not move into this repo).
 
 Verdict: parked. Revisit if a real crash from a dead subscriber ever shows up.
 
@@ -30,5 +30,5 @@ Kept as a reminder of what happens without proof:
 - "removing per-frame allocations made it slower" - measured under Docker, browser and
   Spotlight load. Clean A/B said +3.6-7.7%.
 - "leaving a screen with a text field crashes on the next keypress" - never reproduced,
-  the guard in `text_field.rs` already prevents it. Found by reading the code after
+  the guard in `text_field/editing.rs` already prevents it. Found by reading the code after
   making the claim, which is the wrong order.

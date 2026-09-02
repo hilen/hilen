@@ -7,7 +7,7 @@ The whole inspect module sits behind the `inspect` cargo feature, off by default
 `features = ["inspect"]`. Without the feature there is no server, no listener and
 nothing to discover, so `hilen-inspect apps` finds nothing no matter how fresh the CLI is.
 An app whose shipped artifact is a browser dist keeps the feature off the wasm target by
-enabling it only through a target-conditional dependency section, see `beekeeper/web-te`
+enabling it only through a target-conditional dependency section, see `beekeeper/web`
 in the `local` repo for the pattern.
 
 With the feature on, the app starts an inspect server at launch

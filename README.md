@@ -90,7 +90,7 @@ impl Setup for MainScreen {
         UIManager::set_clear_color("#4E4D5C");
 
         self.hello_label
-            .set_text("Hello Test Engine!")
+            .set_text("Hello Hilen!")
             .set_color(U8Color::rgba(156, 149, 220, 255))
             .set_corner_radius(10)
             .set_border_color("#228CDB")
