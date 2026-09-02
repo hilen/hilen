@@ -4,7 +4,8 @@ use anyhow::Result;
 use log::error;
 use wgpu::{
     BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingResource, BindingType, SamplerBindingType, ShaderStages, TextureSampleType, TextureViewDimension,
+    BindingResource, BindingType, Sampler, SamplerBindingType, ShaderStages, TextureSampleType, TextureView,
+    TextureViewDimension,
 };
 
 use crate::{
@@ -44,22 +45,21 @@ impl Image {
     }
 
     pub(crate) fn bind_texture(texture: &Texture) -> ImageBind {
-        Window::device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label:   "image_bind_group".into(),
-                layout:  Self::uniform_layout(),
-                entries: &[
-                    BindGroupEntry {
-                        binding:  0,
-                        resource: BindingResource::TextureView(&texture.view),
-                    },
-                    BindGroupEntry {
-                        binding:  1,
-                        resource: BindingResource::Sampler(&texture.sampler),
-                    },
-                ],
-            })
-            .into()
+        let bind = Window::device().create_bind_group(&wgpu::BindGroupDescriptor {
+            label:   "image_bind_group".into(),
+            layout:  Self::uniform_layout(),
+            entries: &[
+                BindGroupEntry {
+                    binding:  0,
+                    resource: BindingResource::TextureView(&texture.view),
+                },
+                BindGroupEntry {
+                    binding:  1,
+                    resource: BindingResource::Sampler(&texture.sampler),
+                },
+            ],
+        });
+        ImageBind::new(bind, texture.view.clone(), texture.sampler.clone())
     }
 
     fn from_texture(texture: &Texture, svg: Option<Svg>) -> Self {
@@ -94,6 +94,14 @@ impl Image {
 
     pub(crate) fn bind(&self) -> &BindGroup {
         self.bind.get()
+    }
+
+    pub(crate) fn view(&self) -> &TextureView {
+        self.bind.view()
+    }
+
+    pub(crate) fn sampler(&self) -> &Sampler {
+        self.bind.sampler()
     }
 }
 

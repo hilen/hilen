@@ -25,6 +25,7 @@ const BALL_SEGMENTS: usize = 32;
 
 /// Geometry on the GPU. Indices are 16 bit, which every lane draws, so a
 /// mesh holds at most 65535 vertices.
+#[derive(Debug)]
 pub struct Mesh {
     pub(crate) vertex_buffer: Buffer,
     pub(crate) index_buffer:  Buffer,

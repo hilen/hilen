@@ -3,6 +3,9 @@
 //! engine they compile at `opt-level = 0`, and one 41 megapixel fixture
 //! then spent 11 seconds in its mip chain at every browser start.
 
+mod cube;
+
+pub use cube::*;
 use tiny_skia::PremultipliedColorU8;
 
 /// Straight alpha RGBA bytes of a tiny-skia raster. Its pixels are

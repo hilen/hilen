@@ -77,6 +77,8 @@ pub(crate) trait DeviceHelper {
     /// A pipeline for solid geometry. Back faces are culled, the fragment
     /// replaces the target since a scene is opaque, depth and the stencil
     /// clip test are the frame's shared ones.
+    /// A translucent one blends over what is drawn and leaves the
+    /// depth alone, so the nodes behind it stay visible through it.
     #[cfg(feature = "scene")]
     fn mesh_pipeline(
         &self,
@@ -84,7 +86,13 @@ pub(crate) trait DeviceHelper {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        transparent: bool,
     ) -> RenderPipeline;
+
+    /// The skybox, one triangle over the viewport with no depth test
+    /// and no depth write, drawn before the nodes cover it.
+    #[cfg(feature = "scene")]
+    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
 }
 
 impl DeviceHelper for Device {
@@ -248,6 +256,7 @@ impl DeviceHelper for Device {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        transparent: bool,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -265,7 +274,11 @@ impl DeviceHelper for Device {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
                     format:     surface_texture_format(),
-                    blend:      BlendState::REPLACE.into(),
+                    blend:      Some(if transparent {
+                        BlendState::ALPHA_BLENDING
+                    } else {
+                        BlendState::REPLACE
+                    }),
                     write_mask: ColorWrites::ALL,
                 }
                 .into()],
@@ -280,7 +293,59 @@ impl DeviceHelper for Device {
                 unclipped_depth:    false,
                 conservative:       false,
             },
-            depth_stencil:  depth_stencil_state().into(),
+            depth_stencil:  DepthStencilState {
+                depth_write_enabled: Some(!transparent),
+                ..depth_stencil_state()
+            }
+            .into(),
+            multisample:    MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            },
+            cache:          None,
+            multiview_mask: None,
+        })
+    }
+
+    #[cfg(feature = "scene")]
+    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
+        self.create_render_pipeline(&RenderPipelineDescriptor {
+            label:          label.into(),
+            layout:         layout.into(),
+            vertex:         VertexState {
+                module:              shader,
+                entry_point:         "v_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers:             &[],
+            },
+            fragment:       FragmentState {
+                module:              shader,
+                entry_point:         "f_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[ColorTargetState {
+                    format:     surface_texture_format(),
+                    blend:      BlendState::REPLACE.into(),
+                    write_mask: ColorWrites::ALL,
+                }
+                .into()],
+            }
+            .into(),
+            primitive:      PrimitiveState {
+                topology:           PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face:         FrontFace::Ccw,
+                cull_mode:          None,
+                polygon_mode:       PolygonMode::Fill,
+                unclipped_depth:    false,
+                conservative:       false,
+            },
+            depth_stencil:  DepthStencilState {
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Always),
+                ..depth_stencil_state()
+            }
+            .into(),
             multisample:    MultisampleState {
                 count:                     msaa_sample_count(),
                 mask:                      !0,

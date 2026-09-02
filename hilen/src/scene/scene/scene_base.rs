@@ -4,8 +4,8 @@ use educe::Educe;
 
 use crate::{
     deps::refs::{Own, Weak},
-    gm::volume::Vec3,
-    scene::{Camera, Node, Scene, scene::scene_physics::ScenePhysics},
+    gm::{color::Color, volume::Vec3},
+    scene::{Camera, Light, Node, Player, Scene, Sky, Sun, scene::scene_physics::ScenePhysics},
 };
 
 #[derive(Educe)]
@@ -14,6 +14,22 @@ pub struct SceneBase {
     pub(crate) nodes: Vec<Own<dyn Node>>,
 
     pub camera: Camera,
+
+    pub sun:     Sun,
+    /// What lights every node from all directions at once, the stand in
+    /// for a sky until one exists. Encoded sRGB like every color, the
+    /// default is a quarter of full light.
+    #[educe(Default = Color::hex("#898989"))]
+    pub ambient: Color,
+    /// The point and spot lights. A node is drawn with the nearest
+    /// eight of those in reach of it.
+    pub lights:  Vec<Light>,
+    /// Drawn behind everything and reflected by every surface. With a
+    /// sky the flat `ambient` is not used, the sky lights the scene.
+    pub sky:     Option<Sky>,
+    /// The first person player, see `add_player`. While one exists the
+    /// camera follows its eyes.
+    pub player:  Option<Player>,
 
     pub(crate) physics: Option<ScenePhysics>,
 }
@@ -32,9 +48,29 @@ impl SceneBase {
     }
 
     pub fn update_physics(&mut self, frame_time: f32) {
-        if let Some(physics) = self.physics.as_mut() {
-            physics.update_physics(&self.nodes, frame_time);
+        let Some(physics) = self.physics.as_mut() else {
+            return;
+        };
+        if let Some(player) = self.player.as_mut() {
+            player.step(physics, frame_time);
         }
+        physics.update_physics(&self.nodes, frame_time);
+        if let Some(player) = &self.player {
+            let eye = player.eye(physics);
+            self.camera.position = eye;
+            self.camera.target = eye + player.direction();
+        }
+    }
+
+    /// A first person player standing at `position`, a capsule 1.8
+    /// tall and 0.7 wide. Needs physics.
+    pub fn add_player(&mut self, position: impl Into<Vec3>) -> &mut Player {
+        let physics = self
+            .physics
+            .as_mut()
+            .expect("A player needs physics. Override SceneSetup::needs_physics to enable.");
+        self.player = Some(Player::make(physics, position.into(), 0.35, 1.8));
+        self.player.as_mut().expect("just set")
     }
 
     pub fn remove(&mut self, node: Weak<dyn Node>) {

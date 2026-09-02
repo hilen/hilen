@@ -2568,6 +2568,7 @@ dependencies = [
 name = "hilen-pixels"
 version = "0.1.0"
 dependencies = [
+ "glam 0.33.2",
  "tiny-skia 0.12.0",
 ]
 

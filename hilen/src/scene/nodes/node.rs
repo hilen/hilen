@@ -17,7 +17,7 @@ use crate::{
         color::Color,
         volume::{Mat4, Quat, Shape3, Vec3},
     },
-    scene::{NodeData, SceneManager},
+    scene::{Material, NodeData, SceneManager},
 };
 
 pub trait Node: Deref<Target = NodeData> + DerefMut {
@@ -102,7 +102,7 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
     }
 
     fn color(&self) -> &Color {
-        &self.color
+        &self.material.color
     }
 
     fn remove(&mut self) {
@@ -131,6 +131,9 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
 
 pub trait NodeTemplates {
     fn set_color(&mut self, _: Color) -> &mut Self;
+    fn set_material(&mut self, _: Material) -> &mut Self;
+    fn set_metallic(&mut self, _: impl ToF32) -> &mut Self;
+    fn set_roughness(&mut self, _: impl ToF32) -> &mut Self;
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self;
     fn set_restitution(&mut self, _: f32, _: CoefficientCombineRule) -> &mut Self;
     fn set_position(&mut self, _: impl Into<Vec3>) -> &mut Self;
@@ -139,7 +142,22 @@ pub trait NodeTemplates {
 
 impl<T: ?Sized + Node> NodeTemplates for T {
     fn set_color(&mut self, color: Color) -> &mut Self {
-        self.color = color;
+        self.material.color = color;
+        self
+    }
+
+    fn set_material(&mut self, material: Material) -> &mut Self {
+        self.material = material;
+        self
+    }
+
+    fn set_metallic(&mut self, metallic: impl ToF32) -> &mut Self {
+        self.material.metallic = metallic.to_f32();
+        self
+    }
+
+    fn set_roughness(&mut self, roughness: impl ToF32) -> &mut Self {
+        self.material.roughness = roughness.to_f32();
         self
     }
 

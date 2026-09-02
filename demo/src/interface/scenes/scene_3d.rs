@@ -12,10 +12,11 @@ use crate::{
     scenes::DemoScene,
 };
 
-/// Radians of orbit per point of drag.
-const ORBIT_SPEED: f32 = 0.008;
+/// Radians of look per point of drag.
+const LOOK_SPEED: f32 = 0.004;
 
-/// The 3D playground page. Drag anywhere to orbit the camera, drop
+/// The 3D playground page, seen through the player's eyes. Drag to
+/// look around, `w` `a` `s` `d` or the arrows walk, space jumps, drop
 /// balls onto the pyramid.
 #[view]
 pub struct Scene3D {
@@ -39,7 +40,9 @@ impl Setup for Scene3D {
             let dx = touch.position.x - self.last_touch.x;
             let dy = touch.position.y - self.last_touch.y;
             self.last_touch = touch.position;
-            self.scene.camera.orbit(-dx * ORBIT_SPEED, dy * ORBIT_SPEED);
+            if let Some(player) = self.scene.player.as_mut() {
+                player.look(dx * LOOK_SPEED, -dy * LOOK_SPEED);
+            }
         });
 
         self.back

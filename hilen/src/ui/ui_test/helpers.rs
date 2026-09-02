@@ -7,7 +7,7 @@ use crate::{
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Setup, UIManager, View, ViewData},
+    ui::{Button, Keys, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
         capture::save_shot,
@@ -15,8 +15,18 @@ use crate::{
         human::{human_mode, show_probes},
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
-    window::{Window, request_frame},
+    window::{KeyCode, Window, request_frame},
 };
+
+/// Press a key and keep it down until `release_key`, what a player
+/// reads while walking. The run resets held keys before every test.
+pub fn hold_key(code: KeyCode) {
+    from_main(move || Keys::set(code, true));
+}
+
+pub fn release_key(code: KeyCode) {
+    from_main(move || Keys::set(code, false));
+}
 
 #[allow(dead_code)]
 pub(crate) fn add_action(action: impl FnMut() + Send + 'static) {

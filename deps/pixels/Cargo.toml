@@ -11,4 +11,5 @@ version.workspace = true
 workspace = true
 
 [dependencies]
+glam = { workspace = true }
 tiny-skia = { workspace = true }

@@ -2,11 +2,8 @@ use educe::Educe;
 
 use crate::{
     deps::{refs::Weak, vents::Event},
-    gm::{
-        color::Color,
-        volume::{Quat, Shape3, Vec3},
-    },
-    scene::{Mesh, Node},
+    gm::volume::{Quat, Shape3, Vec3},
+    scene::{Material, Mesh, Node},
 };
 
 #[derive(Educe)]
@@ -21,8 +18,7 @@ pub struct NodeData {
 
     pub tag: u32,
 
-    #[educe(Default = Color::random())]
-    pub color: Color,
+    pub material: Material,
 
     pub mesh:         Weak<Mesh>,
     pub on_collision: Event<Weak<dyn Node>>,

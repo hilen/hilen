@@ -7,7 +7,13 @@
 #![feature(specialization)]
 
 mod drop_balls;
+mod lights;
+mod materials;
+mod player_walk;
 mod primitives;
+mod skybox;
+mod textures;
+mod transparency;
 
 use std::{collections::BTreeMap, panic::set_hook, path::PathBuf, process::exit};
 

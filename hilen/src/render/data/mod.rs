@@ -1,6 +1,8 @@
 mod clip_view;
 #[cfg(feature = "scene")]
 mod mesh_instance;
+#[cfg(feature = "scene")]
+mod mesh_light;
 mod path_data;
 mod rect_view;
 #[cfg(feature = "level")]
@@ -15,6 +17,8 @@ mod ui_shadow_instance;
 pub(crate) use clip_view::*;
 #[cfg(feature = "scene")]
 pub(crate) use mesh_instance::*;
+#[cfg(feature = "scene")]
+pub(crate) use mesh_light::*;
 pub use path_data::*;
 pub use rect_view::*;
 #[cfg(feature = "level")]

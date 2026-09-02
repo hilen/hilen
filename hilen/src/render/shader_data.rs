@@ -30,18 +30,31 @@ mod test {
     }
 }
 
-/// What every mesh of a frame shares. `light_dir` is the direction the
-/// light travels, unit length.
+/// What every mesh of a frame shares. The vectors carry `xyz`, the
+/// fourth component is padding unless named. `sun_dir` is the direction
+/// the light travels, unit length, `sun_color` and `ambient` are linear
+/// light, the sun's times its intensity. `ambient.w` is 1 when a sky is
+/// bound, then `irradiance` holds its nine spherical harmonics and the
+/// flat ambient is not used. `viewport` is the width, the height, the
+/// start and the size of the depth band, what the fragment stage needs
+/// to rebuild a world position from its own coordinates.
 #[cfg(feature = "scene")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
 #[educe(Default)]
 pub struct SceneView {
     #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
-    pub view_proj: crate::gm::volume::Mat4,
-    #[educe(Default = crate::gm::volume::Vec3::NEG_Y)]
-    pub light_dir: crate::gm::volume::Vec3,
-    pub ambient:   f32,
+    pub view_proj:     crate::gm::volume::Mat4,
+    #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
+    pub inv_view_proj: crate::gm::volume::Mat4,
+    pub camera_pos:    crate::gm::volume::Vec4,
+    #[educe(Default = crate::gm::volume::Vec4::NEG_Y)]
+    pub sun_dir:       crate::gm::volume::Vec4,
+    pub sun_color:     crate::gm::volume::Vec4,
+    pub ambient:       crate::gm::volume::Vec4,
+    #[educe(Default = crate::gm::volume::Vec4::new(1.0, 1.0, 0.0, 1.0))]
+    pub viewport:      crate::gm::volume::Vec4,
+    pub irradiance:    [crate::gm::volume::Vec4; 9],
 }
 
 #[cfg(all(test, feature = "scene"))]
@@ -51,6 +64,6 @@ mod scene_test {
     #[test]
     fn scene_view_is_a_uniform() {
         assert_eq!(size_of::<SceneView>() % 16, 0);
-        assert_eq!(size_of::<SceneView>(), 80);
+        assert_eq!(size_of::<SceneView>(), 352);
     }
 }

@@ -53,6 +53,7 @@ impl App for DemoApp {
 
     fn after_launch(&self) {
         Window::set_quit_on_escape(true);
+        Window::set_icon(include_bytes!("../../assets/images/engine.png"));
     }
 
     fn make_root_view(&self) -> Own<dyn View> {

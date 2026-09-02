@@ -25,7 +25,7 @@ pub use wgpu::{
 };
 pub use winit::{
     event::{ElementState, MouseButton},
-    keyboard::NamedKey,
+    keyboard::{KeyCode, NamedKey},
     window::Theme,
 };
 

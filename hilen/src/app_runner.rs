@@ -687,6 +687,10 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn key_event(&mut self, event: KeyEvent) {
+        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+            crate::ui::Keys::set(code, event.state.is_pressed());
+        }
+
         if !event.state.is_pressed() {
             return;
         }

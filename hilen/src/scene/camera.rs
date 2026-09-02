@@ -48,6 +48,21 @@ impl Camera {
         self.projection(aspect) * self.view()
     }
 
+    /// Move along the line of sight, `factor` scales the distance to the
+    /// target. Stops at twice the near plane, any closer and the target
+    /// clips.
+    pub fn zoom(&mut self, factor: f32) {
+        let offset = self.position - self.target;
+        let radius = offset.length();
+
+        if radius == 0.0 {
+            return;
+        }
+
+        let distance = (radius * factor).max(self.near * 2.0);
+        self.position = self.target + offset / radius * distance;
+    }
+
     /// Turn around the target on the sphere the camera sits on, `yaw`
     /// and `pitch` in radians.
     pub fn orbit(&mut self, yaw: f32, pitch: f32) {
@@ -84,6 +99,18 @@ mod test {
         }
 
         assert!((camera.position - start.position).length() < 1e-3);
+    }
+
+    #[test]
+    fn zoom_scales_the_distance_and_stops_at_the_near_plane() {
+        let mut camera = Camera::default();
+        let radius = (camera.position - camera.target).length();
+        camera.zoom(0.5);
+        assert!(((camera.position - camera.target).length() - radius / 2.0).abs() < 1e-4);
+        camera.zoom(0.0);
+        assert!(((camera.position - camera.target).length() - camera.near * 2.0).abs() < 1e-5);
+        camera.zoom(4.0);
+        assert!(((camera.position - camera.target).length() - camera.near * 8.0).abs() < 1e-4);
     }
 
     #[test]

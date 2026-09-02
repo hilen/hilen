@@ -5,10 +5,10 @@ CSS and design tools use. This is the UI industry standard, chosen so a
 designer's hex plus alpha from Figma or a stylesheet lands on screen with the
 same numbers. Game engines render scenes in linear light, but they too
 composite UI in encoded space, Unreal draws Slate after the tonemapper. The
-3D scene draws in the same encoded frame, its shader decodes, lights in linear
-and encodes at the end of the fragment, see [scene.md](scene.md). A linear
-offscreen pass with real HDR, composited into the UI frame, is the upgrade if a
-scene ever needs it.
+3D scene draws in the same encoded frame, its shader decodes, lights in linear,
+rolls the highlights off and encodes at the end of the fragment, see
+[scene.md](scene.md). A linear offscreen pass with real HDR, composited into the
+UI frame, is the upgrade if a scene ever needs it.
 
 ## The convention
 

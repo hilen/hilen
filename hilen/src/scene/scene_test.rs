@@ -4,10 +4,17 @@ use ui_proc::view;
 use crate::{
     SCENE_TESTS,
     deps::{hreads::from_main, refs::Weak},
+    gm::flat::Point,
     scene::{Scene, SceneManager},
-    ui::Setup,
+    ui::{Setup, UIEvents, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
+
+/// Radians of orbit or look per point of drag and the zoom per point of
+/// wheel, the feel of the demo page.
+const ORBIT_SPEED: f32 = 0.008;
+const LOOK_SPEED: f32 = 0.004;
+const ZOOM_SPEED: f32 = 0.002;
 
 /// Implemented by `#[scene]` for every scene it can name concretely, so
 /// a test on a generic scene is a compile error instead of one that
@@ -37,7 +44,36 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
 /// The root a scene test runs under. The scene draws beneath the UI, so
 /// the root only pins the canvas.
 #[view]
-pub struct SceneTestView {}
+pub struct SceneTestView {
+    last_touch: Point,
+}
+
+impl SceneTestView {
+    /// Drag anywhere to turn the camera around its target and the wheel
+    /// zooms, or with a player in the scene the drag turns its head and
+    /// the keys walk it. Presentation only, a test drives the camera
+    /// itself.
+    fn enable_orbit(mut self: Weak<Self>) {
+        self.enable_touch();
+        UIEvents::on_scroll().val(self, |delta| {
+            let mut scene = SceneManager::scene_weak();
+            if scene.player.is_none() {
+                scene.camera.zoom(1.0 - delta.y * ZOOM_SPEED);
+            }
+        });
+        self.touch().began.val(move |touch| self.last_touch = touch.position);
+        self.touch().moved.val(move |touch| {
+            let dx = touch.position.x - self.last_touch.x;
+            let dy = touch.position.y - self.last_touch.y;
+            self.last_touch = touch.position;
+            let mut scene = SceneManager::scene_weak();
+            match scene.player.as_mut() {
+                Some(player) => player.look(dx * LOOK_SPEED, -dy * LOOK_SPEED),
+                None => scene.camera.orbit(-dx * ORBIT_SPEED, dy * ORBIT_SPEED),
+            }
+        });
+    }
+}
 
 /// Lets the `scene` macro ask a type whether it is a test, like
 /// `MaybeLevelTest` does for levels.
@@ -75,9 +111,12 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
 
     fn __scene_present() -> Option<fn()> {
         Some(|| {
-            UITest::present_root(SceneTestView::new());
-            from_main(|| {
+            let root = SceneTestView::new();
+            let view = root.weak();
+            UITest::present_root(root);
+            from_main(move || {
                 SceneManager::set_scene(T::default());
+                view.enable_orbit();
             });
         })
     }

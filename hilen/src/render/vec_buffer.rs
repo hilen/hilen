@@ -37,6 +37,12 @@ impl<T> VecBuffer<T> {
         self.data.is_empty()
     }
 
+    /// Elements pushed since the last `load()`, the index the next push
+    /// lands at.
+    pub(crate) fn pending(&self) -> u32 {
+        self.data.len().try_into().unwrap()
+    }
+
     pub(crate) fn len(&self) -> u32 {
         self.len
     }

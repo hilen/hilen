@@ -29,12 +29,12 @@ pub(crate) struct ScenePhysics {
 
     physics_pipeline: PhysicsPipeline,
 
-    island_manager:   IslandManager,
-    broad_phase:      BroadPhaseBvh,
-    narrow_phase:     NarrowPhase,
-    impulse_joints:   ImpulseJointSet,
-    multibody_joints: MultibodyJointSet,
-    ccd_solver:       CCDSolver,
+    island_manager:          IslandManager,
+    pub(crate) broad_phase:  BroadPhaseBvh,
+    pub(crate) narrow_phase: NarrowPhase,
+    impulse_joints:          ImpulseJointSet,
+    multibody_joints:        MultibodyJointSet,
+    ccd_solver:              CCDSolver,
 
     pub(crate) events: EventHandler,
 }

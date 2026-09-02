@@ -115,18 +115,11 @@ tvOS app need.
 
 ## 3D scene, remaining deliveries
 
-The first delivery of the `scene` module landed, see [scene.md](scene.md): the
-module in the level shape, primitives, physics, a fixed sun, the `scene-test`
-crate and the demo page. The rest was planned with it and lands in this order.
+The `scene` module landed with primitives, physics, the Filament mobile PBR
+materials, a sun with point and spot lights, textures and normal maps, a sky
+with image based lighting, transparency, a tonemap and a first person player,
+see [scene.md](scene.md). The rest was planned with it and lands in this order.
 
-- Materials and lights. Current: one fixed directional light and a flat ambient,
-  Lambert only, a color per node. Needed: the Filament mobile PBR model, metallic
-  roughness, Lambert diffuse, GGX, the fast correlated Smith visibility and the
-  Schlick Fresnel, a light list of at most 8 lights per draw picked per node by
-  distance, 1 directional plus point and spot, a base color texture, a skybox
-  cube map, a transparent draw list sorted back to front, and a tonemap. Normal
-  maps go through the derivative cotangent frame, no tangent attribute, so the
-  varyings stay under the A7 limit. Re-records the `Primitives` probes.
 - glTF. Current: box, ball and plane only. Needed: `Model` as a managed resource
   over the `gltf` crate, meshes, materials, textures and the node tree from a
   `.glb`, loaded through `filesystem::read_bytes` so the APK and the browser
