@@ -188,8 +188,10 @@ mod web_assets {
         load_entries(manifest, group).await
     }
 
-    /// Boot is already in memory when this runs, so only the lazy
-    /// groups actually download.
+    /// Boot is included on purpose. A download skips a file already in
+    /// memory, so the cost is nothing, and a boot file whose download was
+    /// cut short gets its second chance here instead of leaving the suite
+    /// on the default font.
     #[cfg(any(feature = "ui-tests", feature = "inspect"))]
     pub(crate) async fn load_all_groups() -> Result<()> {
         let manifest = MANIFEST.get().ok_or_else(|| anyhow!("No asset manifest"))?;
@@ -199,9 +201,6 @@ mod web_assets {
         groups.dedup();
 
         for group in groups {
-            if group == "boot" {
-                continue;
-            }
             load_entries(manifest, group).await?;
         }
 

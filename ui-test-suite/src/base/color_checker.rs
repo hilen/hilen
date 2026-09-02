@@ -82,8 +82,8 @@ impl ViewTest for TestColorChecker {
             ));
 
             if cfg!(target_arch = "wasm32") {
-                // The browser report skips the file, see report.rs.
-                assert!(error.contains("no filesystem"));
+                // The browser report pushes the frame to the driver, see report.rs.
+                assert!(error.contains("sent to the driver"));
             } else {
                 let screenshot_path = temp_dir().join("ui_test_Test_color_checker.png");
 

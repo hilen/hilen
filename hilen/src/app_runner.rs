@@ -374,10 +374,11 @@ impl AppRunner {
             // A browser serves sync `get` only from memory, so every
             // asset group downloads before the suite starts. Native
             // reads any file from disk on demand, this keeps both
-            // runs seeing the same assets.
+            // runs seeing the same assets. A miss is fatal, a suite on
+            // the default font fails on pixels far from the cause.
             crate::deps::hreads::spawn(async move {
                 if let Err(err) = crate::assets::Assets::load_all_groups().await {
-                    log::error!("Asset preload for tests failed: {err}");
+                    panic!("Asset preload for tests failed: {err}");
                 }
 
                 Self::spawn_test_worker(only, skip);

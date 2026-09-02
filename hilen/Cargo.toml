@@ -83,6 +83,7 @@ web-time = { workspace = true }
 wgpu = { workspace = true }
 wgpu_text = { workspace = true }
 
+hilen-pixels = { workspace = true }
 plat = { workspace = true }
 reflected = { workspace = true }
 

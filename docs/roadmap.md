@@ -115,8 +115,9 @@ Small remainders not worth their own entry.
   decision.
 
 - SVG premultiplied upload: the convert from tiny-skia's premultiplied pixels to
-  straight alpha costs 3 to 5 times the raster itself. Uploading premultiplied and
-  blending svg textures premultiplied in the image pipeline would remove that loop,
-  it needs a flag per image instance and a blend change in the shader.
+  straight alpha is a per pixel loop, optimized in `hilen-pixels` but still work.
+  Uploading premultiplied and blending svg textures premultiplied in the image
+  pipeline would remove that loop, it needs a flag per image instance and a blend
+  change in the shader.
 - DrawingView paths: texture fills for paths, more than 8 gradient stops, and soft
   edges on arbitrary path outlines, a radial alpha ramp only covers circular glows.

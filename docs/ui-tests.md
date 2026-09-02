@@ -73,7 +73,9 @@ The report arrives over the inspect WebSocket instead of the console, and on fai
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
 A failing test also pushes its own frame the moment it fails, saved as
 `target/web-test/failures/<test>.png`, so a flake leaves its picture although the page
-has no filesystem. See [inspect.md](inspect.md).
+has no filesystem. Every asset group downloads before the suite starts and a miss is
+fatal, a suite on the default font would fail on pixels far from the cause, which is
+how a cut font download once looked like a wrapping bug. See [inspect.md](inspect.md).
 
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,

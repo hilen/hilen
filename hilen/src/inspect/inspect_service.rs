@@ -105,7 +105,9 @@ impl InspectService {
     // thread through `from_main`.
     fn run_tests() -> AppCommand {
         #[cfg(wasm)]
-        Self::preload_assets();
+        if let Err(err) = Self::preload_assets() {
+            return AppCommand::Error(format!("Asset preload for tests failed: {err}"));
+        }
 
         let report = crate::ui_test::run_all_tests();
 
@@ -126,19 +128,17 @@ impl InspectService {
     /// downloads before the suite starts, same as the test autorun. Blocks the
     /// calling worker while the download runs on the main thread.
     #[cfg(wasm)]
-    fn preload_assets() {
+    fn preload_assets() -> Result<()> {
         let (send, recv) = std::sync::mpsc::channel();
 
         on_main(move || {
             crate::deps::hreads::spawn(async move {
-                if let Err(err) = crate::assets::Assets::load_all_groups().await {
-                    log::error!("Asset preload for tests failed: {err}");
-                }
-                send.send(()).expect("Asset preload signal receiver is gone");
+                let result = crate::assets::Assets::load_all_groups().await;
+                send.send(result).expect("Asset preload signal receiver is gone");
             });
         });
 
-        recv.recv().expect("Asset preload signal sender is gone");
+        recv.recv().expect("Asset preload signal sender is gone")
     }
 
     fn screenshot() -> Result<AppCommand> {

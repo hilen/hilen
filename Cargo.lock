@@ -2454,6 +2454,7 @@ dependencies = [
  "futures-util",
  "gloo-timers",
  "hex",
+ "hilen-pixels",
  "hilen-wgpu",
  "hilen-wgpu-text",
  "hilen-winit",
@@ -2539,6 +2540,13 @@ dependencies = [
  "image",
  "objc2-core-foundation",
  "objc2-core-graphics",
+]
+
+[[package]]
+name = "hilen-pixels"
+version = "0.1.0"
+dependencies = [
+ "tiny-skia 0.12.0",
 ]
 
 [[package]]

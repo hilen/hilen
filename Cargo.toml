@@ -6,6 +6,7 @@ members = [
   "bench",
   "demo",
   "demo-android",
+  "deps/pixels",
   "deps/plat",
   "deps/ui-proc-test",
   "example-app",
@@ -194,6 +195,7 @@ reflected = "0.30"
 
 level-proc = { version = "0.1", path = "deps/level-proc" }
 hilen = { version = "0.1", path = "hilen" }
+hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }
 ui-proc = { version = "0.1", path = "deps/ui-proc" }
@@ -222,7 +224,16 @@ opt-level = 3
 [profile.dev.package.resvg]
 opt-level = 3
 
+[profile.dev.package.usvg]
+opt-level = 3
+
 [profile.dev.package.tiny-skia]
+opt-level = 3
+
+# The engine's own per pixel loops, the mip chain above all. A 41
+# megapixel fixture spent 11 seconds in it at opt-level 0 at every
+# browser start, optimized it is a fraction of the decode.
+[profile.dev.package.hilen-pixels]
 opt-level = 3
 
 # Text shaping and rasterizing. Unoptimized, a label of a few hundred glyphs

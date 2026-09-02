@@ -131,17 +131,7 @@ fn rasterize(tree: &Tree, size: Size<u32>) -> TextureRawData {
         &mut pixmap.as_mut(),
     );
 
-    // tiny-skia stores premultiplied pixels and the pipeline blends
-    // straight alpha, so uploading them as they are darkens every anti
-    // aliased edge a second time.
-    let data = pixmap
-        .pixels()
-        .iter()
-        .flat_map(|pixel| {
-            let pixel = pixel.demultiply();
-            [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
-        })
-        .collect();
+    let data = hilen_pixels::demultiply_rgba(pixmap.pixels());
 
     TextureRawData {
         data,
