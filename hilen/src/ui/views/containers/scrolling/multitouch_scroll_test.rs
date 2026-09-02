@@ -58,8 +58,8 @@ impl ViewTest for MultitouchScroll {
         inject_touches(drag_both(960, 40, 25, 20));
         assert_eq!(offsets(), (-800.0, -500.0));
 
-        // A third finger landing on the right list while finger 2 still holds it
-        // is ignored, so neither offset moves.
+        // A third finger landing on the right list while finger 2 still holds
+        // it is ignored, so neither offset moves.
         inject_touches(
             "
             520 700 b 3

@@ -40,7 +40,8 @@ impl ViewTest for AnimationDrivesFrames {
 
         // The state check rides along in this one call on purpose. Every
         // `from_main` wakes the loop, so a separate call here would hand the
-        // animation the frame it is supposed to ask for itself and hide a stall.
+        // animation the frame it is supposed to ask for itself and hide a
+        // stall.
         let continuous = from_main(move || {
             let anim = UIAnimation::new(|square, y| {
                 square.set_y(y);

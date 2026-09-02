@@ -444,7 +444,8 @@ impl AppRunner {
         // can swap a loading screen for its real UI once assets land, and
         // tearing that root down mid load frees views the load task still
         // touches. An app with no loading phase is ready at once.
-        // The device spelling of `--human`, see the browser `hilen_human` above.
+        // The device spelling of `--human`, see the browser `hilen_human`
+        // above.
         if std::env::var("HILEN_HUMAN").is_ok() {
             crate::ui_test::enable_human_mode();
         }
@@ -455,7 +456,8 @@ impl AppRunner {
 
                 // Run only the named tests when set, a comma separated list, to
                 // isolate cases on a device or simulator where the whole suite
-                // is slow to reach them. Order in the map is still alphabetical.
+                // is slow to reach them. Order in the map is still
+                // alphabetical.
                 if let Ok(only) = std::env::var("HILEN_TEST_ONLY") {
                     let keep: Vec<String> =
                         only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();

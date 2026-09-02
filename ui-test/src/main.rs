@@ -131,9 +131,9 @@ fn run(args: Args) -> Result<()> {
     let tests = all_tests();
 
     // A suite that runs nothing otherwise reports success, which looks exactly
-    // like a suite that passes. Registration is a ctor nothing calls by name, so
-    // an empty map means the `ui-tests` feature is off or a linker dropped a
-    // whole crate, never that there are no tests.
+    // like a suite that passes. Registration is a ctor nothing calls by name,
+    // so an empty map means the `ui-tests` feature is off or a linker
+    // dropped a whole crate, never that there are no tests.
     anyhow::ensure!(
         !tests.is_empty(),
         "No UI tests registered. Either the `hilen/ui-tests` feature is off, or a linker \
@@ -185,10 +185,11 @@ fn run(args: Args) -> Result<()> {
         clear_failures();
 
         if let Some(test_name) = test_name {
-            // Also accept the struct ident, so a tool reading `impl ViewTest for
-            // ScrollViewTest` off the source can pass what it sees without
-            // deriving the spaced name itself. `spaced_test_name` is the one
-            // place that rule lives, and drifting from it is what made the old
+            // Also accept the struct ident, so a tool reading `impl ViewTest
+            // for ScrollViewTest` off the source can pass what it
+            // sees without deriving the spaced name itself.
+            // `spaced_test_name` is the one place that rule lives,
+            // and drifting from it is what made the old
             // generated `#[test]` pass a name the runner rejected.
             let names: Vec<&str> = test_name.split(',').map(str::trim).collect();
 

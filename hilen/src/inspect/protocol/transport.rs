@@ -51,7 +51,8 @@ async fn handle_connection(
         let response = handler(from_slice(&request)?);
         let data = to_vec(&response);
 
-        // The response can hold Own pointers, which must drop on the main thread.
+        // The response can hold Own pointers, which must drop on the main
+        // thread.
         on_main(move || drop(response));
 
         write_frame(stream, &data?).await?;

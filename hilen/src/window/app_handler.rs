@@ -173,9 +173,11 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
             crate::deps::hreads::block_on(async move {
                 if let Err(err) = Window::start_internal(render_size, window, proxy).await {
-                    // fern logging can be swallowed on iOS, so also print to stderr.
-                    // Exit instead of panicking. A panic here unwinds across the
-                    // Objective-C run loop and turns into an opaque EXC_BAD_ACCESS.
+                    // fern logging can be swallowed on iOS, so also print to
+                    // stderr. Exit instead of panicking. A
+                    // panic here unwinds across the
+                    // Objective-C run loop and turns into an opaque
+                    // EXC_BAD_ACCESS.
                     error!("Fatal: could not start engine window: {err:?}");
                     eprintln!("Fatal: could not start engine window: {err:?}");
                     exit(1);

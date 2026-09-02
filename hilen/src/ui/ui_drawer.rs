@@ -525,8 +525,8 @@ impl UIDrawer {
         if label.color_runs().is_empty() {
             let mut colored = make_text(text, label.text_color());
 
-            // After `with_color`, which sets both ends of the ramp so that a label
-            // without a gradient stays flat.
+            // After `with_color`, which sets both ends of the ramp so that a
+            // label without a gradient stays flat.
             if let Some(end) = label.text_end_color() {
                 colored = colored.with_end_color(end.as_slice());
             }

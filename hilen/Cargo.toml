@@ -97,6 +97,7 @@ rapier2d = { workspace = true, optional = true, features = ["parallel"] } # simd
 pollster = { workspace = true }
 rustls = { workspace = true }
 sentry = { workspace = true }
+sys-locale = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
@@ -110,6 +111,7 @@ gloo-timers = { workspace = true }
 parking_lot = { workspace = true, features = ["nightly"] }
 rapier2d = { workspace = true, optional = true }
 spin = { workspace = true }
+sys-locale = { workspace = true, features = ["js"] }
 wasm-bindgen-futures = { workspace = true }
 wasm_thread = { workspace = true }
 web-sys = { workspace = true }

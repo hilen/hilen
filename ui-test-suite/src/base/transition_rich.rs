@@ -166,7 +166,8 @@ impl ViewTest for TransitionRich {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         set_record_probe_count(160);
 
-        // The counter survives suite cycles, so compare against the start value.
+        // The counter survives suite cycles, so compare against the start
+        // value.
         let setups = FIRST_SETUPS.load(Ordering::Relaxed);
 
         check_colors(FIRST)?;
