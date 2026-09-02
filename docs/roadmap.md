@@ -139,6 +139,32 @@ crate and the demo page. The rest was planned with it and lands in this order.
   view frame instead of the root area, and the offscreen linear pass with real HDR
   that `colors.md` sketches, if a scene ever needs it.
 
+## Video playback
+
+Found by weighing a Jellyfin style media client on hilen, see the research note. No
+driver app needs it yet, so this is parked until one does, but it is the one large
+engine gap that blocks a whole class of app.
+
+- Current: nothing. There is no video view and no decode path. Audio is short sound
+  effects only, `audio::Sound` over kira with `StaticSoundData` loaded whole into
+  memory, behind the off by default `audio` feature. So there is no streaming audio,
+  no audio to video sync, and no moving picture beyond `AnimatedImage` playing a gif
+  frame list. A media grid, poster wall or detail page is already in reach through
+  `TableView`, remote images and `OnDisk`, but the play screen is not.
+- Needed: a `VideoView` that decodes a stream and draws its frames into the WGPU
+  pipeline, plus streaming audio output and sync. The hard parts are hardware decode
+  per platform, VideoToolbox on Apple, VAAPI on Linux, D3D11VA on Windows, the mobile
+  decoders, and landing frames in a `wgpu::Texture` without a copy back through system
+  memory, which hilen's WGPU base makes possible. Seeking, subtitles and track switch
+  sit on top. The browser target cannot follow this path and would hand the stream to
+  the HTML5 video element instead, a second code path against the one app everywhere
+  rule. Prior art to lean on but not drop in: vk-video wires Vulkan Video into wgpu
+  textures, gpu-video is backend independent over ffmpeg, rs-wgpu-video-player is a
+  full ffmpeg plus wgpu pipeline reference.
+- Blocks: any video or streaming audio app, a media client, a player, a call view.
+  The first thing to prove is a 1080p and a 4K file hardware decoded and played
+  smoothly with sound on desktop, before any such app is worth starting.
+
 ## Leftovers inside landed features
 
 Small remainders not worth their own entry.
