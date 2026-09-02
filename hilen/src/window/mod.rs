@@ -15,6 +15,8 @@ mod screenshot;
 pub mod state;
 mod surface;
 mod vertex_buffer;
+#[cfg(linux)]
+pub(crate) mod wsl;
 
 pub use bytemuck::cast_slice;
 pub use wgpu::{

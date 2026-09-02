@@ -136,6 +136,9 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     #[cfg(not_wasm)]
     AppRunner::setup_log(app.log_targets());
 
+    #[cfg(linux)]
+    crate::window::wsl::prepare();
+
     // Android swallows stdout and stderr, logcat is the only output that
     // reaches the developer, so a panic goes through the log too.
     #[cfg(target_os = "android")]

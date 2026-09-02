@@ -111,16 +111,10 @@ impl super::Window {
         let primary = window.primary_monitor().map(|m| MonitorInfo::from_handle(&m));
         let target = resolve(saved, &monitors, primary.as_ref());
 
-        let size = LogicalSize::new(target.width, target.height).to_physical::<u32>(window.scale_factor());
-        let current = window.inner_size();
-        if size != current {
-            self.is_resizing = true;
-        }
-        if let Some(applied) = window.request_inner_size(LogicalSize::new(target.width, target.height))
-            && applied == current
-        {
-            self.is_resizing = false;
-        }
+        self.request_inner_size(LogicalSize::new(target.width, target.height));
+        let Some(window) = self.screen.winit_window() else {
+            return;
+        };
         window.set_outer_position(LogicalPosition::new(target.x, target.y));
         if target.maximized {
             window.set_maximized(true);

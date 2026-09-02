@@ -273,11 +273,14 @@ impl State {
             } => match surface.presentable.get_current_texture() {
                 CurrentSurfaceTexture::Success(tex) => RenderTarget::Surface(tex),
                 CurrentSurfaceTexture::Timeout | CurrentSurfaceTexture::Occluded => RenderTarget::Skip,
-                CurrentSurfaceTexture::Suboptimal(_) | CurrentSurfaceTexture::Outdated => {
-                    warn!("Surface is outdated, reconfiguring");
-                    Window::reconfigure_surface();
-                    RenderTarget::Skip
+                CurrentSurfaceTexture::Suboptimal(tex) => {
+                    // wgpu refuses to configure while an acquired texture is
+                    // alive, and dropping it after the reconfigure panics in
+                    // the destructor.
+                    drop(tex);
+                    Self::reconfigure_and_skip()
                 }
+                CurrentSurfaceTexture::Outdated => Self::reconfigure_and_skip(),
                 CurrentSurfaceTexture::Lost => {
                     warn!("Surface is lost, recreating");
                     match &mut Window::current().screen {
@@ -293,6 +296,12 @@ impl State {
                 }
             },
         }
+    }
+
+    fn reconfigure_and_skip() -> RenderTarget {
+        warn!("Surface is outdated, reconfiguring");
+        Window::reconfigure_surface();
+        RenderTarget::Skip
     }
 
     pub(crate) fn render(&mut self) {

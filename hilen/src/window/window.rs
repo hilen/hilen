@@ -444,16 +444,33 @@ impl Window {
             return;
         }
 
-        match &mut self.screen {
-            Screen::Windowed { winit_window, .. } => {
-                self.is_resizing = true;
-                let _ = winit_window.request_inner_size(PhysicalSize::new(size.width, size.height));
-            }
-            #[cfg(not_wasm)]
-            Screen::Headless { size: headless_size } => {
-                *headless_size = size;
-                State::resize();
-            }
+        if let Screen::Headless { size: headless_size } = &mut self.screen {
+            *headless_size = size;
+            State::resize();
+            return;
+        }
+
+        self.request_inner_size(PhysicalSize::new(size.width, size.height));
+    }
+
+    /// Ask winit for a new inner size and keep `is_resizing` true to the
+    /// winit contract. `Some` means the platform applied it now and sends no
+    /// `Resized`, Wayland does that, so the surface is reconfigured here.
+    /// `None` means a `Resized` follows and clears the flag, X11 and the rest.
+    /// Waiting for a `Resized` that never comes skips every frame and the
+    /// window never shows.
+    #[cfg(desktop)]
+    pub(crate) fn request_inner_size(&mut self, size: impl Into<winit::dpi::Size>) {
+        let Some(window) = self.screen.winit_window() else {
+            return;
+        };
+        let size: winit::dpi::Size = size.into();
+        if size.to_physical::<u32>(window.scale_factor()) == window.inner_size() {
+            return;
+        }
+        match window.request_inner_size(size) {
+            Some(_) => State::resize(),
+            None => self.is_resizing = true,
         }
     }
 

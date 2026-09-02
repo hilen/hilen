@@ -79,6 +79,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.
+- [docs/wsl.md](docs/wsl.md) — running on Windows through WSL: the packages `make setup`
+  installs, why the engine forces X11 and takes the scale from WSLg, and what to check
+  when no window appears. Read before touching `window/wsl.rs` or when an app shows
+  nothing under WSL.
 - [docs/android.md](docs/android.md) — the docker build and the emulator lane, the
   Vulkan-only backend, APK asset loading, the register requirement in the shell crate,
   and the generated-project fixes the template still misses. Read before touching
