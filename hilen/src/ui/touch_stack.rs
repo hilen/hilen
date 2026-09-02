@@ -73,8 +73,16 @@ impl TouchStack {
         Self::get().layer_for(view).add_low_priority(view);
     }
 
+    pub(crate) fn enable_for_high_priority(view: WeakView) {
+        Self::get().layer_for(view).add_high_priority(view);
+    }
+
     pub(crate) fn enable_hover(view: WeakView) {
         Self::get().layer_for(view).add_hover(view);
+    }
+
+    pub(crate) fn enable_hover_high_priority(view: WeakView) {
+        Self::get().layer_for(view).add_hover_high_priority(view);
     }
 
     pub(crate) fn disable_for(view: WeakView) {

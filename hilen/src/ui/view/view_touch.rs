@@ -118,18 +118,20 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return true;
     }
 
-    if view.contains_visible(touch.position) {
+    // Only a began touch may be claimed by position. An ended touch must
+    // fall through to the view that captured it on began: a release over
+    // some other view used to be eaten here, the captor kept its
+    // __touch_id, and every later bare mouse move kept dragging it.
+    if touch.is_began() && view.contains_visible(touch.position) {
         touch.position -= view.absolute_frame().origin;
-        if touch.is_began() {
-            base_view.__touch_id = touch.id;
-            LongPress::arm(
-                weak_from_ref(view),
-                touch.id,
-                touch.position + view.absolute_frame().origin,
-            );
-            base_view.events.touch.began.trigger(*touch);
-            UIManager::set_selected(weak_from_ref(view), true);
-        }
+        base_view.__touch_id = touch.id;
+        LongPress::arm(
+            weak_from_ref(view),
+            touch.id,
+            touch.position + view.absolute_frame().origin,
+        );
+        base_view.events.touch.began.trigger(*touch);
+        UIManager::set_selected(weak_from_ref(view), true);
         base_view.events.touch.all.trigger(*touch);
         return true;
     }

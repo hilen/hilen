@@ -12,6 +12,8 @@ use crate::{
 
 static HOVERED: MainLock<WeakView> = MainLock::new();
 static CURSOR: MainLock<CursorIcon> = MainLock::new();
+#[cfg(any(desktop, wasm))]
+static LOCKED: MainLock<WeakView> = MainLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
@@ -24,11 +26,36 @@ pub struct Hover;
 impl Hover {
     #[cfg(any(desktop, wasm))]
     pub(crate) fn update(cursor: Point) {
+        if LOCKED.is_ok() {
+            return;
+        }
         Self::set_hovered(Self::view_under(cursor));
     }
 
-    /// The cursor left the window. The hovered view gets an exit.
+    /// Pins hover to `view` until `unlock`. A divider drag outruns its
+    /// thin handle between frames, and without the pin every such move
+    /// re-picks the view under the cursor, dropping the resize cursor and
+    /// the handle highlight mid drag.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn lock(view: WeakView) {
+        *LOCKED.get_mut() = view;
+        Self::set_hovered(view);
+    }
+
+    /// Ends the pin and re-picks under the current cursor position.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn unlock() {
+        *LOCKED.get_mut() = WeakView::default();
+        Self::update(UIManager::cursor_position());
+    }
+
+    /// The cursor left the window. The hovered view gets an exit. A fast
+    /// drag can cross the window edge, so a locked hover stays.
     pub fn clear() {
+        #[cfg(any(desktop, wasm))]
+        if LOCKED.is_ok() {
+            return;
+        }
         Self::set_hovered(WeakView::default());
     }
 
@@ -67,8 +94,11 @@ impl Hover {
 
         if !old_alive && !new.is_ok() {
             // Drop a dead pointer, so `refresh_dead` stops re-picking
-            // once nothing sits under the cursor.
+            // once nothing sits under the cursor. The dead view can be
+            // the one whose custom cursor is still applied, so the
+            // cursor resets even though no hover event fires.
             *HOVERED.get_mut() = new;
+            Self::apply_cursor(CursorIcon::default());
             return;
         }
 

@@ -88,6 +88,13 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // one must not leak it into the next. The suite snapshot hands the
         // app's own animation back after the run.
         crate::BugReport::restore_animation(None);
+        // A test that failed mid drag leaves hover locked to its divider,
+        // which would freeze hover for every test after it.
+        #[cfg(any(desktop, wasm))]
+        {
+            crate::ui::Hover::unlock();
+            crate::ui::Hover::clear();
+        }
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {
