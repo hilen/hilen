@@ -22,7 +22,7 @@ use crate::inspect::protocol::{SERVICE_TYPE, serve};
 use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
     deps::hreads::from_main,
-    gm::{LossyConvert, flat::Point},
+    gm::flat::Point,
     inspect::{
         edit_log,
         protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
@@ -234,6 +234,8 @@ impl InspectService {
             },
             #[cfg(desktop)]
             UIRequest::Resize { width, height } => {
+                use crate::gm::LossyConvert;
+
                 let size = from_main(move || {
                     let scale = UIManager::scale();
                     let size: (u32, u32) =

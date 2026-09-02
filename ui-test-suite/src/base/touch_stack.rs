@@ -1,8 +1,10 @@
 use anyhow::Result;
 use hilen::{
-    dispatch::from_main,
+    dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{Alert, Button, TouchStack, ViewData, ViewSubviews, ViewTest, ViewTouch, view},
+    ui::{
+        Alert, Button, ModalView, TouchStack, ViewData, ViewFrame, ViewSubviews, ViewTest, ViewTouch, view,
+    },
     ui_test::inject_touches,
 };
 use log::debug;
@@ -58,14 +60,8 @@ impl ViewTest for TouchStackTestView {
 
         assert_eq!(TouchStack::dump(), vec![vec!["Layer: Root view".to_string()]]);
 
-        Alert::show("Hello");
-
-        {
-            use hilen::ui::{UIManager, ViewFrame};
-            let root = from_main(|| UIManager::root_view().frame().size);
-            let scale = from_main(UIManager::scale);
-            log::error!("PROBE root {root:?} scale {scale}");
-        }
+        let alert = from_main(|| Alert::prepare_modally_with_input("Hello".to_string()));
+        wait_for_next_frame();
 
         assert_eq!(
             TouchStack::dump(),
@@ -75,12 +71,11 @@ impl ViewTest for TouchStackTestView {
             ],
         );
 
-        inject_touches(
-            r"
-            320  383  b
-            320  383  e
-    ",
-        );
+        // The alert sizes itself to its message, so the OK tap point
+        // comes from its frame: the button is the alert's bottom row.
+        let frame = from_main(move || *alert.frame());
+        let (x, y) = (frame.center().x, frame.max_y() - 22.0);
+        inject_touches(format!("{x:.0} {y:.0} b\n{x:.0} {y:.0} e"));
 
         assert_eq!(TouchStack::dump(), vec![vec!["Layer: Root view".to_string()]]);
 

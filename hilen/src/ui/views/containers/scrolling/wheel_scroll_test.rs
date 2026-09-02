@@ -2,8 +2,11 @@ use anyhow::Result;
 
 use crate::{
     self as hilen,
-    deps::{hreads::from_main, refs::Weak},
-    ui::{Alert, ScrollView, Setup, ViewData, ViewSubviews, ViewTest, view},
+    deps::{
+        hreads::{from_main, wait_for_next_frame},
+        refs::Weak,
+    },
+    ui::{Alert, ModalView, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
     ui_test::{inject_scroll, inject_touches},
 };
 
@@ -54,17 +57,17 @@ impl ViewTest for WheelScrollTest {
         assert_eq!(offsets(), (0.0, -100.0, -100.0));
 
         // A modal layer blocks wheel scrolling under it.
-        from_main(|| Alert::show("wheel"));
+        let alert = from_main(|| Alert::prepare_modally_with_input("wheel".to_string()));
+        wait_for_next_frame();
         inject_scroll(-100);
         assert_eq!(offsets(), (0.0, -100.0, -100.0));
 
-        // After the modal is dismissed wheel scrolling works again.
-        inject_touches(
-            "
-            320 383 b
-            320 383 e
-        ",
-        );
+        // After the modal is dismissed wheel scrolling works again. The
+        // alert sizes itself to its message, so the OK tap point comes
+        // from its frame: the button is the alert's bottom row.
+        let frame = from_main(move || *alert.frame());
+        let (x, y) = (frame.center().x, frame.max_y() - 22.0);
+        inject_touches(format!("{x:.0} {y:.0} b\n{x:.0} {y:.0} e"));
         inject_scroll(-100);
         assert_eq!(offsets(), (0.0, -200.0, -100.0));
 

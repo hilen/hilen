@@ -125,6 +125,11 @@ impl TouchStack {
         this.stack.last_mut().absorb(remaining);
     }
 
+    /// How many overlay layers sit over the root layer right now.
+    pub(crate) fn overlay_count() -> usize {
+        Self::get().stack.len() - 1
+    }
+
     pub fn root_name() -> String {
         Self::get().stack.last().root_name().to_string()
     }
