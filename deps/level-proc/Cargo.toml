@@ -21,3 +21,7 @@ workspace = true
 # Makes `level` emit the ctor that registers a level test. Enabled through
 # `hilen/level-tests`, never directly.
 level-tests = []
+
+# Makes `scene` emit the ctor that registers a scene test. Enabled through
+# `hilen/scene-tests`, never directly.
+scene-tests = []

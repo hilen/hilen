@@ -4,9 +4,11 @@ The engine works in encoded sRGB end to end, the same convention browsers,
 CSS and design tools use. This is the UI industry standard, chosen so a
 designer's hex plus alpha from Figma or a stylesheet lands on screen with the
 same numbers. Game engines render scenes in linear light, but they too
-composite UI in encoded space, Unreal draws Slate after the tonemapper. A
-future 3D scene pass should render linear offscreen and hand a finished image
-to the UI layer.
+composite UI in encoded space, Unreal draws Slate after the tonemapper. The
+3D scene draws in the same encoded frame, its shader decodes, lights in linear
+and encodes at the end of the fragment, see [scene.md](scene.md). A linear
+offscreen pass with real HDR, composited into the UI frame, is the upgrade if a
+scene ever needs it.
 
 ## The convention
 

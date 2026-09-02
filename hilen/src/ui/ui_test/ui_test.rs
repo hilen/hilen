@@ -177,6 +177,8 @@ impl UITest {
             // would keep drawing under every test after it.
             #[cfg(feature = "level")]
             crate::level::LevelManager::stop_level();
+            #[cfg(feature = "scene")]
+            crate::scene::SceneManager::stop_scene();
             root.add_subview_to_root(view).place().back();
 
             trace!("{width} - {height}");

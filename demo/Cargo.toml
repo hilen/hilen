@@ -29,7 +29,7 @@ serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
 
-hilen = { workspace = true, features = ["audio", "inspect", "level", "ui-tests"] }
+hilen = { workspace = true, features = ["audio", "inspect", "level", "scene", "ui-tests"] }
 ui-test-suite = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

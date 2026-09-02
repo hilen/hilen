@@ -1,0 +1,17 @@
+[package]
+edition.workspace = true
+name = "scene-test"
+version.workspace = true
+
+[[bin]]
+name = "scene-test"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+hilen = { workspace = true, features = ["scene-tests"] }
+
+[lints]
+workspace = true

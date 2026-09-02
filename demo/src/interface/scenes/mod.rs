@@ -1,6 +1,7 @@
 mod effects;
 mod frosted_hud;
 mod game_scene;
+mod scene_3d;
 mod scroll_tables;
 mod text_corruption;
 mod text_fonts;
@@ -13,6 +14,7 @@ use hilen::{
     refs::{Weak, manage::DataManager},
     ui::{Button, Font, Label, Setup, TextAlignment, UIManager, View, ViewData, ViewSubviews, WHITE, view},
 };
+pub use scene_3d::Scene3D;
 pub use scroll_tables::ScrollTables;
 pub use text_fonts::TextFonts;
 pub use widget_gallery::WidgetGallery;

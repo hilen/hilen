@@ -13,6 +13,8 @@ use crate::deps::hreads::{is_main_thread, wait_for_next_frame};
 use crate::deps::refs::Own;
 #[cfg(any(desktop, feature = "level"))]
 use crate::gm::LossyConvert;
+#[cfg(feature = "scene")]
+use crate::scene_drawer::SceneDrawer;
 use crate::{
     App,
     deps::{
@@ -604,6 +606,8 @@ impl crate::window::WindowEvents for AppRunner {
     fn update(&mut self) {
         UIManager::free_deleted_views();
         invoke_dispatched();
+        #[cfg(feature = "scene")]
+        SceneDrawer::update();
         #[cfg(feature = "level")]
         LevelDrawer::update();
         UIDrawer::update();
@@ -618,6 +622,8 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
+        #[cfg(feature = "scene")]
+        SceneDrawer::draw(frame.pass());
         #[cfg(feature = "level")]
         LevelDrawer::draw(frame.pass());
         UIDrawer::draw(frame);

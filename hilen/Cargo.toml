@@ -36,6 +36,12 @@ level = ["dep:level-proc", "dep:rapier2d"]
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
+# 3D scenes on rapier3d and glam, with the scene proc macro and the mesh
+# pipeline. Off by default, a GUI only app carries none of it.
+scene = ["dep:level-proc", "dep:rapier3d", "dep:glam"]
+# Registers every `impl SceneTest` into `SCENE_TESTS`. Needs the shared
+# runner from `ui-tests`, the same way `level-tests` does.
+scene-tests = ["scene", "ui-tests", "level-proc/scene-tests"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
 pointers_info = []
@@ -59,6 +65,7 @@ event-listener = { workspace = true }
 fastrand = { workspace = true }
 fern = { workspace = true }
 futures-util = { workspace = true }
+glam = { workspace = true, optional = true }
 hex = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
@@ -95,6 +102,7 @@ unicode-linebreak = { workspace = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true }
 rapier2d = { workspace = true, optional = true, features = ["parallel"] } # simd can crash if there are too many active objects
+rapier3d = { workspace = true, optional = true, features = ["parallel"] }
 pollster = { workspace = true }
 rustls = { workspace = true }
 sentry = { workspace = true }
@@ -116,6 +124,7 @@ gloo-timers = { workspace = true }
 # nightly selects the real atomics thread parker, without it parking panics on wasm workers
 parking_lot = { workspace = true, features = ["nightly"] }
 rapier2d = { workspace = true, optional = true }
+rapier3d = { workspace = true, optional = true }
 spin = { workspace = true }
 sys-locale = { workspace = true, features = ["js"] }
 wasm-bindgen-futures = { workspace = true }

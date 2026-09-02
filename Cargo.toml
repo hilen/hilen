@@ -18,6 +18,7 @@ members = [
   "inspector",
   "level-test",
   "render-test",
+  "scene-test",
   "ui-test",
   "ui-test-suite",
 ]
@@ -65,7 +66,6 @@ base64 = "0.22"
 bit_ops = "0.2"
 byte-unit = "5.2"
 bytemuck = { version = "1.25", features = ["derive"] }
-cgmath = "0.18"
 chrono = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 console_error_panic_hook = "0.1"
@@ -81,6 +81,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
+glam = { version = "0.33", features = ["bytemuck"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 futures-util = "0.3"
 getrandom = "0.4"
@@ -114,6 +115,7 @@ pollster = "0.4"
 pretty_assertions = "1.4"
 quote = "1.0"
 rapier2d = { version = "0.33" }
+rapier3d = { version = "0.33" }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 redis = { version = "1.6", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }

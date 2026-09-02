@@ -7,6 +7,9 @@ render:
 level:
 	cargo run -p level-test
 
+scene:
+	cargo run -p scene-test
+
 ui:
 	rust ./build/ui-test.rs
 

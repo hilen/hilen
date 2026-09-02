@@ -23,6 +23,8 @@ mod assets;
 mod assets_paths;
 #[cfg(feature = "level")]
 mod level_drawer;
+#[cfg(feature = "scene")]
+mod scene_drawer;
 mod web;
 
 mod app;
@@ -49,6 +51,8 @@ pub mod inspect;
 #[cfg(feature = "level")]
 pub mod level;
 pub mod render;
+#[cfg(feature = "scene")]
+pub mod scene;
 pub mod store;
 pub mod system;
 pub mod ui;
@@ -130,5 +134,12 @@ pub static UI_TESTS: __internal_macro_deps::Mutex<
 /// level.
 #[cfg(feature = "level")]
 pub static LEVEL_TESTS: __internal_macro_deps::Mutex<
+    std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
+> = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());
+
+/// Every scene test, the same shape as `UI_TESTS`, filled by a ctor per
+/// scene.
+#[cfg(feature = "scene")]
+pub static SCENE_TESTS: __internal_macro_deps::Mutex<
     std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
 > = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());

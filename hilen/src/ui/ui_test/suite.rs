@@ -63,6 +63,8 @@ fn restore_app(state: AppState) {
         root.clear_test_canvas();
         #[cfg(feature = "level")]
         LevelManager::stop_level();
+        #[cfg(feature = "scene")]
+        crate::scene::SceneManager::stop_scene();
         root.add_subview_to_root(crate::app::app().make_root_view()).place().back();
     });
 }

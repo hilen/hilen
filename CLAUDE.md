@@ -31,9 +31,11 @@ also holds their corpus. `render-test` is only for the render pipelines drawn di
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
 with their shaders. `audio` is sound playback through kira and its decoders. `inspect` is
-the remote inspector. `ui-tests` and `level-tests` register tests. A GUI only app depends
+the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
+`#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
+`ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
-`demo` turns `audio`, `inspect`, `level` and `ui-tests` on.
+`demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
@@ -95,6 +97,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no input path yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
+- [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, the
+  depth band it draws in, the A7 varying budget of the mesh shader, scene tests and what
+  is still to come. Read before touching `hilen/src/scene`, `scene_drawer.rs`, the mesh
+  pipeline or a scene test.
 
 Docs should be concise.
 
@@ -121,6 +127,8 @@ cargo run -p ui-test -- --headless --test-name <name> --record-colors        # p
 cargo run -p render-test                                                     # render tests, the pipelines drawn directly
 cargo run -p level-test -- --list                                            # every registered level test
 cargo run -p level-test -- --headless                                        # level test suite, same flags as ui-test
+cargo run -p scene-test -- --list                                            # every registered scene test
+cargo run -p scene-test -- --headless                                        # scene test suite, same flags as ui-test
 make ui                                                                      # desktop suite, plus the iOS simulator suite on macOS, one report
 make uui                                                                     # desktop suite only, headless, release mode
 make smoke                                                                   # curated subset, desktop only, debug, headless, the pre-commit check

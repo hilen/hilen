@@ -99,6 +99,10 @@ cargo run -p level-test -- --headless --test-name SpriteCutout
 cargo run -p level-test -- --test-name SpriteCutout --human
 ```
 
+Scene tests are the 3D twin, a `#[scene]` with `impl SceneTest` registered into
+`hilen::SCENE_TESTS` and run by the `scene-test` crate with the same flags, `make scene`
+runs the suite. See [scene.md](scene.md).
+
 ## Run from the editor
 
 A patched rust-analyzer puts a run button on every `impl ViewTest for X` line. Stock

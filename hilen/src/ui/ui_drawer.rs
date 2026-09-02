@@ -664,7 +664,7 @@ fn scissor(pass: &mut RenderPass, rect: Rect<u32>) {
 /// a UI test pins the root to a canvas smaller than the window. Without this
 /// the scene would stretch across the whole frame and land on different pixels
 /// on every screen. Reset it with the full window once the scene is drawn.
-#[cfg(feature = "level")]
+#[cfg(any(feature = "level", feature = "scene"))]
 pub(crate) fn set_viewport(pass: &mut RenderPass, area: Size) {
     pass.set_viewport(0.0, 0.0, area.width, area.height, 0.0, 1.0);
 }

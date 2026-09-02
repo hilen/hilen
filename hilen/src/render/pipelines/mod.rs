@@ -11,6 +11,8 @@ use crate::render::{
 #[cfg(feature = "level")]
 mod background_pipeline;
 mod lab_pipeline;
+#[cfg(feature = "scene")]
+mod mesh_pipeline;
 mod pipeline_type;
 #[cfg(feature = "level")]
 mod polygon_pipeline;
@@ -55,6 +57,8 @@ pub(crate) type UIShadowPipeline =
 #[cfg(feature = "level")]
 pub use background_pipeline::BackgroundPipeline;
 pub(crate) use lab_pipeline::LabPipeline;
+#[cfg(feature = "scene")]
+pub use mesh_pipeline::MeshPipeline;
 #[cfg(feature = "level")]
 pub use polygon_pipeline::PolygonPipeline;
 pub use rect_pipeline::ImageKey;

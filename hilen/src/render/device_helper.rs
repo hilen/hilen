@@ -73,6 +73,18 @@ pub(crate) trait DeviceHelper {
         vertex_layout: &'static [VertexBufferLayout],
         op: StencilOperation,
     ) -> RenderPipeline;
+
+    /// A pipeline for solid geometry. Back faces are culled, the fragment
+    /// replaces the target since a scene is opaque, depth and the stencil
+    /// clip test are the frame's shared ones.
+    #[cfg(feature = "scene")]
+    fn mesh_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline;
 }
 
 impl DeviceHelper for Device {
@@ -223,6 +235,56 @@ impl DeviceHelper for Device {
                 count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: samples > 1,
+            },
+            cache:          None,
+            multiview_mask: None,
+        })
+    }
+
+    #[cfg(feature = "scene")]
+    fn mesh_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline {
+        let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
+        self.create_render_pipeline(&RenderPipelineDescriptor {
+            label:          label.into(),
+            layout:         layout.into(),
+            vertex:         VertexState {
+                module:              shader,
+                entry_point:         "v_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers:             &buffers,
+            },
+            fragment:       FragmentState {
+                module:              shader,
+                entry_point:         "f_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[ColorTargetState {
+                    format:     surface_texture_format(),
+                    blend:      BlendState::REPLACE.into(),
+                    write_mask: ColorWrites::ALL,
+                }
+                .into()],
+            }
+            .into(),
+            primitive:      PrimitiveState {
+                topology:           PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face:         FrontFace::Ccw,
+                cull_mode:          Some(wgpu::Face::Back),
+                polygon_mode:       PolygonMode::Fill,
+                unclipped_depth:    false,
+                conservative:       false,
+            },
+            depth_stencil:  depth_stencil_state().into(),
+            multisample:    MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
             },
             cache:          None,
             multiview_mask: None,
