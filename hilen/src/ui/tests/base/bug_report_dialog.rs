@@ -236,6 +236,24 @@ impl ViewTest for BugReportDialog {
         ",
         );
 
+        // Tab hands editing from the email field to the description,
+        // scoped to the dialog's touch layer. Key injection is a desktop
+        // thing, a phone types through the screen keyboard.
+        #[cfg(desktop)]
+        {
+            use crate::{
+                ui::{NamedKey, UIManager, ViewTouch},
+                ui_test::inject_named_key,
+            };
+
+            from_main(move || dialog.form.email.focus());
+            inject_named_key(NamedKey::Tab);
+            from_main(move || {
+                assert!(dialog.form.description.is_selected());
+                UIManager::unselect_view();
+            });
+        }
+
         from_main(move || {
             assert!(dialog.form.attach_keys.on());
             dialog.form.email.set_text("test@example.com");

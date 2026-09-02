@@ -102,6 +102,10 @@ tvOS app need.
 
 Small remainders not worth their own entry.
 
+- Tab focus traversal does not scroll. Tab selects the next text field even when
+  it sits scrolled out of view inside a `ScrollView`, so the editing session
+  starts off screen. Needs a scroll-to-view step in `select_next_field`, the way
+  a multiline field already follows its caret line while typing.
 - Frame stepped time covers `Animation` and `AnimatedImage` only. `RingSpinner`,
   the text field caret blink and double click, tooltip and long press delays still
   read `Instant`, so they drift under stepped time and their mid flight frames

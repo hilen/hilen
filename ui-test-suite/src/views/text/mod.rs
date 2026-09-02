@@ -29,6 +29,9 @@ mod secure_text_field;
 mod stem_darkening;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
+mod tab_focus;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
 mod text_field;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]

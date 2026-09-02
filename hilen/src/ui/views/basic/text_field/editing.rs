@@ -12,7 +12,8 @@ use crate::{
     },
     system::Clipboard,
     ui::{
-        Container, Input, TextAlignment, UIManager, VerticalAlignment, View, ViewSubviews,
+        Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
+        WeakView,
         text_field_constraint::AcceptChar,
         view::{ViewData, ViewFrame, ViewTouch},
     },
@@ -146,6 +147,10 @@ impl TextField {
         let shift = Input::modifiers().shift_key();
 
         match key {
+            // Focus moves even in a multiline field, the way a browser
+            // text area treats Tab, so it sits above the Enter case and
+            // never inserts a tab character.
+            NamedKey::Tab => self.select_next_field(shift),
             NamedKey::Enter if self.multiline => self.insert("\n"),
             NamedKey::Enter | NamedKey::Escape => UIManager::unselect_view(),
             NamedKey::ArrowLeft => {
@@ -194,6 +199,43 @@ impl TextField {
             }
             _ => {}
         }
+    }
+
+    /// Tab order is view tree order, the order fields were added, which
+    /// matches how a form lays them out. The walk is scoped to the top
+    /// touch layer, so a modal cycles only its own fields and Tab never
+    /// reaches a field under the scrim.
+    fn select_next_field(self: Weak<Self>, backward: bool) {
+        fn collect(view: WeakView, fields: &mut Vec<Weak<TextField>>) {
+            if view.is_null() || view.is_hidden() {
+                return;
+            }
+            if let Some(field) = view.downcast_view::<TextField>() {
+                fields.push(field);
+                return;
+            }
+            for sub in view.subviews() {
+                collect(sub.weak_view(), fields);
+            }
+        }
+
+        let mut fields = Vec::new();
+        collect(TouchStack::top_layer_root(), &mut fields);
+
+        let this = self.weak_view().raw();
+        let Some(current) = fields.iter().position(|field| field.weak_view().raw() == this) else {
+            return;
+        };
+
+        let next = if backward {
+            (current + fields.len() - 1) % fields.len()
+        } else {
+            (current + 1) % fields.len()
+        };
+
+        // Selecting the already selected field is a no-op in
+        // `set_selected`, so a lone field keeps its editing session.
+        fields[next].focus();
     }
 
     /// Puts the caret at `byte`. With `extend` the anchor stays where the

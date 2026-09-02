@@ -142,6 +142,12 @@ impl TouchStack {
         Self::get().stack.last().root_name().to_string()
     }
 
+    /// The root of the top layer, the subtree that owns input right now.
+    /// Tab traversal walks it so a modal cycles only its own fields.
+    pub(crate) fn top_layer_root() -> WeakView {
+        Self::get().stack.last().root
+    }
+
     /// A scroll drag claimed the touch: views that captured it on began
     /// must let it go so the release doesn't end as a tap.
     pub(crate) fn cancel_touch(id: usize) {
