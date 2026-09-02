@@ -9,6 +9,8 @@
 //! url and page requests proxy there instead of the embedded dist, so
 //! frontend changes need no server rebuild.
 
+use std::sync::Once;
+
 use axum::{
     Router,
     body::Body,
@@ -18,10 +20,25 @@ use axum::{
     routing::get,
 };
 use rust_embed::RustEmbed;
+use rustls::crypto::ring::default_provider;
+use tracing::debug;
 
 /// When set, page requests are proxied to this url instead of the
 /// embedded dist. Point it at a running `trunk serve`.
 pub const WEB_DEV_PROXY_ENV: &str = "HILEN_WEB_DEV_PROXY";
+
+static TLS_PROVIDER: Once = Once::new();
+
+/// Reqwest is built with `rustls-no-provider`, so the process default has
+/// to be in place before a client is built or the build panics. A second
+/// install is fine, the first one stays.
+fn install_tls_provider() {
+    TLS_PROVIDER.call_once(|| {
+        if default_provider().install_default().is_err() {
+            debug!("rustls default crypto provider was already installed");
+        }
+    });
+}
 
 /// Serve the embedded trunk dist as the app's web page.
 ///
@@ -52,6 +69,7 @@ where
     S: Clone + Send + Sync + 'static, {
     if let Some(target) = dev_proxy {
         tracing::info!("serving web through dev proxy at {target}");
+        install_tls_provider();
         let client = reqwest::Client::new();
         Router::new().fallback(move |req: Request| proxy(client.clone(), target.clone(), req))
     } else {

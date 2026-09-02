@@ -203,7 +203,7 @@ fn key(os: &str, arch: &str, appimage: bool) -> String {
     }
 }
 
-/// The AppImage runtime exports the image path as `APPIMAGE`.
+/// The `AppImage` runtime exports the image path as `APPIMAGE`.
 #[cfg(all(desktop, target_os = "linux"))]
 fn appimage_path() -> Option<std::path::PathBuf> {
     std::env::var_os("APPIMAGE").map(Into::into)
@@ -358,8 +358,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hilen-writable-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(dir_writable(&dir));
+        // Root writes into a read only directory anyway, and the linux CI
+        // containers run as root, so the negative half only holds for a
+        // plain user.
         #[cfg(unix)]
-        {
+        if unsafe { libc::geteuid() } != 0 {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
             assert!(!dir_writable(&dir));

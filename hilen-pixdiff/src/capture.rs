@@ -14,7 +14,6 @@ pub struct WindowInfo {
 /// owner app name, matched case insensitively, or a bare window id
 /// from an earlier candidate listing. Several matches list the
 /// candidates and error so a lazy query never hits the wrong window.
-#[cfg(target_os = "macos")]
 pub fn find_window(query: &str) -> Result<WindowInfo> {
     use anyhow::bail;
 
@@ -51,14 +50,12 @@ pub fn find_window(query: &str) -> Result<WindowInfo> {
 /// backing resolution. The window does not need to be frontmost, only
 /// on screen. Needs the one time Screen Recording permission for the
 /// terminal running the tool.
-#[cfg(target_os = "macos")]
 pub fn capture(query: &str, out: &Path) -> Result<()> {
     let window = find_window(query)?;
     capture_window(&window, out)
 }
 
 /// Capture an already resolved window.
-#[cfg(target_os = "macos")]
 pub fn capture_window(window: &WindowInfo, out: &Path) -> Result<()> {
     use std::process::Command;
 
@@ -80,7 +77,6 @@ pub fn capture_window(window: &WindowInfo, out: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn describe<'w>(windows: impl IntoIterator<Item = &'w WindowInfo>) -> String {
     let lines: Vec<String> = windows
         .into_iter()
@@ -89,25 +85,6 @@ fn describe<'w>(windows: impl IntoIterator<Item = &'w WindowInfo>) -> String {
     lines.join("")
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn find_window(query: &str) -> Result<WindowInfo> {
-    let _unused = query;
-    anyhow::bail!("window lookup is only implemented on macos");
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn capture(query: &str, out: &Path) -> Result<()> {
-    let _unused = (query, out);
-    anyhow::bail!("window capture is only implemented on macos, diff png files captured by hand");
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn capture_window(window: &WindowInfo, out: &Path) -> Result<()> {
-    let _unused = (window, out);
-    anyhow::bail!("window capture is only implemented on macos, diff png files captured by hand");
-}
-
-#[cfg(target_os = "macos")]
 mod mac {
     use std::ffi::c_void;
 

@@ -2,12 +2,8 @@
 //! apps at the same window size without the user dragging corners.
 //! Needs the one time Accessibility permission for the terminal.
 
-#[cfg(not(target_os = "macos"))]
-use anyhow::Result;
-#[cfg(target_os = "macos")]
 pub use mac::AxWindow;
 
-#[cfg(target_os = "macos")]
 mod mac {
     use std::ffi::c_void;
 
@@ -182,34 +178,5 @@ mod mac {
             ensure!(status == AX_SUCCESS, "moving failed with AXError {status}");
             Ok(())
         }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub struct AxWindow;
-
-#[cfg(not(target_os = "macos"))]
-impl AxWindow {
-    pub fn find(pid: i32, id: u32) -> Result<Self> {
-        let _unused = (pid, id);
-        anyhow::bail!("window resizing is only implemented on macos");
-    }
-
-    pub fn size(&self) -> Result<(f64, f64)> {
-        anyhow::bail!("window resizing is only implemented on macos");
-    }
-
-    pub fn set_size(&self, width: f64, height: f64) -> Result<()> {
-        let _unused = (width, height);
-        anyhow::bail!("window resizing is only implemented on macos");
-    }
-
-    pub fn position(&self) -> Result<(f64, f64)> {
-        anyhow::bail!("window resizing is only implemented on macos");
-    }
-
-    pub fn set_position(&self, x: f64, y: f64) -> Result<()> {
-        let _unused = (x, y);
-        anyhow::bail!("window resizing is only implemented on macos");
     }
 }

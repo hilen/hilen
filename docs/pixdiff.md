@@ -74,7 +74,7 @@ The tool prints which one is missing when a call fails.
 
 ## Platform
 
-Capture and resize are macOS only, the diff core is platform
+`capture`, `resize` and `run` exist on macOS only, the diff core is platform
 independent, so on other platforms `diff` still works on captures made
 by hand. The window id to accessibility element bridge uses the private
 `_AXUIElementGetWindow`, long stable and relied on by window managers

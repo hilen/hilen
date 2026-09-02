@@ -150,6 +150,9 @@ self-replace = { workspace = true }
 semver = { workspace = true }
 sha2 = { workspace = true }
 
+[target.'cfg(unix)'.dev-dependencies]
+libc = { workspace = true }
+
 [build-dependencies]
 plat = { workspace = true }
 

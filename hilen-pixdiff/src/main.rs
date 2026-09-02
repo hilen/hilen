@@ -1,4 +1,6 @@
+#[cfg(target_os = "macos")]
 mod ax;
+#[cfg(target_os = "macos")]
 mod capture;
 mod diff;
 mod report;
@@ -48,6 +50,7 @@ struct Tuning {
 #[derive(Subcommand)]
 enum Command {
     /// Capture one app window from the screen into a png.
+    #[cfg(target_os = "macos")]
     Capture {
         /// Owner app name, case insensitive, or a window id.
         query: String,
@@ -56,6 +59,7 @@ enum Command {
         out:   PathBuf,
     },
     /// Resize one app window to a size in points, title bar included.
+    #[cfg(target_os = "macos")]
     Resize {
         /// Owner app name, case insensitive, or a window id.
         query: String,
@@ -80,6 +84,7 @@ enum Command {
     },
     /// The whole parity check in one go, resize both app windows to the
     /// same size, capture both, diff, then restore the original sizes.
+    #[cfg(target_os = "macos")]
     Run {
         /// First app, owner name or window id, usually the original.
         a:        String,
@@ -101,7 +106,9 @@ enum Command {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        #[cfg(target_os = "macos")]
         Command::Capture { query, out } => capture::capture(&query, &out),
+        #[cfg(target_os = "macos")]
         Command::Resize { query, size } => {
             let (width, height) = parse_size(&size)?;
             let window = capture::find_window(&query)?;
@@ -119,6 +126,7 @@ fn main() -> Result<()> {
             let image_b = load(&b, crop_top_b)?;
             run_diff(&image_a, &image_b, out.as_deref(), &tuning)
         }
+        #[cfg(target_os = "macos")]
         Command::Run {
             a,
             b,
@@ -218,6 +226,7 @@ fn load(path: &Path, crop_top: u32) -> Result<RgbImage> {
     Ok(image::imageops::crop_imm(&image, 0, crop_top, width, height - crop_top).to_image())
 }
 
+#[cfg(target_os = "macos")]
 fn parse_size(spec: &str) -> Result<(f64, f64)> {
     let Some((width, height)) = spec.split_once('x') else {
         bail!("size must be WxH in points, got {spec:?}");
