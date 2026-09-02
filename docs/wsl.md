@@ -43,6 +43,28 @@ environment variables before winit starts:
   `WINIT_X11_SCALE_FACTOR` set by the user wins. One scale applies to every
   monitor, a window moved to a monitor with a different scale keeps it.
 
+## Where a fresh window opens
+
+WSLg sets no X11 primary monitor, so winit reports a zero sized nameless
+dummy as the primary. Left to itself the engine would center a new window
+on that dummy and it would land off screen, often on a secondary monitor
+with the title bar above the top edge, so it cannot be dragged. When the
+reported primary has no size, `window/placement.rs` picks the largest
+attached monitor instead. It also shrinks a new window to fit that
+monitor and centers it, so a window taller than the display never opens
+with its title bar off screen. A saved placement still comes back as is.
+
+## Resizing the window
+
+On X11 winit answers `inner_size` with a live round trip to the X server,
+so two size queries in one frame can disagree while the window is being
+dragged. WSLg's remote display makes that gap wide. The engine records
+the size from each `Resized` event and every query in a frame reads that
+one value, see `Screen::Windowed` in `window/screen.rs`, so the surface,
+the render attachments and the scissor rects always agree. Without it a
+drag crashes with a wgpu validation error about attachments of differing
+sizes.
+
 ## If no window appears
 
 Check that WSLg shows Linux windows at all with `xmessage hi` inside WSL.

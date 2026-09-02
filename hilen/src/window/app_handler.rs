@@ -190,6 +190,11 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         match event {
             UserEvent::WindowReady(window) => {
                 self.state = AppHandlerState::Ready(*window);
+                // A `Resized` that arrived while the window was still being
+                // set up was dropped, so the recorded size catches up once.
+                if let Some(winit_window) = Window::winit_window() {
+                    Self::window().record_inner_size(winit_window.inner_size());
+                }
                 self.te_window_events.window_ready();
             }
             // Waking the loop was the whole point. `about_to_wait` runs right
@@ -245,11 +250,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::ThemeChanged(theme) => {
                 self.te_window_events.theme_changed(theme);
             }
-            WindowEvent::Resized(_physical_size) => {
+            WindowEvent::Resized(physical_size) => {
                 if self.state.not_ready() {
                     return;
                 }
 
+                Self::window().record_inner_size(physical_size);
                 State::resize();
                 Self::placement_changed();
 

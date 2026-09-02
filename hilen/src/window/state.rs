@@ -18,6 +18,7 @@ use crate::{
     gm::{
         LossyConvert,
         color::{Color, GRAY_BLUE},
+        flat::Size,
     },
     window::{
         Font, RenderFrame, Screenshot, Window, app_handler::AppHandler, frame_counter::FrameCounter,
@@ -189,6 +190,7 @@ impl State {
             Screen::Windowed {
                 winit_window,
                 surface,
+                ..
             } => {
                 if surface.is_none() {
                     *surface = Surface::new(
@@ -328,8 +330,14 @@ impl State {
         if surface_texture.is_none() {
             self.ensure_offscreen_texture();
         }
-        self.ensure_depth_texture();
-        self.ensure_msaa_texture();
+
+        // The pass rejects attachments of different sizes, so the depth,
+        // multisample and scene textures follow the acquired target, not
+        // a window size read after the surface was configured.
+        let target_size = self.target_size(surface_texture.as_ref());
+
+        self.ensure_depth_texture(target_size);
+        self.ensure_msaa_texture(target_size);
 
         #[cfg(feature = "bench")]
         self.ensure_gpu_timer();
@@ -347,7 +355,7 @@ impl State {
             needs_sampling || (!crate::window::SURFACE_COPY && self.read_display_request.borrow().is_some());
 
         if needs_sampling && surface_texture.is_some() {
-            self.ensure_scene_texture();
+            self.ensure_scene_texture(target_size);
         }
 
         let texture = match &surface_texture {
@@ -430,7 +438,7 @@ impl State {
         self.deliver_pending_read(buffer);
     }
 
-    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, crate::gm::flat::Size<u32>)>) {
+    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, Size<u32>)>) {
         #[cfg(not_wasm)]
         if let Some(buffer_sender) = self.read_display_request.take() {
             let (sender, receiver) = channel();
@@ -551,9 +559,17 @@ impl State {
         Ok(())
     }
 
-    fn ensure_depth_texture(&mut self) {
-        let size: crate::gm::flat::Size<u32> = Window::render_size().lossy_convert();
+    /// The size of the texture this frame renders into, the acquired
+    /// surface texture or the headless offscreen one.
+    fn target_size(&self, surface_texture: Option<&wgpu::SurfaceTexture>) -> Size<u32> {
+        let texture = match surface_texture {
+            Some(surface_texture) => &surface_texture.texture,
+            None => self.offscreen_texture.as_ref().expect("offscreen texture ensured"),
+        };
+        Size::new(texture.size().width, texture.size().height)
+    }
 
+    fn ensure_depth_texture(&mut self, size: Size<u32>) {
         let up_to_date = self.depth_texture.as_ref().is_some_and(|texture| texture.size == size);
 
         if up_to_date {
@@ -572,19 +588,14 @@ impl State {
     /// resolving to the presentable texture. Not created when
     /// multisampling is off, then the frame renders straight into the
     /// resolve target.
-    fn ensure_msaa_texture(&mut self) {
+    fn ensure_msaa_texture(&mut self, size: Size<u32>) {
         if msaa_sample_count() == 1 {
             return;
         }
 
-        let size = Window::render_size();
-        let width: u32 = size.width.lossy_convert();
-        let height: u32 = size.height.lossy_convert();
-
-        let up_to_date = self
-            .msaa_texture
-            .as_ref()
-            .is_some_and(|texture| texture.size().width == width && texture.size().height == height);
+        let up_to_date = self.msaa_texture.as_ref().is_some_and(|texture| {
+            texture.size().width == size.width && texture.size().height == size.height
+        });
 
         if up_to_date {
             return;
@@ -593,8 +604,8 @@ impl State {
         self.msaa_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
             label:           Some("MSAA Render Texture"),
             size:            wgpu::Extent3d {
-                width,
-                height,
+                width:                 size.width,
+                height:                size.height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -641,15 +652,10 @@ impl State {
     /// Intermediate render target for frames that sample themselves,
     /// for example for backdrop blur. Windowed only, the headless
     /// offscreen texture is sampleable directly.
-    fn ensure_scene_texture(&mut self) {
-        let size = Window::render_size();
-        let width: u32 = size.width.lossy_convert();
-        let height: u32 = size.height.lossy_convert();
-
-        let up_to_date = self
-            .scene_texture
-            .as_ref()
-            .is_some_and(|texture| texture.size().width == width && texture.size().height == height);
+    fn ensure_scene_texture(&mut self, size: Size<u32>) {
+        let up_to_date = self.scene_texture.as_ref().is_some_and(|texture| {
+            texture.size().width == size.width && texture.size().height == size.height
+        });
 
         if up_to_date {
             return;
@@ -658,8 +664,8 @@ impl State {
         self.scene_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
             label:           Some("Scene Render Texture"),
             size:            wgpu::Extent3d {
-                width,
-                height,
+                width:                 size.width,
+                height:                size.height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -671,7 +677,7 @@ impl State {
         }));
     }
 
-    fn deliver_screenshot(buffer: (wgpu::Buffer, crate::gm::flat::Size<u32>), sender: &ReadDisplayRequest) {
+    fn deliver_screenshot(buffer: (wgpu::Buffer, Size<u32>), sender: &ReadDisplayRequest) {
         let (buff, size) = buffer;
 
         if size.width == 0 || size.height == 0 {
@@ -717,10 +723,7 @@ impl State {
         r
     }
 
-    fn read_screen(
-        encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-    ) -> (wgpu::Buffer, crate::gm::flat::Size<u32>) {
+    fn read_screen(encoder: &mut wgpu::CommandEncoder, texture: &wgpu::Texture) -> (wgpu::Buffer, Size<u32>) {
         let screen_width_bytes: u64 = u64::from(texture.size().width) * std::mem::size_of::<u32>() as u64;
 
         let width_bytes = screen_width_bytes.next_multiple_of(u64::from(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
@@ -754,8 +757,7 @@ impl State {
             },
         );
 
-        let size: crate::gm::flat::Size<u32> =
-            crate::gm::flat::Size::new(texture.size().width, texture.size().height);
+        let size: Size<u32> = Size::new(texture.size().width, texture.size().height);
 
         (buffer, size)
     }

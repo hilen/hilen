@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+use crate::gm::flat::Size;
+
+/// The share of a display a fresh window may take. The rest is room for
+/// the window frame and the taskbar, which the display size includes.
+const INITIAL_FIT: f64 = 0.9;
+
 /// Where a desktop window sits and how big it is, in logical points.
 ///
 /// Logical points travel between monitors with different scale factors,
@@ -70,15 +76,59 @@ pub fn resolve(
             monitor:   None,
         };
     };
-    let width = primary.width * 0.8;
-    let height = primary.height * 0.8;
+    centered(primary, primary.width * 0.8, primary.height * 0.8)
+}
+
+/// Where a window with nothing saved opens: `size` on the primary
+/// display, shrunk to fit it, and centered there. Left to the window
+/// manager a window taller than the display it picks opens with its
+/// title bar above the screen edge, which `WSLg` does with a 1000 point
+/// window on a 1080 pixel display.
+pub fn initial(size: Size, primary: Option<&MonitorInfo>) -> WindowPlacement {
+    let width = f64::from(size.width);
+    let height = f64::from(size.height);
+    let Some(primary) = primary else {
+        return WindowPlacement {
+            width,
+            height,
+            x: 50.0,
+            y: 50.0,
+            maximized: false,
+            monitor: None,
+        };
+    };
+    centered(
+        primary,
+        width.min(primary.width * INITIAL_FIT),
+        height.min(primary.height * INITIAL_FIT),
+    )
+}
+
+/// The display a fresh window opens on. The reported primary when the
+/// platform names one with a real size. X11 under `WSLg` sets no
+/// `RandR` primary and winit answers with a zero sized nameless dummy,
+/// so the largest display stands in there.
+pub fn primary_or_largest(monitors: &[MonitorInfo], reported: Option<MonitorInfo>) -> Option<MonitorInfo> {
+    if let Some(reported) = reported
+        && reported.width > 0.0
+        && reported.height > 0.0
+    {
+        return Some(reported);
+    }
+    monitors
+        .iter()
+        .max_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)))
+        .cloned()
+}
+
+fn centered(monitor: &MonitorInfo, width: f64, height: f64) -> WindowPlacement {
     WindowPlacement {
         width,
         height,
-        x: primary.x + (primary.width - width) / 2.0,
-        y: primary.y + (primary.height - height) / 2.0,
+        x: monitor.x + (monitor.width - width) / 2.0,
+        y: monitor.y + (monitor.height - height) / 2.0,
         maximized: false,
-        monitor: primary.name.clone(),
+        monitor: monitor.name.clone(),
     }
 }
 
@@ -101,15 +151,37 @@ impl super::Window {
     }
 
     pub(crate) fn apply_placement(&mut self, saved: &WindowPlacement) {
-        use winit::dpi::{LogicalPosition, LogicalSize};
+        let (monitors, primary) = self.monitors();
+        let target = resolve(saved, &monitors, primary.as_ref());
+        self.place(&target);
+    }
 
-        let Some(window) = self.screen.winit_window() else {
+    /// The launch placement of an app with nothing saved. Headless has no
+    /// display to place on and takes the size as is.
+    pub(crate) fn apply_initial_size(&mut self, size: Size) {
+        use crate::gm::LossyConvert;
+
+        if self.screen.winit_window().is_none() {
+            self.set_size(size.lossy_convert());
             return;
+        }
+        let (_, primary) = self.monitors();
+        self.place(&initial(size, primary.as_ref()));
+    }
+
+    fn monitors(&self) -> (Vec<MonitorInfo>, Option<MonitorInfo>) {
+        let Some(window) = self.screen.winit_window() else {
+            return (Vec::new(), None);
         };
         let monitors: Vec<MonitorInfo> =
             window.available_monitors().map(|m| MonitorInfo::from_handle(&m)).collect();
-        let primary = window.primary_monitor().map(|m| MonitorInfo::from_handle(&m));
-        let target = resolve(saved, &monitors, primary.as_ref());
+        let reported = window.primary_monitor().map(|m| MonitorInfo::from_handle(&m));
+        let primary = primary_or_largest(&monitors, reported);
+        (monitors, primary)
+    }
+
+    fn place(&mut self, target: &WindowPlacement) {
+        use winit::dpi::{LogicalPosition, LogicalSize};
 
         self.request_inner_size(LogicalSize::new(target.width, target.height));
         let Some(window) = self.screen.winit_window() else {
@@ -190,6 +262,68 @@ mod tests {
             (900.0, 600.0, 50.0, 50.0)
         );
         assert!(!target.maximized);
+    }
+
+    #[test]
+    fn initial_centers_on_primary() {
+        let primary = monitor("Built-in", 100.0, 1500.0);
+        let target = initial((1200, 800).into(), Some(&primary));
+        assert_eq!(
+            target,
+            WindowPlacement {
+                width:     1200.0,
+                height:    800.0,
+                x:         250.0,
+                y:         100.0,
+                maximized: false,
+                monitor:   Some("Built-in".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn initial_shrinks_to_fit_the_display() {
+        let primary = MonitorInfo {
+            name:   Some("Small".to_string()),
+            x:      0.0,
+            y:      418.0,
+            width:  1280.0,
+            height: 720.0,
+        };
+        let target = initial((1200, 1000).into(), Some(&primary));
+        assert_eq!((target.width, target.height), (1152.0, 648.0));
+        assert_eq!((target.x, target.y), (64.0, 454.0));
+    }
+
+    #[test]
+    fn initial_without_display_uses_default() {
+        let target = initial((1200, 1000).into(), None);
+        assert_eq!(
+            (target.width, target.height, target.x, target.y),
+            (1200.0, 1000.0, 50.0, 50.0)
+        );
+    }
+
+    #[test]
+    fn dummy_primary_falls_back_to_the_largest_display() {
+        let monitors = [monitor("Small", 0.0, 1280.0), monitor("Large", 1280.0, 2560.0)];
+        let dummy = MonitorInfo {
+            name:   None,
+            x:      0.0,
+            y:      0.0,
+            width:  0.0,
+            height: 0.0,
+        };
+        assert_eq!(
+            primary_or_largest(&monitors, Some(dummy)),
+            Some(monitors[1].clone())
+        );
+        assert_eq!(primary_or_largest(&monitors, None), Some(monitors[1].clone()));
+        assert_eq!(
+            primary_or_largest(&monitors, Some(monitors[0].clone())),
+            Some(monitors[0].clone())
+        );
+        assert_eq!(primary_or_largest(&[], None), None);
     }
 
     #[test]

@@ -104,12 +104,19 @@ impl Window {
 
     pub fn inner_size() -> Size {
         match &Self::current().screen {
-            Screen::Windowed { winit_window, .. } => {
-                let size = winit_window.inner_size();
-                (size.width, size.height).into()
-            }
+            Screen::Windowed { size, .. } => (size.width, size.height).into(),
             #[cfg(not_wasm)]
             Screen::Headless { size } => (size.width, size.height).into(),
+        }
+    }
+
+    /// Store the inner size a window event reported. Every later size
+    /// query reads it, see `Screen::Windowed`.
+    pub(crate) fn record_inner_size(&mut self, size: PhysicalSize<u32>) {
+        match &mut self.screen {
+            Screen::Windowed { size: recorded, .. } => *recorded = Size::new(size.width, size.height),
+            #[cfg(not_wasm)]
+            Screen::Headless { .. } => {}
         }
     }
 
@@ -295,6 +302,8 @@ impl Window {
             None
         };
 
+        let inner = winit_window.inner_size();
+
         let window = Self {
             state: State::default(),
             instance,
@@ -304,6 +313,7 @@ impl Window {
             screen: Screen::Windowed {
                 winit_window,
                 surface,
+                size: Size::new(inner.width, inner.height),
             },
             #[cfg(desktop)]
             is_resizing: false,
@@ -469,7 +479,10 @@ impl Window {
             return;
         }
         match window.request_inner_size(size) {
-            Some(_) => State::resize(),
+            Some(applied) => {
+                self.record_inner_size(applied);
+                State::resize();
+            }
             None => self.is_resizing = true,
         }
     }
