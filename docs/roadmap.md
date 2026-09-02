@@ -57,6 +57,21 @@ now exists, so this is a small job on top of it.
   at the end state on the first frame back.
 - Blocks: nothing visible, only CPU and battery in a background window.
 
+## Button cannot measure its title
+
+Found by the studio port, the admin page filter tabs.
+
+- Current: `Label::content_size` and `size_for_width` measure the text.
+  `Button` has no text measurement, its `content_size` comes from
+  `ViewCallbacks` and reflects the frame, near zero before layout, so a
+  button cannot be sized to its title. The studio admin page works around
+  it with touch enabled `Label`s styled as tabs.
+- Needed: title measurement on `Button`, or one measuring API shared by
+  every text carrying view, so `content_size` means the same thing on
+  `Label` and `Button`.
+- Blocks: any row of buttons sized by their titles, filter tabs, toolbars,
+  segmented controls.
+
 ## Text stack rework
 
 Found by the FontZoo emoji page. Parked until a real need for color emoji or
