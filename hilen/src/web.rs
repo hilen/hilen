@@ -6,9 +6,9 @@ use crate::deps::refs::main_lock::MainLock;
 
 static PANIC_BEACON_URL: OnceLock<String> = OnceLock::new();
 
-static RELOAD_SHORTCUT_LISTENER: MainLock<
-    Option<web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>>,
-> = MainLock::new();
+type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>;
+
+static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
 
 /// Winit's canvas keydown handler calls `preventDefault` on every key, which
 /// also cancels the browser reload shortcuts while the canvas has focus. This
@@ -88,10 +88,10 @@ fn report_panic(info: &PanicHookInfo) {
 
     // The driver relaunches the suite past a panicked test, so it needs the
     // test's name. Only a try lock is safe, the panicking thread may hold it.
-    if let Some(name) = crate::ui_test::current_test_name_nonblocking() {
-        if request.set_request_header("X-TE-Test", &name).is_err() {
-            log::error!("Failed to set the panic beacon test header");
-        }
+    if let Some(name) = crate::ui_test::current_test_name_nonblocking()
+        && request.set_request_header("X-TE-Test", &name).is_err()
+    {
+        log::error!("Failed to set the panic beacon test header");
     }
 
     if request.send_with_opt_str(Some(&body)).is_err() {

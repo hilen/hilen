@@ -26,7 +26,10 @@ pub(crate) mod svg_sources {
     static SOURCES: Mutex<BTreeMap<String, Vec<u8>>> = Mutex::new(BTreeMap::new());
 
     pub(crate) fn store(name: &str, data: &[u8]) {
-        if name.ends_with(".svg") {
+        if std::path::Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+        {
             SOURCES.lock().insert(name.to_string(), data.to_vec());
         }
     }

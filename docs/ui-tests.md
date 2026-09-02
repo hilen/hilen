@@ -71,7 +71,9 @@ by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun f
 `hilen_run_tests` query flag and `hilen_test_only` narrows it the way `HILEN_TEST_ONLY` does natively.
 The report arrives over the inspect WebSocket instead of the console, and on failure the
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
-See [inspect.md](inspect.md).
+A failing test also pushes its own frame the moment it fails, saved as
+`target/web-test/failures/<test>.png`, so a flake leaves its picture although the page
+has no filesystem. See [inspect.md](inspect.md).
 
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,

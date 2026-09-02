@@ -11,13 +11,16 @@ use crate::{
     },
     gm::color::BLACK,
     ui::{
-        CellRegistry, Setup, Spinner, TableData, TableView, UIManager, View, ViewData, view,
+        CellRegistry, Setup, Spinner, TableData, TableView, View, ViewData, view,
         views::containers::table_view::tests::infinite_scroll::infinite_cell::InfiniteCell,
     },
 };
 #[cfg(not_wasm)]
 use crate::{
-    ui::{ViewTest, views::containers::table_view::tests::infinite_scroll::basic_scroll::test_basic_scroll},
+    ui::{
+        UIManager, ViewTest,
+        views::containers::table_view::tests::infinite_scroll::basic_scroll::test_basic_scroll,
+    },
     ui_test::{inject_scroll, inject_touches},
 };
 

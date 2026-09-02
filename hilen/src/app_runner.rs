@@ -67,7 +67,14 @@ impl AppRunner {
 
         #[cfg(target_os = "ios")]
         let output = fern::Output::call(|record| crate::ios_log::log(&record.args().to_string()));
-        #[cfg(not(target_os = "ios"))]
+        // Android swallows stdout, logcat is the only output that reaches
+        // the developer, and going through the one dispatch feeds the bug
+        // report ring the same lines as every other platform.
+        #[cfg(target_os = "android")]
+        let output: Box<dyn log::Log> = Box::new(android_logger::AndroidLogger::new(
+            android_logger::Config::default().with_max_level(LevelFilter::Info),
+        ));
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let output = std::io::stdout();
 
         let mut dispatch = Dispatch::new()

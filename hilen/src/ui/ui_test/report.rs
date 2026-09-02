@@ -56,10 +56,40 @@ fn save_failure_screenshot(test_name: &str) -> String {
     }
 }
 
-// `temp_dir` is a hard panic on wasm, a page has nowhere to save a file.
-#[cfg(wasm)]
+// `temp_dir` is a hard panic on wasm, a page has nowhere to save a file,
+// so the frame goes to the driver over the inspect socket instead.
+#[cfg(all(wasm, feature = "inspect"))]
 fn save_failure_screenshot(test_name: &str) -> String {
-    format!("No failure screenshot for {test_name}, the browser has no filesystem")
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    use crate::{
+        AppRunner,
+        deps::hreads::wait_for_next_frame,
+        inspect::{InspectService, protocol::AppCommand, web_transport::push},
+    };
+
+    wait_for_next_frame();
+
+    let screenshot = match AppRunner::take_screenshot() {
+        Ok(screenshot) => screenshot,
+        Err(e) => return format!("Failed to take failure screenshot: {e}"),
+    };
+
+    match InspectService::encode_png(&screenshot) {
+        Ok(png) => {
+            push(AppCommand::FailureScreenshot {
+                test:       test_name.to_string(),
+                png_base64: STANDARD.encode(&png),
+            });
+            format!("Failure screenshot for {test_name} sent to the driver, see target/web-test/failures/")
+        }
+        Err(e) => format!("Failed to encode failure screenshot: {e}"),
+    }
+}
+
+#[cfg(all(wasm, not(feature = "inspect")))]
+fn save_failure_screenshot(test_name: &str) -> String {
+    format!("No failure screenshot for {test_name}, the browser has no filesystem and no inspect socket")
 }
 
 fn dump_view_tree() -> Result<String> {

@@ -5,9 +5,11 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result, bail};
+#[cfg(desktop)]
+use log::error;
+use log::info;
 #[cfg(not_wasm)]
 use log::warn;
-use log::{error, info};
 use plat::Platform;
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
@@ -16,6 +18,8 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
+#[cfg(desktop)]
+use crate::window::icon::apply_icon;
 use crate::{
     deps::hreads::on_main,
     gm::{
@@ -26,7 +30,6 @@ use crate::{
     window::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
-        icon::apply_icon,
         screen::Screen,
         state::{State, surface_texture_format},
         surface::Surface,
@@ -418,11 +421,17 @@ impl Window {
     /// it is the window and taskbar icon. Phones and the browser take
     /// the icon from the bundle or the page, so the call does nothing there.
     pub fn set_icon(data: &'static [u8]) {
+        #[cfg(desktop)]
         on_main(move || {
             if let Err(err) = apply_icon(data) {
                 error!("Failed to set the app icon: {err}");
             }
         });
+        #[cfg(not(desktop))]
+        log::debug!(
+            "The {} byte app icon is not applied here, the bundle or the page carries it",
+            data.len()
+        );
     }
 
     #[cfg(desktop)]

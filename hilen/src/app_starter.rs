@@ -133,14 +133,13 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
     let headless = headless || std::env::var("HILEN_HEADLESS").is_ok();
 
-    #[cfg(all(not_wasm, not_android))]
+    #[cfg(not_wasm)]
     AppRunner::setup_log(app.log_targets());
 
     // Android swallows stdout and stderr, logcat is the only output that
-    // reaches the developer, so both logs and panics go through it.
+    // reaches the developer, so a panic goes through the log too.
     #[cfg(target_os = "android")]
     {
-        android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info));
         std::panic::set_hook(Box::new(|panic| {
             let backtrace = std::backtrace::Backtrace::force_capture();
             log::error!("{panic}\nBacktrace: {backtrace}");

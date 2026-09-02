@@ -4,6 +4,7 @@ mod window_events;
 
 mod app_handler;
 mod frame_counter;
+#[cfg(desktop)]
 mod icon;
 pub mod image;
 mod placement;

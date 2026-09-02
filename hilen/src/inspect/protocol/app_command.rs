@@ -16,6 +16,13 @@ pub enum AppCommand {
         total:    usize,
         failures: Vec<TestFailureRepr>,
     },
+    /// Pushed by a browser test at the moment it fails, since a page has
+    /// nowhere to save the frame itself. The driver writes it under
+    /// `target/web-test/failures/`.
+    FailureScreenshot {
+        test:       String,
+        png_base64: String,
+    },
     /// Unix seconds of when the app's Rust code was compiled, see
     /// `hilen/build.rs`.
     BuildTime(u64),

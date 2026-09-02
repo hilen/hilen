@@ -1,9 +1,11 @@
 use ui_proc::view;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::UIEvents;
 use crate::{
     AppRunner,
     deps::refs::Weak,
-    ui::{Setup, UIEvents, ViewCallbacks, ViewData},
+    ui::{Setup, ViewCallbacks, ViewData},
     window::Screenshot,
 };
 
@@ -14,8 +16,13 @@ pub struct ColorMeter {
 
 impl Setup for ColorMeter {
     fn setup(self: Weak<Self>) {
-        self.update_screenshot();
-        UIEvents::size_changed().sub(self, move || self.update_screenshot());
+        // A single threaded page cannot block on the readback, so the meter
+        // keeps its empty screenshot in the browser.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.update_screenshot();
+            UIEvents::size_changed().sub(self, move || self.update_screenshot());
+        }
     }
 }
 
@@ -48,7 +55,4 @@ impl ColorMeter {
             });
         });
     }
-
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) fn update_screenshot(self: Weak<Self>) {}
 }

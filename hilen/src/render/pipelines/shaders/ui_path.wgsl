@@ -94,17 +94,33 @@ fn ramp_color(t: f32) -> vec4<f32> {
     return color;
 }
 
-// A cheap hash grain. On a conic ramp it follows the angle alone, so
-// the noise streaks along the radius like machined metal.
+// An integer hash, bit exact on every GPU. The float hash it replaces,
+// fract(sin(x) * 43758.5453), fed sin arguments of tens of thousands of
+// radians, and drivers round sin that large differently, so the grain
+// was one pattern on Metal and another on Mesa and no recorded pixel
+// could hold on both.
+fn pcg(input: u32) -> u32 {
+    let state = input * 747796405u + 2891336453u;
+    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// The grain seed is quantized before hashing, so the only float work
+// left is a floor, which every driver agrees on away from cell edges.
+// On a conic ramp it follows the angle alone, so the noise streaks
+// along the radius like machined metal.
 fn grain(local: vec2<f32>) -> f32 {
-    var seed: vec2<f32>;
+    var seed: vec2<i32>;
     if path_view.kind == KIND_CONIC {
         let d = local - path_view.gradient_a;
-        seed = vec2<f32>(atan2(d.y, d.x) * 1000.0, 1.0);
+        seed = vec2<i32>(i32(floor(atan2(d.y, d.x) * 1000.0)), 0);
     } else {
-        seed = local;
+        // Quarter points, one cell per pixel up to a 4x display scale.
+        seed = vec2<i32>(floor(local * 4.0));
     }
-    return fract(sin(dot(seed, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
+    let bits = bitcast<vec2<u32>>(seed);
+    let hash = pcg(bits.x ^ pcg(bits.y));
+    return f32(hash & 0xffffu) / 65535.0 - 0.5;
 }
 
 @fragment

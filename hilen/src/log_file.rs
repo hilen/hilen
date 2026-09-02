@@ -26,6 +26,11 @@ pub fn log_file_path() -> Option<PathBuf> {
 
 /// Picks the file for this launch, creates its dir and prunes old ones.
 pub(crate) fn create() -> Result<PathBuf> {
+    // Android has no per app log dir the engine could pick and swallows
+    // stdout anyway, logcat is the log there.
+    if cfg!(target_os = "android") {
+        bail!("no log file on android, logcat is the log");
+    }
     let app = app_name()?;
     let dir = log_dir(&app)?;
     create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;

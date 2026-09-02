@@ -17,6 +17,7 @@ pub(crate) enum Screen {
 }
 
 impl Screen {
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::unnecessary_wraps))]
     pub(crate) fn winit_window(&self) -> Option<&winit::window::Window> {
         match self {
             Self::Windowed { winit_window, .. } => Some(winit_window),

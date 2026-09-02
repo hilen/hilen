@@ -239,7 +239,8 @@ mod web_assets {
         for (done, entry) in entries.iter().enumerate() {
             download_entry(entry).await?;
 
-            let progress = (done + 1) as f32 / total as f32;
+            let permille = u16::try_from((done + 1) * 1000 / total).unwrap_or(1000);
+            let progress = f32::from(permille) / 1000.0;
             on_main(move || super::PROGRESS.trigger(progress));
         }
 

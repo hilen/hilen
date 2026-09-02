@@ -382,7 +382,7 @@ impl ViewTest for LabelEllipsize {
 
         let shot = AppRunner::take_screenshot()?;
         assert!(
-            region(&shot, PLAIN_FRAME) == region(&shot, WIDE_FRAME),
+            regions_match(&shot, PLAIN_FRAME, WIDE_FRAME),
             "ellipsize moved glyphs of fitting text"
         );
 
@@ -403,7 +403,7 @@ impl ViewTest for LabelEllipsize {
         });
         let shot = AppRunner::take_screenshot()?;
         assert!(
-            region(&shot, CUT_FRAME) == region(&shot, TWIN_FRAME),
+            regions_match(&shot, CUT_FRAME, TWIN_FRAME),
             "drawn pixels do not match the reported truncation"
         );
         check_colors(LABELS)?;
@@ -444,6 +444,28 @@ impl ViewTest for LabelEllipsize {
 
         Ok(())
     }
+}
+
+/// Pixel equality with one level of slack per channel. The two frames sit
+/// fifty points apart, and a software rasterizer rounds the anti aliased
+/// edge of the label background one level differently there, llvmpipe did
+/// on the corner pixel, while the glyphs themselves came out identical.
+fn regions_match(shot: &Screenshot, a: (u32, u32, u32, u32), b: (u32, u32, u32, u32)) -> bool {
+    region(shot, a)
+        .into_iter()
+        .zip(region(shot, b))
+        .all(|(x, y)| channel_gap(x, y) <= 1)
+}
+
+fn channel_gap(a: U8Color, b: U8Color) -> u8 {
+    [
+        a.r.abs_diff(b.r),
+        a.g.abs_diff(b.g),
+        a.b.abs_diff(b.b),
+        a.a.abs_diff(b.a),
+    ]
+    .into_iter()
+    .fold(0, u8::max)
 }
 
 fn region(shot: &Screenshot, frame: (u32, u32, u32, u32)) -> Vec<U8Color> {

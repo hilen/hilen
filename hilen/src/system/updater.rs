@@ -95,10 +95,11 @@ impl Updater {
                 verify_key: source.verify_key,
             }))
         }
+        // The API is async on every platform, here the answer is immediate.
         #[cfg(not(desktop))]
         {
             log::trace!("Updater::check outside the desktop is a no-op");
-            Ok(None)
+            std::future::ready(Ok(None)).await
         }
     }
 
@@ -154,13 +155,15 @@ impl Updater {
 
             Ok(())
         }
+        // The API is async on every platform, here the answer is immediate.
         #[cfg(not(desktop))]
         {
             drop(on_progress);
-            anyhow::bail!(
+            std::future::ready(Err(anyhow::anyhow!(
                 "Self update is desktop only, cannot install version {}",
                 info.version
-            )
+            )))
+            .await
         }
     }
 

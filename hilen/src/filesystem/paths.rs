@@ -86,9 +86,8 @@ impl Paths {
 
             Some(handle.path().to_owned())
         }
+        // The API is async on every platform, here the answer is immediate.
         #[cfg(any(mobile, wasm))]
-        {
-            None
-        }
+        std::future::ready(None).await
     }
 }

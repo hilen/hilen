@@ -78,6 +78,7 @@ ci:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo clippy -p demo --features bench --all-targets -- -D warnings
+	cargo clippy -p demo --target wasm32-unknown-unknown --all-targets -- -D warnings
 	cargo machete
 
 lint:

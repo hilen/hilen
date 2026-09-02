@@ -37,11 +37,6 @@ pub(super) fn apply_icon(data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(desktop))]
-pub(super) fn apply_icon(_: &[u8]) -> Result<()> {
-    Ok(())
-}
-
 /// A square iOS style icon reshaped into the macOS Dock shape. The Dock
 /// draws the image as is, so the rounded corners and the transparent
 /// margin around them have to be in the pixels. The proportions follow

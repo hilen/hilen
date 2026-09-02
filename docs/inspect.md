@@ -137,7 +137,9 @@ thread, since commands block on `from_main` and `RunTests` runs the whole
 suite. Responses serialize on that worker and their `Own` pointers drop on the
 main thread, like the TCP transport. The test autorun also pushes its report
 over the socket as an unsolicited frame, which is how the browser test lane
-reads results without console access, see [ui-tests.md](ui-tests.md). Panics
+reads results without console access, see [ui-tests.md](ui-tests.md). A failing
+test pushes a `FailureScreenshot` frame the same way, its frame as PNG, which the
+driver writes under `target/web-test/failures/`. Panics
 POST to `/te-panic` on the page origin from the panic hook through a sync XHR,
 which delivers before the wasm instance dies and works from workers too.
 

@@ -32,7 +32,7 @@ use crate::{
         Button, Input, Label, ModifiersState, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame,
         ViewSubviews, WeakView,
     },
-    window::MouseButton,
+    window::{MouseButton, Screenshot},
 };
 
 pub struct InspectService;
@@ -143,7 +143,18 @@ impl InspectService {
 
     fn screenshot() -> Result<AppCommand> {
         let shot = crate::AppRunner::take_screenshot()?;
+        let png = Self::encode_png(&shot)?;
 
+        Ok(AppCommand::Screenshot {
+            width:      shot.size.width,
+            height:     shot.size.height,
+            png_base64: STANDARD.encode(&png),
+        })
+    }
+
+    /// The frame as PNG bytes, what the screenshot command answers with and
+    /// what a browser test failure pushes to the driver.
+    pub(crate) fn encode_png(shot: &Screenshot) -> Result<Vec<u8>> {
         let mut bytes = Vec::with_capacity(shot.data.len() * 4);
         for color in &shot.data {
             bytes.extend_from_slice(&[color.r, color.g, color.b, 255]);
@@ -157,11 +168,7 @@ impl InspectService {
             ExtendedColorType::Rgba8,
         )?;
 
-        Ok(AppCommand::Screenshot {
-            width:      shot.size.width,
-            height:     shot.size.height,
-            png_base64: STANDARD.encode(&png),
-        })
+        Ok(png)
     }
 
     fn process_ui_command(command: UIRequest) -> AppCommand {

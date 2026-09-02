@@ -112,6 +112,7 @@ impl TextField {
                 self.copy();
                 self.delete_selection();
             }
+            #[cfg(not_wasm)]
             'v' => self.paste(),
             _ => {}
         }
@@ -127,8 +128,10 @@ impl TextField {
         }
     }
 
+    // A page cannot read the clipboard synchronously, so the browser has
+    // no paste shortcut.
+    #[cfg(not_wasm)]
     fn paste(self: Weak<Self>) {
-        #[cfg(not_wasm)]
         match Clipboard::get_text() {
             Ok(text) => self.insert(&text),
             Err(err) => log::warn!("Nothing to paste: {err}"),

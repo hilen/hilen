@@ -190,7 +190,7 @@ impl ViewTest for LabelEllipsizeHead {
         });
         let shot = AppRunner::take_screenshot()?;
         assert!(
-            region(&shot, CUT_FRAME) == region(&shot, TWIN_FRAME),
+            regions_match(&shot, CUT_FRAME, TWIN_FRAME),
             "drawn pixels do not match the reported truncation"
         );
         check_colors(PROBES)?;
@@ -226,6 +226,27 @@ impl ViewTest for LabelEllipsizeHead {
 
         Ok(())
     }
+}
+
+/// Pixel equality with one level of slack per channel, the same reason as
+/// in `label_ellipsize.rs`: a software rasterizer rounds the anti aliased
+/// edge of two label backgrounds fifty points apart one level differently.
+fn regions_match(shot: &Screenshot, a: (u32, u32, u32, u32), b: (u32, u32, u32, u32)) -> bool {
+    region(shot, a)
+        .into_iter()
+        .zip(region(shot, b))
+        .all(|(x, y)| channel_gap(x, y) <= 1)
+}
+
+fn channel_gap(a: U8Color, b: U8Color) -> u8 {
+    [
+        a.r.abs_diff(b.r),
+        a.g.abs_diff(b.g),
+        a.b.abs_diff(b.b),
+        a.a.abs_diff(b.a),
+    ]
+    .into_iter()
+    .fold(0, u8::max)
 }
 
 fn region(shot: &Screenshot, frame: (u32, u32, u32, u32)) -> Vec<U8Color> {
