@@ -312,7 +312,20 @@ impl State {
             return;
         }
 
-        let surface_texture = match Self::acquire_render_target() {
+        let target = Self::acquire_render_target();
+
+        // A surface can stay occluded or missing indefinitely, and a
+        // pending screenshot waits on the next delivered frame. Answer
+        // it through the offscreen path instead of skipping, so
+        // `take_screenshot` never hangs on a covered window.
+        #[cfg(not_wasm)]
+        let target = if matches!(target, RenderTarget::Skip) && self.read_display_request.borrow().is_some() {
+            RenderTarget::Offscreen
+        } else {
+            target
+        };
+
+        let surface_texture = match target {
             RenderTarget::Skip => return,
             #[cfg(not_wasm)]
             RenderTarget::Offscreen => None,
@@ -720,6 +733,9 @@ impl State {
 
         let (s, r) = channel();
         request.replace(s);
+        // An idle screen renders on demand only, so without this the
+        // request would wait for outside activity to produce a frame.
+        crate::window::request_frame();
         r
     }
 

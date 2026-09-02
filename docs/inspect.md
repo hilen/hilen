@@ -89,7 +89,7 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   view. Offset applies to Side and Anchor rules and edits the ratio of Relative rules.
 - `SetText { view_id, text }` — sets the text of a live `Label`, `Button` or `TextField`.
 - `SetColor { view_id, color }` — sets the background color of a live view.
-- `Screenshot` — returns the current frame as base64 PNG. Works headless too.
+- `Screenshot` — returns the current frame as base64 PNG. Works headless too. An idle app renders a frame for it on demand, and an occluded or hidden window answers from the offscreen scene path, so the command never waits for the window to become visible.
 - `ListEdits` — returns every edit applied in this session.
 - `GetBuildTime` — unix seconds of when `hilen` was compiled, stamped by
   `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source here and
