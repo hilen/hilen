@@ -1372,6 +1372,7 @@ dependencies = [
  "hilen",
  "parking_lot",
  "plat",
+ "scene-test-suite",
  "serde",
  "serde_json",
  "sysinfo",
@@ -3199,6 +3200,8 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -4827,6 +4830,7 @@ dependencies = [
  "foldhash",
  "glamx",
  "hashbrown 0.17.1",
+ "indexmap",
  "log",
  "num-derive",
  "num-traits",
@@ -6085,6 +6089,15 @@ dependencies = [
  "anyhow",
  "clap",
  "hilen",
+ "scene-test-suite",
+]
+
+[[package]]
+name = "scene-test-suite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hilen",
 ]
 
 [[package]]
@@ -6461,6 +6474,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f45c644a9f3a386f9288625d9f0c1e999e1acf07a37df35d0516c7f199d9cb2"
 dependencies = [
  "approx",
+ "libm",
  "num-complex",
  "num-traits",
  "wide",

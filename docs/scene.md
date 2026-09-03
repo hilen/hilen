@@ -219,8 +219,12 @@ little outside their solid so the faces do not cut them.
 
 A scene test is a `#[scene]` with `impl SceneTest`, registered by a ctor into
 `hilen::SCENE_TESTS` behind the `scene-tests` feature and run by the `scene-test`
-crate, which also holds the corpus. Same flags as `level-test`, `make scene` runs
-the suite. `Primitives` orbits the camera around every shape, `Materials` is the
+crate, the tests live in `scene-test-suite`. Same flags as `level-test`, `make scene` runs
+the suite. `demo` links `scene-test-suite` too, so `make ui-ios` and `make ui-web` run
+the scene tests after the UI tests. The three that cast shadows pin
+`shadow_map_size`, the default is 1024 on a phone and in the browser, and the
+lanes would draw a softer shadow edge than the desktop recorded.
+`Primitives` orbits the camera around every shape, `Materials` is the
 metallic by roughness chart, `Lights` a point and a spot light, `Textures` a
 texture and a normal map, `Skybox` chrome under a sky, `Transparency` blended
 balls from both sides, `Drop balls` a physics rest, `Models` the monkey, the tree
@@ -240,9 +244,10 @@ by the same stream once Escape freed the mouse. The loop runs free, so the frame
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
 human hold pauses the scene's time, so the probes sit on a still picture. Rapier
-is deterministic on one machine, a lane that disagrees needs its
-`enhanced-determinism` feature. `hold_key`, `release_key` and `inject_mouse_motion`
-drive the player from a test.
+is deterministic on one machine. `scene-tests` turns on its `enhanced-determinism`,
+which did not make the x86_64 simulator agree with an arm64 desktop on `Drop
+balls` and `Player walk`, see [roadmap.md](roadmap.md). `hold_key`, `release_key`
+and `inject_mouse_motion` drive the player from a test.
 
 ```bash
 cargo run -p scene-test -- --list

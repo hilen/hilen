@@ -36,7 +36,9 @@ pub(crate) use record::{reset_record_probe_count, set_record_canvas};
 pub use report::failure_report;
 use serde::de::DeserializeOwned;
 pub use state::*;
-pub use suite::{TestRunReport, present_test, run_all_tests, run_test_map};
+pub use suite::{
+    TestRunReport, drop_named, keep_named, present_test, registered_test_maps, run_all_tests, run_test_maps,
+};
 
 pub use self::ui_test::*;
 use crate::{

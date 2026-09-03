@@ -1,7 +1,7 @@
 # UI tests
 
 Real-window tests. They open the app, inject touches and scrolls, then check labels, colors and
-state. The corpus lives in `ui-test-suite/`, plus some in `hilen` and `demo`.
+state. The tests live in `ui-test-suite/`, plus some in `hilen` and `demo`.
 `ui-test/` is only the runner.
 
 ## Run
@@ -86,7 +86,7 @@ final report, so one panicking test cannot hide the rest of the suite.
 
 A level is not a view, so a level check is not a UI test. It is a `#[level]` struct with
 `impl LevelTest`, registered by the same kind of ctor into `hilen::LEVEL_TESTS`, and run
-by the `level-test` crate, which also holds the corpus. The runner installs an empty root
+by the `level-test` crate, which also holds the tests. The runner installs an empty root
 on the test canvas, starts the level at scale 1 so a retina window does not move the
 probes, hands the level to `perform_test` and stops it afterwards. The flags match
 `ui-test`: `--list`, `--test-name`, `--headless`, `--record-colors`, `--human`,
@@ -101,7 +101,10 @@ cargo run -p level-test -- --test-name SpriteCutout --human
 
 Scene tests are the 3D twin, a `#[scene]` with `impl SceneTest` registered into
 `hilen::SCENE_TESTS` and run by the `scene-test` crate with the same flags, `make scene`
-runs the suite. See [scene.md](scene.md).
+runs the suite. They live in `scene-test-suite`, which `demo` links, so `HILEN_RUN_TESTS`
+and `hilen_run_tests` run them after the UI tests on every device lane, in one
+`HILEN_TEST_RESULT` line, and `HILEN_TEST_ONLY` names one like a view. A name shared by
+a view and a scene, `Transparency` is one, runs both. See [scene.md](scene.md).
 
 ## Run from the editor
 
@@ -319,7 +322,7 @@ impl ViewTest for MyTest {
   test view, not the host.
 
 Nothing here is async. A UI test drives the main thread through `from_main` and never awaits. The
-corpus was async for years and not one test awaited anything, which cost a second registry, a
+suite was async for years and not one test awaited anything, which cost a second registry, a
 boxed future type and a hand written call list.
 
 ### A generic view cannot be a test
@@ -403,7 +406,7 @@ That is the whole thing. The harness builds the view and hands it to `perform_te
 never calls `UITest::start` for its own view. It registers as `My test`.
 
 To test an existing widget, give it a fixture view to live in and put the impl on the fixture.
-The corpus does this throughout, and a fixture is usually what you want anyway, since its
+The suite does this throughout, and a fixture is usually what you want anyway, since its
 `setup` arranges the scene the widget is tested in.
 
 Test helpers: `inject_touches`, `inject_scroll`, `inject_right_click`, `inject_long_press`,

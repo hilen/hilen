@@ -1,4 +1,4 @@
-//! The UI test corpus.
+//! The UI tests.
 //!
 //! A library rather than part of the `ui-test` binary so `demo` can link
 //! it and carry every test onto a device. It must never depend on `demo`,
@@ -22,7 +22,7 @@ mod views;
 /// Names this crate so a linker keeps it.
 ///
 /// Every test here registers through a `ctor` and nothing calls it by name, so
-/// a linker drops the whole rlib and takes the corpus with it. Nothing reports
+/// a linker drops the whole rlib and takes every test with it. Nothing reports
 /// that, the suite just quietly runs fewer tests. A consumer must call this.
 pub fn keep_linked() {
     std::hint::black_box(());

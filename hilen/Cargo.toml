@@ -40,8 +40,10 @@ audio = ["dep:kira"]
 # pipeline. Off by default, a GUI only app carries none of it.
 scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
 # Registers every `impl SceneTest` into `SCENE_TESTS`. Needs the shared
-# runner from `ui-tests`, the same way `level-tests` does.
-scene-tests = ["scene", "ui-tests", "level-proc/scene-tests"]
+# runner from `ui-tests`, the same way `level-tests` does. Deterministic
+# rapier so a pinned physics rest lands the same on every lane, a game
+# on `scene` alone keeps the fast path.
+scene-tests = ["scene", "ui-tests", "level-proc/scene-tests", "rapier3d/enhanced-determinism"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
 pointers_info = []

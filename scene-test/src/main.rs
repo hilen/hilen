@@ -1,27 +1,8 @@
 //! The scene test runner. Every `impl SceneTest` registers into
 //! `hilen::SCENE_TESTS` through a ctor, the same way a UI test registers
-//! into `UI_TESTS`, and this binary runs that map. The corpus lives in
-//! this crate, so nothing has to keep a separate rlib linked.
-
-#![allow(incomplete_features)]
-#![feature(specialization)]
-
-mod animations;
-mod cascades;
-mod colliders;
-mod drop_balls;
-mod fog;
-mod lights;
-mod materials;
-mod models;
-mod mouse_look;
-mod picking;
-mod player_walk;
-mod primitives;
-mod shadows;
-mod skybox;
-mod textures;
-mod transparency;
+//! into `UI_TESTS`, and this binary runs that map. The tests live in
+//! `scene-test-suite`, a library `demo` links too, so a device runs the
+//! same scene tests.
 
 use std::{collections::BTreeMap, panic::set_hook, path::PathBuf, process::exit};
 
@@ -82,7 +63,10 @@ struct DisplayArgs {
     present: bool,
 }
 
+/// The suite registers through ctors, so a linker drops it unless it is
+/// named here.
 fn all_tests() -> BTreeMap<String, UITestEntry> {
+    scene_test_suite::keep_linked();
     hilen::SCENE_TESTS.lock().clone()
 }
 

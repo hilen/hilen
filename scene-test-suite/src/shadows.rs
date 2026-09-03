@@ -35,6 +35,8 @@ impl SceneSetup for Shadows {
         };
         self.sun.direction = Vec3::new(-0.6, -1.0, -0.35);
         self.sun.shadows = true;
+        // The default is 1024 on a phone and in the browser.
+        self.sun.shadow_map_size = 2048;
 
         self.make_node::<Prop>(Shape3::Plane(14.0), Vec3::ZERO)
             .set_color(Color::hex("#c8ccd0"))

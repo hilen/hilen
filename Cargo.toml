@@ -19,6 +19,7 @@ members = [
   "level-test",
   "render-test",
   "scene-test",
+  "scene-test-suite",
   "ui-test",
   "ui-test-suite",
 ]
@@ -202,6 +203,7 @@ hilen = { version = "0.1", path = "hilen" }
 hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }
+scene-test-suite = { path = "scene-test-suite" }
 ui-proc = { version = "0.1", path = "deps/ui-proc" }
 
 # Image decoding dominates dev build startup, a debug decode of the

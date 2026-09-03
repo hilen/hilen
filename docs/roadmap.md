@@ -119,6 +119,55 @@ planned with it.
   what lies outside a map. Culling nodes against each cascade's box on the CPU
   would make a short shadow distance cut the passes' cost on a big level.
 
+## 3D scene on WebGL2
+
+Found by opening the demo with `?hilen_webgl` in the page query. The UI pipelines
+read their instances from a uniform array on WebGL2, `InstanceBinding` in
+`render/uniform`, the scene does not.
+
+- Current: `MeshPipeline` binds the instances, the joint matrices and the lights
+  as read only storage buffers with no uniform fallback, and WebGL2 has none. On
+  the forced uniform path, `HILEN_UNIFORM_INSTANCES=1`, the first scene frame
+  fails in `create_bind_group` for `mesh_lights_bind`. The demo never gets that
+  far: the sprite pipelines of `level` go through `instances_shader`, whose
+  rewrite expects a storage instance array that `sprite.wgsl` does not declare,
+  so the demo panics at startup with `a UI shader declares its instances as a
+  storage array`. The web lane runs the scene tests on WebGPU alone, so
+  nothing pins either.
+- Needed: `instances_shader` leaves a source without the declaration untouched,
+  pinned by a level test on the forced uniform path. Then the scene follows the
+  UI: the lights become a fixed uniform array, the opaque batches draw chunk by
+  chunk through `InstanceChunks` with the `index` attribute chunk relative, and
+  the joints bind a uniform window per batch, 256 matrices, split when the
+  skinned nodes overflow it, shared with the shadow pass. Check first that naga's
+  GLSL output takes `textureLoad` on the depth array shadow map, else that path
+  needs a comparison sampler or a color render of the depth. Then `scene-test` on
+  `HILEN_UNIFORM_INSTANCES=1` in `make ci`, and a `?hilen_webgl` run in the web
+  lane.
+- Blocks: any 3D page in a browser without WebGPU: an iPhone below iOS 26, a page
+  on plain http over a LAN address, WebKit handing out no adapter, a blocklisted
+  GPU.
+
+## Scene tests on the device lanes, work in progress
+
+The scene tests live in `scene-test-suite`, `demo` links it, and the device
+autorun runs them after the UI tests, so `make ui-ios` and `make ui-web` cover
+them. Two things are open.
+
+- Current: on the iPhone 8 simulator 14 of the 17 pass. `Mouse look` fails
+  because `Cursor::capture` does nothing on a phone. `Drop balls` and
+  `Player walk` pin a physics rest and land a little off on the x86_64 simulator
+  against the arm64 desktop, and rapier's `enhanced-determinism`, on for
+  `scene-tests`, changed nothing, the failing probes read byte identical colors
+  with and without it, so it is in without proof. In Chrome on WebGPU every
+  subset run so far passes, the full 16 have not run there.
+- Needed: gate `mouse_look.rs` to desktop and wasm, which needs a `build.rs`
+  with `plat::platforms()` in the suite crate. For the two rests, an A/B of the
+  two candidates: rapier's `parallel` feature ordering float sums by thread, and
+  the simulator pacing a different number of physics steps between two waits.
+  Then keep or drop `enhanced-determinism` on what the A/B shows.
+- Blocks: a green `make ui-ios` with the scene tests on.
+
 ## Video playback
 
 Found by weighing a Jellyfin style media client on hilen, see the research note. No

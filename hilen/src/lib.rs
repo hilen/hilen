@@ -123,7 +123,7 @@ pub use plat::Platform;
 #[cfg(target_os = "android")]
 pub type AndroidApp = winit::platform::android::activity::AndroidApp;
 
-/// Every UI test, from the engine, the corpus and the app. One map, filled by
+/// Every UI test, from the engine, the suite and the app. One map, filled by
 /// a ctor per view before `main`, so the count is known without running
 /// anything and nothing has to merge lists.
 pub static UI_TESTS: __internal_macro_deps::Mutex<

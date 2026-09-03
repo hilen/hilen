@@ -391,24 +391,22 @@ impl AppRunner {
     #[cfg(all(wasm, feature = "ui-tests"))]
     fn spawn_test_worker(only: Option<String>, skip: Option<String>) {
         crate::deps::hreads::spawn_thread(move || {
-            let mut tests = crate::UI_TESTS.lock().clone();
+            use std::collections::BTreeMap;
+
+            let mut tests = crate::ui_test::registered_test_maps();
 
             if let Some(only) = &only {
-                let keep: Vec<String> =
-                    only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                tests.retain(|name, _| keep.contains(name));
+                crate::ui_test::keep_named(&mut tests, only);
             }
 
             // Checked before the skip pass, a test the filter matched but a
             // panic rerun skips is already counted failed by the driver.
-            let filter_matched_nothing = only.is_some() && tests.is_empty();
+            let filter_matched_nothing = only.is_some() && tests.iter().all(BTreeMap::is_empty);
 
             // The driver reports skipped tests as failures itself, this
             // rerun only has to survive them.
             if let Some(skip) = skip {
-                let drop: Vec<String> =
-                    skip.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                tests.retain(|name, _| !drop.contains(name));
+                crate::ui_test::drop_named(&mut tests, &skip);
             }
 
             // A filter with a typo must fail loudly, a green `0 tests`
@@ -422,7 +420,7 @@ impl AppRunner {
                     }],
                 }
             } else {
-                crate::ui_test::run_test_map(&tests)
+                crate::ui_test::run_test_maps(&tests)
             };
 
             for failure in &report.failures {
@@ -493,19 +491,17 @@ impl AppRunner {
 
         UIManager::on_app_ready(|| {
             crate::deps::hreads::spawn(async {
-                let mut tests = crate::UI_TESTS.lock().clone();
+                let mut tests = crate::ui_test::registered_test_maps();
 
                 // Run only the named tests when set, a comma separated list, to
                 // isolate cases on a device or simulator where the whole suite
-                // is slow to reach them. Order in the map is still
+                // is slow to reach them. Order in each map is still
                 // alphabetical.
                 if let Ok(only) = std::env::var("HILEN_TEST_ONLY") {
-                    let keep: Vec<String> =
-                        only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                    tests.retain(|name, _| keep.contains(name));
+                    crate::ui_test::keep_named(&mut tests, &only);
                 }
 
-                let report = crate::ui_test::run_test_map(&tests);
+                let report = crate::ui_test::run_test_maps(&tests);
 
                 for failure in &report.failures {
                     println!("TEST FAILED: {}\n{}", failure.name, failure.detail);

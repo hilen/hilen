@@ -22,11 +22,14 @@ dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
 page requests at a running `trunk serve` for the dev loop. It never links the
 `hilen` UI crate, a backend and a client only share the wire.
 
-The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
+The UI tests are their own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
 `ui-test` runner links both. Level tests, a `#[level]` with `impl LevelTest`, register
 into `hilen::LEVEL_TESTS` the same way and run through the `level-test` crate, which
-also holds their corpus. `render-test` is only for the render pipelines drawn directly.
+also holds the tests. Scene tests, a `#[scene]` with `impl SceneTest`, register into
+`hilen::SCENE_TESTS`, live in `scene-test-suite` like the UI tests, and run through
+`scene-test` on desktop and through `demo` on a device, after the UI tests in one
+report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines

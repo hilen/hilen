@@ -82,8 +82,8 @@ fn keep_tests_linked() {
     black_box(demo::DemoApp);
 }
 
-/// Every registered test, from the corpus, the app and the engine. They all
-/// register into the one engine owned map, so there is nothing to merge.
+/// Every registered test, from `ui-test-suite`, the app and the engine. They
+/// all register into the one engine owned map, so there is nothing to merge.
 fn all_tests() -> BTreeMap<String, UITestEntry> {
     keep_tests_linked();
     hilen::UI_TESTS.lock().clone()

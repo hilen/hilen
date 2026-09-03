@@ -47,6 +47,8 @@ impl SceneSetup for Cascades {
         };
         self.sun.direction = Vec3::new(-1.0, -0.45, -0.2);
         self.sun.shadows = true;
+        // The default is 1024 on a phone and in the browser.
+        self.sun.shadow_map_size = 2048;
         self.sun.shadow_distance = SHADOW_DISTANCE;
 
         self.make_node::<Prop>(Shape3::Plane(900.0), Vec3::ZERO)

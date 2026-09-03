@@ -1,6 +1,6 @@
 //! The level test runner. Every `impl LevelTest` registers into
 //! `hilen::LEVEL_TESTS` through a ctor, the same way a UI test registers
-//! into `UI_TESTS`, and this binary runs that map. The corpus lives in
+//! into `UI_TESTS`, and this binary runs that map. The tests live in
 //! this crate, so nothing has to keep a separate rlib linked.
 
 #![allow(incomplete_features)]

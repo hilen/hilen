@@ -69,17 +69,48 @@ fn restore_app(state: AppState) {
     });
 }
 
-/// Run a whole map of registered tests through the failure collector. Must not
-/// run on the main thread, the tests drive the main thread through `from_main`.
-pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
+/// The UI map, then the scene map. Two maps, a view and a scene may share
+/// a name, `Transparency` does.
+pub fn registered_test_maps() -> Vec<BTreeMap<String, UITestEntry>> {
+    let mut maps = vec![crate::UI_TESTS.lock().clone()];
+    #[cfg(feature = "scene")]
+    maps.push(crate::SCENE_TESTS.lock().clone());
+    maps
+}
+
+/// `HILEN_TEST_ONLY`, a comma separated list in either spelling.
+pub fn keep_named(maps: &mut [BTreeMap<String, UITestEntry>], names: &str) {
+    let keep = spaced_names(names);
+    for tests in maps {
+        tests.retain(|name, _| keep.contains(name));
+    }
+}
+
+/// `hilen_test_skip`, the same list taken out.
+pub fn drop_named(maps: &mut [BTreeMap<String, UITestEntry>], names: &str) {
+    let drop = spaced_names(names);
+    for tests in maps {
+        tests.retain(|name, _| !drop.contains(name));
+    }
+}
+
+fn spaced_names(names: &str) -> Vec<String> {
+    names.split(',').map(|name| super::spaced_test_name(name.trim())).collect()
+}
+
+/// Runs the maps in turn under one harness into one report. Must not run
+/// on the main thread, the tests drive it through `from_main`.
+pub fn run_test_maps(maps: &[BTreeMap<String, UITestEntry>]) -> TestRunReport {
     let state = prepare_harness();
     clear_failures();
 
     #[cfg(not_wasm)]
     super::watchdog::start_run();
 
-    for (name, test) in tests {
-        run_test(name, test.run);
+    for tests in maps {
+        for (name, test) in tests {
+            run_test(name, test.run);
+        }
     }
 
     // The last test's OK line and the human mode hold both live in
@@ -89,7 +120,7 @@ pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
     UITest::finish();
 
     let report = TestRunReport {
-        total:    tests.len(),
+        total:    maps.iter().map(BTreeMap::len).sum(),
         failures: take_failures(),
     };
 
@@ -103,12 +134,12 @@ pub fn run_test_map(tests: &BTreeMap<String, UITestEntry>) -> TestRunReport {
 /// keeps the display scale, a test's scale 1 renders half size on a retina
 /// screen. The app's styles go like in a run. Nothing is handed back, the
 /// window is the user's now. Must not run on the main thread, like
-/// `run_test_map`.
+/// `run_test_maps`. A name shared by a view and a scene presents the view.
 pub fn present_test(name: &str) -> anyhow::Result<()> {
     let key = super::spaced_test_name(name.trim());
-    let entry = crate::UI_TESTS.lock().get(&key).copied();
+    let entry = registered_test_maps().iter().find_map(|tests| tests.get(&key).copied());
     let Some(entry) = entry else {
-        anyhow::bail!("UI test not found: {name}");
+        anyhow::bail!("Test not found: {name}");
     };
 
     from_main(Style::take_globals);
@@ -118,10 +149,8 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run every registered test. `#[view]` and `#[ui_test]` in any crate all
-/// register into the one engine owned map, so this reaches the whole suite with
-/// no help from the app.
+/// Every registered test, the UI tests then the scene tests, with no help
+/// from the app.
 pub fn run_all_tests() -> TestRunReport {
-    let tests = crate::UI_TESTS.lock().clone();
-    run_test_map(&tests)
+    run_test_maps(&registered_test_maps())
 }
