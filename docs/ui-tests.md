@@ -466,6 +466,8 @@ title. Prompts go through `Window::set_title_prefix`, which keeps the frame time
 `Window::set_title`, which replaces the whole title. The run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
 field does not type the advance key into it. After each test the title shows the result and
 the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
+`UI_TEST_HUMAN_CLEAN=1` holds at every check without the probe markers, to look at the
+checked state itself, the title still names the check.
 
 The browser lane has the same mode. `bun build/web/drive.ts --human --only "Name"` puts
 the `hilen_human` query flag on the page, the browser spelling of `--human`, and drops the

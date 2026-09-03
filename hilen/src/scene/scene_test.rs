@@ -1,12 +1,16 @@
 use anyhow::Result;
 use ui_proc::view;
+use winit::keyboard::KeyCode;
 
 use crate::{
     SCENE_TESTS,
     deps::{hreads::from_main, refs::Weak},
-    gm::flat::Point,
+    gm::{
+        LossyConvert,
+        flat::{Point, Size},
+    },
     scene::{Scene, SceneManager},
-    ui::{Setup, UIEvents, UIManager, ViewTouch},
+    ui::{Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
 
@@ -15,6 +19,8 @@ use crate::{
 const ORBIT_SPEED: f32 = 0.008;
 const LOOK_SPEED: f32 = 0.004;
 const ZOOM_SPEED: f32 = 0.002;
+/// Units the presented camera walks per frame on a held key.
+const WALK_SPEED: f32 = 0.15;
 /// A touch that moved less than this is a tap, not a drag.
 const TAP_SLOP: f32 = 6.0;
 
@@ -52,15 +58,18 @@ pub struct SceneTestView {
     /// Set once a touch moved past the tap slop, from then on it turns
     /// the camera and can no longer end as a tap.
     dragging:    bool,
+    /// Set in presentation, then held keys walk the camera every frame.
+    presenting:  bool,
 }
 
 impl SceneTestView {
     /// Drag anywhere to turn the camera around its target and the wheel
-    /// zooms, or with a player in the scene the drag turns its head and
-    /// the keys walk it. A tap that does not drag falls through to the
-    /// scene like a touch no view took. Presentation only, a test drives
-    /// the camera itself.
+    /// zooms, `w` `s` `a` `d` or the arrows walk the camera, or with a
+    /// player in the scene the drag turns its head and the keys walk it.
+    /// A tap that does not drag falls through to the scene like a touch
+    /// no view took. Presentation only, a test drives the camera itself.
     fn enable_orbit(mut self: Weak<Self>) {
+        self.presenting = true;
         self.enable_touch();
         UIEvents::on_scroll().val(self, |delta| {
             let mut scene = SceneManager::scene_weak();
@@ -99,6 +108,41 @@ impl SceneTestView {
     }
 }
 
+impl ViewCallbacks for SceneTestView {
+    /// Walks the presented camera along its line of sight and across
+    /// it while a key is held. A player walks itself.
+    fn update(&mut self) {
+        if !self.presenting || SceneManager::no_scene() {
+            return;
+        }
+        let axis = |negative: [KeyCode; 2], positive: [KeyCode; 2]| {
+            let held = |keys: [KeyCode; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
+            held(positive) - held(negative)
+        };
+        let forward = axis(
+            [KeyCode::KeyS, KeyCode::ArrowDown],
+            [KeyCode::KeyW, KeyCode::ArrowUp],
+        );
+        let right = axis(
+            [KeyCode::KeyA, KeyCode::ArrowLeft],
+            [KeyCode::KeyD, KeyCode::ArrowRight],
+        );
+        if forward == 0.0 && right == 0.0 {
+            return;
+        }
+        let mut scene = SceneManager::scene_weak();
+        if scene.player.is_some() {
+            return;
+        }
+        let camera = &mut scene.camera;
+        let ahead = (camera.target - camera.position).normalize_or_zero();
+        let aside = ahead.cross(camera.up).normalize_or_zero();
+        let step = (ahead * forward + aside * right) * WALK_SPEED;
+        camera.position += step;
+        camera.target += step;
+    }
+}
+
 /// Lets the `scene` macro ask a type whether it is a test, like
 /// `MaybeLevelTest` does for levels.
 pub trait MaybeSceneTest {
@@ -133,12 +177,18 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
         })
     }
 
+    /// The scene over the test's own canvas at scale 1, the frame a
+    /// test sees, with the camera handed over.
     fn __scene_present() -> Option<fn()> {
         Some(|| {
+            let (width, height) = T::canvas();
             let root = SceneTestView::new();
             let view = root.weak();
             UITest::present_root(root);
             from_main(move || {
+                UIManager::override_scale(1.0);
+                let canvas = Size::new(width.lossy_convert(), height.lossy_convert());
+                UIManager::root_view().set_test_canvas(canvas);
                 SceneManager::set_scene(T::default());
                 view.enable_orbit();
             });

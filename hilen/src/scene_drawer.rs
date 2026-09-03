@@ -4,7 +4,7 @@ use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::volume::{Bounds, Mat4, Shape3, Vec4},
     render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
-    scene::{LightPick, Material, Mesh, Model, Playback, SceneManager, pick_lights},
+    scene::{LightPick, Material, Mesh, Model, Playback, SceneManager, pick_lights, sun_cascades},
     ui::{UIManager, ui_drawer::set_viewport},
 };
 
@@ -115,7 +115,8 @@ impl SceneDrawer {
         // Translucent nodes blend over what is behind them, so they draw
         // after every opaque node, the farthest first.
         let mut translucent = vec![];
-        // The corners of every node's sphere, what the shadow map covers.
+        // The corners of every node's sphere, what the shadow cascades
+        // stay inside of.
         let mut extent = vec![];
 
         for node in scene.nodes() {
@@ -155,16 +156,31 @@ impl SceneDrawer {
         let sun_color = sun.color.linear();
         let ambient = scene.ambient.linear();
         let sky = scene.sky.as_ref();
-        let view_proj = camera.view_projection(area.width / area.height);
-        let (sun_view_proj, shadow_texel) =
-            sun.shadow_view(Bounds::of_points(extent), MeshPipeline::SHADOW_MAP_SIZE);
+        let fog = scene.fog;
+        let fog_color = fog.map_or(Vec4::ZERO, |fog| {
+            let color = fog.color.linear();
+            Vec4::new(color.r, color.g, color.b, 1.0)
+        });
+        let fog_range = fog.map_or(Vec4::ZERO, |fog| {
+            let (start, inverse) = fog.range();
+            Vec4::new(start, inverse, fog.height.max(1e-3), 0.0)
+        });
+        let aspect = area.width / area.height;
+        let view_proj = camera.view_projection(aspect);
+        let cascades = sun_cascades(&sun, &camera, aspect, Bounds::of_points(extent));
+        let mut sun_texel = Vec4::ZERO;
+        let mut sun_depth = Vec4::ZERO;
+        for (slot, cascade) in cascades.iter().enumerate() {
+            sun_texel[slot] = cascade.texel;
+            sun_depth[slot] = 1.0 / cascade.depth;
+        }
 
         let view = SceneView {
             view_proj,
             inv_view_proj: view_proj.inverse(),
-            sun_view_proj,
-            camera_pos: camera.position.extend(0.0),
-            sun_dir: sun.direction.normalize_or_zero().extend(shadow_texel),
+            sun_view_proj: cascades.map(|cascade| cascade.view_proj),
+            camera_pos: camera.position.extend(2.0 * (camera.fov_y / 2.0).tan()),
+            sun_dir: sun.direction.normalize_or_zero().extend(0.0),
             sun_color: Vec4::new(
                 sun_color.r * sun.intensity,
                 sun_color.g * sun.intensity,
@@ -178,10 +194,14 @@ impl SceneDrawer {
                 f32::from(u8::from(sky.is_some())),
             ),
             viewport: Vec4::new(area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1 - DEPTH_BAND.0),
+            sun_texel,
+            sun_depth,
+            fog_color,
+            fog_range,
             irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
         };
 
-        pipeline.prepare(encoder, &view, sun.shadows);
+        pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);
     }
 
     pub fn draw(pass: &mut RenderPass) {
@@ -192,7 +212,12 @@ impl SceneDrawer {
         let area = UIManager::render_area();
         pass.set_viewport(0.0, 0.0, area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1);
 
-        MESH.get_mut().draw(pass, SceneManager::scene().sky.as_ref());
+        let scene = SceneManager::scene();
+        MESH.get_mut().draw(
+            pass,
+            scene.sky.as_ref(),
+            scene.sky.is_some() || scene.fog.is_some(),
+        );
 
         set_viewport(pass, UIManager::window_resolution());
     }

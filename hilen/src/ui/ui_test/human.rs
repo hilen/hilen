@@ -44,6 +44,12 @@ pub fn human_mode() -> bool {
     HUMAN_MODE.load(Ordering::Relaxed)
 }
 
+/// `UI_TEST_HUMAN_CLEAN=1` holds a human run at every check without the
+/// probe markers, to look at the checked state itself.
+pub(crate) fn clean_human_mode() -> bool {
+    var("UI_TEST_HUMAN_CLEAN").is_ok_and(|clean| clean == "1")
+}
+
 fn delay() -> Duration {
     let ms = var("UI_TEST_HUMAN_DELAY").ok().and_then(|ms| ms.parse().ok()).unwrap_or(50);
     Duration::from_millis(ms)

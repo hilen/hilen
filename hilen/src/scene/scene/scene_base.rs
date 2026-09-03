@@ -12,7 +12,7 @@ use crate::{
         flat::Point,
         volume::{Ray, Vec3},
     },
-    scene::{Camera, Light, Node, Player, Scene, Sky, Sun, scene::scene_physics::ScenePhysics},
+    scene::{Camera, Fog, Light, Node, Player, Scene, Sky, Sun, scene::scene_physics::ScenePhysics},
     ui::UIManager,
 };
 
@@ -35,6 +35,8 @@ pub struct SceneBase {
     /// Drawn behind everything and reflected by every surface. With a
     /// sky the flat `ambient` is not used, the sky lights the scene.
     pub sky:     Option<Sky>,
+    /// Distance fog over every surface, none by default.
+    pub fog:     Option<Fog>,
     /// The first person player, see `add_player`. While one exists the
     /// camera follows its eyes.
     pub player:  Option<Player>,

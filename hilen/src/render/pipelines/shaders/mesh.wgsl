@@ -207,33 +207,128 @@ fn shade(s: Surface, to_light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
     return (s.diffuse + PI * d * v * f) * radiance * nol;
 }
 
-// Whether the sun reaches `p`, 0 in shadow and 1 in the light, from
-// the four texels of the shadow map around where `p` lands, each
-// compared on its own and blended by the distance to them. The point
-// is pushed out along the geometric normal by a texel and a half, so a
-// lit face does not shadow itself where the map's texels straddle it.
-fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
-    if view.sun_color.w < 0.5 {
-        return 1.0;
-    }
-    let clip = view.sun_view_proj * vec4<f32>(p + n * view.sun_dir.w * 1.5, 1.0);
-    let ndc = clip.xyz / clip.w;
-    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z > 1.0 {
-        return 1.0;
-    }
+// How much the sun reaches a point of a cascade's map, 0 in shadow and
+// 1 in the light, from the four texels around where it lands, each
+// compared on its own and blended by the distance to them.
+fn cascade_shadow(layer: i32, uv: vec2<f32>, depth: f32) -> f32 {
     let size = vec2<f32>(textureDimensions(shadow_map));
     let texel = uv * size - 0.5;
     let base = floor(texel);
     let f = texel - base;
-    let depth = ndc.z - 0.0005;
     let last = vec2<i32>(size) - 1;
     let i = vec2<i32>(base);
-    let lit00 = f32(depth <= textureLoad(shadow_map, clamp(i, vec2<i32>(0), last), 0));
-    let lit10 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 0), vec2<i32>(0), last), 0));
-    let lit01 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(0, 1), vec2<i32>(0), last), 0));
-    let lit11 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 1), vec2<i32>(0), last), 0));
+    let lit00 = f32(depth <= textureLoad(shadow_map, clamp(i, vec2<i32>(0), last), layer, 0));
+    let lit10 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 0), vec2<i32>(0), last), layer, 0));
+    let lit01 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(0, 1), vec2<i32>(0), last), layer, 0));
+    let lit11 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 1), vec2<i32>(0), last), layer, 0));
     return mix(mix(lit00, lit10, f.x), mix(lit01, lit11, f.x), f.y);
+}
+
+// Texels a receiver is pushed out along its normal before the lookup,
+// on a surface edge on to the sun, so a lit face does not shadow itself
+// where the map's texels straddle it. A face square to the sun needs
+// none, so the push fades with the facing and a floor under a high sun
+// keeps its shadows against its posts.
+const NORMAL_OFFSET: f32 = 1.5;
+
+// The share of a map's width at its edge over which a receiver blends
+// into the next cascade, so the seam between a fine map and a coarse
+// one is not a line where the shadows change.
+const CASCADE_BLEND: f32 = 0.1;
+
+// The most texels of a cascade one pixel may cover on the surface it
+// shades. A map finer than that aliases a thin shadow into dots, the
+// way a texture without mips shimmers, since the pixels straddle the
+// caster's footprint in the map.
+const PIXEL_TEXELS: f32 = 2.0;
+
+// Where `p` lands in one cascade's map: the texel coordinates, the
+// depth to compare, and how far inside the map it is, 1 past the blend
+// band, falling to 0 at the edge, below 0 outside the map.
+struct CascadePoint {
+    uv: vec2<f32>,
+    depth: f32,
+    inside: f32,
+}
+
+fn cascade_place(layer: i32, p: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoint {
+    let texel = view.sun_texel[layer];
+    let pushed = p + n * texel * NORMAL_OFFSET * (1.0 - nol);
+    let clip = view.sun_view_proj[layer] * vec4<f32>(pushed, 1.0);
+    let ndc = clip.xyz / clip.w;
+    var point: CascadePoint;
+    point.uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    // One texel of depth bias on top of the push, against acne on a
+    // face at a slant to the sun.
+    point.depth = ndc.z - texel * view.sun_depth[layer];
+    // The filter reads a texel past where the point lands.
+    let edge = 2.0 / f32(textureDimensions(shadow_map).x);
+    let inside = min(min(point.uv.x, 1.0 - point.uv.x), min(point.uv.y, 1.0 - point.uv.y)) - edge;
+    point.inside = select(saturate(inside / CASCADE_BLEND), -1.0, inside < 0.0 || ndc.z > 1.0);
+    return point;
+}
+
+// The shadow of `p` in a cascade's map, blended into the next map that
+// holds the point when `p` sits in the edge band.
+fn cascade_blend(layer: i32, point: CascadePoint, p: vec3<f32>, n: vec3<f32>, nol: f32) -> f32 {
+    let shadow = cascade_shadow(layer, point.uv, point.depth);
+    if point.inside >= 1.0 {
+        return shadow;
+    }
+    for (var next = layer + 1; next < SHADOW_CASCADES; next++) {
+        let other = cascade_place(next, p, n, nol);
+        if other.inside >= 0.0 {
+            return mix(cascade_shadow(next, other.uv, other.depth), shadow, point.inside);
+        }
+    }
+    return shadow;
+}
+
+// Whether the sun reaches `p`, 0 in shadow and 1 in the light. The
+// nearest cascade whose map holds the point answers, unless its texels
+// are finer than the pixel, then the answer moves to the coarsest map
+// that still holds the point. A slice's map holds only its own slice
+// and a little around it, so the last map does not hold what the near
+// ones do, and a pixel too coarse for every map that holds it keeps
+// the coarsest of those. Outside every map the sun reaches.
+fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
+    if view.sun_color.w < 0.5 {
+        return 1.0;
+    }
+    let to_eye = view.camera_pos.xyz - p;
+    let facing = max(abs(dot(n, normalize(to_eye))), 0.1);
+    let footprint = length(to_eye) * view.camera_pos.w / view.viewport.y / facing;
+    let nol = saturate(dot(n, -view.sun_dir.xyz));
+    var held = -1;
+    var held_point: CascadePoint;
+    for (var layer = 0; layer < SHADOW_CASCADES; layer++) {
+        let point = cascade_place(layer, p, n, nol);
+        if point.inside < 0.0 {
+            continue;
+        }
+        if view.sun_texel[layer] * PIXEL_TEXELS < footprint && layer + 1 < SHADOW_CASCADES {
+            held = layer;
+            held_point = point;
+            continue;
+        }
+        return cascade_blend(layer, point, p, n, nol);
+    }
+    if held >= 0 {
+        return cascade_blend(held, held_point, p, n, nol);
+    }
+    return 1.0;
+}
+
+// The color seen through the fog between the camera and `p`, the fog
+// taking over from `fog_range.x` units away over the length of its
+// fade. Linear light, the fog color is tonemapped with the rest.
+fn fogged(color: vec3<f32>, p: vec3<f32>) -> vec3<f32> {
+    if view.fog_color.w < 0.5 {
+        return color;
+    }
+    let distance = length(p - view.camera_pos.xyz);
+    let amount = saturate((distance - view.fog_range.x) * view.fog_range.y);
+    return mix(color, view.fog_color.rgb, amount);
 }
 
 fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
@@ -297,5 +392,5 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color += shade(s, l, light.color.rgb * attenuation);
     }
 
-    return vec4<f32>(encode(color), alpha);
+    return vec4<f32>(encode(fogged(color, world_pos)), alpha);
 }

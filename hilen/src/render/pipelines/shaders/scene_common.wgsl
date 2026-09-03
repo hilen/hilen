@@ -1,15 +1,20 @@
 // Shared by the mesh and the sky shader, prepended to both by
-// `MeshPipeline`. See `SceneView` for what the fields carry.
+// `MeshPipeline` after a line declaring `SHADOW_CASCADES`. See
+// `SceneView` for what the fields carry.
 
 struct SceneView {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
-    sun_view_proj: mat4x4<f32>,
+    sun_view_proj: array<mat4x4<f32>, SHADOW_CASCADES>,
     camera_pos: vec4<f32>,
     sun_dir: vec4<f32>,
     sun_color: vec4<f32>,
     ambient: vec4<f32>,
     viewport: vec4<f32>,
+    sun_texel: vec4<f32>,
+    sun_depth: vec4<f32>,
+    fog_color: vec4<f32>,
+    fog_range: vec4<f32>,
     irradiance: array<vec4<f32>, 9>,
 }
 
@@ -22,10 +27,11 @@ var sky_cube: texture_cube<f32>;
 @group(0) @binding(2)
 var sky_sampler: sampler;
 
-// The sun's depth map, read by texel, a depth texture cannot be
-// filtered and a comparison sampler does not work on iOS 12.
+// The sun's depth maps, one layer per cascade, read by texel, a depth
+// texture cannot be filtered and a comparison sampler does not work
+// on iOS 12.
 @group(0) @binding(3)
-var shadow_map: texture_depth_2d;
+var shadow_map: texture_depth_2d_array;
 
 const PI: f32 = 3.14159265;
 

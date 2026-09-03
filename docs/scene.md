@@ -107,16 +107,42 @@ light's intensity is the brightness of a white matte surface facing it, one unit
 away for a point or spot, so the Lambert term carries no `1 / pi` and the specular
 one a `pi`.
 
-`sun.shadows` makes the sun cast, off by default since it draws every opaque node a
-second time. One shadow map covers the whole scene, an orthographic view of the sun
-over the sphere around every node, 2048 texels wide on desktop and 1024 on a phone
-or in the browser, `Depth32Float`. It draws in its own pass before the frame's pass
-opens, through the `prepare` hook of `WindowEvents`, so the frame can read it. The
-fragment reads four texels around where it lands by `textureLoad`, compares each
-and blends them by distance, a depth texture cannot be filtered and a comparison
-sampler does not work on iOS 12. Acne is held off by a slope scaled bias in the
-pass and a normal offset of a texel and a half in the receiver. Translucent nodes
-receive but do not cast.
+`sun.shadows` makes the sun cast, off by default since it draws every opaque node
+once more per cascade. The shadows are cascaded: the camera's view is cut into three
+depth slices, `SHADOW_CASCADES`, and each slice gets its own orthographic map of the
+sun fit around the sphere of the slice, so the near slice gets fine texels and the
+far one coarse ones, see `scene::shadow`. The maps are the layers of one
+`Depth32Float` array texture, `sun.shadow_map_size` texels a side, 2048 on desktop
+and 1024 on a phone or in the browser, changeable at runtime. The range the slices
+share runs from where the view enters the scene to where it leaves it or to
+`sun.shadow_distance`, infinite by default. A big level wants a finite one, the
+whole level in three maps is coarse everywhere and the biases, which scale with the
+texel, then detach every shadow from its caster. Both ends snap outward to a
+geometric ladder and every map's origin snaps to a texel, so a walking camera does
+not shimmer the shadow edges. The passes draw before the frame's pass opens, through
+the `prepare` hook of `WindowEvents`, so the frame can read the maps.
+
+The fragment picks the nearest cascade whose map holds the point, unless that map's
+texels are finer than half of what the pixel covers on its surface, then it moves on
+to a coarser map that holds the point, the way a mip is picked, since a map finer
+than the screen aliases a thin shadow into dots. A slice's map holds only its own
+slice and a little around it, so a pixel too coarse for every map that holds it
+keeps the coarsest of those, falling through to the last map instead left bands of
+floor unshadowed. In the outer tenth of a map the answer blends into the next map
+that holds the point, so the seam between two maps is not a line. The lookup reads
+four texels around where the point lands by `textureLoad`, compares each and blends
+them by distance, a depth texture cannot be filtered and a comparison sampler does
+not work on iOS 12. Acne is held off by a slope scaled bias in the pass, a depth
+bias of one texel and a push of up to a texel and a half along the normal that
+fades as the surface turns to face the sun, so a floor under a high sun keeps its
+shadows against its posts. Translucent nodes receive but do not cast.
+
+`fog` is distance fog, `Fog::new(color, start, end)`: every surface blends towards
+the color with its distance from the camera, untouched up to `start` and wholly fog
+from `end` on, in linear light before the tonemap. The sky is fog colored at the
+horizon and clears with height, gone where the view rises past `height`, 0.4 by
+default, and without a sky the fog color fills the background, so fogged ground
+always meets fog above it.
 
 `sky` is a cube map, `Sky::gradient` for a smooth one and `Sky::from_faces` for six
 images. The skybox draws it behind everything and every surface reflects it: the
@@ -181,9 +207,13 @@ balls from both sides, `Drop balls` a physics rest, `Models` the monkey, the tre
 and the textured cube from `assets/models` with the monkey dropped onto its
 bounds, `Shadows` a post, a ball, a floating crate and the monkey under a low sun,
 `Picking` taps landing on the nearest node and on the sky, `Player walk` a
-player shoving a crate into a wall and jumping, and `Animations` a skinned bar
+player shoving a crate into a wall and jumping, `Animations` a skinned bar
 bending, the fox running and a windmill spinning, checked at rest, frozen mid
-clip and held after a single run. The loop runs free, so the frames between two
+clip and held after a single run, `Cascades` a thin pole and a row of posts down
+a field hundreds of units long with the camera walking it, its middle check on
+the spot where a floor pixel too coarse for the maps holding it once fell through
+to the sun, and `FogTest` posts fading into fog under a sky fogged at the horizon,
+the fog then pushed back and taken away. The loop runs free, so the frames between two
 waits vary by one. A check of a pose in flight freezes the clip at a chosen time
 through `set_animation_speed(0)` and `set_animation_time` first. A human hold
 pauses the scene's time, so the probes sit on a still picture. Rapier is deterministic on one machine, a
@@ -197,10 +227,13 @@ cargo run -p scene-test -- --test-name DropBalls --human
 cargo run -p scene-test -- --test-name Materials --present
 ```
 
-`--present` hands one scene over with a drag to orbit and the wheel to zoom, or
-with a player in the scene the drag turns its head and the keys walk it.
+`--present` hands one scene over on the test's own canvas at scale 1, the frame a
+test sees, with a drag to orbit, the wheel to zoom and `w` `s` `a` `d` or the arrows
+walking the camera level, or with a player in the scene the drag turns its head and
+the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): cascaded shadows, fog
-and an embeddable scene view.
+The remaining deliveries are in [roadmap.md](roadmap.md): an embeddable scene
+view, and culling nodes outside a cascade's box on the CPU so a short shadow
+distance also cuts the shadow passes on a big level.

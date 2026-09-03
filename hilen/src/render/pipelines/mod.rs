@@ -17,6 +17,8 @@ mod pipeline_type;
 #[cfg(feature = "level")]
 mod polygon_pipeline;
 mod rect_pipeline;
+#[cfg(feature = "scene")]
+mod shadow_pass;
 mod ui_backdrop_pipeline;
 mod ui_blur_pipeline;
 mod ui_clip_pipeline;

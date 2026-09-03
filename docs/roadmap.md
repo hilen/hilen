@@ -108,13 +108,16 @@ tvOS app need.
 The `scene` module landed with primitives, physics, the Filament mobile PBR
 materials, a sun with point and spot lights, textures and normal maps, a sky
 with image based lighting, transparency, a tonemap, a first person player,
-`.glb` models with skins and animation clips, one sun shadow map and touch
-picking, see [scene.md](scene.md). The rest was planned with it.
+`.glb` models with skins and animation clips, cascaded sun shadows with a shadow
+distance, distance fog and touch picking, see [scene.md](scene.md). The rest was
+planned with it.
 
-- Cascaded shadows, the one map over the whole scene blurs on a big level,
-  fog, an embeddable `SceneView` that composites into any view frame instead of
-  the root area, and the offscreen linear pass with real HDR that `colors.md`
+- An embeddable `SceneView` that composites into any view frame instead of the
+  root area, and the offscreen linear pass with real HDR that `colors.md`
   sketches, if a scene ever needs it.
+- The shadow passes draw every opaque node into every cascade, the GPU clips
+  what lies outside a map. Culling nodes against each cascade's box on the CPU
+  would make a short shadow distance cut the passes' cost on a big level.
 
 ## Video playback
 

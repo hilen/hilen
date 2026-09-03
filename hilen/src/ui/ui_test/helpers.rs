@@ -12,7 +12,7 @@ use crate::{
         TEST_NAME,
         capture::save_shot,
         checks::check_colors_structured,
-        human::{human_mode, show_probes},
+        human::{checkpoint, clean_human_mode, human_mode, show_probes},
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
     window::{KeyCode, Window, request_frame},
@@ -96,7 +96,12 @@ pub fn check_colors(data: &str) -> Result<()> {
             .collect();
 
         let test_name = TEST_NAME.lock().clone();
-        show_probes(&probes, &test_name, next_check_index(&test_name));
+        let index = next_check_index(&test_name);
+        if clean_human_mode() {
+            checkpoint(&format!("{test_name} check {index}"))?;
+        } else {
+            show_probes(&probes, &test_name, index);
+        }
     }
 
     check_colors_structured(&checks)
