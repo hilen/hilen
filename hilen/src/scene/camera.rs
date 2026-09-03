@@ -2,7 +2,10 @@ use std::f32::consts::FRAC_PI_2;
 
 use glam::camera::rh::{proj::directx::perspective, view::look_at_mat4};
 
-use crate::gm::volume::{Mat4, Vec3};
+use crate::gm::{
+    flat::{Point, Size},
+    volume::{Mat4, Ray, Vec3},
+};
 
 /// Orbiting stops this close to straight up or down, where the up vector
 /// and the view direction would line up and the view matrix degenerates.
@@ -46,6 +49,21 @@ impl Camera {
 
     pub fn view_projection(&self, aspect: f32) -> Mat4 {
         self.projection(aspect) * self.view()
+    }
+
+    /// The ray through a pixel of the view drawn over `area`, from the
+    /// camera into the world, what a touch on the scene becomes.
+    pub fn ray(&self, point: Point, area: Size) -> Ray {
+        let x = point.x / area.width * 2.0 - 1.0;
+        let y = 1.0 - point.y / area.height * 2.0;
+        let far = self
+            .view_projection(area.width / area.height)
+            .inverse()
+            .project_point3(Vec3::new(x, y, 1.0));
+        Ray {
+            origin:    self.position,
+            direction: (far - self.position).normalize_or(Vec3::NEG_Z),
+        }
     }
 
     /// Move along the line of sight, `factor` scales the distance to the
@@ -111,6 +129,20 @@ mod test {
         assert!(((camera.position - camera.target).length() - camera.near * 2.0).abs() < 1e-5);
         camera.zoom(4.0);
         assert!(((camera.position - camera.target).length() - camera.near * 8.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_center_pixel_looks_at_the_target_and_a_corner_looks_away() {
+        let camera = Camera::default();
+        let area = Size::new(800.0, 600.0);
+        let center = camera.ray(Point::new(400.0, 300.0), area);
+        let to_target = (camera.target - camera.position).normalize();
+        assert!(center.direction.dot(to_target) > 0.9999);
+        assert_eq!(center.origin, camera.position);
+        // The top left corner ray points up and left of the center one.
+        let corner = camera.ray(Point::new(0.0, 0.0), area);
+        assert!(corner.direction.y > center.direction.y);
+        assert!(corner.direction.x < center.direction.x);
     }
 
     #[test]

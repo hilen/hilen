@@ -12,24 +12,29 @@ fn main() {
 }
 
 /// Writes `assets/assets.json` for the browser build. Every image,
-/// font and sound gets a content hash and a load group, and the
+/// font, sound and model gets a content hash and a load group, and the
 /// engine downloads whole groups from it, see
 /// `hilen/src/assets.rs`. The group is the first folder under
-/// the kind folder, files at the kind root are `boot`. Native builds
-/// read assets from disk and skip this.
+/// the kind folder, files at the kind root are `boot`. Only the `.glb`
+/// files count as models, the Blender sources sit next to them. Native
+/// builds read assets from disk and skip this.
 fn generate_asset_manifest() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
     let assets = crate_dir.parent().expect("Crate dir has no parent").join("assets");
 
     let mut entries = Vec::new();
 
-    for kind in ["images", "fonts", "sounds"] {
+    for kind in ["images", "fonts", "sounds", "models"] {
         let root = assets.join(kind);
         let mut files = Vec::new();
         collect(&root, &mut files);
 
         for file in files {
             println!("cargo:rerun-if-changed={}", file.display());
+
+            if kind == "models" && file.extension().is_none_or(|ext| ext != "glb") {
+                continue;
+            }
 
             let name = file
                 .strip_prefix(&root)

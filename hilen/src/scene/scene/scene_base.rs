@@ -3,9 +3,17 @@ use std::ops::Deref;
 use educe::Educe;
 
 use crate::{
-    deps::refs::{Own, Weak},
-    gm::{color::Color, volume::Vec3},
+    deps::{
+        refs::{Own, Weak},
+        vents::Event,
+    },
+    gm::{
+        color::Color,
+        flat::Point,
+        volume::{Ray, Vec3},
+    },
     scene::{Camera, Light, Node, Player, Scene, Sky, Sun, scene::scene_physics::ScenePhysics},
+    ui::UIManager,
 };
 
 #[derive(Educe)]
@@ -30,6 +38,10 @@ pub struct SceneBase {
     /// The first person player, see `add_player`. While one exists the
     /// camera follows its eyes.
     pub player:  Option<Player>,
+
+    /// A touch that no view took, as the ray it makes from the camera.
+    /// The nearest node under it gets its own `on_touch` first.
+    pub on_tap: Event<Ray>,
 
     pub(crate) physics: Option<ScenePhysics>,
 }
@@ -71,6 +83,35 @@ impl SceneBase {
             .expect("A player needs physics. Override SceneSetup::needs_physics to enable.");
         self.player = Some(Player::make(physics, position.into(), 0.35, 1.8));
         self.player.as_mut().expect("just set")
+    }
+
+    /// The ray from the camera through a pixel of the scene's area.
+    pub fn ray(&self, point: Point) -> Ray {
+        self.camera.ray(point, UIManager::render_area())
+    }
+
+    /// The nearest node under a pixel, by the ray against every node's
+    /// solid, a model on its bounds.
+    pub fn node_at(&self, point: Point) -> Option<Weak<dyn Node>> {
+        self.hit(self.ray(point)).map(|(_, node)| node)
+    }
+
+    fn hit(&self, ray: Ray) -> Option<(f32, Weak<dyn Node>)> {
+        self.nodes
+            .iter()
+            .filter_map(|node| node.hit(ray).map(|distance| (distance, node.weak())))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+    }
+
+    /// A touch that no view took. The nearest node under it gets
+    /// `on_touch` with the hit point, then `on_tap` fires with the ray.
+    pub(crate) fn add_touch(&mut self, point: Point) -> bool {
+        let ray = self.ray(point);
+        if let Some((distance, node)) = self.hit(ray) {
+            node.on_touch.trigger(ray.at(distance));
+        }
+        self.on_tap.trigger(ray);
+        true
     }
 
     pub fn remove(&mut self, node: Weak<dyn Node>) {

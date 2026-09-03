@@ -4,6 +4,7 @@
 struct SceneView {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
+    sun_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
     sun_dir: vec4<f32>,
     sun_color: vec4<f32>,
@@ -20,6 +21,11 @@ var sky_cube: texture_cube<f32>;
 
 @group(0) @binding(2)
 var sky_sampler: sampler;
+
+// The sun's depth map, read by texel, a depth texture cannot be
+// filtered and a comparison sampler does not work on iOS 12.
+@group(0) @binding(3)
+var shadow_map: texture_depth_2d;
 
 const PI: f32 = 3.14159265;
 

@@ -1,7 +1,10 @@
+use glam::camera::rh::{proj::directx::orthographic, view::look_at_mat4};
+
 use crate::{
     gm::{
+        LossyConvert,
         color::{Color, WHITE},
-        volume::{Vec3, Vec4},
+        volume::{Bounds, Mat4, Vec3, Vec4},
     },
     render::data::MeshLight,
 };
@@ -18,6 +21,31 @@ pub struct Sun {
     /// The brightness of a white matte surface facing the sun, 1 is full
     /// white.
     pub intensity: f32,
+    /// Whether the sun casts shadows, one shadow map over the whole
+    /// scene drawn in a pass before the frame. Off by default, the pass
+    /// draws every opaque node a second time.
+    pub shadows:   bool,
+}
+
+impl Sun {
+    /// The light's view projection over the sphere around `bounds`,
+    /// and the world size of one texel of a `map_size` wide shadow map
+    /// at that fit. Orthographic, the sun is infinitely far.
+    pub(crate) fn shadow_view(&self, bounds: Bounds, map_size: u32) -> (Mat4, f32) {
+        let center = bounds.center();
+        let radius = bounds.half_extents().length().max(1.0);
+        let direction = self.direction.normalize_or(Vec3::NEG_Y);
+        // Straight down the world's up lines up with the view and the
+        // matrix degenerates.
+        let up = if direction.y.abs() > 0.99 {
+            Vec3::Z
+        } else {
+            Vec3::Y
+        };
+        let view = look_at_mat4(center - direction * radius * 2.0, center, up);
+        let projection = orthographic(-radius, radius, -radius, radius, radius, radius * 3.0);
+        (projection * view, 2.0 * radius / map_size.lossy_convert())
+    }
 }
 
 impl Default for Sun {
@@ -29,6 +57,7 @@ impl Default for Sun {
             direction: Vec3::new(-0.4, -1.0, -0.6),
             color:     WHITE,
             intensity: 0.75,
+            shadows:   false,
         }
     }
 }
@@ -228,5 +257,40 @@ mod test {
         assert!((cone(0.4_f32.cos()) - 1.0).abs() < 1e-5);
         assert!(cone(0.5_f32.cos()) < 1e-5);
         assert!(cone(0.45_f32.cos()) > 0.0 && cone(0.45_f32.cos()) < 1.0);
+    }
+}
+
+#[cfg(test)]
+mod shadow_test {
+    use super::*;
+
+    // The whole sphere around the bounds must land inside the map, and
+    // the far side must not fall off the depth range.
+    #[test]
+    fn the_shadow_view_holds_the_scene() {
+        let sun = Sun {
+            direction: Vec3::new(-0.4, -1.0, -0.6),
+            ..Sun::default()
+        };
+        let bounds = Bounds {
+            min: Vec3::new(-8.0, -1.0, -8.0),
+            max: Vec3::new(8.0, 5.0, 8.0),
+        };
+        let (view_proj, texel) = sun.shadow_view(bounds, 1024);
+        let radius = bounds.half_extents().length();
+        assert!((texel - 2.0 * radius / 1024.0).abs() < 1e-5);
+        for corner in [
+            bounds.min,
+            bounds.max,
+            Vec3::new(bounds.min.x, bounds.max.y, bounds.min.z),
+            Vec3::new(bounds.max.x, bounds.min.y, bounds.max.z),
+        ] {
+            let clip = view_proj.project_point3(corner);
+            assert!(
+                clip.x.abs() <= 1.0 && clip.y.abs() <= 1.0,
+                "{corner:?} lands at {clip:?}"
+            );
+            assert!((0.0..=1.0).contains(&clip.z), "{corner:?} depth {}", clip.z);
+        }
     }
 }

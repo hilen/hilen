@@ -49,7 +49,9 @@ impl Node for Body {
         // thin wall in one step.
         let rigid_body = RigidBodyBuilder::dynamic().translation(position).ccd_enabled(true).build();
 
-        let collider = shape.make_collider().build();
+        // The collider sits where the shape's solid is, a model's box
+        // around its bounds, the same offset a wall applies.
+        let collider = shape.make_collider().translation(shape.collider_offset()).build();
 
         let (rigid_handle, collider_handle) = SceneManager::physics().sets.insert(rigid_body, collider);
 

@@ -9,8 +9,11 @@
 mod drop_balls;
 mod lights;
 mod materials;
+mod models;
+mod picking;
 mod player_walk;
 mod primitives;
+mod shadows;
 mod skybox;
 mod textures;
 mod transparency;

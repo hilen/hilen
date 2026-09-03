@@ -27,6 +27,8 @@ impl Assets {
         #[cfg(feature = "audio")]
         crate::audio::Sound::set_root_path(&paths.sounds);
         crate::window::Font::set_root_path(&paths.fonts);
+        #[cfg(feature = "scene")]
+        crate::scene::Model::set_root_path(&paths.models);
     }
 
     pub fn path() -> PathBuf {
@@ -117,6 +119,8 @@ mod web_assets {
 
     #[cfg(feature = "audio")]
     use crate::audio::Sound;
+    #[cfg(feature = "scene")]
+    use crate::scene::Model;
     use crate::{
         deps::{
             hreads::on_main,
@@ -262,6 +266,12 @@ mod web_assets {
             }
             #[cfg(not(feature = "audio"))]
             "sounds" => return Err(anyhow!("Sound asset {} needs the audio feature", entry.name)),
+            #[cfg(feature = "scene")]
+            "models" => {
+                Model::download(&entry.name, &url).await?;
+            }
+            #[cfg(not(feature = "scene"))]
+            "models" => return Err(anyhow!("Model asset {} needs the scene feature", entry.name)),
             kind => return Err(anyhow!("Unknown asset kind: {kind}")),
         }
 

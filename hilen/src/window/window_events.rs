@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use wgpu::CommandEncoder;
 use winit::{
     event::{ElementState, KeyEvent, MouseButton, Touch},
     window::Theme,
@@ -13,6 +14,9 @@ use crate::{
 pub trait WindowEvents {
     fn window_ready(&mut self) {}
     fn update(&mut self) {}
+    /// Before the frame's first pass opens, for work the frame reads,
+    /// like a shadow map.
+    fn prepare(&mut self, _encoder: &mut CommandEncoder) {}
     fn render(&mut self, _frame: &mut RenderFrame) {}
     /// Whether this frame must render into a texture that can be
     /// sampled mid frame, for example to blur the drawn scene.

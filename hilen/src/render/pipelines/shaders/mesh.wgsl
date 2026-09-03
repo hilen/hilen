@@ -131,7 +131,13 @@ fn perturb_normal(n: vec3<f32>, p: vec3<f32>, uv: vec2<f32>, map: vec3<f32>) -> 
     let dp1perp = cross(n, dp1);
     let t = dp2perp * duv1.x + dp1perp * duv2.x;
     let b = dp2perp * duv1.y + dp1perp * duv2.y;
-    let invmax = inverseSqrt(max(dot(t, t), dot(b, b)));
+    let longest = max(dot(t, t), dot(b, b));
+    // A mesh without uvs has no tangent frame, and dividing by its zero
+    // length turns the normal into NaN and the surface black.
+    if longest <= 0.0 {
+        return n;
+    }
+    let invmax = inverseSqrt(longest);
     return normalize(t * invmax * map.x + b * invmax * map.y + n * map.z);
 }
 
@@ -163,6 +169,35 @@ fn shade(s: Surface, to_light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
     let f = f_schlick(s.f0, s.f90, loh);
 
     return (s.diffuse + PI * d * v * f) * radiance * nol;
+}
+
+// Whether the sun reaches `p`, 0 in shadow and 1 in the light, from
+// the four texels of the shadow map around where `p` lands, each
+// compared on its own and blended by the distance to them. The point
+// is pushed out along the geometric normal by a texel and a half, so a
+// lit face does not shadow itself where the map's texels straddle it.
+fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
+    if view.sun_color.w < 0.5 {
+        return 1.0;
+    }
+    let clip = view.sun_view_proj * vec4<f32>(p + n * view.sun_dir.w * 1.5, 1.0);
+    let ndc = clip.xyz / clip.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z > 1.0 {
+        return 1.0;
+    }
+    let size = vec2<f32>(textureDimensions(shadow_map));
+    let texel = uv * size - 0.5;
+    let base = floor(texel);
+    let f = texel - base;
+    let depth = ndc.z - 0.0005;
+    let last = vec2<i32>(size) - 1;
+    let i = vec2<i32>(base);
+    let lit00 = f32(depth <= textureLoad(shadow_map, clamp(i, vec2<i32>(0), last), 0));
+    let lit10 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 0), vec2<i32>(0), last), 0));
+    let lit01 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(0, 1), vec2<i32>(0), last), 0));
+    let lit11 = f32(depth <= textureLoad(shadow_map, clamp(i + vec2<i32>(1, 1), vec2<i32>(0), last), 0));
+    return mix(mix(lit00, lit10, f.x), mix(lit01, lit11, f.x), f.y);
 }
 
 fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
@@ -206,7 +241,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = view.ambient.rgb * (s.diffuse + s.f0);
     }
 
-    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb);
+    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, normalize(in.normal));
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
         let light = lights[light_index(instance.lights, slot)];

@@ -7,6 +7,8 @@ pub use winit::{
 
 #[cfg(feature = "level")]
 use crate::level::LevelManager;
+#[cfg(feature = "scene")]
+use crate::scene::SceneManager;
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
 use crate::{
@@ -71,7 +73,7 @@ impl Input {
             return false;
         }
 
-        #[cfg(feature = "level")]
+        #[cfg(any(feature = "level", feature = "scene"))]
         let original_pos = touch.position;
 
         touch.position *= 1.0 / UIManager::scale();
@@ -128,6 +130,11 @@ impl Input {
         #[cfg(feature = "level")]
         if touch.is_began() && !LevelManager::no_level() {
             return LevelManager::level_weak().add_touch(original_pos);
+        }
+
+        #[cfg(feature = "scene")]
+        if touch.is_began() && !SceneManager::no_scene() {
+            return SceneManager::scene_weak().add_touch(original_pos);
         }
 
         false

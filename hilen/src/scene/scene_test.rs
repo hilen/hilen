@@ -6,7 +6,7 @@ use crate::{
     deps::{hreads::from_main, refs::Weak},
     gm::flat::Point,
     scene::{Scene, SceneManager},
-    ui::{Setup, UIEvents, ViewTouch},
+    ui::{Setup, UIEvents, UIManager, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
 
@@ -15,6 +15,8 @@ use crate::{
 const ORBIT_SPEED: f32 = 0.008;
 const LOOK_SPEED: f32 = 0.004;
 const ZOOM_SPEED: f32 = 0.002;
+/// A touch that moved less than this is a tap, not a drag.
+const TAP_SLOP: f32 = 6.0;
 
 /// Implemented by `#[scene]` for every scene it can name concretely, so
 /// a test on a generic scene is a compile error instead of one that
@@ -45,14 +47,19 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
 /// the root only pins the canvas.
 #[view]
 pub struct SceneTestView {
-    last_touch: Point,
+    last_touch:  Point,
+    touch_start: Point,
+    /// Set once a touch moved past the tap slop, from then on it turns
+    /// the camera and can no longer end as a tap.
+    dragging:    bool,
 }
 
 impl SceneTestView {
     /// Drag anywhere to turn the camera around its target and the wheel
     /// zooms, or with a player in the scene the drag turns its head and
-    /// the keys walk it. Presentation only, a test drives the camera
-    /// itself.
+    /// the keys walk it. A tap that does not drag falls through to the
+    /// scene like a touch no view took. Presentation only, a test drives
+    /// the camera itself.
     fn enable_orbit(mut self: Weak<Self>) {
         self.enable_touch();
         UIEvents::on_scroll().val(self, |delta| {
@@ -61,8 +68,25 @@ impl SceneTestView {
                 scene.camera.zoom(1.0 - delta.y * ZOOM_SPEED);
             }
         });
-        self.touch().began.val(move |touch| self.last_touch = touch.position);
+        self.touch().began.val(move |touch| {
+            self.last_touch = touch.position;
+            self.touch_start = touch.position;
+            self.dragging = false;
+        });
+        self.touch().all.val(move |touch| {
+            if touch.is_ended() && !self.dragging {
+                SceneManager::scene_weak().add_touch(touch.position * UIManager::scale());
+            }
+        });
         self.touch().moved.val(move |touch| {
+            // A click jitters a pixel or two, that must not turn the view.
+            if !self.dragging {
+                if (touch.position - self.touch_start).length() < TAP_SLOP {
+                    return;
+                }
+                self.dragging = true;
+                self.last_touch = touch.position;
+            }
             let dx = touch.position.x - self.last_touch.x;
             let dy = touch.position.y - self.last_touch.y;
             self.last_touch = touch.position;

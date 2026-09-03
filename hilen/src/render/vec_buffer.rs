@@ -47,6 +47,12 @@ impl<T> VecBuffer<T> {
         self.len
     }
 
+    /// Whether the last `load()` landed any element. `is_empty` asks
+    /// about the pushes since, not about what the frame draws.
+    pub(crate) fn has_loaded(&self) -> bool {
+        self.len > 0
+    }
+
     pub(crate) fn slice(&self) -> BufferSlice<'_> {
         self.buffer.slice(self.range.clone())
     }

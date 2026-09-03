@@ -88,16 +88,6 @@ font fallback.
   `draw_label`, and invalidates every recorded text expectation in the UI tests.
 - Blocks: colorful emoji. Nothing in the driver apps today.
 
-## Thai word breaking
-
-Wrapping follows UAX 14, which has no boundaries inside Thai, Lao, Khmer
-or Myanmar text, so a too wide piece of those breaks at the overflowing
-character. Platforms wrap them at words through an ICU dictionary.
-
-- Needs: a dictionary based word breaker for the complex scripts, fed into
-  the wrapper as extra break opportunities.
-- Blocks: nothing yet, the demo Fonts page shows the character breaks.
-
 ## Siri Remote input for tvOS
 
 Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
@@ -117,20 +107,17 @@ tvOS app need.
 
 The `scene` module landed with primitives, physics, the Filament mobile PBR
 materials, a sun with point and spot lights, textures and normal maps, a sky
-with image based lighting, transparency, a tonemap and a first person player,
-see [scene.md](scene.md). The rest was planned with it and lands in this order.
+with image based lighting, transparency, a tonemap, a first person player, static
+`.glb` models, one sun shadow map and touch picking, see [scene.md](scene.md). The
+rest was planned with it and lands in this order.
 
-- glTF. Current: box, ball and plane only. Needed: `Model` as a managed resource
-  over the `gltf` crate, meshes, materials, textures and the node tree from a
-  `.glb`, loaded through `filesystem::read_bytes` so the APK and the browser
-  preload work. Static meshes first, skins and animations later. The Blender files
-  in `assets/models` get exported to `.glb`.
-- Shadows and picking. Needed: one directional shadow map with 4 tap filtering,
-  1024 on a phone, and a touch fall through with a ray from the camera and a
-  bounds hit, like `Level::add_touch`.
-- Later: cascaded shadows, fog, an embeddable `SceneView` that composites into any
-  view frame instead of the root area, and the offscreen linear pass with real HDR
-  that `colors.md` sketches, if a scene ever needs it.
+- Skins and animations. Current: a `Model` loads static meshes only, the node
+  tree flattened at load. Needed: joints and weights on the vertex, the skin
+  matrices in a storage buffer, and the animation channels sampled per frame.
+- Later: cascaded shadows, the one map over the whole scene blurs on a big level,
+  fog, an embeddable `SceneView` that composites into any view frame instead of
+  the root area, and the offscreen linear pass with real HDR that `colors.md`
+  sketches, if a scene ever needs it.
 
 ## Video playback
 

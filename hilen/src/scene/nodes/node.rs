@@ -15,7 +15,7 @@ use crate::{
     gm::{
         ToF32,
         color::Color,
-        volume::{Mat4, Quat, Shape3, Vec3},
+        volume::{Mat4, Quat, Ray, Shape3, Vec3},
     },
     scene::{Material, NodeData, SceneManager},
 };
@@ -119,6 +119,11 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
         if self.rigid_handle().is_some() {
             self.rigid_body_mut().lock_rotations(false, true);
         }
+    }
+
+    /// The distance along the ray to this node's solid, see `Shape3::hit`.
+    fn hit(&self, ray: Ray) -> Option<f32> {
+        self.shape().hit(ray, self.position(), self.rotation())
     }
 
     /// Unit mesh to world, the instance transform the drawer uploads.

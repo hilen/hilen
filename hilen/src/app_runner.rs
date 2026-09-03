@@ -617,6 +617,15 @@ impl crate::window::WindowEvents for AppRunner {
         Hover::refresh_dead();
     }
 
+    #[cfg(feature = "scene")]
+    fn prepare(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        if UIManager::window_resolution().has_no_area() {
+            return;
+        }
+
+        SceneDrawer::prepare(encoder);
+    }
+
     fn render(&mut self, frame: &mut RenderFrame) {
         if UIManager::window_resolution().has_no_area() {
             return;

@@ -36,9 +36,9 @@ level = ["dep:level-proc", "dep:rapier2d"]
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
-# 3D scenes on rapier3d and glam, with the scene proc macro and the mesh
+# 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
 # pipeline. Off by default, a GUI only app carries none of it.
-scene = ["dep:level-proc", "dep:rapier3d", "dep:glam"]
+scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
 # Registers every `impl SceneTest` into `SCENE_TESTS`. Needs the shared
 # runner from `ui-tests`, the same way `level-tests` does.
 scene-tests = ["scene", "ui-tests", "level-proc/scene-tests"]
@@ -97,6 +97,7 @@ reflected = { workspace = true }
 level-proc = { workspace = true, optional = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
+gltf = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 infisical = { workspace = true }

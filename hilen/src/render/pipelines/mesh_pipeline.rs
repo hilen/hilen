@@ -1,22 +1,28 @@
 use std::num::NonZeroU64;
 
 use indexmap::IndexMap;
+use plat::Platform;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType,
-    BufferUsages, IndexFormat, PipelineLayoutDescriptor, RenderPass, RenderPipeline, Sampler,
-    SamplerBindingType, ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureSampleType, TextureView,
+    BufferUsages, CommandEncoder, Extent3d, IndexFormat, LoadOp, Operations, PipelineLayoutDescriptor,
+    RenderPass, RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, Sampler,
+    SamplerBindingType, ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, TextureDescriptor,
+    TextureDimension, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
     TextureViewDimension,
 };
 
 use crate::{
     deps::refs::Weak,
-    gm::{flat::Size, volume::Vertex3D},
+    gm::{
+        flat::Size,
+        volume::{Mat4, Vertex3D},
+    },
     render::{
         SceneView,
         buffer_helper::BufferHelper,
         data::{MeshInstance, MeshLight},
-        device_helper::DeviceHelper,
+        device_helper::{DeviceHelper, SHADOW_MAP_FORMAT},
         uniform::make_storage_layout,
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
@@ -32,6 +38,7 @@ use crate::{
 const COMMON: &str = include_str!("shaders/scene_common.wgsl");
 const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
+const SHADOW: &str = include_str!("shaders/shadow.wgsl");
 
 /// What one instanced draw shares: the mesh and the two textures.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -43,24 +50,35 @@ pub(crate) struct MeshKey {
 
 /// Draws the sky and every node of a frame, one instanced indexed draw
 /// per mesh and texture pair for the opaque nodes, then one draw per
-/// translucent node, back to front.
+/// translucent node, back to front. `prepare` loads the frame's buffers
+/// and draws the shadow map before the frame's pass opens, `draw` draws
+/// into it.
 pub struct MeshPipeline {
     opaque:      RenderPipeline,
     translucent: RenderPipeline,
     sky:         RenderPipeline,
 
-    /// The frame's view, and the sky cube it lights and reflects.
+    /// The frame's view, the sky cube it lights and reflects, and the
+    /// sun's shadow map.
     view_layout: BindGroupLayout,
     view_buffer: Buffer,
     /// Bound when the scene has no sky.
     black_sky:   Sky,
 
+    /// The sun's depth pass, its own view of the light's matrix alone,
+    /// since the pass cannot bind the map it draws.
+    shadow:      RenderPipeline,
+    shadow_bind: BindGroup,
+    shadow_view: Buffer,
+    shadow_map:  TextureView,
+
     /// Binds the instance buffer for the fragment stage, see
     /// `RectPipeline` for why the group cannot be cached.
     instances_layout: BindGroupLayout,
 
-    // A unit mesh lives for the whole process, so a key cannot die. An
-    // image can, then the draw falls back to the plain textures.
+    // A unit mesh lives for the whole process, a model's mesh dies with
+    // the model and takes its key out at the next draw. An image can die
+    // too, then the draw falls back to the plain textures.
     instances: IndexMap<MeshKey, VecBuffer<MeshInstance>>,
 
     /// The translucent nodes in draw order and the key of each.
@@ -79,47 +97,29 @@ pub struct MeshPipeline {
     flat_normal:     Texture,
 }
 
+impl MeshPipeline {
+    /// Texels along each side of the shadow map. A phone and a browser
+    /// get a quarter of the desktop's area.
+    pub(crate) const SHADOW_MAP_SIZE: u32 = if Platform::MOBILE || Platform::WASM {
+        1024
+    } else {
+        2048
+    };
+}
+
 impl Default for MeshPipeline {
     fn default() -> Self {
         let device = Window::device();
 
-        let mesh_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label:  "mesh_shader".into(),
-            source: ShaderSource::Wgsl(format!("{COMMON}\n{MESH}").into()),
-        });
-        let sky_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label:  "sky_shader".into(),
-            source: ShaderSource::Wgsl(format!("{COMMON}\n{SKY}").into()),
-        });
+        let mesh_shader = shader(device, "mesh_shader", format!("{COMMON}\n{MESH}"));
+        let sky_shader = shader(device, "sky_shader", format!("{COMMON}\n{SKY}"));
+        let shadow_shader = shader(device, "shadow_shader", SHADOW.to_string());
 
-        let view_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label:   "scene_view_layout".into(),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding:    0,
-                    visibility: ShaderStages::VERTEX_FRAGMENT,
-                    ty:         BindingType::Buffer {
-                        ty:                 BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size:   None,
-                    },
-                    count:      None,
-                },
-                texture_entry(1, TextureViewDimension::Cube),
-                sampler_entry(2),
-            ],
-        });
+        let view_layout = view_layout(device);
+        let shadow_layout = shadow_layout(device);
         let instances_layout = make_storage_layout("mesh_instances_layout", ShaderStages::FRAGMENT);
         let lights_layout = make_storage_layout("mesh_lights_layout", ShaderStages::FRAGMENT);
-        let textures_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label:   "mesh_textures_layout".into(),
-            entries: &[
-                texture_entry(0, TextureViewDimension::D2),
-                sampler_entry(1),
-                texture_entry(2, TextureViewDimension::D2),
-                sampler_entry(3),
-            ],
-        });
+        let textures_layout = textures_layout(device);
 
         let mesh_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label:              "mesh_pipeline_layout".into(),
@@ -136,6 +136,11 @@ impl Default for MeshPipeline {
             bind_group_layouts: &[Some(&view_layout)],
             immediate_size:     0,
         });
+        let shadow_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label:              "shadow_pipeline_layout".into(),
+            bind_group_layouts: &[Some(&shadow_layout)],
+            immediate_size:     0,
+        });
 
         let layouts = &[Vertex3D::VERTEX_LAYOUT, MeshInstance::VERTEX_LAYOUT];
         let opaque = device.mesh_pipeline("mesh_pipeline", &mesh_layout, &mesh_shader, layouts, false);
@@ -147,11 +152,20 @@ impl Default for MeshPipeline {
             true,
         );
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
+        let shadow = device.shadow_pipeline(
+            "shadow_pipeline",
+            &shadow_pipeline_layout,
+            &shadow_shader,
+            layouts,
+        );
 
         let view_buffer = device.buffer(
             &SceneView::default(),
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         );
+        let shadow_view = device.buffer(&Mat4::IDENTITY, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
+        let shadow_bind = device.bind(&shadow_view, &shadow_layout);
+        let shadow_map = shadow_map(device);
 
         Self {
             opaque,
@@ -160,6 +174,10 @@ impl Default for MeshPipeline {
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
+            shadow,
+            shadow_bind,
+            shadow_view,
+            shadow_map,
             instances_layout,
             instances: IndexMap::default(),
             transparent: VecBuffer::default(),
@@ -192,13 +210,80 @@ impl MeshPipeline {
         self.lights.push(light);
     }
 
-    pub(crate) fn draw(&mut self, render_pass: &mut RenderPass, view: &SceneView, sky: Option<&Sky>) {
-        let no_nodes = self.instances.values().all(VecBuffer::is_empty) && self.transparent.is_empty();
+    /// Loads the frame's buffers and, when the sun casts, draws the
+    /// shadow map. Before the frame's pass opens, the pass reads the map.
+    pub(crate) fn prepare(&mut self, encoder: &mut CommandEncoder, view: &SceneView, shadows: bool) {
+        self.instances.retain(|key, _| key.mesh.is_ok());
+
+        self.view_buffer.update(*view);
+
+        // A storage binding cannot be empty, and no instance indexes the
+        // placeholder since every light count is zero then.
+        if self.lights.is_empty() {
+            self.lights.push(MeshLight::default());
+        }
+        self.lights.load();
+
+        for instances in self.instances.values_mut() {
+            if !instances.is_empty() {
+                instances.load();
+            }
+        }
+        if !self.transparent.is_empty() {
+            self.transparent.load();
+        }
+
+        if shadows {
+            self.shadow_view.update(view.sun_view_proj);
+            self.draw_shadow_map(encoder);
+        }
+    }
+
+    /// The batches `prepare` loaded this frame.
+    fn loaded(&self) -> impl Iterator<Item = (&MeshKey, &VecBuffer<MeshInstance>)> {
+        let frame = Window::render_frame();
+        self.instances
+            .iter()
+            .filter(move |(_, instances)| instances.frame() == frame && instances.has_loaded())
+    }
+
+    fn draw_shadow_map(&self, encoder: &mut CommandEncoder) {
+        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label:                    "shadow_pass".into(),
+            color_attachments:        &[],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view:        &self.shadow_map,
+                depth_ops:   Some(Operations {
+                    load:  LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            occlusion_query_set:      None,
+            timestamp_writes:         None,
+            multiview_mask:           None,
+        });
+
+        pass.set_pipeline(&self.shadow);
+        pass.set_bind_group(0, &self.shadow_bind, &[]);
+
+        for (key, instances) in self.loaded() {
+            pass.set_vertex_buffer(0, key.mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, instances.slice());
+            pass.set_index_buffer(key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
+            pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
+        }
+    }
+
+    pub(crate) fn draw(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>) {
+        let frame = Window::render_frame();
+        let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
+        let no_nodes = self.loaded().next().is_none() && !translucent;
         if no_nodes && sky.is_none() {
+            self.transparent_keys.clear();
             return;
         }
 
-        self.view_buffer.update(*view);
         let view_bind = self.view_bind(sky.unwrap_or(&self.black_sky));
         render_pass.set_bind_group(0, &view_bind, &[]);
 
@@ -208,27 +293,16 @@ impl MeshPipeline {
         }
 
         if no_nodes {
+            self.transparent_keys.clear();
             return;
         }
 
-        // A storage binding cannot be empty, and no instance indexes the
-        // placeholder since every light count is zero then.
-        if self.lights.is_empty() {
-            self.lights.push(MeshLight::default());
-        }
-        self.lights.load();
         let lights_bind = storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights);
         render_pass.set_bind_group(2, &lights_bind, &[]);
 
         render_pass.set_pipeline(&self.opaque);
 
-        for (key, instances) in &mut self.instances {
-            if instances.is_empty() {
-                continue;
-            }
-
-            instances.load();
-
+        for (key, instances) in self.loaded() {
             let instances_bind = storage_bind("mesh_instances_bind", &self.instances_layout, instances);
             let textures_bind = textures_bind(&self.textures_layout, key, &self.white, &self.flat_normal);
 
@@ -242,13 +316,13 @@ impl MeshPipeline {
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
         }
 
-        if self.transparent.is_empty() {
+        if !translucent {
+            self.transparent_keys.clear();
             return;
         }
 
         render_pass.set_pipeline(&self.translucent);
 
-        self.transparent.load();
         let instances_bind = storage_bind("mesh_translucent_bind", &self.instances_layout, &self.transparent);
         render_pass.set_bind_group(1, &instances_bind, &[]);
 
@@ -285,9 +359,100 @@ impl MeshPipeline {
                     binding:  2,
                     resource: BindingResource::Sampler(&sky.sampler),
                 },
+                BindGroupEntry {
+                    binding:  3,
+                    resource: BindingResource::TextureView(&self.shadow_map),
+                },
             ],
         })
     }
+}
+
+fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {
+    device.create_shader_module(ShaderModuleDescriptor {
+        label:  label.into(),
+        source: ShaderSource::Wgsl(source.into()),
+    })
+}
+
+/// The frame's view, the sky cube and the sun's shadow map.
+fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label:   "scene_view_layout".into(),
+        entries: &[
+            BindGroupLayoutEntry {
+                binding:    0,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty:         BindingType::Buffer {
+                    ty:                 BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size:   None,
+                },
+                count:      None,
+            },
+            texture_entry(1, TextureViewDimension::Cube),
+            sampler_entry(2),
+            BindGroupLayoutEntry {
+                binding:    3,
+                visibility: ShaderStages::FRAGMENT,
+                ty:         BindingType::Texture {
+                    multisampled:   false,
+                    view_dimension: TextureViewDimension::D2,
+                    sample_type:    TextureSampleType::Depth,
+                },
+                count:      None,
+            },
+        ],
+    })
+}
+
+/// The sun's matrix alone, what the shadow pass binds.
+fn shadow_layout(device: &wgpu::Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label:   "shadow_view_layout".into(),
+        entries: &[BindGroupLayoutEntry {
+            binding:    0,
+            visibility: ShaderStages::VERTEX,
+            ty:         BindingType::Buffer {
+                ty:                 BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size:   None,
+            },
+            count:      None,
+        }],
+    })
+}
+
+/// The base color texture and the normal map of a draw.
+fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label:   "mesh_textures_layout".into(),
+        entries: &[
+            texture_entry(0, TextureViewDimension::D2),
+            sampler_entry(1),
+            texture_entry(2, TextureViewDimension::D2),
+            sampler_entry(3),
+        ],
+    })
+}
+
+fn shadow_map(device: &wgpu::Device) -> TextureView {
+    device
+        .create_texture(&TextureDescriptor {
+            label:           "shadow_map".into(),
+            size:            Extent3d {
+                width:                 MeshPipeline::SHADOW_MAP_SIZE,
+                height:                MeshPipeline::SHADOW_MAP_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    1,
+            dimension:       TextureDimension::D2,
+            format:          SHADOW_MAP_FORMAT,
+            usage:           TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats:    &[],
+        })
+        .create_view(&TextureViewDescriptor::default())
 }
 
 fn texture_entry(binding: u32, view_dimension: TextureViewDimension) -> BindGroupLayoutEntry {

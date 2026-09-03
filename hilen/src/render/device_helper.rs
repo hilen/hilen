@@ -25,6 +25,11 @@ const CLIP_TEST: StencilFaceState = StencilFaceState {
     pass_op:       StencilOperation::Keep,
 };
 
+/// The shadow map's format, a plain depth texture every lane can read
+/// by texel.
+#[cfg(feature = "scene")]
+pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
 pub(crate) fn depth_stencil_state() -> DepthStencilState {
     DepthStencilState {
         format:              Texture::DEPTH_FORMAT,
@@ -93,6 +98,17 @@ pub(crate) trait DeviceHelper {
     /// and no depth write, drawn before the nodes cover it.
     #[cfg(feature = "scene")]
     fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
+
+    /// The sun's depth pass into the shadow map, no color target and a
+    /// slope scaled bias against acne.
+    #[cfg(feature = "scene")]
+    fn shadow_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline;
 }
 
 impl DeviceHelper for Device {
@@ -300,6 +316,56 @@ impl DeviceHelper for Device {
             .into(),
             multisample:    MultisampleState {
                 count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            },
+            cache:          None,
+            multiview_mask: None,
+        })
+    }
+
+    #[cfg(feature = "scene")]
+    fn shadow_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline {
+        let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
+        self.create_render_pipeline(&RenderPipelineDescriptor {
+            label:          label.into(),
+            layout:         layout.into(),
+            vertex:         VertexState {
+                module:              shader,
+                entry_point:         "v_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers:             &buffers,
+            },
+            fragment:       None,
+            primitive:      PrimitiveState {
+                topology:           PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face:         FrontFace::Ccw,
+                cull_mode:          Some(wgpu::Face::Back),
+                polygon_mode:       PolygonMode::Fill,
+                unclipped_depth:    false,
+                conservative:       false,
+            },
+            depth_stencil:  DepthStencilState {
+                format:              SHADOW_MAP_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare:       Some(CompareFunction::Less),
+                stencil:             StencilState::default(),
+                bias:                DepthBiasState {
+                    constant:    4,
+                    slope_scale: 2.0,
+                    clamp:       0.0,
+                },
+            }
+            .into(),
+            multisample:    MultisampleState {
+                count:                     1,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },

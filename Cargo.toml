@@ -82,6 +82,7 @@ fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
 glam = { version = "0.33", features = ["bytemuck"] }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 futures-util = "0.3"
 getrandom = "0.4"

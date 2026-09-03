@@ -36,12 +36,14 @@ type Geometry = (Vec<Vertex3D>, Vec<u16>);
 
 impl Mesh {
     /// The unit mesh of a shape, a 1 by 1 by 1 box, a ball of diameter 1
-    /// or a 1 by 1 plane. `Shape3::mesh_scale` sizes it per instance.
-    pub fn of_shape(shape: Shape3) -> Weak<Mesh> {
+    /// or a 1 by 1 plane. `Shape3::mesh_scale` sizes it per instance. A
+    /// model carries its own meshes and has no unit one.
+    pub fn of_shape(shape: Shape3) -> Option<Weak<Mesh>> {
         match shape {
-            Shape3::Box(_) => Self::named("box", box_geometry),
-            Shape3::Ball(_) => Self::named("ball", ball_geometry),
-            Shape3::Plane(_) => Self::named("plane", plane_geometry),
+            Shape3::Box(_) => Some(Self::named("box", box_geometry)),
+            Shape3::Ball(_) => Some(Self::named("ball", ball_geometry)),
+            Shape3::Plane(_) => Some(Self::named("plane", plane_geometry)),
+            Shape3::Model(_) => None,
         }
     }
 
@@ -59,7 +61,7 @@ impl Mesh {
         weak
     }
 
-    fn upload(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+    pub(crate) fn upload(vertices: &[Vertex3D], indices: &[u16]) -> Self {
         let device = Window::device();
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),

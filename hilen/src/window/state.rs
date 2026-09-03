@@ -388,9 +388,11 @@ impl State {
             (target_view, None)
         };
 
-        let encoder = Window::device().create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = Window::device().create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+
+        AppHandler::current().te_window_events.prepare(&mut encoder);
 
         #[cfg(feature = "bench")]
         let timestamp_writes = Some(wgpu::RenderPassTimestampWrites {

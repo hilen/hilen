@@ -10,6 +10,8 @@ pub(crate) struct AssetsPaths {
     #[cfg(feature = "audio")]
     pub(crate) sounds: PathBuf,
     pub(crate) fonts:  PathBuf,
+    #[cfg(feature = "scene")]
+    pub(crate) models: PathBuf,
 }
 
 impl AssetsPaths {
@@ -21,6 +23,8 @@ impl AssetsPaths {
             #[cfg(feature = "audio")]
             sounds:                           assets.join("sounds"),
             fonts:                            assets.join("fonts"),
+            #[cfg(feature = "scene")]
+            models:                           assets.join("models"),
         })
     }
 }

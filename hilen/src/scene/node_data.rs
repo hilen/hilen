@@ -20,8 +20,13 @@ pub struct NodeData {
 
     pub material: Material,
 
-    pub mesh:         Weak<Mesh>,
+    /// The unit mesh of a primitive shape. A model draws its own
+    /// meshes, see `Shape3::Model`.
+    pub mesh:         Option<Weak<Mesh>>,
     pub on_collision: Event<Weak<dyn Node>>,
+    /// A touch that no view took landed on this node, the nearest one
+    /// under the finger. Carries the point hit in the world.
+    pub on_touch:     Event<Vec3>,
 }
 
 impl NodeData {

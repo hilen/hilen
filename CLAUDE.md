@@ -97,10 +97,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no input path yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
-- [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, the
-  depth band it draws in, the A7 varying budget of the mesh shader, scene tests and what
-  is still to come. Read before touching `hilen/src/scene`, `scene_drawer.rs`, the mesh
-  pipeline or a scene test.
+- [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, glb
+  models, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
+  budget of the mesh shader, scene tests and what is still to come. Read before touching
+  `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
 
 Docs should be concise.
 
@@ -152,6 +152,13 @@ it unless `--screenshot` already selects the offscreen runner.
 
 After touching any `Cargo.toml` or removing code, run `cargo machete`. It must report
 zero unused dependencies.
+
+`build/` is a git submodule, github.com/hilen/build, and it holds the build scripts.
+Before every commit in this repo pull its latest `main` first, `git -C build checkout
+main && git -C build pull --rebase`. If anything in `build/` is new or changed, commit
+it there and push it to `main` before the parent commit, so the parent never points at
+a commit that exists only on this machine. Never leave the submodule dirty or on a
+detached HEAD for the user to sort out.
 
 Always run `make ci` and `make smoke` before every commit. The full lanes,
 `make ui`, `make ui-ios` and `make ui-web`, are not part of the routine pre-commit check.

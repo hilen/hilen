@@ -3,6 +3,7 @@ mod event_handler;
 mod light;
 mod material;
 mod mesh;
+mod model;
 mod node_data;
 mod nodes;
 mod player;
@@ -22,6 +23,7 @@ pub use self::{
     light::{Light, LightKind, Sun},
     material::Material,
     mesh::Mesh,
+    model::Model,
     node_data::NodeData,
     nodes::*,
     player::Player,

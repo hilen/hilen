@@ -1,10 +1,10 @@
-use wgpu::RenderPass;
+use wgpu::{CommandEncoder, RenderPass};
 
 use crate::{
-    deps::refs::main_lock::MainLock,
-    gm::volume::Vec4,
+    deps::refs::{Weak, main_lock::MainLock},
+    gm::volume::{Bounds, Mat4, Shape3, Vec4},
     render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
-    scene::{SceneManager, pick_lights},
+    scene::{Material, Mesh, SceneManager, pick_lights},
     ui::{UIManager, ui_drawer::set_viewport},
 };
 
@@ -29,6 +29,109 @@ impl SceneDrawer {
         }
     }
 
+    /// Gathers the frame's nodes into the pipeline, loads them and draws
+    /// the shadow map, before the frame's pass opens.
+    pub(crate) fn prepare(encoder: &mut CommandEncoder) {
+        if SceneManager::no_scene() {
+            return;
+        }
+
+        let area = UIManager::render_area();
+        let scene = SceneManager::scene();
+        let pipeline = MESH.get_mut();
+        let camera = scene.camera;
+
+        for light in &scene.lights {
+            pipeline.add_light(light.mesh_light());
+        }
+
+        // Translucent nodes blend over what is behind them, so they draw
+        // after every opaque node, the farthest first.
+        let mut translucent = vec![];
+        // The corners of every node's sphere, what the shadow map covers.
+        let mut extent = vec![];
+
+        for node in scene.nodes() {
+            let shape = node.shape();
+            // The solid's center, a model's origin can sit off its bounds.
+            let center = node.position() + node.rotation() * shape.collider_offset();
+            let reach = shape.half_extents().length();
+            let lights = pick_lights(center, reach, &scene.lights);
+            let distance = camera.position.distance_squared(center);
+            let model_matrix = node.model_matrix();
+            extent.push(center - reach);
+            extent.push(center + reach);
+
+            let mut push = |mesh: Weak<Mesh>, model: Mat4, material: Material| {
+                let key = MeshKey {
+                    mesh,
+                    texture: material.texture,
+                    normal_map: material.normal_map,
+                };
+                let instance = MeshInstance::new(model, material, lights);
+                if material.color.a < 1.0 {
+                    translucent.push((distance, key, instance));
+                } else {
+                    pipeline.add(key, instance);
+                }
+            };
+
+            match shape {
+                Shape3::Model(model) if model.is_ok() => {
+                    for part in &model.parts {
+                        push(
+                            part.mesh.weak(),
+                            model_matrix * part.transform,
+                            part.material.unwrap_or(node.material),
+                        );
+                    }
+                }
+                _ => {
+                    if let Some(mesh) = node.mesh {
+                        push(mesh, model_matrix, node.material);
+                    }
+                }
+            }
+        }
+
+        translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (_, key, instance) in translucent {
+            pipeline.add_transparent(key, instance);
+        }
+
+        let sun = scene.sun;
+        let sun_color = sun.color.linear();
+        let ambient = scene.ambient.linear();
+        let sky = scene.sky.as_ref();
+        let view_proj = camera.view_projection(area.width / area.height);
+        let (sun_view_proj, shadow_texel) =
+            sun.shadow_view(Bounds::of_points(extent), MeshPipeline::SHADOW_MAP_SIZE);
+
+        let view = SceneView {
+            view_proj,
+            inv_view_proj: view_proj.inverse(),
+            sun_view_proj,
+            camera_pos: camera.position.extend(0.0),
+            sun_dir: sun.direction.normalize_or_zero().extend(shadow_texel),
+            sun_color: Vec4::new(
+                sun_color.r * sun.intensity,
+                sun_color.g * sun.intensity,
+                sun_color.b * sun.intensity,
+                f32::from(u8::from(sun.shadows)),
+            ),
+            ambient: Vec4::new(
+                ambient.r,
+                ambient.g,
+                ambient.b,
+                f32::from(u8::from(sky.is_some())),
+            ),
+            viewport: Vec4::new(area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1 - DEPTH_BAND.0),
+            irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
+        };
+
+        pipeline.prepare(encoder, &view, sun.shadows);
+    }
+
     pub fn draw(pass: &mut RenderPass) {
         if SceneManager::no_scene() {
             return;
@@ -37,74 +140,7 @@ impl SceneDrawer {
         let area = UIManager::render_area();
         pass.set_viewport(0.0, 0.0, area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1);
 
-        let scene = SceneManager::scene();
-        let mesh = MESH.get_mut();
-        let camera = scene.camera;
-
-        for light in &scene.lights {
-            mesh.add_light(light.mesh_light());
-        }
-
-        // Translucent nodes blend over what is behind them, so they draw
-        // after every opaque node, the farthest first.
-        let mut translucent = vec![];
-
-        for node in scene.nodes() {
-            if !node.mesh.is_ok() {
-                continue;
-            }
-            let position = node.position();
-            let reach = node.shape().half_extents().length();
-            let lights = pick_lights(position, reach, &scene.lights);
-            let material = node.material;
-            let key = MeshKey {
-                mesh:       node.mesh,
-                texture:    material.texture,
-                normal_map: material.normal_map,
-            };
-            let instance = MeshInstance::new(node.model_matrix(), material, lights);
-            if material.color.a < 1.0 {
-                translucent.push((camera.position.distance_squared(position), key, instance));
-            } else {
-                mesh.add(key, instance);
-            }
-        }
-
-        translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
-        for (_, key, instance) in translucent {
-            mesh.add_transparent(key, instance);
-        }
-
-        let sun = scene.sun;
-        let sun_color = sun.color.linear();
-        let ambient = scene.ambient.linear();
-        let sky = scene.sky.as_ref();
-        let view_proj = camera.view_projection(area.width / area.height);
-
-        mesh.draw(
-            pass,
-            &SceneView {
-                view_proj,
-                inv_view_proj: view_proj.inverse(),
-                camera_pos: camera.position.extend(0.0),
-                sun_dir: sun.direction.normalize_or_zero().extend(0.0),
-                sun_color: Vec4::new(
-                    sun_color.r * sun.intensity,
-                    sun_color.g * sun.intensity,
-                    sun_color.b * sun.intensity,
-                    0.0,
-                ),
-                ambient: Vec4::new(
-                    ambient.r,
-                    ambient.g,
-                    ambient.b,
-                    f32::from(u8::from(sky.is_some())),
-                ),
-                viewport: Vec4::new(area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1 - DEPTH_BAND.0),
-                irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
-            },
-            sky,
-        );
+        MESH.get_mut().draw(pass, SceneManager::scene().sky.as_ref());
 
         set_viewport(pass, UIManager::window_resolution());
     }
