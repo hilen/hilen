@@ -14,7 +14,7 @@ mod pipelines;
 #[cfg(any(feature = "level", feature = "scene"))]
 mod shader_data;
 mod to_bytes;
-mod uniform;
+pub(crate) mod uniform;
 
 pub(crate) use uniform::InstanceBinding;
 #[cfg(feature = "ui-tests")]

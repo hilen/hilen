@@ -1,0 +1,7 @@
+# The static ffmpeg archives the `video` feature links, one per target,
+# built by build/ffmpeg.rs and published as release assets of
+# github.com/hilen/build. hilen/build.rs downloads the one for the target
+# into ffmpeg/lib and checks the sha256. See docs/video.md.
+#
+# <target> <url> <sha256>
+aarch64-apple-darwin https://github.com/hilen/build/releases/download/ffmpeg-9.0-1/ffmpeg-9.0-aarch64-apple-darwin.tar.gz 49ea6f271bb531e5d1d4e488667536f9274880330f7a162630932630e119a01e

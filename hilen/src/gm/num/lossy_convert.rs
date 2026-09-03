@@ -157,3 +157,21 @@ impl<T: Copy + LossyConvert<U>, U> LossyConvert<Rect<U>> for Rect<T> {
         )
     }
 }
+
+impl LossyConvert<i64> for f64 {
+    fn lossy_convert(self) -> i64 {
+        assert!(!self.is_nan(), "Lossy convert from Nan f64");
+        assert!(self <= i64::MAX as f64, "Lossy convert overflow");
+        assert!(self >= i64::MIN as f64, "Lossy convert underflow");
+        self as i64
+    }
+}
+
+impl LossyConvert<usize> for f64 {
+    fn lossy_convert(self) -> usize {
+        assert!(!self.is_nan(), "Lossy convert from Nan f64");
+        assert!(self >= 0.0, "Lossy convert sign loss");
+        assert!(self <= usize::MAX as f64, "Lossy convert overflow");
+        self as usize
+    }
+}

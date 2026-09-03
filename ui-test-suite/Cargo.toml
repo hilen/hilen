@@ -4,6 +4,10 @@ version.workspace = true
 
 name = "ui-test-suite"
 
+[features]
+# The video playback test, on wherever a consumer turns `hilen/video` on.
+video = ["hilen/video"]
+
 [dependencies]
 anyhow = { workspace = true }
 log = { workspace = true }

@@ -36,6 +36,10 @@ level = ["dep:level-proc", "dep:rapier2d"]
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
+# Video playback through a prebuilt static ffmpeg, hardware decode through
+# VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop only for now,
+# see docs/video.md. Off by default.
+video = ["audio", "dep:ffmpeg-next"]
 # 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
 # pipeline. Off by default, a GUI only app carries none of it.
 scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
@@ -158,6 +162,7 @@ objc2-ui-kit = { workspace = true }
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }
 ed25519-dalek = { workspace = true }
+ffmpeg-next = { workspace = true, optional = true }
 open = { workspace = true }
 self-replace = { workspace = true }
 semver = { workspace = true }
@@ -167,7 +172,9 @@ sha2 = { workspace = true }
 libc = { workspace = true }
 
 [build-dependencies]
+hex = { workspace = true }
 plat = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }

@@ -33,12 +33,14 @@ report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `audio` is sound playback through kira and its decoders. `inspect` is
+with their shaders. `audio` is sound playback through kira and its decoders. `video` is video
+playback through a prebuilt static ffmpeg and kira, desktop only and proven on macOS, see
+[docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
 `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
-`demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on.
+`demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on, and `video` on macOS.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
@@ -104,6 +106,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   models with skins and clips, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
   budget of the mesh shader, scene tests and what is still to come. Read before touching
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
+- [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
+  hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
+  how to build one, and what was measured. Read before touching `hilen/src/video`, the
+  archive script or `hilen/ffmpeg`.
 - [docs/forks.md](docs/forks.md) — the 3 forked crates, what each fork branch carries
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or

@@ -6,3 +6,5 @@ pub mod images;
 pub mod input;
 pub mod layout;
 pub mod text;
+#[cfg(feature = "video")]
+pub mod video;

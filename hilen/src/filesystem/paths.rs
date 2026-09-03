@@ -73,6 +73,27 @@ impl Paths {
         STORAGE_PATH.lock().replace(path);
     }
 
+    /// A file dialog filtered to the extensions, the picked path or None.
+    #[cfg(desktop)]
+    pub async fn pick_file(title: &str, extensions: &[&str]) -> Option<PathBuf> {
+        use rfd::AsyncFileDialog;
+
+        let handle = AsyncFileDialog::new()
+            .set_title(title)
+            .add_filter(title, extensions)
+            .pick_file()
+            .await?;
+
+        Some(handle.path().to_owned())
+    }
+
+    /// The API is async on every platform, here the answer is immediate.
+    #[cfg(any(mobile, wasm))]
+    pub async fn pick_file(title: &str, extensions: &[&str]) -> Option<PathBuf> {
+        log::debug!("no file dialog on this platform for {title} {extensions:?}");
+        std::future::ready(None).await
+    }
+
     pub async fn pick_folder() -> Option<PathBuf> {
         #[cfg(desktop)]
         {

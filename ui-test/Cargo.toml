@@ -19,3 +19,8 @@ ui-test-suite = { workspace = true }
 
 [lints]
 workspace = true
+
+# The video test lane, macOS only for now, see docs/video.md.
+[target.'cfg(target_os = "macos")'.dependencies]
+hilen = { workspace = true, features = ["video"] }
+ui-test-suite = { workspace = true, features = ["video"] }

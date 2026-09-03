@@ -82,6 +82,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
+ffmpeg-next = { version = "9.0", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling", "static"] }
 glam = { version = "0.33", features = ["bytemuck"] }
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 gloo-timers = { version = "0.4", features = ["futures"] }

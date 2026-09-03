@@ -136,6 +136,49 @@ impl Texture {
         }
     }
 
+    /// A blank RGBA texture a pass can draw into and the image pipeline can
+    /// sample, one mip level, clamped edges.
+    #[cfg(feature = "video")]
+    pub(crate) fn render_target(size: Size<u32>, label: &str) -> Self {
+        let device = Window::device();
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label:           label.into(),
+            size:            Extent3d {
+                width:                 size.width,
+                height:                size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    1,
+            dimension:       TextureDimension::D2,
+            format:          TextureFormat::Rgba8Unorm,
+            usage:           TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            view_formats:    &[],
+        });
+
+        let view = texture.create_view(&TextureViewDescriptor::default());
+
+        let sampler = device.create_sampler(&SamplerDescriptor {
+            label: "render_target_sampler".into(),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+            channels: 4,
+        }
+    }
+
     pub(crate) fn create_depth_texture(
         device: &Device,
         size: Size<u32>,

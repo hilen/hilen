@@ -45,3 +45,9 @@ plat = { workspace = true }
 
 [lints]
 workspace = true
+
+# Video is desktop only and proven on macOS so far, see docs/video.md. The
+# page and its UI test follow the feature.
+[target.'cfg(target_os = "macos")'.dependencies]
+hilen = { workspace = true, features = ["video"] }
+ui-test-suite = { workspace = true, features = ["video"] }

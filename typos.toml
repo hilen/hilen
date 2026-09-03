@@ -1,5 +1,5 @@
 [files]
-extend-exclude = ["*.pbxproj", "profile.json"]
+extend-exclude = ["*.pbxproj", "profile.json", "hilen/ffmpeg/include"]
 
 [default.extend-words]
 # LOD - level of detail

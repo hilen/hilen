@@ -41,6 +41,10 @@ mod pipelines;
 
 #[cfg(feature = "audio")]
 pub mod audio;
+#[cfg(feature = "video")]
+pub mod video;
+#[cfg(all(feature = "video", not(desktop)))]
+compile_error!("the video feature is desktop only for now, see docs/video.md");
 pub mod bug_report;
 pub mod filesystem;
 #[cfg(feature = "level")]

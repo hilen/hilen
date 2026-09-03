@@ -123,3 +123,9 @@ example-app/dist/*
 
 .claude/
 assets/assets.json
+
+# The ffmpeg libraries hilen/build.rs downloads, the headers next to them are in git
+hilen/ffmpeg/lib/
+
+# Archives built by build/ffmpeg.rs and the release scripts
+/dist/

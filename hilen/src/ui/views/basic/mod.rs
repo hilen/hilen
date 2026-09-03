@@ -10,6 +10,8 @@ mod progress_view;
 mod slider;
 mod switch;
 mod text_field;
+#[cfg(feature = "video")]
+mod video_view;
 
 pub use animated_image::AnimatedImage;
 pub use button::Button;
@@ -23,3 +25,5 @@ pub use progress_view::*;
 pub use slider::*;
 pub use switch::*;
 pub use text_field::TextField;
+#[cfg(feature = "video")]
+pub use video_view::VideoView;

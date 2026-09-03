@@ -83,6 +83,17 @@ impl Image {
         Image::store_with_name::<Infallible>(&name, || Ok(image)).unwrap()
     }
 
+    /// A blank image whose texture is also a render target, for a video frame
+    /// converted on the GPU. Keyed like any managed image, so the same key
+    /// gives the same image back.
+    #[cfg(feature = "video")]
+    pub(crate) fn render_target(name: &str, size: Size<u32>) -> Weak<Image> {
+        Image::store_with_name::<Infallible>(name, || {
+            Ok(Self::from_texture(&Texture::render_target(size, name), None))
+        })
+        .unwrap()
+    }
+
     pub(crate) fn from_file_data(data: &[u8], name: &str) -> Weak<Image> {
         Image::store_with_name(name, || Self::load_to_wgpu(name, data))
             .expect("Failed to load image from data")

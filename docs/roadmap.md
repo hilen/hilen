@@ -168,31 +168,36 @@ them. Two things are open.
   Then keep or drop `enhanced-determinism` on what the A/B shows.
 - Blocks: a green `make ui-ios` with the scene tests on.
 
-## Video playback
+## Video playback, the other lanes
 
-Found by weighing a Jellyfin style media client on hilen, see the research note. No
-driver app needs it yet, so this is parked until one does, but it is the one large
-engine gap that blocks a whole class of app.
+Desktop macOS landed, see [video.md](video.md): `VideoView` behind the `video`
+feature, ffmpeg from prebuilt static archives, VideoToolbox decode, kira for
+the sound and as the clock, a 1080p60 and a 4K30 file play at full rate with
+sound. The rest of the platforms and the packaging are open.
 
-- Current: nothing. There is no video view and no decode path. Audio is short sound
-  effects only, `audio::Sound` over kira with `StaticSoundData` loaded whole into
-  memory, behind the off by default `audio` feature. So there is no streaming audio,
-  no audio to video sync, and no moving picture beyond `AnimatedImage` playing a gif
-  frame list. A media grid, poster wall or detail page is already in reach through
-  `TableView`, remote images and `OnDisk`, but the play screen is not.
-- Needed: a `VideoView` that decodes a stream and draws its frames into the WGPU
-  pipeline, plus streaming audio output and sync. The hard parts are hardware decode
-  per platform, VideoToolbox on Apple, VAAPI on Linux, D3D11VA on Windows, the mobile
-  decoders, and landing frames in a `wgpu::Texture` without a copy back through system
-  memory, which hilen's WGPU base makes possible. Seeking, subtitles and track switch
-  sit on top. The browser target cannot follow this path and would hand the stream to
-  the HTML5 video element instead, a second code path against the one app everywhere
-  rule. Prior art to lean on but not drop in: vk-video wires Vulkan Video into wgpu
-  textures, gpu-video is backend independent over ffmpeg, rs-wgpu-video-player is a
-  full ffmpeg plus wgpu pipeline reference.
-- Blocks: any video or streaming audio app, a media client, a player, a call view.
-  The first thing to prove is a 1080p and a 4K file hardware decoded and played
-  smoothly with sound on desktop, before any such app is worth starting.
+- Current: the archive exists for `aarch64-apple-darwin` only. `demo` and
+  `ui-test` turn the feature on through a macOS target table. The engine
+  declares VAAPI for Linux and D3D11VA for Windows, neither has an archive
+  nor a CI lane. The bindings link `QTKit`, gone from the arm64 SDK, so every
+  macOS link prints one harmless `ld: ignoring file` warning. A decoded 4K
+  frame is copied through system memory, 12 MB a frame, and plays at rate.
+  Each `VideoView` keeps one frame image per source size for good, the
+  managed image store never frees.
+- Needed: an archive per desktop triple from `build/ffmpeg.rs`, Linux needs
+  `libva-dev` and `nasm` in `build/setup.sh` and in the docker containers of
+  the Linux CI job, Windows needs the ffmpeg configure under an MSYS2 shell,
+  then the target tables widen to `desktop`. Apps outside this repo need an
+  `[env] FFMPEG_DIR` recipe or the fetch moved into a forked
+  `ffmpeg-sys-next`, which is also where the `QTKit` line goes upstream.
+  iOS and Android need archives cross built per target with VideoToolbox and
+  MediaCodec, and the feature unlocked there. The browser cannot link
+  ffmpeg, it hands the stream to an HTML5 video element and imports each
+  frame with `copyExternalImageToTexture`, the one place the `VideoView`
+  backend differs. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
+  through the wgpu hal, only after an A/B shows the copy costs frames.
+  Subtitles and track switching sit on top of the decode thread.
+- Blocks: video on any platform but macOS, and a shipped app on macOS until
+  the packaging question of a static archive per triple is settled.
 
 ## Leftovers inside landed features
 
