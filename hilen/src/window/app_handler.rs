@@ -1,7 +1,6 @@
-use std::{
-    process::exit,
-    sync::atomic::{AtomicBool, Ordering},
-};
+#[cfg(not_wasm)]
+use std::process::exit;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{debug, error};
 use plat::Platform;
@@ -116,6 +115,16 @@ impl AppHandler {
         }
     }
 
+    #[cfg(desktop)]
+    fn placement_changed() {
+        if let Some(placement) = Window::placement() {
+            crate::app::app().window_placement_changed(&placement);
+        }
+    }
+
+    #[cfg(not(desktop))]
+    fn placement_changed() {}
+
     pub(crate) fn close() {
         Self::current().close.store(true, Ordering::Relaxed);
     }
@@ -155,6 +164,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
             let window = event_loop.create_window(win_attr).expect("create window err.");
 
+            #[cfg(wasm)]
+            {
+                use winit::platform::web::WindowExtWebSys;
+                crate::web::keep_canvas(window.canvas());
+            }
+
             let render_size = if Platform::IOS {
                 window.outer_size()
             } else {
@@ -163,12 +178,22 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
             crate::deps::hreads::block_on(async move {
                 if let Err(err) = Window::start_internal(render_size, window, proxy).await {
-                    // fern logging can be swallowed on iOS, so also print to stderr.
-                    // Exit instead of panicking. A panic here unwinds across the
-                    // Objective-C run loop and turns into an opaque EXC_BAD_ACCESS.
                     error!("Fatal: could not start engine window: {err:?}");
-                    eprintln!("Fatal: could not start engine window: {err:?}");
-                    exit(1);
+
+                    // The page stays alive with its fallback content, there
+                    // is nothing to exit in a browser.
+                    #[cfg(wasm)]
+                    crate::web::drop_canvas();
+
+                    // fern logging can be swallowed on iOS, so also print to
+                    // stderr. Exit instead of panicking. A panic here unwinds
+                    // across the Objective-C run loop and turns into an
+                    // opaque EXC_BAD_ACCESS.
+                    #[cfg(not_wasm)]
+                    {
+                        eprintln!("Fatal: could not start engine window: {err:?}");
+                        exit(1);
+                    }
                 }
             });
         }
@@ -178,6 +203,11 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         match event {
             UserEvent::WindowReady(window) => {
                 self.state = AppHandlerState::Ready(*window);
+                // A `Resized` that arrived while the window was still being
+                // set up was dropped, so the recorded size catches up once.
+                if let Some(winit_window) = Window::winit_window() {
+                    Self::window().record_inner_size(winit_window.inner_size());
+                }
                 self.te_window_events.window_ready();
             }
             // Waking the loop was the whole point. `about_to_wait` runs right
@@ -233,12 +263,14 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::ThemeChanged(theme) => {
                 self.te_window_events.theme_changed(theme);
             }
-            WindowEvent::Resized(_physical_size) => {
+            WindowEvent::Resized(physical_size) => {
                 if self.state.not_ready() {
                     return;
                 }
 
+                Self::window().record_inner_size(physical_size);
                 State::resize();
+                Self::placement_changed();
 
                 // Configuring the surface resizes the backing buffer, which
                 // clears it. Leaving that for the next frame presents an empty
@@ -246,6 +278,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 // frames, so the app reads as blank the whole time it is
                 // dragged. Drawing here means nothing empty is ever shown.
                 Self::window().state.render();
+            }
+            WindowEvent::Moved(_position) => {
+                if self.state.not_ready() {
+                    return;
+                }
+                Self::placement_changed();
             }
             WindowEvent::ScaleFactorChanged {
                 scale_factor,

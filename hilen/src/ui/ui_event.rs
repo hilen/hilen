@@ -55,6 +55,13 @@ impl<T: Send + Clone> UIEvent<T> {
         });
     }
 
+    /// Whether a live subscriber is waiting for this event.
+    pub(crate) fn has_subscribers(&self) -> bool {
+        let mut subs = self.subscribers.lock();
+        subs.retain(|s| s.subscriber.is_ok());
+        !subs.is_empty()
+    }
+
     pub(crate) fn unsubscribe<U: ?Sized>(&self, view: Weak<U>) {
         self.subscribers.lock().retain(|s| s.subscriber.raw() != view.raw());
     }

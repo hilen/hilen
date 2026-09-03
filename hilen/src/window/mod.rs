@@ -4,7 +4,10 @@ mod window_events;
 
 mod app_handler;
 mod frame_counter;
+#[cfg(desktop)]
+mod icon;
 pub mod image;
+mod placement;
 mod redraw;
 mod render_frame;
 mod screen;
@@ -12,6 +15,8 @@ mod screenshot;
 pub mod state;
 mod surface;
 mod vertex_buffer;
+#[cfg(linux)]
+pub(crate) mod wsl;
 
 pub use bytemuck::cast_slice;
 pub use wgpu::{
@@ -20,7 +25,7 @@ pub use wgpu::{
 };
 pub use winit::{
     event::{ElementState, MouseButton},
-    keyboard::NamedKey,
+    keyboard::{KeyCode, NamedKey},
     window::Theme,
 };
 
@@ -34,6 +39,7 @@ pub(crate) use self::redraw::set_wake_proxy;
 pub(crate) use self::redraw::take_needs_render;
 pub use self::{
     app_handler::AppHandler,
+    placement::*,
     render_frame::RenderFrame,
     screenshot::*,
     state::{msaa_sample_count, surface_texture_format},

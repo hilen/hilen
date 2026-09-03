@@ -14,12 +14,13 @@ use clap::{Parser, Subcommand};
 use hilen::{
     gm::color::Color,
     inspect::protocol::{
-        AppCommand, Client, InspectorCommand, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
+        AppCommand, Client, InspectorCommand, Key, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
     },
     refs::{Own, hreads::set_current_thread_as_main},
+    ui::{ModifiersState, NamedKey},
 };
 use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
-use serde_json::{Value, from_str, json, to_string, to_string_pretty, to_value};
+use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout, timeout_at};
 
 const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
@@ -80,10 +81,91 @@ enum Command {
     },
     /// Tap the center of a view: touch began plus ended, like a real click
     Tap {
-        /// Exact view id, exact visible text, label substring or text
-        /// substring, tried in that order. An ambiguous query lists the
-        /// candidates instead of guessing.
+        /// Exact view id, exact visible text or exact label field name
+        /// like `save_button` or `BackupPane.save_button`. Substrings
+        /// match only with `--fuzzy`, so a short query can never land on
+        /// an unrelated view.
+        #[arg(required_unless_present = "near")]
+        query:  Option<String>,
+        /// Also match label and text substrings, tried after the exact
+        /// rungs. An ambiguous query still lists the candidates.
+        #[arg(long)]
+        fuzzy:  bool,
+        /// Tap the view nearest to the view with this exact text, on the
+        /// same row. Reaches the unnamed button next to a label.
+        #[arg(long, conflicts_with = "query")]
+        near:   Option<String>,
+        /// With --near, only consider views of this type. Default Button.
+        #[arg(long, requires = "near")]
+        r#type: Option<String>,
+        /// Hold the command modifier for this tap, Cmd on a Mac
+        #[arg(long)]
+        cmd:    bool,
+        #[arg(long)]
+        shift:  bool,
+        #[arg(long)]
+        alt:    bool,
+        /// A right click instead of a left one, fires the secondary
+        /// action such as a context menu
+        #[arg(long)]
+        right:  bool,
+    },
+    /// One line per matching view: label, text, absolute frame, status,
+    /// id. Matches id, label and text by substring, case insensitive.
+    Find {
         query: String,
+        /// Include hidden and offscreen views
+        #[arg(long)]
+        all:   bool,
+    },
+    /// Poll until a visible view matches the query, then print it
+    Wait {
+        query:   String,
+        /// Seconds to wait before giving up
+        #[arg(long, default_value_t = 10.0)]
+        timeout: f32,
+    },
+    /// Drag with the left button held, window points, for drag driven
+    /// behavior like selecting text
+    Drag {
+        from_x: f32,
+        from_y: f32,
+        to_x:   f32,
+        to_y:   f32,
+        /// Moved events between begin and end
+        #[arg(long, default_value_t = 8)]
+        steps:  usize,
+    },
+    /// Wheel scroll at the window center, or at a view with --at.
+    /// Positive dy scrolls toward the top of the content.
+    Scroll {
+        dy: f32,
+        /// Aim at this view instead of the window center
+        #[arg(long)]
+        at: Option<String>,
+    },
+    /// Scroll the page until the view is inside the window
+    ScrollTo { query: String },
+    /// Resize the window, in points
+    Resize { width: f32, height: f32 },
+    /// Type text or press one named key, with modifiers held only for that
+    /// input. Keys go where a real keyboard would send them, the focused text
+    /// field and the app keymap.
+    Keys {
+        /// Text to type, every char in order
+        #[arg(required_unless_present = "key")]
+        text:  Option<String>,
+        /// A named key instead of text, a winit `NamedKey` name like Enter,
+        /// Escape, Tab, Backspace or `ArrowDown`
+        #[arg(long, conflicts_with = "text")]
+        key:   Option<String>,
+        /// Hold the command modifier, Cmd on a Mac and Ctrl elsewhere
+        #[arg(long)]
+        cmd:   bool,
+        #[arg(long)]
+        shift: bool,
+        #[arg(long)]
+        alt:   bool,
     },
     /// Set the UI scale of the app
     SetScale { scale: f32 },
@@ -120,19 +202,22 @@ async fn main() -> Result<()> {
     }
 
     let client = connect(cli.app).await?;
+    run(&client, cli.command).await
+}
 
-    match cli.command {
+async fn run(client: &Client, command: Command) -> Result<()> {
+    match command {
         Command::Apps => unreachable!(),
         Command::Ui => {
-            let (scale, root) = get_ui(&client).await?;
+            let (scale, root) = get_ui(client).await?;
             println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);
         }
         Command::Tree => {
-            let (_, root) = get_ui(&client).await?;
+            let (_, root) = get_ui(client).await?;
             print_tree(&root, 0);
         }
         Command::View { query } => {
-            let (_, root) = get_ui(&client).await?;
+            let (_, root) = get_ui(client).await?;
             let mut found = vec![];
             find_matches(&root, &query, &mut found)?;
             if found.is_empty() {
@@ -142,36 +227,64 @@ async fn main() -> Result<()> {
                 println!("{}", to_string_pretty(&view)?);
             }
         }
-        Command::Screenshot { out } => {
-            let AppCommand::Screenshot {
-                width,
-                height,
-                png_base64,
-            } = send(&client, InspectorCommand::Screenshot).await?
-            else {
-                bail!("Unexpected response to screenshot");
-            };
-            let path = out.unwrap_or_else(|| temp_dir().join("te-screenshot.png"));
-            write(&path, STANDARD.decode(png_base64)?)?;
-            println!("{width}x{height} saved to {}", path.display());
-        }
+        Command::Screenshot { out } => screenshot(client, out).await?,
         Command::PlaySound => {
-            send(&client, InspectorCommand::PlaySound).await?;
+            send(client, InspectorCommand::PlaySound).await?;
             println!("ok");
         }
-        Command::RunTests => run_tests(&client).await?,
-        Command::BuildTime => build_time(&client).await?,
+        Command::RunTests => run_tests(client).await?,
+        Command::BuildTime => build_time(client).await?,
         Command::Edits => {
-            let AppCommand::Edits(edits) = send(&client, InspectorCommand::ListEdits).await? else {
+            let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
                 bail!("Unexpected response to edits");
             };
             println!("{}", to_string_pretty(&edits)?);
         }
-        Command::Tap { query } => tap(&client, &query).await?,
-        Command::SetScale { scale } => {
-            send(&client, UIRequest::SetScale(scale).into()).await?;
+        Command::Tap {
+            query,
+            fuzzy,
+            near,
+            r#type,
+            cmd,
+            shift,
+            alt,
+            right,
+        } => tap(client, query, fuzzy, near, r#type, [cmd, shift, alt], right).await?,
+        Command::Find { query, all } => find(client, &query, all).await?,
+        Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
+        Command::Drag {
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            steps,
+        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
+        Command::Scroll { dy, at } => scroll(client, dy, at).await?,
+        Command::ScrollTo { query } => scroll_to(client, &query).await?,
+        Command::Resize { width, height } => {
+            send(client, UIRequest::Resize { width, height }.into()).await?;
             println!("ok");
         }
+        Command::Keys {
+            text,
+            key,
+            cmd,
+            shift,
+            alt,
+        } => keys(client, text, key, [cmd, shift, alt]).await?,
+        Command::SetScale { scale } => {
+            send(client, UIRequest::SetScale(scale).into()).await?;
+            println!("ok");
+        }
+        edit => run_edit(client, edit).await?,
+    }
+
+    Ok(())
+}
+
+/// The live edit commands, split out of `run` to keep it readable.
+async fn run_edit(client: &Client, command: Command) -> Result<()> {
+    match command {
         Command::EditRule {
             view_id,
             rule_index,
@@ -184,38 +297,71 @@ async fn main() -> Result<()> {
                 offset,
                 enabled: !disable,
             };
-            print_edited(&client, request, &view_id).await?;
+            print_edited(client, request, &view_id).await?;
         }
         Command::SetText { view_id, text } => {
             let request = UIRequest::SetText {
                 view_id: view_id.clone(),
                 text,
             };
-            print_edited(&client, request, &view_id).await?;
+            print_edited(client, request, &view_id).await?;
         }
         Command::SetColor { view_id, r, g, b, a } => {
             let request = UIRequest::SetColor {
                 view_id: view_id.clone(),
                 color:   Color::rgba(r, g, b, a),
             };
-            print_edited(&client, request, &view_id).await?;
+            print_edited(client, request, &view_id).await?;
         }
+        _ => unreachable!("only the edit commands reach run_edit"),
     }
 
     Ok(())
 }
 
-async fn tap(client: &Client, query: &str) -> Result<()> {
+async fn tap(
+    client: &Client,
+    query: Option<String>,
+    fuzzy: bool,
+    near: Option<String>,
+    near_type: Option<String>,
+    [cmd, shift, alt]: [bool; 3],
+    right: bool,
+) -> Result<()> {
     let (_, root) = get_ui(client).await?;
-    let target = resolve_tap_target(&root, query)?;
-    println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
+
+    let target_id = match (&query, &near) {
+        (Some(query), None) => {
+            let target = resolve_target(&root, query, fuzzy)?;
+            println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
+            target.id.clone()
+        }
+        (None, Some(near)) => {
+            let target = resolve_near(&root, near, near_type.as_deref().unwrap_or("Button"))?;
+            println!(
+                "tapping near {near}: {} {} {}",
+                target.label,
+                quoted_text(target),
+                target.id
+            );
+            target.id.clone()
+        }
+        _ => unreachable!("clap requires exactly one of query and --near"),
+    };
+
+    let mut modifiers = ModifiersState::empty();
+    modifiers.set(ModifiersState::SUPER, cmd);
+    modifiers.set(ModifiersState::SHIFT, shift);
+    modifiers.set(ModifiersState::ALT, alt);
 
     // The tapped view is often gone from the fresh tree, a tab swaps the
     // page and a modal button closes the modal, so no lookup afterwards.
-    let AppCommand::UI(UIResponse::SendUI { .. }) = send(
+    let AppCommand::UI(UIResponse::SendUI { note, .. }) = send(
         client,
         UIRequest::Tap {
-            view_id: target.id.clone(),
+            view_id: target_id,
+            modifiers,
+            right,
         }
         .into(),
     )
@@ -224,8 +370,292 @@ async fn tap(client: &Client, query: &str) -> Result<()> {
         bail!("Unexpected response to tap");
     };
     println!("tapped");
+    if let Some(note) = note {
+        println!("warning: {note}");
+    }
 
     Ok(())
+}
+
+/// A view with its window space origin and effective visibility. Frames in
+/// the tree are local to the parent, locating walks them down.
+struct Located<'tree> {
+    view:   &'tree ViewRepr,
+    x:      f32,
+    y:      f32,
+    hidden: bool,
+}
+
+impl Located<'_> {
+    fn status(&self, window: (f32, f32)) -> &'static str {
+        if self.hidden {
+            return "hidden";
+        }
+        let size = self.view.frame.size;
+        if self.x + size.width < 0.0 || self.y + size.height < 0.0 || self.x > window.0 || self.y > window.1 {
+            return "offscreen";
+        }
+        "visible"
+    }
+
+    fn line(&self, window: (f32, f32)) -> String {
+        format!(
+            "{}{}  [{}, {}] {}x{}  {}  {}",
+            self.view.label,
+            shortened_text(self.view),
+            self.x,
+            self.y,
+            self.view.frame.size.width,
+            self.view.frame.size.height,
+            self.status(window),
+            self.view.id,
+        )
+    }
+}
+
+fn locate<'tree>(view: &'tree ViewRepr, x: f32, y: f32, hidden: bool, out: &mut Vec<Located<'tree>>) {
+    let x = x + view.frame.origin.x;
+    let y = y + view.frame.origin.y + view.content_offset;
+    let hidden = hidden || view.hidden;
+    out.push(Located { view, x, y, hidden });
+    for sub in &view.subviews {
+        locate(sub, x, y, hidden, out);
+    }
+}
+
+fn located_tree(root: &ViewRepr) -> ((f32, f32), Vec<Located<'_>>) {
+    let window = (root.frame.size.width, root.frame.size.height);
+    let mut located = vec![];
+    locate(root, 0.0, 0.0, false, &mut located);
+    (window, located)
+}
+
+fn matches_loosely(view: &ViewRepr, query: &str) -> bool {
+    let lowercase = query.to_lowercase();
+    view.id == query
+        || view.label.to_lowercase().contains(&lowercase)
+        || view.text.as_ref().is_some_and(|text| text.to_lowercase().contains(&lowercase))
+}
+
+async fn find(client: &Client, query: &str, all: bool) -> Result<()> {
+    let (_, root) = get_ui(client).await?;
+    let (window, located) = located_tree(&root);
+
+    let mut shown = 0;
+    for item in &located {
+        if !matches_loosely(item.view, query) {
+            continue;
+        }
+        if !all && item.status(window) != "visible" {
+            continue;
+        }
+        shown += 1;
+        println!("{}", item.line(window));
+    }
+
+    if shown == 0 {
+        bail!(
+            "No view matches: {query}{}",
+            if all {
+                ""
+            } else {
+                ". Add --all to include hidden and offscreen views."
+            }
+        );
+    }
+    Ok(())
+}
+
+async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs_f32(wait_seconds);
+
+    loop {
+        let (_, root) = get_ui(client).await?;
+        let (window, located) = located_tree(&root);
+
+        if let Some(item) = located
+            .iter()
+            .find(|item| matches_loosely(item.view, query) && item.status(window) == "visible")
+        {
+            println!("{}", item.line(window));
+            return Ok(());
+        }
+
+        if Instant::now() > deadline {
+            bail!("No visible view matched {query} within {wait_seconds}s");
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize) -> Result<()> {
+    send(client, UIRequest::Drag { from, to, steps }.into()).await?;
+    println!("ok");
+    Ok(())
+}
+
+async fn scroll(client: &Client, dy: f32, at: Option<String>) -> Result<()> {
+    let view_id = match at {
+        Some(query) => {
+            let (_, root) = get_ui(client).await?;
+            Some(resolve_target(&root, &query, false)?.id.clone())
+        }
+        None => None,
+    };
+    send(client, UIRequest::Scroll { view_id, dx: 0.0, dy }.into()).await?;
+    println!("ok");
+    Ok(())
+}
+
+/// Repeats window sized scroll steps until the view's center is inside
+/// the window. Fuzzy matching, the target is often known only by text.
+async fn scroll_to(client: &Client, query: &str) -> Result<()> {
+    for _ in 0..16 {
+        let (_, root) = get_ui(client).await?;
+        let (window, located) = located_tree(&root);
+        // Loose matching and the first hit, an ambiguous query is fine
+        // here, any of the matches leads the scroll to the same place.
+        let Some(item) = located.iter().find(|item| !item.hidden && matches_loosely(item.view, query)) else {
+            bail!("No view matches: {query}");
+        };
+
+        let center = item.y + item.view.frame.size.height / 2.0;
+        if center > 0.0 && center < window.1 && !item.hidden {
+            println!("{}", item.line(window));
+            return Ok(());
+        }
+
+        send(
+            client,
+            UIRequest::Scroll {
+                view_id: None,
+                dx:      0.0,
+                dy:      window.1 / 2.0 - center,
+            }
+            .into(),
+        )
+        .await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    bail!("Could not scroll {query} into view");
+}
+
+/// The type name is the last path segment of the label, `Button` from
+/// `DeploymentCard.open: full::path::Button`.
+fn type_name(view: &ViewRepr) -> &str {
+    view.label
+        .rsplit(':')
+        .next()
+        .unwrap_or_default()
+        .rsplit(':')
+        .next()
+        .unwrap_or_default()
+        .trim()
+}
+
+/// The visible view of `wanted_type` nearest to the view with `anchor`
+/// exact text, preferring the same row. Reaches controls with no text of
+/// their own, like the open button on a list card.
+fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -> Result<&'tree ViewRepr> {
+    let (window, located) = located_tree(root);
+    let lowercase = anchor.to_lowercase();
+
+    // An exact id works as the anchor too, it is the way out when several
+    // views carry the same text.
+    let anchors: Vec<&Located> = located
+        .iter()
+        .filter(|item| {
+            item.view.id == anchor
+                || (item.status(window) == "visible"
+                    && item.view.text.as_ref().is_some_and(|text| text.to_lowercase() == lowercase))
+        })
+        .collect();
+
+    let anchor_item = match anchors.as_slice() {
+        [] => bail!("No visible view has the exact text: {anchor}"),
+        [only] => only,
+        candidates => {
+            let listed: Vec<String> = candidates.iter().map(|item| item.line(window)).collect();
+            bail!("Ambiguous anchor: {anchor}\n{}", listed.join("\n"));
+        }
+    };
+
+    let anchor_center = (
+        anchor_item.x + anchor_item.view.frame.size.width / 2.0,
+        anchor_item.y + anchor_item.view.frame.size.height / 2.0,
+    );
+
+    let nearest = located
+        .iter()
+        .filter(|item| {
+            item.status(window) == "visible"
+                && item.view.id != anchor_item.view.id
+                && type_name(item.view).eq_ignore_ascii_case(wanted_type)
+        })
+        .min_by(|a, b| {
+            let distance = |item: &Located| {
+                let x = item.x + item.view.frame.size.width / 2.0 - anchor_center.0;
+                let y = item.y + item.view.frame.size.height / 2.0 - anchor_center.1;
+                // Off row candidates lose to same row ones, a column
+                // neighbor is almost never the wanted control.
+                x.hypot(y * 4.0)
+            };
+            distance(a).total_cmp(&distance(b))
+        });
+
+    match nearest {
+        Some(item) => Ok(item.view),
+        None => bail!("No visible {wanted_type} found near {anchor}"),
+    }
+}
+
+async fn screenshot(client: &Client, out: Option<PathBuf>) -> Result<()> {
+    let AppCommand::Screenshot {
+        width,
+        height,
+        png_base64,
+    } = send(client, InspectorCommand::Screenshot).await?
+    else {
+        bail!("Unexpected response to screenshot");
+    };
+    let path = out.unwrap_or_else(|| temp_dir().join("te-screenshot.png"));
+    write(&path, STANDARD.decode(png_base64)?)?;
+    println!("{width}x{height} saved to {}", path.display());
+    Ok(())
+}
+
+async fn keys(
+    client: &Client,
+    text: Option<String>,
+    key: Option<String>,
+    [cmd, shift, alt]: [bool; 3],
+) -> Result<()> {
+    let mut modifiers = ModifiersState::empty();
+    modifiers.set(ModifiersState::SUPER, cmd);
+    modifiers.set(ModifiersState::SHIFT, shift);
+    modifiers.set(ModifiersState::ALT, alt);
+
+    let keys = match (text, key) {
+        (Some(text), None) => text.chars().map(Key::Char).collect(),
+        (None, Some(key)) => vec![Key::Named(parse_named_key(&key)?)],
+        _ => unreachable!("clap requires exactly one of text and --key"),
+    };
+
+    send(client, UIRequest::Keys { keys, modifiers }.into()).await?;
+    println!("ok");
+
+    Ok(())
+}
+
+/// `NamedKey` has no `FromStr`, its serde form is the plain variant name,
+/// so the name round trips through a JSON string.
+fn parse_named_key(name: &str) -> Result<NamedKey> {
+    match from_value(Value::String(name.to_string())) {
+        Ok(key) => Ok(key),
+        Err(_) => {
+            bail!("Unknown key: {name}. Use a winit NamedKey name like Enter, Escape, Tab or ArrowDown")
+        }
+    }
 }
 
 async fn run_tests(client: &Client) -> Result<()> {
@@ -254,7 +684,8 @@ async fn send(client: &Client, command: InspectorCommand) -> Result<AppCommand> 
 }
 
 async fn get_ui(client: &Client) -> Result<(f32, Own<ViewRepr>)> {
-    let AppCommand::UI(UIResponse::SendUI { scale, root }) = send(client, UIRequest::GetUI.into()).await?
+    let AppCommand::UI(UIResponse::SendUI { scale, root, .. }) =
+        send(client, UIRequest::GetUI.into()).await?
     else {
         bail!("Unexpected response to get ui");
     };
@@ -314,22 +745,36 @@ fn quoted_text(view: &ViewRepr) -> String {
     view.text.as_ref().map_or_else(|| "-".to_string(), |text| format!("\"{text}\""))
 }
 
-/// Exact id, exact text, label substring, then text substring, all case
-/// insensitive. The first rung with any match decides: one match wins, more
-/// than one errors listing the candidates. Hidden views and everything under
-/// them never match a query, a hidden view is only reachable by exact id.
-fn resolve_tap_target<'a>(root: &'a ViewRepr, query: &str) -> Result<&'a ViewRepr> {
+/// Exact id, exact text, then exact label field name, all case
+/// insensitive. Substring rungs run only with `fuzzy`, so a short query
+/// can never land on an unrelated view, `back` once matched
+/// `BackupPane.save_button` and pressed save. The first rung with any
+/// match decides: one match wins, more than one errors listing the
+/// candidates. Hidden views and everything under them never match a
+/// query, a hidden view is only reachable by exact id.
+fn resolve_target<'a>(root: &'a ViewRepr, query: &str, fuzzy: bool) -> Result<&'a ViewRepr> {
     if let Some(view) = find_by_id(root, query) {
         return Ok(view);
     }
 
     let query = query.to_lowercase();
 
-    let rungs: [&dyn Fn(&ViewRepr) -> bool; 3] = [
-        &|view| view.text.as_ref().is_some_and(|text| text.to_lowercase() == query),
-        &|view| view.label.to_lowercase().contains(&query),
-        &|view| view.text.as_ref().is_some_and(|text| text.to_lowercase().contains(&query)),
-    ];
+    let exact_text = |view: &ViewRepr| view.text.as_ref().is_some_and(|text| text.to_lowercase() == query);
+    // The label is `Owner.field: full::type::Path`, the query matches the
+    // owner dot field part or the bare field name.
+    let exact_field = |view: &ViewRepr| {
+        let name = view.label.split(':').next().unwrap_or_default().to_lowercase();
+        name == query || name.rsplit('.').next().unwrap_or_default() == query
+    };
+    let label_substring = |view: &ViewRepr| view.label.to_lowercase().contains(&query);
+    let text_substring =
+        |view: &ViewRepr| view.text.as_ref().is_some_and(|text| text.to_lowercase().contains(&query));
+
+    let mut rungs: Vec<&dyn Fn(&ViewRepr) -> bool> = vec![&exact_text, &exact_field];
+    if fuzzy {
+        rungs.push(&label_substring);
+        rungs.push(&text_substring);
+    }
 
     for matches_query in rungs {
         let mut found = vec![];
@@ -348,7 +793,10 @@ fn resolve_tap_target<'a>(root: &'a ViewRepr, query: &str) -> Result<&'a ViewRep
         }
     }
 
-    bail!("No view matches: {query}");
+    if fuzzy {
+        bail!("No view matches: {query}");
+    }
+    bail!("No view matches: {query}. Exact matching only, add --fuzzy for substrings.");
 }
 
 fn collect_visible<'a>(

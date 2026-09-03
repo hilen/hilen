@@ -7,7 +7,9 @@ use crate::{
         LossyConvert,
         color::{BLACK, BLUE, Color, GRAY, GREEN, WHITE},
     },
-    ui::{Container, Label, ScrollView, Setup, TextAlignment, ViewData, ViewSubviews, ViewTest, view},
+    ui::{
+        Container, Label, ScrollView, Setup, TextAlignment, UIManager, ViewData, ViewSubviews, ViewTest, view,
+    },
     ui_test::inject_touches,
 };
 
@@ -38,6 +40,12 @@ impl Setup for MultitouchScroll {
 }
 
 impl ViewTest for MultitouchScroll {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     fn canvas() -> (u32, u32) {
         (640, 1000)
     }
@@ -58,8 +66,8 @@ impl ViewTest for MultitouchScroll {
         inject_touches(drag_both(960, 40, 25, 20));
         assert_eq!(offsets(), (-800.0, -500.0));
 
-        // A third finger landing on the right list while finger 2 still holds it
-        // is ignored, so neither offset moves.
+        // A third finger landing on the right list while finger 2 still holds
+        // it is ignored, so neither offset moves.
         inject_touches(
             "
             520 700 b 3

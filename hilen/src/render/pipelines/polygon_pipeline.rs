@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable, cast_slice};
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferUsages, IndexFormat, PipelineLayoutDescriptor, PolygonMode,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, CompareFunction, IndexFormat, PipelineLayoutDescriptor,
     PrimitiveTopology, RenderPass, RenderPipeline, ShaderStages, include_wgsl,
 };
 
@@ -56,7 +56,7 @@ impl Default for PolygonPipeline {
             "polygon_pipeline",
             &uniform_layout,
             &shader,
-            PolygonMode::Fill,
+            CompareFunction::Less,
             PrimitiveTopology::TriangleList,
             &[Point::VERTEX_LAYOUT],
         );

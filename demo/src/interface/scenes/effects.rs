@@ -1,14 +1,16 @@
+#[cfg(not_wasm)]
+use hilen::ui::ColorMeter;
 use hilen::{
     refs::Weak,
     ui::{
-        BlurView, ColorMeter, Container, CornerRadii, ImageView, Label, ScrollView, Setup, Shadow,
-        TextAlignment, ViewData, ViewSubviews, ViewTouch, WHITE, view,
+        BlurView, Container, CornerRadii, ImageView, Label, ScrollView, Setup, Shadow, TextAlignment,
+        ViewData, ViewSubviews, ViewTouch, WHITE, view,
     },
 };
 
 use crate::interface::{
-    palette::{ACCENT, ACCENT_END, ACCENT_START, BG, BORDER, SURFACE, TEXT_DIM},
-    scenes::{HEADER_HEIGHT, add_header},
+    palette::{ACCENT, ACCENT_END, ACCENT_START, BORDER, SURFACE},
+    scenes::{HEADER_HEIGHT, add_title},
 };
 
 /// One tile per visual effect the engine gives every view: shadow,
@@ -25,15 +27,13 @@ pub struct EffectsScene {
 
 impl Setup for EffectsScene {
     fn setup(mut self: Weak<Self>) {
-        self.set_color(BG);
-
         self.scroll.place().t(HEADER_HEIGHT).lrb(0);
         self.grid = self.scroll.add_view::<Container>();
-        self.grid.place().t(16).lr(20).all(14).all_wrap();
+        self.grid.place().t(4).lr(28).all(16).all_wrap();
 
         self.add_effects();
 
-        add_header(self, "Effects");
+        add_title(self, "Effects", "What every view gets for free.");
     }
 }
 
@@ -41,15 +41,16 @@ impl EffectsScene {
     fn tile(self: Weak<Self>, caption: &str) -> Weak<Container> {
         let tile = self.grid.add_view::<Container>();
         tile.set_color(SURFACE)
-            .set_corner_radius(12)
+            .set_corner_radius(16)
             .set_border_width(1)
             .set_border_color(BORDER);
         tile.place().size(168, 150);
 
         let cap = tile.add_view::<Label>();
-        cap.set_text(caption)
-            .set_text_color(TEXT_DIM)
-            .set_text_size(12)
+        cap.set_text(caption.to_uppercase())
+            .set_text_color(ACCENT)
+            .set_text_size(10)
+            .set_letter_spacing(1.2)
             .set_alignment(TextAlignment::Center);
         cap.place().t(8).lr(6).h(16);
 
@@ -85,8 +86,13 @@ impl EffectsScene {
             hover.set_color(if hovered { ACCENT_END } else { ACCENT_START });
         });
 
-        let meter = self.tile("Eyedropper").add_view::<ColorMeter>();
-        meter.set_corner_radius(10).set_border_width(1).set_border_color(BORDER);
-        meter.place().t(40).center_x().size(80, 80);
+        // The meter reads the screen back through a screenshot, which the
+        // browser cannot take, so the tile would sit there doing nothing.
+        #[cfg(not_wasm)]
+        {
+            let meter = self.tile("Eyedropper").add_view::<ColorMeter>();
+            meter.set_corner_radius(10).set_border_width(1).set_border_color(BORDER);
+            meter.place().t(40).center_x().size(80, 80);
+        }
     }
 }

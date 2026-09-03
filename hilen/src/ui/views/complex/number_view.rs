@@ -35,6 +35,12 @@ pub struct NumberView {
 }
 
 impl Setup for NumberView {
+    /// The halves are plain buttons and would draw square over the box's
+    /// rounded corners once they have a color or a bevel.
+    fn clips_to_bounds(&self) -> bool {
+        true
+    }
+
     fn setup(self: Weak<Self>) {
         self.up.set_image(UIImages::up()).set_color(CLEAR);
         self.up.on_tap(move || self.up_tap());
@@ -48,6 +54,37 @@ impl Setup for NumberView {
         self.separator.set_color(LIGHT_GRAY);
 
         Style::apply_global(self);
+    }
+}
+
+impl NumberView {
+    /// Thin Lucide chevrons in place of the filled arrows, for a stepper
+    /// that sits in a styled box. Opt in, the filled arrows stay the
+    /// default.
+    pub fn set_chevrons(&self) -> &Self {
+        self.up.set_image(UIImages::chevron_up());
+        self.down.set_image(UIImages::chevron_down());
+        self
+    }
+
+    /// The line between the two halves.
+    pub fn set_separator_color(&self, color: impl Into<UIColor>) -> &Self {
+        self.separator.set_color(color);
+        self
+    }
+
+    /// Volume inside the box. Each half gets its own gradient, from
+    /// `light` at the top of the top half to `dark` at the bottom of the
+    /// bottom half, so the two halves read as two raised keys.
+    pub fn set_bevel(&self, light: Color, dark: Color) -> &Self {
+        let mid = Color::rgb(
+            f32::midpoint(light.r, dark.r),
+            f32::midpoint(light.g, dark.g),
+            f32::midpoint(light.b, dark.b),
+        );
+        self.up.set_gradient(light, mid);
+        self.down.set_gradient(mid, dark);
+        self
     }
 }
 

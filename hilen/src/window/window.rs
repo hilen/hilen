@@ -5,10 +5,12 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result, bail};
-use log::info;
-#[cfg(not_wasm)]
-use log::warn;
+#[cfg(any(desktop, wasm))]
+use log::error;
+use log::{info, warn};
 use plat::Platform;
+#[cfg(linux)]
+use wgpu::InstanceFlags;
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
     Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
@@ -16,6 +18,8 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
+#[cfg(desktop)]
+use crate::window::icon::apply_icon;
 use crate::{
     deps::hreads::on_main,
     gm::{
@@ -55,6 +59,10 @@ pub struct Window {
     pub(crate) screen: Screen,
 
     pub(crate) title_set: bool,
+
+    /// A label kept in front of the frame stats in the title, so a UI test
+    /// under human review still shows the frame time like an app does.
+    pub(crate) title_prefix: Option<String>,
 
     #[cfg(desktop)]
     pub(crate) is_resizing: bool,
@@ -96,12 +104,19 @@ impl Window {
 
     pub fn inner_size() -> Size {
         match &Self::current().screen {
-            Screen::Windowed { winit_window, .. } => {
-                let size = winit_window.inner_size();
-                (size.width, size.height).into()
-            }
+            Screen::Windowed { size, .. } => (size.width, size.height).into(),
             #[cfg(not_wasm)]
             Screen::Headless { size } => (size.width, size.height).into(),
+        }
+    }
+
+    /// Store the inner size a window event reported. Every later size
+    /// query reads it, see `Screen::Windowed`.
+    pub(crate) fn record_inner_size(&mut self, size: PhysicalSize<u32>) {
+        match &mut self.screen {
+            Screen::Windowed { size: recorded, .. } => *recorded = Size::new(size.width, size.height),
+            #[cfg(not_wasm)]
+            Screen::Headless { .. } => {}
         }
     }
 
@@ -188,9 +203,14 @@ impl Window {
     /// Android asks for Vulkan alone. With GL and Vulkan both enabled they
     /// race for the one `ANativeWindow`, the loser gets
     /// `ERROR_NATIVE_WINDOW_IN_USE_KHR` and wgpu-hal panics instead of
-    /// skipping that backend. GL is no floor anyway, GLES may report zero
-    /// fragment stage storage buffers and the UI pipelines need one.
-    /// `WGPU_BACKEND` still overrides the choice on any platform.
+    /// skipping that backend. `WGPU_BACKEND` still overrides the choice on
+    /// any platform.
+    ///
+    /// WSL allows a non conformant adapter. The only Vulkan driver that
+    /// reaches the Windows GPU there is Mesa's Direct3D 12 one, and it
+    /// reports conformance version 0, which wgpu hides by default. Without
+    /// the flag wgpu falls back to the CPU lavapipe and draws every frame
+    /// in software on every core, see docs/wsl.md.
     fn instance() -> Instance {
         let mut descriptor = InstanceDescriptor::new_without_display_handle();
 
@@ -200,6 +220,11 @@ impl Window {
 
         if Platform::ANDROID {
             descriptor.backends = Backends::VULKAN;
+        }
+
+        #[cfg(linux)]
+        if crate::window::wsl::active() {
+            descriptor.flags |= InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER;
         }
 
         Instance::new(descriptor.with_env())
@@ -234,17 +259,12 @@ impl Window {
             .context("Failed to request GPU device")
     }
 
-    pub(crate) async fn start_internal(
-        size: PhysicalSize<u32>,
-        window: winit::window::Window,
-        proxy: EventLoopProxy<UserEvent>,
-    ) -> Result<()> {
-        let winit_window = Arc::new(window);
-
-        let instance = Self::instance();
-        let surface = instance
-            .create_surface(winit_window.clone())
-            .context("Failed to create surface")?;
+    /// The surface on `window` and an adapter that can present to it.
+    async fn adapter_on(
+        instance: Instance,
+        window: Arc<winit::window::Window>,
+    ) -> Result<(Instance, wgpu::Surface<'static>, Adapter)> {
+        let surface = instance.create_surface(window).context("Failed to create surface")?;
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference:       PowerPreference::HighPerformance,
@@ -256,6 +276,73 @@ impl Window {
             .await
             .context("Could not get a GPU adapter")?;
 
+        Ok((instance, surface, adapter))
+    }
+
+    /// The instance a browser gets. WebGPU when the page has it and it
+    /// hands out an adapter, WebGL otherwise. A browser can expose
+    /// `navigator.gpu` and still answer the adapter request with null,
+    /// `WebKit` does on the iOS simulator and in Lockdown mode, and wgpu
+    /// takes WebGPU whenever the property exists and never falls back by
+    /// itself. The probe asks for an adapter with no surface, because a
+    /// canvas keeps the first context kind it is given, so a WebGPU
+    /// surface tried first would leave no canvas for WebGL. `hilen_webgl`
+    /// in the page query forces WebGL, to check that path in a browser
+    /// that has WebGPU. Without the `webgl` feature the GL instance is
+    /// WebGPU again and its adapter error is the one reported.
+    #[cfg(wasm)]
+    async fn browser_instance() -> Instance {
+        if crate::web::query_flag("hilen_webgl") {
+            info!("WebGL forced by the page query");
+            return Self::webgl_instance();
+        }
+
+        if !crate::web::has_webgpu() {
+            return Self::webgl_instance();
+        }
+
+        let instance = Self::instance();
+
+        let probe = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference:       PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+
+                compatible_surface:  None,
+                apply_limit_buckets: false,
+            })
+            .await;
+
+        match probe {
+            Ok(_) => instance,
+            Err(err) => {
+                warn!("WebGPU gave no adapter, using WebGL: {err}");
+                Self::webgl_instance()
+            }
+        }
+    }
+
+    #[cfg(wasm)]
+    fn webgl_instance() -> Instance {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = Backends::GL;
+        Instance::new(descriptor)
+    }
+
+    pub(crate) async fn start_internal(
+        size: PhysicalSize<u32>,
+        window: winit::window::Window,
+        proxy: EventLoopProxy<UserEvent>,
+    ) -> Result<()> {
+        let winit_window = Arc::new(window);
+
+        #[cfg(wasm)]
+        let instance = Self::browser_instance().await;
+        #[cfg(not_wasm)]
+        let instance = Self::instance();
+
+        let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
+
         let info = adapter.get_info();
 
         info!("Backend: {}", info.backend);
@@ -266,6 +353,17 @@ impl Window {
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
         let (device, queue) = Self::request_device(&adapter).await?;
+
+        // A browser reports a failed pipeline or a bad draw through this
+        // event and otherwise carries on, every later frame of the page
+        // black. WebKit refused the text shader that way. Native wgpu
+        // panics on the same errors, so the page treats them as fatal
+        // too, and drops the canvas so the fallback content shows.
+        #[cfg(wasm)]
+        device.on_uncaptured_error(Arc::new(|err| {
+            error!("Fatal GPU error: {err}");
+            crate::web::drop_canvas();
+        }));
 
         // Shadowing would keep the adapter probe surface alive to the end of
         // the function. Android allows one producer per native window, so it
@@ -287,6 +385,8 @@ impl Window {
             None
         };
 
+        let inner = winit_window.inner_size();
+
         let window = Self {
             state: State::default(),
             instance,
@@ -296,10 +396,12 @@ impl Window {
             screen: Screen::Windowed {
                 winit_window,
                 surface,
+                size: Size::new(inner.width, inner.height),
             },
             #[cfg(desktop)]
             is_resizing: false,
             title_set: false,
+            title_prefix: None,
         };
 
         if proxy.send_event(UserEvent::WindowReady(Box::new(window))).is_err() {
@@ -341,7 +443,43 @@ impl Window {
             #[cfg(desktop)]
             is_resizing: false,
             title_set: false,
+            title_prefix: None,
         })
+    }
+
+    /// Put `prefix` in front of the frame stats in the title. Unlike
+    /// `set_title` this keeps the stats, so a human mode test prompt still
+    /// shows the frame time.
+    pub fn set_title_prefix(prefix: impl Into<String>) {
+        let prefix = prefix.into();
+        on_main(move || {
+            let window = Self::current();
+            window.title_prefix = Some(prefix.clone());
+
+            // The browser has no per frame title, the prefix is the title.
+            #[cfg(wasm)]
+            web_sys::window()
+                .expect("Failed to get browser window")
+                .document()
+                .expect("Failed to get browser document")
+                .set_title(&prefix);
+
+            #[cfg(not_wasm)]
+            if let Some(winit) = Self::winit_window()
+                && Platform::DESKTOP
+            {
+                winit.set_title(&prefix);
+            }
+        });
+    }
+
+    /// The title text for the frame stats, with the prefix in front when
+    /// one is set.
+    pub(crate) fn stats_title(stats: &str) -> String {
+        match &Self::current().title_prefix {
+            Some(prefix) => format!("{prefix} | {stats}"),
+            None => stats.to_string(),
+        }
     }
 
     pub fn set_title(title: impl Into<String>) {
@@ -370,6 +508,25 @@ impl Window {
         });
     }
 
+    /// The icon the OS shows for the running process, from encoded image
+    /// bytes such as a PNG. On macOS this is the Dock icon, which a bare
+    /// binary outside an app bundle otherwise lacks. On Windows and Linux
+    /// it is the window and taskbar icon. Phones and the browser take
+    /// the icon from the bundle or the page, so the call does nothing there.
+    pub fn set_icon(data: &'static [u8]) {
+        #[cfg(desktop)]
+        on_main(move || {
+            if let Err(err) = apply_icon(data) {
+                error!("Failed to set the app icon: {err}");
+            }
+        });
+        #[cfg(not(desktop))]
+        log::debug!(
+            "The {} byte app icon is not applied here, the bundle or the page carries it",
+            data.len()
+        );
+    }
+
     #[cfg(desktop)]
     pub(crate) fn set_size(&mut self, size: impl Into<Size<u32>>) {
         let size = size.into();
@@ -380,16 +537,36 @@ impl Window {
             return;
         }
 
-        match &mut self.screen {
-            Screen::Windowed { winit_window, .. } => {
-                self.is_resizing = true;
-                let _ = winit_window.request_inner_size(PhysicalSize::new(size.width, size.height));
-            }
-            #[cfg(not_wasm)]
-            Screen::Headless { size: headless_size } => {
-                *headless_size = size;
+        if let Screen::Headless { size: headless_size } = &mut self.screen {
+            *headless_size = size;
+            State::resize();
+            return;
+        }
+
+        self.request_inner_size(PhysicalSize::new(size.width, size.height));
+    }
+
+    /// Ask winit for a new inner size and keep `is_resizing` true to the
+    /// winit contract. `Some` means the platform applied it now and sends no
+    /// `Resized`, Wayland does that, so the surface is reconfigured here.
+    /// `None` means a `Resized` follows and clears the flag, X11 and the rest.
+    /// Waiting for a `Resized` that never comes skips every frame and the
+    /// window never shows.
+    #[cfg(desktop)]
+    pub(crate) fn request_inner_size(&mut self, size: impl Into<winit::dpi::Size>) {
+        let Some(window) = self.screen.winit_window() else {
+            return;
+        };
+        let size: winit::dpi::Size = size.into();
+        if size.to_physical::<u32>(window.scale_factor()) == window.inner_size() {
+            return;
+        }
+        match window.request_inner_size(size) {
+            Some(applied) => {
+                self.record_inner_size(applied);
                 State::resize();
             }
+            None => self.is_resizing = true,
         }
     }
 
@@ -473,6 +650,7 @@ impl Window {
         }
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn display_refresh_rate() -> u32 {
         let Some(window) = Self::winit_window() else {
             return 60;

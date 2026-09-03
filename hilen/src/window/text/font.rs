@@ -1,9 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use log::error;
 use rustybuzz::{Face, ttf_parser::Tag};
-use wgpu::{
-    CompareFunction, DepthBiasState, DepthStencilState, MultisampleState, StencilState, TextureFormat,
-};
+use wgpu::MultisampleState;
 use wgpu_text::{
     BrushBuilder, Section, Text, TextBrush,
     glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, VariableFont},
@@ -14,33 +12,48 @@ use crate::{
         Weak,
         main_lock::MainLock,
         manage::{DataManager, ResourceLoader},
+        weak_from_ref,
     },
     filesystem::read_bytes as read,
     gm::{LossyConvert, ToF32, flat::Size},
     managed,
+    render::depth_stencil_state,
     window::{
         msaa_sample_count, surface_texture_format,
-        text::{ShapedLayout, ShapedParams, TextLayout, VerticalAlign},
+        text::{
+            FontRun, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, TextLayout,
+            VerticalAlign,
+        },
         window::Window,
     },
 };
 
 pub struct Font {
-    pub name:  String,
-    pub brush: TextBrush,
-    face:      Face<'static>,
+    pub name:      String,
+    pub brush:     TextBrush,
+    /// The same font the brush rasterizes with, kept for measuring while
+    /// the brush is busy.
+    ab:            FontArc,
+    face:          Face<'static>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
     /// factor converts an em size into the `PxScale` that renders it.
-    em_scale:  f32,
+    em_scale:      f32,
+    shape_cache:   MainLock<ShapeCache>,
+    measure_cache: MainLock<MeasureCache>,
 }
 
 impl Font {
     fn new(name: impl ToString, data: &[u8]) -> Result<Self> {
-        Self::new_with_variations(name, data, &[])
+        Self::new_with_variations(name, data, &[], 0.0)
     }
 
-    fn new_with_variations(name: impl ToString, data: &[u8], variations: &[([u8; 4], f32)]) -> Result<Self> {
+    fn new_with_variations(
+        name: impl ToString,
+        data: &[u8],
+        variations: &[([u8; 4], f32)],
+        stem_darkening: f32,
+    ) -> Result<Self> {
         let window = Window::current();
 
         let render_size = Window::render_size();
@@ -69,25 +82,24 @@ impl Font {
             .ok_or_else(|| anyhow!("Font '{}' has no units per em", name.to_string()))?;
         let em_scale = font.height_unscaled() / units_per_em;
 
-        let brush = BrushBuilder::using_font(font).with_depth_stencil( DepthStencilState {
-            format:              TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare:       Some(CompareFunction::Less),
-            stencil:             StencilState::default(),
-            bias:                DepthBiasState::default(),
-        }.into())
+        let brush = BrushBuilder::using_font(font.clone())
+            .with_depth_stencil(depth_stencil_state().into())
             .with_multisample(MultisampleState {
                 count:                     msaa_sample_count(),
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             })
+            .with_stem_darkening(stem_darkening)
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
             .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {
             name: name.to_string(),
             brush,
+            ab: font,
             face,
             em_scale,
+            shape_cache: MainLock::new(),
+            measure_cache: MainLock::new(),
         })
     }
 
@@ -97,8 +109,43 @@ impl Font {
         self.em_scale
     }
 
+    pub(crate) fn face(&self) -> &Face<'static> {
+        &self.face
+    }
+
+    pub fn has_glyph(&self, char: char) -> bool {
+        self.face.glyph_index(char).is_some()
+    }
+
+    pub(crate) fn ab(&self) -> &FontArc {
+        &self.ab
+    }
+
+    pub(crate) fn shape_cache(&self) -> &MainLock<ShapeCache> {
+        &self.shape_cache
+    }
+
+    fn params(
+        &self,
+        tracking: f32,
+        width: Option<f32>,
+        runs: Vec<FontRun>,
+        line_height: Option<f32>,
+    ) -> ShapedParams {
+        ShapedParams {
+            tracking,
+            multiline: width.is_some(),
+            h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
+            v_align: VerticalAlign::Center,
+            line_height,
+            base: weak_from_ref(self),
+            runs,
+        }
+    }
+
     /// Size the text takes when drawn at `size`. `width` bounds wrapping,
-    /// `None` measures a single unbounded line. Layout params must mirror
+    /// `None` measures a single unbounded line. `runs` are the byte
+    /// ranges drawn with other fonts. Layout params must mirror
     /// `draw_label` or measured sizes will not match rendering.
     pub(crate) fn measure(
         &mut self,
@@ -106,31 +153,54 @@ impl Font {
         size: impl ToF32,
         width: Option<f32>,
         tracking: f32,
+        runs: Vec<FontRun>,
+        line_height: Option<f32>,
     ) -> Size {
         if text.is_empty() {
             return Size::default();
         }
 
+        let key = MeasureKey {
+            text:        text.to_string(),
+            size:        size.to_f32().to_bits(),
+            width:       width.map(f32::to_bits),
+            tracking:    tracking.to_bits(),
+            line_height: line_height.map(f32::to_bits),
+            runs:        runs
+                .iter()
+                .map(|run| (run.font.name.clone(), run.range.start, run.range.end))
+                .collect(),
+        };
+        if let Some(cached) = self.measure_cache.get_mut().get(&key) {
+            return cached;
+        }
+
+        let px_scale = size.to_f32() * self.em_scale;
         let section = Section::new()
-            .add_text(Text::new(text).with_scale(size.to_f32() * self.em_scale))
+            .add_text(Text::new(text).with_scale(px_scale))
             .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
 
         let layout = ShapedLayout {
-            face:      &self.face,
-            font_name: &self.name,
-            params:    ShapedParams {
-                tracking,
-                multiline: width.is_some(),
-                h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
-                v_align: VerticalAlign::Center,
-            },
+            emit:   &self.name,
+            params: self.params(tracking, width, runs, line_height),
         };
 
         let Some(bounds) = self.brush.glyph_bounds_with_layout(section, &layout) else {
             return Size::default();
         };
 
-        Size::new(bounds.width(), bounds.height())
+        // With a custom line box the height is count boxes. The glyph
+        // bounds cover ascent to descent, one `px_scale`, so swapping
+        // that for one box turns baseline span into box count times
+        // the box.
+        let height = match line_height {
+            Some(line_height) => bounds.height() - px_scale + line_height,
+            None => bounds.height(),
+        };
+
+        let measured = Size::new(bounds.width(), height);
+        self.measure_cache.get_mut().insert(key, measured);
+        measured
     }
 
     /// Line and caret positions of `text` drawn at `size`, in the same
@@ -141,45 +211,38 @@ impl Font {
         size: impl ToF32,
         width: Option<f32>,
         tracking: f32,
+        runs: Vec<FontRun>,
     ) -> TextLayout {
         let layout = ShapedLayout {
-            face:      &self.face,
-            font_name: &self.name,
-            params:    ShapedParams {
-                tracking,
-                multiline: width.is_some(),
-                h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
-                v_align: VerticalAlign::Center,
-            },
+            emit:   &self.name,
+            params: self.params(tracking, width, runs, None),
         };
 
         let scale = PxScale::from(size.to_f32() * self.em_scale);
-        layout.text_layout(
-            &self.brush.fonts()[0],
-            scale,
-            text,
-            width.unwrap_or(f32::INFINITY),
-        )
+        layout.text_layout(scale, text, width.unwrap_or(f32::INFINITY))
     }
 
-    /// Queues a section shaped with this font's face. Call
+    /// Queues a section laid out with the base font of `params` and
+    /// drawn with this font, which keeps only its own glyphs. Call
     /// [`Font::process_queued`] once per frame after all sections.
     pub(crate) fn queue_shaped(&mut self, section: Section, params: ShapedParams) {
         let layout = ShapedLayout {
-            face: &self.face,
-            font_name: &self.name,
+            emit: &self.name,
             params,
         };
         self.brush.queue_section_with_layout(section, &layout);
     }
 
     pub(crate) fn process_queued(&mut self) -> Result<()> {
+        self.shape_cache.get_mut().sweep();
+        self.measure_cache.get_mut().sweep();
         self.brush.process_queued(&Window::current().device, Window::queue())?;
         Ok(())
     }
 }
 
 static DEFAULT_FONT: MainLock<Option<Weak<Font>>> = MainLock::new();
+static FALLBACK_FONTS: MainLock<Vec<Weak<Font>>> = MainLock::new();
 
 impl Font {
     #[allow(clippy::should_implement_trait)]
@@ -200,12 +263,41 @@ impl Font {
         *DEFAULT_FONT.get_mut() = None;
     }
 
+    /// Fonts consulted in order for chars the label's font has no glyph
+    /// for. Each missing char shapes with the first fallback covering it.
+    pub fn set_fallbacks(fonts: impl IntoIterator<Item = Weak<Font>>) {
+        *FALLBACK_FONTS.get_mut() = fonts.into_iter().collect();
+    }
+
+    pub fn reset_fallbacks() {
+        FALLBACK_FONTS.get_mut().clear();
+    }
+
+    pub(crate) fn fallbacks() -> Vec<Weak<Font>> {
+        FALLBACK_FONTS.iter().copied().filter(Weak::is_ok).collect()
+    }
+
     /// Loads a variable font with the given axis values, for example
     /// weight `(*b"wght", 600.0)`, optical size `(*b"opsz", 17.0)` or
     /// grade `(*b"GRAD", 430.0)`. Each combination is a separate managed
     /// instance, cache it under a name that includes the values.
     pub fn with_variations(name: &str, data: &[u8], variations: &[([u8; 4], f32)]) -> Result<Weak<Font>> {
-        Self::store_with_name(name, || Self::new_with_variations(name, data, variations))
+        Self::store_with_name(name, || Self::new_with_variations(name, data, variations, 0.0))
+    }
+
+    /// Like [`Font::with_variations`], with the glyph coverage boosted to
+    /// approximate the stem darkening platform rasterizers like `CoreText`
+    /// apply. Ports matching browser text on macOS need it, plain engine
+    /// text does not.
+    pub fn with_variations_darkened(
+        name: &str,
+        data: &[u8],
+        variations: &[([u8; 4], f32)],
+        darkening: f32,
+    ) -> Result<Weak<Font>> {
+        Self::store_with_name(name, || {
+            Self::new_with_variations(name, data, variations, darkening)
+        })
     }
 
     pub fn roboto() -> Weak<Font> {

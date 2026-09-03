@@ -13,9 +13,11 @@ UI_TEST_CYCLES=5 cargo run -p ui-test         # more cycles
 cargo run -p ui-test -- --test-name "Rest request"  # one test
 cargo run -p ui-test -- --headless            # offscreen, much faster, for CI and agents
 cargo run -p ui-test -- --test-name "Font zoo" --screenshot /tmp/font-zoo.png  # one offscreen capture
+cargo run -p ui-test -- --test-name "Font zoo" --shots /tmp/shots        # every checked state as a clean PNG, headless
 make uui                                      # full suite, headless, release mode
 make smoke                                    # curated subset, desktop, debug, headless, the pre-commit check
 cargo run -p ui-test -- --test-name "Font zoo" --human            # watch one test, ctrl to advance
+cargo run -p ui-test -- --test-name "Font zoo" --present          # presentation mode, the view over the whole window, nothing injected, play with it and close
 cargo run -p ui-test -- --record-colors --headless --test-name "Font zoo"  # print check_colors blocks
 ```
 
@@ -42,6 +44,10 @@ Set `HILEN_RUN_TESTS` and the app runs the whole suite once it is ready, prints
 touches, so an app with a loading screen marks itself not ready until assets land. No
 inspector and no mDNS, so it runs while the desktop lane runs. `make ui` uses it: on macOS
 it runs the desktop suite and the iOS simulator suite in parallel, then prints one report.
+Every lane's full output is kept in `target/ui-test/<lane>.log` and each failure report
+in `target/ui-test/failures/<lane>/<test>.txt`, listed at the end of the report, so a
+failed run is read back from disk, never run again to find out what broke. The dir is
+wiped at the start of every `make ui`.
 The simulator lane is `build/ios/sim-test.rs`, an iPhone 8 on iOS 16.4, the oldest device
 this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
 and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
@@ -65,12 +71,37 @@ by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun f
 `hilen_run_tests` query flag and `hilen_test_only` narrows it the way `HILEN_TEST_ONLY` does natively.
 The report arrives over the inspect WebSocket instead of the console, and on failure the
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
-See [inspect.md](inspect.md).
+A failing test also pushes its own frame the moment it fails, saved as
+`target/web-test/failures/<test>.png`, so a flake leaves its picture although the page
+has no filesystem. Every asset group downloads before the suite starts and a miss is
+fatal, a suite on the default font would fail on pixels far from the cause, which is
+how a cut font download once looked like a wrapping bug. See [inspect.md](inspect.md).
 
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,
 relaunches the browser with the dead tests in `hilen_test_skip`, and merges them into the
 final report, so one panicking test cannot hide the rest of the suite.
+
+## Level tests
+
+A level is not a view, so a level check is not a UI test. It is a `#[level]` struct with
+`impl LevelTest`, registered by the same kind of ctor into `hilen::LEVEL_TESTS`, and run
+by the `level-test` crate, which also holds the corpus. The runner installs an empty root
+on the test canvas, starts the level at scale 1 so a retina window does not move the
+probes, hands the level to `perform_test` and stops it afterwards. The flags match
+`ui-test`: `--list`, `--test-name`, `--headless`, `--record-colors`, `--human`,
+`--screenshot` and `--present`. `make level` runs the suite. `render-test` stays what it
+is, the pipelines drawn directly with no level and no view tree.
+
+```bash
+cargo run -p level-test -- --list
+cargo run -p level-test -- --headless --test-name SpriteCutout
+cargo run -p level-test -- --test-name SpriteCutout --human
+```
+
+Scene tests are the 3D twin, a `#[scene]` with `impl SceneTest` registered into
+`hilen::SCENE_TESTS` and run by the `scene-test` crate with the same flags, `make scene`
+runs the suite. See [scene.md](scene.md).
 
 ## Run from the editor
 
@@ -171,6 +202,11 @@ long enough that nobody noticed.
 Every test prints `Name: Started` and `Name: OK`. On a hang or failure the broken test is the
 one with `Started` and no `OK` — usually the last line of the log.
 
+Every test starts in `ThemeMode::System` with the system theme pinned to light. A headed
+window follows the OS theme, so on a dark desktop every light color block failed while
+headless passed. `run_test` resets it before each test, which also stops a test that
+switched the theme from leaking into the next.
+
 The test app disables vsync and raises max frame latency at startup (`Window::set_vsync(false)`,
 `Window::set_max_frame_latency(3)`) so tests are not capped to the display refresh rate.
 
@@ -187,6 +223,13 @@ The runner saves the final tested frame when the test does not choose a capture 
 test that needs an earlier exact state calls `capture_screenshot()` there; it still saves
 only when the command requested an output path. Screenshot mode is for fast agent inspection,
 not a substitute for the required `--human` user review.
+
+`--shots <dir>` selects the headless runner too and takes any test subset or the whole
+suite. It saves a clean frame, no probe markers, at every `check_colors` and every
+`checkpoint`, as `<dir>/<test>-<NN>-<label>.png` with `NN` counting up per test, so the
+files sort in run order and an agent sees every verified state from one run. A check
+saves before it asserts, so a failing check still leaves its frame. `checkpoint` is the
+way to name a state a test wants on disk that no check pins.
 
 For profiling, pass `--fps-report` to print a report at the end of the run: frames, duration
 and average fps per test. Per-test fps varies a lot between runs — macOS sometimes paces frames
@@ -235,7 +278,10 @@ Anything else that renders from the whole frame, such as a blur, samples the cle
 around the canvas, so probes within a blur radius of a canvas edge pick that up. That is
 consistent on every screen, since the canvas is always smaller than the frame.
 
-Global state is reset per test: the root background, the clear color and the string state.
+Global state is reset per test: the root background, the clear color, the string state,
+the drag scrolling platform default, the hover state with its drag lock, and any running
+level, since a level is not in the view tree and one left by a test
+would draw under every test after it.
 A test that fails part way never reaches its own cleanup, and without the reset every
 later test would probe the leftovers.
 
@@ -290,6 +336,10 @@ Registration lives behind `hilen/ui-tests`, off by default, so a shipped app car
 ctors at all. The switch is on the proc macro crate, `ui-proc/ui-tests`, not on each consumer,
 so there is exactly one of it and no crate can forget its own and silently lose its tests.
 `ui-test`, `ui-test-suite` and `demo` turn it on.
+
+Level tests have their own switch, `hilen/level-tests`, which turns on `level-proc/level-tests`
+so `#[level]` emits its ctor. It depends on `ui-tests` for the shared runner, but `ui-tests`
+never pulls level code in. Only `level-test` turns it on.
 
 The engine's own test modules are gated behind the same feature with `#[cfg]`, so a
 default-features build compiles none of them. Without the gate an app pulling the engine as a
@@ -356,8 +406,19 @@ To test an existing widget, give it a fixture view to live in and put the impl o
 The corpus does this throughout, and a fixture is usually what you want anyway, since its
 `setup` arranges the scene the widget is tested in.
 
-Test helpers: `inject_touches`, `inject_scroll`, `check_colors` (asserts pixel colors at
-coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
+Test helpers: `inject_touches`, `inject_scroll`, `inject_right_click`, `inject_long_press`,
+`wait_for_tooltip`, `check_colors` (asserts pixel colors at coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
+
+An animation samples real time, so its mid flight frames depend on machine speed and
+a test can normally only check the settled state. A test that needs an exact frame
+opts into frame stepped time: `Clock::enter_stepped()` on the main thread freezes
+the engine clock, and `step_frames(n)` moves it by `n` frames of 16.666 ms, rendering
+each one. `Animation` and `AnimatedImage` read that clock, so after `step_frames(15)`
+a 0.5 s animation sits at exactly half and a gif with 100 ms frames is on frame 1
+after `step_frames(6)`, on every platform. The runner leaves stepped mode before
+every test, so a test never has to clean it up on the failure path. `Frame stepped
+animation` and `Animated gif` are the examples. `Animation drives frames` must never
+run stepped, it proves free running animations request their own frames.
 
 ## What a run takes from the app
 
@@ -383,17 +444,30 @@ user the command to run. After the verdict, stop and wait. Do not mention, plan,
 `make ci`, `make smoke`, or any commit step until the user brings up committing or
 pushing.
 
+## Presentation mode
+
+`--present` builds one test's view over the whole window and hands it over. Nothing is
+injected and `perform_test` never runs, the window is the user's until they close it. This
+is the mode for looking at a view or playing with it, for example a `ViewGallery` of design
+variants. Human mode is not that, it runs the test and only pauses between its steps, so a
+view with no steps flashes by and a panicking `perform_test` takes the window with it.
+
 ## Human mode
 
 `--human` makes a run watchable: vsync stays on, injected touches are drawn on screen, every
-injected event pauses (`UI_TEST_HUMAN_DELAY` ms, default 400, moved touches an eighth of it),
+injected event pauses (`UI_TEST_HUMAN_DELAY` ms, default 50, moved touches an eighth of it),
 and every screenshot pauses first so the verified state is visible. Every `check_colors`
 outlines its checked pixels on screen, each with a swatch of the color that probe pins just
 outside the outline's top right corner, so a probe sitting on the background next to a glyph
-is telling apart from one sitting on the glyph. The window title names the check, and the
-run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
+is telling apart from one sitting on the glyph. The window title names the check, with the
+frame time after it the way an app title shows it, `Font zoo check 1 | 1.23ms`, refreshed once a
+second while frames render and frozen while the loop sleeps, so a stalled loop is visible in the
+title. Prompts go through `Window::set_title_prefix`, which keeps the frame time, unlike
+`Window::set_title`, which replaces the whole title. The run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
 field does not type the advance key into it. After each test the title shows the result and
 the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
+`UI_TEST_HUMAN_CLEAN=1` holds at every check without the probe markers, to look at the
+checked state itself, the title still names the check.
 
 The browser lane has the same mode. `bun build/web/drive.ts --human --only "Name"` puts
 the `hilen_human` query flag on the page, the browser spelling of `--human`, and drops the
@@ -411,12 +485,19 @@ the screen advances. The overlay is its own touch layer, the tap never reaches t
 under review, and it is gone between holds. The run still ends like the plain lane, the
 simulator shuts down after the last tap.
 
-`human_checkpoint(label)` holds with `label` as the prompt, for a test whose
-state change no injection paces, like a browser URL change that would otherwise flash
-by. A no-op outside human mode, so headless runs keep full speed. `Router test` steps
-through every history change with it.
+`checkpoint(label)?` marks a state worth looking at that no injection paces, like a
+browser URL change that would otherwise flash by. In human mode it holds with `label` as
+the prompt, in shots mode it saves a frame named after `label`, and otherwise it costs
+nothing, so headless runs keep full speed. `Router test` steps through every history
+change with it.
 
 ## Recording color probes
+
+A test that pins how something looks carries recorded `check_colors` blocks. Put empty
+`check_colors("")?` placeholders in from the first draft and record them with
+`--record-colors` while iterating. Region comparisons are fine on top but they do not
+replace the blocks. A test that only checks behavior, counters and state, carries no
+blocks.
 
 `check_colors` expectations are recorded, not written by hand. With `--record-colors` every
 `check_colors` call prints a ready to paste block instead of asserting: it takes a

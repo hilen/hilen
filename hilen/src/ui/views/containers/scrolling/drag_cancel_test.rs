@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
-    ui::{Button, ScrollView, Setup, ViewData, ViewSubviews, ViewTest, view},
+    ui::{Button, ScrollView, Setup, UIManager, ViewData, ViewSubviews, ViewTest, view},
     ui_test::inject_touches,
 };
 
@@ -31,6 +31,12 @@ impl Setup for DragCancel {
 }
 
 impl ViewTest for DragCancel {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     fn perform_test(view: Weak<Self>) -> Result<()> {
         let state = move || from_main(move || (view.taps, view.scroll.get_scroll_content_offset()));
 

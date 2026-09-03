@@ -12,6 +12,7 @@ use event_listener::Event;
 
 use crate::deps::{
     hreads::on_main,
+    netrun::rest::client,
     refs::{
         __internal_deps::{Mutex, RwLockReadGuard, RwLockWriteGuard},
         Own, Weak,
@@ -72,7 +73,9 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
 /// managed downloads use. For data that is not a managed resource,
 /// like the asset manifest.
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
-    let data = reqwest::get(absolute_url(url).as_ref())
+    let data = client()
+        .get(absolute_url(url).as_ref())
+        .send()
         .await?
         .error_for_status()?
         .bytes()
@@ -109,6 +112,10 @@ pub trait DataManager<T: Managed> {
             .0
             .clone();
         storage.remove(&key);
+    }
+
+    fn weak_with_name(name: &str) -> Option<Weak<T>> {
+        Some(Self::storage().get(name)?.weak())
     }
 
     fn store_with_name<E>(name: &str, create: impl FnOnce() -> Result<T, E>) -> Result<Weak<T>, E> {
@@ -212,7 +219,9 @@ pub trait DataManager<T: Managed> {
 
         // Without the status check a 404 page would be stored as the
         // resource bytes and fail later in the parser, far from here.
-        let data = reqwest::get(absolute_url(url).as_ref())
+        let data = client()
+            .get(absolute_url(url).as_ref())
+            .send()
             .await?
             .error_for_status()?
             .bytes()

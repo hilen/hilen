@@ -82,7 +82,7 @@ impl LevelSetup for BenchmarkLevel {
         self.make_walls();
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, _: f32) {
         self.left_wall.move_x(self.left_animation.value());
         self.right_wall.move_x(self.right_animation.value());
         self.floor.move_y(self.floor_animation.value());

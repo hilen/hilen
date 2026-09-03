@@ -51,11 +51,14 @@ target cannot fix this.
 
 ## wgpu fork
 
-`wgpu` and `wgpu_text` come from forks pinned by git rev in the root `Cargo.toml`. The wgpu
-fork guards `wantsExtendedDynamicRangeContent`, an iOS 16 property that upstream messages
-with no availability check, which breaks every iOS below 16. `wgpu_text` points at the same
-fork because a crates.io copy would give two `wgpu` crates whose types do not interchange.
-Do not swap either back to crates.io without checking on an old device first.
+`wgpu` comes from the fork published on crates.io as `hilen-wgpu`, declared with
+`package = "hilen-wgpu"` in the root `Cargo.toml` and built from the `ios-edr-guard`
+branch at github.com/VladasZ/wgpu. The fork guards `wantsExtendedDynamicRangeContent`, an
+iOS 16 property that upstream messages with no availability check, which breaks every iOS
+below 16. `wgpu_text` is the fork at github.com/VladasZ/wgpu-text, pinned by git rev, and
+it builds against that same `hilen-wgpu`, because a stock `wgpu` next to it would give two
+`wgpu` crates whose types do not interchange. Do not swap either back to upstream without
+checking on an old device first.
 
 ## A7 limits
 

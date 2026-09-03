@@ -8,6 +8,10 @@ use log::error;
 use parking_lot::Mutex;
 
 use super::failure_report;
+use crate::{
+    dispatch::from_main,
+    ui::{Theme, ThemeMode, UIManager},
+};
 
 /// One failed test. `detail` holds the returned error or the panic message
 /// together with the failure report.
@@ -63,6 +67,38 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
     #[cfg(not_wasm)]
     super::watchdog::test_started(name);
+
+    // A headed window follows the OS theme, so on a dark desktop every
+    // light color block failed while headless passed. The theme is part
+    // of the environment a test must not depend on, and a test that
+    // switched it must not leak into the next. Drag scrolling goes back
+    // to the platform default the same way, a finger gesture test turns
+    // it on in `before_start`.
+    from_main(|| {
+        Theme::set_mode(ThemeMode::System);
+        Theme::set_system(Theme::Light);
+        UIManager::set_drag_scrolling(UIManager::default_drag_scrolling());
+        // Fallback fonts are global too, a test that registers one must
+        // not leak it into the next.
+        crate::ui::Font::reset_fallbacks();
+        // Frame stepped time is a global opt in, so a stepped test that
+        // returned early must not leave the clock stepped for the next.
+        crate::gm::Clock::exit_stepped();
+        // A test that held a key and failed must not leave it down for
+        // the next test's player.
+        crate::ui::Keys::clear();
+        // The dialog animation is global app state, a test that registers
+        // one must not leak it into the next. The suite snapshot hands the
+        // app's own animation back after the run.
+        crate::BugReport::restore_animation(None);
+        // A test that failed mid drag leaves hover locked to its divider,
+        // which would freeze hover for every test after it.
+        #[cfg(any(desktop, wasm))]
+        {
+            crate::ui::Hover::unlock();
+            crate::ui::Hover::clear();
+        }
+    });
 
     match catch_unwind(AssertUnwindSafe(test)) {
         Ok(Ok(())) => {}

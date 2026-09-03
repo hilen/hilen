@@ -4,9 +4,11 @@ The engine works in encoded sRGB end to end, the same convention browsers,
 CSS and design tools use. This is the UI industry standard, chosen so a
 designer's hex plus alpha from Figma or a stylesheet lands on screen with the
 same numbers. Game engines render scenes in linear light, but they too
-composite UI in encoded space, Unreal draws Slate after the tonemapper. A
-future 3D scene pass should render linear offscreen and hand a finished image
-to the UI layer.
+composite UI in encoded space, Unreal draws Slate after the tonemapper. The
+3D scene draws in the same encoded frame, its shader decodes, lights in linear,
+rolls the highlights off and encodes at the end of the fragment, see
+[scene.md](scene.md). A linear offscreen pass with real HDR, composited into the
+UI frame, is the upgrade if a scene ever needs it.
 
 ## The convention
 
@@ -58,6 +60,22 @@ Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
 CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
 glyphs themselves from the top of the label frame to its bottom, see
 [text.md](text.md). The `Gradient` UI test covers all of these.
+
+## The surface colorspace
+
+Correct bytes in the framebuffer are not the end of the story, the OS
+still decides how the window surface is interpreted on the panel. The
+metal backend used to leave the `CAMetalLayer` colorspace nil, which
+disables color matching entirely, so on a wide gamut display every
+saturated color oversaturated, `#f59e0b` displayed as `#ff9900` while
+grays matched exactly. Since `hilen-wgpu-hal` 30.0.1 the layer is tagged
+with an explicit sRGB colorspace, so the OS matches the content into the
+display space the same way it does for browser output. Framebuffer
+screenshots and UI test readback never see this layer, which is why the
+kukareker port passed framebuffer comparison for eight waves while
+looking wrong on screen. On screen colors are checked with
+[pixdiff.md](pixdiff.md), whose captures go through the display
+pipeline. If grays match but hues do not, suspect this layer first.
 
 ## History
 

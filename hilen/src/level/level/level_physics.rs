@@ -23,6 +23,7 @@ pub(crate) struct LevelPhysics {
     #[educe(Default = Vec2::new(0.0, -9.81))]
     pub(crate) gravity: Vec2,
 
+    #[educe(Default = ccd_parameters())]
     integration_parameters: IntegrationParameters,
 
     physics_pipeline: PhysicsPipeline,
@@ -35,6 +36,15 @@ pub(crate) struct LevelPhysics {
     ccd_solver:       CCDSolver,
 
     pub(crate) events: EventHandler,
+}
+
+// The rapier default is one CCD substep, which lets a fast body settle
+// inside the wall it should have bounced off.
+fn ccd_parameters() -> IntegrationParameters {
+    IntegrationParameters {
+        max_ccd_substeps: 4,
+        ..IntegrationParameters::default()
+    }
 }
 
 impl LevelPhysics {

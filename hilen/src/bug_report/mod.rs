@@ -44,7 +44,32 @@ use crate::{
 #[cfg(not_wasm)]
 static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
 
+/// The looping gif the report dialog shows between the description and the
+/// screenshot, registered by the app. The karkas dialogs play a rooster
+/// there, the engine has no opinion on the content.
+static ANIMATION: std::sync::RwLock<Option<&'static [u8]>> = std::sync::RwLock::new(None);
+
 pub struct BugReport;
+
+impl BugReport {
+    /// Register a looping gif the report dialog shows between the
+    /// description and the screenshot. Call once at launch with
+    /// `include_bytes!` data. Without one the dialog shows no animation.
+    /// A no-op for the dialog on wasm, where bug reporting is not there yet.
+    pub fn set_animation(gif: &'static [u8]) {
+        *ANIMATION.write().expect("animation lock") = Some(gif);
+    }
+
+    pub(crate) fn animation() -> Option<&'static [u8]> {
+        *ANIMATION.read().expect("animation lock")
+    }
+
+    /// The test harness snapshot hand-back, see `prepare_harness`. Also
+    /// clears a test's animation so it cannot leak into the next test.
+    pub(crate) fn restore_animation(gif: Option<&'static [u8]>) {
+        *ANIMATION.write().expect("animation lock") = gif;
+    }
+}
 
 #[cfg(not_wasm)]
 impl BugReport {

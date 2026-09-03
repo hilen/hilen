@@ -2,7 +2,66 @@
 
 use std::{panic::PanicHookInfo, sync::OnceLock};
 
+use crate::deps::refs::main_lock::MainLock;
+
 static PANIC_BEACON_URL: OnceLock<String> = OnceLock::new();
+
+type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>;
+
+static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
+
+static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
+
+/// The canvas winit put in the page, kept so a fatal GPU failure can take
+/// it back out. The page's static content behind it, a landing text or a
+/// download link, shows again instead of a blank page.
+pub(crate) fn keep_canvas(canvas: Option<web_sys::HtmlCanvasElement>) {
+    CANVAS.set(canvas);
+}
+
+/// Whether the page exposes `navigator.gpu`. Only a secure context does,
+/// https or localhost, and `WebKit` hides it in Lockdown mode.
+pub(crate) fn has_webgpu() -> bool {
+    use web_sys::js_sys::Reflect;
+
+    let navigator = web_sys::window().expect("Failed to get browser window").navigator();
+    Reflect::has(&navigator, &"gpu".into()).unwrap_or(false)
+}
+
+pub(crate) fn drop_canvas() {
+    if let Some(canvas) = CANVAS.get_mut().take() {
+        canvas.remove();
+    }
+}
+
+/// Winit's canvas keydown handler calls `preventDefault` on every key, which
+/// also cancels the browser reload shortcuts while the canvas has focus. This
+/// capture phase listener on `window` runs before the canvas handler and stops
+/// reload keys there, so nothing cancels them and the browser reloads.
+pub(crate) fn install_reload_shortcut_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|event: web_sys::KeyboardEvent| {
+        let reload_combo = (event.meta_key() || event.ctrl_key()) && event.code() == "KeyR";
+        if reload_combo || event.code() == "F5" {
+            event.stop_immediate_propagation();
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "keydown",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the reload shortcut listener");
+
+    RELOAD_SHORTCUT_LISTENER.set(Some(listener));
+}
 
 /// Sends panics to console.error and, when a driver flag is in the url, to
 /// the driver's `/te-panic` endpoint. The origin is captured now, on the main
@@ -53,10 +112,10 @@ fn report_panic(info: &PanicHookInfo) {
 
     // The driver relaunches the suite past a panicked test, so it needs the
     // test's name. Only a try lock is safe, the panicking thread may hold it.
-    if let Some(name) = crate::ui_test::current_test_name_nonblocking() {
-        if request.set_request_header("X-TE-Test", &name).is_err() {
-            log::error!("Failed to set the panic beacon test header");
-        }
+    if let Some(name) = crate::ui_test::current_test_name_nonblocking()
+        && request.set_request_header("X-TE-Test", &name).is_err()
+    {
+        log::error!("Failed to set the panic beacon test header");
     }
 
     if request.send_with_opt_str(Some(&body)).is_err() {
@@ -79,8 +138,22 @@ pub(crate) fn query_flag(name: &str) -> bool {
 pub(crate) fn query_param(name: &str) -> Option<String> {
     page_search().trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
-        (key == name).then(|| value.to_string())
+        (key == name).then(|| decode_query_value(value))
     })
+}
+
+/// `location.search` keeps the query percent encoded, so a spaced test
+/// name arrives as `Reload%20shortcuts%20test` and a raw compare against
+/// registered names matches nothing.
+#[cfg(feature = "ui-tests")]
+fn decode_query_value(value: &str) -> String {
+    match web_sys::js_sys::decode_uri_component(value) {
+        Ok(decoded) => decoded.into(),
+        Err(err) => {
+            log::error!("Failed to decode query value {value}: {err:?}");
+            value.to_string()
+        }
+    }
 }
 
 fn page_search() -> String {

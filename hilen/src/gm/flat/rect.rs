@@ -56,7 +56,7 @@ impl Rect<f32> {
         self.y() + self.height()
     }
 
-    pub(crate) fn contains(&self, point: impl Into<Point>) -> bool {
+    pub fn contains(&self, point: impl Into<Point>) -> bool {
         let point = point.into();
         point.x >= self.x()
             && point.y >= self.y()

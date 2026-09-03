@@ -32,13 +32,13 @@ impl Setup for Slider {
 fn tap_sets_value(view: Weak<Slider>) {
     inject_touches(
         r"
-            306  202  b
-            306  202  e
+            306  207  b
+            306  207  e
     ",
     );
 
-    assert!((view.slider.value() - 0.78).abs() < f32::EPSILON);
-    assert_eq!(view.label.text(), "0.78");
+    assert!((view.slider.value() - 0.75).abs() < f32::EPSILON);
+    assert_eq!(view.label.text(), "0.75");
 }
 
 fn drag_outside_does_not_change_value(view: Weak<Slider>) {
@@ -67,8 +67,8 @@ fn drag_outside_does_not_change_value(view: Weak<Slider>) {
     ",
     );
 
-    assert!((view.slider.value() - 0.78).abs() < f32::EPSILON);
-    assert_eq!(view.label.text(), "0.78");
+    assert!((view.slider.value() - 0.75).abs() < f32::EPSILON);
+    assert_eq!(view.label.text(), "0.75");
 }
 
 fn drag_sets_value(view: Weak<Slider>) {
@@ -108,8 +108,8 @@ fn drag_sets_value(view: Weak<Slider>) {
     ",
     );
 
-    assert!((view.slider.value() - 0.122_857_15).abs() < f32::EPSILON);
-    assert_eq!(view.label.text(), "0.12");
+    assert!((view.slider.value() - 0.145_161_3).abs() < f32::EPSILON);
+    assert_eq!(view.label.text(), "0.15");
 }
 
 fn drag_below_bottom_clamps_to_zero(view: Weak<Slider>) {
@@ -203,38 +203,38 @@ fn check_labels_at_indicator_positions(mut view: Weak<Slider>) -> Result<()> {
     check_colors(
         r"
                4    4 - #597c95
-             160    4 - #597c95
-             428    4 - #597c95
-             592    4 - #597c95
-             276  104 - #ffffff
-             348  116 - #ffffff
-             316  160 - #ffffff
-             384  160 - #ffffff
-               4  176 - #597c95
-             348  196 - #ffffff
-             276  216 - #ffffff
-             380  228 - #ffffff
-             296  272 - #ffffff
-             136  280 - #ffffff
-             592  288 - #597c95
-             208  300 - #ffffff
+             368  104 - #242424
+             284  116 - #dfdfdf
+             284  120 - #e2e2e2
+             316  120 - #e9e9e9
+             300  128 - #0762be
+             368  152 - #000000
+             380  188 - #ffffff
+             296  212 - #0a84ff
+             364  256 - #828282
+             364  264 - #828282
+             364  268 - #828282
+             296  272 - #0a84ff
+             344  272 - #bdcbd5
+             388  272 - #bdcbd5
+             160  288 - #303030
+             212  292 - #010101
+             196  300 - #9c9c9c
              348  300 - #ffffff
-             164  320 - #ffffff
-             280  332 - #ffffff
-             384  336 - #ffffff
-             344  368 - #ffffff
-             368  396 - #ffffff
-               4  408 - #597c95
-             276  408 - #ffffff
-             344  440 - #ffffff
-             384  440 - #ffffff
-             544  440 - #597c95
-             388  476 - #ffffff
-             300  496 - #ffffff
+             360  300 - #4a4a4a
+             372  300 - #d2d2d2
+             276  328 - #ffffff
+             344  364 - #8ba4b5
+             384  364 - #8ba4b5
+             344  384 - #7a96aa
+             364  384 - #2d3e4b
+             372  384 - #2d3e4b
+             276  432 - #ffffff
+             372  440 - #000000
+             356  488 - #8c8c8c
+             364  492 - #000000
                4  592 - #597c95
-             168  592 - #597c95
-             592  592 - #597c95
-        ",
+            ",
     )
 }
 

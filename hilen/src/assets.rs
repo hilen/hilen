@@ -24,8 +24,11 @@ impl Assets {
         let paths = crate::assets_paths::AssetsPaths::new(root_path);
 
         crate::window::image::Image::set_root_path(&paths.images);
+        #[cfg(feature = "audio")]
         crate::audio::Sound::set_root_path(&paths.sounds);
         crate::window::Font::set_root_path(&paths.fonts);
+        #[cfg(feature = "scene")]
+        crate::scene::Model::set_root_path(&paths.models);
     }
 
     pub fn path() -> PathBuf {
@@ -114,8 +117,11 @@ mod web_assets {
     use log::error;
     use serde::Deserialize;
 
+    #[cfg(feature = "audio")]
+    use crate::audio::Sound;
+    #[cfg(feature = "scene")]
+    use crate::scene::Model;
     use crate::{
-        audio::Sound,
         deps::{
             hreads::on_main,
             refs::manage::{DataManager, fetch_bytes},
@@ -186,8 +192,10 @@ mod web_assets {
         load_entries(manifest, group).await
     }
 
-    /// Boot is already in memory when this runs, so only the lazy
-    /// groups actually download.
+    /// Boot is included on purpose. A download skips a file already in
+    /// memory, so the cost is nothing, and a boot file whose download was
+    /// cut short gets its second chance here instead of leaving the suite
+    /// on the default font.
     #[cfg(any(feature = "ui-tests", feature = "inspect"))]
     pub(crate) async fn load_all_groups() -> Result<()> {
         let manifest = MANIFEST.get().ok_or_else(|| anyhow!("No asset manifest"))?;
@@ -197,9 +205,6 @@ mod web_assets {
         groups.dedup();
 
         for group in groups {
-            if group == "boot" {
-                continue;
-            }
             load_entries(manifest, group).await?;
         }
 
@@ -237,7 +242,8 @@ mod web_assets {
         for (done, entry) in entries.iter().enumerate() {
             download_entry(entry).await?;
 
-            let progress = (done + 1) as f32 / total as f32;
+            let permille = u16::try_from((done + 1) * 1000 / total).unwrap_or(1000);
+            let progress = f32::from(permille) / 1000.0;
             on_main(move || super::PROGRESS.trigger(progress));
         }
 
@@ -254,9 +260,18 @@ mod web_assets {
             "fonts" => {
                 Font::download(&entry.name, &url).await?;
             }
+            #[cfg(feature = "audio")]
             "sounds" => {
                 Sound::download(&entry.name, &url).await?;
             }
+            #[cfg(not(feature = "audio"))]
+            "sounds" => return Err(anyhow!("Sound asset {} needs the audio feature", entry.name)),
+            #[cfg(feature = "scene")]
+            "models" => {
+                Model::download(&entry.name, &url).await?;
+            }
+            #[cfg(not(feature = "scene"))]
+            "models" => return Err(anyhow!("Model asset {} needs the scene feature", entry.name)),
             kind => return Err(anyhow!("Unknown asset kind: {kind}")),
         }
 

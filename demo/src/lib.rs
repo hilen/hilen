@@ -7,6 +7,7 @@ mod app;
 mod interface;
 mod levels;
 mod no_physics;
+mod scenes;
 
 // The library build is what iOS and ui-test link. Exposing the app entry
 // keeps its whole chain reachable, so it is not dead code off the binary.

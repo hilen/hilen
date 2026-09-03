@@ -1,14 +1,16 @@
 //! Access to OS services that are not part of the window: the clipboard,
-//! links and browser history.
+//! links, browser history and the system locale.
 
 #[cfg(android)]
 mod android_jni;
 mod clipboard;
+mod locale;
 mod open_url;
 mod router;
 mod updater;
 
 pub use clipboard::Clipboard;
+pub use locale::{language_code, locale};
 pub use open_url::open_url;
 pub use router::Router;
 #[cfg(wasm)]

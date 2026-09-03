@@ -6,7 +6,7 @@ use parking_lot::{Mutex, MutexGuard};
 use crate::{
     deps::{hreads::from_main, refs::Weak},
     ui::{
-        NO_TOUCH_ID, UIManager, View, WeakView,
+        LongPress, NO_TOUCH_ID, UIManager, View, WeakView,
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
@@ -53,7 +53,6 @@ impl TouchStack {
         Self::get().stack.last().views().into_iter().rev()
     }
 
-    #[cfg(any(desktop, wasm))]
     pub(crate) fn hover_views() -> impl Iterator<Item = WeakView> {
         Self::get().stack.last().hovered().into_iter().rev()
     }
@@ -74,24 +73,55 @@ impl TouchStack {
         Self::get().layer_for(view).add_low_priority(view);
     }
 
+    pub(crate) fn enable_for_high_priority(view: WeakView) {
+        Self::get().layer_for(view).add_high_priority(view);
+    }
+
     pub(crate) fn enable_hover(view: WeakView) {
         Self::get().layer_for(view).add_hover(view);
+    }
+
+    pub(crate) fn enable_hover_high_priority(view: WeakView) {
+        Self::get().layer_for(view).add_hover_high_priority(view);
     }
 
     pub(crate) fn disable_for(view: WeakView) {
         Self::get().layer_for(view).remove(view);
     }
 
-    pub(crate) fn push_layer(view: WeakView) {
-        Self::get().stack.push(view.into());
+    /// Moves every registration under `view` to the front of its layer,
+    /// keeping their relative order, so a view drawn over its siblings,
+    /// like a pinned sticky table row, also wins their touches.
+    pub(crate) fn raise_subtree(view: WeakView) {
+        let mut this = Self::get();
+        let layer = this.layer_for(view);
+        let extracted = layer.extract_under(view);
+        layer.absorb(extracted);
+    }
+
+    /// Puts an overlay on top of the touch stack: only views under it
+    /// receive touches until the matching `pop_layer`. Registrations
+    /// already sitting under the new root migrate into the layer, so a
+    /// pre-built overlay keeps its buttons and scrolls when it opens.
+    pub fn push_layer(view: WeakView) {
+        let mut this = Self::get();
+        let mut layer: TouchLayer = view.into();
+        for existing in this.stack.iter_mut() {
+            layer.absorb(existing.extract_under(view));
+        }
+        this.stack.push(layer);
     }
 
     pub fn touch_root_name_for(view: WeakView) -> String {
         Self::get().layer_for(view).root_name().to_string()
     }
 
-    pub(crate) fn pop_layer(view: WeakView) {
-        let pop = Self::get().stack.pop().unwrap();
+    /// Removes the top overlay layer. Its surviving registrations go
+    /// back to the layer below, so an overlay that merely hides can
+    /// reopen with its views still registered.
+    pub fn pop_layer(view: WeakView) {
+        let mut this = Self::get();
+        let mut pop = this.stack.pop().unwrap();
         assert_eq!(
             pop.root.raw(),
             view.raw(),
@@ -99,15 +129,30 @@ impl TouchStack {
             pop.root_name(),
             view.label()
         );
+        let remaining = pop.drain();
+        this.stack.last_mut().absorb(remaining);
+    }
+
+    /// How many overlay layers sit over the root layer right now.
+    pub(crate) fn overlay_count() -> usize {
+        Self::get().stack.len() - 1
     }
 
     pub fn root_name() -> String {
         Self::get().stack.last().root_name().to_string()
     }
 
+    /// The root of the top layer, the subtree that owns input right now.
+    /// Tab traversal walks it so a modal cycles only its own fields.
+    pub(crate) fn top_layer_root() -> WeakView {
+        Self::get().stack.last().root
+    }
+
     /// A scroll drag claimed the touch: views that captured it on began
     /// must let it go so the release doesn't end as a tap.
     pub(crate) fn cancel_touch(id: usize) {
+        LongPress::cancel(id);
+
         for view in Self::touch_views() {
             if view.is_ok() && view.__base_view().__touch_id == id {
                 view.__base_view().__touch_id = NO_TOUCH_ID;

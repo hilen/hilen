@@ -2,7 +2,7 @@
 
 use web_time::{Duration, Instant};
 
-use super::{MULTILINE_TOP_INSET, TextField};
+use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -12,7 +12,8 @@ use crate::{
     },
     system::Clipboard,
     ui::{
-        Container, Input, TextAlignment, UIManager, VerticalAlignment, View, ViewSubviews,
+        Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
+        WeakView,
         text_field_constraint::AcceptChar,
         view::{ViewData, ViewFrame, ViewTouch},
     },
@@ -31,8 +32,34 @@ impl TextField {
         if self.placeholding {
             String::new()
         } else {
-            self.label.text().to_string()
+            self.text().to_string()
         }
+    }
+
+    /// The text the label draws, the mask of a secure field.
+    fn display_text(&self) -> String {
+        let text = self.entered_text();
+        if self.is_secure() { mask(&text) } else { text }
+    }
+
+    /// A byte index into the entered text as a byte index into the
+    /// displayed text. The two differ only in a secure field, where every
+    /// character becomes one mask character.
+    fn display_byte(&self, byte: usize) -> usize {
+        if !self.is_secure() {
+            return byte;
+        }
+        self.entered_text()[..byte].chars().count() * MASK.len_utf8()
+    }
+
+    /// The inverse of `display_byte`.
+    fn entered_byte(&self, display: usize) -> usize {
+        if !self.is_secure() {
+            return display;
+        }
+        let chars = display / MASK.len_utf8();
+        let text = self.entered_text();
+        text.char_indices().nth(chars).map_or(text.len(), |(index, _)| index)
     }
 
     /// The selected byte range, start before end, `None` when empty.
@@ -45,7 +72,7 @@ impl TextField {
     }
 
     fn layout(&self) -> TextLayout {
-        self.label.text_layout_for(&self.entered_text())
+        self.label.text_layout_for(&self.display_text())
     }
 
     pub(super) fn on_char(self: Weak<Self>, ch: char) {
@@ -86,6 +113,7 @@ impl TextField {
                 self.copy();
                 self.delete_selection();
             }
+            #[cfg(not_wasm)]
             'v' => self.paste(),
             _ => {}
         }
@@ -93,7 +121,7 @@ impl TextField {
 
     fn copy(self: Weak<Self>) {
         let text = self.selected_text();
-        if text.is_empty() {
+        if text.is_empty() || self.is_secure() {
             return;
         }
         if let Err(err) = Clipboard::set_text(text) {
@@ -101,8 +129,10 @@ impl TextField {
         }
     }
 
+    // A page cannot read the clipboard synchronously, so the browser has
+    // no paste shortcut.
+    #[cfg(not_wasm)]
     fn paste(self: Weak<Self>) {
-        #[cfg(not_wasm)]
         match Clipboard::get_text() {
             Ok(text) => self.insert(&text),
             Err(err) => log::warn!("Nothing to paste: {err}"),
@@ -117,6 +147,10 @@ impl TextField {
         let shift = Input::modifiers().shift_key();
 
         match key {
+            // Focus moves even in a multiline field, the way a browser
+            // text area treats Tab, so it sits above the Enter case and
+            // never inserts a tab character.
+            NamedKey::Tab => self.select_next_field(shift),
             NamedKey::Enter if self.multiline => self.insert("\n"),
             NamedKey::Enter | NamedKey::Escape => UIManager::unselect_view(),
             NamedKey::ArrowLeft => {
@@ -142,17 +176,17 @@ impl TextField {
             }
             NamedKey::Home | NamedKey::End => {
                 let layout = self.layout();
-                let line = &layout.lines[layout.line_of(self.caret)];
+                let line = &layout.lines[layout.line_of(self.display_byte(self.caret))];
                 let target = if key == NamedKey::Home {
                     line.start
                 } else {
                     line.end
                 };
-                self.move_caret(target, shift);
+                self.move_caret(self.entered_byte(target), shift);
             }
             NamedKey::ArrowUp | NamedKey::ArrowDown => {
                 let layout = self.layout();
-                let (line, x) = layout.position_of(self.caret);
+                let (line, x) = layout.position_of(self.display_byte(self.caret));
                 let target = if key == NamedKey::ArrowUp {
                     line.checked_sub(1)
                 } else {
@@ -160,11 +194,48 @@ impl TextField {
                 };
                 if let Some(target) = target {
                     let byte = layout.nearest_on_line(target, x);
-                    self.move_caret(byte, shift);
+                    self.move_caret(self.entered_byte(byte), shift);
                 }
             }
             _ => {}
         }
+    }
+
+    /// Tab order is view tree order, the order fields were added, which
+    /// matches how a form lays them out. The walk is scoped to the top
+    /// touch layer, so a modal cycles only its own fields and Tab never
+    /// reaches a field under the scrim.
+    fn select_next_field(self: Weak<Self>, backward: bool) {
+        fn collect(view: WeakView, fields: &mut Vec<Weak<TextField>>) {
+            if view.is_null() || view.is_hidden() {
+                return;
+            }
+            if let Some(field) = view.downcast_view::<TextField>() {
+                fields.push(field);
+                return;
+            }
+            for sub in view.subviews() {
+                collect(sub.weak_view(), fields);
+            }
+        }
+
+        let mut fields = Vec::new();
+        collect(TouchStack::top_layer_root(), &mut fields);
+
+        let this = self.weak_view().raw();
+        let Some(current) = fields.iter().position(|field| field.weak_view().raw() == this) else {
+            return;
+        };
+
+        let next = if backward {
+            (current + fields.len() - 1) % fields.len()
+        } else {
+            (current + 1) % fields.len()
+        };
+
+        // Selecting the already selected field is a no-op in
+        // `set_selected`, so a lone field keeps its editing session.
+        fields[next].focus();
     }
 
     /// Puts the caret at `byte`. With `extend` the anchor stays where the
@@ -267,7 +338,7 @@ impl TextField {
             .lossy_convert();
 
         let x = position.x - line_starts[line_index];
-        layout.nearest_on_line(line_index, x)
+        self.entered_byte(layout.nearest_on_line(line_index, x))
     }
 
     pub(super) fn on_touch_began(mut self: Weak<Self>, position: Point) {
@@ -386,7 +457,7 @@ impl TextField {
 
         let layout = self.layout();
         let (top, line_starts) = self.line_origins(&layout);
-        let (line, x) = layout.position_of(self.caret);
+        let (line, x) = layout.position_of(self.display_byte(self.caret));
 
         let height = layout.ascent - layout.descent;
         let y = top + line.to_f32() * layout.line_height;
@@ -423,6 +494,7 @@ impl TextField {
         let Some((start, end)) = self.selection() else {
             return;
         };
+        let (start, end) = (self.display_byte(start), self.display_byte(end));
 
         let label_z = self.label.z_position();
 

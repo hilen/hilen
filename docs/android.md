@@ -30,9 +30,21 @@ Vulkan works.
 ## No host lane compiles the android code
 
 Everything behind `#[cfg(android)]` is invisible to `make ci` and `make smoke`, so it can
-break while every desktop lane stays green. The docker build is the only check it has.
+break while every desktop lane stays green. The docker build is the only check it has,
+so it runs with `RUSTFLAGS=-D warnings` and a warning fails it like clippy fails desktop.
 That is how the jni bump from 0.21 to 0.22 left `Clipboard` and `open_url` calling
 methods that no longer existed, and the break only showed up in CI.
+
+Behind Docker Desktop's proxy on a mac, git inside the container can hang on the
+template clone or fail every anonymous fetch. Forcing `http.version=HTTP/1.1` through
+the `GIT_CONFIG_COUNT` environment variables on the container fixes it, CI runners
+have no such proxy.
+
+## Logging
+
+Android goes through the same fern dispatch as every other platform, with
+`android_logger` as its output, so logcat carries the lines and the bug report ring
+is fed there too. There is no log file, `log_file::create` refuses on android.
 
 ## Assets come from the APK
 

@@ -1,19 +1,23 @@
+mod animated_image;
 mod button;
 mod checkbox;
 mod circle_view;
 mod image_view;
 mod label;
+mod label_runs;
 mod nine_segment_image_view;
 mod progress_view;
 mod slider;
 mod switch;
 mod text_field;
 
+pub use animated_image::AnimatedImage;
 pub use button::Button;
 pub use checkbox::*;
 pub use circle_view::CircleView;
 pub use image_view::*;
 pub use label::*;
+pub use label_runs::RunStyle;
 pub use nine_segment_image_view::*;
 pub use progress_view::*;
 pub use slider::*;

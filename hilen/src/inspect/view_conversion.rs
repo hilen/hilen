@@ -11,14 +11,15 @@ pub trait ViewToInspect {
 impl<T: View + ?Sized> ViewToInspect for T {
     fn view_to_inspect(&self) -> Own<ViewRepr> {
         Own::new(ViewRepr {
-            label:    self.label().to_string(),
-            id:       weak_to_id(self.weak_view()),
-            frame:    *self.frame(),
-            color:    *self.color(),
-            text:     text_of(self.weak_view()),
-            hidden:   self.is_hidden(),
-            placer:   self.placer_copy(),
-            subviews: self
+            label:          self.label().to_string(),
+            id:             weak_to_id(self.weak_view()),
+            frame:          *self.frame(),
+            content_offset: self.content_offset(),
+            color:          *self.color(),
+            text:           text_of(self.weak_view()),
+            hidden:         self.is_hidden(),
+            placer:         self.placer_copy(),
+            subviews:       self
                 .subviews()
                 .iter()
                 .filter(|v| !v.is_system())
@@ -41,7 +42,9 @@ pub(crate) fn text_of(view: WeakView) -> Option<String> {
     None
 }
 
-pub(crate) fn weak_to_id(weak_view: WeakView) -> String {
+// Public for the inspect tests, which address a view the way the CLI
+// does, by its wire id.
+pub fn weak_to_id(weak_view: WeakView) -> String {
     let raw = weak_view.raw();
     format!(
         "{}:{}",

@@ -27,6 +27,21 @@ inspect = []
 # carries none. One switch for the whole graph, so no crate can forget it and
 # silently lose its tests.
 ui-tests = ["ui-proc/ui-tests"]
+# Physics levels and the no physics game scene, with rapier, the level
+# proc macro, and the sprite, polygon and background pipelines. Off by
+# default, a GUI only app carries none of it.
+level = ["dep:level-proc", "dep:rapier2d"]
+# Registers every `impl LevelTest` into `LEVEL_TESTS`. Needs the shared
+# runner from `ui-tests`. `ui-tests` never pulls level in.
+level-tests = ["level", "ui-tests", "level-proc/level-tests"]
+# Sound playback through kira and its decoders. Off by default.
+audio = ["dep:kira"]
+# 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
+# pipeline. Off by default, a GUI only app carries none of it.
+scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
+# Registers every `impl SceneTest` into `SCENE_TESTS`. Needs the shared
+# runner from `ui-tests`, the same way `level-tests` does.
+scene-tests = ["scene", "ui-tests", "level-proc/scene-tests"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
 pointers_info = []
@@ -49,10 +64,12 @@ educe = { workspace = true }
 event-listener = { workspace = true }
 fastrand = { workspace = true }
 fern = { workspace = true }
+futures-util = { workspace = true }
+glam = { workspace = true, optional = true }
 hex = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
-kira = { workspace = true }
+kira = { workspace = true, optional = true }
 log = { workspace = true }
 local-ip-address = { workspace = true }
 lyon = { workspace = true }
@@ -73,24 +90,33 @@ web-time = { workspace = true }
 wgpu = { workspace = true }
 wgpu_text = { workspace = true }
 
+hilen-pixels = { workspace = true }
 plat = { workspace = true }
 reflected = { workspace = true }
 
-level-proc = { workspace = true }
+level-proc = { workspace = true, optional = true }
 ui-proc = { workspace = true }
+unicode-linebreak = { workspace = true }
+gltf = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-futures-util = { workspace = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true }
-rapier2d = { workspace = true, features = ["parallel"] } # simd can crash if there are too many active objects
+rapier2d = { workspace = true, optional = true, features = ["parallel"] } # simd can crash if there are too many active objects
+rapier3d = { workspace = true, optional = true, features = ["parallel"] }
 pollster = { workspace = true }
 rustls = { workspace = true }
 sentry = { workspace = true }
+sys-locale = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 webpki-roots = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+axum = { workspace = true }
+rcgen = { workspace = true }
+tokio-rustls = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { workspace = true }
@@ -98,8 +124,10 @@ console_log = { workspace = true }
 gloo-timers = { workspace = true }
 # nightly selects the real atomics thread parker, without it parking panics on wasm workers
 parking_lot = { workspace = true, features = ["nightly"] }
-rapier2d = { workspace = true }
+rapier2d = { workspace = true, optional = true }
+rapier3d = { workspace = true, optional = true }
 spin = { workspace = true }
+sys-locale = { workspace = true, features = ["js"] }
 wasm-bindgen-futures = { workspace = true }
 wasm_thread = { workspace = true }
 web-sys = { workspace = true }
@@ -116,6 +144,11 @@ winit = { workspace = true }
 [target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true }
+objc2-foundation = { workspace = true }
+
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }
@@ -127,6 +160,9 @@ open = { workspace = true }
 self-replace = { workspace = true }
 semver = { workspace = true }
 sha2 = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

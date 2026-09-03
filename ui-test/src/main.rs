@@ -9,7 +9,7 @@ use hilen::{
     ui_test::{
         TestFailure, UITest, UITestEntry, capture_requested_screenshot, clear_failures, current_test_name,
         enable_color_recording, enable_fps_report, enable_human_mode, enable_screenshot_capture,
-        present_test, push_failure, run_test, spaced_test_name, take_failures,
+        enable_shots, present_test, push_failure, run_test, spaced_test_name, take_failures,
     },
 };
 use log::info;
@@ -57,6 +57,12 @@ struct DisplayArgs {
     #[arg(long, value_name = "PATH")]
     screenshot: Option<PathBuf>,
 
+    /// Save a clean frame into this dir at every `check_colors` and every
+    /// checkpoint, no window, no probe markers. For agents that need to
+    /// see every verified state of a run.
+    #[arg(long, value_name = "DIR")]
+    shots: Option<PathBuf>,
+
     /// Presentation mode: build one test's view over the whole window and
     /// hand it over. Nothing is injected and `perform_test` never runs, so
     /// a human can play with the view. Requires exactly one --test-name.
@@ -91,8 +97,8 @@ fn apply_modes(args: &Args) -> Result<()> {
     }
 
     if args.display.human {
-        if args.display.headless || args.display.screenshot.is_some() {
-            anyhow::bail!("--human requires a window, remove --headless and --screenshot");
+        if args.display.headless || args.display.screenshot.is_some() || args.display.shots.is_some() {
+            anyhow::bail!("--human requires a window, remove --headless, --screenshot and --shots");
         }
         enable_human_mode();
     }
@@ -105,14 +111,21 @@ fn apply_modes(args: &Args) -> Result<()> {
         enable_screenshot_capture(path);
     }
 
+    if let Some(dir) = args.display.shots.clone() {
+        enable_shots(dir)?;
+    }
+
     if args.run.record_colors {
         enable_color_recording();
     }
 
     if args.display.present {
         anyhow::ensure!(
-            !args.display.headless && args.display.screenshot.is_none() && !args.display.human,
-            "--present is its own mode, remove --headless, --screenshot and --human"
+            !args.display.headless
+                && args.display.screenshot.is_none()
+                && args.display.shots.is_none()
+                && !args.display.human,
+            "--present is its own mode, remove --headless, --screenshot, --shots and --human"
         );
         anyhow::ensure!(
             args.test_name.as_ref().is_some_and(|names| !names.contains(',')),
@@ -131,9 +144,9 @@ fn run(args: Args) -> Result<()> {
     let tests = all_tests();
 
     // A suite that runs nothing otherwise reports success, which looks exactly
-    // like a suite that passes. Registration is a ctor nothing calls by name, so
-    // an empty map means the `ui-tests` feature is off or a linker dropped a
-    // whole crate, never that there are no tests.
+    // like a suite that passes. Registration is a ctor nothing calls by name,
+    // so an empty map means the `ui-tests` feature is off or a linker
+    // dropped a whole crate, never that there are no tests.
     anyhow::ensure!(
         !tests.is_empty(),
         "No UI tests registered. Either the `hilen/ui-tests` feature is off, or a linker \
@@ -185,10 +198,11 @@ fn run(args: Args) -> Result<()> {
         clear_failures();
 
         if let Some(test_name) = test_name {
-            // Also accept the struct ident, so a tool reading `impl ViewTest for
-            // ScrollViewTest` off the source can pass what it sees without
-            // deriving the spaced name itself. `spaced_test_name` is the one
-            // place that rule lives, and drifting from it is what made the old
+            // Also accept the struct ident, so a tool reading `impl ViewTest
+            // for ScrollViewTest` off the source can pass what it
+            // sees without deriving the spaced name itself.
+            // `spaced_test_name` is the one place that rule lives,
+            // and drifting from it is what made the old
             // generated `#[test]` pass a name the runner rejected.
             let names: Vec<&str> = test_name.split(',').map(str::trim).collect();
 
@@ -235,7 +249,7 @@ fn run(args: Args) -> Result<()> {
         Ok(())
     };
 
-    if args.display.headless || args.display.screenshot.is_some() {
+    if args.display.headless || args.display.screenshot.is_some() || args.display.shots.is_some() {
         AppRunner::start_headless_with_actor(actor)?;
     } else {
         AppRunner::start_with_actor(actor)?;

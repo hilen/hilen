@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+#[cfg(any(feature = "level", test))]
 use lyon::{
     math::point,
     path::Path,
@@ -45,6 +46,7 @@ impl PointsPath {
         path
     }
 
+    #[cfg(any(feature = "level", test))]
     pub(crate) fn tessellate(points: Vec<Point>) -> (Vec<Point>, Vec<u16>) {
         assert!(!points.is_empty(), "Empty tessellate");
 

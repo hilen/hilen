@@ -14,24 +14,25 @@ use tokio::net::TcpListener;
 
 #[cfg(not_wasm)]
 use crate::deps::hreads::log_spawn;
+#[cfg(any(wasm, feature = "audio"))]
+use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
 use crate::inspect::protocol::{SERVICE_TYPE, serve};
+#[cfg(feature = "audio")]
+use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
-    audio::Sound,
-    deps::{
-        hreads::{from_main, on_main},
-        refs::manage::DataManager,
-    },
+    deps::hreads::from_main,
+    gm::flat::Point,
     inspect::{
         edit_log,
-        protocol::{AppCommand, EditEntry, InspectorCommand, TestFailureRepr, UIRequest, UIResponse},
+        protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
         view_conversion::{ViewToInspect, weak_to_id},
     },
     ui::{
-        Button, Input, Label, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame, ViewSubviews,
-        WeakView,
+        Button, Input, Label, ModifiersState, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame,
+        ViewSubviews, WeakView,
     },
-    window::MouseButton,
+    window::{MouseButton, Screenshot},
 };
 
 pub struct InspectService;
@@ -69,8 +70,9 @@ impl InspectService {
         });
     }
 
-    pub(crate) fn process_command(command: InspectorCommand) -> AppCommand {
+    pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
+            #[cfg(feature = "audio")]
             InspectorCommand::PlaySound => {
                 on_main(|| {
                     Sound::get("retro.wav").play();
@@ -78,6 +80,8 @@ impl InspectService {
 
                 AppCommand::Ok
             }
+            #[cfg(not(feature = "audio"))]
+            InspectorCommand::PlaySound => AppCommand::Error("App built without the audio feature".into()),
             InspectorCommand::Screenshot => match Self::screenshot() {
                 Ok(screenshot) => screenshot,
                 Err(err) => AppCommand::Error(format!("Screenshot failed: {err}")),
@@ -101,7 +105,9 @@ impl InspectService {
     // thread through `from_main`.
     fn run_tests() -> AppCommand {
         #[cfg(wasm)]
-        Self::preload_assets();
+        if let Err(err) = Self::preload_assets() {
+            return AppCommand::Error(format!("Asset preload for tests failed: {err}"));
+        }
 
         let report = crate::ui_test::run_all_tests();
 
@@ -122,24 +128,33 @@ impl InspectService {
     /// downloads before the suite starts, same as the test autorun. Blocks the
     /// calling worker while the download runs on the main thread.
     #[cfg(wasm)]
-    fn preload_assets() {
+    fn preload_assets() -> Result<()> {
         let (send, recv) = std::sync::mpsc::channel();
 
         on_main(move || {
             crate::deps::hreads::spawn(async move {
-                if let Err(err) = crate::assets::Assets::load_all_groups().await {
-                    log::error!("Asset preload for tests failed: {err}");
-                }
-                send.send(()).expect("Asset preload signal receiver is gone");
+                let result = crate::assets::Assets::load_all_groups().await;
+                send.send(result).expect("Asset preload signal receiver is gone");
             });
         });
 
-        recv.recv().expect("Asset preload signal sender is gone");
+        recv.recv().expect("Asset preload signal sender is gone")
     }
 
     fn screenshot() -> Result<AppCommand> {
         let shot = crate::AppRunner::take_screenshot()?;
+        let png = Self::encode_png(&shot)?;
 
+        Ok(AppCommand::Screenshot {
+            width:      shot.size.width,
+            height:     shot.size.height,
+            png_base64: STANDARD.encode(&png),
+        })
+    }
+
+    /// The frame as PNG bytes, what the screenshot command answers with and
+    /// what a browser test failure pushes to the driver.
+    pub(crate) fn encode_png(shot: &Screenshot) -> Result<Vec<u8>> {
         let mut bytes = Vec::with_capacity(shot.data.len() * 4);
         for color in &shot.data {
             bytes.extend_from_slice(&[color.r, color.g, color.b, 255]);
@@ -153,11 +168,7 @@ impl InspectService {
             ExtendedColorType::Rgba8,
         )?;
 
-        Ok(AppCommand::Screenshot {
-            width:      shot.size.width,
-            height:     shot.size.height,
-            png_base64: STANDARD.encode(&png),
-        })
+        Ok(png)
     }
 
     fn process_ui_command(command: UIRequest) -> AppCommand {
@@ -210,38 +221,164 @@ impl InspectService {
                 view.set_color(color);
                 Ok(entry(view, "color", format!("{old}"), format!("{color}")))
             }),
-            UIRequest::Tap { view_id } => {
-                let result = from_main(move || -> Result<(), String> {
-                    let view = find_view(&view_id)?;
-
-                    if view.is_hidden_in_tree() {
-                        return Err(format!("View {} is hidden", view.label()));
-                    }
-
-                    // The touch pipeline takes physical pixels and converts
-                    // to points itself, so the center scales up first.
-                    let position = view.absolute_frame().center() * UIManager::scale();
-
-                    for event in [TouchEvent::Began, TouchEvent::Ended] {
-                        Input::process_touch_event(Touch {
-                            id: 1,
-                            position,
-                            event,
-                            button: MouseButton::Left,
-                        });
-                    }
-
-                    Ok(())
-                });
+            UIRequest::Tap {
+                view_id,
+                modifiers,
+                right,
+            } => {
+                let result = from_main(move || Self::tap(&view_id, modifiers, right));
 
                 match result {
                     // The snapshot runs a frame later, so a page swap or
                     // modal the tap triggered is already in the tree.
-                    Ok(()) => Self::send_ui(),
+                    Ok(note) => Self::send_ui_with(note),
                     Err(err) => AppCommand::Error(err),
                 }
             }
+            UIRequest::Drag { from, to, steps } => {
+                from_main(move || Self::drag(from.into(), to.into(), steps));
+                Self::send_ui()
+            }
+            UIRequest::Scroll { view_id, dx, dy } => match from_main(move || Self::scroll(view_id, dx, dy)) {
+                Ok(()) => Self::send_ui(),
+                Err(err) => AppCommand::Error(err),
+            },
+            #[cfg(desktop)]
+            UIRequest::Resize { width, height } => {
+                use crate::gm::LossyConvert;
+
+                let size = from_main(move || {
+                    let scale = UIManager::scale();
+                    let size: (u32, u32) =
+                        ((width * scale).lossy_convert(), (height * scale).lossy_convert());
+                    size
+                });
+                crate::AppRunner::set_window_size(size);
+                Self::send_ui()
+            }
+            #[cfg(not(desktop))]
+            UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
+            UIRequest::Keys { keys, modifiers } => {
+                // The modifiers hold only for this one request and release
+                // right after it, so a Cmd from an inspect request can never
+                // stay stuck on whatever the app receives next.
+                from_main(move || {
+                    Input::set_modifiers(modifiers);
+                    for key in keys {
+                        match key {
+                            Key::Char(ch) => Input::on_char(ch),
+                            // A real named key also arrives as its text,
+                            // Backspace as 0x08, and the text field edits
+                            // on that char. Same two calls as the winit
+                            // key handler in `app_runner`.
+                            Key::Named(key) => {
+                                Input::on_key(key);
+                                if let Some(text) = key.to_text() {
+                                    Input::on_char(text.chars().last().expect("Key text is empty"));
+                                }
+                            }
+                        }
+                    }
+                    Input::set_modifiers(ModifiersState::empty());
+                });
+
+                // The snapshot runs a frame later, so a palette or page a
+                // hotkey opened is already in the tree.
+                Self::send_ui()
+            }
         }
+    }
+
+    fn scroll(view_id: Option<String>, dx: f32, dy: f32) -> Result<(), String> {
+        let position = if let Some(id) = view_id {
+            find_view(&id)?.absolute_frame().center()
+        } else {
+            let window = UIManager::root_view().frame().size;
+            Point::new(window.width / 2.0, window.height / 2.0)
+        };
+        // The wheel goes to the scroll view under the cursor, so the
+        // cursor moves to the aim point first.
+        UIManager::set_cursor_position(position);
+        Input::on_scroll(Point::new(dx, dy));
+        Ok(())
+    }
+
+    /// The tap itself, on the main thread. Refuses hidden and offscreen
+    /// targets, since such a tap lands nowhere while looking like a
+    /// success to the client, and returns a covering warning when
+    /// another view sits over the tap point.
+    // The touch pipeline takes physical pixels, so every point scales up.
+    fn drag(from: Point, to: Point, steps: usize) {
+        use crate::gm::LossyConvert;
+
+        let scale = UIManager::scale();
+        let touch = |position: Point, event: TouchEvent| {
+            Input::process_touch_event(Touch {
+                id: 1,
+                position: position * scale,
+                event,
+                button: MouseButton::Left,
+            });
+        };
+        touch(from, TouchEvent::Began);
+        let steps = steps.max(2);
+        for step in 1..=steps {
+            let t: f32 = step.lossy_convert();
+            let all: f32 = steps.lossy_convert();
+            let position = Point {
+                x: from.x + (to.x - from.x) * t / all,
+                y: from.y + (to.y - from.y) * t / all,
+            };
+            touch(position, TouchEvent::Moved);
+        }
+        touch(to, TouchEvent::Ended);
+    }
+
+    fn tap(view_id: &str, modifiers: ModifiersState, right: bool) -> Result<Option<String>, String> {
+        let view = find_view(view_id)?;
+
+        if view.is_hidden_in_tree() {
+            return Err(format!("View {} is hidden", view.label()));
+        }
+
+        let center = view.absolute_frame().center();
+        let window = UIManager::root_view().frame().size;
+        if center.x < 0.0 || center.y < 0.0 || center.x > window.width || center.y > window.height {
+            return Err(format!(
+                "View {} center ({}, {}) is outside the {}x{} window. Scroll it into view or resize the window.",
+                view.label(),
+                center.x,
+                center.y,
+                window.width,
+                window.height,
+            ));
+        }
+
+        let note = covering_note(view, center);
+
+        // The touch pipeline takes physical pixels and converts to
+        // points itself, so the center scales up first.
+        let position = center * UIManager::scale();
+
+        // Held for this tap only and released right after, like the keys
+        // request, so a Cmd cannot leak into later input.
+        Input::set_modifiers(modifiers);
+        let button = if right {
+            MouseButton::Right
+        } else {
+            MouseButton::Left
+        };
+        for event in [TouchEvent::Began, TouchEvent::Ended] {
+            Input::process_touch_event(Touch {
+                id: 1,
+                position,
+                event,
+                button,
+            });
+        }
+        Input::set_modifiers(ModifiersState::empty());
+
+        Ok(note)
     }
 
     // Applies an edit on the main thread. On success records it to the edit
@@ -258,12 +395,61 @@ impl InspectService {
     }
 
     fn send_ui() -> AppCommand {
-        from_main(|| {
+        Self::send_ui_with(None)
+    }
+
+    fn send_ui_with(note: Option<String>) -> AppCommand {
+        from_main(move || {
             let scale = UIManager::scale();
             let root = UIManager::root_view().view_to_inspect();
-            UIResponse::SendUI { scale, root }.into()
+            UIResponse::SendUI { scale, root, note }.into()
         })
     }
+}
+
+/// A warning when the deepest visible view under the tap point is not the
+/// target or inside it, so a tap that lands on a covering view says so
+/// instead of silently doing the wrong thing. Frame containment is an
+/// approximation of the draw order, good for a warning, not a refusal.
+fn covering_note(target: WeakView, point: Point) -> Option<String> {
+    let top = deepest_at(UIManager::root_view(), point)?;
+
+    if weak_to_id(top) == weak_to_id(target) || is_inside(target, top) || is_inside(top, target) {
+        return None;
+    }
+
+    Some(format!(
+        "the deepest view at the tap point is {} {}, the touch may land there instead",
+        top.label(),
+        weak_to_id(top),
+    ))
+}
+
+fn deepest_at(view: WeakView, point: Point) -> Option<WeakView> {
+    if view.is_hidden() || !view.absolute_frame().contains(point) {
+        return None;
+    }
+    if let Some(deepest_child) = view.subviews().iter().rev().find_map(|sub| deepest_at(sub.weak(), point)) {
+        return Some(deepest_child);
+    }
+    // A fully transparent view with nothing in it, like an empty overlay
+    // host, draws nothing at the point and would only produce false
+    // covering warnings.
+    if view.color().a == 0.0 && view.subviews().is_empty() {
+        return None;
+    }
+    Some(view)
+}
+
+fn is_inside(ancestor: WeakView, view: WeakView) -> bool {
+    fn contains(view: WeakView, id: &str) -> bool {
+        if weak_to_id(view) == id {
+            return true;
+        }
+        view.subviews().iter().any(|sub| contains(sub.weak(), id))
+    }
+
+    contains(ancestor, &weak_to_id(view))
 }
 
 fn entry(view: WeakView, what: impl ToString, old: impl ToString, new: impl ToString) -> EditEntry {

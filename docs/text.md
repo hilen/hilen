@@ -23,6 +23,25 @@ table. Modern fonts, Roboto included, keep kerning in `GPOS`, so the builtin
 glyph_brush layout renders them with no kerning at all. rustybuzz applies GPOS,
 GSUB and variation aware kerning like CoreText and browsers do.
 
+## Shape cache
+
+Each `Font` owns a `ShapeCache` that stores rustybuzz output per line of text,
+keyed by the line, the pixel scale and the tracking. glyph_brush has its own
+shaped section cache, but every `process_queued` call drops the entries absent
+from that batch, and clip boundaries process several batches per frame, so
+nothing in it survives a frame and every label used to reshape every frame.
+Shaping was almost the entire cost of a text heavy frame in debug. The cache
+also serves `Font::measure`, which shapes through the same path. Entries unused
+for 10 seconds are dropped by a sweep that runs about once a second from
+`Font::process_queued`.
+
+Each `Font` also owns a `MeasureCache` that stores whole `Font::measure`
+results, keyed by the text, size, wrap width, tracking, line height and runs.
+The shape cache removes the shaping cost, but glyph_brush still walks every
+glyph's bounds through `ttf_parser` on every measure, and a table rebuilding
+hundreds of measured spans spent seconds there. Same 10 second sweep from
+`Font::process_queued`.
+
 ## Sizes are pixels per em
 
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`
@@ -48,11 +67,34 @@ font's `trak` curve automatically, macOS does for the system font.
 ## Line handling
 
 `\n` always breaks lines, single line labels included. Multiline labels
-additionally wrap greedily at spaces to the label width. A single word wider
-than the bound overflows, same as the builtin layout did. Vertical alignment
+additionally wrap greedily at the Unicode line break opportunities of the
+text, UAX 14 through the `unicode-linebreak` crate, so Latin breaks after
+spaces and after a `/` in a path, Japanese and Chinese between characters.
+Spaces before a break are dropped. Only the first glyph of a cluster may start
+a line, a combining mark stays on its base. A Latin word wider than the bound
+overflows, the `UIKit` word wrapping behavior. Thai, Lao, Khmer and Myanmar
+have no opportunity inside a word without a dictionary, so a piece of those
+wider than the bound breaks at the cluster that overflows. `Script wrap`
+walks ten widths over Japanese, Thai, Korean and a mixed label. Vertical alignment
 defaults to center, `Label::set_vertical_alignment` opts a label into Top,
 which the multiline `TextField` uses so a tall field starts its text at the
 top.
+
+`Label::set_line_height(points)` replaces the font's own line pitch with a
+CSS line box: baselines advance by the box, glyphs center in each box with
+half the leading above and below, and a multiline measure returns boxes
+times the box. Without it the engine pitch is the font's ascent minus
+descent plus line gap, which for a wrapped text-sm label is around 16.5
+where CSS puts 20, and the difference compounds down a block.
+
+A tab has no glyph in most fonts, so the shaper returns notdef and the
+line would show a box. `expand_tabs` in `ShapedLayout` swaps every tab
+for the space glyph of its font and stretches its advance to the next
+tab stop, 4 space widths counted from the line start, so columns align
+like in an editor. It runs after shaping and before wrapping, on the
+copy the shape cache returns, so measure, wrap and drawing agree. A tab
+at the very end of a text still measures as one space, `glyph_brush`
+bounds the last glyph by its own advance. `Label tab` pins the behavior.
 
 ## Matching other renderers
 
@@ -64,6 +106,56 @@ polarities. The wgpu_text fork still carries a coverage remap entry point,
 but it activates only on sRGB targets, which the engine no longer uses.
 Measuring workflow, scripts and the trak table details live in the
 hilen skill's migration chapter, next to this repo's users.
+
+One real difference remains: `CoreText` applies stem darkening when it
+rasterizes, so browser text on macOS carries around 10 percent more ink
+mass than the plain outline at UI sizes. `Font::with_variations_darkened`
+opts a font into an approximation: the wgpu_text fork's darkening entry
+point takes the maximum of five coverage taps a fraction of a pixel
+apart, which moves every glyph edge outward by that fraction, and the
+glyph quads are inflated to give the widened edge room. Keep the
+strength at or under 0.5, the taps reach half a texel further through
+bilinear filtering and the atlas pads glyphs by one pixel. 0.5 landed
+the kukareker port within a few percent of WebKit mass at 12 to 14
+point text. Off by default, engine text is untouched.
+
+## Color runs
+
+`Label::set_color_runs(ranges)` paints byte ranges of the text in their own
+colors, the rest keeps the text color. The drawer emits one glyph_brush text
+per run and per gap between runs, all slices of the same string. `ShapedLayout`
+joins them back, shapes the whole string once, and maps every glyph to the
+text its cluster came from, so a run boundary never breaks kerning or letter
+spacing. Theme pairs in a run re-resolve on a switch like the text color does.
+`set_text` clears the runs.
+
+## Font runs
+
+`Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,
+or both, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
+per run it crosses and one per gap, each with its own face and shape cache, so
+a wider run font moves the wraps and `Font::measure` follows. The line height
+and baseline stay the label font's. Every `Font` owns one brush, so the drawer
+queues a mixed label on every brush it touches, and each layout copy lays out
+the whole text and emits only the glyphs of the font that brush draws. Kerning
+stops at a run boundary, the two sides are different fonts. An underline is
+not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
+the run from the base font's underline metrics, in the color the text has
+there, between the label background and the glyphs. `set_text` clears the runs.
+
+## Glyph fallback
+
+`Font::set_fallbacks(fonts)` registers fonts consulted in order for chars the
+label font has no glyph for, `reset_fallbacks` clears them. `runs_with_fallbacks`
+in `window/text/fallback.rs` runs at `Label::shaping_runs`, walks the text once,
+asks `Font::has_glyph` per char with the effective font, the explicit run font or
+the base, and gives each missing char a synthesized run with the first fallback
+that covers it, merged with its neighbors. So a fallback rides on the font runs
+machinery above and wrapping, measuring and the shape cache follow with no extra
+path. Whitespace and control chars stay with their font, shapers handle them
+without a glyph. A char no fallback covers keeps its font and draws notdef. The
+runner resets the fallbacks between tests, `GlyphFallback` covers the plain label
+and the split inside an explicit run.
 
 ## Gradient text
 

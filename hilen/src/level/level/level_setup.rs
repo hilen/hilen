@@ -3,7 +3,8 @@ use crate::{gm::volume::GyroData, level::Level};
 pub trait LevelSetup {
     fn setup(&mut self);
 
-    fn update(&mut self);
+    /// Called once per physics step, `dt` is that step in seconds.
+    fn update(&mut self, dt: f32);
 
     fn on_key_pressed(&mut self, _: char);
 
@@ -15,7 +16,7 @@ pub trait LevelSetup {
 impl<T: Level + 'static> LevelSetup for T {
     default fn setup(&mut self) {}
 
-    default fn update(&mut self) {}
+    default fn update(&mut self, _: f32) {}
 
     default fn on_key_pressed(&mut self, _: char) {}
 

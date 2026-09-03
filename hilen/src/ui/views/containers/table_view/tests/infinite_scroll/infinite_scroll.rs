@@ -17,7 +17,10 @@ use crate::{
 };
 #[cfg(not_wasm)]
 use crate::{
-    ui::{ViewTest, views::containers::table_view::tests::infinite_scroll::basic_scroll::test_basic_scroll},
+    ui::{
+        UIManager, ViewTest,
+        views::containers::table_view::tests::infinite_scroll::basic_scroll::test_basic_scroll,
+    },
     ui_test::{inject_scroll, inject_touches},
 };
 
@@ -108,8 +111,9 @@ impl TableData for InfiniteScrollTest {
     }
 
     fn cell_selected(&mut self, index: usize) {
-        #[allow(clippy::format_push_string)]
-        self.test_string.push_str(&format!("|{index}|"));
+        self.test_string.push('|');
+        self.test_string.push_str(&index.to_string());
+        self.test_string.push('|');
     }
 }
 
@@ -119,6 +123,12 @@ impl TableData for InfiniteScrollTest {
 // kills every test after this one. Skipped on wasm until the race is fixed.
 #[cfg(not_wasm)]
 impl ViewTest for InfiniteScrollTest {
+    // This test drives finger drag gestures, which scroll only with
+    // drag scrolling on, the touch platform default.
+    fn before_start() {
+        UIManager::set_drag_scrolling(true);
+    }
+
     fn perform_test(mut view: Weak<Self>) -> Result<()> {
         test_basic_scroll(view)?;
 
@@ -208,6 +218,13 @@ impl ViewTest for InfiniteScrollTest {
           ",
         );
 
+        // The fling after the drag is still running. How many frames it
+        // gets before the taps below depends on the machine and the load,
+        // so under the full suite the taps once landed four rows off.
+        while from_main(move || view.table.scroll.is_scrolling()) {
+            wait_for_next_frame();
+        }
+
         from_main(move || {
             view.test_string.clear();
         });
@@ -223,7 +240,7 @@ impl ViewTest for InfiniteScrollTest {
          ",
         );
 
-        assert_eq!(view.test_string, "|198||201||205|");
+        assert_eq!(view.test_string, "|150||151||155|");
 
         // crate::ui_test::record_ui_test();
 

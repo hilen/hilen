@@ -3,7 +3,7 @@ use ui_proc::view;
 use crate::{
     gm::{
         color::Color,
-        flat::{FillRule, Point, StrokeStyle, VectorPath},
+        flat::{FillRule, Paint, Point, StrokeStyle, VectorPath},
     },
     render::data::PathData,
     ui::{UIManager, ViewCallbacks, view::ViewFrame},
@@ -36,16 +36,21 @@ impl DrawingView {
         &self.paths
     }
 
-    /// Strokes the path outline.
-    pub fn add_stroke(&mut self, path: &VectorPath, color: Color, style: StrokeStyle) -> &mut Self {
+    /// Strokes the path outline with a color or a gradient `Paint`.
+    pub fn add_stroke(
+        &mut self,
+        path: &VectorPath,
+        paint: impl Into<Paint>,
+        style: StrokeStyle,
+    ) -> &mut Self {
         let (vertices, indices) = path.stroke_mesh(&style);
-        self.push_mesh(&vertices, &indices, color)
+        self.push_mesh(&vertices, &indices, paint.into())
     }
 
-    /// Fills the path interior.
-    pub fn add_fill(&mut self, path: &VectorPath, color: Color, rule: FillRule) -> &mut Self {
+    /// Fills the path interior with a color or a gradient `Paint`.
+    pub fn add_fill(&mut self, path: &VectorPath, paint: impl Into<Paint>, rule: FillRule) -> &mut Self {
         let (vertices, indices) = path.fill_mesh(rule);
-        self.push_mesh(&vertices, &indices, color)
+        self.push_mesh(&vertices, &indices, paint.into())
     }
 
     /// Fills the closed polygon through the points.
@@ -60,12 +65,12 @@ impl DrawingView {
         self.paths.clear();
     }
 
-    fn push_mesh(&mut self, vertices: &[Point], indices: &[u32], color: Color) -> &mut Self {
+    fn push_mesh(&mut self, vertices: &[Point], indices: &[u32], paint: Paint) -> &mut Self {
         if indices.is_empty() {
             return self;
         }
 
-        self.paths.push(PathData::new(color, vertices, indices));
+        self.paths.push(PathData::new(paint, vertices, indices));
         self
     }
 }

@@ -9,10 +9,13 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Result;
 use log::warn;
 use parking_lot::Mutex;
 use plat::Platform;
 
+#[cfg(feature = "scene")]
+use crate::scene::SceneManager;
 use crate::{
     deps::hreads::from_main,
     gm::{
@@ -22,7 +25,7 @@ use crate::{
     ui::{
         Button, Container, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
-    ui_test::TEST_NAME,
+    ui_test::{TEST_NAME, capture::save_shot},
     window::{NamedKey, Window},
 };
 
@@ -41,8 +44,14 @@ pub fn human_mode() -> bool {
     HUMAN_MODE.load(Ordering::Relaxed)
 }
 
+/// `UI_TEST_HUMAN_CLEAN=1` holds a human run at every check without the
+/// probe markers, to look at the checked state itself.
+pub(crate) fn clean_human_mode() -> bool {
+    var("UI_TEST_HUMAN_CLEAN").is_ok_and(|clean| clean == "1")
+}
+
 fn delay() -> Duration {
-    let ms = var("UI_TEST_HUMAN_DELAY").ok().and_then(|ms| ms.parse().ok()).unwrap_or(400);
+    let ms = var("UI_TEST_HUMAN_DELAY").ok().and_then(|ms| ms.parse().ok()).unwrap_or(50);
     Duration::from_millis(ms)
 }
 
@@ -68,15 +77,18 @@ pub(crate) fn human_pause_key() {
     }
 }
 
-/// Holds with `label` as the prompt, so a test can make a
-/// state visible that no injection paces, like a browser URL change
-/// that would otherwise flash by. A no-op outside human mode.
-pub fn human_checkpoint(label: &str) {
-    if !human_mode() {
-        return;
+/// A state worth looking at that no injection paces, like a browser URL
+/// change that would otherwise flash by. Holds with `label` as the prompt
+/// in human mode, saves a shot named after `label` in shots mode, and
+/// costs nothing otherwise.
+pub fn checkpoint(label: &str) -> Result<()> {
+    save_shot(label)?;
+
+    if human_mode() {
+        hold(label.to_string());
     }
 
-    hold(label.to_string());
+    Ok(())
 }
 
 pub(crate) fn hold_for_human() {
@@ -158,7 +170,9 @@ fn hold(prompt: String) {
     } else {
         format!("{prompt}, ctrl to continue")
     };
-    Window::set_title(title);
+    Window::set_title_prefix(title);
+    #[cfg(feature = "scene")]
+    from_main(|| SceneManager::set_paused(true));
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))
@@ -167,6 +181,8 @@ fn hold(prompt: String) {
     };
 
     wait_for_advance();
+    #[cfg(feature = "scene")]
+    from_main(|| SceneManager::set_paused(false));
 
     if let Some(mut overlay) = overlay {
         from_main(move || {

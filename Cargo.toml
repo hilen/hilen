@@ -6,15 +6,19 @@ members = [
   "bench",
   "demo",
   "demo-android",
+  "deps/pixels",
   "deps/plat",
   "deps/ui-proc-test",
   "example-app",
   "fuzz",
   "hilen",
   "hilen-inspect",
+  "hilen-pixdiff",
   "hilen-server",
   "inspector",
+  "level-test",
   "render-test",
+  "scene-test",
   "ui-test",
   "ui-test-suite",
 ]
@@ -62,7 +66,6 @@ base64 = "0.22"
 bit_ops = "0.2"
 byte-unit = "5.2"
 bytemuck = { version = "1.25", features = ["derive"] }
-cgmath = "0.18"
 chrono = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 console_error_panic_hook = "0.1"
@@ -78,6 +81,8 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
+glam = { version = "0.33", features = ["bytemuck"] }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 futures-util = "0.3"
 getrandom = "0.4"
@@ -86,16 +91,23 @@ image = "0.25"
 indexmap = "2.14"
 infisical = "0.0.3"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
+http-body-util = "0.1"
 jni = "0.22"
 kira = "0.12"
+libc = "0.2"
 local-ip-address = "0.6"
 log = "0.4"
 lyon = "1.0"
 mdns-sd = "0.20"
+mime_guess = "2.0"
 ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
-objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSException", "NSString", "NSURL"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-core-foundation = "0.3"
+objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
 open = "5.4"
 parking_lot = "0.12"
@@ -104,13 +116,16 @@ pollster = "0.4"
 pretty_assertions = "1.4"
 quote = "1.0"
 rapier2d = { version = "0.33" }
+rapier3d = { version = "0.33" }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 redis = { version = "1.6", features = ["tokio-comp", "connection-manager"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 resvg = "0.47"
 rfd = "0.17"
+rust-embed = "8.12"
 rust_decimal = "1.42"
 rustc-hash = "2.1"
-rustls = "0.23"
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustybuzz = "0.20"
 self-replace = "1.5"
 semver = "1.0"
@@ -120,7 +135,7 @@ sentry = { version = "0.48", default-features = false, features = [
   "debug-images",
   "panic",
   "reqwest",
-  "rustls",
+  "rustls-no-provider",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -136,25 +151,34 @@ sqlx = { version = "0.9", features = [
   "uuid",
 ] }
 syn = { version = "2.0", features = ["extra-traits", "full"] }
+sys-locale = "0.3"
 sysinfo = "0.39"
 test-log = "0.2"
 thiserror = "2.0"
 tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 tokio-util = "0.7"
+tower = "0.5"
 tower-http = { version = "0.7", features = ["trace", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-linebreak = "0.1"
 usvg = "0.47"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
 wasm_thread = "0.3"
 web-sys = { version = "0.3", features = [
+    "AddEventListenerOptions",
     "Clipboard",
     "CloseEvent",
     "Document",
+    "Element",
     "History",
+    "HtmlCanvasElement",
+    "KeyboardEvent",
+    "KeyboardEventInit",
     "Location",
     "MessageEvent",
     "Navigator",
@@ -167,14 +191,15 @@ web-sys = { version = "0.3", features = [
 web-time = "1.1"
 webpki-roots = "1.0"
 wgpu = { package = "hilen-wgpu", version = "30.0" }
-wgpu_text = { package = "hilen-wgpu-text", version = "30.0" }
-winit = { package = "hilen-winit", version = "0.30" }
+wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "ee03ffae8d38fc488b2aedad6200bfcb2f39575c" }
+winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
 
 plat = { version = "0.10", path = "deps/plat" }
 reflected = "0.30"
 
 level-proc = { version = "0.1", path = "deps/level-proc" }
 hilen = { version = "0.1", path = "hilen" }
+hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }
 ui-proc = { version = "0.1", path = "deps/ui-proc" }
@@ -203,7 +228,16 @@ opt-level = 3
 [profile.dev.package.resvg]
 opt-level = 3
 
+[profile.dev.package.usvg]
+opt-level = 3
+
 [profile.dev.package.tiny-skia]
+opt-level = 3
+
+# The engine's own per pixel loops, the mip chain above all. A 41
+# megapixel fixture spent 11 seconds in it at opt-level 0 at every
+# browser start, optimized it is a fraction of the decode.
+[profile.dev.package.hilen-pixels]
 opt-level = 3
 
 # Text shaping and rasterizing. Unoptimized, a label of a few hundred glyphs

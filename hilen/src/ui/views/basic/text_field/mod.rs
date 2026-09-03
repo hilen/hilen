@@ -16,25 +16,38 @@ use crate::{
     ui::{
         Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
         UIManager, VerticalAlignment, ViewSubviews,
-        view::{ViewData, ViewFrame, ViewTouch},
+        view::{View, ViewData, ViewFrame, ViewTouch},
     },
+    window::Font,
 };
 
 /// Space above the first line of a multiline field, so the text does not
 /// touch the top edge the way a text area does not.
 const MULTILINE_TOP_INSET: f32 = 8.0;
 
+/// What a secure field draws for every character.
+pub(super) const MASK: char = '\u{2022}';
+
+pub(super) fn mask(text: &str) -> String {
+    std::iter::repeat_n(MASK, text.chars().count()).collect()
+}
+
 #[view]
 pub struct TextField {
     pub(crate) constraint: Option<TextFieldConstraint>,
 
-    placeholder:      String,
-    text_color:       UIColor,
-    selected_color:   UIColor,
-    background_color: UIColor,
-    placeholding:     bool,
-    is_editing:       bool,
-    multiline:        bool,
+    placeholder:       String,
+    text_color:        UIColor,
+    selected_color:    UIColor,
+    background_color:  UIColor,
+    placeholder_color: Option<UIColor>,
+    placeholding:      bool,
+    is_editing:        bool,
+    multiline:         bool,
+
+    /// The real text of a secure field, `None` for a plain one. The label
+    /// only ever shows one mask character per character of it.
+    secret: Option<String>,
 
     /// Byte index into the text where typing inserts.
     caret: usize,
@@ -129,6 +142,13 @@ impl TextField {
         self
     }
 
+    /// The label font, so a field renders mono or any loaded face. The
+    /// caret follows it, positions come from the same label layout.
+    pub fn set_font(&self, font: Weak<Font>) -> &Self {
+        self.label.set_font(font);
+        self
+    }
+
     /// A text area. Enter inserts a new line instead of ending editing,
     /// Escape or a tap outside ends it, lines wrap at the field width,
     /// start at the top and scroll when they do not fit.
@@ -145,7 +165,23 @@ impl TextField {
     }
 
     pub fn text(&self) -> &str {
-        self.label.text()
+        match &self.secret {
+            Some(secret) => secret,
+            None => self.label.text(),
+        }
+    }
+
+    /// A password field. The entered text stays readable through `text`,
+    /// the label shows one bullet per character and copy is disabled.
+    pub fn set_secure(&self, secure: bool) -> &Self {
+        let text = self.entered_text();
+        weak_from_ref(self).secret = secure.then(String::new);
+        self.set_text(text);
+        self
+    }
+
+    pub fn is_secure(&self) -> bool {
+        self.secret.is_some()
     }
 
     /// Height of the scrollable content, the lines plus the inset in
@@ -184,13 +220,21 @@ impl TextField {
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
         let text = self.filter_constraint(text);
 
+        if self.secret.is_some() {
+            weak_from_ref(self).secret = Some(text.clone());
+        }
+
         if text.is_empty() && !self.placeholder.is_empty() {
             weak_from_ref(self).placeholding = true;
             self.label.set_text(self.placeholder.clone());
-            self.label.set_text_color(LIGHTER_GRAY);
+            self.label.set_text_color(self.placeholder_color.unwrap_or(LIGHTER_GRAY.into()));
         } else {
             weak_from_ref(self).placeholding = false;
-            self.label.set_text(&text);
+            if self.is_secure() {
+                self.label.set_text(mask(&text));
+            } else {
+                self.label.set_text(&text);
+            }
             self.label.set_text_color(self.text_color);
         }
 
@@ -202,8 +246,17 @@ impl TextField {
         self
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn is_editing(&self) -> bool {
         self.is_editing
+    }
+
+    /// Programmatic focus, the same editing session a tap starts. The
+    /// caret lands at the end of the entered text.
+    pub fn focus(&self) {
+        weak_from_ref(self).caret = self.entered_text().len();
+        weak_from_ref(self).anchor = None;
+        UIManager::set_selected(self.weak_view(), true);
     }
 
     pub fn clear(&self) -> &Self {
@@ -211,7 +264,7 @@ impl TextField {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.label.text().is_empty()
+        self.text().is_empty()
     }
 
     fn filter_constraint(&self, text: impl ToLabel) -> String {
@@ -239,8 +292,25 @@ impl TextField {
     pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
         let color = color.into();
         weak_from_ref(self).text_color = color;
-        self.label.set_text_color(color);
+        // With no explicit placeholder color the visible hint follows the
+        // text color, the way it always did. With one it keeps its own.
+        if !self.placeholding || self.placeholder_color.is_none() {
+            self.label.set_text_color(color);
+        }
         self.caret_view.set_color(color);
+        self
+    }
+
+    /// Color of the hint text while the field is empty. Entering the first
+    /// character swaps the label to the text color, clearing the field
+    /// swaps it back. Theme pairs re-resolve on a switch like every other
+    /// color.
+    pub fn set_placeholder_color(&self, color: impl Into<UIColor>) -> &Self {
+        let color = color.into();
+        weak_from_ref(self).placeholder_color = Some(color);
+        if self.placeholding {
+            self.label.set_text_color(color);
+        }
         self
     }
 
@@ -253,7 +323,7 @@ impl TextField {
         weak_from_ref(self).placeholder = placeholder.to_label();
         if self.placeholding {
             self.label.set_text(self.placeholder.clone());
-            self.label.set_text_color(GRAY);
+            self.label.set_text_color(self.placeholder_color.unwrap_or(GRAY.into()));
         }
         self
     }

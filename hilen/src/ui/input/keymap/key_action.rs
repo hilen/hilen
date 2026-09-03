@@ -1,10 +1,10 @@
 use crate::{
     deps::{refs::Weak, vents::Event},
-    ui::KeymapKey,
+    ui::{KeyCombo, KeymapKey},
 };
 
 pub struct KeyAction {
-    pub key:    KeymapKey,
+    pub combo:  KeyCombo,
     action:     Event,
     subscriber: Weak,
 }
@@ -12,25 +12,25 @@ pub struct KeyAction {
 impl KeyAction {
     pub fn new<T: ?Sized>(
         subscriber: Weak<T>,
-        key: impl Into<KeymapKey>,
+        combo: impl Into<KeyCombo>,
         action: impl FnMut() + Send + 'static,
     ) -> Self {
         let event = Event::default();
         event.sub(action);
         Self {
             subscriber: subscriber.erase(),
-            key:        key.into(),
+            combo:      combo.into(),
             action:     event,
         }
     }
 }
 
 impl KeyAction {
-    pub(crate) fn check(&self, key: KeymapKey) -> bool {
+    pub(crate) fn check(&self, key: KeymapKey, cmd_held: bool, shift_held: bool) -> bool {
         if self.subscriber.is_null() {
             return false;
         }
-        if self.key == key {
+        if self.combo.matches(key, cmd_held, shift_held) {
             self.action.trigger(());
         }
         true

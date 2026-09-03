@@ -6,12 +6,15 @@ use hilen::{
     filesystem::Assets,
     refs::Weak,
     ui::{
-        CLEAR, Container, LIGHT_BLUE, Label, ProgressView, Setup, Spinner, UIManager, ViewData, ViewSubviews,
-        ViewTest, view,
+        CLEAR, Container, Label, ProgressView, Setup, Spinner, UIManager, ViewData, ViewSubviews, ViewTest,
+        view,
     },
 };
 
-use crate::interface::HomeView;
+use crate::interface::{
+    HomeView,
+    palette::{ACCENT, BG, TEXT_DIM},
+};
 
 /// The boot preload touches the view on every progress tick, so a test
 /// that returns before it finishes leaves it dereferencing a freed
@@ -30,21 +33,23 @@ impl Setup for LoadingView {
     fn setup(self: Weak<Self>) {
         LOADED.store(false, Ordering::Relaxed);
         UIManager::set_app_ready(false);
+        UIManager::set_clear_color(BG);
 
         self.spinner.place().center().size(200, 200);
 
         self.label
             .set_text("Loading...")
             .set_color(CLEAR)
+            .set_text_color(TEXT_DIM)
             .place()
             .above(self.spinner, 20)
             .h(40);
 
-        self.progress.place().lrb(0).h(20);
+        self.progress.place().lrb(0).h(4);
 
         let mut spinner = self.spinner.add_view::<Spinner>();
         spinner.place().back();
-        spinner.dot_color = LIGHT_BLUE;
+        spinner.dot_color = ACCENT.dark;
 
         Assets::load_progress().val(move |progress| {
             self.progress.set_progress(progress);

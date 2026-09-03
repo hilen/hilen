@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use rapier2d::{
     dynamics::RigidBodyHandle,
     geometry::ColliderHandle,
-    prelude::{RigidBodyBuilder, Vec2},
+    prelude::{RigidBodyBuilder, Rotation, Vec2},
 };
 
 use crate::{
@@ -73,6 +73,16 @@ impl MovingWall {
         let mut pos = self.position();
         pos.y = y;
         self.move_to(pos);
+    }
+
+    /// Move and turn in one physics step. A kinematic body pushed this
+    /// way carries bodies it hits, so a spinning blade throws them.
+    pub fn set_pose(&mut self, pos: impl Into<Point>, rotation: f32) {
+        let pos = pos.into();
+        let body = self.rigid_body_mut();
+        body.set_next_kinematic_translation(Vec2::new(pos.x, pos.y));
+        body.set_next_kinematic_rotation(Rotation::new(rotation));
+        self.sprite.position = pos;
     }
 }
 

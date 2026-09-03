@@ -4,7 +4,7 @@ use crate::{
         refs::{Own, Weak},
         vents::OnceEvent,
     },
-    gm::{color::CLEAR, flat::Size},
+    gm::{LossyConvert, color::CLEAR, flat::Size},
     ui::{
         BlurView, ScrimView, Setup, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
         view::ViewSubviews,
@@ -14,7 +14,11 @@ use crate::{
 pub trait ModalView<In = (), Out: 'static = ()>: 'static + View + Default {
     fn show_modally(view: Self) -> Weak<Self> {
         let mut view = Own::new(view);
-        view.set_z_position(UIManager::MODAL_Z_OFFSET);
+        // Stacked modals must not share one z position, or the top one
+        // interleaves with the modal under it in the depth test.
+        let depth: f32 = TouchStack::overlay_count().lossy_convert();
+        let z = UIManager::MODAL_Z_OFFSET - UIManager::MODAL_LAYER_Z_STEP * depth;
+        view.set_z_position(z);
         let size = Self::modal_size();
         let weak = view.weak();
         TouchStack::push_layer(weak.weak_view());
@@ -31,7 +35,7 @@ pub trait ModalView<In = (), Out: 'static = ()>: 'static + View + Default {
         } else {
             ScrimView::new()
         };
-        scrim.set_z_position(UIManager::MODAL_Z_OFFSET + UIManager::subview_z_offset());
+        scrim.set_z_position(z + UIManager::subview_z_offset());
         let scrim = UIManager::root_view().add_subview_to_root(scrim);
         scrim.set_color(Self::modal_scrim_color());
         scrim.place().back();

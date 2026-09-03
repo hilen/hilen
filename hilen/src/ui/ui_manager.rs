@@ -21,8 +21,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        DynamicColor, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View, ViewData,
-        ViewFrame, ViewSubviews, WeakView,
+        DynamicColor, Input, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View,
+        ViewData, ViewFrame, ViewSubviews, WeakView,
     },
     window::Window,
 };
@@ -53,6 +53,12 @@ pub struct UIManager {
 
     touch_disabled: AtomicBool,
 
+    /// Whether a drag gesture scrolls scroll views. A finger drags
+    /// content on a touch platform, but a desktop mouse drag belongs to
+    /// the views under it, text selection first of all, so the default
+    /// is off on desktop and on everywhere else.
+    drag_scrolling: AtomicBool,
+
     cursor_position: Mutex<Point>,
 
     draw_debug_frames: AtomicBool,
@@ -79,6 +85,11 @@ pub struct UIManager {
 impl UIManager {
     pub(crate) const ROOT_VIEW_Z_OFFSET: f32 = 0.5;
     pub(crate) const MODAL_Z_OFFSET: f32 = 0.4;
+    /// Each stacked modal sits this much closer than the one under it,
+    /// so an alert over a modal draws over it instead of interleaving.
+    pub(crate) const MODAL_LAYER_Z_STEP: f32 = 0.005;
+    /// A context menu floats over a modal, so it sits closer than one.
+    pub(crate) const MENU_Z_OFFSET: f32 = 0.35;
     pub const DEBUG_Z_OFFSET: f32 = 0.3;
 
     pub(crate) const fn subview_z_offset() -> f32 {
@@ -101,7 +112,9 @@ impl UIManager {
         f32::from_bits(Self::get().scale.load(Ordering::Relaxed))
     }
 
-    pub(crate) fn cursor_position() -> Point {
+    /// The last known cursor or touch position in points. Drag code uses
+    /// it for deltas that stay correct while the dragged view moves.
+    pub fn cursor_position() -> Point {
         *Self::get().cursor_position.lock()
     }
 
@@ -158,7 +171,9 @@ impl UIManager {
         });
     }
 
-    pub(crate) fn unselect_view() {
+    /// Ends the current editing session, the programmatic pair of
+    /// `TextField::focus`. A no-op when nothing is selected.
+    pub fn unselect_view() {
         let this = Self::get();
         let mut selected_view = this.selected_view.lock();
         if selected_view.is_null() {
@@ -204,6 +219,7 @@ impl UIManager {
         Self {
             root_view,
             touch_disabled: false.into(),
+            drag_scrolling: Self::default_drag_scrolling().into(),
             cursor_position: Mutex::new(Point::default()),
             draw_debug_frames: false.into(),
             scale: AtomicU32::new(1.0f32.to_bits()),
@@ -328,6 +344,13 @@ impl UIManager {
         Self::get().keymap.deref()
     }
 
+    /// Cmd on a Mac, Ctrl elsewhere. Touch handlers get no modifier state
+    /// on the touch itself, so a click that means something different with
+    /// the command key held, like adding to a multi selection, asks here.
+    pub fn command_held() -> bool {
+        Input::command_held()
+    }
+
     pub fn cloud_storage_dir() -> Option<PathBuf> {
         #[cfg(ios)]
         {
@@ -352,6 +375,24 @@ impl UIManager {
 }
 
 impl UIManager {
+    /// Off on desktop, where a mouse drag belongs to the views under it
+    /// and the wheel scrolls. On everywhere a finger drags the content.
+    pub(crate) fn default_drag_scrolling() -> bool {
+        !cfg!(desktop)
+    }
+
+    /// Whether a drag gesture scrolls scroll views, see
+    /// `set_drag_scrolling`.
+    pub fn drag_scrolling() -> bool {
+        Self::get().drag_scrolling.load(Ordering::Relaxed)
+    }
+
+    /// Overrides the platform default, for a touch first desktop setup
+    /// like a kiosk, or a test that drives finger gestures.
+    pub fn set_drag_scrolling(on: bool) {
+        Self::get().drag_scrolling.store(on, Ordering::Relaxed);
+    }
+
     pub(crate) fn touch_disabled() -> bool {
         Self::get().touch_disabled.load(Ordering::Relaxed)
     }

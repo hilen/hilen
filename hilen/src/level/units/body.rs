@@ -35,8 +35,11 @@ impl Body {
 impl Sprite for Body {
     fn make(shape: Shape, position: Point) -> Own<Self>
     where Self: Sized {
+        // A body pushed at speed by a moving wall can cross a thin wall in
+        // one step, so every body gets continuous collision detection.
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(Vec2::new(position.x, position.y))
+            .ccd_enabled(true)
             .build();
 
         let collider = shape.make_collider().build();

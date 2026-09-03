@@ -12,6 +12,7 @@ mod tests;
 mod text_field_constraint;
 mod theme;
 mod to_label;
+mod tooltip;
 mod touch_layer;
 mod touch_stack;
 pub(crate) mod ui_drawer;
@@ -31,15 +32,15 @@ pub use ui_proc::*;
 pub(crate) use self::touch_layer::*;
 pub use self::{
     gradient::*, hover::*, images::*, input::*, layout::*, modal_view::*, navigation_view::*, shadow::*,
-    style::*, text_field_constraint::*, theme::*, to_label::*, touch_stack::*, ui_drawer::UIDrawer,
-    ui_event::*, ui_manager::*, view::*, views::*, with_header::*,
+    style::*, text_field_constraint::*, theme::*, to_label::*, tooltip::*, touch_stack::*,
+    ui_drawer::UIDrawer, ui_event::*, ui_manager::*, view::*, views::*, with_header::*,
 };
 pub use crate::{
     gm::{
         color::*,
         flat::{
-            CornerRadii, FillRule, LineCap, LineJoin, Point, PointsPath, Rect, Size, StrokeStyle, VectorPath,
-            VectorPathBuilder,
+            CornerRadii, FillRule, LineCap, LineJoin, Paint, Point, PointsPath, Ramp, Rect, Size,
+            StrokeStyle, VectorPath, VectorPathBuilder,
         },
     },
     window::{

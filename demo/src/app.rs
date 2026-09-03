@@ -45,14 +45,15 @@ impl App for DemoApp {
         BUTTON.apply_globally::<Button>();
 
         // demo is the app the suite runs on a device, so it carries the
-        // whole corpus. The tests register through `ctor`s that nothing calls by
-        // name, so without this the linker drops them and the device quietly
-        // runs a fraction of the suite.
+        // whole corpus. The tests register through `ctor`s that nothing calls
+        // by name, so without this the linker drops them and the device
+        // quietly runs a fraction of the suite.
         ui_test_suite::keep_linked();
     }
 
     fn after_launch(&self) {
         Window::set_quit_on_escape(true);
+        Window::set_icon(include_bytes!("../../assets/images/engine.png"));
     }
 
     fn make_root_view(&self) -> Own<dyn View> {

@@ -3,18 +3,30 @@ use anyhow::Result;
 use crate::{
     deps::hreads::{from_main, wait_for_next_frame},
     gm::{
-        LossyConvert,
+        Clock, LossyConvert,
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Setup, UIManager, View, ViewData},
+    ui::{Button, Keys, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
+        capture::save_shot,
         checks::check_colors_structured,
-        human::{human_mode, show_probes},
+        human::{checkpoint, clean_human_mode, human_mode, show_probes},
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
+    window::{KeyCode, Window, request_frame},
 };
+
+/// Press a key and keep it down until `release_key`, what a player
+/// reads while walking. The run resets held keys before every test.
+pub fn hold_key(code: KeyCode) {
+    from_main(move || Keys::set(code, true));
+}
+
+pub fn release_key(code: KeyCode) {
+    from_main(move || Keys::set(code, false));
+}
 
 #[allow(dead_code)]
 pub(crate) fn add_action(action: impl FnMut() + Send + 'static) {
@@ -28,7 +40,27 @@ pub(crate) fn add_action(action: impl FnMut() + Send + 'static) {
     button.__base_view().view_label = "Debug Action Button".into();
 }
 
+/// Advance frame stepped time by `n` rendered frames and let the loop draw each
+/// one. Only meaningful after `Clock::enter_stepped`. Each step moves the
+/// virtual clock one `STEP_MS` and waits for a real render, so an animation
+/// commits at the new time and its frames land on an exact count no matter how
+/// fast the machine runs.
+pub fn step_frames(n: u32) {
+    for _ in 0..n {
+        let before = from_main(|| {
+            Clock::advance_frame();
+            request_frame();
+            Window::render_frame()
+        });
+        while from_main(Window::render_frame) <= before {
+            wait_for_next_frame();
+        }
+    }
+}
+
 pub fn check_colors(data: &str) -> Result<()> {
+    save_shot("check")?;
+
     if recording_colors() {
         return print_recorded_colors();
     }
@@ -64,7 +96,12 @@ pub fn check_colors(data: &str) -> Result<()> {
             .collect();
 
         let test_name = TEST_NAME.lock().clone();
-        show_probes(&probes, &test_name, next_check_index(&test_name));
+        let index = next_check_index(&test_name);
+        if clean_human_mode() {
+            checkpoint(&format!("{test_name} check {index}"))?;
+        } else {
+            show_probes(&probes, &test_name, index);
+        }
     }
 
     check_colors_structured(&checks)

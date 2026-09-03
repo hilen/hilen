@@ -128,6 +128,27 @@ impl LevelManager {
         &mut SELF.get_mut().camera_pos
     }
 
+    /// Screen points per level unit. The sprite shader draws ten pixels
+    /// per unit times the level scale, and a point is a pixel over the
+    /// screen scale, so an app can place a level point under a view.
+    pub fn points_per_unit() -> f32 {
+        10.0 * Self::scale() / Self::touch_screen_scale()
+    }
+
+    /// Pick the level scale that draws one level unit as `points` screen
+    /// points, so a level can be fitted into a view of a known size.
+    pub fn set_points_per_unit(points: f32) {
+        Self::set_scale(points * Self::touch_screen_scale() / 10.0);
+    }
+
+    fn touch_screen_scale() -> f32 {
+        if Platform::WINDOWS {
+            Window::screen_scale().ceil()
+        } else {
+            Window::screen_scale()
+        }
+    }
+
     pub fn convert_touch(pos: Point) -> Point {
         let mut pos = pos;
         let size = Window::inner_size();
@@ -140,11 +161,7 @@ impl LevelManager {
 
         pos *= 2;
 
-        if Platform::WINDOWS {
-            pos /= Window::screen_scale().ceil();
-        } else {
-            pos /= Window::screen_scale();
-        }
+        pos /= Self::touch_screen_scale();
 
         pos /= Self::scale();
 

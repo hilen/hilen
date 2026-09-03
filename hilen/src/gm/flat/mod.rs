@@ -1,4 +1,5 @@
 mod corner_radii;
+mod paint;
 mod point;
 mod points_path;
 mod process_points;
@@ -9,6 +10,7 @@ mod vector_path;
 mod vertex2d;
 
 pub use corner_radii::CornerRadii;
+pub use paint::{MAX_STOPS, Paint, Ramp};
 pub use point::{Direction, Point};
 pub use points_path::*;
 pub use process_points::*;

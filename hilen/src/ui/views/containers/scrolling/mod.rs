@@ -1,6 +1,8 @@
 #[cfg(feature = "ui-tests")]
 mod auto_content_test;
 #[cfg(feature = "ui-tests")]
+mod bar_theme_test;
+#[cfg(feature = "ui-tests")]
 mod clip_test;
 #[cfg(feature = "ui-tests")]
 mod drag_cancel_test;

@@ -26,6 +26,36 @@ impl Color<f32> {
     }
 }
 
+#[cfg(feature = "scene")]
+impl Color<f32> {
+    /// The channels decoded to linear light, alpha as it is. The scene
+    /// lights in linear, see docs/colors.md.
+    pub(crate) fn linear(&self) -> Self {
+        fn decode(c: f32) -> f32 {
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        Self::rgba(decode(self.r), decode(self.g), decode(self.b), self.a)
+    }
+
+    /// The other way, linear light to the encoded channels a texture
+    /// holds. Clamps, a texel cannot hold more than full white.
+    pub(crate) fn encoded(&self) -> Self {
+        fn encode(c: f32) -> f32 {
+            let c = c.clamp(0.0, 1.0);
+            if c <= 0.003_130_8 {
+                c * 12.92
+            } else {
+                1.055 * c.powf(1.0 / 2.4) - 0.055
+            }
+        }
+        Self::rgba(encode(self.r), encode(self.g), encode(self.b), self.a)
+    }
+}
+
 impl From<Color> for U8Color {
     fn from(value: Color) -> Self {
         U8Color::rgba(
@@ -81,7 +111,10 @@ impl Color {
         *Self::ALL.get(fastrand::usize(..Self::ALL.len())).unwrap()
     }
 
-    pub(crate) fn as_hex(&self) -> String {
+    /// The `#rrggbb` form of the color, alpha dropped. Public so an app
+    /// can tint its own inline svg icons the way the engine's `Tinted`
+    /// image does.
+    pub fn as_hex(&self) -> String {
         U8Color::from(*self).as_hex()
     }
 }
@@ -110,6 +143,22 @@ mod tests {
     fn color_to_u8() {
         let color: U8Color = Color::rgba(0.5, 1.0, 0.1, 0.0).into();
         assert_eq!(color, U8Color::rgba(128, 255, 26, 0));
+    }
+
+    // Middle gray is about a fifth of full light, the sRGB curve is
+    // far from a plain gamma of 2.2 near black.
+    #[cfg(feature = "scene")]
+    #[test]
+    fn linear_decodes_the_srgb_curve() {
+        let gray = Color::rgba(0.5, 0.04045, 0.0, 0.3).linear();
+        assert!((gray.r - 0.214_04).abs() < 1e-4);
+        assert!((gray.g - 0.003_13).abs() < 1e-5);
+        assert!(gray.b.abs() < f32::EPSILON);
+        assert!((gray.a - 0.3).abs() < f32::EPSILON);
+        assert!(WHITE.linear().diff(WHITE) < 1e-6);
+        let back = gray.encoded();
+        assert!((back.r - 0.5).abs() < 1e-4 && (back.g - 0.04045).abs() < 1e-5);
+        assert!((Color::rgb(2.0, 0.5, -1.0).encoded().diff(Color::rgb(1.0, 0.735_36, 0.0))) < 1e-4);
     }
 
     #[test]

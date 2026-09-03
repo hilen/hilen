@@ -1,14 +1,19 @@
+use std::f32::consts::TAU;
+
 use educe::Educe;
 
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::{
+        LossyConvert,
         color::Color,
         flat::{Point, PointsPath, Shape, Size},
     },
     level::Sprite,
     window::{VertexBuffer, image::Image},
 };
+
+const CIRCLE_POINTS: usize = 32;
 
 #[derive(Educe)]
 #[educe(Default)]
@@ -58,7 +63,23 @@ impl SpriteData {
 impl SpriteData {
     fn shape_to_buffer(shape: Shape) -> Option<VertexBuffer> {
         match shape {
-            Shape::Circle(_) | Shape::Rect(_) => None,
+            Shape::Rect(_) => None,
+            // The sprite drawer only knows quads, so a circle is drawn as
+            // a polygon. The collider stays a real ball.
+            Shape::Circle(radius) => {
+                let points: Vec<Point> = (0..CIRCLE_POINTS)
+                    .map(|i| {
+                        let angle = TAU * i.lossy_convert() / CIRCLE_POINTS.lossy_convert();
+                        Point::new(radius * angle.cos(), radius * angle.sin())
+                    })
+                    .collect();
+                let (vertices, indices) = PointsPath::tessellate(points);
+                VertexBuffer {
+                    vertices,
+                    indices: indices.into(),
+                }
+                .into()
+            }
             Shape::Triangle(a, b, c) => Some(vec![a, b, c].into()),
             Shape::Polygon(points) | Shape::Polyline(points) => {
                 let (vertices, indices) = PointsPath::tessellate(points);

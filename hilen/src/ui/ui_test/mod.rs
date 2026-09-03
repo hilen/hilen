@@ -17,13 +17,17 @@ use std::{
     fmt::Display,
     ops::Deref,
     sync::{Arc, mpsc::channel},
+    thread::sleep,
+    time::Duration,
 };
 
 use anyhow::{Result, bail};
-pub use capture::{capture_requested_screenshot, capture_screenshot, enable_screenshot_capture};
+pub use capture::{
+    capture_requested_screenshot, capture_screenshot, enable_screenshot_capture, enable_shots, shots_enabled,
+};
 pub use collect::{TestFailure, any_failed, clear_failures, push_failure, run_test, take_failures};
 pub use helpers::*;
-pub use human::{enable_human_mode, human_checkpoint, human_mode};
+pub use human::{checkpoint, enable_human_mode, human_mode};
 pub(crate) use human::{hold_for_human, human_pause, human_pause_key, human_pause_quick};
 use log::{error, warn};
 use parking_lot::Mutex;
@@ -41,9 +45,12 @@ use crate::{
         hreads::{from_main, is_main_thread, on_main, wait_for_next_frame},
         refs::Own,
     },
-    gm::{LossyConvert, ToF32, drop_on_main},
-    ui::{Input, ModifiersState, NamedKey, Touch, U8Color, UIEvents, UIManager},
-    window::Window,
+    gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
+    ui::{
+        Input, LongPress, ModifiersState, NamedKey, Tooltip, Touch, U8Color, UIEvents, UIManager,
+        input::TouchEvent,
+    },
+    window::{MouseButton, Window},
 };
 
 pub fn test_combinations<const A: usize, Val>(comb: [(&'static str, Val); A]) -> Result<()>
@@ -115,6 +122,60 @@ pub fn inject_touches(data: impl ToString + Send + 'static) {
             inject_touch(touch);
         }
     });
+}
+
+/// A right button press and release at `x y`, the desktop way to open a
+/// context menu. The engine does not gate the right button by platform,
+/// so this drives the same path on a device.
+pub fn inject_right_click(x: impl ToF32, y: impl ToF32) {
+    let position = Point::new(x.to_f32(), y.to_f32()) * UIManager::scale();
+
+    for event in [TouchEvent::Began, TouchEvent::Ended] {
+        from_main(move || {
+            inject_touch(Touch {
+                id: 1,
+                position,
+                event,
+                button: MouseButton::Right,
+            });
+        });
+    }
+
+    human_pause();
+}
+
+/// Holds finger 1 at `x y` past the long press threshold and lets go. The
+/// hold fires `secondary` on the view under it, the release is no tap.
+pub fn inject_long_press(x: impl ToF32, y: impl ToF32) {
+    let position = Point::new(x.to_f32(), y.to_f32()) * UIManager::scale();
+
+    let touch = Touch {
+        id: 1,
+        position,
+        event: TouchEvent::Began,
+        button: MouseButton::Left,
+    };
+
+    from_main(move || inject_touch(touch));
+    sleep(Duration::from_secs_f32(LongPress::DURATION + 0.2));
+    wait_for_next_frame();
+
+    from_main(move || {
+        inject_touch(Touch {
+            event: TouchEvent::Ended,
+            ..touch
+        });
+    });
+
+    human_pause();
+}
+
+/// Waits past the tooltip delay, so a tooltip the cursor is resting on
+/// has shown by the time the next check runs.
+pub fn wait_for_tooltip() {
+    sleep(Duration::from_secs_f32(Tooltip::DELAY + 0.2));
+    wait_for_next_frame();
+    human_pause();
 }
 
 pub fn inject_touches_delayed(data: &str) {
@@ -241,9 +302,9 @@ pub(crate) fn record_ui_test() {
     }
 
     loop {
-        Window::set_title("Recording touches");
+        Window::set_title_prefix("Recording touches");
         record_touches();
-        Window::set_title("Recording colors");
+        Window::set_title_prefix("Recording colors");
         record_colors().unwrap();
     }
 }

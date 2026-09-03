@@ -3,9 +3,10 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::weak_from_ref,
     ui::{
-        Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
+        CursorIcon, LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
         view::{ViewFrame, view_data::ViewData},
     },
+    window::MouseButton,
 };
 
 pub(crate) const NO_TOUCH_ID: usize = 0;
@@ -16,6 +17,13 @@ pub trait ViewTouch {
     fn enable_touch(&self) -> &Self;
     fn enable_touch_low_priority(&self) -> &Self;
     fn enable_hover(&self) -> &Self;
+
+    /// The mouse cursor to show while this view is hovered, for example
+    /// `CursorIcon::ColResize` on a panel drag handle. Turns hover on for
+    /// the view. Only desktop and the browser have a cursor, everywhere
+    /// else this is inert.
+    fn set_hover_cursor(&self, icon: CursorIcon) -> &Self;
+
     fn disable_touch(&self);
     fn touch(&self) -> &ViewTouchEvents;
 }
@@ -44,6 +52,11 @@ impl<T: ?Sized + View> ViewTouch for T {
         self
     }
 
+    fn set_hover_cursor(&self, icon: CursorIcon) -> &Self {
+        self.__base_view().hover_cursor = Some(icon);
+        self.enable_hover()
+    }
+
     fn disable_touch(&self) {
         TouchStack::disable_for(self.weak_view());
     }
@@ -68,6 +81,19 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return false;
     }
 
+    // A right press is its own event and never captures the view. Handled
+    // first so its release cannot end a left capture that shares the id,
+    // every mouse event is finger 1.
+    if touch.button == MouseButton::Right {
+        if !touch.is_began() || !view.contains_visible(touch.position) {
+            return false;
+        }
+
+        touch.position -= view.absolute_frame().origin;
+        base_view.events.touch.secondary.trigger(*touch);
+        return true;
+    }
+
     if touch.is_moved() && base_view.__touch_id == touch.id {
         touch.position -= view.absolute_frame().origin;
         base_view.events.touch.all.trigger(*touch);
@@ -80,7 +106,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     }
 
     if touch.is_ended() && base_view.__touch_id == touch.id {
-        let inside = view.absolute_frame().contains(touch.position);
+        let inside = view.contains_visible(touch.position);
 
         touch.position -= view.absolute_frame().origin;
         base_view.__touch_id = NO_TOUCH_ID;
@@ -92,13 +118,20 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return true;
     }
 
-    if view.absolute_frame().contains(touch.position) {
+    // Only a began touch may be claimed by position. An ended touch must
+    // fall through to the view that captured it on began: a release over
+    // some other view used to be eaten here, the captor kept its
+    // __touch_id, and every later bare mouse move kept dragging it.
+    if touch.is_began() && view.contains_visible(touch.position) {
         touch.position -= view.absolute_frame().origin;
-        if touch.is_began() {
-            base_view.__touch_id = touch.id;
-            base_view.events.touch.began.trigger(*touch);
-            UIManager::set_selected(weak_from_ref(view), true);
-        }
+        base_view.__touch_id = touch.id;
+        LongPress::arm(
+            weak_from_ref(view),
+            touch.id,
+            touch.position + view.absolute_frame().origin,
+        );
+        base_view.events.touch.began.trigger(*touch);
+        UIManager::set_selected(weak_from_ref(view), true);
         base_view.events.touch.all.trigger(*touch);
         return true;
     }

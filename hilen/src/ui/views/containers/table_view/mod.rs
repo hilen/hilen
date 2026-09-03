@@ -1,5 +1,6 @@
 mod cell_registry;
 pub(crate) mod layout;
+mod rows;
 mod table_data;
 mod table_view;
 #[cfg(feature = "ui-tests")]

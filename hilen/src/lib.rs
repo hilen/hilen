@@ -21,27 +21,38 @@ mod deps;
 mod app_runner;
 mod assets;
 mod assets_paths;
+#[cfg(feature = "level")]
 mod level_drawer;
+#[cfg(feature = "scene")]
+mod scene_drawer;
 mod web;
 
 mod app;
 mod app_starter;
 mod config;
 mod dispatch_tools;
+#[cfg(feature = "level")]
 mod game_drawer;
 #[cfg(target_os = "ios")]
 mod ios_log;
+#[cfg(not_wasm)]
+mod log_file;
 mod pipelines;
 
+#[cfg(feature = "audio")]
 pub mod audio;
 pub mod bug_report;
 pub mod filesystem;
+#[cfg(feature = "level")]
 pub mod game;
 pub mod generate;
 pub mod gm;
 pub mod inspect;
+#[cfg(feature = "level")]
 pub mod level;
 pub mod render;
+#[cfg(feature = "scene")]
+pub mod scene;
 pub mod store;
 pub mod system;
 pub mod ui;
@@ -76,6 +87,8 @@ pub mod time {
 pub use app_runner::AppRunner;
 pub use assets::Assets;
 pub use bug_report::BugReport;
+#[cfg(not_wasm)]
+pub use log_file::{log_dir, log_file_path};
 
 pub use crate::{
     deps::vents::{Event, OnceEvent},
@@ -114,5 +127,19 @@ pub type AndroidApp = winit::platform::android::activity::AndroidApp;
 /// a ctor per view before `main`, so the count is known without running
 /// anything and nothing has to merge lists.
 pub static UI_TESTS: __internal_macro_deps::Mutex<
+    std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
+> = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());
+
+/// Every level test, the same shape as `UI_TESTS`, filled by a ctor per
+/// level.
+#[cfg(feature = "level")]
+pub static LEVEL_TESTS: __internal_macro_deps::Mutex<
+    std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
+> = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());
+
+/// Every scene test, the same shape as `UI_TESTS`, filled by a ctor per
+/// scene.
+#[cfg(feature = "scene")]
+pub static SCENE_TESTS: __internal_macro_deps::Mutex<
     std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
 > = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());

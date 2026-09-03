@@ -1,16 +1,22 @@
 use log::warn;
 use parking_lot::Mutex;
-pub use winit::keyboard::{ModifiersState, NamedKey};
+pub use winit::{
+    keyboard::{ModifiersState, NamedKey},
+    window::CursorIcon,
+};
 
+#[cfg(feature = "level")]
+use crate::level::LevelManager;
+#[cfg(feature = "scene")]
+use crate::scene::SceneManager;
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
 use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
-    level::LevelManager,
     ui::{
-        Container, Scrollable, Setup, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
-        ViewSubviews, WeakView, check_touch,
+        Container, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
+        ViewFrame, ViewSubviews, WeakView, check_touch,
     },
 };
 
@@ -67,12 +73,21 @@ impl Input {
             return false;
         }
 
+        #[cfg(any(feature = "level", feature = "scene"))]
         let original_pos = touch.position;
 
         touch.position *= 1.0 / UIManager::scale();
 
         UIManager::set_cursor_position(touch.position);
         UIEvents::on_touch().trigger(touch);
+        if touch.is_began() {
+            UIEvents::touch_began().trigger(touch);
+        }
+
+        // Any press ends a tooltip, a finger or a click is an answer to it.
+        if touch.is_began() {
+            Tooltip::hide();
+        }
 
         #[cfg(any(desktop, wasm))]
         if touch.is_moved() {
@@ -94,14 +109,32 @@ impl Input {
 
         Self::check_scroll_touches(touch);
 
+        if touch.is_moved() {
+            LongPress::moved(touch.id, touch.position);
+        }
+
+        if touch.is_ended() {
+            LongPress::cancel(touch.id);
+        }
+
         for view in TouchStack::touch_views() {
             if check_touch(view, &mut touch) {
                 return true;
             }
         }
 
+        if touch.is_began() {
+            LongPress::arm_tooltip_hold(touch.id, touch.position);
+        }
+
+        #[cfg(feature = "level")]
         if touch.is_began() && !LevelManager::no_level() {
             return LevelManager::level_weak().add_touch(original_pos);
+        }
+
+        #[cfg(feature = "scene")]
+        if touch.is_began() && !SceneManager::no_scene() {
+            return SceneManager::scene_weak().add_touch(original_pos);
         }
 
         false

@@ -60,16 +60,18 @@ impl<T: PartialOrd> Point<T> {
 }
 
 impl Point<f32> {
+    #[cfg(feature = "level")]
     pub(crate) fn angle(self) -> f32 {
         self.y.atan2(self.x)
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn angle_to(self, point: Self) -> f32 {
         let target = point - self;
         target.angle()
     }
 
-    pub(crate) fn length(self) -> f32 {
+    pub fn length(self) -> f32 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
@@ -88,6 +90,7 @@ impl Point<f32> {
         !self.is_positive()
     }
 
+    #[cfg(feature = "level")]
     pub(crate) fn neg(self) -> Self {
         (-self.x, -self.y).into()
     }
@@ -115,6 +118,7 @@ impl Point<f32> {
 }
 
 impl Point<f32> {
+    #[cfg(feature = "level")]
     pub(crate) fn normalized(self) -> Self {
         self.with_length(1.0)
     }
@@ -125,6 +129,7 @@ impl Point<f32> {
 }
 
 impl Point<f32> {
+    #[cfg(feature = "level")]
     pub(crate) fn with_length(self, l: f32) -> Self {
         let ratio = l / self.length();
         Point {

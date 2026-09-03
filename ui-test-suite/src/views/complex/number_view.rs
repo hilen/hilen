@@ -4,10 +4,15 @@ use hilen::{
     refs::Weak,
     ui::{
         Anchor::{Bot, Height, Left, Right, Width, X, Y},
-        Label, NumberView, Setup, ViewData, ViewTest, view,
+        Color, Label, NumberView, Setup, Shadow, TextAlignment, ViewData, ViewTest, view,
     },
-    ui_test::inject_touches,
+    ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
+
+const BOX_TOP: Color = Color::rgb(1.0, 1.0, 1.0);
+const BOX_BOTTOM: Color = Color::rgb(0.88, 0.91, 0.95);
+const BORDER: Color = Color::rgb(0.80, 0.84, 0.90);
+const TEXT: Color = Color::rgb(0.10, 0.12, 0.17);
 
 #[view]
 struct NumberTestView {
@@ -24,6 +29,22 @@ struct NumberTestView {
 impl Setup for NumberTestView {
     fn setup(self: Weak<Self>) {
         fn attach_label(label: Weak<Label>, view: Weak<NumberView>) {
+            // The stepper with chevrons in a bordered rounded box with a
+            // light gradient and a shadow for volume, the line between
+            // the halves in the border color, the value in a label under it.
+            view.set_chevrons().set_separator_color(BORDER).set_bevel(BOX_TOP, BOX_BOTTOM);
+            view.set_corner_radius(12)
+                .set_border_width(1)
+                .set_border_color(BORDER)
+                .set_shadow(Shadow {
+                    offset: (0, 2).into(),
+                    radius: 6.0,
+                    color:  Color::rgb(0.0, 0.0, 0.0).with_alpha(0.25),
+                });
+            label
+                .set_text_color(TEXT)
+                .set_text_size(22)
+                .set_alignment(TextAlignment::Center);
             label.place().same([Width, X], view).h(50).anchor(Bot, view, 20);
             view.on_change(move |num| {
                 label.set_text(num);
@@ -457,9 +478,12 @@ fn tap_down_clamps_to_min(view: Weak<NumberTestView>) {
 
 impl ViewTest for NumberTestView {
     fn perform_test(view: Weak<Self>) -> Result<()> {
+        set_record_probe_count(128);
         tap_buttons_then_clamp_to_min(view);
         tap_up_to_five(view);
         tap_down_clamps_to_min(view);
+
+        check_colors("")?;
 
         Ok(())
     }

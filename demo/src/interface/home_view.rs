@@ -1,150 +1,143 @@
 use hilen::{
-    dispatch::{on_main, spawn},
-    filesystem::Assets,
     level::LevelManager,
-    refs::{Weak, manage::DataManager},
+    refs::{Own, Weak, manage::DataManager},
+    system::Router,
     ui::{
-        AlertErr, Container, Font, ImageView, Label, ScrollView, Setup, Shadow, Switch, TextAlignment, Theme,
-        ThemeMode, UIManager, ViewData, ViewSubviews, view,
+        Button, Container, Font, Label, Setup, Shadow, TextAlignment, UIManager, ViewData, ViewFrame,
+        ViewSubviews, WHITE, view,
     },
 };
+use parking_lot::Mutex;
 
 use crate::interface::{
-    card::Card,
-    dev::MenuView,
-    noise_view::NoiseView,
-    palette::{BG, SURFACE, TEXT},
-    render_view::RenderView,
-    root_layout_view::RootLayoutView,
-    scenes::{EffectsScene, FrostedHud, GameScene, ScrollTables, TextFonts, WidgetGallery},
+    page::Page,
+    palette::{ACCENT, BG, BORDER, SURFACE, TEXT},
+    sidebar::{SIDEBAR_WIDTH, Sidebar},
 };
 
-// Title, subtitle and icon per card. The index maps to a scene in `open`.
-const CARDS: [(&str, &str, &str); 10] = [
-    ("Physics", "gravity and boxes", "crate_box.png"),
-    ("Frosted HUD", "blur over the game", "sky.png"),
-    ("Widgets", "buttons and inputs", "plus.png"),
-    ("Effects", "shadow and blur", "gradient.png"),
-    ("Fonts", "the font zoo", "text.png"),
-    ("Scrolling", "lists and tables", "file.png"),
-    ("Render", "a wgpu pass", "cube_texture.png"),
-    ("Noise", "terrain islands", "palm.png"),
-    ("Layout", "layout anchors", "square.png"),
-    ("Dev", "the raw menu", "cmake.png"),
-];
+// The open home shell, so a card or sidebar tap can swap its page
+// without walking the view tree.
+static CURRENT: Mutex<Option<Weak<HomeView>>> = Mutex::new(None);
 
-// A small spread of readable fonts, cycled across the card titles to
-// show the text pipeline at a glance.
-const CARD_FONTS: [&str; 4] = [
-    "RussoOne-Regular.ttf",
-    "OpenSans.ttf",
-    "Neucha.ttf",
-    "Pangolin-Regular.ttf",
-];
+const TOP_BAR_HEIGHT: f32 = 56.0;
+// Below this width the sidebar folds into a top bar with a menu button.
+const WIDE: f32 = 700.0;
 
-/// The home dashboard. A themed top bar and a scrollable responsive grid
-/// of cards that open the showcase scenes.
+/// The home shell. A sidebar on the left and the open page on the
+/// right. On a narrow screen the sidebar hides behind a menu button in
+/// a top bar and slides over the page when opened.
 #[view]
 pub struct HomeView {
-    cards: Vec<Weak<Card>>,
-    grid:  Weak<Container>,
+    page:      Page,
+    menu_open: bool,
 
     #[init]
-    top_bar: Container,
-    logo:    ImageView,
-    title:   Label,
-    theme:   Switch,
-    scroll:  ScrollView,
+    sidebar: Sidebar,
+    top_bar: TopBar,
+    content: Container,
+}
+
+/// The narrow screen header, a menu button and the open page title.
+#[view]
+struct TopBar {
+    #[init]
+    menu:  Button,
+    title: Label,
+}
+
+impl Setup for TopBar {
+    fn setup(self: Weak<Self>) {
+        self.set_color(SURFACE).set_shadow(Shadow::default());
+
+        self.menu
+            .set_text("Menu")
+            .set_text_size(14)
+            .set_color(ACCENT)
+            .set_text_color(WHITE)
+            .set_corner_radius(10);
+        self.menu.place().l(12).center_y().size(70, 32);
+
+        self.title
+            .set_text_color(TEXT)
+            .set_text_size(20)
+            .set_font(Font::get("RussoOne-Regular.ttf"))
+            .set_alignment(TextAlignment::Left);
+        self.title.place().l(96).r(12).center_y().h(30);
+    }
 }
 
 impl Setup for HomeView {
     fn setup(mut self: Weak<Self>) {
-        LevelManager::stop_level();
-        self.set_color(BG);
+        UIManager::set_clear_color(BG);
+        CURRENT.lock().replace(self);
 
-        self.top_bar.set_color(SURFACE).set_shadow(Shadow::default());
-        self.top_bar.place().t(0).lr(0).h(64);
-
-        self.logo.set_image("engine.png");
-        self.logo.place().l(20).t(12).size(40, 40);
-
-        self.title
-            .set_text("Hilen")
-            .set_text_color(TEXT)
-            .set_text_size(26)
-            .set_font(Font::get("RussoOne-Regular.ttf"))
-            .set_alignment(TextAlignment::Left);
-        self.title.place().l(70).t(15).r(84).h(34);
-
-        self.theme.place().tr(16).size(56, 32);
-        self.theme.on_change(move |on| {
-            Theme::set_mode(if on { ThemeMode::Dark } else { ThemeMode::Light });
+        self.top_bar.menu.on_tap(move || {
+            self.menu_open = !self.menu_open;
+            self.arrange();
         });
 
-        self.scroll.place().t(64).lrb(0);
-        self.grid = self.scroll.add_view::<Container>();
-        self.grid.place().t(16).lr(24).all(16).all_wrap();
-        self.add_cards();
+        // The sidebar draws over the page when it slides out on a phone.
+        self.sidebar.bump_z_position(0.000_1);
 
-        // Start light so the toggle sitting in its off state is honest.
-        Theme::set_mode(ThemeMode::Light);
+        let page = Router::current_path().map_or(Page::Landing, |path| Page::from_path(&path));
+        self.show(page);
+
+        Router::on_pop().val(self, move |path| self.show(Page::from_path(&path)));
+
+        self.size_changed().sub(move || self.arrange());
+        self.arrange();
     }
 }
 
 impl HomeView {
-    fn add_cards(mut self: Weak<Self>) {
-        for (i, (title, subtitle, icon)) in CARDS.into_iter().enumerate() {
-            let card = self.grid.add_view::<Card>();
-            card.set_title(title)
-                .set_subtitle(subtitle)
-                .set_icon(icon)
-                .set_title_font(Font::get(CARD_FONTS[i % CARD_FONTS.len()]));
-            card.place().size(156, 150);
-            card.on_tap(move || Self::open(i));
-            self.cards.push(card);
+    /// Open a page from anywhere. An in place page swaps the content and
+    /// updates the URL, a full screen page replaces the root view.
+    pub fn open(page: Page) {
+        if page.is_in_place() {
+            let home = CURRENT.lock().filter(Weak::is_ok);
+            if let Some(home) = home {
+                if home.page != page {
+                    Router::push(page.path());
+                }
+                home.show(page);
+            } else {
+                Router::push(page.path());
+                UIManager::set_view(HomeView::new());
+            }
+        } else {
+            page.open_full_screen();
         }
     }
 
-    fn open(index: usize) {
-        match index {
-            0 => {
-                // The level sprites are a lazy asset group, the browser
-                // downloads them on the first open. Native resolves at once.
-                spawn(async {
-                    Assets::load_group("game").await.alert_err();
-                    on_main(|| {
-                        UIManager::set_view(GameScene::new());
-                    });
-                });
-            }
-            1 => {
-                UIManager::set_view(FrostedHud::new());
-            }
-            2 => {
-                UIManager::set_view(WidgetGallery::new());
-            }
-            3 => {
-                UIManager::set_view(EffectsScene::new());
-            }
-            4 => {
-                UIManager::set_view(TextFonts::new());
-            }
-            5 => {
-                UIManager::set_view(ScrollTables::new());
-            }
-            6 => {
-                UIManager::set_view(RenderView::new());
-            }
-            7 => {
-                UIManager::set_view(NoiseView::new());
-            }
-            8 => {
-                UIManager::set_view(RootLayoutView::new());
-            }
-            9 => {
-                UIManager::set_view(MenuView::new());
-            }
-            _ => {}
+    fn show(mut self: Weak<Self>, page: Page) {
+        self.page = page;
+        self.menu_open = false;
+        // The landing runs the chamber level, every other page has none.
+        if page != Page::Landing {
+            LevelManager::stop_level();
         }
+        self.content.remove_all_subviews();
+        let view: Own<dyn hilen::ui::View> = page.make_view();
+        self.content.add_subview(view).place().back();
+        self.top_bar.title.set_text(page.title());
+        self.sidebar.mark(page);
+        self.arrange();
+    }
+
+    fn arrange(self: Weak<Self>) {
+        let wide = self.width() >= WIDE;
+
+        self.top_bar.set_hidden(wide);
+        self.sidebar.set_hidden(!wide && !self.menu_open);
+
+        if wide {
+            self.sidebar.place().clear().t(0).lb(0).w(SIDEBAR_WIDTH);
+            self.content.place().clear().trb(0).l(SIDEBAR_WIDTH);
+        } else {
+            self.top_bar.place().clear().t(0).lr(0).h(TOP_BAR_HEIGHT);
+            self.sidebar.place().clear().t(TOP_BAR_HEIGHT).lb(0).w(SIDEBAR_WIDTH);
+            self.content.place().clear().t(TOP_BAR_HEIGHT).lrb(0);
+        }
+        self.sidebar.set_border_color(BORDER);
     }
 }

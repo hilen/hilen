@@ -129,6 +129,12 @@ impl LossyConvert<f32> for i64 {
     }
 }
 
+impl LossyConvert<f64> for i64 {
+    fn lossy_convert(self) -> f64 {
+        self as f64
+    }
+}
+
 impl LossyConvert<f32> for u32 {
     fn lossy_convert(self) -> f32 {
         self as f32

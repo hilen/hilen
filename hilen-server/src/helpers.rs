@@ -53,9 +53,27 @@ where
 }
 
 pub async fn serve(router: Router, port: u16) -> Result<()> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    serve_on(SocketAddr::from(([0, 0, 0, 0], port)), router).await
+}
+
+/// [`serve`] with an explicit bind address, for an app that must stay on
+/// loopback, for example behind a proxy sidecar sharing its network
+/// namespace.
+pub async fn serve_on(addr: SocketAddr, router: Router) -> Result<()> {
+    let listener = bind(addr).await?;
+    serve_listener(listener, router).await
+}
+
+/// Bind separately from serving when startup work runs between the two.
+/// Binding first keeps the healthcheck endpoint reachable even if that
+/// work hangs, requests just wait in the accept queue until
+/// [`serve_listener`] runs.
+pub async fn bind(addr: SocketAddr) -> Result<tokio::net::TcpListener> {
     tracing::info!("listening on {addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    Ok(tokio::net::TcpListener::bind(addr).await?)
+}
+
+pub async fn serve_listener(listener: tokio::net::TcpListener, router: Router) -> Result<()> {
     axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),

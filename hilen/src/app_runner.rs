@@ -11,18 +11,17 @@ use winit::{
 use crate::deps::hreads::{is_main_thread, wait_for_next_frame};
 #[cfg(not_wasm)]
 use crate::deps::refs::Own;
+#[cfg(any(desktop, feature = "level"))]
+use crate::gm::LossyConvert;
+#[cfg(feature = "scene")]
+use crate::scene_drawer::SceneDrawer;
 use crate::{
     App,
     deps::{
         hreads::{from_main, invoke_dispatched},
         refs::main_lock::MainLock,
     },
-    gm::{
-        LossyConvert,
-        flat::{Point, Size},
-    },
-    level::LevelManager,
-    level_drawer::LevelDrawer,
+    gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
         Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
@@ -30,6 +29,8 @@ use crate::{
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
 };
+#[cfg(feature = "level")]
+use crate::{level::LevelManager, level_drawer::LevelDrawer};
 
 #[cfg(not_wasm)]
 static WINDOW_READY: parking_lot::Mutex<crate::deps::vents::OnceEvent> =
@@ -62,12 +63,20 @@ impl AppRunner {
 
     #[cfg(not_wasm)]
     pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
+        use chrono::Local;
         use fern::Dispatch;
-        use log::{Level, LevelFilter};
+        use log::{Level, LevelFilter, info, warn};
 
         #[cfg(target_os = "ios")]
         let output = fern::Output::call(|record| crate::ios_log::log(&record.args().to_string()));
-        #[cfg(not(target_os = "ios"))]
+        // Android swallows stdout, logcat is the only output that reaches
+        // the developer, and going through the one dispatch feeds the bug
+        // report ring the same lines as every other platform.
+        #[cfg(target_os = "android")]
+        let output: Box<dyn log::Log> = Box::new(android_logger::AndroidLogger::new(
+            android_logger::Config::default().with_max_level(LevelFilter::Info),
+        ));
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let output = std::io::stdout();
 
         let mut dispatch = Dispatch::new()
@@ -86,7 +95,29 @@ impl AppRunner {
             crate::bug_report::BugReport::push_log_line(record.args().to_string());
         });
 
-        dispatch
+        // The file gets a timestamp per line, the console stays as it is so
+        // the lines tests grep for keep their shape.
+        let file = match crate::log_file::create().and_then(|path| Ok((fern::log_file(&path)?, path))) {
+            Ok((file, path)) => Some((
+                Dispatch::new()
+                    .format(|out, message, _| {
+                        out.finish(format_args!("{} {message}", Local::now().format("%H:%M:%S%.3f")));
+                    })
+                    .chain(file),
+                path,
+            )),
+            Err(err) => {
+                eprintln!("log file: {err:#}");
+                None
+            }
+        };
+
+        let (file, path) = match file {
+            Some((file, path)) => (Some(file), Some(path)),
+            None => (None, None),
+        };
+
+        let mut dispatch = dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -117,11 +148,19 @@ impl AppRunner {
                 out.finish(format_args!("{log}"));
             })
             .chain(output)
-            .chain(ring)
-            .apply()
-            .expect("Failed to initialize logging");
+            .chain(ring);
+
+        if let Some(file) = file {
+            dispatch = dispatch.chain(file);
+        }
+
+        dispatch.apply().expect("Failed to initialize logging");
 
         debug!("logs setup");
+        match path {
+            Some(path) => info!("log file {}", path.display()),
+            None => warn!("no log file for this launch, see stderr"),
+        }
     }
 
     #[cfg(not_wasm)]
@@ -337,10 +376,11 @@ impl AppRunner {
             // A browser serves sync `get` only from memory, so every
             // asset group downloads before the suite starts. Native
             // reads any file from disk on demand, this keeps both
-            // runs seeing the same assets.
+            // runs seeing the same assets. A miss is fatal, a suite on
+            // the default font fails on pixels far from the cause.
             crate::deps::hreads::spawn(async move {
                 if let Err(err) = crate::assets::Assets::load_all_groups().await {
-                    log::error!("Asset preload for tests failed: {err}");
+                    panic!("Asset preload for tests failed: {err}");
                 }
 
                 Self::spawn_test_worker(only, skip);
@@ -353,11 +393,15 @@ impl AppRunner {
         crate::deps::hreads::spawn_thread(move || {
             let mut tests = crate::UI_TESTS.lock().clone();
 
-            if let Some(only) = only {
+            if let Some(only) = &only {
                 let keep: Vec<String> =
                     only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
                 tests.retain(|name, _| keep.contains(name));
             }
+
+            // Checked before the skip pass, a test the filter matched but a
+            // panic rerun skips is already counted failed by the driver.
+            let filter_matched_nothing = only.is_some() && tests.is_empty();
 
             // The driver reports skipped tests as failures itself, this
             // rerun only has to survive them.
@@ -367,7 +411,19 @@ impl AppRunner {
                 tests.retain(|name, _| !drop.contains(name));
             }
 
-            let report = crate::ui_test::run_test_map(&tests);
+            // A filter with a typo must fail loudly, a green `0 tests`
+            // report is indistinguishable from a pass.
+            let report = if filter_matched_nothing {
+                crate::ui_test::TestRunReport {
+                    total:    0,
+                    failures: vec![crate::ui_test::TestFailure {
+                        name:   only.unwrap_or_default(),
+                        detail: "hilen_test_only matched no registered tests".to_string(),
+                    }],
+                }
+            } else {
+                crate::ui_test::run_test_map(&tests)
+            };
 
             for failure in &report.failures {
                 log::error!("TEST FAILED: {}\n{}", failure.name, failure.detail);
@@ -429,7 +485,8 @@ impl AppRunner {
         // can swap a loading screen for its real UI once assets land, and
         // tearing that root down mid load frees views the load task still
         // touches. An app with no loading phase is ready at once.
-        // The device spelling of `--human`, see the browser `hilen_human` above.
+        // The device spelling of `--human`, see the browser `hilen_human`
+        // above.
         if std::env::var("HILEN_HUMAN").is_ok() {
             crate::ui_test::enable_human_mode();
         }
@@ -440,7 +497,8 @@ impl AppRunner {
 
                 // Run only the named tests when set, a comma separated list, to
                 // isolate cases on a device or simulator where the whole suite
-                // is slow to reach them. Order in the map is still alphabetical.
+                // is slow to reach them. Order in the map is still
+                // alphabetical.
                 if let Ok(only) = std::env::var("HILEN_TEST_ONLY") {
                     let keep: Vec<String> =
                         only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
@@ -478,7 +536,10 @@ impl crate::window::WindowEvents for AppRunner {
             });
 
             self.update();
-            *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
+            #[cfg(feature = "level")]
+            {
+                *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
+            }
 
             crate::window::state::State::resize();
 
@@ -499,7 +560,11 @@ impl crate::window::WindowEvents for AppRunner {
             {
                 #[cfg(desktop)]
                 {
-                    Window::current().set_size(crate::app::app().initial_size().lossy_convert());
+                    let app = crate::app::app();
+                    match app.window_placement() {
+                        Some(placement) => Window::current().apply_placement(&placement),
+                        None => Window::current().apply_initial_size(app.initial_size()),
+                    }
                 }
                 #[cfg(feature = "inspect")]
                 crate::inspect::InspectService::start_listening();
@@ -541,8 +606,24 @@ impl crate::window::WindowEvents for AppRunner {
     fn update(&mut self) {
         UIManager::free_deleted_views();
         invoke_dispatched();
+        #[cfg(feature = "scene")]
+        SceneDrawer::update();
+        #[cfg(feature = "level")]
         LevelDrawer::update();
         UIDrawer::update();
+        // After layout, so a row that replaced the dead hovered one
+        // already has its frame when hover re-picks.
+        #[cfg(any(desktop, wasm))]
+        Hover::refresh_dead();
+    }
+
+    #[cfg(feature = "scene")]
+    fn prepare(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        if UIManager::window_resolution().has_no_area() {
+            return;
+        }
+
+        SceneDrawer::prepare(encoder);
     }
 
     fn render(&mut self, frame: &mut RenderFrame) {
@@ -550,6 +631,9 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
+        #[cfg(feature = "scene")]
+        SceneDrawer::draw(frame.pass());
+        #[cfg(feature = "level")]
         LevelDrawer::draw(frame.pass());
         UIDrawer::draw(frame);
     }
@@ -560,6 +644,7 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn resize(&mut self, inner_pos: Point, outer_pos: Point, inner_size: Size, outer_size: Size) {
         UIManager::set_scale(UIManager::display_scale());
+        #[cfg(feature = "level")]
         LevelManager::set_scale(UIManager::display_scale());
 
         UIManager::root_view().resize_root(inner_pos, outer_pos, inner_size, outer_size, UIManager::scale());
@@ -611,6 +696,10 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn key_event(&mut self, event: KeyEvent) {
+        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+            crate::ui::Keys::set(code, event.state.is_pressed());
+        }
+
         if !event.state.is_pressed() {
             return;
         }

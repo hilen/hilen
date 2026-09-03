@@ -153,7 +153,7 @@ impl UITest {
             reset_record_probe_count();
 
             if human_mode() {
-                Window::set_title(new_test_name.clone());
+                Window::set_title_prefix(new_test_name.clone());
             }
 
             record_test_boundary(Some(new_test_name.clone()));
@@ -173,6 +173,12 @@ impl UITest {
             root.reset_background();
             root.set_test_canvas((width, height).into());
             UIManager::set_clear_color(GRAY_BLUE);
+            // A level is not in the view tree, so one started by a test
+            // would keep drawing under every test after it.
+            #[cfg(feature = "level")]
+            crate::level::LevelManager::stop_level();
+            #[cfg(feature = "scene")]
+            crate::scene::SceneManager::stop_scene();
             root.add_subview_to_root(view).place().back();
 
             trace!("{width} - {height}");

@@ -1,0 +1,15 @@
+[package]
+authors.workspace = true
+description = "Per pixel loops of the hilen engine, kept optimized in dev builds."
+edition.workspace = true
+license.workspace = true
+name = "hilen-pixels"
+repository.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam = { workspace = true }
+tiny-skia = { workspace = true }

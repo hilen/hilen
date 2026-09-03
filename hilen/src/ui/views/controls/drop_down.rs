@@ -1,13 +1,30 @@
 use crate::{
     self as hilen,
     deps::{refs::Weak, vents::Event},
-    gm::{LossyConvert, Toggle, color::WHITE, flat::Size},
+    gm::{
+        LossyConvert, ToF32, Toggle,
+        color::{CLEAR, Color, LIGHT_BLUE, WHITE},
+        flat::{LineCap, LineJoin, StrokeStyle, VectorPath},
+    },
     ui::{
-        Button, CellRegistry, Label, Setup, TableData, TableView, ToLabel, View, ViewData, ViewFrame,
-        ViewSubviews, view,
+        Button, Container, DrawingView, ImageView, Label, Setup, Shadow, TextAlignment, ToLabel, UIColor,
+        UIEvent, UIImages, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
     },
 };
 
+const ARROW: f32 = 16.0;
+const INSET: f32 = 12.0;
+const ROW_HEIGHT: f32 = 36.0;
+const PANEL_PADDING: f32 = 4.0;
+const PANEL_GAP: f32 = 6.0;
+const ROW_RADIUS: f32 = 6.0;
+const CHECK: f32 = 14.0;
+
+/// A closed box with the picked value and a chevron. A tap opens a
+/// panel under it, or above when there is no room, with one row per
+/// value. Rows light up on hover, the picked one shows in the accent
+/// color with a check mark. The box's own color, border and corners are
+/// its look, the panel copies them.
 #[view]
 pub struct DropDown<T: 'static> {
     values:  Vec<T>,
@@ -18,10 +35,22 @@ pub struct DropDown<T: 'static> {
 
     selected_index: usize,
 
+    /// Applied to the collapsed label and to every row.
+    text_color: Option<UIColor>,
+    text_size:  Option<f32>,
+    accent:     Color,
+
+    /// The border set by the app, put back when the box is idle again.
+    idle_border: Option<Color>,
+    raised:      bool,
+
+    rows: Vec<Weak<DropDownRow>>,
+
     #[init]
     button: Button,
     label:  Label,
-    table:  TableView,
+    arrow:  ImageView,
+    panel:  Container,
 }
 
 impl<T: ToLabel + Clone + 'static> DropDown<T> {
@@ -43,26 +72,47 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
         self.label.text()
     }
 
+    pub fn is_opened(&self) -> bool {
+        self.opened
+    }
+
     pub fn set_values(&mut self, values: Vec<T>) {
         self.values = values;
         self.select_index(0);
+    }
 
-        if self.values.is_empty() {
-            return;
-        }
+    /// Text color of the collapsed label and the rows.
+    pub fn set_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
+        let color = color.into();
+        self.text_color = Some(color);
+        self.label.set_text_color(color);
+        self
+    }
 
-        let size: Size = (
-            self.width(),
-            self.height() * self.number_of_cells().lossy_convert(),
-        )
-            .into();
+    pub fn set_text_size(&mut self, size: impl ToF32) -> &mut Self {
+        let size = size.to_f32();
+        self.text_size = Some(size);
+        self.label.set_text_size(size);
+        self
+    }
 
-        self.table.set_size(size.width, size.height);
+    /// The color of the picked row, the check mark, the hover wash and
+    /// the border while hovered or open.
+    pub fn set_accent_color(&mut self, color: impl Into<Color>) -> &mut Self {
+        self.accent = color.into();
+        self
     }
 
     pub fn custom_format(&mut self, format: impl Fn(T) -> String + 'static) {
         self.custom_format = Some(Box::new(format));
         self.set_values(self.values.clone());
+    }
+
+    fn format(&self, value: T) -> String {
+        match &self.custom_format {
+            Some(format) => format(value),
+            None => value.to_label(),
+        }
     }
 
     fn select_index(&mut self, index: usize) {
@@ -73,34 +123,89 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
             return;
         };
 
-        if let Some(format) = &self.custom_format {
-            self.label.set_text(format(value));
+        let text = self.format(value);
+        self.label.set_text(text);
+    }
+
+    fn tapped(mut self: Weak<Self>) {
+        if self.opened.toggle() {
+            self.close();
         } else {
-            self.label.set_text(value);
+            self.open();
         }
     }
 
-    fn tapped(&mut self) {
-        if self.opened.toggle() {
-            self.label.set_hidden(false);
-            self.button.set_hidden(false);
-            self.table.set_hidden(true);
-        } else {
-            self.label.set_hidden(true);
-            self.button.set_hidden(true);
-            self.table.set_hidden(false);
-            let table_height = self.height() * self.number_of_cells().lossy_convert();
-            let width = self.width();
-            self.table.set_size(width, table_height);
-            self.table.reload_data();
-
-            if self.superview().height() - self.max_y() < table_height {
-                let y = -table_height + self.height();
-                self.table.set_y(y);
-            } else {
-                self.table.set_y(0);
-            }
+    fn open(mut self: Weak<Self>) {
+        // The panel floats over whatever sits under the box. Pushed
+        // forward once, later siblings stay behind it.
+        if !self.raised {
+            self.bump_z_position(0.000_1);
+            self.raised = true;
         }
+
+        self.set_border_color(self.accent);
+
+        let text_color = self.text_color;
+        let text_size = self.text_size;
+        let accent = self.accent;
+
+        self.panel.remove_all_subviews();
+        self.rows.clear();
+
+        let count = self.values.len();
+        let panel_height = ROW_HEIGHT * count.lossy_convert() + 2.0 * PANEL_PADDING;
+        let width = self.width();
+
+        let below = self.superview().height() - self.max_y() >= panel_height + PANEL_GAP;
+        let y = if below {
+            self.height() + PANEL_GAP
+        } else {
+            -(panel_height + PANEL_GAP)
+        };
+
+        self.panel
+            .set_color(*self.color())
+            .set_corner_radii(self.corner_radii())
+            .set_border_width(self.border_width())
+            .set_border_color(self.idle_border.unwrap_or(*self.border_color()))
+            .set_shadow(Shadow::default());
+        self.panel.set_frame((0.0, y, width, panel_height));
+        self.panel.set_hidden(false);
+
+        for (index, value) in self.values.clone().into_iter().enumerate() {
+            let row = self.panel.add_view::<DropDownRow>();
+            row.set_frame((
+                PANEL_PADDING,
+                PANEL_PADDING + ROW_HEIGHT * index.lossy_convert(),
+                width - 2.0 * PANEL_PADDING,
+                ROW_HEIGHT,
+            ));
+            row.setup_row(
+                self.format(value),
+                index == self.selected_index,
+                accent,
+                text_color,
+                text_size,
+            );
+            row.picked.val(self, move |()| self.pick(index));
+            self.rows.push(row);
+        }
+    }
+
+    fn close(mut self: Weak<Self>) {
+        self.panel.set_hidden(true);
+        self.panel.remove_all_subviews();
+        self.rows.clear();
+        if let Some(border) = self.idle_border {
+            self.set_border_color(border);
+        }
+    }
+
+    fn pick(mut self: Weak<Self>, index: usize) {
+        self.select_index(index);
+        self.changed.trigger(self.values[index].clone());
+        self.opened = false;
+        self.close();
     }
 }
 
@@ -122,46 +227,106 @@ impl<T: ToLabel + Clone + PartialEq + 'static> DropDown<T> {
 
 impl<T: ToLabel + Clone + 'static> Setup for DropDown<T> {
     fn setup(mut self: Weak<Self>) {
-        self.button.place().back();
+        self.accent = LIGHT_BLUE;
+        self.set_color(WHITE);
+
+        self.button.set_color(CLEAR).place().back();
         self.button.on_tap(move || self.tapped());
 
-        self.label.set_color(WHITE).place().back();
+        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
+        self.label.place().l(INSET).r(INSET + ARROW + 6.0).tb(0);
 
-        self.table.set_data_source(self).register_cell::<Label>();
-        self.table.set_hidden(true);
+        self.arrow.set_image(UIImages::chevron_down());
+        self.arrow.place().r(INSET - 2.0).center_y().size(ARROW, ARROW);
+
+        self.panel.set_hidden(true);
+
+        // The border the app set is what idle looks like. Read on the
+        // first hover or open, after the app's setup has run.
+        self.enable_hover();
+        self.touch().hovered.val(self, move |hovered| {
+            if self.idle_border.is_none() {
+                self.idle_border = Some(*self.border_color());
+            }
+            if hovered {
+                self.set_border_color(self.accent);
+            } else if !self.opened
+                && let Some(border) = self.idle_border
+            {
+                self.set_border_color(border);
+            }
+        });
     }
 }
 
-impl<T: ToLabel + Clone + 'static> TableData for DropDown<T> {
-    fn number_of_cells(&self) -> usize {
-        self.values.len()
-    }
+/// One row of the open panel.
+#[view]
+struct DropDownRow {
+    picked:   UIEvent,
+    accent:   Color,
+    selected: bool,
 
-    fn cell_height(&self, _: usize) -> f32 {
-        self.height()
-    }
+    #[init]
+    label: Label,
+    check: DrawingView,
+}
 
-    fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
-        let this = self.weak();
-        let cell = registry.cell::<Label>();
-        cell.__base_view().view_label += "DropDown cell: ";
-
-        let val = this.values[index].clone();
-
-        cell.set_color(WHITE);
-
-        if let Some(format) = &this.custom_format {
-            cell.set_text(format(val));
-        } else {
-            cell.set_text(val);
+impl DropDownRow {
+    fn setup_row(
+        mut self: Weak<Self>,
+        text: String,
+        selected: bool,
+        accent: Color,
+        text_color: Option<UIColor>,
+        text_size: Option<f32>,
+    ) {
+        self.accent = accent;
+        self.selected = selected;
+        self.label.set_text(text);
+        if let Some(color) = text_color {
+            self.label.set_text_color(color);
         }
-
-        cell
+        if let Some(size) = text_size {
+            self.label.set_text_size(size);
+        }
+        if selected {
+            self.label.set_text_color(accent);
+            let path = VectorPath::polyline([(1.5, 7.5), (5.5, 11.5), (12.5, 3.0)]);
+            self.check.add_stroke(
+                &path,
+                accent,
+                StrokeStyle::width(2.2).cap(LineCap::Round).join(LineJoin::Round),
+            );
+        }
+        self.check.set_hidden(!selected);
+        self.refresh(false);
     }
 
-    fn cell_selected(&mut self, index: usize) {
-        self.select_index(index);
-        self.changed.trigger(self.values[index].clone());
-        self.tapped();
+    fn refresh(self: Weak<Self>, hovered: bool) {
+        if hovered {
+            self.set_color(self.accent.with_alpha(0.14));
+        } else if self.selected {
+            self.set_color(self.accent.with_alpha(0.08));
+        } else {
+            self.set_color(CLEAR);
+        }
+    }
+}
+
+impl Setup for DropDownRow {
+    fn setup(self: Weak<Self>) {
+        self.set_corner_radius(ROW_RADIUS);
+
+        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
+        self.label.place().l(INSET - PANEL_PADDING).r(INSET + CHECK).tb(0);
+
+        self.check.set_color(CLEAR);
+        self.check.place().r(INSET - PANEL_PADDING).center_y().size(CHECK, CHECK);
+
+        self.enable_touch();
+        self.touch().up_inside.sub(self, move || self.picked.trigger(()));
+
+        self.enable_hover();
+        self.touch().hovered.val(self, move |hovered| self.refresh(hovered));
     }
 }

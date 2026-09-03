@@ -13,8 +13,8 @@ use hilen::{
 };
 
 use crate::interface::{
-    palette::{ACCENT, ACCENT_END, ACCENT_START, BG, BORDER, SURFACE, SURFACE_ALT, TEXT, TEXT_DIM},
-    scenes::{HEADER_HEIGHT, add_header},
+    palette::{ACCENT, ACCENT_END, ACCENT_START, BORDER, SURFACE, SURFACE_ALT, TEXT, TEXT_DIM},
+    scenes::{HEADER_HEIGHT, add_title},
 };
 
 const SCROLL_ROWS: usize = 200;
@@ -22,6 +22,7 @@ const TABLE_ROWS: usize = 10_000_000;
 const PANEL_HEADER_HEIGHT: f32 = 92.0;
 const ROW_HEIGHT: f32 = 56.0;
 const ROW_SPACING: f32 = 8.0;
+const FIRST_ROW_GAP: f32 = 10.0;
 const MANUAL_TEXT_SEED: u64 = 0xA11C_E5EED;
 const TABLE_TEXT_SEED: u64 = 0x7AB1_E5EED;
 
@@ -97,11 +98,15 @@ impl RecycledRow {
 }
 
 impl Setup for RecycledRow {
+    fn clips_to_bounds(&self) -> bool {
+        true
+    }
+
     fn setup(self: Weak<Self>) {
         self.set_corner_radius(12).set_border_width(1).set_border_color(BORDER);
 
-        self.accent.set_gradient(ACCENT_START, ACCENT_END).set_corner_radius(2);
-        self.accent.place().l(0).tb(8).w(4);
+        self.accent.set_gradient(ACCENT_START, ACCENT_END);
+        self.accent.place().l(0).tb(0).w(4.8);
 
         self.title
             .set_text_color(TEXT)
@@ -136,8 +141,6 @@ pub struct ScrollTables {
 
 impl Setup for ScrollTables {
     fn setup(mut self: Weak<Self>) {
-        self.set_color(BG);
-
         self.scroll
             .set_color(SURFACE_ALT)
             .set_border_width(1)
@@ -151,13 +154,20 @@ impl Setup for ScrollTables {
             .set_border_color(BORDER)
             .set_shadow(Shadow::default());
         self.table.set_data_source(self).register_cell::<RecycledRow>();
-        self.table.set_cell_spacing(ROW_SPACING).set_header_height(PANEL_HEADER_HEIGHT);
+        self.table
+            .set_cell_spacing(ROW_SPACING)
+            .set_cell_margins(10, 10)
+            .set_header_height(PANEL_HEADER_HEIGHT + FIRST_ROW_GAP);
 
         let header = self.table.add_header_view::<PanelHeader>();
         header.set_content("TABLEVIEW", "10 million messages");
         header.place().t(0).lr(0).h(PANEL_HEADER_HEIGHT);
 
-        add_header(self, "Scroll and Tables");
+        add_title(
+            self,
+            "Scrolling",
+            "A plain ScrollView next to a TableView that recycles its rows.",
+        );
 
         self.size_changed().sub(move || self.arrange());
         self.arrange();
@@ -168,13 +178,13 @@ impl ScrollTables {
     /// Wide screens show the panels side by side, narrow ones stack them
     /// vertically so both stay usable.
     fn arrange(self: Weak<Self>) {
-        let top = HEADER_HEIGHT + 12.0;
+        let top = HEADER_HEIGHT + 4.0;
         if self.width() < 560.0 {
             self.scroll.place().clear().t(top).lr(12).relative_height(self, 0.42);
             self.table.place().clear().anchor(Anchor::Top, self.scroll, 12).lr(12).b(12);
         } else {
-            self.scroll.place().clear().t(top).b(16).l(16).relative_width(self, 0.46);
-            self.table.place().clear().t(top).b(16).r(16).relative_width(self, 0.46);
+            self.scroll.place().clear().t(top).b(20).l(28).relative_width(self, 0.45);
+            self.table.place().clear().t(top).b(20).r(28).relative_width(self, 0.45);
         }
     }
 
@@ -191,7 +201,7 @@ impl ScrollTables {
                 .set_border_width(1)
                 .set_border_color(BORDER);
             row.place()
-                .t(PANEL_HEADER_HEIGHT + 10.0 + (ROW_HEIGHT + ROW_SPACING) * i.lossy_convert())
+                .t(PANEL_HEADER_HEIGHT + FIRST_ROW_GAP + (ROW_HEIGHT + ROW_SPACING) * i.lossy_convert())
                 .lr(10)
                 .h(ROW_HEIGHT);
 

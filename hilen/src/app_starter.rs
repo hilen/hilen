@@ -75,6 +75,13 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
         crate::deps::hreads::set_current_thread_as_main();
+
+        // Apps build their own reqwest clients, so the process default has
+        // to be in place before `before_launch`, not only before the
+        // engine's first request.
+        #[cfg(not_wasm)]
+        crate::deps::netrun::tls::install_provider();
+
         app.before_launch();
 
         #[cfg(not_wasm)]
@@ -114,6 +121,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         {
             event_loop.set_control_flow(ControlFlow::Poll);
             crate::system::install_popstate_listener();
+            crate::web::install_reload_shortcut_listener();
         }
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
@@ -125,14 +133,16 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
     let headless = headless || std::env::var("HILEN_HEADLESS").is_ok();
 
-    #[cfg(all(not_wasm, not_android))]
+    #[cfg(not_wasm)]
     AppRunner::setup_log(app.log_targets());
 
+    #[cfg(linux)]
+    crate::window::wsl::prepare();
+
     // Android swallows stdout and stderr, logcat is the only output that
-    // reaches the developer, so both logs and panics go through it.
+    // reaches the developer, so a panic goes through the log too.
     #[cfg(target_os = "android")]
     {
-        android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info));
         std::panic::set_hook(Box::new(|panic| {
             let backtrace = std::backtrace::Backtrace::force_capture();
             log::error!("{panic}\nBacktrace: {backtrace}");

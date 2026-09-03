@@ -81,5 +81,9 @@ pub(crate) fn take_needs_render() -> bool {
 /// suite asserts through this.
 #[cfg(any(not_wasm, feature = "ui-tests"))]
 pub(crate) fn continuous_render_active() -> bool {
-    crate::ui::UIManager::has_live_animations() || !crate::level::LevelManager::no_level()
+    #[cfg(feature = "level")]
+    let level_running = !crate::level::LevelManager::no_level();
+    #[cfg(not(feature = "level"))]
+    let level_running = false;
+    crate::ui::UIManager::has_live_animations() || level_running
 }

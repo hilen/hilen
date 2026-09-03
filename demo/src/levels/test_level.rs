@@ -121,7 +121,7 @@ impl LevelSetup for TestLevel {
         });
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, _: f32) {
         let pos = self.player.position();
         *LevelManager::camera_pos() = pos;
     }

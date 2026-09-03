@@ -21,7 +21,8 @@ permanent:
   `Platform` has a `TVOS` const. Every in-tree consumer points at the path, so one copy
   resolves everywhere.
 - `winit` is forked. Branch `tvos-0.30` at github.com/VladasZ/winit sits on the exact
-  0.30.13 release commit and is pinned by `rev` in the workspace `Cargo.toml`. It adds
+  0.30.13 release commit and is published on crates.io as `hilen-winit`, declared with
+  `package = "hilen-winit"` in the workspace `Cargo.toml`. It adds
   tvos to `ios_platform` and `apple` in `build.rs` plus five `[target.'cfg(...)']`
   sections in its `Cargo.toml`, and guards five `UIViewController` calls that the SDK
   marks unavailable on tvOS, both `setNeedsStatusBarAppearanceUpdate` call sites,

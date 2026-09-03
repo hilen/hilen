@@ -188,7 +188,8 @@ impl ViewTest for PresentRich {
 
         check_colors(FIRST)?;
 
-        // Present and Done sit at the same spot, each lap slides there and back.
+        // Present and Done sit at the same spot, each lap slides there and
+        // back.
         let mut first = view;
         for _ in 0..4 {
             inject_touches(

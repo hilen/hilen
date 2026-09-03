@@ -1,4 +1,7 @@
-use super::layout::LayoutMode;
+use super::{
+    layout::LayoutMode,
+    rows::{Rows, row_offsets},
+};
 use crate::{
     self as hilen,
     deps::{
@@ -21,7 +24,32 @@ pub struct TableView {
 
     pub(super) cell_spacing: f32,
 
+    /// Empty space between the table edges and the cells, left and right.
+    pub(super) cell_margins: (f32, f32),
+
+    /// Rows read their own `cell_height(index)` instead of sharing row 0.
+    pub(super) variable_heights: bool,
+
+    /// Row offsets of a variable height table, rebuilt on a full layout.
+    /// Empty for a uniform table, which needs no memory per row.
+    pub(super) row_offsets: Vec<f32>,
+
+    /// Rows pin to the viewport top per `TableData::is_sticky`.
+    pub(super) sticky_enabled: bool,
+
+    /// Cell indices the data marks sticky, rebuilt on a full layout.
+    pub(super) sticky_rows: Vec<usize>,
+
+    /// The sticky rows currently on screen: index, y in the table's own
+    /// coordinates and height. Taps check them before the row geometry.
+    pub(super) pinned: Vec<(usize, f32, f32)>,
+
+    /// Cells drawn in front of the other cells while their row is
+    /// pinned, lowered back when it unpins or recycles.
+    pub(super) raised: Vec<(usize, WeakView)>,
+
     pub(super) header_height: f32,
+    pub(super) footer_height: f32,
     pub(super) header_views:  Vec<WeakView>,
 
     pub(super) registry: CellRegistry,
@@ -95,10 +123,42 @@ impl TableView {
         self
     }
 
+    pub fn set_cell_margins(&mut self, left: impl ToF32, right: impl ToF32) -> &mut Self {
+        self.cell_margins = (left.to_f32(), right.to_f32());
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
+    /// Width of one cell and the x of the first column.
+    pub(super) fn cell_width(&self, columns: f32) -> (f32, f32) {
+        let (left, right) = self.cell_margins;
+        let width = (self.width() - left - right - self.cell_spacing * (columns - 1.0)) / columns;
+        (width, left)
+    }
+
+    /// Every row gets its own height from `cell_height(index)`, the index
+    /// of its first cell. Off by default, where `cell_height(0)` is the
+    /// height of every row and the table never walks the data. Turning
+    /// it on costs one `cell_height` call per row on every `reload_data`.
+    pub fn set_variable_heights(&mut self, variable: bool) -> &mut Self {
+        self.variable_heights = variable;
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
     /// Reserves space above the first row for header views. The header
     /// scrolls away with the content.
     pub fn set_header_height(&mut self, height: impl ToF32) -> &mut Self {
         self.header_height = height.to_f32();
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
+    /// Empty space after the last row, so the content can scroll past it
+    /// by this much. Gives the bottom of a list the same breathing room
+    /// the cell spacing gives every other row.
+    pub fn set_footer_height(&mut self, height: impl ToF32) -> &mut Self {
+        self.footer_height = height.to_f32();
         self.layout_cells(LayoutMode::Full);
         self
     }
@@ -123,6 +183,88 @@ impl TableView {
         self.scroll.set_content_offset(f32::MIN);
         self.layout_cells(LayoutMode::Scroll);
     }
+
+    /// Sets the scroll position: 0 is the top, negative values scroll
+    /// down. Clamped to the scrollable range on both ends, so call it
+    /// after `reload_data` when the row set changed.
+    pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
+        self.scroll.set_content_offset(offset.to_f32().min(0.0));
+        self.layout_cells(LayoutMode::Scroll);
+        self
+    }
+
+    /// The current scroll position: 0 at the top, negative below it.
+    pub fn content_offset(&self) -> f32 {
+        self.scroll.get_scroll_content_offset()
+    }
+
+    /// Rows the data marks with `TableData::is_sticky` pin to the top of
+    /// the viewport while their section scrolls by, and the next sticky
+    /// row pushes the pinned one away. Off by default, turning it on
+    /// walks `is_sticky` over the data on every `reload_data`.
+    pub fn set_sticky_rows(&mut self, sticky: bool) -> &mut Self {
+        self.sticky_enabled = sticky;
+        self.layout_cells(LayoutMode::Full);
+        self
+    }
+
+    /// Total height of the content: rows, spacing, header and footer.
+    pub fn content_height(&self) -> f32 {
+        self.scroll.content_height()
+    }
+
+    /// The cell index at a point in the table's own coordinates, from
+    /// the row geometry alone, pinned sticky rows ignored. `None` above
+    /// the first row or past the last.
+    pub fn index_at(&self, pos: Point) -> Option<usize> {
+        if self.data.is_null() {
+            return None;
+        }
+
+        let number_of_cells = self.data.number_of_cells();
+
+        if number_of_cells == 0 {
+            return None;
+        }
+
+        let columns: f32 = self.columns.lossy_convert();
+        let spacing = self.cell_spacing;
+        let (cell_width, left) = self.cell_width(columns);
+
+        let col = ((pos.x - left - cell_width / 2.0) / (cell_width + spacing))
+            .round()
+            .clamp(0.0, columns - 1.0);
+
+        let y = pos.y - self.scroll.get_scroll_content_offset() - self.header_height;
+        if y < 0.0 {
+            return None;
+        }
+
+        let rows = self.rows(number_of_cells);
+
+        if y > rows.total() + spacing / 2.0 {
+            return None;
+        }
+
+        let row: f32 = rows.row_for_tap(y).lossy_convert();
+        let index: usize = (row * columns + col).lossy_convert();
+
+        (index < number_of_cells).then_some(index)
+    }
+
+    /// The cells on screen right now, each with the index of the row it
+    /// currently shows. The views recycle, so hold the pairs only for
+    /// the current frame.
+    pub fn visible_cells(&self) -> Vec<(usize, WeakView)> {
+        self.scroll
+            .content
+            .subviews()
+            .iter()
+            .filter(|view| !view.is_hidden())
+            .filter(|view| !self.header_views.iter().any(|h| h.raw() == view.weak().raw()))
+            .map(|view| (view.tag(), view.weak()))
+            .collect()
+    }
 }
 
 impl TableView {
@@ -135,34 +277,51 @@ impl TableView {
             return;
         }
 
-        let number_of_cells = self.data.number_of_cells();
+        // A pinned sticky row covers whatever the row geometry has at its
+        // position, so it takes the tap first.
+        for (index, y, height) in self.pinned.clone() {
+            if pos.y >= y && pos.y < y + height {
+                self.data.cell_selected(index);
+                return;
+            }
+        }
 
-        if number_of_cells == 0 {
+        if let Some(index) = self.index_at(pos) {
+            self.data.cell_selected(index);
+        }
+    }
+
+    pub(super) fn row_count(&self, number_of_cells: usize) -> usize {
+        number_of_cells.div_ceil(self.columns)
+    }
+
+    /// The row geometry for the current data. A variable table answers
+    /// from the cached offsets, see `rebuild_row_offsets`.
+    pub(super) fn rows(&self, number_of_cells: usize) -> Rows<'_> {
+        if self.variable_heights {
+            Rows::Variable {
+                offsets: &self.row_offsets,
+                spacing: self.cell_spacing,
+            }
+        } else {
+            Rows::uniform(
+                self.row_count(number_of_cells),
+                self.data.cell_height(0),
+                self.cell_spacing,
+            )
+        }
+    }
+
+    pub(super) fn rebuild_row_offsets(&mut self, number_of_cells: usize) {
+        if !self.variable_heights {
+            self.row_offsets.clear();
             return;
         }
 
-        let columns: f32 = self.columns.lossy_convert();
-        let cell_height = self.data.cell_height(0);
-        let spacing = self.cell_spacing;
-        let cell_width = (self.width() - spacing * (columns - 1.0)) / columns;
+        let columns = self.columns;
+        let heights = (0..self.row_count(number_of_cells)).map(|row| self.data.cell_height(row * columns));
 
-        let col = ((pos.x - cell_width / 2.0) / (cell_width + spacing))
-            .round()
-            .clamp(0.0, columns - 1.0);
-
-        let y = pos.y - self.scroll.get_scroll_content_offset() - self.header_height;
-        if y < 0.0 {
-            return;
-        }
-        let row = ((y - cell_height / 2.0) / (cell_height + spacing)).round().max(0.0);
-
-        let index: usize = (row * columns + col).lossy_convert();
-
-        if index >= number_of_cells {
-            return;
-        }
-
-        self.data.cell_selected(index);
+        self.row_offsets = row_offsets(heights, self.cell_spacing);
     }
 
     fn layout_cells(&mut self, mode: LayoutMode) {
@@ -179,6 +338,15 @@ impl TableView {
 
         if number_of_cells == 0 {
             return;
+        }
+
+        if matches!(mode, LayoutMode::Full) || (self.variable_heights && self.row_offsets.is_empty()) {
+            self.rebuild_row_offsets(number_of_cells);
+            self.sticky_rows = if self.sticky_enabled {
+                (0..number_of_cells).filter(|i| self.data.is_sticky(*i)).collect()
+            } else {
+                Vec::new()
+            };
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);
@@ -237,31 +405,17 @@ mod test {
             cell
         }
 
-        #[allow(clippy::format_push_string)]
         fn cell_selected(&mut self, index: usize) {
-            *TEST_DATA.lock() += &format!("|{index}|");
+            let mut data = TEST_DATA.lock();
+            data.push('|');
+            data.push_str(&index.to_string());
+            data.push('|');
         }
     }
 
     impl ViewTest for TableView2Test {
-        #[allow(clippy::too_many_lines)]
         fn perform_test(mut view: Weak<Self>) -> Result<()> {
-            inject_touches(
-                "
-                    395  35   b
-                    394  35   e
-                    357  160  b
-                    357  159  e
-                    349  258  b
-                    349  258  e
-                    351  366  b
-                    351  366  e
-                    353  455  b
-                    353  455  e
-                    350  528  b
-                    350  528  e
-                ",
-            );
+            inject_touches(TOUCHES_1);
 
             assert_eq!(TEST_DATA.lock().deref(), "|0||1||2||3||4||5|");
 
@@ -273,23 +427,7 @@ mod test {
 
             inject_scroll(-1000);
 
-            inject_touches(
-                "
-                359  58   b
-                359  58   e
-                334  159  b
-                334  159  e
-                349  239  b
-                349  239  e
-                354  346  b
-                353  345  e
-                354  436  b
-                353  435  e
-                353  536  b
-                353  536  e
-
-            ",
-            );
+            inject_touches(TOUCHES_2);
 
             assert_eq!(TEST_DATA.lock().deref(), "|50||51||52||53||54||55|");
             TEST_DATA.lock().clear();
@@ -304,34 +442,7 @@ mod test {
 
             inject_scroll(-1000);
 
-            inject_touches(
-                "
-                239  57   b
-                239  57   e
-                219  174  b
-                219  174  e
-                220  248  b
-                220  248  e
-                213  358  b
-                213  358  e
-                201  453  b
-                200  453  e
-                206  537  b
-                206  537  e
-                468  531  b
-                468  531  e
-                494  420  b
-                494  420  e
-                489  350  b
-                489  350  e
-                485  244  b
-                485  244  e
-                485  138  b
-                485  138  e
-                479  48   b
-                479  48   e
-            ",
-            );
+            inject_touches(TOUCHES_3);
 
             assert_eq!(
                 TEST_DATA.lock().deref(),
@@ -344,35 +455,7 @@ mod test {
             inject_scroll(-100_000_000);
             inject_scroll(-100_000_000);
 
-            inject_touches(
-                "
-                212  565  b
-                212  565  e
-                211  455  b
-                210  455  e
-                215  365  b
-                215  365  e
-                219  262  b
-                219  262  e
-                211  139  b
-                211  139  e
-                205  62   b
-                205  62   e
-                390  56   b
-                390  56   e
-                380  144  b
-                380  144  e
-                382  264  b
-                382  264  e
-                370  351  b
-                370  351  e
-                372  432  b
-                371  432  e
-                396  569  b
-                396  569  e
-
-            ",
-            );
+            inject_touches(TOUCHES_4);
 
             assert_eq!(
                 TEST_DATA.lock().deref(),
@@ -384,4 +467,88 @@ mod test {
             Ok(())
         }
     }
+
+    const TOUCHES_1: &str = "
+    395  35   b
+    394  35   e
+    357  160  b
+    357  159  e
+    349  258  b
+    349  258  e
+    351  366  b
+    351  366  e
+    353  455  b
+    353  455  e
+    350  528  b
+    350  528  e
+    ";
+
+    const TOUCHES_2: &str = "
+    359  58   b
+    359  58   e
+    334  159  b
+    334  159  e
+    349  239  b
+    349  239  e
+    354  346  b
+    353  345  e
+    354  436  b
+    353  435  e
+    353  536  b
+    353  536  e
+    ";
+
+    const TOUCHES_3: &str = "
+    239  57   b
+    239  57   e
+    219  174  b
+    219  174  e
+    220  248  b
+    220  248  e
+    213  358  b
+    213  358  e
+    201  453  b
+    200  453  e
+    206  537  b
+    206  537  e
+    468  531  b
+    468  531  e
+    494  420  b
+    494  420  e
+    489  350  b
+    489  350  e
+    485  244  b
+    485  244  e
+    485  138  b
+    485  138  e
+    479  48   b
+    479  48   e
+    ";
+
+    const TOUCHES_4: &str = "
+    212  565  b
+    212  565  e
+    211  455  b
+    210  455  e
+    215  365  b
+    215  365  e
+    219  262  b
+    219  262  e
+    211  139  b
+    211  139  e
+    205  62   b
+    205  62   e
+    390  56   b
+    390  56   e
+    380  144  b
+    380  144  e
+    382  264  b
+    382  264  e
+    370  351  b
+    370  351  e
+    372  432  b
+    371  432  e
+    396  569  b
+    396  569  e
+    ";
 }

@@ -231,10 +231,17 @@ fn add_inits(root_name: &Ident, fields: &mut FieldsNamed, root: &Path) -> TokenS
 
         let label = LitStr::new(&format!("{root_name}.{name}"), name.span());
 
+        // A field behind a `cfg` is only there on the platforms it names,
+        // so its init has to sit behind the same `cfg`.
+        let cfgs: Vec<&Attribute> = field.attrs.iter().filter(|a| a.path().is_ident("cfg")).collect();
+
         res = quote! {
             #res
-            self.#name = self.__add_view_internal();
-            self.#name.__base_view().view_label = format!("{}: {}", #label, self.#name.__base_view().view_label);
+            #(#cfgs)*
+            {
+                self.#name = self.__add_view_internal();
+                self.#name.__base_view().view_label = format!("{}: {}", #label, self.#name.__base_view().view_label);
+            }
         }
     }
 

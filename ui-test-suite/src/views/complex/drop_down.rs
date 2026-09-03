@@ -43,12 +43,12 @@ impl ViewTest for DropDownTestView {
             r"
             334  35   b
             334  35   e
-            322  68   b
-            321  68   e
+            322  109  b
+            321  109  e
             352  585  b
             352  585  e
-            326  536  b
-            326  536  e
+            326  491  b
+            326  491  e
         ",
         );
 
@@ -96,8 +96,8 @@ impl ViewTest for DropDownTestView {
             r"
             352  585  b
             352  585  e
-            352  575  b
-            352  575  e
+            352  527  b
+            352  527  e
         ",
         );
 

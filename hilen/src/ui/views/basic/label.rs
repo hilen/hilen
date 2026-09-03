@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::atomic::Ordering};
+use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
 use ui_proc::view;
@@ -13,6 +13,7 @@ use crate::{
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         view::{ViewData, ViewSubviews},
+        views::basic::label_runs::StyleRun,
     },
     window::{Font, TextLayout, image::ToImage},
 };
@@ -43,6 +44,17 @@ pub enum VerticalAlignment {
     Center,
 }
 
+/// Which end an ellipsized label cuts. Tail keeps the front, the CSS
+/// `text-overflow: ellipsis`. Head keeps the end, what a path under
+/// `dir="rtl"` shows.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Ellipsize {
+    #[default]
+    None,
+    Tail,
+    Head,
+}
+
 #[view]
 pub struct Label {
     pub alignment: TextAlignment,
@@ -52,6 +64,14 @@ pub struct Label {
     pub text: String,
 
     multiline: bool,
+
+    ellipsize: Ellipsize,
+
+    /// The truncation computed for the cached width: the width it was
+    /// computed at, and the shortened copy, `None` when the full text
+    /// fits there. Dropped by every setter that changes what a
+    /// truncation depends on.
+    pub(super) ellipsized: Option<(f32, Option<String>)>,
 
     #[educe(Default = BLACK)]
     text_color: Color,
@@ -64,6 +84,14 @@ pub struct Label {
 
     dynamic_text_end_color: Option<DynamicColor>,
 
+    /// Byte ranges of the text drawn in their own color, sorted and not
+    /// overlapping. Everything outside them keeps `text_color`.
+    color_runs: Vec<ColorRun>,
+
+    /// Byte ranges drawn in their own font or underlined, sorted and not
+    /// overlapping. See `set_font_runs`.
+    pub(super) font_runs: Vec<StyleRun>,
+
     #[educe(Default = DEFAULT_TEXT_SIZE.load(Ordering::Relaxed))]
     text_size: f32,
 
@@ -71,6 +99,12 @@ pub struct Label {
     /// tightens. Needed to match fonts whose tracking the platform
     /// applies from the trak table, like SF Pro on macOS.
     letter_spacing: f32,
+
+    /// Points between baselines, the CSS line box. `None` keeps the
+    /// font's own line height. Glyphs center in each box with half the
+    /// leading above and below, and a multiline measure is boxes times
+    /// the box.
+    line_height: Option<f32>,
 
     font: Weak<Font>,
 }
@@ -80,9 +114,66 @@ impl Label {
         &self.text
     }
 
+    /// Also drops the color and font runs, they were ranges of the old text.
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
-        weak_from_ref(self).text = text.to_label();
+        let mut this = weak_from_ref(self);
+        this.text = text.to_label();
+        this.color_runs.clear();
+        this.font_runs.clear();
+        this.ellipsized = None;
         self
+    }
+
+    /// Paints byte ranges of the text in their own colors, the rest keeps
+    /// the text color. Shaping runs over the whole text once, so kerning
+    /// and letter spacing across a run boundary stay as they are. Ranges
+    /// are clamped to the text, sorted, and a later range wins an overlap.
+    /// A highlighter such as syntect produces exactly this shape.
+    pub fn set_color_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) -> &Self {
+        let mut this = weak_from_ref(self);
+        let len = this.text.len();
+
+        let mut all: Vec<ColorRun> = runs
+            .into_iter()
+            .map(|(range, color)| ColorRun {
+                range:   range.start.min(len)..range.end.min(len),
+                color:   color.resolve(),
+                dynamic: color.dynamic(),
+            })
+            .filter(|run| run.range.start < run.range.end)
+            .collect();
+
+        all.sort_by_key(|run| run.range.start);
+
+        // A later range wins, so the earlier one gives up the overlap.
+        let mut runs: Vec<ColorRun> = vec![];
+        for run in all {
+            if let Some(last) = runs.last_mut()
+                && last.range.end > run.range.start
+            {
+                last.range.end = run.range.start;
+                if last.range.start >= last.range.end {
+                    runs.pop();
+                }
+            }
+            runs.push(run);
+        }
+
+        this.color_runs = runs;
+        self
+    }
+
+    pub fn clear_color_runs(&self) -> &Self {
+        weak_from_ref(self).color_runs.clear();
+        self
+    }
+
+    pub(crate) fn color_runs(&self) -> &[ColorRun] {
+        &self.color_runs
+    }
+
+    pub fn color_runs_len(&self) -> usize {
+        self.color_runs.len()
     }
 
     pub fn text_color(&self) -> &Color {
@@ -145,7 +236,9 @@ impl Label {
     }
 
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
-        weak_from_ref(self).text_size = size.to_f32();
+        let mut this = weak_from_ref(self);
+        this.text_size = size.to_f32();
+        this.ellipsized = None;
         self
     }
 
@@ -154,7 +247,21 @@ impl Label {
     }
 
     pub fn set_letter_spacing(&self, spacing: impl ToF32) -> &Self {
-        weak_from_ref(self).letter_spacing = spacing.to_f32();
+        let mut this = weak_from_ref(self);
+        this.letter_spacing = spacing.to_f32();
+        this.ellipsized = None;
+        self
+    }
+
+    pub(crate) fn line_height(&self) -> Option<f32> {
+        self.line_height
+    }
+
+    /// Points between baselines, the CSS line box, see the field.
+    pub fn set_line_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.line_height = Some(height.to_f32());
+        this.ellipsized = None;
         self
     }
 
@@ -167,7 +274,9 @@ impl Label {
     }
 
     pub fn set_font(&self, font: Weak<Font>) -> &Self {
-        weak_from_ref(self).font = font;
+        let mut this = weak_from_ref(self);
+        this.font = font;
+        this.ellipsized = None;
         self
     }
 
@@ -182,7 +291,15 @@ impl Label {
     pub fn size_for_width(&self, width: f32) -> Size {
         let margin = self.alignment_margin();
         let bound = self.multiline.then_some(width - margin);
-        let measured = self.font().measure(&self.text, self.text_size, bound, self.letter_spacing);
+        let runs = self.shaping_runs(&self.text);
+        let measured = self.font().measure(
+            &self.text,
+            self.text_size,
+            bound,
+            self.letter_spacing,
+            runs,
+            self.line_height,
+        );
 
         if measured.has_no_area() {
             return measured;
@@ -214,10 +331,13 @@ impl Label {
     }
 
     /// Line and caret positions of `text` drawn by this label, in points,
-    /// wrapping at the current frame width when multiline.
-    pub(crate) fn text_layout_for(&self, text: &str) -> TextLayout {
+    /// wrapping at the current frame width when multiline. Public so a
+    /// view can map a click on drawn text to a byte and back, the way a
+    /// diff panel selects code.
+    pub fn text_layout_for(&self, text: &str) -> TextLayout {
         let bound = self.multiline.then_some(self.width() - self.alignment_margin());
-        self.font().text_layout(text, self.text_size, bound, self.letter_spacing)
+        let runs = self.shaping_runs(text);
+        self.font().text_layout(text, self.text_size, bound, self.letter_spacing, runs)
     }
 
     /// The drawer indents left and right aligned text, see `alignment_margin`.
@@ -230,8 +350,123 @@ impl Label {
     }
 
     pub fn set_multiline(&self, multiline: bool) -> &Self {
-        weak_from_ref(self).multiline = multiline;
+        let mut this = weak_from_ref(self);
+        this.multiline = multiline;
+        this.ellipsized = None;
         self
+    }
+
+    /// A single line label cuts text that does not fit its width to the
+    /// longest prefix that does and draws an ellipsis after it, the CSS
+    /// `text-overflow: ellipsis`. Off by default, the overflow clips.
+    /// Multiline labels wrap instead and ignore this.
+    pub fn set_ellipsize(&self, ellipsize: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.ellipsize = if ellipsize {
+            Ellipsize::Tail
+        } else {
+            Ellipsize::None
+        };
+        this.ellipsized = None;
+        self
+    }
+
+    /// Like `set_ellipsize` but cuts the front and keeps the end, with
+    /// the ellipsis leading, what a path under `dir="rtl"` with CSS
+    /// `text-overflow: ellipsis` shows. Do not combine with color or
+    /// font runs, their byte ranges are of the full text and do not
+    /// follow the shifted copy.
+    pub fn set_ellipsize_head(&self, ellipsize: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.ellipsize = if ellipsize {
+            Ellipsize::Head
+        } else {
+            Ellipsize::None
+        };
+        this.ellipsized = None;
+        self
+    }
+
+    /// The text the drawer paints at the given frame width: the full text
+    /// while it fits, the truncated copy with the trailing ellipsis when
+    /// it does not. The full text unless `set_ellipsize` opted in.
+    pub fn display_text(&self, width: f32) -> &str {
+        if self.ellipsize == Ellipsize::None || self.multiline || self.text.is_empty() {
+            return &self.text;
+        }
+
+        if self.ellipsized.as_ref().is_none_or(|(w, _)| (*w - width).abs() > f32::EPSILON) {
+            let truncated = self.truncate_to(width);
+            weak_from_ref(self).ellipsized = Some((width, truncated));
+        }
+
+        match &self.ellipsized.as_ref().expect("just computed").1 {
+            Some(text) => text,
+            None => &self.text,
+        }
+    }
+
+    fn truncate_to(&self, width: f32) -> Option<String> {
+        const ELLIPSIS: &str = "…";
+
+        let available = width - self.alignment_margin();
+        let mut font = self.font();
+        let mut fits = |text: &str| {
+            let runs = self.shaping_runs(text);
+            font.measure(text, self.text_size, None, self.letter_spacing, runs, None).width <= available
+        };
+
+        if fits(&self.text) {
+            return None;
+        }
+
+        // Byte boundary of the cut keeping this many characters, prefix
+        // ends for the tail cut, suffix starts for the head cut. Keeping
+        // every character is out, the full text already does not fit.
+        let head = self.ellipsize == Ellipsize::Head;
+        let cuts: Vec<usize> = if head {
+            let mut starts: Vec<usize> = self.text.char_indices().map(|(index, _)| index).collect();
+            starts.reverse();
+            starts
+        } else {
+            self.text
+                .char_indices()
+                .skip(1)
+                .map(|(index, _)| index)
+                .chain([self.text.len()])
+                .collect()
+        };
+        let candidate = |kept: usize| {
+            if head {
+                let start = if kept == 0 {
+                    self.text.len()
+                } else {
+                    cuts[kept - 1]
+                };
+                format!("{ELLIPSIS}{}", &self.text[start..])
+            } else {
+                let end = if kept == 0 { 0 } else { cuts[kept - 1] };
+                format!("{}{ELLIPSIS}", &self.text[..end])
+            }
+        };
+
+        // The longest fitting cut by binary search. When even the bare
+        // ellipsis does not fit it still draws, like CSS does.
+        let mut best = 0;
+        let (mut low, mut high) = (0, cuts.len() - 1);
+        while low <= high {
+            let mid = usize::midpoint(low, high);
+            if fits(&candidate(mid)) {
+                best = mid;
+                low = mid + 1;
+            } else if mid == 0 {
+                break;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        Some(candidate(best))
     }
 
     pub fn set_image(&self, image: impl ToImage) -> &Self {
@@ -287,7 +522,19 @@ impl ViewCallbacks for Label {
         if let Some(color) = self.dynamic_text_end_color {
             self.text_end_color = Some(color.resolve());
         }
+        for run in &mut self.color_runs {
+            if let Some(color) = run.dynamic {
+                run.color = color.resolve();
+            }
+        }
     }
+}
+
+/// One colored byte range of a label's text.
+pub(crate) struct ColorRun {
+    pub range:   Range<usize>,
+    pub color:   Color,
+    pub dynamic: Option<DynamicColor>,
 }
 
 pub trait AddLabel {

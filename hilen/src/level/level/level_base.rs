@@ -32,6 +32,17 @@ pub struct LevelBase {
 }
 
 impl LevelBase {
+    /// Physics steps per frame. Rapier's CCD covers a fast body hitting
+    /// a wall, but not a fast kinematic wall sweeping into a slow body,
+    /// that one only stays correct when a step moves the wall less than
+    /// the body is wide. The level sets its kinematic poses once per
+    /// step, so the wall moves in small hops instead of one jump.
+    pub const PHYSICS_SUBSTEPS: usize = 4;
+
+    pub fn has_physics(&self) -> bool {
+        self.physics.is_some()
+    }
+
     pub fn init_physics(&mut self) {
         assert!(self.physics.is_none(), "Double init_physics");
         self.physics = LevelPhysics::default().into();
@@ -43,7 +54,7 @@ impl LevelBase {
         }
     }
 
-    pub(crate) fn remove(&mut self, sprite: Weak<dyn Sprite>) {
+    pub fn remove(&mut self, sprite: Weak<dyn Sprite>) {
         let index = self.sprites.iter().position(|a| a.raw() == sprite.raw()).unwrap();
 
         let sprite = self.sprites[index].deref();

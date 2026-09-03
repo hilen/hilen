@@ -12,15 +12,19 @@ use crate::{
         flat::{Point, Size},
     },
     ui::{
-        Container, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent, UIManager, View,
-        ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view, views::containers::scrolling::ScrollContent,
+        Container, DynamicColor, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent,
+        UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
+        views::containers::scrolling::ScrollContent,
     },
 };
 
 const BAR_WIDTH: f32 = 4.0;
 const BAR_INSET: f32 = 2.0;
 const BAR_MIN_LENGTH: f32 = 20.0;
-const BAR_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.35);
+// Translucent black over light content, translucent white over dark,
+// a black thumb disappears on a dark theme.
+const BAR_COLOR: DynamicColor =
+    DynamicColor::new(Color::rgba(0.0, 0.0, 0.0, 0.35), Color::rgba(1.0, 1.0, 1.0, 0.35));
 
 /// A captured touch becomes a drag only after moving this far. Until then
 /// taps on views inside the scroll work; after, the drag claims the touch.
@@ -112,7 +116,7 @@ impl ScrollView {
         self.content.content_size.height
     }
 
-    pub(crate) fn get_scroll_content_offset(&self) -> f32 {
+    pub fn get_scroll_content_offset(&self) -> f32 {
         self.content.content_offset()
     }
 }
@@ -174,8 +178,9 @@ impl Setup for ScrollView {
         self.bar.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
         self.bar.set_hidden(true);
         // A later sibling draws behind an earlier sibling's children, so
-        // the bar has to be pushed in front of everything in the content.
-        self.bar.bump_z_position(UIManager::subview_z_offset() * 2.0);
+        // the bar has to be pushed in front of everything in the content,
+        // pinned sticky table rows and their raise included.
+        self.bar.bump_z_position(UIManager::subview_z_offset() * 10.0);
 
         self.size_changed().sub(move || {
             self.on_scroll(0.0);
@@ -209,7 +214,10 @@ impl Scrollable for ScrollView {
             return false;
         }
 
-        if self.is_hidden_in_tree() || self.drag_disabled {
+        // Drag scrolling is a touch gesture. On desktop it is off by
+        // default so a mouse drag reaches the views under it, text
+        // selection first of all, see `UIManager::set_drag_scrolling`.
+        if self.is_hidden_in_tree() || self.drag_disabled || !UIManager::drag_scrolling() {
             return false;
         }
 
@@ -262,6 +270,14 @@ impl Scrollable for ScrollView {
 }
 
 impl ScrollView {
+    /// A finger drags it or the fling after a drag still moves it. The
+    /// fling decays by a fixed factor per frame, so it ends at the same
+    /// offset on any frame rate, only sooner or later. A test that taps
+    /// rows after a drag waits for this before it taps.
+    pub fn is_scrolling(&self) -> bool {
+        self.dragging || self.inertia != 0.0
+    }
+
     fn add_inertia_animation(&self) {
         if self.inertia == 0.0 {
             return;
@@ -274,7 +290,13 @@ impl ScrollView {
             scroll.on_scroll(inertia);
             scroll.inertia *= 0.97;
         })
-        .finish_condition(move || scroll.inertia.abs() <= 0.2);
+        .finish_condition(move || {
+            if scroll.inertia.abs() > 0.2 {
+                return false;
+            }
+            scroll.inertia = 0.0;
+            true
+        });
 
         self.add_animation(anim);
     }

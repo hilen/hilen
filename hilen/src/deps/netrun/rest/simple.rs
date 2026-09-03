@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
+use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::deps::netrun::rest::{Method, client::client, request::request_object};
@@ -43,6 +44,15 @@ pub async fn delete<T: DeserializeOwned>(url: impl ToString) -> Result<T> {
 }
 
 pub async fn download(url: impl ToString) -> Result<Vec<u8>> {
+    download_with_progress(url, |_, _| {}).await
+}
+
+/// Downloads in chunks and reports the bytes so far plus the total from
+/// the Content-Length header, `None` when the server sent no length.
+pub async fn download_with_progress(
+    url: impl ToString,
+    mut on_progress: impl FnMut(u64, Option<u64>),
+) -> Result<Vec<u8>> {
     let url = url.to_string();
     let response = client().get(&url).send().await?;
     let status = response.status();
@@ -53,77 +63,112 @@ pub async fn download(url: impl ToString) -> Result<Vec<u8>> {
         return Err(anyhow!("[{status}] Failed to download {url}"));
     }
 
-    let bytes = response.bytes().await?;
-    Ok(bytes.to_vec())
+    let total = response.content_length();
+    let mut bytes = Vec::with_capacity(usize::try_from(total.unwrap_or_default()).unwrap_or_default());
+    on_progress(0, total);
+
+    // `bytes_stream` is the one chunked read reqwest has on both native and
+    // wasm, `chunk()` does not exist on the wasm target.
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        bytes.extend_from_slice(&chunk?);
+        on_progress(bytes.len() as u64, total);
+    }
+
+    Ok(bytes)
 }
 
 #[cfg(all(test, not_wasm))]
 mod tests {
-    use serde_json::{Value, json};
-
     use super::*;
+    use crate::deps::netrun::test_server::{Empty, FILE_SIZE, NewPost, Post, PostPatch, start_test_server};
 
-    #[cfg(not_wasm)]
-    mod not_wasm_tests {
-        use super::*;
+    #[tokio::test]
+    async fn test_download() -> Result<()> {
+        let base_url = start_test_server().await;
 
-        /// The url points at one pinned commit, so the bytes cannot change
-        /// under the test. It used to download an image from a news site and
-        /// one CI run got a 134 byte page in place of the image.
-        #[tokio::test]
-        async fn test_download() -> Result<()> {
-            let bytes = download(
-                "https://raw.githubusercontent.com/VladasZ/netrun/4b28fc5e444f0b4f9d08f4b26e3a3241995d6daf/Cargo.lock",
-            )
-            .await?;
-            assert_eq!(bytes.len(), 97126);
-            Ok(())
-        }
+        let bytes = download(format!("{base_url}/file")).await?;
 
-        #[tokio::test]
-        async fn test_download_missing_file() -> Result<()> {
-            let error = download(
-                "https://raw.githubusercontent.com/VladasZ/netrun/4b28fc5e444f0b4f9d08f4b26e3a3241995d6daf/no-such-file",
-            )
+        assert_eq!(bytes.len(), FILE_SIZE);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_download_with_progress() -> Result<()> {
+        let base_url = start_test_server().await;
+        let size = u64::try_from(FILE_SIZE)?;
+        let mut reports: Vec<(u64, Option<u64>)> = vec![];
+
+        let bytes = download_with_progress(format!("{base_url}/file"), |done, total| {
+            reports.push((done, total));
+        })
+        .await?;
+
+        assert_eq!(bytes.len(), FILE_SIZE);
+        assert_eq!(reports.first(), Some(&(0, Some(size))));
+        assert_eq!(reports.last(), Some(&(size, Some(size))));
+        assert!(reports.windows(2).all(|w| w[0].0 <= w[1].0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_download_missing_file() -> Result<()> {
+        let base_url = start_test_server().await;
+
+        let error = download(format!("{base_url}/no-such-file"))
             .await
             .expect_err("A missing file must not download as bytes");
 
-            assert!(error.to_string().starts_with("[404 Not Found]"));
+        assert!(error.to_string().starts_with("[404 Not Found]"));
 
-            Ok(())
-        }
+        Ok(())
+    }
 
-        /// jsonplaceholder answers a POST with 201, which also proves
-        /// every 2xx is accepted, not only 200.
-        #[tokio::test]
-        async fn test_post() -> Result<()> {
-            let created: Value = post(
-                "https://jsonplaceholder.typicode.com/posts",
-                json!({ "title": "netrun", "userId": 1 }),
-            )
-            .await?;
-            assert_eq!(created["id"], 101);
-            assert_eq!(created["title"], "netrun");
-            Ok(())
-        }
+    /// The server answers a POST with 201, which also proves every 2xx is
+    /// accepted, not only 200.
+    #[tokio::test]
+    async fn test_post() -> Result<()> {
+        let base_url = start_test_server().await;
+        let new = NewPost {
+            title:   "netrun".to_string(),
+            user_id: 1,
+        };
 
-        #[tokio::test]
-        async fn test_patch() -> Result<()> {
-            let patched: Value = patch(
-                "https://jsonplaceholder.typicode.com/posts/1",
-                json!({ "title": "renamed" }),
-            )
-            .await?;
-            assert_eq!(patched["id"], 1);
-            assert_eq!(patched["title"], "renamed");
-            Ok(())
-        }
+        let created: Post = post(format!("{base_url}/posts"), new).await?;
 
-        #[tokio::test]
-        async fn test_delete() -> Result<()> {
-            let deleted: Value = delete("https://jsonplaceholder.typicode.com/posts/1").await?;
-            assert_eq!(deleted, json!({}));
-            Ok(())
-        }
+        assert_eq!(created.id, 101);
+        assert_eq!(created.title, "netrun");
+        assert_eq!(created.user_id, Some(1));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_patch() -> Result<()> {
+        let base_url = start_test_server().await;
+        let rename = PostPatch {
+            title: "renamed".to_string(),
+        };
+
+        let patched: Post = patch(format!("{base_url}/posts/1"), rename).await?;
+
+        assert_eq!(patched.id, 1);
+        assert_eq!(patched.title, "renamed");
+        assert_eq!(patched.user_id, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete() -> Result<()> {
+        let base_url = start_test_server().await;
+
+        let deleted: Empty = delete(format!("{base_url}/posts/1")).await?;
+
+        assert_eq!(deleted, Empty {});
+
+        Ok(())
     }
 }

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_failures};
+#[cfg(feature = "level")]
+use crate::level::LevelManager;
 use crate::{
     deps::hreads::from_main,
     ui::{Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
@@ -22,6 +24,7 @@ struct AppState {
     text_size:      f32,
     scale_override: f32,
     clear_color:    UIColor,
+    bug_animation:  Option<&'static [u8]>,
 }
 
 /// Tests expect scale 1 and 32 point text. Any host that runs them must match,
@@ -32,6 +35,7 @@ fn prepare_harness() -> AppState {
         text_size:      Label::default_text_size(),
         scale_override: UIManager::scale_override(),
         clear_color:    UIManager::clear_color(),
+        bug_animation:  crate::BugReport::animation(),
     });
 
     Label::set_default_text_size(32);
@@ -46,6 +50,7 @@ fn prepare_harness() -> AppState {
 /// Give the app back everything the run took, and a root view to live in.
 fn restore_app(state: AppState) {
     Label::set_default_text_size(state.text_size);
+    crate::BugReport::restore_animation(state.bug_animation);
 
     from_main(move || {
         Style::restore_globals(state.styles);
@@ -56,6 +61,10 @@ fn restore_app(state: AppState) {
         root.clear_root();
         root.reset_background();
         root.clear_test_canvas();
+        #[cfg(feature = "level")]
+        LevelManager::stop_level();
+        #[cfg(feature = "scene")]
+        crate::scene::SceneManager::stop_scene();
         root.add_subview_to_root(crate::app::app().make_root_view()).place().back();
     });
 }

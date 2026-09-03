@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use image::{GenericImageView, ImageBuffer, Rgba};
-use usvg::{ImageRendering, ShapeRendering, TextRendering, Transform};
 use wgpu::{
     AddressMode, Device, Extent3d, FilterMode, MipmapFilterMode, Origin3d, Sampler, SamplerDescriptor,
     TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension,
@@ -10,8 +9,8 @@ use wgpu::{
 };
 
 use crate::{
-    gm::{LossyConvert, flat::Size},
-    window::Window,
+    gm::flat::Size,
+    window::{Window, image::Svg},
 };
 
 #[derive(Debug)]
@@ -30,7 +29,7 @@ pub struct TextureRawData {
 }
 
 impl Texture {
-    pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
+    pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 
     pub(crate) fn from_file_bytes(bytes: &[u8], label: &str) -> Result<Self> {
         let data = Self::parse_file_from_bytes(bytes)?;
@@ -38,50 +37,11 @@ impl Texture {
     }
 
     pub(crate) fn parse_file_from_bytes(bytes: &[u8]) -> Result<TextureRawData> {
-        if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") {
-            return Self::parse_svg_image(bytes);
+        if Svg::is_svg(bytes) {
+            return Svg::fixed_raster(bytes);
         }
 
         Self::parse_dynamic_image(bytes)
-    }
-
-    fn parse_svg_image(bytes: &[u8]) -> Result<TextureRawData> {
-        use resvg::{
-            render,
-            tiny_skia::Pixmap,
-            usvg::{Options, Tree},
-        };
-
-        let opt = Options {
-            shape_rendering: ShapeRendering::OptimizeSpeed,
-            text_rendering: TextRendering::OptimizeSpeed,
-            image_rendering: ImageRendering::OptimizeSpeed,
-            ..Default::default()
-        };
-
-        // dbg!(&opt);
-
-        let tree = Tree::from_data(bytes, &opt)?;
-
-        let original_size = tree.size().to_int_size();
-
-        let scale = 8.0;
-
-        let width = (original_size.width().lossy_convert() * scale).round().lossy_convert();
-        let height = (original_size.height().lossy_convert() * scale).round().lossy_convert();
-
-        let mut pixmap = Pixmap::new(width, height).unwrap();
-
-        let transform = Transform::from_scale(scale, scale);
-        render(&tree, transform, &mut pixmap.as_mut());
-
-        // _save_rgba_image(&pixmap.data(), width, height, "/home/vladas/svg.png")?;
-
-        Ok(TextureRawData {
-            data:     pixmap.take(),
-            size:     (width, height).into(),
-            channels: 4,
-        })
     }
 
     fn parse_dynamic_image(bytes: &[u8]) -> Result<TextureRawData> {
@@ -115,10 +75,15 @@ impl Texture {
 
         let device = Window::device();
 
+        // The whole mip chain, so an image drawn smaller than its bitmap
+        // is box filtered instead of skipping texels. Svgs rasterize at
+        // eight times their size and icons draw at a fraction of that.
+        let levels = mip_chain(&data, size, channels);
+
         let texture = device.create_texture(&TextureDescriptor {
             label: label.into(),
             size: extend_size,
-            mip_level_count: 1,
+            mip_level_count: u32::try_from(levels.len()).expect("mip count fits u32"),
             sample_count: 1,
             dimension: TextureDimension::D2,
             format,
@@ -126,21 +91,28 @@ impl Texture {
             view_formats: &[],
         });
 
-        Window::queue().write_texture(
-            TexelCopyTextureInfo {
-                aspect:    TextureAspect::All,
-                texture:   &texture,
-                mip_level: 0,
-                origin:    Origin3d::ZERO,
-            },
-            &data,
-            TexelCopyBufferLayout {
-                offset:         0,
-                bytes_per_row:  Some(u32::from(channels) * extend_size.width),
-                rows_per_image: Some(extend_size.height),
-            },
-            extend_size,
-        );
+        for (level, (pixels, level_size)) in levels.iter().enumerate() {
+            let extent = Extent3d {
+                width:                 level_size.width,
+                height:                level_size.height,
+                depth_or_array_layers: 1,
+            };
+            Window::queue().write_texture(
+                TexelCopyTextureInfo {
+                    aspect:    TextureAspect::All,
+                    texture:   &texture,
+                    mip_level: u32::try_from(level).expect("mip level fits u32"),
+                    origin:    Origin3d::ZERO,
+                },
+                pixels,
+                TexelCopyBufferLayout {
+                    offset:         0,
+                    bytes_per_row:  Some(u32::from(channels) * extent.width),
+                    rows_per_image: Some(extent.height),
+                },
+                extent,
+            );
+        }
 
         let view = texture.create_view(&TextureViewDescriptor::default());
 
@@ -151,7 +123,7 @@ impl Texture {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -183,7 +155,10 @@ impl Texture {
             sample_count,
             dimension: TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            // Attachment only. Nothing samples the frame depth, and WebGL2
+            // can multisample a renderbuffer but not a texture, so any
+            // other usage on a multisampled depth dies at creation there.
+            usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 
@@ -220,4 +195,12 @@ fn _save_rgba_image(buffer: &[u8], width: u32, height: u32, path: &str) -> Resul
 
     img.save(Path::new(path))?;
     Ok(())
+}
+
+/// The mip levels with their sizes, see `hilen_pixels::mip_chain`.
+fn mip_chain(data: &[u8], size: Size<u32>, channels: u8) -> Vec<(Vec<u8>, Size<u32>)> {
+    hilen_pixels::mip_chain(data, size.width, size.height, channels)
+        .into_iter()
+        .map(|(pixels, (width, height))| (pixels, Size::new(width, height)))
+        .collect()
 }

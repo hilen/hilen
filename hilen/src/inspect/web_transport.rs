@@ -56,7 +56,8 @@ pub(crate) fn start_if_requested() {
             let response = InspectService::process_command(request);
             let data = serde_json::to_string(&response);
 
-            // The response can hold Own pointers, which must drop on the main thread.
+            // The response can hold Own pointers, which must drop on the main
+            // thread.
             on_main(move || drop(response));
 
             match data {
