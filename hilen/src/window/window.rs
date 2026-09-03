@@ -5,11 +5,9 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result, bail};
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 use log::error;
-use log::info;
-#[cfg(not_wasm)]
-use log::warn;
+use log::{info, warn};
 use plat::Platform;
 #[cfg(linux)]
 use wgpu::InstanceFlags;
@@ -205,9 +203,8 @@ impl Window {
     /// Android asks for Vulkan alone. With GL and Vulkan both enabled they
     /// race for the one `ANativeWindow`, the loser gets
     /// `ERROR_NATIVE_WINDOW_IN_USE_KHR` and wgpu-hal panics instead of
-    /// skipping that backend. GL is no floor anyway, GLES may report zero
-    /// fragment stage storage buffers and the UI pipelines need one.
-    /// `WGPU_BACKEND` still overrides the choice on any platform.
+    /// skipping that backend. `WGPU_BACKEND` still overrides the choice on
+    /// any platform.
     ///
     /// WSL allows a non conformant adapter. The only Vulkan driver that
     /// reaches the Windows GPU there is Mesa's Direct3D 12 one, and it
@@ -262,17 +259,12 @@ impl Window {
             .context("Failed to request GPU device")
     }
 
-    pub(crate) async fn start_internal(
-        size: PhysicalSize<u32>,
-        window: winit::window::Window,
-        proxy: EventLoopProxy<UserEvent>,
-    ) -> Result<()> {
-        let winit_window = Arc::new(window);
-
-        let instance = Self::instance();
-        let surface = instance
-            .create_surface(winit_window.clone())
-            .context("Failed to create surface")?;
+    /// The surface on `window` and an adapter that can present to it.
+    async fn adapter_on(
+        instance: Instance,
+        window: Arc<winit::window::Window>,
+    ) -> Result<(Instance, wgpu::Surface<'static>, Adapter)> {
+        let surface = instance.create_surface(window).context("Failed to create surface")?;
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference:       PowerPreference::HighPerformance,
@@ -284,6 +276,73 @@ impl Window {
             .await
             .context("Could not get a GPU adapter")?;
 
+        Ok((instance, surface, adapter))
+    }
+
+    /// The instance a browser gets. WebGPU when the page has it and it
+    /// hands out an adapter, WebGL otherwise. A browser can expose
+    /// `navigator.gpu` and still answer the adapter request with null,
+    /// `WebKit` does on the iOS simulator and in Lockdown mode, and wgpu
+    /// takes WebGPU whenever the property exists and never falls back by
+    /// itself. The probe asks for an adapter with no surface, because a
+    /// canvas keeps the first context kind it is given, so a WebGPU
+    /// surface tried first would leave no canvas for WebGL. `hilen_webgl`
+    /// in the page query forces WebGL, to check that path in a browser
+    /// that has WebGPU. Without the `webgl` feature the GL instance is
+    /// WebGPU again and its adapter error is the one reported.
+    #[cfg(wasm)]
+    async fn browser_instance() -> Instance {
+        if crate::web::query_flag("hilen_webgl") {
+            info!("WebGL forced by the page query");
+            return Self::webgl_instance();
+        }
+
+        if !crate::web::has_webgpu() {
+            return Self::webgl_instance();
+        }
+
+        let instance = Self::instance();
+
+        let probe = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference:       PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+
+                compatible_surface:  None,
+                apply_limit_buckets: false,
+            })
+            .await;
+
+        match probe {
+            Ok(_) => instance,
+            Err(err) => {
+                warn!("WebGPU gave no adapter, using WebGL: {err}");
+                Self::webgl_instance()
+            }
+        }
+    }
+
+    #[cfg(wasm)]
+    fn webgl_instance() -> Instance {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = Backends::GL;
+        Instance::new(descriptor)
+    }
+
+    pub(crate) async fn start_internal(
+        size: PhysicalSize<u32>,
+        window: winit::window::Window,
+        proxy: EventLoopProxy<UserEvent>,
+    ) -> Result<()> {
+        let winit_window = Arc::new(window);
+
+        #[cfg(wasm)]
+        let instance = Self::browser_instance().await;
+        #[cfg(not_wasm)]
+        let instance = Self::instance();
+
+        let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
+
         let info = adapter.get_info();
 
         info!("Backend: {}", info.backend);
@@ -294,6 +353,17 @@ impl Window {
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
         let (device, queue) = Self::request_device(&adapter).await?;
+
+        // A browser reports a failed pipeline or a bad draw through this
+        // event and otherwise carries on, every later frame of the page
+        // black. WebKit refused the text shader that way. Native wgpu
+        // panics on the same errors, so the page treats them as fatal
+        // too, and drops the canvas so the fallback content shows.
+        #[cfg(wasm)]
+        device.on_uncaptured_error(Arc::new(|err| {
+            error!("Fatal GPU error: {err}");
+            crate::web::drop_canvas();
+        }));
 
         // Shadowing would keep the adapter probe surface alive to the end of
         // the function. Android allows one producer per native window, so it

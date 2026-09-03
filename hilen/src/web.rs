@@ -10,6 +10,30 @@ type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys:
 
 static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
 
+static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
+
+/// The canvas winit put in the page, kept so a fatal GPU failure can take
+/// it back out. The page's static content behind it, a landing text or a
+/// download link, shows again instead of a blank page.
+pub(crate) fn keep_canvas(canvas: Option<web_sys::HtmlCanvasElement>) {
+    CANVAS.set(canvas);
+}
+
+/// Whether the page exposes `navigator.gpu`. Only a secure context does,
+/// https or localhost, and `WebKit` hides it in Lockdown mode.
+pub(crate) fn has_webgpu() -> bool {
+    use web_sys::js_sys::Reflect;
+
+    let navigator = web_sys::window().expect("Failed to get browser window").navigator();
+    Reflect::has(&navigator, &"gpu".into()).unwrap_or(false)
+}
+
+pub(crate) fn drop_canvas() {
+    if let Some(canvas) = CANVAS.get_mut().take() {
+        canvas.remove();
+    }
+}
+
 /// Winit's canvas keydown handler calls `preventDefault` on every key, which
 /// also cancels the browser reload shortcuts while the canvas has focus. This
 /// capture phase listener on `window` runs before the canvas handler and stops

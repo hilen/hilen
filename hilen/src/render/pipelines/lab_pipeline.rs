@@ -1,9 +1,6 @@
-use std::num::NonZeroU64;
-
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    BindGroup, BindGroupLayout, Buffer, CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology,
+    RenderPass, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -12,7 +9,7 @@ use crate::{
         data::{RectView, UIRectInstance},
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
-        uniform::{UniformBind, make_storage_layout, make_uniform_layout},
+        uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
@@ -46,16 +43,26 @@ impl LabPipeline {
     /// group 1 binding 0. A textured variant also gets a texture and a sampler
     /// at group 2. Anything that holds to that contract can be compared against
     /// anything else.
-    pub(crate) fn new(name: &str, source: &str, vertex_uv: bool, textured: bool) -> Self {
+    pub(crate) fn new(
+        name: &str,
+        source: &str,
+        vertex_uv: bool,
+        textured: bool,
+        binding: InstanceBinding,
+    ) -> Self {
         let device = Window::device();
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label:  Some(name),
-            source: ShaderSource::Wgsl(source.into()),
+            source: ShaderSource::Wgsl(instances_shader(
+                source,
+                size_of::<UIRectInstance>() as u64,
+                binding,
+            )),
         });
 
         let view_layout = make_uniform_layout(name, ShaderStages::VERTEX_FRAGMENT);
-        let instances_layout = make_storage_layout(name, ShaderStages::FRAGMENT);
+        let instances_layout = binding.layout(name, ShaderStages::FRAGMENT);
 
         let mut bind_group_layouts = vec![Some(&view_layout), Some(&instances_layout)];
 
@@ -103,7 +110,7 @@ impl LabPipeline {
             vertex_buffer: vertex_type.vertex_buffer(device),
             view: view_layout.into(),
             instances_layout,
-            instances: VecBuffer::default(),
+            instances: VecBuffer::with_binding(binding),
             textured,
             vertex_uv,
         }
@@ -127,31 +134,14 @@ impl LabPipeline {
         self.view.update(view);
         self.instances.load();
 
-        let range = self.instances.range();
-
-        let instances_bind = Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("lab_instances_bind"),
-            layout:  &self.instances_layout,
-            entries: &[BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: self.instances.buffer(),
-                    offset: range.start,
-                    size:   NonZeroU64::new(range.end - range.start),
-                }),
-            }],
-        });
-
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, self.view.bind(), &[]);
-        pass.set_bind_group(1, &instances_bind, &[]);
 
         if let Some(image) = image {
             pass.set_bind_group(2, image, &[]);
         }
 
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.set_vertex_buffer(1, self.instances.slice());
 
         let vertex_type = if self.vertex_uv {
             PipelineType::Image
@@ -159,6 +149,14 @@ impl LabPipeline {
             PipelineType::Color
         };
 
-        pass.draw(vertex_type.vertex_range(), 0..self.instances.len());
+        draw_instances(
+            pass,
+            &self.instances_layout,
+            "lab_instances_bind",
+            1,
+            1,
+            vertex_type.vertex_range(),
+            &self.instances,
+        );
     }
 }

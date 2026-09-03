@@ -1,7 +1,6 @@
-use std::{
-    process::exit,
-    sync::atomic::{AtomicBool, Ordering},
-};
+#[cfg(not_wasm)]
+use std::process::exit;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{debug, error};
 use plat::Platform;
@@ -165,6 +164,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
             let window = event_loop.create_window(win_attr).expect("create window err.");
 
+            #[cfg(wasm)]
+            {
+                use winit::platform::web::WindowExtWebSys;
+                crate::web::keep_canvas(window.canvas());
+            }
+
             let render_size = if Platform::IOS {
                 window.outer_size()
             } else {
@@ -173,14 +178,22 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
             crate::deps::hreads::block_on(async move {
                 if let Err(err) = Window::start_internal(render_size, window, proxy).await {
-                    // fern logging can be swallowed on iOS, so also print to
-                    // stderr. Exit instead of panicking. A
-                    // panic here unwinds across the
-                    // Objective-C run loop and turns into an opaque
-                    // EXC_BAD_ACCESS.
                     error!("Fatal: could not start engine window: {err:?}");
-                    eprintln!("Fatal: could not start engine window: {err:?}");
-                    exit(1);
+
+                    // The page stays alive with its fallback content, there
+                    // is nothing to exit in a browser.
+                    #[cfg(wasm)]
+                    crate::web::drop_canvas();
+
+                    // fern logging can be swallowed on iOS, so also print to
+                    // stderr. Exit instead of panicking. A panic here unwinds
+                    // across the Objective-C run loop and turns into an
+                    // opaque EXC_BAD_ACCESS.
+                    #[cfg(not_wasm)]
+                    {
+                        eprintln!("Fatal: could not start engine window: {err:?}");
+                        exit(1);
+                    }
                 }
             });
         }

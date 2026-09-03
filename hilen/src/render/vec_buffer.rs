@@ -1,15 +1,9 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, cast_slice};
-use wgpu::{Buffer, BufferDescriptor, BufferSlice, BufferUsages};
+use wgpu::{Buffer, BufferDescriptor, BufferSlice};
 
-use crate::window::Window;
-
-/// Instances are bound as a storage buffer as well as a vertex buffer, and a
-/// storage binding may only start at a multiple of this.
-fn storage_alignment() -> u64 {
-    Window::device().limits().min_storage_buffer_offset_alignment.into()
-}
+use crate::{render::uniform::InstanceBinding, window::Window};
 
 /// CPU-side instance list backed by a persistent GPU buffer.
 ///
@@ -20,15 +14,42 @@ fn storage_alignment() -> u64 {
 /// `Window::render_frame()` changes.
 #[derive(Debug)]
 pub(crate) struct VecBuffer<T> {
-    len:    u32,
-    data:   Vec<T>,
-    buffer: Buffer,
-    range:  Range<u64>,
-    offset: u64,
-    frame:  u64,
+    len:     u32,
+    data:    Vec<T>,
+    buffer:  Buffer,
+    range:   Range<u64>,
+    offset:  u64,
+    frame:   u64,
+    binding: InstanceBinding,
 }
 
 impl<T> VecBuffer<T> {
+    /// A buffer bound the given way, whatever the device would pick.
+    pub(crate) fn with_binding(binding: InstanceBinding) -> Self {
+        Self {
+            len: 0,
+            data: vec![],
+            buffer: Self::make_buffer(0, binding),
+            range: 0..0,
+            offset: 0,
+            frame: 0,
+            binding,
+        }
+    }
+
+    fn make_buffer(size: u64, binding: InstanceBinding) -> Buffer {
+        Window::device().create_buffer(&BufferDescriptor {
+            label: Some("VecBuffer"),
+            size,
+            usage: binding.buffer_usages(),
+            mapped_at_creation: false,
+        })
+    }
+
+    pub(crate) fn binding(&self) -> InstanceBinding {
+        self.binding
+    }
+
     pub(crate) fn push(&mut self, val: T) {
         self.data.push(val);
     }
@@ -85,22 +106,22 @@ impl<T: Pod> VecBuffer<T> {
         let bytes: &[u8] = cast_slice(self.data.as_slice());
         let size: u64 = bytes.len().try_into().unwrap();
 
-        if self.offset + size > self.buffer.size() {
+        let padding = self.binding.tail_padding();
+
+        if self.offset + size + padding > self.buffer.size() {
             // Earlier flushes of this frame keep the old buffer alive through
             // their recorded draws, so replacing it mid-frame is safe.
-            self.buffer = Window::device().create_buffer(&BufferDescriptor {
-                label:              Some("VecBuffer"),
-                size:               size.max(self.buffer.size() * 2).max(4096),
-                usage:              BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            self.buffer = Self::make_buffer(
+                (size + padding).max(self.buffer.size() * 2).max(4096),
+                self.binding,
+            );
             self.offset = 0;
         }
 
         Window::queue().write_buffer(&self.buffer, self.offset, bytes);
 
         self.range = self.offset..self.offset + size;
-        self.offset = self.range.end.next_multiple_of(storage_alignment());
+        self.offset = self.range.end.next_multiple_of(self.binding.alignment());
         self.len = self.data.len().try_into().unwrap();
         self.data.clear();
     }
@@ -108,18 +129,6 @@ impl<T: Pod> VecBuffer<T> {
 
 impl<T> Default for VecBuffer<T> {
     fn default() -> Self {
-        Self {
-            len:    0,
-            data:   vec![],
-            buffer: Window::device().create_buffer(&BufferDescriptor {
-                label:              Some("VecBuffer"),
-                size:               0,
-                usage:              BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            range:  0..0,
-            offset: 0,
-            frame:  0,
-        }
+        Self::with_binding(InstanceBinding::device())
     }
 }

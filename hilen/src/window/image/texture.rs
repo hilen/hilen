@@ -155,7 +155,10 @@ impl Texture {
             sample_count,
             dimension: TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            // Attachment only. Nothing samples the frame depth, and WebGL2
+            // can multisample a renderbuffer but not a texture, so any
+            // other usage on a multisampled depth dies at creation there.
+            usage: TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 

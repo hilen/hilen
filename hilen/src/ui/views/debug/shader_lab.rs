@@ -10,7 +10,7 @@ use crate::{
         flat::{CornerRadii, Rect, Size},
     },
     render::{
-        LabPipeline,
+        InstanceBinding, LabPipeline,
         data::{RectView, UIRectInstance},
     },
     ui::{Label, UIManager, ViewCallbacks, ViewData, ViewFrame, ViewSubviews},
@@ -107,6 +107,7 @@ impl ShaderLab {
                 &variant.source,
                 variant.vertex_uv,
                 variant.textured,
+                InstanceBinding::device(),
             ));
 
             let label = self.add_view::<Label>();

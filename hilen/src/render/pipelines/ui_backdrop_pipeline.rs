@@ -1,9 +1,6 @@
-use std::num::NonZeroU64;
-
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    BindGroup, BindGroupLayout, Buffer, CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology,
+    RenderPass, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -12,7 +9,7 @@ use crate::{
         data::{RectView, UIRectInstance},
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
-        uniform::{UniformBind, make_storage_layout, make_uniform_layout},
+        uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
@@ -44,15 +41,20 @@ pub struct UIBackdropPipeline {
 impl Default for UIBackdropPipeline {
     fn default() -> Self {
         let device = Window::device();
+        let binding = InstanceBinding::device();
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label:  Some("ui_backdrop.wgsl"),
-            source: ShaderSource::Wgsl(UI_BACKDROP_CODE.into()),
+            source: ShaderSource::Wgsl(instances_shader(
+                UI_BACKDROP_CODE,
+                size_of::<UIRectInstance>() as u64,
+                binding,
+            )),
         });
 
         let view_layout = make_uniform_layout("ui_backdrop_uniform_layout", ShaderStages::VERTEX_FRAGMENT);
 
-        let instances_layout = make_storage_layout("ui_backdrop_instances_layout", ShaderStages::FRAGMENT);
+        let instances_layout = binding.layout("ui_backdrop_instances_layout", ShaderStages::FRAGMENT);
 
         let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label:              Some("ui_backdrop_pipeline_layout"),
@@ -95,28 +97,19 @@ impl UIBackdropPipeline {
         self.instances.push(instance);
         self.instances.load();
 
-        let range = self.instances.range();
-
-        let instances_bind = Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("ui_backdrop_instances_bind"),
-            layout:  &self.instances_layout,
-            entries: &[BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: self.instances.buffer(),
-                    offset: range.start,
-                    size:   NonZeroU64::new(range.end - range.start),
-                }),
-            }],
-        });
-
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, self.view.bind(), &[]);
         render_pass.set_bind_group(1, blurred, &[]);
-        render_pass.set_bind_group(2, &instances_bind, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instances.slice());
 
-        render_pass.draw(PipelineType::Color.vertex_range(), 0..1);
+        draw_instances(
+            render_pass,
+            &self.instances_layout,
+            "ui_backdrop_instances_bind",
+            2,
+            1,
+            PipelineType::Color.vertex_range(),
+            &self.instances,
+        );
     }
 }

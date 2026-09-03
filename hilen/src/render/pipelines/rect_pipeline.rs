@@ -1,11 +1,8 @@
-use std::num::NonZeroU64;
-
 use bytemuck::Pod;
 use indexmap::IndexMap;
 use wgpu::{
-    BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    BindGroupLayout, Buffer, CompareFunction, PipelineLayoutDescriptor, PrimitiveTopology, RenderPass,
+    RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -14,7 +11,7 @@ use crate::{
     render::{
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
-        uniform::{UniformBind, make_storage_layout, make_uniform_layout},
+        uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
@@ -86,17 +83,21 @@ impl<
 {
     fn default() -> Self {
         let device = Window::device();
+        let binding = InstanceBinding::device();
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label:  Some(&format!("{NAME}.wgsl")),
-            source: ShaderSource::Wgsl(SHADER_CODE.into()),
+            source: ShaderSource::Wgsl(instances_shader(
+                SHADER_CODE,
+                size_of::<Instance>() as u64,
+                binding,
+            )),
         });
 
         let sprite_view_layout =
             make_uniform_layout(&format!("{NAME}_uniform_layout"), ShaderStages::VERTEX_FRAGMENT);
 
-        let instances_layout =
-            make_storage_layout(&format!("{NAME}_instances_layout"), ShaderStages::FRAGMENT);
+        let instances_layout = binding.layout(&format!("{NAME}_instances_layout"), ShaderStages::FRAGMENT);
 
         let mut bind_group_layouts = vec![Some(&sprite_view_layout), Some(&instances_layout)];
 
@@ -174,32 +175,23 @@ impl<
 
             instances.load();
 
-            let range = instances.range();
-
-            let instances_bind = Window::device().create_bind_group(&BindGroupDescriptor {
-                label:   Some(&format!("{NAME}_instances_bind")),
-                layout:  &self.instances_layout,
-                entries: &[BindGroupEntry {
-                    binding:  0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: instances.buffer(),
-                        offset: range.start,
-                        size:   NonZeroU64::new(range.end - range.start),
-                    }),
-                }],
-            });
-
             render_pass.set_bind_group(0, self.view.bind(), &[]);
-            render_pass.set_bind_group(1, &instances_bind, &[]);
 
             if TYPE.image() {
                 key.with_bind(|bind| render_pass.set_bind_group(2, bind, &[]));
             }
 
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, instances.slice());
 
-            render_pass.draw(TYPE.vertex_range(), 0..instances.len());
+            draw_instances(
+                render_pass,
+                &self.instances_layout,
+                &format!("{NAME}_instances_bind"),
+                1,
+                1,
+                TYPE.vertex_range(),
+                instances,
+            );
         }
 
         // After the loads, a key added this frame has its frame stamped

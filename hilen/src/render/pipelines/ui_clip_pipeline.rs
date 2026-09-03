@@ -1,8 +1,6 @@
-use std::num::NonZeroU64;
-
 use wgpu::{
-    BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer, BufferBinding,
-    PipelineLayoutDescriptor, RenderPass, RenderPipeline, ShaderStages, StencilOperation, include_wgsl,
+    BindGroupLayout, Buffer, PipelineLayoutDescriptor, RenderPass, RenderPipeline, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, StencilOperation,
 };
 
 use crate::{
@@ -11,7 +9,7 @@ use crate::{
         data::{ClipView, UIRectInstance},
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
-        uniform::{UniformBind, make_storage_layout, make_uniform_layout},
+        uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
@@ -36,11 +34,19 @@ pub(crate) struct UIClipPipeline {
 impl Default for UIClipPipeline {
     fn default() -> Self {
         let device = Window::device();
+        let binding = InstanceBinding::device();
 
-        let shader = device.create_shader_module(include_wgsl!("shaders/ui_clip.wgsl"));
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label:  Some("ui_clip.wgsl"),
+            source: ShaderSource::Wgsl(instances_shader(
+                include_str!("shaders/ui_clip.wgsl"),
+                size_of::<UIRectInstance>() as u64,
+                binding,
+            )),
+        });
 
         let view_layout = make_uniform_layout("ui_clip_view_layout", ShaderStages::VERTEX_FRAGMENT);
-        let instances_layout = make_storage_layout("ui_clip_instances_layout", ShaderStages::FRAGMENT);
+        let instances_layout = binding.layout("ui_clip_instances_layout", ShaderStages::FRAGMENT);
 
         let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label:              Some("ui_clip_pipeline_layout"),
@@ -92,26 +98,18 @@ impl UIClipPipeline {
         self.instances.push(shape);
         self.instances.load();
 
-        let range = self.instances.range();
-
-        let instances_bind = Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("ui_clip_instances_bind"),
-            layout:  &self.instances_layout,
-            entries: &[BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: self.instances.buffer(),
-                    offset: range.start,
-                    size:   NonZeroU64::new(range.end - range.start),
-                }),
-            }],
-        });
-
         pass.set_pipeline(if enter { &self.enter } else { &self.leave });
         pass.set_bind_group(0, self.view.bind(), &[]);
-        pass.set_bind_group(1, &instances_bind, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.set_vertex_buffer(1, self.instances.slice());
-        pass.draw(PipelineType::Color.vertex_range(), 0..1);
+
+        draw_instances(
+            pass,
+            &self.instances_layout,
+            "ui_clip_instances_bind",
+            1,
+            1,
+            PipelineType::Color.vertex_range(),
+            &self.instances,
+        );
     }
 }

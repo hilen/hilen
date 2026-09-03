@@ -15,6 +15,10 @@ mod pipelines;
 mod shader_data;
 mod to_bytes;
 mod uniform;
+
+pub(crate) use uniform::InstanceBinding;
+#[cfg(feature = "ui-tests")]
+pub(crate) use uniform::InstanceChunks;
 mod vec_buffer;
 mod vertex_layout;
 
