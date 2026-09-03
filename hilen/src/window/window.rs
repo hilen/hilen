@@ -11,6 +11,8 @@ use log::info;
 #[cfg(not_wasm)]
 use log::warn;
 use plat::Platform;
+#[cfg(linux)]
+use wgpu::InstanceFlags;
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
     Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
@@ -206,6 +208,12 @@ impl Window {
     /// skipping that backend. GL is no floor anyway, GLES may report zero
     /// fragment stage storage buffers and the UI pipelines need one.
     /// `WGPU_BACKEND` still overrides the choice on any platform.
+    ///
+    /// WSL allows a non conformant adapter. The only Vulkan driver that
+    /// reaches the Windows GPU there is Mesa's Direct3D 12 one, and it
+    /// reports conformance version 0, which wgpu hides by default. Without
+    /// the flag wgpu falls back to the CPU lavapipe and draws every frame
+    /// in software on every core, see docs/wsl.md.
     fn instance() -> Instance {
         let mut descriptor = InstanceDescriptor::new_without_display_handle();
 
@@ -215,6 +223,11 @@ impl Window {
 
         if Platform::ANDROID {
             descriptor.backends = Backends::VULKAN;
+        }
+
+        #[cfg(linux)]
+        if crate::window::wsl::active() {
+            descriptor.flags |= InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER;
         }
 
         Instance::new(descriptor.with_env())

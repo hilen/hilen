@@ -14,12 +14,44 @@ probes for what is already there and installs only the rest, so it asks for
 the sudo password once. On another distro it prints the list and stops.
 
 The packages are a C and C++ toolchain, `git`, `cmake`, `pkg-config`, the
-development headers of OpenSSL, X11 and ALSA, the `libxkbcommon-x11` runtime
-library, the Mesa Vulkan drivers and `zenity`. The Mesa package includes the
-driver that maps Vulkan onto the Windows GPU under WSLg. `zenity` draws the
-file and folder pickers. On a desktop Linux those go through the XDG portal
-service, WSL has none, so `rfd` falls back to `zenity`. Rust comes from
-[rustup](https://rustup.rs) when `cargo` is missing.
+development headers of OpenSSL, X11, xcb and ALSA, the `libxkbcommon-x11`
+runtime library, the Mesa Vulkan drivers, the tools that build the GPU
+driver below and `zenity`. `zenity` draws the file and folder pickers. On a
+desktop Linux those go through the XDG portal service, WSL has none, so
+`rfd` falls back to `zenity`. Rust comes from [rustup](https://rustup.rs)
+when `cargo` is missing.
+
+## The GPU driver
+
+The distro Mesa ships no Vulkan driver for the Windows GPU. Its only Vulkan
+device in WSL is lavapipe, the CPU rasterizer, so an app renders every frame
+in software: sixteen `llvmpipe-N` threads at forty percent each, about seven
+cores, on a 2800 row git client doing nothing special.
+
+Mesa's Direct3D 12 driver, `dzn`, reaches the GPU through `/dev/dxg` and the
+`libd3d12.so` that WSL mounts under `/usr/lib/wsl/lib`. Ubuntu builds Mesa
+without it, so `make setup` builds it from the Mesa source on WSL,
+`build/dzn.sh` in the build repo. It installs into `~/.local/lib/hilen/dzn`
+and drops the driver manifest into `~/.local/share/vulkan/icd.d`, where the
+Vulkan loader picks it up next to the system drivers. No sudo beyond the
+packages, nothing under `/usr` changes.
+
+Two things make the engine use it:
+
+- `dzn` reports Vulkan conformance version 0 and wgpu hides such adapters.
+  `Window::instance` sets `ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER` when
+  `WSL_DISTRO_NAME` is set. With both drivers installed wgpu then ranks the
+  integrated GPU above the CPU device and picks `dzn` on its own.
+- Rendering through `dzn` cut the main thread of the same session from 28 s
+  to 2 s per 100 s and left the `llvmpipe` threads idle.
+
+The log line is `Backend: vulkan` either way. To tell them apart look at the
+threads of the running process, `top -H`: busy `llvmpipe-N` threads mean
+software. `vulkaninfo --summary` lists `Microsoft Direct3D12 (<GPU name>)`
+first when the driver works.
+
+GL is no way out. WSLg's X server offers EGL no DRI3, so GL through X11 is
+software too, and the UI pipelines fail validation on the GL backend anyway.
 
 ## What the engine does on WSL
 
@@ -74,6 +106,8 @@ X11 needs the `libxkbcommon-x11` runtime library. Without it the app panics
 with "Library libxkbcommon-x11.so could not be loaded". `make setup`
 installs it.
 
-WSLg presents the GPU through a Vulkan translation driver. If wgpu fails to
-find it the app may crash or show a blank window. Check that `/dev/dxg`
-exists in WSL and that the Mesa Vulkan drivers are installed.
+A blank window or a crash right after `Backend: vulkan` points at the GPU
+driver. Check that `/dev/dxg` exists in WSL, that the Mesa Vulkan drivers
+are installed, and that `~/.local/share/vulkan/icd.d/dzn_icd.x86_64.json`
+is there, `make setup` builds it. Without that file the app still runs, on
+lavapipe, slowly.

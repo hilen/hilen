@@ -12,10 +12,16 @@ use log::info;
 const WESTON_LOG: &str = "/mnt/wslg/weston.log";
 const SCALE_VAR: &str = "WINIT_X11_SCALE_FACTOR";
 
+/// Whether this process runs inside WSL. WSL sets the distro name for
+/// every process it starts.
+pub(crate) fn active() -> bool {
+    env::var_os("WSL_DISTRO_NAME").is_some()
+}
+
 /// Point winit at X11 with the Windows display scale. Has to run before
 /// the event loop exists, winit reads both variables when it starts.
 pub(crate) fn prepare() {
-    if env::var_os("WSL_DISTRO_NAME").is_none() {
+    if !active() {
         return;
     }
 
