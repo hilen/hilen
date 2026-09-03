@@ -14,6 +14,8 @@ use log::warn;
 use parking_lot::Mutex;
 use plat::Platform;
 
+#[cfg(feature = "scene")]
+use crate::scene::SceneManager;
 use crate::{
     deps::hreads::from_main,
     gm::{
@@ -163,6 +165,8 @@ fn hold(prompt: String) {
         format!("{prompt}, ctrl to continue")
     };
     Window::set_title_prefix(title);
+    #[cfg(feature = "scene")]
+    from_main(|| SceneManager::set_paused(true));
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))
@@ -171,6 +175,8 @@ fn hold(prompt: String) {
     };
 
     wait_for_advance();
+    #[cfg(feature = "scene")]
+    from_main(|| SceneManager::set_paused(false));
 
     if let Some(mut overlay) = overlay {
         from_main(move || {

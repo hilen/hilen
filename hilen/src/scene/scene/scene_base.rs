@@ -59,7 +59,12 @@ impl SceneBase {
         self.physics = ScenePhysics::default().into();
     }
 
+    /// One step of the scene's time: the playing clips move on, then
+    /// the physics, when the scene has any.
     pub fn update_physics(&mut self, frame_time: f32) {
+        for node in &mut self.nodes {
+            node.advance_animation(frame_time);
+        }
         let Some(physics) = self.physics.as_mut() else {
             return;
         };

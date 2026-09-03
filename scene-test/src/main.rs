@@ -6,6 +6,7 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+mod animations;
 mod drop_balls;
 mod lights;
 mod materials;

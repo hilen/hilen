@@ -1,10 +1,13 @@
 mod parse;
+mod rig;
 
 use std::path::Path;
 
 use log::error;
 
 use self::parse::{ModelSource, parse_glb};
+pub use self::rig::Clip;
+pub(crate) use self::rig::Rig;
 use crate::{
     deps::{
         hreads::from_main,
@@ -23,23 +26,33 @@ use crate::{
 /// A `.glb` loaded onto the GPU, a managed resource like an `Image`.
 /// `Model::get("tree.glb")` reads it from the models asset folder once
 /// and every node with `Shape3::Model` of it draws the same buffers.
-/// Meshes, materials, embedded textures and the node tree load, the
-/// tree flattened into parts. Static geometry only, no skins or
-/// animations yet.
+/// Meshes, materials, embedded textures, the node tree, skins and
+/// animation clips load. A static model has its tree flattened into
+/// parts, one with a skin or a clip keeps the tree as its `rig` and a
+/// node poses it, see `NodeTemplates::play`.
 #[derive(Debug)]
 pub struct Model {
-    pub(crate) parts: Vec<ModelPart>,
-    /// The box around every vertex in model space. The collider of a
-    /// model node is this box.
-    pub bounds:       Bounds,
+    pub(crate) parts:       Vec<ModelPart>,
+    /// The box around every vertex in model space, at rest for a
+    /// skinned model. The collider of a model node is this box.
+    pub bounds:             Bounds,
+    pub(crate) rig:         Option<Rig>,
+    /// Every skin's joint matrices at rest, what a node draws with
+    /// while no clip plays.
+    pub(crate) rest_joints: Vec<Vec<Mat4>>,
 }
 
 /// One drawn mesh of a model with its place and look.
 #[derive(Debug)]
 pub(crate) struct ModelPart {
     pub mesh:      Own<Mesh>,
-    /// Model space to the part, every parent node applied.
+    /// Model space to the part at rest, every parent node applied.
+    /// Identity for a skinned part, its joints place it.
     pub transform: Mat4,
+    /// The node of the rig this part hangs on, what a clip moves.
+    pub node:      usize,
+    /// The skin over the part, an index into the rig's skins.
+    pub skin:      Option<usize>,
     /// None when the glTF primitive has no material, then the node's
     /// own material draws it.
     pub material:  Option<Material>,
@@ -48,10 +61,22 @@ pub(crate) struct ModelPart {
 managed!(Model);
 
 impl Model {
+    /// The animation clips of the file, in its order.
+    pub fn clips(&self) -> &[Clip] {
+        self.rig.as_ref().map_or(&[], |rig| &rig.clips)
+    }
+
+    /// The clip called `name`, as an index into `clips`.
+    pub fn clip(&self, name: &str) -> Option<usize> {
+        self.clips().iter().position(|clip| clip.name == name)
+    }
+
     fn empty() -> Self {
         Self {
-            parts:  vec![],
-            bounds: Bounds::default(),
+            parts:       vec![],
+            bounds:      Bounds::default(),
+            rig:         None,
+            rest_joints: vec![],
         }
     }
 
@@ -66,8 +91,13 @@ impl Model {
             .parts
             .into_iter()
             .map(|part| ModelPart {
-                mesh:      Own::new(Mesh::upload(&part.vertices, &part.indices)),
+                mesh:      Own::new(match &part.skin_vertices {
+                    Some(skin) => Mesh::upload_skinned(&part.vertices, skin, &part.indices),
+                    None => Mesh::upload(&part.vertices, &part.indices),
+                }),
                 transform: part.transform,
+                node:      part.node,
+                skin:      part.skin,
                 material:  part.material.map(|material| Material {
                     color:        material.color,
                     metallic:     material.metallic,
@@ -82,6 +112,8 @@ impl Model {
         Self {
             parts,
             bounds: source.bounds,
+            rig: source.rig,
+            rest_joints: source.rest_joints,
         }
     }
 }

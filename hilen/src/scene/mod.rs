@@ -6,6 +6,7 @@ mod mesh;
 mod model;
 mod node_data;
 mod nodes;
+mod playback;
 mod player;
 mod scene;
 mod scene_manager;
@@ -23,9 +24,10 @@ pub use self::{
     light::{Light, LightKind, Sun},
     material::Material,
     mesh::Mesh,
-    model::Model,
+    model::{Clip, Model},
     node_data::NodeData,
     nodes::*,
+    playback::Playback,
     player::Player,
     scene::{Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates},
     scene_manager::SceneManager,

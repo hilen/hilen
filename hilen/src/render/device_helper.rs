@@ -91,6 +91,7 @@ pub(crate) trait DeviceHelper {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        vertex_entry: &str,
         transparent: bool,
     ) -> RenderPipeline;
 
@@ -108,6 +109,7 @@ pub(crate) trait DeviceHelper {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        vertex_entry: &str,
     ) -> RenderPipeline;
 }
 
@@ -272,6 +274,7 @@ impl DeviceHelper for Device {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        vertex_entry: &str,
         transparent: bool,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
@@ -280,7 +283,7 @@ impl DeviceHelper for Device {
             layout:         layout.into(),
             vertex:         VertexState {
                 module:              shader,
-                entry_point:         "v_main".into(),
+                entry_point:         vertex_entry.into(),
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers:             &buffers,
             },
@@ -331,6 +334,7 @@ impl DeviceHelper for Device {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
+        vertex_entry: &str,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -338,7 +342,7 @@ impl DeviceHelper for Device {
             layout:         layout.into(),
             vertex:         VertexState {
                 module:              shader,
-                entry_point:         "v_main".into(),
+                entry_point:         vertex_entry.into(),
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers:             &buffers,
             },

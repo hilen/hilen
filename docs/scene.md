@@ -36,7 +36,7 @@ SceneManager::set_scene(Playground::default());
 collider, so what is drawn is what collides. `Body` is dynamic, `Wall` a fixed and
 bouncy collider, `Prop` is only drawn. `NodeTemplates` carries `set_color`,
 `set_material`, `set_metallic`, `set_roughness`, `set_position`, `set_rotation`,
-`set_friction` and `set_restitution`, and a `Body` has `set_velocity`,
+`set_scale`, `set_friction` and `set_restitution`, and a `Body` has `set_velocity`,
 `add_impulse` and `set_damping`. Rapier has no rolling resistance, so a ball on a
 plane rolls forever without damping.
 
@@ -54,17 +54,39 @@ manifest serve it like any asset, and `Model::get("tree.glb")` returns the one
 copy. `Shape3::Model(model)` puts it on a node. The meshes, the metallic roughness
 materials, the embedded base color and normal textures and the node tree load, the
 tree flattened into parts with their placements, so a node draws every mesh of the
-file at its own size and with its own materials. A primitive without a material
+file at its own size and with its own materials. `set_scale` sizes a node uniformly
+on top of that, so a model in other units fits the scene, the collider and picking
+follow. A primitive without a material
 takes the node's `Material`. The collider is the box around the model's `bounds`,
 placed where the bounds are, so a model whose origin sits at its feet still rests
 on the floor. A primitive over 65535 vertices is split into parts so every lane
 draws 16 bit indices, and one without normals shades flat as glTF asks. Only a
-`.glb` with embedded buffers and images loads, triangles only, no skins, morphs or
-animations yet.
+`.glb` with embedded buffers and images loads, triangles only, no morph targets.
+
+## Skins and animations
+
+A file with a skin or an animation keeps its node tree as a `Rig`: every node's
+rest transform and parent, the skins with their joints and inverse bind matrices,
+and the animation clips, `Model::clips` by name with step, linear and cubic spline
+keys. A skinned vertex carries its four joints and weights in a second vertex
+buffer, so a static mesh pays nothing. Each frame the drawer poses the tree, one
+matrix per joint into a storage buffer shared by the whole frame, and the skinned
+twins of the mesh and shadow pipelines, the same shader from its `v_skinned` entry,
+blend the four matrices per vertex. An unskinned part under an animated node moves
+with it, a windmill hub turns its blades. Four bind groups is every lane's limit,
+so the joints share the instance group. At rest a skinned model draws through its
+rest joints without walking the tree.
+
+A node plays a clip with `play`, looped, or `play_once`, which holds the last
+frame, then `set_animation_speed`, `set_animation_time` to seek, `stop_animation`
+back to rest, and `animation_time` and `is_animating` to ask. The time moves with
+the scene's update steps, the same clock as the physics. The bounds, and with
+them the collider and picking, are the rest pose. `Fox.glb` is the Khronos glTF
+sample fox with its Survey, Walk and Run clips, see `Fox.license.md` next to it.
 
 The Blender sources sit next to the exports in `assets/models`. One file exports
 with `blender --background --python build/export_glb.py -- assets/models/tree.blend`,
-which also mends what the old files miss, see the script. Only the `.glb` files
+skins and actions included, and the script also mends what the old files miss. Only the `.glb` files
 reach the browser manifest.
 
 ## Materials and lights
@@ -158,8 +180,13 @@ texture and a normal map, `Skybox` chrome under a sky, `Transparency` blended
 balls from both sides, `Drop balls` a physics rest, `Models` the monkey, the tree
 and the textured cube from `assets/models` with the monkey dropped onto its
 bounds, `Shadows` a post, a ball, a floating crate and the monkey under a low sun,
-`Picking` taps landing on the nearest node and on the sky, and `Player walk` a
-player shoving a crate into a wall and jumping. Rapier is deterministic on one machine, a
+`Picking` taps landing on the nearest node and on the sky, `Player walk` a
+player shoving a crate into a wall and jumping, and `Animations` a skinned bar
+bending, the fox running and a windmill spinning, checked at rest, frozen mid
+clip and held after a single run. The loop runs free, so the frames between two
+waits vary by one. A check of a pose in flight freezes the clip at a chosen time
+through `set_animation_speed(0)` and `set_animation_time` first. A human hold
+pauses the scene's time, so the probes sit on a still picture. Rapier is deterministic on one machine, a
 lane that disagrees needs its `enhanced-determinism` feature. `hold_key` and
 `release_key` drive the player from a test.
 
@@ -175,5 +202,5 @@ with a player in the scene the drag turns its head and the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): skins and animations,
-then cascaded shadows, fog and an embeddable scene view.
+The remaining deliveries are in [roadmap.md](roadmap.md): cascaded shadows, fog
+and an embeddable scene view.

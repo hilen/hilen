@@ -51,7 +51,7 @@ impl Node for Body {
 
         // The collider sits where the shape's solid is, a model's box
         // around its bounds, the same offset a wall applies.
-        let collider = shape.make_collider().translation(shape.collider_offset()).build();
+        let collider = shape.make_collider(1.0).translation(shape.collider_offset()).build();
 
         let (rigid_handle, collider_handle) = SceneManager::physics().sets.insert(rigid_body, collider);
 

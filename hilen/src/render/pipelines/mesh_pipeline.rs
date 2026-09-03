@@ -16,7 +16,7 @@ use crate::{
     deps::refs::Weak,
     gm::{
         flat::Size,
-        volume::{Mat4, Vertex3D},
+        volume::{Mat4, SkinVertex, Vertex3D},
     },
     render::{
         SceneView,
@@ -40,6 +40,15 @@ const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
 const SHADOW: &str = include_str!("shaders/shadow.wgsl");
 
+/// The vertex buffers of a static draw and of a skinned one, which adds
+/// the joints and weights per vertex.
+const STATIC_LAYOUTS: &[wgpu::VertexBufferLayout] = &[Vertex3D::VERTEX_LAYOUT, MeshInstance::VERTEX_LAYOUT];
+const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
+    Vertex3D::VERTEX_LAYOUT,
+    MeshInstance::VERTEX_LAYOUT,
+    SkinVertex::VERTEX_LAYOUT,
+];
+
 /// What one instanced draw shares: the mesh and the two textures.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MeshKey {
@@ -52,11 +61,15 @@ pub(crate) struct MeshKey {
 /// per mesh and texture pair for the opaque nodes, then one draw per
 /// translucent node, back to front. `prepare` loads the frame's buffers
 /// and draws the shadow map before the frame's pass opens, `draw` draws
-/// into it.
+/// into it. A skinned mesh draws through the skinned twin of each
+/// pipeline, the same shader from its other vertex entry, which blends
+/// the joint matrices its instance points at.
 pub struct MeshPipeline {
-    opaque:      RenderPipeline,
-    translucent: RenderPipeline,
-    sky:         RenderPipeline,
+    opaque:              RenderPipeline,
+    opaque_skinned:      RenderPipeline,
+    translucent:         RenderPipeline,
+    translucent_skinned: RenderPipeline,
+    sky:                 RenderPipeline,
 
     /// The frame's view, the sky cube it lights and reflects, and the
     /// sun's shadow map.
@@ -67,14 +80,18 @@ pub struct MeshPipeline {
 
     /// The sun's depth pass, its own view of the light's matrix alone,
     /// since the pass cannot bind the map it draws.
-    shadow:      RenderPipeline,
-    shadow_bind: BindGroup,
-    shadow_view: Buffer,
-    shadow_map:  TextureView,
+    shadow:         RenderPipeline,
+    shadow_skinned: RenderPipeline,
+    shadow_bind:    BindGroup,
+    shadow_view:    Buffer,
+    shadow_map:     TextureView,
 
-    /// Binds the instance buffer for the fragment stage, see
-    /// `RectPipeline` for why the group cannot be cached.
+    /// Binds the instance buffer for the fragment stage and the joint
+    /// buffer for the vertex stage, see `RectPipeline` for why the
+    /// group cannot be cached.
     instances_layout: BindGroupLayout,
+    /// The joints alone, what the shadow pass binds.
+    joints_layout:    BindGroupLayout,
 
     // A unit mesh lives for the whole process, a model's mesh dies with
     // the model and takes its key out at the next draw. An image can die
@@ -84,6 +101,10 @@ pub struct MeshPipeline {
     /// The translucent nodes in draw order and the key of each.
     transparent:      VecBuffer<MeshInstance>,
     transparent_keys: Vec<MeshKey>,
+
+    /// The joint matrices of every skinned node of the frame, one run
+    /// per node and skin, indexed by the instance's `joint_base`.
+    joints: VecBuffer<Mat4>,
 
     /// The point and spot lights of the frame, indexed by every
     /// instance's light list.
@@ -117,7 +138,8 @@ impl Default for MeshPipeline {
 
         let view_layout = view_layout(device);
         let shadow_layout = shadow_layout(device);
-        let instances_layout = make_storage_layout("mesh_instances_layout", ShaderStages::FRAGMENT);
+        let instances_layout = instances_layout(device);
+        let joints_layout = make_storage_layout("mesh_joints_layout", ShaderStages::VERTEX);
         let lights_layout = make_storage_layout("mesh_lights_layout", ShaderStages::FRAGMENT);
         let textures_layout = textures_layout(device);
 
@@ -138,25 +160,27 @@ impl Default for MeshPipeline {
         });
         let shadow_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label:              "shadow_pipeline_layout".into(),
-            bind_group_layouts: &[Some(&shadow_layout)],
+            bind_group_layouts: &[Some(&shadow_layout), Some(&joints_layout)],
             immediate_size:     0,
         });
 
-        let layouts = &[Vertex3D::VERTEX_LAYOUT, MeshInstance::VERTEX_LAYOUT];
-        let opaque = device.mesh_pipeline("mesh_pipeline", &mesh_layout, &mesh_shader, layouts, false);
-        let translucent = device.mesh_pipeline(
-            "mesh_translucent_pipeline",
-            &mesh_layout,
-            &mesh_shader,
-            layouts,
-            true,
-        );
+        let [opaque, opaque_skinned] = mesh_pipelines(device, "mesh", &mesh_layout, &mesh_shader, false);
+        let [translucent, translucent_skinned] =
+            mesh_pipelines(device, "mesh_translucent", &mesh_layout, &mesh_shader, true);
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
         let shadow = device.shadow_pipeline(
             "shadow_pipeline",
             &shadow_pipeline_layout,
             &shadow_shader,
-            layouts,
+            STATIC_LAYOUTS,
+            "v_main",
+        );
+        let shadow_skinned = device.shadow_pipeline(
+            "shadow_skinned_pipeline",
+            &shadow_pipeline_layout,
+            &shadow_shader,
+            SKINNED_LAYOUTS,
+            "v_skinned",
         );
 
         let view_buffer = device.buffer(
@@ -169,19 +193,24 @@ impl Default for MeshPipeline {
 
         Self {
             opaque,
+            opaque_skinned,
             translucent,
+            translucent_skinned,
             sky,
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
             shadow,
+            shadow_skinned,
             shadow_bind,
             shadow_view,
             shadow_map,
             instances_layout,
+            joints_layout,
             instances: IndexMap::default(),
             transparent: VecBuffer::default(),
             transparent_keys: vec![],
+            joints: VecBuffer::default(),
             lights_layout,
             lights: VecBuffer::default(),
             textures_layout,
@@ -210,6 +239,16 @@ impl MeshPipeline {
         self.lights.push(light);
     }
 
+    /// Queues the joint matrices of one skinned node and returns where
+    /// they start, the `joint_base` of its instances.
+    pub(crate) fn add_joints(&mut self, matrices: &[Mat4]) -> u32 {
+        let base = self.joints.pending();
+        for matrix in matrices {
+            self.joints.push(*matrix);
+        }
+        base
+    }
+
     /// Loads the frame's buffers and, when the sun casts, draws the
     /// shadow map. Before the frame's pass opens, the pass reads the map.
     pub(crate) fn prepare(&mut self, encoder: &mut CommandEncoder, view: &SceneView, shadows: bool) {
@@ -223,6 +262,12 @@ impl MeshPipeline {
             self.lights.push(MeshLight::default());
         }
         self.lights.load();
+
+        // The same for the joints, only a skinned draw reads them.
+        if self.joints.is_empty() {
+            self.joints.push(Mat4::IDENTITY);
+        }
+        self.joints.load();
 
         for instances in self.instances.values_mut() {
             if !instances.is_empty() {
@@ -264,13 +309,13 @@ impl MeshPipeline {
             multiview_mask:           None,
         });
 
-        pass.set_pipeline(&self.shadow);
+        let joints_bind = storage_bind("shadow_joints_bind", &self.joints_layout, &self.joints);
         pass.set_bind_group(0, &self.shadow_bind, &[]);
+        pass.set_bind_group(1, &joints_bind, &[]);
 
         for (key, instances) in self.loaded() {
-            pass.set_vertex_buffer(0, key.mesh.vertex_buffer.slice(..));
+            set_mesh(&mut pass, &key.mesh, &self.shadow, &self.shadow_skinned);
             pass.set_vertex_buffer(1, instances.slice());
-            pass.set_index_buffer(key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
             pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
         }
     }
@@ -300,17 +345,14 @@ impl MeshPipeline {
         let lights_bind = storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights);
         render_pass.set_bind_group(2, &lights_bind, &[]);
 
-        render_pass.set_pipeline(&self.opaque);
-
         for (key, instances) in self.loaded() {
-            let instances_bind = storage_bind("mesh_instances_bind", &self.instances_layout, instances);
+            let instances_bind = self.instances_bind(instances);
             let textures_bind = textures_bind(&self.textures_layout, key, &self.white, &self.flat_normal);
 
             render_pass.set_bind_group(1, &instances_bind, &[]);
             render_pass.set_bind_group(3, &textures_bind, &[]);
-            render_pass.set_vertex_buffer(0, key.mesh.vertex_buffer.slice(..));
+            set_mesh(render_pass, &key.mesh, &self.opaque, &self.opaque_skinned);
             render_pass.set_vertex_buffer(1, instances.slice());
-            render_pass.set_index_buffer(key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
 
             // Base vertex stays zero, an A7 draws nothing otherwise.
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
@@ -321,9 +363,7 @@ impl MeshPipeline {
             return;
         }
 
-        render_pass.set_pipeline(&self.translucent);
-
-        let instances_bind = storage_bind("mesh_translucent_bind", &self.instances_layout, &self.transparent);
+        let instances_bind = self.instances_bind(&self.transparent);
         render_pass.set_bind_group(1, &instances_bind, &[]);
 
         let range = self.transparent.range().clone();
@@ -332,12 +372,16 @@ impl MeshPipeline {
         for (i, key) in self.transparent_keys.drain(..).enumerate() {
             let textures_bind = textures_bind(&self.textures_layout, &key, &self.white, &self.flat_normal);
             render_pass.set_bind_group(3, &textures_bind, &[]);
-            render_pass.set_vertex_buffer(0, key.mesh.vertex_buffer.slice(..));
+            set_mesh(
+                render_pass,
+                &key.mesh,
+                &self.translucent,
+                &self.translucent_skinned,
+            );
             // The draw starts at instance zero of a slice that begins at
             // this node, its `index` attribute still names the real slot.
             let start = range.start + u64::try_from(i).expect("node count fits u64") * stride;
             render_pass.set_vertex_buffer(1, self.transparent.buffer().slice(start..range.end));
-            render_pass.set_index_buffer(key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..1);
         }
     }
@@ -366,6 +410,69 @@ impl MeshPipeline {
             ],
         })
     }
+
+    /// The part of the instance buffer this frame's flush landed in, so
+    /// the fragment stage indexes the same elements the draw uses, and
+    /// the frame's joints for the vertex stage.
+    fn instances_bind(&self, instances: &VecBuffer<MeshInstance>) -> BindGroup {
+        Window::device().create_bind_group(&BindGroupDescriptor {
+            label:   Some("mesh_instances_bind"),
+            layout:  &self.instances_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding:  0,
+                    resource: BindingResource::Buffer(loaded_range(instances)),
+                },
+                BindGroupEntry {
+                    binding:  1,
+                    resource: BindingResource::Buffer(loaded_range(&self.joints)),
+                },
+            ],
+        })
+    }
+}
+
+/// Picks the pipeline for the mesh and sets its vertex and index
+/// buffers, the skin buffer too when it has one.
+fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, plain: &RenderPipeline, skinned: &RenderPipeline) {
+    match &mesh.skin_buffer {
+        Some(skin) => {
+            pass.set_pipeline(skinned);
+            pass.set_vertex_buffer(2, skin.slice(..));
+        }
+        None => pass.set_pipeline(plain),
+    }
+    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+    pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
+}
+
+/// A mesh pipeline and its skinned twin, the same shader from its two
+/// vertex entries.
+fn mesh_pipelines(
+    device: &wgpu::Device,
+    name: &str,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    translucent: bool,
+) -> [RenderPipeline; 2] {
+    [
+        device.mesh_pipeline(
+            &format!("{name}_pipeline"),
+            layout,
+            shader,
+            STATIC_LAYOUTS,
+            "v_main",
+            translucent,
+        ),
+        device.mesh_pipeline(
+            &format!("{name}_skinned_pipeline"),
+            layout,
+            shader,
+            SKINNED_LAYOUTS,
+            "v_skinned",
+            translucent,
+        ),
+    ]
 }
 
 fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {
@@ -423,6 +530,18 @@ fn shadow_layout(device: &wgpu::Device) -> BindGroupLayout {
     })
 }
 
+/// The instances for the fragment stage and the joints for the vertex
+/// stage. Four bind groups is every lane's limit, so the two share one.
+fn instances_layout(device: &wgpu::Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label:   "mesh_instances_layout".into(),
+        entries: &[
+            storage_entry(0, ShaderStages::FRAGMENT),
+            storage_entry(1, ShaderStages::VERTEX),
+        ],
+    })
+}
+
 /// The base color texture and the normal map of a draw.
 fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -453,6 +572,19 @@ fn shadow_map(device: &wgpu::Device) -> TextureView {
             view_formats:    &[],
         })
         .create_view(&TextureViewDescriptor::default())
+}
+
+fn storage_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+    BindGroupLayoutEntry {
+        binding,
+        visibility,
+        ty: BindingType::Buffer {
+            ty:                 BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size:   None,
+        },
+        count: None,
+    }
 }
 
 fn texture_entry(binding: u32, view_dimension: TextureViewDimension) -> BindGroupLayoutEntry {
@@ -532,21 +664,25 @@ fn textures_bind(
     })
 }
 
-/// Binds the part of a loaded `VecBuffer` that this frame's flush landed
-/// in, so the shader indexes the same elements the draw uses.
-fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
+/// The part of a loaded `VecBuffer` that this frame's flush landed in.
+fn loaded_range<T>(buffer: &VecBuffer<T>) -> BufferBinding<'_> {
     let range = buffer.range();
-    let buffer: &Buffer = buffer.buffer();
+    BufferBinding {
+        buffer: buffer.buffer(),
+        offset: range.start,
+        size:   NonZeroU64::new(range.end - range.start),
+    }
+}
+
+/// Binds the loaded part of a `VecBuffer` alone, so the shader indexes
+/// the same elements the draw uses.
+fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
     Window::device().create_bind_group(&BindGroupDescriptor {
         label: Some(label),
         layout,
         entries: &[BindGroupEntry {
             binding:  0,
-            resource: BindingResource::Buffer(BufferBinding {
-                buffer,
-                offset: range.start,
-                size: NonZeroU64::new(range.end - range.start),
-            }),
+            resource: BindingResource::Buffer(loaded_range(buffer)),
         }],
     })
 }

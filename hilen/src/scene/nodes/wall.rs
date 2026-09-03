@@ -20,7 +20,7 @@ impl Node for Wall {
         // Bouncy like a level wall, so a ball rolls on instead of
         // stopping dead against it.
         let collider = shape
-            .make_collider()
+            .make_collider(1.0)
             .translation(position + shape.collider_offset())
             .restitution(1.0)
             .build();

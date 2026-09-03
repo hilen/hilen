@@ -10,7 +10,7 @@ use crate::{
     gm::{
         LossyConvert, checked_usize_to_u32,
         flat::Point,
-        volume::{Shape3, Vec3, Vertex3D},
+        volume::{Shape3, SkinVertex, Vec3, Vertex3D},
     },
     render::DeviceHelper,
     window::Window,
@@ -28,6 +28,9 @@ const BALL_SEGMENTS: usize = 32;
 #[derive(Debug)]
 pub struct Mesh {
     pub(crate) vertex_buffer: Buffer,
+    /// The joints and weights of a skinned mesh, one per vertex, the
+    /// second vertex buffer of the skinned pipelines.
+    pub(crate) skin_buffer:   Option<Buffer>,
     pub(crate) index_buffer:  Buffer,
     pub(crate) index_count:   u32,
 }
@@ -65,8 +68,19 @@ impl Mesh {
         let device = Window::device();
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),
+            skin_buffer:   None,
             index_buffer:  device.buffer(indices, BufferUsages::INDEX),
             index_count:   checked_usize_to_u32(indices.len()),
+        }
+    }
+
+    /// A mesh whose vertices follow the joints of a skin, `skin` is one
+    /// entry per vertex.
+    pub(crate) fn upload_skinned(vertices: &[Vertex3D], skin: &[SkinVertex], indices: &[u16]) -> Self {
+        assert_eq!(vertices.len(), skin.len(), "one skin vertex per vertex");
+        Self {
+            skin_buffer: Some(Window::device().buffer(skin, BufferUsages::VERTEX)),
+            ..Self::upload(vertices, indices)
         }
     }
 }

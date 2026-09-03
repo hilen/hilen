@@ -22,11 +22,14 @@ pub struct SceneManager {
     update_interval: f32,
 
     scene: Option<Own<dyn Scene>>,
+
+    /// Holds the scene's time, see `set_paused`.
+    paused: bool,
 }
 
 impl SceneManager {
     pub(crate) fn update() {
-        if Self::no_scene() {
+        if Self::no_scene() || SELF.paused {
             return;
         }
 
@@ -46,6 +49,14 @@ impl SceneManager {
 
     pub fn stop_scene() {
         SELF.get_mut().scene = None;
+    }
+
+    /// Stops the scene's time, the physics and every playing clip, and
+    /// keeps drawing it. The test harness holds a scene this way while
+    /// a human looks at its probes, so the picture under them stands
+    /// still.
+    pub(crate) fn set_paused(paused: bool) {
+        SELF.get_mut().paused = paused;
     }
 
     pub(crate) fn scene() -> &'static dyn Scene {

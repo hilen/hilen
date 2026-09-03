@@ -19,28 +19,32 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 pub(crate) struct MeshInstance {
-    pub model:       Mat4,
+    pub model:        Mat4,
     /// The inverse transpose of the model's rotation and scale, what a
     /// normal transforms by when the scale is not uniform. Three vec4
     /// rows, the fourth component is padding.
-    pub normal:      [Vec4; 3],
-    pub color:       Color,
-    pub metallic:    f32,
-    pub roughness:   f32,
-    pub light_count: u32,
+    pub normal:       [Vec4; 3],
+    pub color:        Color,
+    pub metallic:     f32,
+    pub roughness:    f32,
+    pub light_count:  u32,
     /// Where this instance sits in the storage buffer of its draw. The
     /// vertex stage carries it instead of `instance_index`, so a
     /// translucent node drawn alone from the middle of the buffer needs
     /// no base instance, which an A7 cannot draw.
-    pub index:       u32,
+    pub index:        u32,
     /// Indices into the light buffer, two to a word, see `LightPick`.
-    pub lights:      [u32; 4],
-    /// The normal scale, the rest is padding.
-    pub params:      [f32; 4],
+    pub lights:       [u32; 4],
+    pub normal_scale: f32,
+    /// Where this instance's joint matrices start in the frame's joint
+    /// buffer, what the skinned vertex stage reads. Zero on a static
+    /// mesh, whose pipelines never read it.
+    pub joint_base:   u32,
+    pub padding:      [u32; 2],
 }
 
 impl MeshInstance {
-    pub(crate) fn new(model: Mat4, material: Material, lights: LightPick) -> Self {
+    pub(crate) fn new(model: Mat4, material: Material, lights: LightPick, joint_base: u32) -> Self {
         let normal = Mat3::from_mat4(model).inverse().transpose();
         Self {
             model,
@@ -55,7 +59,9 @@ impl MeshInstance {
             light_count: lights.count,
             index: 0,
             lights: lights.packed,
-            params: [material.normal_scale, 0.0, 0.0, 0.0],
+            normal_scale: material.normal_scale,
+            joint_base,
+            padding: [0; 2],
         }
     }
 }
@@ -81,6 +87,11 @@ impl VertexLayout for MeshInstance {
             format:          VertexFormat::Uint32,
             offset:          140,
             shader_location: 10,
+        },
+        VertexAttribute {
+            format:          VertexFormat::Uint32,
+            offset:          164,
+            shader_location: 11,
         },
     ];
     const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
@@ -109,8 +120,10 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, light_count), 136);
         assert_eq!(offset_of!(MeshInstance, index), 140);
         assert_eq!(offset_of!(MeshInstance, lights), 144);
-        assert_eq!(offset_of!(MeshInstance, params), 160);
+        assert_eq!(offset_of!(MeshInstance, normal_scale), 160);
+        assert_eq!(offset_of!(MeshInstance, joint_base), 164);
         assert_eq!(size_of::<MeshInstance>(), 176);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
+        assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);
     }
 }

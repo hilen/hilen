@@ -57,16 +57,17 @@ impl Shape3 {
         }
     }
 
-    /// The distance along the ray to this shape placed at `position`
-    /// and turned by `rotation`. A ball by its surface, everything else
-    /// by its collider box, so a model is hit on its bounds.
-    pub fn hit(&self, ray: Ray, position: Vec3, rotation: Quat) -> Option<f32> {
+    /// The distance along the ray to this shape placed at `position`,
+    /// turned by `rotation` and sized by `scale`. A ball by its surface,
+    /// everything else by its collider box, so a model is hit on its
+    /// bounds.
+    pub fn hit(&self, ray: Ray, position: Vec3, rotation: Quat, scale: f32) -> Option<f32> {
         match self {
-            Self::Ball(radius) => ray.hit_ball(position, *radius),
+            Self::Ball(radius) => ray.hit_ball(position, *radius * scale),
             Self::Box(_) | Self::Plane(_) | Self::Model(_) => ray.hit_box(
-                position + rotation * self.collider_offset(),
+                position + rotation * (self.collider_offset() * scale),
                 rotation,
-                self.half_extents(),
+                self.half_extents() * scale,
             ),
         }
     }

@@ -4,7 +4,7 @@ use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::volume::{Bounds, Mat4, Shape3, Vec4},
     render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
-    scene::{Material, Mesh, SceneManager, pick_lights},
+    scene::{LightPick, Material, Mesh, Model, Playback, SceneManager, pick_lights},
     ui::{UIManager, ui_drawer::set_viewport},
 };
 
@@ -18,6 +18,73 @@ static MESH: MainLock<MeshPipeline> = MainLock::new();
 const DEPTH_BAND: (f32, f32) = (0.6, 1.0);
 
 pub(crate) struct SceneDrawer;
+
+/// Where one node's draws go: the batch of its mesh and textures, or the
+/// translucent list drawn after every batch.
+struct NodeDraws<'a> {
+    pipeline:    &'a mut MeshPipeline,
+    translucent: &'a mut Vec<(f32, MeshKey, MeshInstance)>,
+    lights:      LightPick,
+    distance:    f32,
+}
+
+impl NodeDraws<'_> {
+    fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joint_base: u32) {
+        let key = MeshKey {
+            mesh,
+            texture: material.texture,
+            normal_map: material.normal_map,
+        };
+        let instance = MeshInstance::new(model, material, self.lights, joint_base);
+        if material.color.a < 1.0 {
+            self.translucent.push((self.distance, key, instance));
+        } else {
+            self.pipeline.add(key, instance);
+        }
+    }
+
+    /// Every part of a model at the pose its node plays, or at rest.
+    /// A skinned part draws through its joint matrices, queued once per
+    /// skin, and an unskinned one at its node's posed place.
+    fn push_model(
+        &mut self,
+        model: &Model,
+        model_matrix: Mat4,
+        material: Material,
+        playback: Option<Playback>,
+    ) {
+        let posed = model
+            .rig
+            .as_ref()
+            .zip(playback)
+            .map(|(rig, playback)| rig.pose(Some((&rig.clips[playback.clip], playback.time))));
+        let mut bases: Vec<Option<u32>> = vec![None; model.rest_joints.len()];
+
+        for part in &model.parts {
+            let (transform, joint_base) = match part.skin {
+                Some(skin) => {
+                    let base = *bases[skin].get_or_insert_with(|| match (&posed, &model.rig) {
+                        (Some(globals), Some(rig)) => {
+                            self.pipeline.add_joints(&rig.skins[skin].joint_matrices(globals))
+                        }
+                        _ => self.pipeline.add_joints(&model.rest_joints[skin]),
+                    });
+                    (Mat4::IDENTITY, base)
+                }
+                None => (
+                    posed.as_ref().map_or(part.transform, |globals| globals[part.node]),
+                    0,
+                ),
+            };
+            self.push(
+                part.mesh.weak(),
+                model_matrix * transform,
+                part.material.unwrap_or(material),
+                joint_base,
+            );
+        }
+    }
+}
 
 impl SceneDrawer {
     pub(crate) fn update() {
@@ -54,41 +121,26 @@ impl SceneDrawer {
         for node in scene.nodes() {
             let shape = node.shape();
             // The solid's center, a model's origin can sit off its bounds.
-            let center = node.position() + node.rotation() * shape.collider_offset();
-            let reach = shape.half_extents().length();
-            let lights = pick_lights(center, reach, &scene.lights);
-            let distance = camera.position.distance_squared(center);
+            let center = node.position() + node.rotation() * node.collider_offset();
+            let reach = node.half_extents().length();
             let model_matrix = node.model_matrix();
             extent.push(center - reach);
             extent.push(center + reach);
 
-            let mut push = |mesh: Weak<Mesh>, model: Mat4, material: Material| {
-                let key = MeshKey {
-                    mesh,
-                    texture: material.texture,
-                    normal_map: material.normal_map,
-                };
-                let instance = MeshInstance::new(model, material, lights);
-                if material.color.a < 1.0 {
-                    translucent.push((distance, key, instance));
-                } else {
-                    pipeline.add(key, instance);
-                }
+            let mut draws = NodeDraws {
+                pipeline,
+                translucent: &mut translucent,
+                lights: pick_lights(center, reach, &scene.lights),
+                distance: camera.position.distance_squared(center),
             };
 
             match shape {
                 Shape3::Model(model) if model.is_ok() => {
-                    for part in &model.parts {
-                        push(
-                            part.mesh.weak(),
-                            model_matrix * part.transform,
-                            part.material.unwrap_or(node.material),
-                        );
-                    }
+                    draws.push_model(&model, model_matrix, node.material, node.playback);
                 }
                 _ => {
                     if let Some(mesh) = node.mesh {
-                        push(mesh, model_matrix, node.material);
+                        draws.push(mesh, model_matrix, node.material, 0);
                     }
                 }
             }

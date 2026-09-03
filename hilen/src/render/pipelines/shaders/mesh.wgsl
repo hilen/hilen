@@ -10,7 +10,9 @@ struct MeshInstance {
     light_count: u32,
     index: u32,
     lights: vec4<u32>,
-    params: vec4<f32>,
+    normal_scale: f32,
+    joint_base: u32,
+    padding: vec2<u32>,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -22,6 +24,11 @@ struct Light {
 
 @group(1) @binding(0)
 var<storage, read> instances: array<MeshInstance>;
+
+// The joint matrices of every skinned node of the frame, bind space to
+// model space, each instance's run starting at its `joint_base`.
+@group(1) @binding(1)
+var<storage, read> joints: array<mat4x4<f32>>;
 
 @group(2) @binding(0)
 var<storage, read> lights: array<Light>;
@@ -50,6 +57,13 @@ struct Instance {
     @location(8) normal1: vec4<f32>,
     @location(9) normal2: vec4<f32>,
     @location(10) index: u32,
+    @location(11) joint_base: u32,
+}
+
+// The second vertex buffer of a skinned mesh, see `SkinVertex`.
+struct SkinVertex {
+    @location(12) joints: vec4<u32>,
+    @location(13) weights: vec4<f32>,
 }
 
 // Six components cross the stage boundary. An A7 draws nothing above
@@ -63,17 +77,39 @@ struct VertexOutput {
     @location(2) @interpolate(flat) instance: u32,
 }
 
-@vertex
-fn v_main(vertex: Vertex, instance: Instance) -> VertexOutput {
+fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: Instance) -> VertexOutput {
     let model = mat4x4<f32>(instance.model0, instance.model1, instance.model2, instance.model3);
     let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
 
     var out: VertexOutput;
-    out.pos = view.view_proj * model * vec4<f32>(vertex.pos, 1.0);
-    out.uv = vertex.uv;
-    out.normal = normalize(normal_matrix * vertex.normal);
+    out.pos = view.view_proj * model * vec4<f32>(pos, 1.0);
+    out.uv = uv;
+    out.normal = normalize(normal_matrix * normal);
     out.instance = instance.index;
     return out;
+}
+
+@vertex
+fn v_main(vertex: Vertex, instance: Instance) -> VertexOutput {
+    return place(vertex.pos, vertex.normal, vertex.uv, instance);
+}
+
+// The blend of the four joint matrices that move this vertex. A joint
+// turns and moves, it does not squash, so its upper left turns the
+// normal as it is.
+fn skin_matrix(skin: SkinVertex, base: u32) -> mat4x4<f32> {
+    return skin.weights.x * joints[base + skin.joints.x]
+        + skin.weights.y * joints[base + skin.joints.y]
+        + skin.weights.z * joints[base + skin.joints.z]
+        + skin.weights.w * joints[base + skin.joints.w];
+}
+
+@vertex
+fn v_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> VertexOutput {
+    let matrix = skin_matrix(skin, instance.joint_base);
+    let pos = (matrix * vec4<f32>(vertex.pos, 1.0)).xyz;
+    let normal = mat3x3<f32>(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * vertex.normal;
+    return place(pos, normal, vertex.uv, instance);
 }
 
 // The Filament mobile model: Lambert diffuse, GGX distribution, the
@@ -209,7 +245,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance = instances[in.instance];
     let texel = textureSample(base_texture, base_sampler, in.uv);
     var map = textureSample(normal_texture, normal_sampler, in.uv).xyz * 2.0 - 1.0;
-    map = vec3<f32>(map.xy * instance.params.x, map.z);
+    map = vec3<f32>(map.xy * instance.normal_scale, map.z);
 
     let base = srgb_to_linear(instance.color.rgb) * srgb_to_linear(texel.rgb);
     let alpha = instance.color.a * texel.a;

@@ -107,14 +107,11 @@ tvOS app need.
 
 The `scene` module landed with primitives, physics, the Filament mobile PBR
 materials, a sun with point and spot lights, textures and normal maps, a sky
-with image based lighting, transparency, a tonemap, a first person player, static
-`.glb` models, one sun shadow map and touch picking, see [scene.md](scene.md). The
-rest was planned with it and lands in this order.
+with image based lighting, transparency, a tonemap, a first person player,
+`.glb` models with skins and animation clips, one sun shadow map and touch
+picking, see [scene.md](scene.md). The rest was planned with it.
 
-- Skins and animations. Current: a `Model` loads static meshes only, the node
-  tree flattened at load. Needed: joints and weights on the vertex, the skin
-  matrices in a storage buffer, and the animation channels sampled per frame.
-- Later: cascaded shadows, the one map over the whole scene blurs on a big level,
+- Cascaded shadows, the one map over the whole scene blurs on a big level,
   fog, an embeddable `SceneView` that composites into any view frame instead of
   the root area, and the offscreen linear pass with real HDR that `colors.md`
   sketches, if a scene ever needs it.
