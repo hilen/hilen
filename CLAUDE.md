@@ -101,6 +101,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   models with skins and clips, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
   budget of the mesh shader, scene tests and what is still to come. Read before touching
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
+- [docs/forks.md](docs/forks.md) — the 3 forked crates, what each fork branch carries
+  against upstream, which commits are upstream candidates, and the recipe for sending a
+  fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
+  opening an upstream PR.
 
 Docs should be concise.
 

@@ -58,7 +58,9 @@ iOS 16 property that upstream messages with no availability check, which breaks 
 below 16. `wgpu_text` is the fork at github.com/VladasZ/wgpu-text, pinned by git rev, and
 it builds against that same `hilen-wgpu`, because a stock `wgpu` next to it would give two
 `wgpu` crates whose types do not interchange. Do not swap either back to upstream without
-checking on an old device first.
+checking on an old device first. The EDR guard went upstream as
+[gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257), the rest of the fork's
+state against upstream is in [forks.md](forks.md).
 
 ## A7 limits
 

@@ -66,7 +66,7 @@ glyphs themselves from the top of the label frame to its bottom, see
 Correct bytes in the framebuffer are not the end of the story, the OS
 still decides how the window surface is interpreted on the panel. The
 metal backend used to leave the `CAMetalLayer` colorspace nil, which
-disables color matching entirely, so on a wide gamut display every
+disables color matching entirely, so on a P3 display every
 saturated color oversaturated, `#f59e0b` displayed as `#ff9900` while
 grays matched exactly. Since `hilen-wgpu-hal` 30.0.1 the layer is tagged
 with an explicit sRGB colorspace, so the OS matches the content into the
