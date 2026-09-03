@@ -45,6 +45,11 @@ pub struct SceneBase {
     /// The nearest node under it gets its own `on_touch` first.
     pub on_tap: Event<Ray>,
 
+    /// Draws every collider as a green wireframe over the scene, the
+    /// box around a model's bounds, three rings on a ball. A plane's
+    /// slab is the floor itself and is not drawn. Off by default.
+    pub show_colliders: bool,
+
     pub(crate) physics: Option<ScenePhysics>,
 }
 

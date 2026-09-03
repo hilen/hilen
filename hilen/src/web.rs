@@ -10,6 +10,40 @@ type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys:
 
 static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
 
+type PointerLockListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut()>;
+
+static POINTER_LOCK_LISTENER: MainLock<Option<PointerLockListener>> = MainLock::new();
+
+/// The browser lets the mouse go on its own Escape and never reports
+/// that key to the page, and it refuses a lock asked for without a
+/// click. Both show as the lock leaving the canvas, so `Cursor` learns
+/// of them here.
+pub(crate) fn install_pointer_lock_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let document = web_sys::window()
+        .expect("Failed to get browser window")
+        .document()
+        .expect("Failed to get browser document");
+
+    let listener = Closure::<dyn FnMut()>::new({
+        let document = document.clone();
+        move || {
+            if document.pointer_lock_element().is_none() {
+                crate::ui::Cursor::release();
+            }
+        }
+    });
+
+    for event in ["pointerlockchange", "pointerlockerror"] {
+        document
+            .add_event_listener_with_callback(event, listener.as_ref().unchecked_ref())
+            .expect("Failed to install the pointer lock listener");
+    }
+
+    POINTER_LOCK_LISTENER.set(Some(listener));
+}
+
 static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
 
 /// The canvas winit put in the page, kept so a fatal GPU failure can take

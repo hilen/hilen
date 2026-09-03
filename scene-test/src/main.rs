@@ -8,11 +8,13 @@
 
 mod animations;
 mod cascades;
+mod colliders;
 mod drop_balls;
 mod fog;
 mod lights;
 mod materials;
 mod models;
+mod mouse_look;
 mod picking;
 mod player_walk;
 mod primitives;

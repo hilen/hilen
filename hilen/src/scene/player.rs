@@ -11,7 +11,7 @@ use rapier3d::{
 use crate::{
     gm::volume::Vec3,
     scene::{SceneManager, scene::ScenePhysics},
-    ui::Keys,
+    ui::{Cursor, Keys},
     window::KeyCode,
 };
 
@@ -23,7 +23,7 @@ const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.05;
 /// walks over the scene's colliders, with gravity, small steps, a jump
 /// and a push on the bodies it walks into, and the scene camera looks
 /// out of its eyes. `w` `a` `s` `d` or the arrows walk, space jumps,
-/// `look` turns.
+/// the captured mouse or `look` turns.
 pub struct Player {
     body:       RigidBodyHandle,
     collider:   ColliderHandle,
@@ -45,6 +45,11 @@ pub struct Player {
     /// Reads the keyboard every step. Off for a scene that moves the
     /// player itself.
     pub keyboard:   bool,
+    /// Turns with the captured mouse every step, see `Cursor`. Off for
+    /// a scene that turns the player itself.
+    pub mouse:      bool,
+    /// Radians of turn per unit of mouse motion.
+    pub look_speed: f32,
 
     vertical: f32,
     grounded: bool,
@@ -79,6 +84,8 @@ impl Player {
             eye_height: half_height + radius - 0.15,
             mass: 70.0,
             keyboard: true,
+            mouse: true,
+            look_speed: 0.002,
             vertical: 0.0,
             grounded: false,
         }
@@ -151,6 +158,11 @@ impl Player {
     /// push what can move, and hand the result to the kinematic body
     /// the step then applies.
     pub(crate) fn step(&mut self, physics: &mut ScenePhysics, dt: f32) {
+        if self.mouse {
+            let motion = Cursor::take_motion();
+            self.look(motion.x * self.look_speed, -motion.y * self.look_speed);
+        }
+
         let (wish, jump) = self.wish();
 
         if self.grounded {
@@ -214,6 +226,8 @@ mod test {
             eye_height: 0.7,
             mass:       70.0,
             keyboard:   false,
+            mouse:      false,
+            look_speed: 0.002,
             vertical:   0.0,
             grounded:   false,
         };

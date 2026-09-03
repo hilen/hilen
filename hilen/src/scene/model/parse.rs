@@ -626,13 +626,9 @@ mod test {
     #[test]
     fn tree_carries_its_nodes_and_materials() {
         let model = parse_glb(&fixture("tree.glb"), "tree.glb").unwrap();
-        assert!(model.parts.len() >= 4, "{} parts", model.parts.len());
+        assert!(model.parts.len() >= 5, "{} parts", model.parts.len());
         let materials: Vec<MaterialSource> = model.parts.iter().filter_map(|part| part.material).collect();
-        assert_eq!(
-            materials.len(),
-            model.parts.len() - 1,
-            "every mesh but the plane has a material"
-        );
+        assert_eq!(materials.len(), model.parts.len(), "every mesh has a material");
         // The leaves are green, the trunk brown.
         assert!(materials.iter().any(|material| material.color.g > material.color.r));
         assert!(materials.iter().any(|material| material.color.r > material.color.g));

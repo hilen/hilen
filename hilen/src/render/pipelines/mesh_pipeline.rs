@@ -5,21 +5,22 @@ use plat::Platform;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType,
-    BufferUsages, CommandEncoder, IndexFormat, PipelineLayoutDescriptor, RenderPass, RenderPipeline, Sampler,
-    SamplerBindingType, ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureSampleType, TextureView,
-    TextureViewDimension,
+    BufferUsages, CommandEncoder, CompareFunction, IndexFormat, PipelineLayoutDescriptor, PrimitiveTopology,
+    RenderPass, RenderPipeline, Sampler, SamplerBindingType, ShaderModuleDescriptor, ShaderSource,
+    ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
 
 use crate::{
     deps::refs::Weak,
     gm::{
+        color::Color,
         flat::Size,
-        volume::{Mat4, SkinVertex, Vertex3D},
+        volume::{Mat4, SkinVertex, Vec3, Vertex3D},
     },
     render::{
         SHADOW_CASCADES, SceneView,
         buffer_helper::BufferHelper,
-        data::{MeshInstance, MeshLight},
+        data::{LineVertex, MeshInstance, MeshLight},
         device_helper::DeviceHelper,
         pipelines::shadow_pass::ShadowPass,
         uniform::make_storage_layout,
@@ -38,6 +39,9 @@ const COMMON: &str = include_str!("shaders/scene_common.wgsl");
 const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
 const SHADOW: &str = include_str!("shaders/shadow.wgsl");
+const LINES: &str = include_str!("shaders/lines.wgsl");
+
+const LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[LineVertex::VERTEX_LAYOUT];
 
 /// The vertex buffers of a static draw and of a skinned one, which adds
 /// the joints and weights per vertex.
@@ -70,6 +74,11 @@ pub struct MeshPipeline {
     translucent:         RenderPipeline,
     translucent_skinned: RenderPipeline,
     sky:                 RenderPipeline,
+
+    /// Debug lines in world space, the collider wireframes, drawn after
+    /// every node and depth tested against them.
+    lines_pipeline: RenderPipeline,
+    lines:          VecBuffer<LineVertex>,
 
     /// The frame's view, the sky cube it lights and reflects, and the
     /// sun's shadow map.
@@ -130,6 +139,7 @@ impl Default for MeshPipeline {
         let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}");
         let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{MESH}"));
         let sky_shader = shader(device, "sky_shader", format!("{common}\n{SKY}"));
+        let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
         let shadow_shader = shader(device, "shadow_shader", SHADOW.to_string());
 
         let view_layout = view_layout(device);
@@ -157,6 +167,15 @@ impl Default for MeshPipeline {
         let [translucent, translucent_skinned] =
             mesh_pipelines(device, "mesh_translucent", &mesh_layout, &mesh_shader, true);
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
+        // The lines bind only the view, the sky's layout.
+        let lines_pipeline = device.pipeline(
+            "lines_pipeline",
+            &sky_layout,
+            &lines_shader,
+            CompareFunction::Less,
+            PrimitiveTopology::LineList,
+            LINE_LAYOUTS,
+        );
 
         let view_buffer = device.buffer(
             &SceneView::default(),
@@ -169,6 +188,8 @@ impl Default for MeshPipeline {
             translucent,
             translucent_skinned,
             sky,
+            lines_pipeline,
+            lines: VecBuffer::default(),
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
@@ -204,6 +225,12 @@ impl MeshPipeline {
 
     pub(crate) fn add_light(&mut self, light: MeshLight) {
         self.lights.push(light);
+    }
+
+    /// A debug line between two world points, drawn this frame.
+    pub(crate) fn add_line(&mut self, from: Vec3, to: Vec3, color: Color) {
+        self.lines.push(LineVertex::new(from, color));
+        self.lines.push(LineVertex::new(to, color));
     }
 
     /// Queues the joint matrices of one skinned node and returns where
@@ -251,6 +278,9 @@ impl MeshPipeline {
         if !self.transparent.is_empty() {
             self.transparent.load();
         }
+        if !self.lines.is_empty() {
+            self.lines.load();
+        }
 
         if shadows {
             self.shadow.fit(Window::device(), map_size);
@@ -272,7 +302,8 @@ impl MeshPipeline {
     pub(crate) fn draw(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>, background: bool) {
         let frame = Window::render_frame();
         let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
-        let no_nodes = self.loaded().next().is_none() && !translucent;
+        let lines = self.lines.frame() == frame && self.lines.has_loaded();
+        let no_nodes = self.loaded().next().is_none() && !translucent && !lines;
         if no_nodes && !background {
             self.transparent_keys.clear();
             return;
@@ -307,11 +338,20 @@ impl MeshPipeline {
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
         }
 
-        if !translucent {
+        if translucent {
+            self.draw_translucent(render_pass);
+        } else {
             self.transparent_keys.clear();
-            return;
         }
 
+        if lines {
+            render_pass.set_pipeline(&self.lines_pipeline);
+            render_pass.set_vertex_buffer(0, self.lines.slice());
+            render_pass.draw(0..self.lines.len(), 0..1);
+        }
+    }
+
+    fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
         let instances_bind = self.instances_bind(&self.transparent);
         render_pass.set_bind_group(1, &instances_bind, &[]);
 

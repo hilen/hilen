@@ -6,7 +6,7 @@ use log::{debug, error};
 use plat::Platform;
 use winit::{
     application::ApplicationHandler,
-    event::{MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
@@ -15,6 +15,7 @@ use winit::{
 use crate::{
     deps::refs::main_lock::MainLock,
     gm::flat::Point,
+    ui::Cursor,
     window::{Window, WindowEvents, state::State},
 };
 
@@ -217,6 +218,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         }
     }
 
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.te_window_events.mouse_motion((delta.0, delta.1).into());
+        }
+    }
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
         // Any event other than a redraw can change what is on screen: input,
         // resize, theme, a dropped file. Ask for a frame so the change shows.
@@ -236,6 +243,9 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::CursorLeft { .. } => {
                 self.te_window_events.cursor_left();
             }
+            WindowEvent::Focused(focused) => {
+                self.te_window_events.focus_changed(focused);
+            }
             WindowEvent::Touch(touch) => {
                 self.te_window_events.touch_event(touch);
             }
@@ -249,7 +259,14 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 }
             },
             WindowEvent::KeyboardInput { event, .. } => {
-                if Window::quit_on_escape() && event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                // A captured mouse takes Escape for itself, see `Cursor`.
+                // The press only, the release of that same key arrives
+                // after the mouse is free and must not quit.
+                if Window::quit_on_escape()
+                    && event.state.is_pressed()
+                    && !Cursor::captured()
+                    && event.physical_key == PhysicalKey::Code(KeyCode::Escape)
+                {
                     event_loop.exit();
                 }
                 self.te_window_events.key_event(event);

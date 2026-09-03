@@ -87,6 +87,7 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // A test that held a key and failed must not leave it down for
         // the next test's player.
         crate::ui::Keys::clear();
+        crate::ui::Cursor::reset();
         // The dialog animation is global app state, a test that registers
         // one must not leak it into the next. The suite snapshot hands the
         // app's own animation back after the run.

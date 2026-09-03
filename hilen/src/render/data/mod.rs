@@ -1,5 +1,7 @@
 mod clip_view;
 #[cfg(feature = "scene")]
+mod line_vertex;
+#[cfg(feature = "scene")]
 mod mesh_instance;
 #[cfg(feature = "scene")]
 mod mesh_light;
@@ -15,6 +17,8 @@ mod ui_rect_instance;
 mod ui_shadow_instance;
 
 pub(crate) use clip_view::*;
+#[cfg(feature = "scene")]
+pub(crate) use line_vertex::*;
 #[cfg(feature = "scene")]
 pub(crate) use mesh_instance::*;
 #[cfg(feature = "scene")]

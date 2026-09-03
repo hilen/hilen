@@ -24,8 +24,8 @@ use crate::{
     gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
-        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
-        WeakView, ui_test::human_pause,
+        Cursor, Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData,
+        ViewSubviews, WeakView, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
 };
@@ -676,8 +676,20 @@ impl crate::window::WindowEvents for AppRunner {
         Input::on_scroll(delta * SCROLL_SPEED);
     }
 
+    fn mouse_motion(&mut self, delta: Point) {
+        Cursor::add_motion(delta);
+    }
+
     fn cursor_left(&mut self) {
         Hover::clear();
+    }
+
+    /// A window that lost focus cannot hold the mouse, another app has
+    /// it now.
+    fn focus_changed(&mut self, focused: bool) {
+        if !focused {
+            Cursor::release();
+        }
     }
 
     fn touch_event(&mut self, touch: winit::event::Touch) -> bool {

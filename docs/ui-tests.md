@@ -407,6 +407,7 @@ The corpus does this throughout, and a fixture is usually what you want anyway, 
 `setup` arranges the scene the widget is tested in.
 
 Test helpers: `inject_touches`, `inject_scroll`, `inject_right_click`, `inject_long_press`,
+`inject_mouse_motion` (raw motion for a captured `Cursor`, dropped while it is free),
 `wait_for_tooltip`, `check_colors` (asserts pixel colors at coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
 
 An animation samples real time, so its mid flight frames depend on machine speed and

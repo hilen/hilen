@@ -7,7 +7,7 @@ use crate::{
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Keys, Setup, UIManager, View, ViewData},
+    ui::{Button, Cursor, Keys, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
         capture::save_shot,
@@ -26,6 +26,13 @@ pub fn hold_key(code: KeyCode) {
 
 pub fn release_key(code: KeyCode) {
     from_main(move || Keys::set(code, false));
+}
+
+/// Raw mouse motion, what the system reports while the cursor is
+/// captured. Dropped while the cursor is free, like the real thing.
+pub fn inject_mouse_motion(delta: impl Into<Point>) {
+    let delta = delta.into();
+    from_main(move || Cursor::add_motion(delta));
 }
 
 #[allow(dead_code)]

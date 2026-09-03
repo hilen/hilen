@@ -605,7 +605,7 @@ impl Window {
         QUIT_ON_ESCAPE.store(enable, Ordering::Relaxed);
     }
 
-    pub(crate) fn quit_on_escape() -> bool {
+    pub fn quit_on_escape() -> bool {
         QUIT_ON_ESCAPE.load(Ordering::Relaxed)
     }
 

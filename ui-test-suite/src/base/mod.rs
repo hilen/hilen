@@ -4,6 +4,7 @@ mod color_checker;
 mod colors;
 mod corner_radius;
 mod css_colors;
+mod cursor_capture;
 mod dispatch;
 mod global_styles;
 // The engine compiles the inspector out on wasm, so its tests go with it.

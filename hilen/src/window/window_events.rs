@@ -31,7 +31,11 @@ pub trait WindowEvents {
         false
     }
     fn mouse_scroll(&mut self, _delta: Point) {}
+    /// Raw mouse motion, not tied to a cursor position, so it keeps
+    /// coming while a captured cursor sits still.
+    fn mouse_motion(&mut self, _delta: Point) {}
     fn cursor_left(&mut self) {}
+    fn focus_changed(&mut self, _focused: bool) {}
     fn touch_event(&mut self, _touch: Touch) -> bool {
         false
     }

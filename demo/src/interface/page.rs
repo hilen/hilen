@@ -1,4 +1,5 @@
 use hilen::{
+    level::LevelManager,
     refs::Own,
     ui::{Setup, UIManager, View},
 };
@@ -8,12 +9,12 @@ use crate::interface::{
     landing::Landing,
     noise_view::NoiseView,
     root_layout_view::RootLayoutView,
-    scenes::{EffectsScene, ScrollTables, TextFonts, WidgetGallery},
+    scenes::{EffectsScene, Scene3D, ScrollTables, TextFonts, WidgetGallery},
 };
 
 /// Every screen the sidebar can open. In place pages render inside the
 /// home shell next to the sidebar, full screen pages take the whole
-/// window because they draw a level behind the UI.
+/// window because they draw a level or a scene behind the UI.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     #[default]
@@ -23,15 +24,17 @@ pub enum Page {
     Fonts,
     Scrolling,
     Noise,
+    Scene3D,
     Layout,
     Dev,
 }
 
 impl Page {
-    pub const ALL: [Page; 8] = [
+    pub const ALL: [Page; 9] = [
         Page::Landing,
         Page::Effects,
         Page::Noise,
+        Page::Scene3D,
         Page::Widgets,
         Page::Fonts,
         Page::Scrolling,
@@ -47,6 +50,7 @@ impl Page {
             Page::Fonts => "Fonts",
             Page::Scrolling => "Scrolling",
             Page::Noise => "Noise",
+            Page::Scene3D => "3D Game",
             Page::Layout => "Layout",
             Page::Dev => "Dev",
         }
@@ -61,6 +65,7 @@ impl Page {
             Page::Fonts => "nav_fonts.svg",
             Page::Scrolling => "nav_scrolling.svg",
             Page::Noise => "nav_noise.svg",
+            Page::Scene3D => "nav_scene.svg",
             Page::Layout => "nav_layout.svg",
             Page::Dev => "nav_dev.svg",
         }
@@ -111,6 +116,10 @@ impl Page {
         match self {
             Page::Noise => {
                 UIManager::set_view(NoiseView::new());
+            }
+            Page::Scene3D => {
+                LevelManager::stop_level();
+                UIManager::set_view(Scene3D::new());
             }
             Page::Layout => {
                 UIManager::set_view(RootLayoutView::new());

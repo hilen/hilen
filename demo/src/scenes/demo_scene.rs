@@ -5,7 +5,7 @@ use hilen::{
     },
     refs::manage::DataManager,
     scene::{
-        Body, Fog, Light, Material, Model, NodeTemplates, Prop, SceneCreation, SceneSetup, Sky, Wall, scene,
+        Body, Fog, Light, Material, Model, Node, NodeTemplates, SceneCreation, SceneSetup, Sky, Wall, scene,
     },
     ui::{Color, Image},
 };
@@ -23,6 +23,9 @@ const FOX_SCALE: f32 = 0.011;
 /// stay fine where the player looks and the fog hides where they stop.
 pub const SHADOW_DISTANCE: f32 = 10.0;
 const SHADOW_MAP_SIZE: u32 = 1024;
+/// Rapier has no rolling resistance, so a shoved ball rolls forever
+/// without damping. Linear, then angular, per second.
+const BALL_DAMPING: (f32, f32) = (0.5, 2.0);
 
 /// The 3D playground with everything the scene module draws: a wide
 /// floor under a gradient sky it reflects, a pyramid of crates to knock
@@ -33,7 +36,8 @@ const SHADOW_MAP_SIZE: u32 = 1024;
 /// casts through the cascaded shadow maps, the fox runs and the
 /// windmill turns so skinned and posed shadows move, and a walkway of
 /// posts with trees beside it marches into the distance fog. Walked
-/// through by a first person player.
+/// through by a first person player, who can shove everything but the
+/// floor, the brick wall, the posts and the trees.
 #[scene]
 #[derive(Default)]
 pub struct DemoScene {}
@@ -57,22 +61,24 @@ impl DemoScene {
             (15.0, -70.0),
             (-10.0, -92.0),
         ] {
-            self.make_node::<Prop>(Shape3::Model(Model::get("tree.glb")), Vec3::new(x, 0.0, z));
+            self.make_node::<Wall>(Shape3::Model(Model::get("tree.glb")), Vec3::new(x, 0.0, z));
         }
 
-        self.make_node::<Prop>(Shape3::Model(Model::get("Fox.glb")), Vec3::new(-4.0, 0.0, 5.0))
-            .set_scale(FOX_SCALE)
+        // The fox and the windmill are narrow boxes to the physics and would
+        // tip over when shoved, so they slide upright instead.
+        let mut fox = self.make_node::<Body>(Shape3::Model(Model::get("Fox.glb")), Vec3::new(-7.0, 0.0, 5.5));
+        fox.set_scale(FOX_SCALE)
             .set_rotation(Quat::from_rotation_y(0.9))
             .set_roughness(0.7)
             .play("Run");
+        fox.lock_rotations();
 
-        self.make_node::<Prop>(
+        let mut windmill = self.make_node::<Body>(
             Shape3::Model(Model::get("windmill.glb")),
             Vec3::new(9.0, 0.0, -24.0),
-        )
-        .set_color(Color::hex("#8d6e4a"))
-        .set_roughness(0.8)
-        .play("Spin");
+        );
+        windmill.set_color(Color::hex("#8d6e4a")).set_roughness(0.8).play("Spin");
+        windmill.lock_rotations();
     }
 
     /// The distance fog, in the sky's horizon color so the floor fades
@@ -180,7 +186,8 @@ impl SceneSetup for DemoScene {
             [(1.0, 0.0), (1.0, 0.4), (0.0, 0.2), (0.0, 0.9)].into_iter().enumerate()
         {
             let x = 5.0 + i.lossy_convert() * 1.6;
-            self.make_node::<Wall>(Shape3::Ball(0.7), Vec3::new(x, 0.7, -2.0))
+            self.make_node::<Body>(Shape3::Ball(0.7), Vec3::new(x, 0.7, -2.0))
+                .set_damping(BALL_DAMPING.0, BALL_DAMPING.1)
                 .set_material(Material {
                     color: Color::hex("#e8ecef"),
                     metallic,
@@ -189,19 +196,20 @@ impl SceneSetup for DemoScene {
                 });
         }
 
-        self.make_node::<Wall>(Shape3::cuboid(4.0, 2.5, 0.1), Vec3::new(-5.0, 1.25, 1.0))
+        self.make_node::<Body>(Shape3::cuboid(4.0, 2.5, 0.1), Vec3::new(-5.0, 1.25, 1.0))
             .set_rotation(Quat::from_rotation_y(0.6))
             .set_color(Color::hex("#a0d8ff").with_alpha(0.35))
             .set_roughness(0.05);
-        self.make_node::<Wall>(Shape3::cuboid(3.0, 2.0, 0.1), Vec3::new(6.0, 1.0, 3.0))
+        self.make_node::<Body>(Shape3::cuboid(3.0, 2.0, 0.1), Vec3::new(6.0, 1.0, 3.0))
             .set_rotation(Quat::from_rotation_y(-0.5))
             .set_color(Color::hex("#ffd080").with_alpha(0.35))
             .set_roughness(0.05);
-        self.make_node::<Wall>(Shape3::cube(1.2), Vec3::new(3.5, 0.6, 3.5))
+        self.make_node::<Body>(Shape3::cube(1.2), Vec3::new(3.5, 0.6, 3.5))
             .set_rotation(Quat::from_rotation_y(0.3))
             .set_color(Color::hex("#a0ffc0").with_alpha(0.4))
             .set_roughness(0.1);
-        self.make_node::<Wall>(Shape3::Ball(0.8), Vec3::new(-3.0, 0.8, 4.0))
+        self.make_node::<Body>(Shape3::Ball(0.8), Vec3::new(-3.0, 0.8, 4.0))
+            .set_damping(BALL_DAMPING.0, BALL_DAMPING.1)
             .set_color(Color::hex("#ff6060").with_alpha(0.5))
             .set_roughness(0.2);
     }

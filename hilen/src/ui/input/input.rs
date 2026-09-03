@@ -15,8 +15,8 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
-        ViewFrame, ViewSubviews, WeakView, check_touch,
+        Container, Cursor, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager,
+        ViewData, ViewFrame, ViewSubviews, WeakView, check_touch,
     },
 };
 
@@ -51,6 +51,11 @@ impl Input {
     }
 
     pub(crate) fn on_key(key: NamedKey) {
+        // A game's Escape gives the mouse back and nothing else sees it.
+        if key == NamedKey::Escape && Cursor::captured() {
+            Cursor::release();
+            return;
+        }
         UIManager::keymap().check(key);
         UIEvents::keyboard_key().trigger(key);
     }

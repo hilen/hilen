@@ -85,9 +85,12 @@ them the collider and picking, are the rest pose. `Fox.glb` is the Khronos glTF
 sample fox with its Survey, Walk and Run clips, see `Fox.license.md` next to it.
 
 The Blender sources sit next to the exports in `assets/models`. One file exports
-with `blender --background --python build/export_glb.py -- assets/models/tree.blend`,
-skins and actions included, and the script also mends what the old files miss. Only the `.glb` files
-reach the browser manifest.
+with `blender --background --python deps/models/export_glb.py -- assets/models/tree.blend`,
+skins and actions included, and the script also mends what the old files miss.
+`deps/models/make_tree.py` builds the tree fixture from scratch, a trunk and four
+cone tiers and nothing else, since a model's collider is the box around its bounds
+and a ground plane in the file would make it a slab. Only the `.glb` files reach
+the browser manifest.
 
 ## Materials and lights
 
@@ -170,6 +173,17 @@ space and a push on the bodies it walks into. `w` `a` `s` `d` or the arrows walk
 while held, read through `Keys::held`, and `look` turns it, the demo page calls
 that from a drag. While a player exists the camera looks out of its eyes.
 
+`Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
+window, and reported as raw motion, which the player reads every step through
+`Cursor::take_motion` and turns by `look_speed` radians per unit. Escape frees the
+mouse and nothing else sees that Escape, so a page can bind its own Escape to
+capture again, a lost window focus frees it too, and `Cursor::on_capture` tells a
+page when to hide or show its controls. Windows and X11 cannot lock the cursor in
+place, there it is confined to the window, which looks the same once hidden. The
+browser needs a click before it locks and lets go on its own Escape, both reach
+`Cursor` through the pointer lock events. A phone has no mouse and `capture` does
+nothing there.
+
 ## How it draws
 
 The scene draws in the main render pass, before the level and the UI, into the
@@ -195,6 +209,12 @@ Colors are encoded sRGB like the whole frame, see [colors.md](colors.md). The
 shader decodes, lights in linear, tonemaps and encodes at the end of the fragment.
 Textures and the sky cube hold encoded bytes too and are decoded after the sample.
 
+`show_colliders` on the scene draws every collider as a green wireframe after the
+nodes: the twelve edges of a box or of a model's bounds, three rings on a ball,
+nothing for a plane, whose slab is the floor itself. The lines go through a small
+line pipeline on the same view uniform, depth tested against the nodes, and sit a
+little outside their solid so the faces do not cut them.
+
 ## Tests
 
 A scene test is a `#[scene]` with `impl SceneTest`, registered by a ctor into
@@ -212,13 +232,17 @@ bending, the fox running and a windmill spinning, checked at rest, frozen mid
 clip and held after a single run, `Cascades` a thin pole and a row of posts down
 a field hundreds of units long with the camera walking it, its middle check on
 the spot where a floor pixel too coarse for the maps holding it once fell through
-to the sun, and `FogTest` posts fading into fog under a sky fogged at the horizon,
-the fog then pushed back and taken away. The loop runs free, so the frames between two
-waits vary by one. A check of a pose in flight freezes the clip at a chosen time
-through `set_animation_speed(0)` and `set_animation_time` first. A human hold
-pauses the scene's time, so the probes sit on a still picture. Rapier is deterministic on one machine, a
-lane that disagrees needs its `enhanced-determinism` feature. `hold_key` and
-`release_key` drive the player from a test.
+to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,
+the fog then pushed back and taken away, `Colliders` the wireframes off and on
+over a ball, a turned crate, the monkey and a prop without one, and `Mouse look` a
+player turned by a stream of captured mouse motion onto a crate, then left alone
+by the same stream once Escape freed the mouse. The loop runs free, so the frames
+between two waits vary by one. A check of a pose in flight freezes the clip at a
+chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
+human hold pauses the scene's time, so the probes sit on a still picture. Rapier
+is deterministic on one machine, a lane that disagrees needs its
+`enhanced-determinism` feature. `hold_key`, `release_key` and `inject_mouse_motion`
+drive the player from a test.
 
 ```bash
 cargo run -p scene-test -- --list
