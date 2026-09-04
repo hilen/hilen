@@ -19,6 +19,7 @@ use crate::{
     },
     render::{
         SHADOW_CASCADES, SceneView,
+        bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
         data::{LineVertex, MeshInstance, MeshLight},
         device_helper::DeviceHelper,
@@ -61,6 +62,31 @@ pub(crate) struct MeshKey {
     pub normal_map: Option<Weak<Image>>,
 }
 
+/// The sky cube, its sampler and the shadow map a view bind holds.
+type ViewKey = (TextureView, Sampler, TextureView);
+/// The instance range and the joint range an instances bind holds.
+type InstancesKey = (StorageKey, StorageKey);
+/// Whether the base texture and the normal map of a key were alive when
+/// its bind was made, a dead one is bound as its plain stand in.
+type TexturesKey = (bool, bool);
+
+/// One instanced draw: the instances of a mesh and texture pair, and
+/// the bind group over them and the frame's joints. Every mesh buffer
+/// loads once per frame, so the bind holds until the buffer grows or
+/// the count changes, unlike a UI pipeline, see `RectPipeline`.
+#[derive(Default)]
+struct Batch {
+    instances: VecBuffer<MeshInstance>,
+    bind:      Option<CachedBind<InstancesKey>>,
+}
+
+impl Batch {
+    /// Whether `prepare` loaded this batch on `frame`.
+    fn loaded(&self, frame: u64) -> bool {
+        self.instances.frame() == frame && self.instances.has_loaded()
+    }
+}
+
 /// Draws the sky and every node of a frame, one instanced indexed draw
 /// per mesh and texture pair for the opaque nodes, then one draw per
 /// translucent node, back to front. `prepare` loads the frame's buffers
@@ -86,24 +112,27 @@ pub struct MeshPipeline {
     view_buffer: Buffer,
     /// Bound when the scene has no sky.
     black_sky:   Sky,
+    /// The view bind over the sky and the map last drawn with.
+    view_bind:   Option<CachedBind<ViewKey>>,
 
     /// The sun's depth passes, which cannot bind the map they draw, so
     /// they carry the light's matrices on their own.
     shadow: ShadowPass,
 
     /// Binds the instance buffer for the fragment stage and the joint
-    /// buffer for the vertex stage, see `RectPipeline` for why the
-    /// group cannot be cached.
+    /// buffer for the vertex stage.
     instances_layout: BindGroupLayout,
 
     // A unit mesh lives for the whole process, a model's mesh dies with
     // the model and takes its key out at the next draw. An image can die
     // too, then the draw falls back to the plain textures.
-    instances: IndexMap<MeshKey, VecBuffer<MeshInstance>>,
+    instances: IndexMap<MeshKey, Batch>,
 
-    /// The translucent nodes in draw order and the key of each.
+    /// The translucent nodes in draw order, the key of each and the
+    /// bind over them.
     transparent:      VecBuffer<MeshInstance>,
     transparent_keys: Vec<MeshKey>,
+    transparent_bind: Option<CachedBind<InstancesKey>>,
 
     /// The joint matrices of every skinned node of the frame, one run
     /// per node and skin, indexed by the instance's `joint_base`.
@@ -113,12 +142,15 @@ pub struct MeshPipeline {
     /// instance's light list.
     lights_layout: BindGroupLayout,
     lights:        VecBuffer<MeshLight>,
+    lights_bind:   Option<CachedBind<StorageKey>>,
 
     /// The base color texture and the normal map of a draw, with the
-    /// plain ones a material without them binds.
+    /// plain ones a material without them binds, and the bind of every
+    /// key drawn, opaque or translucent.
     textures_layout: BindGroupLayout,
     white:           Texture,
     flat_normal:     Texture,
+    textures:        IndexMap<MeshKey, Option<CachedBind<TexturesKey>>>,
 }
 
 impl MeshPipeline {
@@ -193,17 +225,21 @@ impl Default for MeshPipeline {
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
+            view_bind: None,
             shadow: ShadowPass::new(device, &shadow_shader, Self::SHADOW_MAP_SIZE),
             instances_layout,
             instances: IndexMap::default(),
             transparent: VecBuffer::default(),
             transparent_keys: vec![],
+            transparent_bind: None,
             joints: VecBuffer::default(),
             lights_layout,
             lights: VecBuffer::default(),
+            lights_bind: None,
             textures_layout,
             white: plain_texture([255, 255, 255, 255], "mesh_white"),
             flat_normal: plain_texture([128, 128, 255, 255], "mesh_flat_normal"),
+            textures: IndexMap::default(),
         }
     }
 }
@@ -211,8 +247,8 @@ impl Default for MeshPipeline {
 impl MeshPipeline {
     pub(crate) fn add(&mut self, key: MeshKey, mut instance: MeshInstance) {
         let batch = self.instances.entry(key).or_default();
-        instance.index = batch.pending();
-        batch.push(instance);
+        instance.index = batch.instances.pending();
+        batch.instances.push(instance);
     }
 
     /// Translucent nodes draw in the order they are added, so add them
@@ -254,6 +290,7 @@ impl MeshPipeline {
         map_size: u32,
     ) {
         self.instances.retain(|key, _| key.mesh.is_ok());
+        self.textures.retain(|key, _| key.mesh.is_ok());
 
         self.view_buffer.update(*view);
 
@@ -270,9 +307,9 @@ impl MeshPipeline {
         }
         self.joints.load();
 
-        for instances in self.instances.values_mut() {
-            if !instances.is_empty() {
-                instances.load();
+        for batch in self.instances.values_mut() {
+            if !batch.instances.is_empty() {
+                batch.instances.load();
             }
         }
         if !self.transparent.is_empty() {
@@ -284,17 +321,15 @@ impl MeshPipeline {
 
         if shadows {
             self.shadow.fit(Window::device(), map_size);
-            let batches: Vec<_> = self.loaded().collect();
+            let frame = Window::render_frame();
+            let batches: Vec<_> = self
+                .instances
+                .iter()
+                .filter(|(_, batch)| batch.loaded(frame))
+                .map(|(key, batch)| (key, &batch.instances))
+                .collect();
             self.shadow.draw(encoder, &view.sun_view_proj, &batches, &self.joints);
         }
-    }
-
-    /// The batches `prepare` loaded this frame.
-    fn loaded(&self) -> impl Iterator<Item = (&MeshKey, &VecBuffer<MeshInstance>)> {
-        let frame = Window::render_frame();
-        self.instances
-            .iter()
-            .filter(move |(_, instances)| instances.frame() == frame && instances.has_loaded())
     }
 
     /// Draws the frame. `background` draws the sky pass first, for a
@@ -303,14 +338,20 @@ impl MeshPipeline {
         let frame = Window::render_frame();
         let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
         let lines = self.lines.frame() == frame && self.lines.has_loaded();
-        let no_nodes = self.loaded().next().is_none() && !translucent && !lines;
+        let no_nodes = !self.instances.values().any(|batch| batch.loaded(frame)) && !translucent && !lines;
         if no_nodes && !background {
             self.transparent_keys.clear();
             return;
         }
 
-        let view_bind = self.view_bind(sky.unwrap_or(&self.black_sky));
-        render_pass.set_bind_group(0, &view_bind, &[]);
+        let sky = sky.unwrap_or(&self.black_sky);
+        let shadow_map = self.shadow.map();
+        let view_bind = cached(
+            &mut self.view_bind,
+            (sky.view.clone(), sky.sampler.clone(), shadow_map.clone()),
+            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map),
+        );
+        render_pass.set_bind_group(0, view_bind, &[]);
 
         if background {
             render_pass.set_pipeline(&self.sky);
@@ -322,20 +363,32 @@ impl MeshPipeline {
             return;
         }
 
-        let lights_bind = storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights);
-        render_pass.set_bind_group(2, &lights_bind, &[]);
+        let lights_bind = cached(&mut self.lights_bind, StorageKey::of(&self.lights), || {
+            storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights)
+        });
+        render_pass.set_bind_group(2, lights_bind, &[]);
 
-        for (key, instances) in self.loaded() {
-            let instances_bind = self.instances_bind(instances);
-            let textures_bind = textures_bind(&self.textures_layout, key, &self.white, &self.flat_normal);
+        for (key, batch) in self.instances.iter_mut().filter(|(_, batch)| batch.loaded(frame)) {
+            let instances_bind = cached(
+                &mut batch.bind,
+                (StorageKey::of(&batch.instances), StorageKey::of(&self.joints)),
+                || instances_bind(&self.instances_layout, &batch.instances, &self.joints),
+            );
+            let textures_bind = textures_bind(
+                &mut self.textures,
+                &self.textures_layout,
+                key,
+                &self.white,
+                &self.flat_normal,
+            );
 
-            render_pass.set_bind_group(1, &instances_bind, &[]);
-            render_pass.set_bind_group(3, &textures_bind, &[]);
+            render_pass.set_bind_group(1, instances_bind, &[]);
+            render_pass.set_bind_group(3, textures_bind, &[]);
             set_mesh(render_pass, &key.mesh, &self.opaque, &self.opaque_skinned);
-            render_pass.set_vertex_buffer(1, instances.slice());
+            render_pass.set_vertex_buffer(1, batch.instances.slice());
 
             // Base vertex stays zero, an A7 draws nothing otherwise.
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
+            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.instances.len());
         }
 
         if translucent {
@@ -352,15 +405,25 @@ impl MeshPipeline {
     }
 
     fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
-        let instances_bind = self.instances_bind(&self.transparent);
-        render_pass.set_bind_group(1, &instances_bind, &[]);
+        let instances_bind = cached(
+            &mut self.transparent_bind,
+            (StorageKey::of(&self.transparent), StorageKey::of(&self.joints)),
+            || instances_bind(&self.instances_layout, &self.transparent, &self.joints),
+        );
+        render_pass.set_bind_group(1, instances_bind, &[]);
 
         let range = self.transparent.range().clone();
         let stride = MeshInstance::VERTEX_LAYOUT.array_stride;
 
         for (i, key) in self.transparent_keys.drain(..).enumerate() {
-            let textures_bind = textures_bind(&self.textures_layout, &key, &self.white, &self.flat_normal);
-            render_pass.set_bind_group(3, &textures_bind, &[]);
+            let textures_bind = textures_bind(
+                &mut self.textures,
+                &self.textures_layout,
+                &key,
+                &self.white,
+                &self.flat_normal,
+            );
+            render_pass.set_bind_group(3, textures_bind, &[]);
             set_mesh(
                 render_pass,
                 &key.mesh,
@@ -373,51 +436,6 @@ impl MeshPipeline {
             render_pass.set_vertex_buffer(1, self.transparent.buffer().slice(start..range.end));
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..1);
         }
-    }
-
-    fn view_bind(&self, sky: &Sky) -> BindGroup {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("scene_view_bind"),
-            layout:  &self.view_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding:  0,
-                    resource: self.view_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding:  1,
-                    resource: BindingResource::TextureView(&sky.view),
-                },
-                BindGroupEntry {
-                    binding:  2,
-                    resource: BindingResource::Sampler(&sky.sampler),
-                },
-                BindGroupEntry {
-                    binding:  3,
-                    resource: BindingResource::TextureView(self.shadow.map()),
-                },
-            ],
-        })
-    }
-
-    /// The part of the instance buffer this frame's flush landed in, so
-    /// the fragment stage indexes the same elements the draw uses, and
-    /// the frame's joints for the vertex stage.
-    fn instances_bind(&self, instances: &VecBuffer<MeshInstance>) -> BindGroup {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("mesh_instances_bind"),
-            layout:  &self.instances_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding:  0,
-                    resource: BindingResource::Buffer(loaded_range(instances)),
-                },
-                BindGroupEntry {
-                    binding:  1,
-                    resource: BindingResource::Buffer(loaded_range(&self.joints)),
-                },
-            ],
-        })
     }
 }
 
@@ -503,6 +521,36 @@ fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
     })
 }
 
+fn view_bind(
+    layout: &BindGroupLayout,
+    view_buffer: &Buffer,
+    sky: &Sky,
+    shadow_map: &TextureView,
+) -> BindGroup {
+    Window::device().create_bind_group(&BindGroupDescriptor {
+        label: Some("scene_view_bind"),
+        layout,
+        entries: &[
+            BindGroupEntry {
+                binding:  0,
+                resource: view_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding:  1,
+                resource: BindingResource::TextureView(&sky.view),
+            },
+            BindGroupEntry {
+                binding:  2,
+                resource: BindingResource::Sampler(&sky.sampler),
+            },
+            BindGroupEntry {
+                binding:  3,
+                resource: BindingResource::TextureView(shadow_map),
+            },
+        ],
+    })
+}
+
 /// The instances for the fragment stage and the joints for the vertex
 /// stage. Four bind groups is every lane's limit, so the two share one.
 fn instances_layout(device: &wgpu::Device) -> BindGroupLayout {
@@ -511,6 +559,30 @@ fn instances_layout(device: &wgpu::Device) -> BindGroupLayout {
         entries: &[
             storage_entry(0, ShaderStages::FRAGMENT),
             storage_entry(1, ShaderStages::VERTEX),
+        ],
+    })
+}
+
+/// The part of the instance buffer this frame's flush landed in, so the
+/// fragment stage indexes the same elements the draw uses, and the
+/// frame's joints for the vertex stage.
+fn instances_bind(
+    layout: &BindGroupLayout,
+    instances: &VecBuffer<MeshInstance>,
+    joints: &VecBuffer<Mat4>,
+) -> BindGroup {
+    Window::device().create_bind_group(&BindGroupDescriptor {
+        label: Some("mesh_instances_bind"),
+        layout,
+        entries: &[
+            BindGroupEntry {
+                binding:  0,
+                resource: BindingResource::Buffer(loaded_range(instances)),
+            },
+            BindGroupEntry {
+                binding:  1,
+                resource: BindingResource::Buffer(loaded_range(joints)),
+            },
         ],
     })
 }
@@ -586,7 +658,23 @@ fn image_or<'a>(image: Option<&'a Weak<Image>>, plain: &'a Texture) -> (&'a Text
     }
 }
 
-fn textures_bind(
+/// The textures bind of `key` out of `cache`, remade when one of its
+/// images has died since, its plain stand in is bound then.
+fn textures_bind<'a>(
+    cache: &'a mut IndexMap<MeshKey, Option<CachedBind<TexturesKey>>>,
+    layout: &BindGroupLayout,
+    key: &MeshKey,
+    white: &Texture,
+    flat_normal: &Texture,
+) -> &'a BindGroup {
+    let alive = |image: &Option<Weak<Image>>| image.as_ref().is_some_and(Weak::is_ok);
+    let slot = cache.entry(key.clone()).or_default();
+    cached(slot, (alive(&key.texture), alive(&key.normal_map)), || {
+        make_textures_bind(layout, key, white, flat_normal)
+    })
+}
+
+fn make_textures_bind(
     layout: &BindGroupLayout,
     key: &MeshKey,
     white: &Texture,

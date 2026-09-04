@@ -4,6 +4,8 @@ pub(crate) use crate::render::shader_data::SHADOW_CASCADES;
 pub use crate::render::shader_data::SceneView;
 #[cfg(feature = "level")]
 pub use crate::render::shader_data::SpriteView;
+#[cfg(feature = "scene")]
+mod bind_cache;
 mod buffer_helper;
 pub mod data;
 mod device_helper;

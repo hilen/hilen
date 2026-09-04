@@ -201,7 +201,11 @@ from the middle of the buffer needs no base instance, which an A7 cannot draw. T
 fragment reads the material and the light list from a storage binding at that
 index. Six float components cross the vertex to fragment boundary, the uv, the
 normal and the flat index, and the world position is rebuilt from the depth. An A7
-draws nothing above eight, see [ios.md](ios.md). Indices are 16 bit so every lane
+draws nothing above eight, see [ios.md](ios.md). Every mesh buffer loads once per
+frame, so the bind groups over the view, the lights, each batch's instances and
+each key's textures are kept from frame to frame and remade only when a buffer
+grows, a count changes, the sky or the shadow map is replaced or an image dies,
+see `render/bind_cache.rs`. Indices are 16 bit so every lane
 draws them. Back faces are culled, so every primitive is wound counter clockwise
 seen from outside, pinned by unit tests on the geometry.
 

@@ -12,6 +12,7 @@ use crate::{
     gm::volume::Mat4,
     render::{
         SHADOW_CASCADES,
+        bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
         data::MeshInstance,
         device_helper::{DeviceHelper, SHADOW_MAP_FORMAT},
@@ -31,6 +32,8 @@ pub(crate) struct ShadowPass {
     plain:         RenderPipeline,
     skinned:       RenderPipeline,
     joints_layout: BindGroupLayout,
+    /// The bind over the frame's joints, held while the buffer stays.
+    joints_bind:   Option<CachedBind<StorageKey>>,
     cascades:      [Cascade; SHADOW_CASCADES],
     /// Every layer at once, what the mesh shader reads.
     map:           TextureView,
@@ -74,6 +77,7 @@ impl ShadowPass {
                 "v_skinned",
             ),
             joints_layout,
+            joints_bind: None,
             cascades,
             map: map_view(&map),
             map_size,
@@ -100,13 +104,15 @@ impl ShadowPass {
     /// Draws every cascade's layer, `batches` the opaque draws of the
     /// frame and `joints` the joint matrices they point at.
     pub(crate) fn draw<'a>(
-        &self,
+        &mut self,
         encoder: &mut CommandEncoder,
         view_projs: &[Mat4; SHADOW_CASCADES],
         batches: &[(&'a MeshKey, &'a VecBuffer<MeshInstance>)],
         joints: &VecBuffer<Mat4>,
     ) {
-        let joints_bind = storage_bind("shadow_joints_bind", &self.joints_layout, joints);
+        let joints_bind = cached(&mut self.joints_bind, StorageKey::of(joints), || {
+            storage_bind("shadow_joints_bind", &self.joints_layout, joints)
+        });
 
         for (cascade, view_proj) in self.cascades.iter().zip(view_projs) {
             cascade.view_proj.update(*view_proj);
@@ -128,7 +134,7 @@ impl ShadowPass {
             });
 
             pass.set_bind_group(0, &cascade.bind, &[]);
-            pass.set_bind_group(1, &joints_bind, &[]);
+            pass.set_bind_group(1, joints_bind, &[]);
 
             for (key, instances) in batches {
                 set_mesh(&mut pass, &key.mesh, &self.plain, &self.skinned);
