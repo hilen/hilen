@@ -4,6 +4,9 @@ mod color_checker;
 mod colors;
 mod corner_radius;
 mod css_colors;
+/// Mouse capture needs a mouse, and a browser grants pointer lock only
+/// after a real click, which no test can inject.
+#[cfg(desktop)]
 mod cursor_capture;
 mod dispatch;
 mod global_styles;
@@ -23,6 +26,7 @@ mod on_tap_add;
 mod out_bounds_test;
 mod present;
 mod present_rich;
+mod quad_diagonal;
 /// Reload shortcuts exist only in a browser, everywhere else the OS owns
 /// them and the engine installs nothing.
 #[cfg(wasm)]

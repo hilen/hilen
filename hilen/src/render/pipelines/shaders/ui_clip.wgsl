@@ -102,6 +102,11 @@ fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
+// The distance change per screen pixel, zero guarded, see ui_rect.wgsl.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIRectInstance = instances[in.index];
@@ -111,7 +116,8 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, size * 0.5, radius);
 
-    let width: f32 = fwidth(dist);
+    // Zero guarded, see ui_rect.wgsl.
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
     let coverage: f32 = edge_coverage(dist, width);
 
     if coverage < view.threshold {

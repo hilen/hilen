@@ -105,6 +105,16 @@ fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
+// The distance change per screen pixel that the coverage ramp divides by.
+// SwiftShader, Chrome's software WebGPU, returns a `fwidth` of zero in the
+// pixel quads on the shared diagonal of the two triangles of a quad, and
+// the division blanked those pixels in the CI web lane. The distance
+// changes by one local unit per local unit and a local unit is `scale`
+// screen pixels, so that known width stands in for a zero.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIRectInstance = instances[in.index];
@@ -116,7 +126,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // One derivative for the whole shader. A `fwidth` inside a branch sits in
     // non uniform control flow, where the result is undefined.
-    let width: f32 = fwidth(dist);
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
 
     let coverage: f32 = edge_coverage(dist, width);
 

@@ -32,6 +32,10 @@ pub trait App {
     fn before_launch(&self) {}
     fn after_launch(&self) {}
     fn make_root_view(&self) -> Own<dyn View>;
+
+    /// The size of a fresh desktop window and of the headless surface, in
+    /// physical pixels. A 2x display opens the window at half as many
+    /// points, and a display too small for it shrinks the window to fit.
     fn initial_size(&self) -> Size {
         (1200, 1000).into()
     }

@@ -29,23 +29,6 @@ Android landed, the browser did not.
   and the rings are engine views and plain state, only the transport is missing.
 - Blocks: bug reports and crash events from web apps.
 
-## Web lane scroll injection determinism
-
-Found by `Table view 2 test` failing only in the browser lane once MSAA 4x made
-frames heavier. The frame stepped clock, `gm::Clock` with `ui_test::step_frames`,
-now exists, so this is a small job on top of it.
-
-- Current: the test injects 100 wheel scrolls and taps the rows it expects at the
-  bottom. On desktop and the iOS simulator the landed offset is stable, in Chrome
-  the run lands at a different offset every time, 50 rows, 33 rows, zero rows, so
-  how many deltas take effect depends on frame pacing. With `HILEN_MSAA=1` the lane
-  passes by timing luck. Rendering is not involved, `Drawing paths` pins the same
-  pixels in all three lanes.
-- Needed: scroll inertia reads `Clock` instead of real elapsed time, and the test
-  runs stepped, so one injected wheel delta is one applied delta regardless of
-  frame rate.
-- Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
-
 ## Pause continuous work while the window is not visible
 
 - Current: a live animation or a loaded level keeps the loop polling even
@@ -152,21 +135,33 @@ read their instances from a uniform array on WebGL2, `InstanceBinding` in
 
 The scene tests live in `scene-test-suite`, `demo` links it, and the device
 autorun runs them after the UI tests, so `make ui-ios` and `make ui-web` cover
-them. Two things are open.
+them. Six of them are gated off the lanes they fail on, so the lanes run green
+while the causes stay open. Each gate points here, and every fix removes its
+gate.
 
-- Current: on the iPhone 8 simulator 14 of the 17 pass. `Mouse look` fails
-  because `Cursor::capture` does nothing on a phone. `Drop balls` and
-  `Player walk` pin a physics rest and land a little off on the x86_64 simulator
-  against the arm64 desktop, and rapier's `enhanced-determinism`, on for
-  `scene-tests`, changed nothing, the failing probes read byte identical colors
-  with and without it, so it is in without proof. In Chrome on WebGPU every
-  subset run so far passes, the full 16 have not run there.
-- Needed: gate `mouse_look.rs` to desktop and wasm, which needs a `build.rs`
-  with `plat::platforms()` in the suite crate. For the two rests, an A/B of the
-  two candidates: rapier's `parallel` feature ordering float sums by thread, and
-  the simulator pacing a different number of physics steps between two waits.
-  Then keep or drop `enhanced-determinism` on what the A/B shows.
-- Blocks: a green `make ui-ios` with the scene tests on.
+- Current: `Mouse look` is desktop only. `Cursor::capture` does nothing on a
+  phone, and a browser grants pointer lock only after a real click, which no
+  test can inject, so the capture is released at once. The UI test
+  `Cursor capture` is desktop only for the same reason. `Drop balls`,
+  `Colliders` and `Player walk` are desktop only. They pin a physics rest that
+  lands a little off on the x86_64 iPhone simulator and in the browser lanes.
+  `Colliders` passes in a real Chrome on this Mac and fails under the
+  SwiftShader frame pacing of CI, so the number of physics steps between two
+  waits is the lead. rapier's `enhanced-determinism`, on for `scene-tests`,
+  changed nothing, the failing probes read byte identical colors with and
+  without it, so it is in without proof. `Animations`, `Cascades` and
+  `Shadows` are off the browser lane only. They pass on the iOS simulator and
+  in a real Chrome, and under SwiftShader, the software WebGPU the CI browser
+  lane renders with, their shadow edges land a few pixels off, the depth
+  precision of the shadow map is the lead.
+- Needed: for the rests, an A/B of the two candidates: rapier's `parallel`
+  feature ordering float sums by thread, and a slow lane pacing a different
+  number of physics steps between two waits, then a fixed step count per wait
+  or the stepped clock for the scene, and keep or drop `enhanced-determinism`
+  on what the A/B shows. For the shadows, a bias or a depth format that reads
+  the same on SwiftShader. For the mouse, a way to grant pointer lock to a
+  test page, else those two tests stay desktop only.
+- Blocks: the gated tests on `make ui-ios` and `make ui-web`.
 
 ## Video playback, the other lanes
 
@@ -226,3 +221,11 @@ Small remainders not worth their own entry.
   change in the shader.
 - DrawingView paths: texture fills for paths, more than 8 gradient stops, and soft
   edges on arbitrary path outlines, a radial alpha ramp only covers circular glows.
+- A rect edge on a fractional pixel row blends differently per GPU under MSAA
+  4x. The SDF alpha and the hardware sample coverage combine, and the 4x
+  sample pattern is the GPU's own, SwiftShader in the CI browser lane reads
+  such a row 30 levels off a Mac. Text underlines snap to whole rows now,
+  anything else laid out at a fraction still varies, so a probe on such a row
+  holds on one GPU only. A sample mask of all ones in the SDF pipelines would
+  make the alpha the only coverage, it moves every fractional edge on every
+  platform, so it needs a re-record of the suite.

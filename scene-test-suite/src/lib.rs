@@ -12,18 +12,35 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 
+/// Shadow edges land elsewhere on `SwiftShader`, the software WebGPU the CI
+/// browser lane renders with, see docs/roadmap.md.
+#[cfg(not_wasm)]
 mod animations;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
 mod cascades;
+/// The physics rest lands elsewhere under the browser and simulator frame
+/// pacing, see docs/roadmap.md.
+#[cfg(desktop)]
 mod colliders;
+/// The physics rest, see `colliders`.
+#[cfg(desktop)]
 mod drop_balls;
 mod fog;
 mod lights;
 mod materials;
 mod models;
+/// Mouse capture needs a mouse, and a browser grants pointer lock only
+/// after a real click, which no test can inject.
+#[cfg(desktop)]
 mod mouse_look;
 mod picking;
+/// The physics rest, see `colliders`.
+#[cfg(desktop)]
 mod player_walk;
 mod primitives;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
 mod shadows;
 mod skybox;
 mod textures;

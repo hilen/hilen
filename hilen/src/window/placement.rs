@@ -4,7 +4,7 @@ use crate::gm::flat::Size;
 
 /// The share of a display a fresh window may take. The rest is room for
 /// the window frame and the taskbar, which the display size includes.
-const INITIAL_FIT: f64 = 0.9;
+pub(crate) const INITIAL_FIT: f64 = 0.9;
 
 /// Where a desktop window sits and how big it is, in logical points.
 ///
@@ -79,9 +79,9 @@ pub fn resolve(
     centered(primary, primary.width * 0.8, primary.height * 0.8)
 }
 
-/// Where a window with nothing saved opens: `size` on the primary
-/// display, shrunk to fit it, and centered there. Left to the window
-/// manager a window taller than the display it picks opens with its
+/// Where a window with nothing saved opens: `size`, in logical points, on
+/// the primary display, shrunk to fit it, and centered there. Left to the
+/// window manager a window taller than the display it picks opens with its
 /// title bar above the screen edge, which `WSLg` does with a 1000 point
 /// window on a 1080 pixel display.
 pub fn initial(size: Size, primary: Option<&MonitorInfo>) -> WindowPlacement {
@@ -158,15 +158,21 @@ impl super::Window {
 
     /// The launch placement of an app with nothing saved. Headless has no
     /// display to place on and takes the size as is.
+    /// `size` is in physical pixels, the surface the app renders into,
+    /// the unit the headless size shares. A placement is in logical
+    /// points, so the window scale divides it out first, read as points
+    /// a 2x display opens the window twice as big.
     pub(crate) fn apply_initial_size(&mut self, size: Size) {
         use crate::gm::LossyConvert;
 
-        if self.screen.winit_window().is_none() {
+        let Some(scale) = self.screen.winit_window().map(winit::window::Window::scale_factor) else {
             self.set_size(size.lossy_convert());
             return;
-        }
+        };
+        let scale: f32 = scale.lossy_convert();
+        let logical = Size::new(size.width / scale, size.height / scale);
         let (_, primary) = self.monitors();
-        self.place(&initial(size, primary.as_ref()));
+        self.place(&initial(logical, primary.as_ref()));
     }
 
     fn monitors(&self) -> (Vec<MonitorInfo>, Option<MonitorInfo>) {

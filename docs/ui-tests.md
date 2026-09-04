@@ -77,6 +77,14 @@ has no filesystem. Every asset group downloads before the suite starts and a mis
 fatal, a suite on the default font would fail on pixels far from the cause, which is
 how a cut font download once looked like a wrapping bug. See [inspect.md](inspect.md).
 
+On CI both browsers draw on a software GPU, Chrome through SwiftShader and Firefox
+through Mesa, and a few pixels come out unlike a real GPU there. A rectangle edge on
+a fractional pixel row is one, under MSAA the SDF alpha and the sample coverage
+combine and the sample pattern is the GPU's own, so keep probes off such rows, see
+the leftovers in [roadmap.md](roadmap.md). SwiftShader also returned a zero `fwidth`
+in the pixel quads on a quad's diagonal, which the SDF shaders now guard, pinned by
+`Quad diagonal`.
+
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,
 relaunches the browser with the dead tests in `hilen_test_skip`, and merges them into the

@@ -110,11 +110,14 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-// One pixel wide analytic edge coverage. See ui_rect.wgsl. The derivative is
-// passed in, because a `fwidth` inside the border branch below would sit in
-// non uniform control flow, where the result is undefined.
+// One pixel wide analytic edge coverage, see ui_rect.wgsl.
 fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
+}
+
+// The distance change per screen pixel, zero guarded, see ui_rect.wgsl.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
 }
 
 // How far along the ramp this pixel is, 0 at the start color and 1 at the
@@ -155,8 +158,8 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
 
-    // One derivative for the whole shader, see ui_rect.wgsl.
-    let width: f32 = fwidth(dist);
+    // Zero guarded, see ui_rect.wgsl.
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
 
     var rgb: vec3<f32> = color.rgb;
     var alpha: f32 = color.a;

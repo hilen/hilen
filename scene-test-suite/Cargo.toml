@@ -9,5 +9,8 @@ anyhow = { workspace = true }
 
 hilen = { workspace = true, features = ["scene-tests"] }
 
+[build-dependencies]
+plat = { workspace = true }
+
 [lints]
 workspace = true

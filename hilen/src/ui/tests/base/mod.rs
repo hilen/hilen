@@ -13,3 +13,7 @@ mod overlay_touch_layer;
 mod script_wrap;
 mod switch_look;
 mod title_frames;
+/// A phone and a page fill the screen, only a desktop window has an
+/// initial size.
+#[cfg(desktop)]
+mod window_size;

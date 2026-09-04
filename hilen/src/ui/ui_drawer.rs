@@ -614,8 +614,12 @@ impl UIDrawer {
 
         let layout = label.text_layout_for(text);
         let inset = label.text_inset();
+        // Snapped to whole screen pixels. A hairline on a fractional row
+        // gets its two partial rows blended differently by every GPU, a
+        // whole row reads the same everywhere, and a crisp line is what a
+        // browser draws too.
         let (position, thickness) = layout.underline;
-        let thickness = thickness.max(1.0 / scale);
+        let thickness = (thickness * scale).round().max(1.0) / scale;
         let z = label.z_position() - UIManager::additional_z_offset() / 2.0;
 
         let top = match label.vertical_alignment {
@@ -631,6 +635,7 @@ impl UIDrawer {
             };
             let count: f32 = index.lossy_convert();
             let baseline = top + layout.ascent + count * layout.line_height;
+            let y = ((baseline - position) * scale).round() / scale;
 
             for range in &ranges {
                 let start = range.start.max(line.start);
@@ -642,7 +647,7 @@ impl UIDrawer {
                 let x1 = layout.x_on_line(index, end);
 
                 Pipelines::rect().add(UIRectInstance::new(
-                    (line_x + x0, baseline - position, x1 - x0, thickness).into(),
+                    (line_x + x0, y, x1 - x0, thickness).into(),
                     label.color_at(start),
                     CLEAR,
                     0.0,
