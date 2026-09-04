@@ -73,9 +73,15 @@ The report arrives over the inspect WebSocket instead of the console, and on fai
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
 A failing test also pushes its own frame the moment it fails, saved as
 `target/web-test/failures/<test>.png`, so a flake leaves its picture although the page
-has no filesystem. Every asset group downloads before the suite starts and a miss is
-fatal, a suite on the default font would fail on pixels far from the cause, which is
-how a cut font download once looked like a wrapping bug. See [inspect.md](inspect.md).
+has no filesystem. The app's log lines at info and above travel the same socket as they
+happen, `web_log.rs` forwards them, so the driver prints `Started` and `OK` live like the
+desktop lane and keeps them in `target/web-test/app-<browser>.log`. A test that never
+finishes is caught by the driver's stall watchdog: after `--stall` seconds of silence,
+180 by default, it names the last line the app said, takes the failure screenshot and
+exits, instead of sitting out the 15 minute report timeout. Every asset group downloads
+before the suite starts and a miss is fatal, a suite on the default font would fail on
+pixels far from the cause, which is how a cut font download once looked like a wrapping
+bug. See [inspect.md](inspect.md).
 
 On CI both browsers draw on a software GPU, Chrome through SwiftShader and Firefox
 through Mesa, and a few pixels come out unlike a real GPU there. A rectangle edge on

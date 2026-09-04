@@ -26,6 +26,7 @@ mod level_drawer;
 #[cfg(feature = "scene")]
 mod scene_drawer;
 mod web;
+mod web_log;
 
 mod app;
 mod app_starter;

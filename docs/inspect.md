@@ -139,7 +139,10 @@ main thread, like the TCP transport. The test autorun also pushes its report
 over the socket as an unsolicited frame, which is how the browser test lane
 reads results without console access, see [ui-tests.md](ui-tests.md). A failing
 test pushes a `FailureScreenshot` frame the same way, its frame as PNG, which the
-driver writes under `target/web-test/failures/`. Panics
+driver writes under `target/web-test/failures/`. Every log line at info and above
+goes out as a `Log` frame while the socket is open, from the logger in
+`web_log.rs`, so the driver sees the app's progress live. A `Log` frame that fails
+to send says nothing, a log line about it would forward itself without end. Panics
 POST to `/te-panic` on the page origin from the panic hook through a sync XHR,
 which delivers before the wasm instance dies and works from workers too.
 

@@ -4,7 +4,10 @@
 //! at `/hilen-inspect`. The protocol stays the same request in, response out
 //! JSON, one WebSocket text message per frame instead of a length prefix.
 
-use std::sync::mpsc::{Sender, channel};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::{Sender, channel},
+};
 
 use parking_lot::Mutex;
 use web_sys::{
@@ -25,6 +28,15 @@ static SOCKET: MainLock<Option<WebSocket>> = MainLock::new();
 
 /// Requests cross from the socket callbacks to the inspect worker here.
 static REQUESTS: Mutex<Option<Sender<InspectorCommand>>> = Mutex::new(None);
+
+/// Whether the socket is open, readable from any thread. The log
+/// forwarder asks before every line, and it must not touch the socket
+/// itself, which lives on the main thread.
+static OPEN: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn is_open() -> bool {
+    OPEN.load(Ordering::Relaxed)
+}
 
 pub(crate) fn start_if_requested() {
     if !crate::web::query_flag("hilen_inspect") {
@@ -61,7 +73,7 @@ pub(crate) fn start_if_requested() {
             on_main(move || drop(response));
 
             match data {
-                Ok(frame) => send_frame(frame),
+                Ok(frame) => send_frame(frame, false),
                 Err(err) => log::error!("Failed to serialize inspect response: {err}"),
             }
         }
@@ -88,12 +100,14 @@ pub(crate) fn start_if_requested() {
     onmessage.forget();
 
     let onopen = Closure::<dyn FnMut()>::new(|| {
+        OPEN.store(true, Ordering::Relaxed);
         log::info!("Inspect socket connected");
     });
     socket.set_onopen(Some(onopen.as_ref().unchecked_ref()));
     onopen.forget();
 
     let onclose = Closure::<dyn FnMut()>::new(|| {
+        OPEN.store(false, Ordering::Relaxed);
         log::warn!("Inspect socket closed");
     });
     socket.set_onclose(Some(onclose.as_ref().unchecked_ref()));
@@ -106,25 +120,45 @@ pub(crate) fn start_if_requested() {
 /// report this way. Quietly does nothing when the channel is not up.
 pub(crate) fn push(command: AppCommand) {
     on_main(move || match serde_json::to_string(&command) {
-        Ok(frame) => send_frame(frame),
+        Ok(frame) => send_frame(frame, false),
         Err(err) => log::error!("Failed to serialize inspect push: {err}"),
     });
 }
 
+/// `push` for a log line. Says nothing when it fails, a log line about a
+/// dropped log line would forward itself without end.
+pub(crate) fn push_log(level: &str, message: String) {
+    let command = AppCommand::Log {
+        level: level.to_string(),
+        message,
+    };
+    on_main(move || {
+        if let Ok(frame) = serde_json::to_string(&command) {
+            send_frame(frame, true);
+        }
+    });
+}
+
 /// Main thread only, the socket lives there.
-fn send_frame(frame: String) {
+fn send_frame(frame: String, quiet: bool) {
     on_main(move || {
         let Some(socket) = SOCKET.get_mut() else {
-            log::warn!("Inspect frame dropped, no socket");
+            if !quiet {
+                log::warn!("Inspect frame dropped, no socket");
+            }
             return;
         };
 
         if socket.ready_state() != WebSocket::OPEN {
-            log::warn!("Inspect frame dropped, socket is not open");
+            if !quiet {
+                log::warn!("Inspect frame dropped, socket is not open");
+            }
             return;
         }
 
-        if let Err(err) = socket.send_with_str(&frame) {
+        if let Err(err) = socket.send_with_str(&frame)
+            && !quiet
+        {
             log::error!("Failed to send inspect frame: {err:?}");
         }
     });

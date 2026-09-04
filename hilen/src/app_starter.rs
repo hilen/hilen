@@ -161,7 +161,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         // Panics go to console.error and, under a test driver, to its
         // `/te-panic` endpoint, since the driver has no console access.
         crate::web::install_panic_hook();
-        console_log::init_with_level(log::Level::Debug).expect("Couldn't initialize logger");
+        crate::web_log::init();
 
         log::info!("Hello from wasm");
     }

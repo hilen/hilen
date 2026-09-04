@@ -23,6 +23,13 @@ pub enum AppCommand {
         test:       String,
         png_base64: String,
     },
+    /// A log line of a browser page, pushed as it happens so the test
+    /// driver prints the app's progress like the desktop lane does and a
+    /// stuck run names the last thing the app said.
+    Log {
+        level:   String,
+        message: String,
+    },
     /// Unix seconds of when the app's Rust code was compiled, see
     /// `hilen/build.rs`.
     BuildTime(u64),
