@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not_wasm)]
 use parking_lot::Mutex;
 #[cfg(not_wasm)]
-use winit::event_loop::EventLoopProxy;
+use winit::event_loop::{ControlFlow, EventLoopProxy};
 
 #[cfg(all(not_wasm, not(target_os = "ios")))]
 use crate::deps::hreads::is_main_thread;
@@ -86,4 +86,108 @@ pub(crate) fn continuous_render_active() -> bool {
     #[cfg(not(feature = "level"))]
     let level_running = false;
     crate::ui::UIManager::has_live_animations() || level_running
+}
+
+/// The window is minimized, fully covered or on another desktop, so nothing
+/// drawn reaches a screen. Set from winit's occluded event on the main
+/// thread. A browser throttles its own frame callbacks for a hidden tab.
+#[cfg(not_wasm)]
+static OCCLUDED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(not_wasm)]
+pub(crate) fn set_occluded(occluded: bool) {
+    OCCLUDED.store(occluded, Ordering::Relaxed);
+}
+
+#[cfg(not_wasm)]
+pub(crate) fn occluded() -> bool {
+    OCCLUDED.load(Ordering::Relaxed)
+}
+
+/// Whether a drawn frame reaches the screen right now.
+#[cfg(not_wasm)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Visibility {
+    Visible,
+    /// Minimized, fully covered or on another desktop.
+    Covered,
+    /// Covered, but a screenshot waits for one frame drawn offscreen.
+    CoveredScreenshot,
+}
+
+#[cfg(not_wasm)]
+pub(crate) fn visibility(screenshot_pending: bool) -> Visibility {
+    match (occluded(), screenshot_pending) {
+        (false, _) => Visibility::Visible,
+        (true, false) => Visibility::Covered,
+        (true, true) => Visibility::CoveredScreenshot,
+    }
+}
+
+/// What the native loop does after an iteration. `None` sleeps in `Wait`
+/// without drawing, `Some(flow)` draws a frame and goes on under `flow`.
+///
+/// A covered window holds every frame, continuous work included, until it
+/// shows again. Animations keep their clock, so a long hold lands them at
+/// the end state on the first frame back. A pending screenshot is the one
+/// exception, it is answered through the offscreen path and would otherwise
+/// wait until the window is uncovered.
+#[cfg(not_wasm)]
+pub(crate) fn frame_pacing(visibility: Visibility, continuous: bool, pending: bool) -> Option<ControlFlow> {
+    match visibility {
+        Visibility::Covered => return None,
+        Visibility::CoveredScreenshot => return Some(ControlFlow::Wait),
+        Visibility::Visible => {}
+    }
+    if continuous {
+        return Some(ControlFlow::Poll);
+    }
+    pending.then_some(ControlFlow::Wait)
+}
+
+#[cfg(all(test, not_wasm))]
+mod test {
+    use winit::event_loop::ControlFlow;
+
+    use super::{Visibility, frame_pacing};
+
+    // Regression: a minimized window with a live animation used to keep the
+    // loop polling at full speed, drawing frames nobody could see.
+    #[test]
+    fn covered_window_holds_continuous_work() {
+        assert_eq!(frame_pacing(Visibility::Covered, true, true), None);
+        assert_eq!(frame_pacing(Visibility::Covered, false, true), None);
+        assert_eq!(frame_pacing(Visibility::Covered, false, false), None);
+    }
+
+    // A screenshot of a covered window is drawn offscreen, so the request
+    // must still get its one frame, and only one, no polling.
+    #[test]
+    fn covered_window_still_answers_a_screenshot() {
+        assert_eq!(
+            frame_pacing(Visibility::CoveredScreenshot, true, true),
+            Some(ControlFlow::Wait)
+        );
+        assert_eq!(
+            frame_pacing(Visibility::CoveredScreenshot, false, false),
+            Some(ControlFlow::Wait)
+        );
+    }
+
+    #[test]
+    fn visible_window_paces_as_before() {
+        assert_eq!(
+            frame_pacing(Visibility::Visible, true, false),
+            Some(ControlFlow::Poll)
+        );
+        assert_eq!(
+            frame_pacing(Visibility::Visible, true, true),
+            Some(ControlFlow::Poll)
+        );
+        assert_eq!(
+            frame_pacing(Visibility::Visible, false, true),
+            Some(ControlFlow::Wait)
+        );
+        assert_eq!(frame_pacing(Visibility::Visible, false, false), None);
+    }
 }

@@ -34,9 +34,9 @@ pub use winit::{
 #[cfg(any(not_wasm, feature = "ui-tests"))]
 pub(crate) use self::redraw::continuous_render_active;
 #[cfg(not_wasm)]
-pub(crate) use self::redraw::set_wake_proxy;
-#[cfg(not_wasm)]
-pub(crate) use self::redraw::take_needs_render;
+pub(crate) use self::redraw::{
+    frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
+};
 pub use self::{
     app_handler::AppHandler,
     placement::*,

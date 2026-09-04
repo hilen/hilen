@@ -29,32 +29,6 @@ Android landed, the browser did not.
   and the rings are engine views and plain state, only the transport is missing.
 - Blocks: bug reports and crash events from web apps.
 
-## Pause continuous work while the window is not visible
-
-- Current: a live animation or a loaded level keeps the loop polling even
-  when the window is minimized, fully covered, or on another desktop. A
-  browser tab throttles `requestAnimationFrame` on its own, native does not.
-- Needed: listen to winit's occluded event in the app handler and hold the
-  loop in `Wait` while the window is occluded, then request a frame when it
-  shows again. Animations keep their clock, so a long hold still lands them
-  at the end state on the first frame back.
-- Blocks: nothing visible, only CPU and battery in a background window.
-
-## Button cannot measure its title
-
-Found by the studio port, the admin page filter tabs.
-
-- Current: `Label::content_size` and `size_for_width` measure the text.
-  `Button` has no text measurement, its `content_size` comes from
-  `ViewCallbacks` and reflects the frame, near zero before layout, so a
-  button cannot be sized to its title. The studio admin page works around
-  it with touch enabled `Label`s styled as tabs.
-- Needed: title measurement on `Button`, or one measuring API shared by
-  every text carrying view, so `content_size` means the same thing on
-  `Label` and `Button`.
-- Blocks: any row of buttons sized by their titles, filter tabs, toolbars,
-  segmented controls.
-
 ## Text stack rework
 
 Found by the FontZoo emoji page. Parked until a real need for color emoji or

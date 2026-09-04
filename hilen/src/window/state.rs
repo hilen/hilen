@@ -730,6 +730,12 @@ impl State {
         sender.send(Screenshot::new(data, size)).unwrap();
     }
 
+    /// A screenshot waits on the next frame, see `request_read_display`.
+    #[cfg(not_wasm)]
+    pub(crate) fn screenshot_pending(&self) -> bool {
+        self.read_display_request.borrow().is_some()
+    }
+
     pub(crate) fn request_read_display(&self) -> Receiver<Screenshot> {
         let mut request = self.read_display_request.borrow_mut();
 

@@ -213,8 +213,15 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             }
             // Waking the loop was the whole point. `about_to_wait` runs right
             // after this and draws a frame because a redraw was requested.
+            // A covered window draws no frame, and a frame is where queued
+            // callbacks run, so they run here instead. Else a background
+            // thread blocked in `from_main` waits until the window shows.
             #[cfg(not_wasm)]
-            UserEvent::Wake => {}
+            UserEvent::Wake => {
+                if crate::window::occluded() {
+                    crate::deps::hreads::invoke_dispatched();
+                }
+            }
         }
     }
 
@@ -245,6 +252,15 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             }
             WindowEvent::Focused(focused) => {
                 self.te_window_events.focus_changed(focused);
+            }
+            // Minimized, fully covered or on another desktop. The frame
+            // pacing in `about_to_wait` holds every frame while this is on,
+            // and the frame this event requests below draws the catch up
+            // when the window shows again.
+            #[cfg(not_wasm)]
+            WindowEvent::Occluded(occluded) => {
+                debug!("Window occluded: {occluded}");
+                crate::window::set_occluded(occluded);
             }
             WindowEvent::Touch(touch) => {
                 self.te_window_events.touch_event(touch);
@@ -341,17 +357,16 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
         #[cfg(not_wasm)]
         {
-            let continuous = crate::window::continuous_render_active();
-            let pending = crate::window::take_needs_render();
-            if !continuous && !pending {
+            let flow = crate::window::frame_pacing(
+                crate::window::visibility(Self::window().state.screenshot_pending()),
+                crate::window::continuous_render_active(),
+                crate::window::take_needs_render(),
+            );
+            let Some(flow) = flow else {
                 event_loop.set_control_flow(ControlFlow::Wait);
                 return;
-            }
-            event_loop.set_control_flow(if continuous {
-                ControlFlow::Poll
-            } else {
-                ControlFlow::Wait
-            });
+            };
+            event_loop.set_control_flow(flow);
         }
 
         // Wait, not Poll. The redraw below re-arms a rAF every

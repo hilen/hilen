@@ -45,6 +45,18 @@ loop iterates and each requested frame is delivered. Once neither exists it goes
 flag, because under `Poll` `about_to_wait` also runs on the empty iterations between draws and a
 flag would read false there.
 
+A covered window holds every frame. winit's occluded event fires when the window is
+minimized, fully covered or on another desktop, the app handler stores it, and
+`frame_pacing` in `redraw.rs` answers `Wait` with no redraw while it holds, continuous work
+included. Animations keep their clock, so a long hold lands them at the end state on the
+first frame back, and the event that uncovers the window requests that frame. Two things
+keep working while covered: a pending screenshot still gets its one frame, drawn offscreen,
+so `check_colors` and `hilen-inspect screenshot` never hang on a minimized window, and the
+wake event drains the dispatch queue itself, since a frame is where queued callbacks normally
+run and a background thread in `from_main` must not wait until the window shows. The
+pacing table is a pure function with unit tests next to it. A browser throttles its own
+frame callbacks for a hidden tab, so wasm is not part of this.
+
 The two platforms order the loop differently and it matters. On desktop `about_to_wait` runs
 after the render, so it sees an animation added mid-frame and switches to `Poll` on its own. On
 iOS `about_to_wait` runs before the render, so it misses that animation, and a `request_frame`

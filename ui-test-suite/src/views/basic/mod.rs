@@ -1,6 +1,7 @@
 mod background;
 mod button;
 mod button_disabled;
+mod button_title_size;
 mod checkbox;
 mod command_held;
 mod corner_radii;

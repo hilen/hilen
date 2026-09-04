@@ -7,6 +7,7 @@ use crate::{
     gm::{
         ToF32,
         color::{CLEAR, Color, WHITE},
+        flat::Size,
     },
     ui::{
         DynamicColor, ImageView, Label, Setup, Style, ToLabel, UIColor, UIEvent, UIManager, View,
@@ -82,6 +83,13 @@ impl Button {
     pub fn set_font(&self, font: Weak<Font>) -> &Self {
         weak_from_ref(self).label.set_font(font);
         self
+    }
+
+    /// Size the title needs at the current font, text size and letter
+    /// spacing, the same measure `Label::content_size` gives. Zero area
+    /// without a title. Add the padding the button should have around it.
+    pub fn content_size(&self) -> Size {
+        self.label.content_size()
     }
 }
 
