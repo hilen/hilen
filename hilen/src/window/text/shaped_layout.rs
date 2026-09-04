@@ -106,8 +106,29 @@ struct Space {
 struct Source {
     font:        Weak<Font>,
     scale:       PxScale,
+    px_per_em:   f32,
     px_per_unit: f32,
     space:       Option<Space>,
+}
+
+/// A glyph with its origin placed on its baseline, in pixels.
+struct PlacedGlyph {
+    source:  usize,
+    id:      u16,
+    cluster: usize,
+    x:       f32,
+    y:       f32,
+}
+
+/// A color glyph of a laid out text, the emoji of a color font, which
+/// draws as an image instead of through the brush.
+pub(crate) struct ColorGlyphPlacement {
+    pub font:      Weak<Font>,
+    pub id:        u16,
+    pub px_per_em: f32,
+    /// The glyph origin on its baseline, in pixels.
+    pub x:         f32,
+    pub baseline:  f32,
 }
 
 /// Columns of one tab stop, in spaces. The editor default.
@@ -146,6 +167,7 @@ impl ShapedLayout<'_> {
             Source {
                 font,
                 scale,
+                px_per_em: em,
                 px_per_unit,
                 space,
             }
@@ -390,6 +412,80 @@ impl ShapedLayout<'_> {
         }
     }
 
+    /// Every glyph of `text` with its origin on its baseline, lines
+    /// wrapped at `bound_w` and aligned to `screen` the way the section
+    /// geometry asks.
+    fn place(
+        &self,
+        scale: PxScale,
+        text: &str,
+        screen: (f32, f32),
+        bound_w: f32,
+        sources: &[Source],
+    ) -> Vec<PlacedGlyph> {
+        let scaled = self.params.base.ab().as_scaled(scale);
+        let lines = self.shape_text(text, sources, bound_w);
+
+        let line_height = self.line_pitch(&scaled);
+        let mut baseline = self.first_baseline(&scaled, screen.1, lines.len());
+
+        let mut result = vec![];
+
+        for line in lines {
+            let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
+
+            let mut x = match self.params.h_align {
+                HorizontalAlign::Left => screen.0,
+                HorizontalAlign::Center => screen.0 - line_width / 2.0,
+                HorizontalAlign::Right => screen.0 - line_width,
+            };
+
+            for glyph in line.glyphs {
+                result.push(PlacedGlyph {
+                    source:  glyph.source,
+                    id:      glyph.id,
+                    cluster: glyph.cluster,
+                    x:       x + glyph.x_offset,
+                    y:       baseline - glyph.y_offset,
+                });
+                x += glyph.x_advance;
+            }
+
+            baseline += line_height;
+        }
+
+        result
+    }
+
+    /// The glyphs of `text` that draw as color images, placed like
+    /// `calculate_glyphs` places the rest, so both land on one baseline.
+    pub(crate) fn color_glyphs(
+        &self,
+        scale: f32,
+        text: &str,
+        screen: (f32, f32),
+        bound_w: f32,
+    ) -> Vec<ColorGlyphPlacement> {
+        let scale = PxScale::from(scale);
+        let sources = self.sources(scale);
+        self.place(scale, text, screen, bound_w, &sources)
+            .into_iter()
+            .filter_map(|placed| {
+                let source = &sources[placed.source];
+                source
+                    .font
+                    .is_color_glyph(placed.id, source.px_per_em)
+                    .then_some(ColorGlyphPlacement {
+                        font:      source.font,
+                        id:        placed.id,
+                        px_per_em: source.px_per_em,
+                        x:         placed.x,
+                        baseline:  placed.y,
+                    })
+            })
+            .collect()
+    }
+
     /// Lines and caret positions of `text` at the base font's `scale`.
     pub(crate) fn text_layout(&self, scale: PxScale, text: &str, bound_w: f32) -> TextLayout {
         let base = self.params.base;
@@ -477,50 +573,30 @@ impl GlyphPositioner for ShapedLayout<'_> {
         }
 
         let first = first.to_section_text();
-        let base = self.params.base;
-        let scaled = base.ab().as_scaled(first.scale);
 
         // The same factors ab_glyph rasterizes with, keep shaped advances
         // and drawn outlines consistent.
         let sources = self.sources(first.scale);
 
-        let lines = self.shape_text(&text, &sources, bound_w);
-
-        let line_height = self.line_pitch(&scaled);
-        let mut baseline = self.first_baseline(&scaled, screen_y, lines.len());
-
-        for line in lines {
-            let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
-
-            let mut x = match self.params.h_align {
-                HorizontalAlign::Left => screen_x,
-                HorizontalAlign::Center => screen_x - line_width / 2.0,
-                HorizontalAlign::Right => screen_x - line_width,
-            };
-
-            for glyph in line.glyphs {
-                let source = &sources[glyph.source];
-                if source.font.name != self.emit {
-                    x += glyph.x_advance;
-                    continue;
-                }
-
-                let section_index = starts.partition_point(|start| *start <= glyph.cluster).saturating_sub(1);
-
-                result.push(SectionGlyph {
-                    section_index,
-                    byte_index: glyph.cluster - starts[section_index],
-                    glyph: Glyph {
-                        id:       GlyphId(glyph.id),
-                        scale:    source.scale,
-                        position: point(x + glyph.x_offset, baseline - glyph.y_offset),
-                    },
-                    font_id: first.font_id,
-                });
-                x += glyph.x_advance;
+        for placed in self.place(first.scale, &text, (screen_x, screen_y), bound_w, &sources) {
+            let source = &sources[placed.source];
+            // A color glyph draws as an image, see `color_glyphs`.
+            if source.font.name != self.emit || source.font.is_color_glyph(placed.id, source.px_per_em) {
+                continue;
             }
 
-            baseline += line_height;
+            let section_index = starts.partition_point(|start| *start <= placed.cluster).saturating_sub(1);
+
+            result.push(SectionGlyph {
+                section_index,
+                byte_index: placed.cluster - starts[section_index],
+                glyph: Glyph {
+                    id:       GlyphId(placed.id),
+                    scale:    source.scale,
+                    position: point(placed.x, placed.y),
+                },
+                font_id: first.font_id,
+            });
         }
 
         result

@@ -157,6 +157,40 @@ without a glyph. A char no fallback covers keeps its font and draws notdef. The
 runner resets the fallbacks between tests, `GlyphFallback` covers the plain label
 and the split inside an explicit run.
 
+## Color glyphs
+
+The emoji of a color font come as COLR layers, v0 or v1, or as PNG strikes,
+CBDT and sbix, and none of them has a coverage mask for the text atlas.
+`color_glyph.rs` rasterizes such a glyph with ttf-parser and tiny-skia, both
+already in the tree. A COLR paint graph paints into a pixmap the size of its
+box, gradients, clips, transforms and composite layers included, a PNG strike
+decodes as is and scales on draw. The raster is a managed `Image`, cached per
+font, glyph and pixel size for the life of the font, and a unit test walks
+every emoji of the test fonts at three sizes.
+
+Routing is per glyph. `ShapedLayout` places every glyph the same way, then
+the brush skips the color ones and `UIDrawer::draw_color_glyphs` draws them
+through the image pipeline at the same origin, snapped to whole pixels. Plain
+glyphs of a color font stay on the brush, so shaping, measuring, wrapping,
+runs and fallback know nothing about color, and a color font registered with
+`Font::set_fallbacks` gives every label color emoji. A color glyph carries its
+own colors, so the text color, its alpha and a text gradient do not apply to
+it. A COLR palette entry that asks for the text color paints black.
+
+`Font::system_emoji` maps the platform's own emoji font from disk. Apple
+Color Emoji, an sbix font, ships with every Mac, iPhone and Apple TV and is
+licensed for that hardware only, so it is never bundled and the file is
+memory mapped, 190 MB that cost nothing until a glyph is read. Off Apple it
+answers `None` and the app keeps a bundled font:
+
+```rust
+Font::set_fallbacks([Font::system_emoji().unwrap_or_else(|| Font::get("TwemojiColr0.ttf"))]);
+```
+
+`Color emoji` pins the three formats on every lane with 8 glyph subsets of
+Twemoji and Noto Color Emoji in `assets/fonts`. `System emoji` pins the
+system font on Apple, so a macOS update that redraws an emoji re-records it.
+
 ## Gradient text
 
 `Label::set_text_gradient(start, end)` fades the glyphs from the top of the

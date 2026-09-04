@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow, bail};
 use log::error;
-use rustybuzz::{Face, ttf_parser::Tag};
+use rustybuzz::{
+    Face,
+    ttf_parser::{GlyphId, Tag},
+};
 use wgpu::MultisampleState;
 use wgpu_text::{
     BrushBuilder, Section, Text, TextBrush,
@@ -23,6 +28,8 @@ use crate::{
         text::{
             FontRun, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, TextLayout,
             VerticalAlign,
+            color_glyph::{self, ColorGlyph},
+            system_emoji,
         },
         window::Window,
     },
@@ -41,6 +48,12 @@ pub struct Font {
     em_scale:      f32,
     shape_cache:   MainLock<ShapeCache>,
     measure_cache: MainLock<MeasureCache>,
+    /// The font has COLR layers or PNG strikes, so some of its glyphs
+    /// draw as color images. Plain fonts skip the per glyph lookup.
+    has_color:     bool,
+    /// Rasters by glyph and pixel size, `None` for a glyph whose color
+    /// data failed to render so it is not retried every frame.
+    color_glyphs:  MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
 }
 
 impl Font {
@@ -54,13 +67,22 @@ impl Font {
         variations: &[([u8; 4], f32)],
         stem_darkening: f32,
     ) -> Result<Self> {
+        // Managed fonts live until process exit, leaking gives the raster
+        // font and the shaping face one shared 'static copy of the data.
+        Self::from_static(name, Vec::leak(data.to_vec()), variations, stem_darkening)
+    }
+
+    /// Data that already lives for the whole process, a leaked buffer or
+    /// a mapped file, so nothing is copied.
+    pub(crate) fn from_static(
+        name: impl ToString,
+        data: &'static [u8],
+        variations: &[([u8; 4], f32)],
+        stem_darkening: f32,
+    ) -> Result<Self> {
         let window = Window::current();
 
         let render_size = Window::render_size();
-
-        // Managed fonts live until process exit, leaking gives the raster
-        // font and the shaping face one shared 'static copy of the data.
-        let data: &'static [u8] = Vec::leak(data.to_vec());
 
         let mut font = FontRef::try_from_slice(data)?;
         let mut face = Face::from_slice(data, 0)
@@ -82,6 +104,9 @@ impl Font {
             .ok_or_else(|| anyhow!("Font '{}' has no units per em", name.to_string()))?;
         let em_scale = font.height_unscaled() / units_per_em;
 
+        let tables = face.tables();
+        let has_color = tables.colr.is_some() || tables.cbdt.is_some() || tables.sbix.is_some();
+
         let brush = BrushBuilder::using_font(font.clone())
             .with_depth_stencil(depth_stencil_state().into())
             .with_multisample(MultisampleState {
@@ -100,6 +125,8 @@ impl Font {
             em_scale,
             shape_cache: MainLock::new(),
             measure_cache: MainLock::new(),
+            has_color,
+            color_glyphs: MainLock::new(),
         })
     }
 
@@ -123,6 +150,26 @@ impl Font {
 
     pub(crate) fn shape_cache(&self) -> &MainLock<ShapeCache> {
         &self.shape_cache
+    }
+
+    pub(crate) fn has_color(&self) -> bool {
+        self.has_color
+    }
+
+    /// Whether glyph `id` at `px_per_em` draws as a color image through
+    /// the image pipeline instead of through the brush.
+    pub(crate) fn is_color_glyph(&self, id: u16, px_per_em: f32) -> bool {
+        self.has_color && color_glyph::is_color_glyph(&self.face, GlyphId(id), px_per_em)
+    }
+
+    /// The raster of color glyph `id` at `px_per_em`, built on first use
+    /// and kept for the life of the font like the shaped lines are.
+    pub(crate) fn color_glyph(&self, id: u16, px_per_em: f32) -> Option<ColorGlyph> {
+        self.color_glyphs
+            .get_mut()
+            .entry((id, px_per_em.to_bits()))
+            .or_insert_with(|| color_glyph::rasterize(&self.face, &self.name, GlyphId(id), px_per_em))
+            .clone()
     }
 
     fn params(
@@ -298,6 +345,15 @@ impl Font {
         Self::store_with_name(name, || {
             Self::new_with_variations(name, data, variations, darkening)
         })
+    }
+
+    /// The platform's own color emoji font, found on disk at runtime.
+    /// Apple ships Apple Color Emoji with every Mac, iPhone and Apple TV
+    /// and licenses it for that hardware only, so it is never bundled.
+    /// `None` on every other platform and when the file is missing, the
+    /// app then keeps its bundled emoji font.
+    pub fn system_emoji() -> Option<Weak<Font>> {
+        system_emoji::system_emoji()
     }
 
     pub fn roboto() -> Weak<Font> {

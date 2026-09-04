@@ -37,9 +37,8 @@ const PAGES: [[(&str, &str); ROWS]; 3] = [
         ("ZCOOLKuaiLe-Regular.ttf", "你好世界 汉字"),
         ("Neucha.ttf", "Кириллица Ах"),
     ],
-    // Monochrome outline emoji via Noto Emoji. Color emoji formats are
-    // not supported by the glyph pipeline, and there is no shaping, so
-    // only single codepoint emoji render, no skin tones or ZWJ combos.
+    // Monochrome outline emoji via Noto Emoji, drawn through the atlas
+    // like any glyph. The color formats are pinned by `Color emoji`.
     [
         ("NotoEmoji.ttf", "😀 😅 🤔 😴"),
         ("NotoEmoji.ttf", "🐶 🐱 🐟 🐍"),

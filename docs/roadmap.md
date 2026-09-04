@@ -29,21 +29,21 @@ Android landed, the browser did not.
   and the rings are engine views and plain state, only the transport is missing.
 - Blocks: bug reports and crash events from web apps.
 
-## Text stack rework
+## System font discovery
 
-Found by the FontZoo emoji page. Parked until a real need for color emoji or
-font fallback.
+Found by the glyph fallback work. Waits for an app that needs a script it
+does not bundle a font for.
 
-- Current: shaping goes through rustybuzz via `ShapedLayout`, so GPOS kerning,
-  GSUB and variable font axes apply. But rasterization still goes through wgpu_text,
-  glyph_brush and ab_glyph, outline glyphs only, a single channel atlas tinted by
-  the text color. Color emoji tables, CBDT, sbix and COLR, are ignored, so emoji
-  render monochrome via the bundled `NotoEmoji.ttf`. No font fallback chains.
-  See [text.md](text.md).
-- Needed: migrate label rendering to cosmic-text with swash. Brings font fallback
-  chains and color emoji in every format. Large: replaces the glyph atlas and
-  `draw_label`, and invalidates every recorded text expectation in the UI tests.
-- Blocks: colorful emoji. Nothing in the driver apps today.
+- Current: fallback fonts are explicit, `Font::set_fallbacks` takes fonts the
+  app loaded itself, and `Font::system_emoji` is the only font the engine
+  finds on the system, see [text.md](text.md). A char no registered font
+  covers draws notdef.
+- Needed: a per platform walk of the system font directories that picks a
+  font covering the missing script, the fontdb approach, registered as a
+  fallback after the explicit ones. Same file walk as the emoji lookup, plus
+  the cmap check `runs_with_fallbacks` already does.
+- Blocks: nothing in the driver apps, every script they show has a bundled
+  font.
 
 ## Siri Remote input for tvOS
 
@@ -186,6 +186,11 @@ Small remainders not worth their own entry.
   that changes visible behavior and recorded expectations, so it is its own gated
   decision.
 
+- A COLR sweep gradient draws through tiny-skia's sweep shader with the
+  angles taken as degrees counter clockwise from the font's x axis, the
+  COLR convention is not pinned by any test font. A color glyph ignores the
+  text color's alpha, a translucent emoji needs an opacity in the image
+  instance.
 - SVG premultiplied upload: the convert from tiny-skia's premultiplied pixels to
   straight alpha is a per pixel loop, optimized in `hilen-pixels` but still work.
   Uploading premultiplied and blending svg textures premultiplied in the image

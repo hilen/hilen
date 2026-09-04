@@ -117,6 +117,18 @@ impl Label {
         runs_with_fallbacks(text, self.font(), explicit)
     }
 
+    /// Whether any font this label may draw with has color glyphs, the
+    /// base, an explicit run font or a registered fallback. The drawer
+    /// skips the color glyph pass for every other label.
+    pub(crate) fn uses_color_font(&self) -> bool {
+        self.font().has_color()
+            || self
+                .font_runs
+                .iter()
+                .any(|run| run.style.font.is_some_and(|font| font.has_color()))
+            || Font::fallbacks().iter().any(|font| font.has_color())
+    }
+
     /// The underlined byte ranges, clamped like `shaping_runs`.
     pub(crate) fn underline_runs(&self, text: &str) -> Vec<Range<usize>> {
         self.font_runs

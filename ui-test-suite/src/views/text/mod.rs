@@ -1,3 +1,4 @@
+mod color_emoji;
 /// A text field is a different thing on a phone. Typing goes through the screen
 /// keyboard, not through injected key events, so these drive a field that never
 /// receives the text and then probe for glyphs that were never drawn.
@@ -27,6 +28,10 @@ mod multiline_text_field;
 #[cfg(desktop)]
 mod secure_text_field;
 mod stem_darkening;
+/// Apple Color Emoji ships with Apple hardware only, `Font::system_emoji`
+/// is `None` everywhere else.
+#[cfg(apple)]
+mod system_emoji;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod tab_focus;

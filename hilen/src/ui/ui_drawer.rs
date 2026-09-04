@@ -20,7 +20,7 @@ use crate::{
         BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, VerticalAlignment,
         View, ViewData, ViewFrame, ViewLayout, ViewSubviews,
     },
-    window::{Font, RenderFrame, ShapedParams, VerticalAlign, Window, image::Svg},
+    window::{Font, RenderFrame, ShapedLayout, ShapedParams, VerticalAlign, Window, image::Svg},
 };
 
 static GRADIENT_DRAWER: MainLock<UIGradientPipeline> = MainLock::new();
@@ -432,6 +432,7 @@ impl UIDrawer {
             && !label.text.is_empty()
         {
             Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale);
+            Self::draw_color_glyphs(frame, label, ctx.scale);
             Self::draw_underlines(frame, label, ctx.scale);
         } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {
             ctx.paths.extend(drawing.paths());
@@ -483,20 +484,10 @@ impl UIDrawer {
         )
     }
 
-    fn draw_label<'a>(frame: &Rect, label: &'a Label, sections: &mut TextSections<'a>, scale: f32) {
-        // The full text, or the ellipsized copy when the label opted in
-        // and the text overflows this width.
-        let text = label.display_text(frame.size.width);
-
-        let frame = frame * scale;
-
-        let center = frame.center();
-
-        let margin = 16.0;
-
-        let font = label.font();
-
-        let params = ShapedParams {
+    /// The shaping parameters of a label drawn at `scale`, the same for
+    /// the brush and for the color glyph images.
+    fn label_params(label: &Label, text: &str, scale: f32) -> ShapedParams {
+        ShapedParams {
             tracking:    label.letter_spacing() * scale,
             multiline:   label.is_multiline(),
             h_align:     match label.alignment {
@@ -509,9 +500,93 @@ impl UIDrawer {
                 VerticalAlignment::Center => VerticalAlign::Center,
             },
             line_height: label.line_height().map(|height| height * scale),
-            base:        font,
+            base:        label.font(),
             runs:        label.shaping_runs(text),
+        }
+    }
+
+    /// Where a label's text anchors inside its pixel `frame` and the
+    /// bounds it wraps in, the section geometry of the brush.
+    fn label_geometry(frame: &Rect, label: &Label) -> ((f32, f32), (f32, f32)) {
+        let center = frame.center();
+        let margin = 16.0;
+
+        let bounds = (
+            frame.width() - if label.alignment.center() { 0.0 } else { margin },
+            frame.height(),
+        );
+        let position = (
+            match label.alignment {
+                TextAlignment::Left => frame.x() + margin,
+                TextAlignment::Center => center.x,
+                TextAlignment::Right => frame.max_x() - margin,
+            },
+            match label.vertical_alignment {
+                VerticalAlignment::Top => frame.y(),
+                VerticalAlignment::Center => center.y,
+            },
+        );
+        (position, bounds)
+    }
+
+    /// The color glyphs of a label, the emoji of a color font, as images
+    /// at the positions the shaper gave them. The brush skips these
+    /// glyphs, see `ShapedLayout::color_glyphs`.
+    fn draw_color_glyphs(frame: &Rect, label: &Label, scale: f32) {
+        if !label.uses_color_font() {
+            return;
+        }
+
+        let text = label.display_text(frame.size.width);
+        let params = Self::label_params(label, text, scale);
+        let font = params.base;
+
+        let frame = frame * scale;
+        let (position, bounds) = Self::label_geometry(&frame, label);
+        let layout = ShapedLayout {
+            emit: &font.name,
+            params,
         };
+        let scale_px = label.text_size() * scale * font.em_scale();
+        let z = label.z_position() - UIManager::additional_z_offset();
+
+        for placed in layout.color_glyphs(scale_px, text, position, bounds.0) {
+            let Some(glyph) = placed.font.color_glyph(placed.id, placed.px_per_em) else {
+                continue;
+            };
+            // Snapped to whole pixels, a fractional origin would blur the
+            // image and land on different pixels per GPU.
+            let x = (placed.x + glyph.left).round() / scale;
+            let y = (placed.baseline + glyph.top).round() / scale;
+            let size = glyph.size / scale;
+            let rect: Rect = (x, y, size.width, size.height).into();
+
+            IMAGE_RECT_DRAWER.get_mut().add_with_image(
+                UIImageInstance::new(
+                    rect,
+                    (0, 0, 1, 1).into(),
+                    CLEAR,
+                    0.0,
+                    CornerRadii::default(),
+                    z,
+                    false,
+                    false,
+                    scale,
+                ),
+                glyph.image,
+            );
+        }
+    }
+
+    fn draw_label<'a>(frame: &Rect, label: &'a Label, sections: &mut TextSections<'a>, scale: f32) {
+        // The full text, or the ellipsized copy when the label opted in
+        // and the text overflows this width.
+        let text = label.display_text(frame.size.width);
+
+        let frame = frame * scale;
+
+        let params = Self::label_params(label, text, scale);
+        let font = params.base;
 
         let scale_px = label.text_size() * scale * font.em_scale();
         let z = label.z_position() - UIManager::additional_z_offset();
@@ -567,22 +642,8 @@ impl UIDrawer {
             }
         }
 
-        let section = section
-            .with_bounds((
-                frame.width() - if label.alignment.center() { 0.0 } else { margin },
-                frame.height(),
-            ))
-            .with_screen_position((
-                match label.alignment {
-                    TextAlignment::Left => frame.x() + margin,
-                    TextAlignment::Center => center.x,
-                    TextAlignment::Right => frame.max_x() - margin,
-                },
-                match label.vertical_alignment {
-                    VerticalAlignment::Top => frame.y(),
-                    VerticalAlignment::Center => center.y,
-                },
-            ));
+        let (position, bounds) = Self::label_geometry(&frame, label);
+        let section = section.with_bounds(bounds).with_screen_position(position);
 
         // A font run draws through its own font's brush, so the section
         // is queued once per font it touches. Every copy lays the whole
