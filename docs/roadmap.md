@@ -173,8 +173,7 @@ sound. The rest of the platforms and the packaging are open.
 - Current: the archive exists for `aarch64-apple-darwin` only. `demo` and
   `ui-test` turn the feature on through a macOS target table. The engine
   declares VAAPI for Linux and D3D11VA for Windows, neither has an archive
-  nor a CI lane. The bindings link `QTKit`, gone from the arm64 SDK, so every
-  macOS link prints one harmless `ld: ignoring file` warning. A decoded 4K
+  nor a CI lane. A decoded 4K
   frame is copied through system memory, 12 MB a frame, and plays at rate.
   Each `VideoView` keeps one frame image per source size for good, the
   managed image store never frees.
@@ -182,8 +181,7 @@ sound. The rest of the platforms and the packaging are open.
   `libva-dev` and `nasm` in `build/setup.sh` and in the docker containers of
   the Linux CI job, Windows needs the ffmpeg configure under an MSYS2 shell,
   then the target tables widen to `desktop`. Apps outside this repo need an
-  `[env] FFMPEG_DIR` recipe or the fetch moved into a forked
-  `ffmpeg-sys-next`, which is also where the `QTKit` line goes upstream.
+  `[env] FFMPEG_DIR` recipe pointing at the engine checkout.
   iOS and Android need archives cross built per target with VideoToolbox and
   MediaCodec, and the feature unlocked there. The browser cannot link
   ffmpeg, it hands the stream to an HTML5 video element and imports each

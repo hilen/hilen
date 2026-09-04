@@ -172,9 +172,7 @@ sha2 = { workspace = true }
 libc = { workspace = true }
 
 [build-dependencies]
-hex = { workspace = true }
 plat = { workspace = true }
-sha2 = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }

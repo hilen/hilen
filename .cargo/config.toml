@@ -71,7 +71,8 @@ strip = "debuginfo"
 [build]
 rustflags = ["--cfg", "tokio_unstable"]
 
-# The static ffmpeg the `video` feature links. The headers are in git and
-# hilen/build.rs fetches the libraries next to them, see docs/video.md.
+# The static ffmpeg the `video` feature links. The headers are in git and the
+# build script of the forked ffmpeg-sys-next fetches the libraries next to
+# them, see docs/video.md.
 [env]
 FFMPEG_DIR = { value = "hilen/ffmpeg", relative = true }

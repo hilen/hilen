@@ -49,15 +49,18 @@ slider and the stats line.
 
 ## The prebuilt ffmpeg
 
-The bindings, `ffmpeg-next` with its `static` feature, link static archives
-from `FFMPEG_DIR`, which `.cargo/config.toml` points at `hilen/ffmpeg`. The
-headers under `hilen/ffmpeg/include` are in git, bindgen needs them before
-any build script of ours runs. The libraries under `hilen/ffmpeg/lib` are not,
-`hilen/build.rs` downloads the archive for the target named in
-`hilen/ffmpeg/prebuilt.txt`, a release asset of github.com/hilen/build,
-checks its sha256 and unpacks it once. A download that fails is a cargo
-warning, `cargo check` and clippy link nothing, and the link of a binary then
-fails on the missing archives.
+The bindings are `ffmpeg-next` with its `static` feature, from the hilen forks of
+`rust-ffmpeg` and `rust-ffmpeg-sys`, see [forks.md](forks.md). They link static
+archives from `FFMPEG_DIR`, which `.cargo/config.toml` points at `hilen/ffmpeg`.
+The headers under `hilen/ffmpeg/include` are in git, bindgen needs them. The
+libraries under `hilen/ffmpeg/lib` are not: the build script of the forked
+`ffmpeg-sys-next` downloads the archive for the target named in
+`hilen/ffmpeg/prebuilt.txt`, a release asset of github.com/hilen/build, checks
+its sha256 and unpacks it once. The fetch lives in that build script and not in
+`hilen/build.rs`, because cargo orders nothing between a consumer's build script
+and the bindings crate, which needs the archives the moment it compiles. A fresh
+checkout lost that race every time. A download that fails fails the build script
+with the reason.
 
 To build a new archive, on the host it is for:
 
@@ -73,10 +76,6 @@ archive links the same way a source build did. Only `aarch64-apple-darwin`
 exists so far. An app outside this repo needs its own `[env] FFMPEG_DIR` in
 its `.cargo/config.toml` pointing at the engine checkout, that wiring is on
 the roadmap.
-
-The bindings link the `QTKit` framework on macOS, which the arm64 SDK no
-longer ships, so every link prints one `ld: ignoring file` warning. It is
-harmless and belongs upstream in `rust-ffmpeg-sys`.
 
 ## Measured
 

@@ -110,7 +110,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
   how to build one, and what was measured. Read before touching `hilen/src/video`, the
   archive script or `hilen/ffmpeg`.
-- [docs/forks.md](docs/forks.md) — the 3 forked crates, what each fork branch carries
+- [docs/forks.md](docs/forks.md) — the 5 forked crates, what each fork branch carries
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
   opening an upstream PR.

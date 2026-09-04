@@ -1,8 +1,8 @@
 # Forks
 
-Hilen replaces 3 crates.io crates with forks, all declared in the root `Cargo.toml`.
-`wgpu` and `winit` come from crates.io under the `hilen-` prefix, `wgpu_text` is a git
-dependency pinned by rev. Every fork clone lives in `~/dev/forks/<name>` with an
+Hilen replaces 5 crates.io crates with forks, all declared in the root `Cargo.toml`.
+`wgpu` and `winit` come from crates.io under the `hilen-` prefix, `wgpu_text`,
+`ffmpeg-next` and `ffmpeg-sys-next` are git dependencies pinned by rev. Every fork clone lives in `~/dev/forks/<name>` with an
 `upstream` remote next to `origin`. Why each fork exists is in [ios.md](ios.md) for wgpu
 and wgpu_text and in [tvos.md](tvos.md) for winit. This file tracks what each fork
 carries against upstream and how a fix goes upstream.
@@ -74,6 +74,21 @@ not a target. The same tvOS support is open upstream as
 [rust-windowing/winit#4665](https://github.com/rust-windowing/winit/pull/4665) by
 another contributor since 2026-08-10, it covers the same selectors plus CI and examples.
 When it merges and a 0.30 release carries it, drop the 2 tvos commits from the fork.
+
+## ffmpeg-next and ffmpeg-sys-next
+
+Branch `hilen` at github.com/VladasZ/rust-ffmpeg and at
+github.com/VladasZ/rust-ffmpeg-sys, each on the upstream v9.0.0 tag with 1 commit on
+top, both git dependencies pinned by rev. The `video` feature links them, see
+[video.md](video.md).
+
+- `rust-ffmpeg-sys`: the build script downloads the static archives that
+  `FFMPEG_DIR/prebuilt.txt` names for the target before it links them. Hilen's own
+  convention, fork only. The same commit drops the `QTKit` framework from the macOS
+  link line, the arm64 SDK no longer ships it and every link printed an
+  `ld: ignoring file` warning. Upstream candidate, not sent yet.
+- `rust-ffmpeg`: takes `ffmpeg-sys-next` from the sys fork by rev, so the tree holds
+  one copy of the bindings. Fork only.
 
 ## Updating a fork to the newest upstream
 
