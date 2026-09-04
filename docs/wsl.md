@@ -70,8 +70,12 @@ environment variables before winit starts:
   scale 1 to Linux clients for every monitor, whatever Windows is set to, so
   a window would come out at one physical pixel per logical pixel. The log
   carries the value the Windows side reports for each monitor, for example
-  `rdpMonitor[0]: desktopScaleFactor:150`, and the engine uses the first
-  monitor's, so the window has the same size as a native Windows build. A
+  `rdpMonitor[1]: desktopScaleFactor:150`, and the engine uses the monitor
+  whose geometry line says `is_primary:1`, so the window has the same size
+  as a native Windows build. The primary is not always monitor 0, Windows
+  numbers them by position. Weston prints the layout it computed in the
+  same shape right after, with `desktopScaleFactor:0` on every monitor,
+  and winit refuses a zero scale, so a zero is skipped. A
   `WINIT_X11_SCALE_FACTOR` set by the user wins. One scale applies to every
   monitor, a window moved to a monitor with a different scale keeps it.
 
