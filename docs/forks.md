@@ -17,20 +17,27 @@ Branch `ios-edr-guard` at github.com/VladasZ/wgpu sits on the upstream v30.0.1 t
 3 commits on top. Only 1 source file differs from stock wgpu 30, Apple only, so Windows,
 Linux, Android and wasm builds of `hilen-wgpu` are identical to upstream.
 
-- Guard `wantsExtendedDynamicRangeContent` behind iOS 16. Sent upstream as
-  [gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257) on 2026-09-03. Drop
-  it from the fork once it ships in a release.
+- Guard `wantsExtendedDynamicRangeContent` behind iOS 16. Merged upstream as
+  [gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257) on 2026-09-16, on
+  trunk only, so v31 is the first release with it.
 - Rename the published crates to the `hilen-` prefix. Fork only, never goes upstream.
 - Tag the Metal layer with an explicit sRGB colorspace, 1 line in the match. Upstream sets
   nil, its comment says the layer default treats content as sRGB, but Apple's doc for
   `CAMetalLayer.colorspace` says the nil default means the content is not color matched,
   so sRGB content oversaturates on a P3 display. Upstream has the bug on file as
   [gfx-rs/wgpu#10013](https://github.com/gfx-rs/wgpu/issues/10013) since 2026-08-05,
-  labeled bug by the maintainers, with a pixel measurement and no PR. The reporter asks
-  for exactly this line, and dashscene applied the same call downstream in
-  [driftsys/dashscene#750](https://github.com/driftsys/dashscene/pull/750). The PR is
-  drafted but not sent, title `fix(metal): color match the sRGB surface color space`,
-  Connections `Closes #10013`, the diff is the fork commit on trunk plus a changelog line.
+  labeled bug by the maintainers, with a pixel measurement. The same line is open
+  upstream as [gfx-rs/wgpu#10286](https://github.com/gfx-rs/wgpu/pull/10286) by another
+  contributor since 2026-09-08, approved on 2026-09-18, it closes the issue. No PR
+  from us.
+
+Both fixes land on trunk, which is v31, and neither is copied to the upstream `v30`
+branch. The decision is to wait for v31, not to send a backport. The upstream v31
+milestone is due 2026-09-23. Once hilen moves to a v31 that holds both, the fork carries
+only the rename, so hilen goes back to stock `wgpu` and the `hilen-wgpu` crates stop.
+`wgpu_text` moves in the same step, its fork depends on `hilen-wgpu` and two `wgpu`
+crates do not interchange, see [ios.md](ios.md). Check on an iOS 12 device and on a P3
+display first.
 
 The 2026-09-03 rebase dropped the null WebGPU adapter commit, upstream v30.0.1 fixed it
 through wasm-bindgen 0.2.127. Upstream trunk is v31 work with breaking changes, the
@@ -49,7 +56,7 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 8 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+release with 7 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
 limit, since the gradient commit. Upstream candidates, none sent yet:
 
 - Bump allocate the vertex buffer so `queue` and `draw` work several times per frame.
@@ -58,9 +65,10 @@ limit, since the gradient commit. Upstream candidates, none sent yet:
 - Expose custom layout queueing and glyph bounds, `queue_section_with_layout`,
   `process_queued`, `glyph_bounds_with_layout`. Small API addition, related to
   [Blatko1/wgpu-text#34](https://github.com/Blatko1/wgpu-text/issues/34).
-- Gamma corrected blending on sRGB targets, a second fragment entry point picked by
-  `TextureFormat::is_srgb`. Changes output for everyone on sRGB targets, needs a
-  screenshot pair in the PR.
+
+The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
+targets and hilen renders into plain Unorm since 2026-07-26, see
+[colors.md](colors.md), so it never ran. The old head is `pin-2026-09-19`.
 
 The second color per section, the stem darkening entry point and the `hilen-wgpu`
 dependency stay in the fork.
