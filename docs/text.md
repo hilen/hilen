@@ -102,9 +102,7 @@ Browsers composite text in sRGB space and so does the engine: render targets
 are plain Unorm and color values are encoded sRGB end to end, see
 [colors.md](colors.md). Glyph coverage therefore blends exactly like browser
 text with no compensation, and ports use nominal font weights on both
-polarities. The wgpu_text fork still carries a coverage remap entry point,
-but it activates only on sRGB targets, which the engine no longer uses.
-Measuring workflow, scripts and the trak table details live in the
+polarities. Measuring workflow, scripts and the trak table details live in the
 hilen skill's migration chapter, next to this repo's users.
 
 One real difference remains: `CoreText` applies stem darkening when it

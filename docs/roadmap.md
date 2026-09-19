@@ -31,9 +31,17 @@ Android landed, the browser did not.
 
 ## System font discovery
 
-Found by the glyph fallback work. Waits for an app that needs a script it
-does not bundle a font for.
+Found by the glyph fallback work. The app that needs it now exists, blackforge
+at `~/dev/apps/blackforge`, a Valheim mod manager. Its Browse page shows
+package descriptions from Thunderstore, text that comes from the network, so
+the app cannot know the scripts ahead and cannot bundle a font for each.
 
+- Seen: the Jotunn package describes itself as `Jötunn (/ˈjɔːtʊn/, 'giant')`.
+  The label draws `/▯j▯▯t▯n/`. The 4 chars `ˈ` U+02C8, `ɔ` U+0254, `ː` U+02D0
+  and `ʊ` U+028A come out as the notdef box of the default font, narrower and
+  shorter than the letters around them. They sit in the IPA Extensions and
+  Spacing Modifier Letters blocks. The `ö` draws fine. The app registers no
+  fallbacks, which is what any app does by default.
 - Current: fallback fonts are explicit, `Font::set_fallbacks` takes fonts the
   app loaded itself, and `Font::system_emoji` is the only font the engine
   finds on the system, see [text.md](text.md). A char no registered font
@@ -42,8 +50,10 @@ does not bundle a font for.
   font covering the missing script, the fontdb approach, registered as a
   fallback after the explicit ones. Same file walk as the emoji lookup, plus
   the cmap check `runs_with_fallbacks` already does.
-- Blocks: nothing in the driver apps, every script they show has a bundled
-  font.
+- Blocks: clean text in blackforge for any package whose description uses
+  phonetic, CJK or other chars outside the default font. Cyrillic is fine, the
+  default font covers it. The other driver apps are not blocked, every script
+  they show has a bundled font.
 
 ## Siri Remote input for tvOS
 

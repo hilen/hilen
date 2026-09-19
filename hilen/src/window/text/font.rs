@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, mem::take};
 
 use anyhow::{Result, anyhow, bail};
 use log::error;
@@ -54,6 +54,10 @@ pub struct Font {
     /// Rasters by glyph and pixel size, `None` for a glyph whose color
     /// data failed to render so it is not retried every frame.
     color_glyphs:  MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
+    /// No batch of this frame reached the brush yet. The first batch of a
+    /// frame starts the brush's vertex buffer over and every later one
+    /// appends, so the earlier draws of the frame keep their vertices.
+    first_batch:   bool,
 }
 
 impl Font {
@@ -127,7 +131,12 @@ impl Font {
             measure_cache: MainLock::new(),
             has_color,
             color_glyphs: MainLock::new(),
+            first_batch: true,
         })
+    }
+
+    pub(crate) fn begin_frame(&mut self) {
+        self.first_batch = true;
     }
 
     /// Converts a pixels per em text size into the `ab_glyph` `PxScale`
@@ -232,7 +241,7 @@ impl Font {
             params: self.params(tracking, width, runs, line_height),
         };
 
-        let Some(bounds) = self.brush.glyph_bounds_with_layout(section, &layout) else {
+        let Some(bounds) = self.brush.glyph_bounds_custom_layout(section, &layout) else {
             return Size::default();
         };
 
@@ -278,13 +287,18 @@ impl Font {
             emit: &self.name,
             params,
         };
-        self.brush.queue_section_with_layout(section, &layout);
+        self.brush.queue_custom_layout(section, &layout);
     }
 
     pub(crate) fn process_queued(&mut self) -> Result<()> {
         self.shape_cache.get_mut().sweep();
         self.measure_cache.get_mut().sweep();
-        self.brush.process_queued(&Window::current().device, Window::queue())?;
+        let device = &Window::current().device;
+        if take(&mut self.first_batch) {
+            self.brush.process_queued(device, Window::queue())?;
+        } else {
+            self.brush.process_queued_append(device, Window::queue())?;
+        }
         Ok(())
     }
 }

@@ -57,18 +57,27 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
 release with 7 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
-limit, since the gradient commit. Upstream candidates, none sent yet:
+limit, since the gradient commit. The first 2 commits are the upstream candidates, in
+the order they go upstream:
 
-- Bump allocate the vertex buffer so `queue` and `draw` work several times per frame.
-  Real bug in upstream, related to
-  [Blatko1/wgpu-text#22](https://github.com/Blatko1/wgpu-text/issues/22).
-- Expose custom layout queueing and glyph bounds, `queue_section_with_layout`,
-  `process_queued`, `glyph_bounds_with_layout`. Small API addition, related to
+- Expose custom layout queueing and glyph bounds, `queue_custom_layout`,
+  `process_queued`, `glyph_bounds_custom_layout`, named after the `glyph_brush`
+  methods they wrap. Sent as
+  [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-19
+  from the branch `custom-layout`, the fork commit is that same commit.
+- Several `queue` and `draw` calls per frame. The vertex buffer is bump allocated, a
+  plain `queue` or `process_queued` starts it over and `queue_append` or
+  `process_queued_append` writes after the earlier batch, so a forgotten call shows the
+  wrong text at once and never leaks. `Font::begin_frame` and its `first_batch` flag
+  pick the call in hilen. It needs `process_queued`, so the PR waits for #47 to merge,
+  the commit is ready on the branch `multi-draw`. It answers
+  [Blatko1/wgpu-text#22](https://github.com/Blatko1/wgpu-text/issues/22) and
   [Blatko1/wgpu-text#34](https://github.com/Blatko1/wgpu-text/issues/34).
 
 The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
 targets and hilen renders into plain Unorm since 2026-07-26, see
-[colors.md](colors.md), so it never ran. The old head is `pin-2026-09-19`.
+[colors.md](colors.md), so it never ran. The old heads of that day are
+`pin-2026-09-19`, `pin-2026-09-19b` and `pin-2026-09-19c`.
 
 The second color per section, the stem darkening entry point and the `hilen-wgpu`
 dependency stay in the fork.

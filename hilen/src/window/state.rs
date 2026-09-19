@@ -337,7 +337,7 @@ impl State {
         let work_started = Instant::now();
 
         for font in Font::storage_mut().values_mut() {
-            font.brush.next_frame();
+            font.begin_frame();
         }
 
         if surface_texture.is_none() {
