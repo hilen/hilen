@@ -30,6 +30,23 @@ work must use `on_main` or `from_main` before triggering a UI event.
   Panics when called on the main thread: the future may need `from_main`, which needs the frame
   loop, which the blocked main thread cannot run. That is a guaranteed deadlock.
 
+## App activity and screen timeout
+
+`system::AppActivity::changed()` notifies views on the main thread when the app
+loses or regains activity. Focus loss, occlusion and suspension make it inactive;
+all three must recover before it becomes active again. On iOS suspension comes
+from UIKit's resign-active notification, so a phone lock is reported before the
+app enters the background. Subscribers can stop foreground-only work immediately.
+
+`system::ScreenAwake::acquire()` returns a guard that prevents automatic screen
+sleep on iOS and Android while the app is active. Hold it only while needed;
+dropping the last guard restores normal timeout. It uses the UIKit idle timer on
+iOS and Android's `KEEP_SCREEN_ON` window flag through the activity's UI-thread
+queue. Inactivity releases the OS request even if a guard remains alive. Manual
+locking still works, and this grants no background execution. Other platforms
+keep their normal display policy. Acquire on main; dropping on another thread
+queues the release on main.
+
 ## Frames on demand
 
 The winit loop draws only when a frame is requested, so a static screen with nothing moving

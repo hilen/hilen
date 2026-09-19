@@ -15,6 +15,7 @@ use winit::{
 use crate::{
     deps::refs::main_lock::MainLock,
     gm::flat::Point,
+    system::app_activity::{self, ActivityChange},
     ui::Cursor,
     window::{Window, WindowEvents, state::State},
 };
@@ -163,6 +164,7 @@ impl AppHandler {
 
 impl ApplicationHandler<UserEvent> for AppHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        app_activity::update(ActivityChange::Resumed(true));
         if let AppHandlerState::Init(proxy) = &mut self.state
             && let Some(proxy) = proxy.take()
         {
@@ -241,6 +243,10 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         }
     }
 
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        app_activity::update(ActivityChange::Resumed(false));
+    }
+
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
             self.te_window_events.mouse_motion((delta.0, delta.1).into());
@@ -267,15 +273,17 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 self.te_window_events.cursor_left();
             }
             WindowEvent::Focused(focused) => {
+                app_activity::update(ActivityChange::Focused(focused));
                 self.te_window_events.focus_changed(focused);
             }
             // Minimized, fully covered or on another desktop. The frame
             // pacing in `about_to_wait` holds every frame while this is on,
             // and the frame this event requests below draws the catch up
             // when the window shows again.
-            #[cfg(not_wasm)]
             WindowEvent::Occluded(occluded) => {
+                app_activity::update(ActivityChange::Visible(!occluded));
                 debug!("Window occluded: {occluded}");
+                #[cfg(not_wasm)]
                 crate::window::set_occluded(occluded);
             }
             WindowEvent::Touch(touch) => {

@@ -46,11 +46,10 @@ pub extern "C" fn hilen_start_app() -> std::ffi::c_int {
     hilen_start_with_app(unsafe { hilen_create_app() })
 }
 
-/// Handed over from `android_main` and consumed when the event loop is
-/// built, which happens deep in a path shared with every other platform,
-/// so it cannot arrive there as a parameter.
+/// Handed over from `android_main`. The event loop takes a clone; system
+/// services retain access to the activity for requests such as window flags.
 #[cfg(target_os = "android")]
-static ANDROID_APP: crate::__internal_macro_deps::Mutex<Option<crate::AndroidApp>> =
+pub(crate) static ANDROID_APP: crate::__internal_macro_deps::Mutex<Option<crate::AndroidApp>> =
     crate::__internal_macro_deps::Mutex::new(None);
 
 #[cfg(target_os = "android")]
@@ -103,7 +102,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         let event_loop = {
             use winit::platform::android::EventLoopBuilderExtAndroid;
             EventLoop::<UserEvent>::with_user_event()
-                .with_android_app(ANDROID_APP.lock().take().expect("AndroidApp is not set"))
+                .with_android_app(ANDROID_APP.lock().as_ref().expect("AndroidApp is not set").clone())
                 .build()
                 .unwrap()
         };
