@@ -3,6 +3,8 @@
 pub mod protocol;
 
 mod edit_log;
+#[cfg(any(desktop, wasm))]
+mod hover;
 mod inspect_service;
 mod view_conversion;
 #[cfg(wasm)]

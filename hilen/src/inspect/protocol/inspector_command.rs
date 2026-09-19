@@ -51,6 +51,14 @@ pub enum UIRequest {
         #[serde(default)]
         right:     bool,
     },
+    /// Move the cursor to a view center, or outside the window with no view.
+    /// Waits on the inspector worker so delayed tooltips can appear before
+    /// replying.
+    Hover {
+        view_id: Option<String>,
+        #[serde(default)]
+        wait_ms: u32,
+    },
     /// Plays the keys in order with the modifiers held, then releases them.
     Keys {
         keys:      Vec<Key>,

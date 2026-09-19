@@ -23,7 +23,7 @@ Two clients exist:
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `keys`, `drag`, `scroll`, `scroll-to`,
+  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `drag`, `scroll`, `scroll-to`,
   `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
@@ -42,6 +42,14 @@ to the anchor's row, which reaches unnamed controls like the textless open butto
 list card. The anchor is an exact text or a view id. Dropdowns work like a human drives
 them: tap the dropdown to open it, the reply tree already contains the open cells, then
 tap the wanted cell by its text.
+
+`hover <query> [--fuzzy]` uses the same exact matching as `tap` and moves the pointer
+through the input pipeline without pressing a button. The reply names the view that
+actually receives hover, or says `hovered none`. `hover <query> --wait 600` waits 600 milliseconds
+before replying, long enough for the tooltip delay; the maximum wait is 60000 milliseconds.
+`hover --clear` moves the pointer outside the window and clears hover and its tooltip,
+while respecting an active drag's hover lock. Hidden and offscreen targets are refused.
+Hover works on desktop and web; touch-only platforms return an error.
 
 `find <query>` prints one line per match, id, label and text substrings, with window
 space coordinates and a `visible`, `hidden` or `offscreen` status, `--all` includes the
@@ -76,6 +84,10 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   already in it, plus an optional `note` naming the view sitting over the tap point when
   frame containment says the touch may land elsewhere, transparent empty overlays
   excluded.
+- `Hover { view_id, wait_ms }` — injects a cursor move at the view center, or clears
+  hover as a cursor leave when `view_id` is absent. The optional `wait_ms` defaults to
+  zero and waits on the inspector worker, leaving the UI free to show a tooltip.
+  Replies with a fresh tree and a note naming the actual hovered view and its id.
 - `Scroll { view_id, dx, dy }` — moves the cursor to the view's center, or the window
   center with no view, then injects a wheel scroll, so it lands on the deepest scroll
   view under that point like a real wheel.

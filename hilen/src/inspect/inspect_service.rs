@@ -235,6 +235,10 @@ impl InspectService {
                     Err(err) => AppCommand::Error(err),
                 }
             }
+            #[cfg(any(desktop, wasm))]
+            UIRequest::Hover { view_id, wait_ms } => Self::hover(view_id, wait_ms),
+            #[cfg(not(any(desktop, wasm)))]
+            UIRequest::Hover { .. } => AppCommand::Error("Hover needs a pointer on desktop or web".into()),
             UIRequest::Drag { from, to, steps } => {
                 from_main(move || Self::drag(from.into(), to.into(), steps));
                 Self::send_ui()
@@ -398,7 +402,7 @@ impl InspectService {
         Self::send_ui_with(None)
     }
 
-    fn send_ui_with(note: Option<String>) -> AppCommand {
+    pub(super) fn send_ui_with(note: Option<String>) -> AppCommand {
         from_main(move || {
             let scale = UIManager::scale();
             let root = UIManager::root_view().view_to_inspect();
@@ -511,7 +515,7 @@ fn set_text(view: WeakView, text: &str) -> Result<String, String> {
     Err(format!("View {} has no text", view.label()))
 }
 
-fn find_view(id: &str) -> Result<WeakView, String> {
+pub(super) fn find_view(id: &str) -> Result<WeakView, String> {
     fn search(view: WeakView, id: &str) -> Option<WeakView> {
         if weak_to_id(view) == id {
             return Some(view);

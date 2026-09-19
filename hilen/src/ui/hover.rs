@@ -24,6 +24,11 @@ static LOCKED: MainLock<WeakView> = MainLock::new();
 pub struct Hover;
 
 impl Hover {
+    #[cfg(all(feature = "inspect", any(desktop, wasm)))]
+    pub(crate) fn hovered() -> WeakView {
+        *HOVERED
+    }
+
     #[cfg(any(desktop, wasm))]
     pub(crate) fn update(cursor: Point) {
         if LOCKED.is_ok() {

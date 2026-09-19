@@ -55,28 +55,6 @@ the app cannot know the scripts ahead and cannot bundle a font for each.
   default font covers it. The other driver apps are not blocked, every script
   they show has a bundled font.
 
-## Hover in hilen-inspect
-
-Found by building blackforge. Its table rows got a hover wash so a row reads as
-something to click, and no tool could show that the wash works.
-
-- Current: `hilen-inspect` drives the app through the real input pipeline with
-  `tap`, `scroll`, `keys` and the `Drag` request, and every one of them is a press,
-  a wheel turn or a key. No request only moves the cursor. So nothing that
-  depends on hover can be reached without a human: a `hovered` handler, a
-  tooltip from `set_tooltip`, a cursor from `set_hover_cursor`. A screenshot
-  never shows a hover state.
-- Needed: a `UIRequest::Hover` with a view id that injects a cursor move to the
-  center of that view through the path a winit cursor move takes, and a CLI
-  `hover <query>` with the same exact matching as `tap`. A way to move the
-  cursor off every view again, so the unhovered state can be checked too. A
-  tooltip shows only after its 0.5 second delay, so `hover` needs a wait option
-  or the reply has to come after the delay, otherwise the next `screenshot` is
-  too early. The reply should say which view ended up hovered, like `tap` warns
-  about a covering view.
-- Blocks: checking any hover look or tooltip without a human, in every app.
-  blackforge shipped its row wash unchecked.
-
 ## Siri Remote input for tvOS
 
 Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
