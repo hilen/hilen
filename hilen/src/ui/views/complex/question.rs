@@ -6,15 +6,21 @@ use std::{
 
 use ui_proc::view;
 
-// use crate::deps::vents::OnceEvent;
-use crate::ui::{ModalView, Setup, view::ViewData};
 use crate::{
     deps::{hreads::from_main, refs::Weak, vents::OnceEvent},
     gm::{
-        color::{BLACK, BLUE, GRAY},
+        color::{BLACK, CLEAR},
         flat::Size,
     },
-    ui::{Anchor::Width, Button, Label, ViewSubviews},
+    ui::{
+        Anchor::Width,
+        Button, Container, Label, ModalView, Setup, UIColor,
+        view::ViewData,
+        views::complex::alert::{
+            ACTION_BLUE, ALERT_WIDTH, BACKGROUND, BUTTON_HEIGHT, MESSAGE_COLOR, MIN_TEXT_HEIGHT, PADDING,
+            SEPARATOR, fit_to_text,
+        },
+    },
 };
 
 #[view]
@@ -24,11 +30,13 @@ pub struct Question {
     left:  String,
     right: String,
 
-    event:         OnceEvent<bool>,
+    event:            OnceEvent<bool>,
     #[init]
-    label:         Label,
-    ok_button:     Button,
-    cancel_button: Button,
+    label:            Label,
+    separator:        Container,
+    button_separator: Container,
+    ok_button:        Button,
+    cancel_button:    Button,
 }
 
 impl ModalView<(), bool> for Question {
@@ -37,7 +45,11 @@ impl ModalView<(), bool> for Question {
     }
 
     fn modal_size() -> Size {
-        (380, 240).into()
+        (ALERT_WIDTH, 150.0).into()
+    }
+
+    fn modal_scrim_color() -> UIColor {
+        BLACK.with_alpha(0.25).into()
     }
 }
 
@@ -59,7 +71,7 @@ impl Question {
 
     ///bool == true -> right choice
     pub fn callback(self, callback: impl FnOnce(bool) + Send + 'static) {
-        Self::show_modally(self).event.val(callback);
+        self.show().event.val(callback);
     }
 
     pub fn on_yes(self, callback: impl FnOnce() + Send + 'static) {
@@ -70,11 +82,17 @@ impl Question {
         });
     }
 
+    fn show(self) -> Weak<Self> {
+        let view = Self::show_modally(self);
+        fit_to_text(&*view, &view.label);
+        view
+    }
+
     fn recv_callback(self) -> bool {
         let (se, rc) = channel::<bool>();
 
         from_main(move || {
-            Self::show_modally(self).event.val(move |answer| {
+            self.show().event.val(move |answer| {
                 se.send(answer).unwrap();
             });
         });
@@ -94,28 +112,35 @@ impl IntoFuture for Question {
 
 impl Setup for Question {
     fn setup(self: Weak<Self>) {
-        self.set_corner_radius(10).set_border_color(BLACK);
+        self.set_corner_radius(14);
+        self.set_color(BACKGROUND);
 
-        let question = self.question.clone();
-        let left = self.left.clone();
-        let right = self.right.clone();
-
-        self.label.place().lrt(10).h(140);
-        self.label.set_text_size(35);
-        self.label.set_text(question);
+        self.label.set_text_size(17);
+        self.label.set_text_color(MESSAGE_COLOR);
         self.label.set_multiline(true);
+        self.label.set_text(self.question.clone());
+        self.label.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
 
-        self.ok_button.place().h(50).br(2).relative(Width, self, 0.5);
+        self.separator.set_color(SEPARATOR);
+        self.separator.place().lr(0).b(BUTTON_HEIGHT).h(1);
 
-        self.ok_button.set_text(right).set_border_color(GRAY).set_text_color(BLUE);
+        self.button_separator.set_color(SEPARATOR);
+        self.button_separator.place().b(0).w(1).h(BUTTON_HEIGHT).center_x();
 
-        self.ok_button.on_tap(move || self.hide_modal(true));
-
-        self.cancel_button.place().h(50).bl(2).relative(Width, self, 0.5);
-        self.cancel_button.set_text(left).set_border_color(GRAY).set_text_color(BLUE);
-
+        self.cancel_button
+            .set_text(self.left.clone())
+            .set_text_size(17)
+            .set_text_color(ACTION_BLUE);
+        self.cancel_button.set_color(CLEAR);
+        self.cancel_button.place().h(BUTTON_HEIGHT).bl(0).relative(Width, self, 0.5);
         self.cancel_button.on_tap(move || self.hide_modal(false));
 
-        self.outline(BLACK);
+        self.ok_button
+            .set_text(self.right.clone())
+            .set_text_size(17)
+            .set_text_color(ACTION_BLUE);
+        self.ok_button.set_color(CLEAR);
+        self.ok_button.place().h(BUTTON_HEIGHT).br(0).relative(Width, self, 0.5);
+        self.ok_button.on_tap(move || self.hide_modal(true));
     }
 }

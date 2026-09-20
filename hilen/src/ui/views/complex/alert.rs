@@ -7,19 +7,19 @@ use crate::{
         color::{BLACK, CLEAR, Color},
         flat::Size,
     },
-    ui::{Button, Container, Label, ModalView, Setup, UIColor, view::ViewData},
+    ui::{Button, Container, Label, ModalView, Setup, UIColor, View, view::ViewData},
 };
 
-const ALERT_WIDTH: f32 = 270.0;
-const PADDING: f32 = 20.0;
-const BUTTON_HEIGHT: f32 = 44.0;
-const MIN_TEXT_HEIGHT: f32 = 22.0;
+pub(super) const ALERT_WIDTH: f32 = 270.0;
+pub(super) const PADDING: f32 = 20.0;
+pub(super) const BUTTON_HEIGHT: f32 = 44.0;
+pub(super) const MIN_TEXT_HEIGHT: f32 = 22.0;
 const MAX_TEXT_HEIGHT: f32 = 400.0;
 
-const BACKGROUND: Color = Color::hex("#f9f9f9");
-const SEPARATOR: Color = Color::hex("#c6c6c8");
-const ACTION_BLUE: Color = Color::hex("#007aff");
-const MESSAGE_COLOR: Color = Color::hex("#1c1c1e");
+pub(super) const BACKGROUND: Color = Color::hex("#f9f9f9");
+pub(super) const SEPARATOR: Color = Color::hex("#c6c6c8");
+pub(super) const ACTION_BLUE: Color = Color::hex("#007aff");
+pub(super) const MESSAGE_COLOR: Color = Color::hex("#1c1c1e");
 
 #[allow(clippy::type_complexity)]
 static LABEL_SETUP: Mutex<Option<Box<dyn FnOnce(Weak<Label>) + Send>>> = Mutex::new(None);
@@ -88,21 +88,24 @@ impl ModalView<String> for Alert {
 
     fn setup_input(self: Weak<Self>, message: String) {
         self.label.set_text(message);
-
-        // modal_size cannot see the message, so the alert resizes to its
-        // text here, the way an iOS alert grows with its content.
-        let text_height = self
-            .label
-            .size_for_width(ALERT_WIDTH - PADDING * 2.0)
-            .height
-            .clamp(MIN_TEXT_HEIGHT, MAX_TEXT_HEIGHT);
-
-        self.label.place().clear().lrt(PADDING).h(text_height);
-        self.place()
-            .clear()
-            .size(ALERT_WIDTH, PADDING + text_height + PADDING + BUTTON_HEIGHT)
-            .center();
+        fit_to_text(&*self, &self.label);
     }
+}
+
+/// `modal_size` cannot see the text, so the dialog resizes to it here,
+/// the way an iOS alert grows with its content.
+pub(super) fn fit_to_text(dialog: &dyn View, label: &Label) {
+    let text_height = label
+        .size_for_width(ALERT_WIDTH - PADDING * 2.0)
+        .height
+        .clamp(MIN_TEXT_HEIGHT, MAX_TEXT_HEIGHT);
+
+    label.place().clear().lrt(PADDING).h(text_height);
+    dialog
+        .place()
+        .clear()
+        .size(ALERT_WIDTH, PADDING + text_height + PADDING + BUTTON_HEIGHT)
+        .center();
 }
 
 pub struct DummyAlert;
