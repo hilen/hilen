@@ -127,6 +127,17 @@ Windows has no console and a dock launch on mac has no terminal, so the file is 
 log of a shipped app. Android has no file, its lines go to logcat through the same
 dispatch.
 
+A panic is logged too, `panic_log.rs` hooks it on desktop and Android and writes the
+message, the file and line and a backtrace as an error line, then runs the earlier hook.
+A crash at a user's machine is read from that log file. iOS and wasm have their own hooks.
+
+## Assets folder
+
+On desktop `assets_root.rs` finds the `assets` folder with file checks only, first walking
+up from the current folder, then up from the exe. It never starts a program such as git,
+an installed app runs on a machine with no dev tools. Finding nothing is normal, a shipped
+app embeds its assets and ships one exe.
+
 ## Commands
 
 ```bash

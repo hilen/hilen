@@ -43,32 +43,6 @@ impl Paths {
             .into()
     }
 
-    // Desktop always uses it for asset discovery. Mobile needs it only for
-    // the inspect edit log.
-    #[cfg(any(desktop, all(not_wasm, feature = "inspect")))]
-    pub(crate) fn git_root() -> anyhow::Result<PathBuf> {
-        #[cfg(wasm)]
-        {
-            Ok(PathBuf::new())
-        }
-        #[cfg(not_wasm)]
-        {
-            let output = std::process::Command::new("git")
-                .args(["rev-parse", "--show-toplevel"])
-                .output()?;
-
-            if !output.status.success() {
-                log::warn!("Failed to get Git repository root path");
-                return Ok(PathBuf::from("~/dev/money"));
-            }
-
-            assert!(output.status.success(), "Failed to get Git repository root path");
-            let git_root = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
-
-            Ok(PathBuf::from(git_root))
-        }
-    }
-
     pub fn set_storage_path(path: String) {
         STORAGE_PATH.lock().replace(path);
     }

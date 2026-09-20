@@ -21,6 +21,8 @@ mod deps;
 mod app_runner;
 mod assets;
 mod assets_paths;
+#[cfg(desktop)]
+mod assets_root;
 #[cfg(feature = "level")]
 mod level_drawer;
 #[cfg(feature = "scene")]
@@ -38,6 +40,8 @@ mod game_drawer;
 mod ios_log;
 #[cfg(not_wasm)]
 mod log_file;
+#[cfg(any(desktop, target_os = "android"))]
+mod panic_log;
 mod pipelines;
 
 #[cfg(feature = "audio")]

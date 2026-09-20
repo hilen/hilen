@@ -180,17 +180,16 @@ impl AppRunner {
     }
 
     pub fn new(app: Box<dyn App>) -> Self {
-        // A crate nested in a monorepo runs from its own directory and keeps
-        // its assets there, so a cwd with an assets folder wins over the git
-        // root, which would be the monorepo root.
         #[cfg(desktop)]
         {
-            let root = std::env::current_dir()
-                .ok()
-                .filter(|dir| dir.join("assets").exists())
-                .unwrap_or_else(|| crate::filesystem::Paths::git_root().expect("git_root()"));
+            use std::env::{current_dir, current_exe};
 
-            crate::assets::Assets::init(root);
+            let root = crate::assets_root::find(current_dir().ok().as_deref(), current_exe().ok().as_deref());
+            if root.is_none() {
+                log::info!("no assets folder found, only embedded assets load");
+            }
+
+            crate::assets::Assets::init(root.unwrap_or_default());
         }
         #[cfg(mobile)]
         crate::assets::Assets::init(std::path::PathBuf::default());

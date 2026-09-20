@@ -161,9 +161,9 @@ which delivers before the wasm instance dies and works from workers too.
 ## Edit log
 
 Every applied edit (`edit_log.rs`) is kept in memory for `ListEdits` and appended as a JSON
-line to `target/inspect-edits.jsonl` under the app's git root: timestamp, view label and
-id, what changed, old and new values. The file survives app restarts. Outside a git repo,
-on a device for example, only the in-memory list works.
+line to `inspect-edits.jsonl` in the `target` folder the running exe sits in: timestamp,
+view label and id, what changed, old and new values. The file survives app restarts. An exe
+outside a `target` folder, an installed app or a device build, keeps only the in-memory list.
 
 ## Release builds
 

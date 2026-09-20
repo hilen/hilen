@@ -142,15 +142,8 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     #[cfg(linux)]
     crate::window::wsl::prepare();
 
-    // Android swallows stdout and stderr, logcat is the only output that
-    // reaches the developer, so a panic goes through the log too.
-    #[cfg(target_os = "android")]
-    {
-        std::panic::set_hook(Box::new(|panic| {
-            let backtrace = std::backtrace::Backtrace::force_capture();
-            log::error!("{panic}\nBacktrace: {backtrace}");
-        }));
-    }
+    #[cfg(any(desktop, target_os = "android"))]
+    crate::panic_log::install();
 
     #[cfg(target_os = "ios")]
     {
