@@ -164,7 +164,12 @@ impl TextField {
         self
     }
 
+    /// What the user entered. The placeholder is a hint drawn by the label,
+    /// never text, so an empty field reads as empty.
     pub fn text(&self) -> &str {
+        if self.placeholding {
+            return "";
+        }
         match &self.secret {
             Some(secret) => secret,
             None => self.label.text(),
@@ -210,9 +215,7 @@ impl TextField {
         }
     }
 
-    /// While empty the field shows its placeholder and `text` returns
-    /// that placeholder, so a reader needs this to tell entered text
-    /// from the hint.
+    /// The field is empty and its label draws the placeholder.
     pub fn is_placeholding(&self) -> bool {
         self.placeholding
     }

@@ -29,11 +29,7 @@ const DOUBLE_CLICK_DISTANCE: f32 = 6.0;
 impl TextField {
     /// The text the caret indexes, empty while the placeholder shows.
     pub(super) fn entered_text(&self) -> String {
-        if self.placeholding {
-            String::new()
-        } else {
-            self.text().to_string()
-        }
+        self.text().to_string()
     }
 
     /// The text the label draws, the mask of a secure field.

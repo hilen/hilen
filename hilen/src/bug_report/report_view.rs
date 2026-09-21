@@ -201,10 +201,6 @@ impl BugReportView {
         let email = self.form.email;
         let description = self.form.description;
 
-        if email.is_placeholding() || description.is_placeholding() {
-            return false;
-        }
-
         let email = email.text().trim();
         let at = email.find('@');
         let email_ok = at.is_some_and(|at| at > 0 && email[at + 1..].contains('.'));
@@ -213,11 +209,7 @@ impl BugReportView {
     }
 
     fn update_state(self: Weak<Self>) {
-        let count = if self.form.description.is_placeholding() {
-            0
-        } else {
-            self.form.description.text().trim().chars().count()
-        };
+        let count = self.form.description.text().trim().chars().count();
 
         let counter = if count < MIN_DESCRIPTION_CHARS {
             format!(
