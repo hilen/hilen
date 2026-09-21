@@ -59,6 +59,8 @@ pub mod gm;
 pub mod inspect;
 #[cfg(feature = "level")]
 pub mod level;
+#[cfg(feature = "login")]
+pub mod login;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;

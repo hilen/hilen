@@ -32,7 +32,7 @@ static TLS_PROVIDER: Once = Once::new();
 /// Reqwest is built with `rustls-no-provider`, so the process default has
 /// to be in place before a client is built or the build panics. A second
 /// install is fine, the first one stays.
-fn install_tls_provider() {
+pub(crate) fn install_tls_provider() {
     TLS_PROVIDER.call_once(|| {
         if default_provider().install_default().is_err() {
             debug!("rustls default crypto provider was already installed");

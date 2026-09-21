@@ -56,6 +56,7 @@ struct_field_names = "allow"
 manual_assert = "allow"
 
 [workspace.dependencies]
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 android_logger = "0.15"
 anyhow = "1.0"
 arbitrary = { version = "1.4", features = ["derive"] }
@@ -100,6 +101,7 @@ libc = "0.2"
 local-ip-address = "0.6"
 log = "0.4"
 lyon = "1.0"
+machine-uid = "0.6"
 mdns-sd = "0.20"
 memmap2 = "0.9"
 mime_guess = "2.0"
@@ -149,6 +151,7 @@ sqlx = { version = "0.9", features = [
   "runtime-tokio",
   "tls-rustls-ring",
   "postgres",
+  "migrate",
   "macros",
   "chrono",
   "uuid",
@@ -186,6 +189,7 @@ web-sys = { version = "0.3", features = [
     "MessageEvent",
     "Navigator",
     "Node",
+    "Storage",
     "Url",
     "WebSocket",
     "Window",

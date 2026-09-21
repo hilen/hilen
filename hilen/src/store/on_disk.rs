@@ -58,24 +58,25 @@ impl<T: Storable> OnDisk<T> {
 
     pub fn set(&self, val: impl Into<T>) {
         let val = val.into();
-        set_value(val, &expand_tilde(self.full_path()));
+        set_value(val, &rooted(&self.path));
     }
 
     pub fn get(&self) -> Option<T> {
-        get_value(&expand_tilde(self.full_path()))
+        get_value(&rooted(&self.path))
     }
 
     pub fn reset(&self) {
-        remove_file(expand_tilde(self.full_path())).expect("Failed to remove file");
+        remove_file(rooted(&self.path)).expect("Failed to remove file");
     }
+}
 
-    fn full_path(&self) -> PathBuf {
-        if let Some(root) = &*ROOT_PATH.lock() {
-            root.join(&self.path)
-        } else {
-            self.path.clone()
-        }
-    }
+/// Where a store file lives on disk, under the root the app set.
+pub(crate) fn rooted(path: &Path) -> PathBuf {
+    let full = ROOT_PATH
+        .lock()
+        .as_ref()
+        .map_or_else(|| path.to_owned(), |root| root.join(path));
+    expand_tilde(full)
 }
 
 impl<T: Storable + Default> OnDisk<T> {
@@ -86,7 +87,7 @@ impl<T: Storable + Default> OnDisk<T> {
     }
 
     pub fn get_or_init(&self) -> T {
-        get_or_init_value(&expand_tilde(self.full_path()))
+        get_or_init_value(&rooted(&self.path))
     }
 }
 

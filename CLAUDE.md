@@ -19,8 +19,9 @@ app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, s
 base routes and helpers over axum, sqlx and redis. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
-page requests at a running `trunk serve` for the dev loop. It never links the
-`hilen` UI crate, a backend and a client only share the wire.
+page requests at a running `trunk serve` for the dev loop. Its `auth` module is
+the server half of the Google login, see [docs/login.md](docs/login.md). It never
+links the `hilen` UI crate, a backend and a client only share the wire.
 
 The UI tests are their own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
@@ -38,7 +39,8 @@ playback through a prebuilt static ffmpeg and kira, desktop only and proven on m
 [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
-`ui-tests` and `level-tests` register tests. A GUI only app depends
+`login` is the Google login client, the `GoogleLoginButton` view and the sealed `SessionStore`,
+see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
 `demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on, and `video` on macOS.
 
@@ -110,6 +112,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
   how to build one, and what was measured. Read before touching `hilen/src/video`, the
   archive script or `hilen/ffmpeg`.
+- [docs/login.md](docs/login.md) — the Google login: the poll flow between `hilen::login` and
+  `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
+  `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before
+  touching `hilen/src/login`, `hilen/src/store/session_*`, `hilen-server/src/auth` or the
+  session key part of `hilen/build.rs`.
 - [docs/forks.md](docs/forks.md) — the 5 forked crates, what each fork branch carries
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
