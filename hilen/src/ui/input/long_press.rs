@@ -45,9 +45,7 @@ impl LongPress {
             return;
         }
 
-        let Some(view) = TouchStack::hover_views()
-            .find(|view| view.is_ok() && !view.is_hidden_in_tree() && view.contains_visible(position))
-        else {
+        let Some(view) = TouchStack::hover_view_at(position) else {
             return;
         };
 

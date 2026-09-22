@@ -1,10 +1,7 @@
 #[cfg(any(desktop, wasm))]
 use crate::gm::flat::Point;
 #[cfg(any(desktop, wasm))]
-use crate::ui::{
-    TouchStack, UIManager,
-    view::{ViewData, ViewFrame},
-};
+use crate::ui::{TouchStack, UIManager};
 use crate::{
     deps::refs::main_lock::MainLock,
     ui::{CursorIcon, Tooltip, WeakView},
@@ -81,9 +78,7 @@ impl Hover {
 
     #[cfg(any(desktop, wasm))]
     fn view_under(cursor: Point) -> WeakView {
-        TouchStack::hover_views()
-            .find(|view| view.is_ok() && !view.is_hidden_in_tree() && view.absolute_frame().contains(cursor))
-            .unwrap_or_default()
+        TouchStack::hover_view_at(cursor).unwrap_or_default()
     }
 
     fn set_hovered(new: WeakView) {

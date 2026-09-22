@@ -5,8 +5,9 @@ use parking_lot::{Mutex, MutexGuard};
 
 use crate::{
     deps::{hreads::from_main, refs::Weak},
+    gm::flat::Point,
     ui::{
-        LongPress, NO_TOUCH_ID, UIManager, View, WeakView,
+        LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView,
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
@@ -53,8 +54,29 @@ impl TouchStack {
         Self::get().stack.last().views().into_iter().rev()
     }
 
-    pub(crate) fn hover_views() -> impl Iterator<Item = WeakView> {
-        Self::get().stack.last().hovered().into_iter().rev()
+    /// The hover view under `point` in the top layer. The high priority
+    /// tier wins first. Otherwise the view drawn in front wins, a child
+    /// in front of its parent, so a button inside a hoverable row gets
+    /// the hover and not the row. Registration order would pick the row,
+    /// since a parent's setup runs after its children's. A view clipped
+    /// out of a scroll view is not drawn at `point` and never hovers there.
+    pub(crate) fn hover_view_at(point: Point) -> Option<WeakView> {
+        let this = Self::get();
+        let layer = this.stack.last();
+        let under =
+            |view: &WeakView| view.is_ok() && !view.is_hidden_in_tree() && view.contains_visible(point);
+
+        if let Some(view) = layer.high_hovered().iter().rev().find(|view| under(view)) {
+            return Some(*view);
+        }
+
+        let mut front: Option<WeakView> = None;
+        for view in layer.plain_hovered().iter().rev().filter(|view| under(view)) {
+            if front.is_none_or(|front| view.z_position() < front.z_position()) {
+                front = Some(*view);
+            }
+        }
+        front
     }
 
     pub(crate) fn scrolls() -> impl Iterator<Item = Weak<dyn Scrollable>> {

@@ -191,10 +191,12 @@ impl TouchLayer {
         views
     }
 
-    pub(crate) fn hovered(&self) -> Vec<WeakView> {
-        let mut views = self.hovered.clone();
-        views.extend_from_slice(&self.high_hovered);
-        views
+    pub(crate) fn plain_hovered(&self) -> &[WeakView] {
+        &self.hovered
+    }
+
+    pub(crate) fn high_hovered(&self) -> &[WeakView] {
+        &self.high_hovered
     }
 
     pub(crate) fn scrolls(&self) -> WeakVec<dyn Scrollable> {

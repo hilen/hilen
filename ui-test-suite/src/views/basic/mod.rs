@@ -17,6 +17,9 @@ mod hover;
 /// The cursor icon rides on hover, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_cursor;
+/// Front view and scroll clip picking of hover, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_front;
 /// Hover re-pick on view removal, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_removal;
