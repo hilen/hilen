@@ -184,6 +184,50 @@ browser needs a click before it locks and lets go on its own Escape, both reach
 `Cursor` through the pointer lock events. A phone has no mouse and `capture` does
 nothing there.
 
+`third_person` on the player puts the camera over its shoulder instead of in its
+eyes, see `ThirdPerson`: it turns around a pivot above the capsule with the yaw
+and pitch, sits `distance` behind and `shoulder` to the right, and looks where the
+player looks. Every step a ray from the pivot to that spot pulls the camera to
+`margin` in front of the first collider on the way, never closer than
+`min_distance`. Nodes in `skip` are looked through, like a swing's hitbox. The
+player is no node, so a game draws its body itself and moves it to
+`Player::position` in the scene's `update`.
+
+## Meshes from code
+
+`Model::from_mesh(name, MeshData)` uploads geometry built in code, a terrain or a
+procedural prop, and stores it under `name` like a loaded file, so `Model::get`
+returns it too. The indices are `u32` and a mesh of any size is split into 16 bit
+parts, `model/split.rs`, the same split a big glTF primitive gets. It has no
+material, the node's own draws it, and it collides and picks as the box around
+its vertices unless a collider is put on.
+
+`Vertex3D::color` multiplies the node's material color, white by default, so a
+mesh built from parts of different colors is one mesh. A triangle takes one
+color: the shader passes it packed and flat, the seventh of the eight values an
+A7 lets cross from the vertex to the fragment, so `from_mesh` panics when the
+three corners of a triangle differ. A full channel passes as exactly one, the
+sRGB decode of 255 lands a hair under it in f32 and moved pixels of every mesh.
+
+## Colliders, queries and parents
+
+A node collides as its drawn shape until `set_collider(ColliderShape, offset)`
+puts on a box, ball, capsule, cylinder or heightfield. `Heightfield` is a grid of
+heights, row by row along +x, rows stepping along +z, centered on the node, and
+`Heightfield::mesh` builds the matching ground cut along the same diagonal rapier
+cuts each cell, so what is drawn is what bodies rest on. `show_colliders` draws
+every kind, a heightfield as a coarse grid.
+
+`cast_ray`, `cast_shape` and `overlapping` on the scene answer what a ray or a
+swept or placed shape meets, as a `QueryHit` with the node, the distance, the
+point and the normal. Nodes in `skip` and the scene's player are left out.
+
+`attach_to(parent)` hangs a node on another: its position, rotation and scale
+become the parent's local ones, down any chain, and `detach` keeps it where and
+as big as it is in the world. `world_scale` is the scale times every parent's. A
+child's collider moves and grows along every step. A `Body` cannot hang on a
+parent and a loop of parents panics.
+
 ## How it draws
 
 The scene draws in the main render pass, before the level and the UI, into the
@@ -244,7 +288,13 @@ to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,
 the fog then pushed back and taken away, `Colliders` the wireframes off and on
 over a ball, a turned crate, the monkey and a prop without one, and `Mouse look` a
 player turned by a stream of captured mouse motion onto a crate, then left alone
-by the same stream once Escape freed the mouse. The loop runs free, so the frames
+by the same stream once Escape freed the mouse. `Code meshes` is a terrain split
+into parts under a knot, a lathed vase, a twisted star and a rock, all built in
+code, `Vertex colors` a camp of meshes colored face by face, `Collider shapes`
+bodies of every collider shape resting on heightfield hills, `Scene queries`
+rays, a sweep and a hitbox against static walls, `Node parenting` a knight whose
+arm, sword and hitbox follow its swing, walk and growth, and `Third person
+camera` a figure turning so a wall pulls the camera in. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
 human hold pauses the scene's time, so the probes sit on a still picture. Rapier

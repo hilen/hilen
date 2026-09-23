@@ -1,13 +1,15 @@
+mod code_mesh;
 mod parse;
 mod rig;
+mod split;
 
 use std::path::Path;
 
 use log::error;
 
 use self::parse::{ModelSource, parse_glb};
-pub use self::rig::Clip;
 pub(crate) use self::rig::Rig;
+pub use self::{code_mesh::MeshData, rig::Clip};
 use crate::{
     deps::{
         hreads::from_main,

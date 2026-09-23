@@ -12,7 +12,9 @@ use crate::{
         flat::Point,
         volume::{Ray, Vec3},
     },
-    scene::{Camera, Fog, Light, Node, Player, Scene, Sky, Sun, scene::scene_physics::ScenePhysics},
+    scene::{
+        Camera, Fog, Light, Node, Player, Scene, Sky, Sun, follow_parent, scene::scene_physics::ScenePhysics,
+    },
     ui::UIManager,
 };
 
@@ -66,11 +68,16 @@ impl SceneBase {
         self.physics = ScenePhysics::default().into();
     }
 
-    /// One step of the scene's time: the playing clips move on, then
+    /// One step of the scene's time: the playing clips move on, the
+    /// colliders of attached nodes go where their parents carry them, then
     /// the physics, when the scene has any.
     pub fn update_physics(&mut self, frame_time: f32) {
+        let physics = self.physics.is_some();
         for node in &mut self.nodes {
             node.advance_animation(frame_time);
+            if physics {
+                follow_parent(&mut **node);
+            }
         }
         let Some(physics) = self.physics.as_mut() else {
             return;
@@ -79,11 +86,32 @@ impl SceneBase {
             player.step(physics, frame_time);
         }
         physics.update_physics(&self.nodes, frame_time);
-        if let Some(player) = &self.player {
-            let eye = player.eye(physics);
-            self.camera.position = eye;
-            self.camera.target = eye + player.direction();
-        }
+        self.follow_player();
+    }
+
+    /// Puts the camera where the player's view wants it: out of its eyes,
+    /// or behind it over the shoulder and pulled in front of any wall on
+    /// the way, see `ThirdPerson`.
+    fn follow_player(&mut self) {
+        let (Some(player), Some(physics)) = (&self.player, &self.physics) else {
+            return;
+        };
+        let direction = player.direction();
+        let position = match &player.third_person {
+            None => player.eye(physics),
+            Some(rig) => {
+                let pivot = player.eye(physics) - Vec3::Y * player.eye_height + Vec3::Y * rig.pivot_height;
+                let reach = rig.reach(direction, player.right());
+                let ray = Ray {
+                    origin:    pivot,
+                    direction: reach,
+                };
+                let hit = self.cast_ray(ray, reach.length(), &rig.skip).map(|hit| hit.distance);
+                rig.place(pivot, direction, player.right(), hit)
+            }
+        };
+        self.camera.position = position;
+        self.camera.target = position + direction;
     }
 
     /// A first person player standing at `position`, a capsule 1.8

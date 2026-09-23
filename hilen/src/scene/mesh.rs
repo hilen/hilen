@@ -101,7 +101,7 @@ fn face(vertices: &mut Vec<Vertex3D>, indices: &mut Vec<u16>, normal: Vec3, u: V
         (center - u * 0.5 + v * 0.5, Point::new(0.0, 0.0)),
     ];
     for (pos, uv) in corners {
-        vertices.push(Vertex3D { pos, normal, uv });
+        vertices.push(Vertex3D::new(pos, normal, uv));
     }
     indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
 }
@@ -139,14 +139,14 @@ fn ball_geometry() -> Geometry {
         for segment in 0..=BALL_SEGMENTS {
             let theta = TAU * segment.lossy_convert() / BALL_SEGMENTS.lossy_convert();
             let normal = Vec3::new(phi.sin() * theta.cos(), phi.cos(), phi.sin() * theta.sin());
-            vertices.push(Vertex3D {
-                pos: normal * 0.5,
+            vertices.push(Vertex3D::new(
+                normal * 0.5,
                 normal,
-                uv: Point::new(
+                Point::new(
                     segment.lossy_convert() / BALL_SEGMENTS.lossy_convert(),
                     ring.lossy_convert() / BALL_RINGS.lossy_convert(),
                 ),
-            });
+            ));
         }
     }
 

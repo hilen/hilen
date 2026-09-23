@@ -273,17 +273,20 @@ impl<T> Default for Weak<T> {
     }
 }
 
-impl<T> Eq for Weak<T> {}
+impl<T: ?Sized> Eq for Weak<T> {}
 
-impl<T> PartialEq<Self> for Weak<T> {
+/// The same object is the same data address and stamp. A trait object
+/// compares on its data address alone, the vtable half of its pointer can
+/// differ for one object between codegen units.
+impl<T: ?Sized> PartialEq<Self> for Weak<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.ptr == other.ptr && self.stamp == other.stamp
+        self.addr() == other.addr() && self.stamp == other.stamp
     }
 }
 
-impl<T> Hash for Weak<T> {
+impl<T: ?Sized> Hash for Weak<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.ptr.hash(state);
+        self.addr().hash(state);
         self.stamp.hash(state);
     }
 }

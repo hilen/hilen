@@ -35,7 +35,7 @@ impl VertexLayout for Vertex2D {
 #[cfg(feature = "scene")]
 impl VertexLayout for Vertex3D {
     const ATTRIBS: &'static [VertexAttribute] =
-        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 14 => Uint32];
     const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
         array_stride: size_of::<Self>() as BufferAddress,
         step_mode:    VertexStepMode::Vertex,

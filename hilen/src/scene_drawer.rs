@@ -1,53 +1,22 @@
-use std::f32::consts::TAU;
-
 use wgpu::{CommandEncoder, RenderPass};
 
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::{
-        LossyConvert,
         color::Color,
-        volume::{Bounds, Mat4, Quat, Shape3, Vec3, Vec4},
+        volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
     },
     render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
-    scene::{LightPick, Material, Mesh, Model, Playback, SceneManager, pick_lights, sun_cascades},
+    scene::{
+        LightPick, Material, Mesh, Model, Node, Playback, SceneManager, collider_lines, pick_lights,
+        sun_cascades,
+    },
     ui::{UIManager, ui_drawer::set_viewport},
 };
 
 static MESH: MainLock<MeshPipeline> = MainLock::new();
 
-/// A shown collider is drawn a little larger than its solid, so its
-/// edges are not cut by the faces of the drawn shape they lie on.
-const COLLIDER_INFLATE: f32 = 1.02;
 const COLLIDER_COLOR: Color = Color::hex("#00ff60");
-/// Straight pieces in each ring of a ball's wireframe.
-const RING_SEGMENTS: usize = 32;
-
-/// The corners of the unit box, then the edges as pairs of corners.
-const BOX_CORNERS: [Vec3; 8] = [
-    Vec3::new(-0.5, -0.5, -0.5),
-    Vec3::new(0.5, -0.5, -0.5),
-    Vec3::new(0.5, 0.5, -0.5),
-    Vec3::new(-0.5, 0.5, -0.5),
-    Vec3::new(-0.5, -0.5, 0.5),
-    Vec3::new(0.5, -0.5, 0.5),
-    Vec3::new(0.5, 0.5, 0.5),
-    Vec3::new(-0.5, 0.5, 0.5),
-];
-const BOX_EDGES: [(usize, usize); 12] = [
-    (0, 1),
-    (1, 2),
-    (2, 3),
-    (3, 0),
-    (4, 5),
-    (5, 6),
-    (6, 7),
-    (7, 4),
-    (0, 4),
-    (1, 5),
-    (2, 6),
-    (3, 7),
-];
 
 /// The scene owns this band of the frame's shared depth buffer. The UI
 /// draws at 0.5 and closer, a level sprite at 0.85, so the UI stays in
@@ -82,40 +51,16 @@ impl NodeDraws<'_> {
         }
     }
 
-    /// The collider of a node as a wireframe: three rings of a ball, the
-    /// twelve edges of a box or of a model's bounds, at the collider's
-    /// own center. A plane's slab is the drawn floor itself and gets no
-    /// lines.
-    fn push_collider(&mut self, shape: Shape3, center: Vec3, rotation: Quat, half_extents: Vec3) {
-        let model =
-            Mat4::from_scale_rotation_translation(half_extents * 2.0 * COLLIDER_INFLATE, rotation, center);
-        match shape {
-            Shape3::Ball(_) => {
-                for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
-                    self.push_ring(&model, axis);
-                }
-            }
-            Shape3::Box(_) | Shape3::Model(_) => {
-                let corners = BOX_CORNERS.map(|corner| model.transform_point3(corner));
-                for (from, to) in BOX_EDGES {
-                    self.pipeline.add_line(corners[from], corners[to], COLLIDER_COLOR);
-                }
-            }
-            Shape3::Plane(_) => {}
+    /// The collider of a node as a wireframe at the collider's own center,
+    /// see `collider_lines`. The slab a plane collides with by default is
+    /// the drawn floor itself and gets no lines.
+    fn push_collider(&mut self, node: &dyn Node, center: Vec3) {
+        if node.collider.is_none() && matches!(node.shape, Shape3::Plane(_)) {
+            return;
         }
-    }
-
-    /// The circle of diameter one around `axis`, sized and placed by
-    /// `model`.
-    fn push_ring(&mut self, model: &Mat4, axis: Vec3) {
-        let side = axis.any_orthonormal_vector();
-        let up = axis.cross(side);
-        let point = |segment: usize| {
-            let angle = TAU * segment.lossy_convert() / RING_SEGMENTS.lossy_convert();
-            model.transform_point3((side * angle.cos() + up * angle.sin()) * 0.5)
-        };
-        for segment in 0..RING_SEGMENTS {
-            self.pipeline.add_line(point(segment), point(segment + 1), COLLIDER_COLOR);
+        let (shape, _) = node.collider_shape();
+        for (from, to) in collider_lines(&shape, center, node.rotation(), node.world_scale()) {
+            self.pipeline.add_line(from, to, COLLIDER_COLOR);
         }
     }
 
@@ -197,8 +142,9 @@ impl SceneDrawer {
 
         for node in scene.nodes() {
             let shape = node.shape();
-            // The solid's center, a model's origin can sit off its bounds.
-            let center = node.position() + node.rotation() * node.collider_offset();
+            // The drawn solid's center, a model's origin can sit off its
+            // bounds. The collider can sit elsewhere, see `set_collider`.
+            let center = node.position() + node.rotation() * (shape.collider_offset() * node.world_scale());
             let reach = node.half_extents().length();
             let model_matrix = node.model_matrix();
             extent.push(center - reach);
@@ -223,7 +169,10 @@ impl SceneDrawer {
             }
 
             if scene.show_colliders && node.collider_handle().is_some() {
-                draws.push_collider(shape, center, node.rotation(), node.half_extents());
+                draws.push_collider(
+                    &**node,
+                    node.position() + node.rotation() * node.collider_offset(),
+                );
             }
         }
 

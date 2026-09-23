@@ -10,7 +10,7 @@ use rapier3d::{
 
 use crate::{
     gm::volume::Vec3,
-    scene::{SceneManager, scene::ScenePhysics},
+    scene::{SceneManager, ThirdPerson, scene::ScenePhysics},
     ui::{Cursor, Keys},
     window::KeyCode,
 };
@@ -19,11 +19,11 @@ use crate::{
 /// short of it.
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.05;
 
-/// A first person player. A capsule the rapier character controller
-/// walks over the scene's colliders, with gravity, small steps, a jump
-/// and a push on the bodies it walks into, and the scene camera looks
-/// out of its eyes. `w` `a` `s` `d` or the arrows walk, space jumps,
-/// the captured mouse or `look` turns.
+/// A player. A capsule the rapier character controller walks over the
+/// scene's colliders, with gravity, small steps, a jump and a push on the
+/// bodies it walks into. The scene camera looks out of its eyes, or with
+/// `third_person` over its shoulder. `w` `a` `s` `d` or the arrows walk,
+/// space jumps, the captured mouse or `look` turns.
 pub struct Player {
     body:       RigidBodyHandle,
     collider:   ColliderHandle,
@@ -31,31 +31,39 @@ pub struct Player {
 
     /// Radians around the up axis, 0 looks down `-z`, positive turns
     /// right.
-    pub yaw:        f32,
+    pub yaw:          f32,
     /// Radians up from level.
-    pub pitch:      f32,
+    pub pitch:        f32,
     /// Units per second.
-    pub speed:      f32,
+    pub speed:        f32,
     /// The upward speed a jump starts with.
-    pub jump_speed: f32,
+    pub jump_speed:   f32,
     /// The eye above the capsule's center.
-    pub eye_height: f32,
+    pub eye_height:   f32,
     /// What the player weighs when it pushes a body.
-    pub mass:       f32,
+    pub mass:         f32,
     /// Reads the keyboard every step. Off for a scene that moves the
     /// player itself.
-    pub keyboard:   bool,
+    pub keyboard:     bool,
     /// Turns with the captured mouse every step, see `Cursor`. Off for
     /// a scene that turns the player itself.
-    pub mouse:      bool,
+    pub mouse:        bool,
     /// Radians of turn per unit of mouse motion.
-    pub look_speed: f32,
+    pub look_speed:   f32,
+    /// Where the camera sits: out of the eyes while `None`, else behind
+    /// the player over its shoulder.
+    pub third_person: Option<ThirdPerson>,
 
     vertical: f32,
     grounded: bool,
 }
 
 impl Player {
+    /// The capsule the player collides as, what scene queries leave out.
+    pub(crate) fn collider_handle(&self) -> ColliderHandle {
+        self.collider
+    }
+
     pub(crate) fn make(physics: &mut ScenePhysics, position: Vec3, radius: f32, height: f32) -> Self {
         let half_height = (height / 2.0 - radius).max(0.0);
         let body = RigidBodyBuilder::kinematic_position_based().translation(position).build();
@@ -86,6 +94,7 @@ impl Player {
             keyboard: true,
             mouse: true,
             look_speed: 0.002,
+            third_person: None,
             vertical: 0.0,
             grounded: false,
         }
@@ -109,7 +118,8 @@ impl Player {
         Vec3::new(sin_yaw, 0.0, -cos_yaw)
     }
 
-    fn right(&self) -> Vec3 {
+    /// Level and to the right of where the player looks, unit length.
+    pub fn right(&self) -> Vec3 {
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
         Vec3::new(cos_yaw, 0.0, sin_yaw)
     }
@@ -216,20 +226,21 @@ mod test {
     #[test]
     fn direction_follows_yaw_and_pitch() {
         let mut player = Player {
-            body:       RigidBodyHandle::invalid(),
-            collider:   ColliderHandle::invalid(),
-            controller: KinematicCharacterController::default(),
-            yaw:        0.0,
-            pitch:      0.0,
-            speed:      4.0,
-            jump_speed: 5.0,
-            eye_height: 0.7,
-            mass:       70.0,
-            keyboard:   false,
-            mouse:      false,
-            look_speed: 0.002,
-            vertical:   0.0,
-            grounded:   false,
+            body:         RigidBodyHandle::invalid(),
+            collider:     ColliderHandle::invalid(),
+            controller:   KinematicCharacterController::default(),
+            yaw:          0.0,
+            pitch:        0.0,
+            speed:        4.0,
+            jump_speed:   5.0,
+            eye_height:   0.7,
+            mass:         70.0,
+            keyboard:     false,
+            mouse:        false,
+            look_speed:   0.002,
+            third_person: None,
+            vertical:     0.0,
+            grounded:     false,
         };
         assert!((player.direction() - Vec3::NEG_Z).length() < 1e-6);
         player.look(FRAC_PI_2, 0.0);

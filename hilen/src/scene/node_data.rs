@@ -3,19 +3,30 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{Material, Mesh, Node, Playback},
+    scene::{ColliderShape, Material, Mesh, Node, Playback},
 };
 
 #[derive(Educe)]
 #[educe(Default)]
 pub struct NodeData {
-    pub(crate) position: Vec3,
+    pub(crate) position:       Vec3,
     #[educe(Default = Quat::IDENTITY)]
-    pub(crate) rotation: Quat,
+    pub(crate) rotation:       Quat,
     /// Uniform, on top of the shape's own size, see `NodeTemplates::set_scale`.
     #[educe(Default = 1.0)]
-    pub(crate) scale:    f32,
-    pub(crate) shape:    Shape3,
+    pub(crate) scale:          f32,
+    pub(crate) shape:          Shape3,
+    /// A collider put on in place of the shape's own, with where it sits
+    /// from the origin, see `NodeTemplates::set_collider`.
+    pub(crate) collider:       Option<(ColliderShape, Vec3)>,
+    /// The node this one hangs on, null for none. While it lives the
+    /// position and rotation are the parent's local ones, see
+    /// `NodeTemplates::attach_to`.
+    pub(crate) parent:         Weak<dyn Node>,
+    /// The world scale the rapier collider was last built at, so a parent
+    /// that grows is noticed on the next step.
+    #[educe(Default = 1.0)]
+    pub(crate) collider_scale: f32,
 
     pub(crate) collision_enabled: bool,
 
@@ -44,6 +55,16 @@ impl NodeData {
             mesh: Mesh::of_shape(shape),
             ..Default::default()
         }
+    }
+
+    /// The node's own uniform size, see `NodeTemplates::set_scale`.
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// The node this one is attached to.
+    pub fn parent(&self) -> Option<Weak<dyn Node>> {
+        self.parent.is_ok().then_some(self.parent)
     }
 
     /// Moves the playing clip on by `dt` seconds of scene time.

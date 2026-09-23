@@ -46,6 +46,8 @@ struct Vertex {
     @location(0) pos: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    // Four encoded sRGB bytes, red in the lowest, see `Vertex3D::color`.
+    @location(14) color: u32,
 }
 
 struct Instance {
@@ -66,18 +68,20 @@ struct SkinVertex {
     @location(13) weights: vec4<f32>,
 }
 
-// Six components cross the stage boundary. An A7 draws nothing above
+// Seven components cross the stage boundary. An A7 draws nothing above
 // eight, see docs/ios.md, so the material and the light list stay in
 // the storage buffers, the world position is rebuilt from the depth,
-// and only the index of the instance comes along.
+// only the index of the instance comes along, and the vertex color
+// comes packed and flat, one per triangle.
 struct VertexOutput {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) instance: u32,
+    @location(3) @interpolate(flat) color: u32,
 }
 
-fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: Instance) -> VertexOutput {
+fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, color: u32, instance: Instance) -> VertexOutput {
     let model = mat4x4<f32>(instance.model0, instance.model1, instance.model2, instance.model3);
     let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
 
@@ -86,12 +90,13 @@ fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: Instance) -
     out.uv = uv;
     out.normal = normalize(normal_matrix * normal);
     out.instance = instance.index;
+    out.color = color;
     return out;
 }
 
 @vertex
 fn v_main(vertex: Vertex, instance: Instance) -> VertexOutput {
-    return place(vertex.pos, vertex.normal, vertex.uv, instance);
+    return place(vertex.pos, vertex.normal, vertex.uv, vertex.color, instance);
 }
 
 // The blend of the four joint matrices that move this vertex. A joint
@@ -109,7 +114,7 @@ fn v_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> VertexOutp
     let matrix = skin_matrix(skin, instance.joint_base);
     let pos = (matrix * vec4<f32>(vertex.pos, 1.0)).xyz;
     let normal = mat3x3<f32>(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * vertex.normal;
-    return place(pos, normal, vertex.uv, instance);
+    return place(pos, normal, vertex.uv, vertex.color, instance);
 }
 
 // The Filament mobile model: Lambert diffuse, GGX distribution, the
@@ -342,8 +347,13 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var map = textureSample(normal_texture, normal_sampler, in.uv).xyz * 2.0 - 1.0;
     map = vec3<f32>(map.xy * instance.normal_scale, map.z);
 
-    let base = srgb_to_linear(instance.color.rgb) * srgb_to_linear(texel.rgb);
-    let alpha = instance.color.a * texel.a;
+    let tint = unpack4x8unorm(in.color);
+    // The decode of a full channel lands a hair under one in f32, which
+    // moved pixels of every mesh when vertex colors came in, and white
+    // is what every mesh without vertex colors carries.
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    let base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb);
+    let alpha = instance.color.a * tint.a * texel.a;
     let metallic = instance.metallic;
     // Below this a highlight collapses to a few pixels of noise.
     let perceptual = clamp(instance.roughness, 0.045, 1.0);
