@@ -1,4 +1,5 @@
 mod async_calls;
+mod border_blend;
 mod clipboard;
 mod color_checker;
 mod colors;

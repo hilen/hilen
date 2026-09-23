@@ -148,6 +148,19 @@ fn gradient_color(instance: UIGradientInstance, ramp: f32) -> vec4<f32> {
     return vec4<f32>(color.rgb / max(color.a, 0.0001), color.a);
 }
 
+// The pixel on the inner edge of a border is `fill` parts fill and the
+// rest border. The two mix weighted by their alpha. A straight mix let a
+// clear fill, black at zero alpha, darken a solid border there, and let a
+// faint border outweigh an opaque fill. Returns straight alpha.
+fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
+    let alpha: f32 = mix(border.a, inner.a, fill);
+    if alpha <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb: vec3<f32> = mix(border.rgb * border.a, inner.rgb * inner.a, fill) / alpha;
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIGradientInstance = instances[in.index];
@@ -168,8 +181,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 1 in the ramp interior, 0 in the border band, one pixel ramp at
         // the boundary between them.
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, color.rgb, fill);
-        alpha = mix(instance.border_color.a, color.a, fill);
+        let mixed = border_mix(instance.border_color, color, fill);
+        rgb = mixed.rgb;
+        alpha = mixed.a;
     }
 
     alpha *= edge_coverage(dist, width);

@@ -56,6 +56,14 @@ and follow its corner radii.
   flat fill. The gradient pipeline used to carry no border at all, so setting
   one on a gradient view silently did nothing.
 
+The pixel on the inner edge of a border is part border and part fill. The rect,
+gradient and image shaders mix the two premultiplied in `border_mix`. A straight
+mix let a clear fill, black at zero alpha, darken a solid border there, and let
+a faint border outweigh an opaque fill, so cards got dark or bright corners. The
+blur pipeline draws the border over the blurred backdrop with its own alpha. The
+`Border blend` UI test checks every edge pixel stays inside the colors it can be
+mixed from.
+
 Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
 CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
 glyphs themselves from the top of the label frame to its bottom, see

@@ -144,6 +144,19 @@ fn pixel_width(derivative: f32, scale: f32) -> f32 {
     return select(1.0 / scale, derivative, derivative > 0.0);
 }
 
+// The pixel on the inner edge of a border is `fill` parts fill and the
+// rest border. The two mix weighted by their alpha. A straight mix let a
+// clear fill, black at zero alpha, darken a solid border there, and let a
+// faint border outweigh an opaque fill. Returns straight alpha.
+fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
+    let alpha: f32 = mix(border.a, inner.a, fill);
+    if alpha <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb: vec3<f32> = mix(border.rgb * border.a, inner.rgb * inner.a, fill) / alpha;
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIImageInstance = instances[in.index];
@@ -163,8 +176,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if instance.border_width > 0.0 {
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, tex.rgb, fill);
-        alpha = mix(instance.border_color.a, tex.a, fill);
+        let mixed = border_mix(instance.border_color, tex, fill);
+        rgb = mixed.rgb;
+        alpha = mixed.a;
     }
 
     alpha *= coverage;

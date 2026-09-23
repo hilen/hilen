@@ -138,9 +138,12 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let blur = textureSampleLevel(blurred, blurred_sampler, screen_uv, 0.0);
     var rgb: vec3<f32> = mix(blur.rgb, instance.color.rgb, instance.color.a);
 
+    // The border lies over the blurred backdrop with its own alpha, the
+    // way the fill does, not as an opaque band.
     if instance.border_width > 0.0 {
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, rgb, fill);
+        let band: vec3<f32> = mix(blur.rgb, instance.border_color.rgb, instance.border_color.a);
+        rgb = mix(band, rgb, fill);
     }
 
     return vec4<f32>(rgb, coverage);
