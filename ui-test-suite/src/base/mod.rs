@@ -49,5 +49,6 @@ mod touch_order;
 mod touch_stack;
 mod transition;
 mod transition_rich;
+mod translucent_over_text;
 mod transparency;
 mod view_order;

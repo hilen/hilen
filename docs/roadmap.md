@@ -16,6 +16,25 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Context menu icons and anchored placement
+
+Found by the kukareker UI review. Its push dropdown and its graph scope menu are
+`ContextMenu`s, and two agreed fixes cannot be built on the current API.
+
+- Current: `MenuItem` in `ui/views/controls/context_menu.rs` holds a title, an
+  action, `enabled`, `danger` and text `badges`, nothing else. There is no way to put
+  an icon in front of the title, and no way to mark one item as the chosen one. The
+  menu opens through `show(items, at)` or `show_at_cursor`, always with its top left
+  corner at the point. Its width is worked out inside `fill` from private constants,
+  so an app cannot line the menu's right edge up with a button.
+- Needed: an optional leading icon per item, `MenuItem::icon(image)`, tinted like the
+  title and red on a `danger` item. A checked state, `MenuItem::checked(bool)`, drawn
+  as a check icon, for menus that pick one of several values. A way to open the menu
+  against a view instead of a point, for example `show_below(view, Align::Right)`,
+  which lines up the chosen edge and still slides inside the screen. UI tests for each.
+- Blocks: in kukareker, the warning icon on the force push item, the check on the
+  active graph scope, and a push menu that does not cover the Stash button.
+
 ## Bug reporting and Sentry on wasm
 
 Found by bringing karkas style bug reporting into the engine. Desktop, iOS and

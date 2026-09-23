@@ -40,6 +40,9 @@ type TextSections<'a> = Vec<(Weak<Font>, Vec<(Section<'a>, ShapedParams)>)>;
 
 struct DrawContext<'a> {
     text_sections: TextSections<'a>,
+    /// The z of the nearest text queued since the last flush, smaller
+    /// is nearer. Only valid while `text_sections` is not empty.
+    nearest_text:  f32,
     /// Paths collected since the last flush, drawn under the scissor
     /// that was current when their view was visited.
     paths:         Vec<&'a PathData>,
@@ -77,6 +80,7 @@ impl UIDrawer {
 
         let mut ctx = DrawContext {
             text_sections: vec![],
+            nearest_text: 0.0,
             paths: vec![],
             debug_frames: UIManager::should_draw_debug_frames(),
             scale: UIManager::scale(),
@@ -269,6 +273,16 @@ impl UIDrawer {
         {
             Self::blur_barrier(render_frame, blur, &frame, ctx);
         } else {
+            // Rects flush before text and write depth, so text queued
+            // behind a translucent rect would fail the depth test and
+            // vanish instead of showing through. Flush it first, but
+            // only when the rect is in front of all queued text. Text
+            // writes depth over whole glyph boxes, so a rect behind it,
+            // like a text selection, would get holes around the glyphs.
+            if is_translucent(view) && !ctx.text_sections.is_empty() && view.z_position() < ctx.nearest_text {
+                Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+                Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            }
             Self::draw_background(view, &frame, ctx.scale);
         }
 
@@ -431,6 +445,12 @@ impl UIDrawer {
         } else if let Some(label) = view.as_any().downcast_ref::<Label>()
             && !label.text.is_empty()
         {
+            let z = label.z_position() - UIManager::additional_z_offset();
+            ctx.nearest_text = if ctx.text_sections.is_empty() {
+                z
+            } else {
+                ctx.nearest_text.min(z)
+            };
             Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale);
             Self::draw_color_glyphs(frame, label, ctx.scale);
             Self::draw_underlines(frame, label, ctx.scale);
@@ -719,6 +739,13 @@ impl UIDrawer {
             }
         }
     }
+}
+
+/// A scrim is left out, it already flushes after all text.
+fn is_translucent(view: &dyn View) -> bool {
+    let partial = |alpha: f32| alpha > 0.0 && alpha < 1.0;
+    view.as_any().downcast_ref::<ScrimView>().is_none()
+        && (partial(view.color().a) || partial(view.border_color().a))
 }
 
 fn scissor(pass: &mut RenderPass, rect: Rect<u32>) {
