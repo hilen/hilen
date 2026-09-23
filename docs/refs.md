@@ -34,6 +34,11 @@ and the stamp matches. If not — panic with the type name, instead of use-after
 The stamp protects from address reuse: when the allocator gives the same address to a new object,
 the old `Weak` still reports dead, because the stamp differs.
 
+Two `Weak` are equal, and hash the same, when they point at the same object: the same data
+address and stamp. That holds for trait objects too, a `Weak<dyn Node>` a scene query hands
+back equals the `Weak<dyn Node>` of the node it hit. The vtable half of a trait object pointer
+is left out, it can differ for one object between codegen units.
+
 ## Runtime checks
 
 The `refs` crate's default `checks` feature came along as the `hilen` feature of the same

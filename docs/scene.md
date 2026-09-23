@@ -243,8 +243,9 @@ write. The instance carries the model matrix, the inverse transpose for normals 
 its own index in the buffer, see `MeshInstance`, so a translucent node drawn alone
 from the middle of the buffer needs no base instance, which an A7 cannot draw. The
 fragment reads the material and the light list from a storage binding at that
-index. Six float components cross the vertex to fragment boundary, the uv, the
-normal and the flat index, and the world position is rebuilt from the depth. An A7
+index. Seven float components cross the vertex to fragment boundary, the uv, the
+normal, the flat index and the flat packed vertex color, and the world position is
+rebuilt from the depth. An A7
 draws nothing above eight, see [ios.md](ios.md). Every mesh buffer loads once per
 frame, so the bind groups over the view, the lights, each batch's instances and
 each key's textures are kept from frame to frame and remade only when a buffer
