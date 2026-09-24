@@ -336,7 +336,10 @@ impl TableView {
 
         let number_of_cells = self.data.number_of_cells();
 
+        // A table that became empty still shows the rows of the reload
+        // before, they have to go too.
         if number_of_cells == 0 {
+            self.clear_cells();
             return;
         }
 

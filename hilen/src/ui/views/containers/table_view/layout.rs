@@ -29,6 +29,36 @@ fn sticky_raise() -> f32 {
 }
 
 impl TableView {
+    /// Recycles every cell and leaves only the header and the footer to
+    /// scroll, the layout of a table with no rows.
+    pub(super) fn clear_cells(&mut self) {
+        let cells: Vec<WeakView> = self
+            .scroll
+            .content
+            .subviews()
+            .iter()
+            .filter(|view| !view.is_hidden())
+            .filter(|view| !self.header_views.iter().any(|h| h.raw() == view.weak().raw()))
+            .map(Own::weak)
+            .collect();
+        let recycled: Vec<WeakView> = cells
+            .into_iter()
+            .map(|mut cell| {
+                self.lower_recycled(cell);
+                cell.set_hidden(true);
+                cell.as_cell().cell_removed();
+                cell
+            })
+            .collect();
+        self.registry.load_old_cells(recycled);
+        self.row_offsets.clear();
+        self.sticky_rows.clear();
+        self.pinned.clear();
+        let width = self.width();
+        self.scroll.set_content_height(self.header_height + self.footer_height);
+        self.scroll.set_content_width(width);
+    }
+
     pub(super) fn layout_fixed_cells(&mut self, number_of_cells: usize, columns: usize, mode: LayoutMode) {
         let spacing = self.cell_spacing;
         let width = self.width();
