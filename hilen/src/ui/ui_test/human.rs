@@ -23,7 +23,8 @@ use crate::{
         color::{BLACK, CLEAR, Color, U8Color, WHITE},
     },
     ui::{
-        Button, Container, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
+        Button, Container, Input, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews,
+        WeakView,
     },
     ui_test::{TEST_NAME, capture::save_shot},
     window::{NamedKey, Window},
@@ -255,5 +256,28 @@ fn wait_for_advance() {
 
     if receiver.recv().is_err() {
         warn!("Failed to receive human continue signal");
+    }
+
+    wait_for_ctrl_release();
+}
+
+/// The run goes on only once the advance key is up again. A test that
+/// injects a key right after a hold otherwise gets the real ctrl with it,
+/// and a plain Escape reaches the keymap as ctrl plus Escape. Windows
+/// reports the press before the key event and a Mac after it, so the
+/// press gets a short time to show up first. A tap on a phone holds no
+/// modifier and only pays that short wait.
+fn wait_for_ctrl_release() {
+    const STEP: Duration = Duration::from_millis(5);
+
+    for _ in 0..20 {
+        if Input::command_held() {
+            break;
+        }
+        sleep(STEP);
+    }
+
+    while Input::command_held() {
+        sleep(STEP);
     }
 }

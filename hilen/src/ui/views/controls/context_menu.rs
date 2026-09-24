@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     self as hilen,
     deps::refs::{Own, Weak, main_lock::MainLock},
@@ -6,10 +8,13 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        Container, DynamicColor, Label, Setup, Shadow, TextAlignment, TouchStack, UIColor, UIManager,
-        ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
+        Container, DynamicColor, ImageView, Label, Setup, Shadow, TextAlignment, TouchStack, UIColor,
+        UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
     },
-    window::NamedKey,
+    window::{
+        NamedKey,
+        image::{Tinted, ToImage, tint_svg},
+    },
 };
 
 const BACKGROUND: DynamicColor = DynamicColor::new(WHITE, Color::rgb(0.173, 0.173, 0.18));
@@ -30,15 +35,23 @@ const PADDING: f32 = 4.0;
 const SIDE_PADDING: f32 = 8.0;
 const MIN_WIDTH: f32 = 160.0;
 const CORNER_RADIUS: f32 = 8.0;
+const ICON_SIZE: f32 = 16.0;
+const ICON_GAP: f32 = 8.0;
+const ANCHOR_GAP: f32 = 4.0;
+
+const CHECK_ICON: &[u8] = include_bytes!("../../images/check.svg");
 
 /// A row of a [`ContextMenu`]. Build with [`MenuItem::new`] or
-/// [`MenuItem::separator`], then chain `disabled`, `danger` and `badge`.
+/// [`MenuItem::separator`], then chain `icon`, `checked`, `disabled`,
+/// `danger` and `badge`.
 pub struct MenuItem {
     title:   String,
     action:  Option<Box<dyn FnMut() + Send>>,
     enabled: bool,
     danger:  bool,
     badges:  Vec<(String, UIColor)>,
+    icon:    Option<String>,
+    checked: Option<bool>,
 }
 
 impl MenuItem {
@@ -49,6 +62,8 @@ impl MenuItem {
             enabled: true,
             danger:  false,
             badges:  vec![],
+            icon:    None,
+            checked: None,
         }
     }
 
@@ -60,7 +75,26 @@ impl MenuItem {
             enabled: false,
             danger:  false,
             badges:  vec![],
+            icon:    None,
+            checked: None,
         }
+    }
+
+    /// An icon in front of the title, the name of an SVG asset drawn in
+    /// black, the way [`Tinted`] expects. It takes the color of the
+    /// title, gray when disabled and red on a `danger` item. Once one
+    /// item has an icon, every title in the menu moves right to line up.
+    pub fn icon(mut self, name: impl ToString) -> Self {
+        self.icon = Some(name.to_string());
+        self
+    }
+
+    /// Marks the item as one choice of several. A checked item draws a
+    /// check in front of its title, an unchecked one leaves the place
+    /// empty, so the titles of all choices line up.
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
     }
 
     /// A short colored text at the right edge of the row, for status like
@@ -88,11 +122,38 @@ impl MenuItem {
     }
 }
 
+/// Which leading places the rows of one menu reserve, so every title
+/// starts at the same x.
+#[derive(Clone, Copy)]
+struct Leading {
+    check: bool,
+    icon:  bool,
+}
+
+impl Leading {
+    fn of(items: &[MenuItem]) -> Self {
+        Self {
+            check: items.iter().any(|item| item.checked.is_some()),
+            icon:  items.iter().any(|item| item.icon.is_some()),
+        }
+    }
+
+    /// Where the title starts inside a row.
+    fn title_x(self) -> f32 {
+        let places = u8::from(self.check) + u8::from(self.icon);
+        SIDE_PADDING + f32::from(places) * (ICON_SIZE + ICON_GAP)
+    }
+}
+
 #[view]
 pub struct MenuItemView {
-    action:  Option<Box<dyn FnMut() + Send>>,
-    enabled: bool,
-    badges:  Vec<Weak<Label>>,
+    action:    Option<Box<dyn FnMut() + Send>>,
+    enabled:   bool,
+    badges:    Vec<Weak<Label>>,
+    danger:    bool,
+    icon_name: Option<String>,
+    check:     Weak<ImageView>,
+    icon:      Weak<ImageView>,
 
     #[init]
     label: Label,
@@ -112,6 +173,16 @@ impl MenuItemView {
         &self.badges
     }
 
+    /// The check of a checked item, null otherwise.
+    pub fn check(&self) -> Weak<ImageView> {
+        self.check
+    }
+
+    /// The leading icon, null when the item has none.
+    pub fn icon(&self) -> Weak<ImageView> {
+        self.icon
+    }
+
     /// Points the badges take at the right edge of the row, including the
     /// gap between the title and the first badge. Zero without badges.
     fn badges_width(&self) -> f32 {
@@ -121,10 +192,23 @@ impl MenuItemView {
             .sum()
     }
 
-    fn fill(mut self: Weak<Self>, item: MenuItem) {
+    fn fill(mut self: Weak<Self>, item: MenuItem, leading: Leading) {
         self.enabled = item.enabled;
         self.action = item.action;
         self.label.set_text(&item.title);
+        self.label.place().tb(0).l(leading.title_x()).r(SIDE_PADDING);
+
+        let mut x = SIDE_PADDING;
+        if leading.check {
+            if item.checked == Some(true) {
+                self.check = self.leading_image(x);
+            }
+            x += ICON_SIZE + ICON_GAP;
+        }
+        if item.icon.is_some() {
+            self.icon = self.leading_image(x);
+        }
+        self.icon_name = item.icon;
 
         let mut offset = SIDE_PADDING;
         for (text, color) in item.badges.iter().rev() {
@@ -137,15 +221,45 @@ impl MenuItemView {
         }
         self.badges.reverse();
 
-        let color = if !item.enabled {
+        self.danger = item.danger;
+        self.label.set_text_color(self.text_color());
+        self.tint_images();
+    }
+
+    fn text_color(&self) -> DynamicColor {
+        if !self.enabled {
             DISABLED_TEXT
-        } else if item.danger {
+        } else if self.danger {
             DANGER_TEXT
         } else {
             TEXT
-        };
+        }
+    }
 
-        self.label.set_text_color(color);
+    fn leading_image(self: Weak<Self>, x: f32) -> Weak<ImageView> {
+        let image = self.add_view::<ImageView>();
+        image.place().l(x).center_y().size(ICON_SIZE, ICON_SIZE);
+        image
+    }
+
+    /// The icons are SVGs with the color written in, so a theme change
+    /// has to tint them again, a label follows the theme by itself.
+    fn tint_images(&self) {
+        let color = self.text_color().resolve();
+
+        if self.check.is_ok() {
+            self.check.set_image(tint_svg(CHECK_ICON, "menu_check.svg", color));
+        }
+
+        if let Some(name) = &self.icon_name {
+            self.icon.set_image(
+                Tinted {
+                    tint: color,
+                    name: name.clone(),
+                }
+                .to_image(),
+            );
+        }
     }
 
     fn tapped(mut self: Weak<Self>) {
@@ -164,6 +278,12 @@ impl MenuItemView {
     }
 }
 
+impl ViewCallbacks for MenuItemView {
+    fn theme_changed(&mut self) {
+        self.tint_images();
+    }
+}
+
 impl Setup for MenuItemView {
     fn setup(self: Weak<Self>) {
         self.set_color(CLEAR).set_corner_radius(CORNER_RADIUS - PADDING);
@@ -172,7 +292,6 @@ impl Setup for MenuItemView {
             .set_color(CLEAR)
             .set_alignment(TextAlignment::Left)
             .set_text_size(TEXT_SIZE);
-        self.label.place().tb(0).l(SIDE_PADDING).r(SIDE_PADDING);
 
         self.enable_touch();
         self.enable_hover();
@@ -190,8 +309,23 @@ impl Setup for MenuItemView {
 
 static OPEN: MainLock<Weak<ContextMenu>> = MainLock::new();
 
-/// A floating list of actions anchored at a point, usually the cursor.
-/// One column, separators, disabled items, a danger tint, no submenus.
+/// Which edge of the anchor view a menu from [`ContextMenu::show_below`]
+/// lines up with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuAlign {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy)]
+enum Placement {
+    At(Point),
+    Below(Rect, MenuAlign),
+}
+
+/// A floating list of actions anchored at a point, usually the cursor,
+/// or under a view, like a button's dropdown. One column, separators,
+/// icons, checks, disabled items, a danger tint, no submenus.
 /// Dismissed by a tap outside, Escape, or picking an item. Only one is
 /// open at a time, opening another closes the first.
 ///
@@ -212,6 +346,22 @@ impl ContextMenu {
     /// its top left corner there and slides back inside the screen when
     /// it would not fit.
     pub fn show(items: Vec<MenuItem>, at: Point) -> Weak<Self> {
+        Self::present(items, Placement::At(at))
+    }
+
+    /// Opens just under `anchor`, with the `align` edge of the menu on the
+    /// same edge of the anchor, so a menu from a button at the right of a
+    /// toolbar grows to the left and covers nothing beside the button.
+    /// Slides back inside the screen when it would not fit.
+    pub fn show_below(
+        items: Vec<MenuItem>,
+        anchor: impl Deref<Target = impl View + ?Sized>,
+        align: MenuAlign,
+    ) -> Weak<Self> {
+        Self::present(items, Placement::Below(*anchor.absolute_frame(), align))
+    }
+
+    fn present(items: Vec<MenuItem>, placement: Placement) -> Weak<Self> {
         Self::dismiss_open();
 
         let mut backdrop = Container::new();
@@ -233,7 +383,7 @@ impl ContextMenu {
         backdrop.touch().began.sub(Self::dismiss_open);
 
         backdrop.add_subview(menu);
-        weak.fill(items, at);
+        weak.fill(items, placement);
 
         UIManager::keymap().add(weak, NamedKey::Escape, Self::dismiss_open);
 
@@ -268,7 +418,8 @@ impl ContextMenu {
         backdrop.remove_from_superview();
     }
 
-    fn fill(mut self: Weak<Self>, items: Vec<MenuItem>, at: Point) {
+    fn fill(mut self: Weak<Self>, items: Vec<MenuItem>, placement: Placement) {
+        let leading = Leading::of(&items);
         let mut y = PADDING;
         let mut width: f32 = MIN_WIDTH;
 
@@ -282,10 +433,15 @@ impl ContextMenu {
             }
 
             let view = self.add_view::<MenuItemView>();
-            view.fill(item);
+            view.fill(item, leading);
             view.place().t(y).lr(PADDING).h(ITEM_HEIGHT);
-            width = width
-                .max(view.label.content_size().width + view.badges_width() + (SIDE_PADDING + PADDING) * 2.0);
+            width = width.max(
+                leading.title_x()
+                    + view.label.content_size().width
+                    + view.badges_width()
+                    + SIDE_PADDING
+                    + PADDING * 2.0,
+            );
             y += ITEM_HEIGHT;
 
             self.items.push(view);
@@ -296,6 +452,15 @@ impl ContextMenu {
 
         self.place().custom(move |rect: &mut Rect| {
             let screen = UIManager::root_view().frame().size;
+            let at = match placement {
+                Placement::At(at) => at,
+                Placement::Below(anchor, MenuAlign::Left) => {
+                    Point::new(anchor.x(), anchor.max_y() + ANCHOR_GAP)
+                }
+                Placement::Below(anchor, MenuAlign::Right) => {
+                    Point::new(anchor.max_x() - width, anchor.max_y() + ANCHOR_GAP)
+                }
+            };
             let x = at.x.min(screen.width - width).max(0.0);
             let y = at.y.min(screen.height - height).max(0.0);
             *rect = Rect::new(x.round(), y.round(), width, height);

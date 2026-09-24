@@ -1,7 +1,9 @@
+use std::str::from_utf8;
+
 use log::error;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, manage::DataManager},
     gm::color::Color,
     window::image::{DEFAULT_IMAGE_DATA, Image, ToImage},
 };
@@ -41,8 +43,6 @@ pub(crate) mod svg_sources {
 
 #[cfg(not_wasm)]
 fn svg_data(name: &str) -> Option<Vec<u8>> {
-    use crate::deps::refs::manage::DataManager;
-
     let path = Image::full_path(name);
 
     // Through the filesystem layer, not std::fs. Android assets live inside
@@ -63,34 +63,44 @@ fn svg_data(name: &str) -> Option<Vec<u8>> {
 
 impl ToImage for Tinted {
     fn to_image(&self) -> Weak<Image> {
-        use crate::deps::refs::manage::DataManager;
-
-        let stored_name = format!("{}:{}", self.name, self.tint.as_hex());
-
         // The rasterized image is cached under name plus tint. Checking
         // first skips the file read and the tint rewrite, which ran on
         // every call and every relayout.
-        if let Some(cached) = Image::weak_with_name(&stored_name) {
+        if let Some(cached) = Image::weak_with_name(&tinted_name(&self.name, self.tint)) {
             return cached;
         }
 
-        let Some(data) = svg_data(&self.name) else {
-            return Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name);
-        };
+        match svg_data(&self.name) {
+            Some(data) => tint_svg(&data, &self.name, self.tint),
+            None => Image::from_file_data(DEFAULT_IMAGE_DATA, &tinted_name(&self.name, self.tint)),
+        }
+    }
+}
 
-        match std::str::from_utf8(&data) {
-            Ok(text) => {
-                let tinted = text.replace("#000000", &self.tint.as_hex());
-                Image::from_file_data(tinted.as_bytes(), &stored_name)
-            }
-            Err(err) => {
-                error!(
-                    "Data for tinted image {} is not a valid string. Most likely is not an SVG: {err}. \
-                     Returning default image",
-                    self.name
-                );
-                Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name)
-            }
+fn tinted_name(name: &str, tint: Color) -> String {
+    format!("{name}:{}", tint.as_hex())
+}
+
+/// Tints SVG bytes the app or the engine already holds, like an icon
+/// built in with `include_bytes`, the same way [`Tinted`] tints a file.
+pub(crate) fn tint_svg(data: &[u8], name: &str, tint: Color) -> Weak<Image> {
+    let stored_name = tinted_name(name, tint);
+
+    if let Some(cached) = Image::weak_with_name(&stored_name) {
+        return cached;
+    }
+
+    match from_utf8(data) {
+        Ok(text) => {
+            let tinted = text.replace("#000000", &tint.as_hex());
+            Image::from_file_data(tinted.as_bytes(), &stored_name)
+        }
+        Err(err) => {
+            error!(
+                "Data for tinted image {name} is not a valid string. Most likely is not an SVG: {err}. \
+                 Returning default image"
+            );
+            Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name)
         }
     }
 }

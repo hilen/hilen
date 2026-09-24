@@ -482,7 +482,9 @@ frame time after it the way an app title shows it, `Font zoo check 1 | 1.23ms`, 
 second while frames render and frozen while the loop sleeps, so a stalled loop is visible in the
 title. Prompts go through `Window::set_title_prefix`, which keeps the frame time, unlike
 `Window::set_title`, which replaces the whole title. The run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
-field does not type the advance key into it. After each test the title shows the result and
+field does not type the advance key into it. The run goes on only once ctrl is up again,
+else a key the test injects right after the hold arrives with the real ctrl, and a plain
+Escape reaches the keymap as ctrl plus Escape. After each test the title shows the result and
 the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 `UI_TEST_HUMAN_CLEAN=1` holds at every check without the probe markers, to look at the
 checked state itself, the title still names the check.
