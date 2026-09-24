@@ -66,6 +66,23 @@ impl Camera {
         }
     }
 
+    /// The pixel of the view drawn over `area` where a world point lands,
+    /// the reverse of `ray`. None for a point level with the camera or
+    /// behind it, which is nowhere on the screen. A point off to the side
+    /// lands outside `area`.
+    pub fn screen_point(&self, world: Vec3, area: Size) -> Option<Point> {
+        let clip = self.view_projection(area.width / area.height) * world.extend(1.0);
+        if clip.w <= self.near * 0.5 {
+            return None;
+        }
+        let x = clip.x / clip.w;
+        let y = clip.y / clip.w;
+        Some(Point::new(
+            f32::midpoint(x, 1.0) * area.width,
+            f32::midpoint(1.0, -y) * area.height,
+        ))
+    }
+
     /// Move along the line of sight, `factor` scales the distance to the
     /// target. Stops at twice the near plane, any closer and the target
     /// clips.
@@ -143,6 +160,32 @@ mod test {
         let corner = camera.ray(Point::new(0.0, 0.0), area);
         assert!(corner.direction.y > center.direction.y);
         assert!(corner.direction.x < center.direction.x);
+    }
+
+    // A label placed at the pixel must sit on the node it names, so the
+    // pixel's own ray has to pass through the world point again.
+    #[test]
+    fn a_screen_point_lies_on_its_own_ray() {
+        let camera = Camera::default();
+        let area = Size::new(800.0, 600.0);
+        for world in [Vec3::ZERO, Vec3::new(3.0, 1.0, -2.0), Vec3::new(-4.0, 5.0, 3.0)] {
+            let point = camera.screen_point(world, area).expect("in front of the camera");
+            let ray = camera.ray(point, area);
+            let along = (world - ray.origin).dot(ray.direction);
+            let miss = (ray.origin + ray.direction * along - world).length();
+            assert!(miss < 1e-3, "{world} misses its ray by {miss}");
+        }
+        let center = camera.screen_point(camera.target, area).expect("the target is ahead");
+        assert!((center.x - 400.0).abs() < 1e-3 && (center.y - 300.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_point_behind_the_camera_is_nowhere() {
+        let camera = Camera::default();
+        let area = Size::new(800.0, 600.0);
+        let behind = camera.position * 2.0 - camera.target;
+        assert_eq!(camera.screen_point(behind, area), None);
+        assert_eq!(camera.screen_point(camera.position, area), None);
     }
 
     #[test]

@@ -55,7 +55,10 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 /// needs to rebuild a world position from its own coordinates. `fog_color.w` is
 /// 1 when the scene has fog, then `fog_range` holds where it starts, one
 /// over the length of its fade, see `Fog::range`, and how far up the sky
-/// it reaches, see `Fog::height`.
+/// it reaches, see `Fog::height`. `sky_sun.w` is 1 when a `DayNightSky`
+/// is drawn, then `sky_sun` and `sky_moon` hold the directions to the sun
+/// and the moon, `sky_moon.w` the night and `sky_params` the sunset glow,
+/// the twinkle phase and the star seed.
 #[cfg(feature = "scene")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
@@ -78,6 +81,9 @@ pub struct SceneView {
     pub sun_depth:     crate::gm::volume::Vec4,
     pub fog_color:     crate::gm::volume::Vec4,
     pub fog_range:     crate::gm::volume::Vec4,
+    pub sky_sun:       crate::gm::volume::Vec4,
+    pub sky_moon:      crate::gm::volume::Vec4,
+    pub sky_params:    crate::gm::volume::Vec4,
     pub irradiance:    [crate::gm::volume::Vec4; 9],
 }
 
@@ -88,6 +94,6 @@ mod scene_test {
     #[test]
     fn scene_view_is_a_uniform() {
         assert_eq!(size_of::<SceneView>() % 16, 0);
-        assert_eq!(size_of::<SceneView>(), 608);
+        assert_eq!(size_of::<SceneView>(), 656);
     }
 }

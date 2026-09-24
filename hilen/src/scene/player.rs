@@ -133,6 +133,16 @@ impl Player {
         self.grounded
     }
 
+    /// Puts the capsule's center at `position` at once, with no fall
+    /// left, the way a game respawns a player that fell off the world.
+    pub fn teleport(&mut self, position: impl Into<Vec3>) {
+        let position = position.into();
+        let body = &mut SceneManager::physics().sets.rigid_bodies[self.body];
+        body.set_translation(position, true);
+        body.set_next_kinematic_translation(position);
+        self.vertical = 0.0;
+    }
+
     pub(crate) fn position_in(body: RigidBodyHandle, physics: &ScenePhysics) -> Vec3 {
         let translation = physics.sets.rigid_bodies[body].translation();
         Vec3::new(translation.x, translation.y, translation.z)

@@ -27,6 +27,7 @@ mod collider_shapes;
 /// pacing, see docs/roadmap.md.
 #[cfg(desktop)]
 mod colliders;
+mod day_and_night;
 /// The physics rest, see `colliders`.
 #[cfg(desktop)]
 mod drop_balls;
@@ -54,6 +55,7 @@ mod textures;
 mod third_person_camera;
 mod transparency;
 mod vertex_colors;
+mod view_points;
 
 /// Names this crate so a linker keeps it.
 ///

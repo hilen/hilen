@@ -10,8 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-clap = { workspace = true }
-log = { workspace = true }
 
 hilen = { workspace = true, features = ["inspect", "login", "ui-tests"] }
 demo = { workspace = true }

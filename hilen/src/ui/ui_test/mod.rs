@@ -5,6 +5,9 @@ pub mod helpers;
 mod human;
 mod record;
 mod report;
+/// Parses flags and opens windows, which only a desktop runner does.
+#[cfg(all(feature = "ui-tests", desktop))]
+pub mod runner;
 pub mod state;
 mod suite;
 mod ui_test;

@@ -288,7 +288,10 @@ impl UIManager {
         (size.width * scale, size.height * scale).into()
     }
 
-    pub(crate) fn display_scale() -> f32 {
+    /// The scale of the screen the window is on, what the UI scale is
+    /// unless `override_scale` replaced it. An app with its own UI scale
+    /// setting multiplies it.
+    pub fn display_scale() -> f32 {
         Window::screen_scale()
     }
 

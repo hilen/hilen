@@ -38,6 +38,12 @@ An app runs the same suite from inside itself, which is how tests run on a devic
 `hilen-inspect run-tests` triggers it over the network. `demo` also has a "Run UI tests"
 button in its dev menu. See [inspect.md](inspect.md).
 
+An app with its own tests also gets the runner with every flag of `ui-test`, record,
+shots and human mode included. The runner is `ui_test::runner::run_cli`, behind
+`ui-tests` on desktop, and a small binary of the app calls it with a function that names
+the app crate, so the linker keeps its tests, and returns `UI_TESTS`. `ui-test` itself is
+that same call. The geblings game is the working example.
+
 Set `HILEN_RUN_TESTS` and the app runs the whole suite once it is ready, prints
 `HILEN_TEST_RESULT <n> tests, <m> failed` and exits with a matching code. It waits on
 `UIManager::on_app_ready`, since a mid load teardown frees views the load task still

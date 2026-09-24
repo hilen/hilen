@@ -1,6 +1,7 @@
 mod camera;
 mod collider_lines;
 mod collider_shape;
+mod day_night_sky;
 mod event_handler;
 mod fog;
 mod light;
@@ -26,6 +27,7 @@ pub use rapier3d::dynamics::CoefficientCombineRule;
 pub use self::{
     camera::Camera,
     collider_shape::{ColliderShape, Heightfield},
+    day_night_sky::DayNightSky,
     fog::Fog,
     light::{Light, LightKind, Sun},
     material::Material,

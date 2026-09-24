@@ -8,8 +8,8 @@ use crate::{
     },
     render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
     scene::{
-        LightPick, Material, Mesh, Model, Node, Playback, SceneManager, collider_lines, pick_lights,
-        sun_cascades,
+        DayNightSky, LightPick, Material, Mesh, Model, Node, Playback, SceneManager, collider_lines,
+        pick_lights, sun_cascades,
     },
     ui::{UIManager, ui_drawer::set_viewport},
 };
@@ -186,6 +186,7 @@ impl SceneDrawer {
         let ambient = scene.ambient.linear();
         let sky = scene.sky.as_ref();
         let fog = scene.fog;
+        let [sky_sun, sky_moon, sky_params] = DayNightSky::shader_data(scene.day_night_sky.as_ref());
         let fog_color = fog.map_or(Vec4::ZERO, |fog| {
             let color = fog.color.linear();
             Vec4::new(color.r, color.g, color.b, 1.0)
@@ -227,6 +228,9 @@ impl SceneDrawer {
             sun_depth,
             fog_color,
             fog_range,
+            sky_sun,
+            sky_moon,
+            sky_params,
             irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
         };
 
@@ -245,7 +249,7 @@ impl SceneDrawer {
         MESH.get_mut().draw(
             pass,
             scene.sky.as_ref(),
-            scene.sky.is_some() || scene.fog.is_some(),
+            scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
         );
 
         set_viewport(pass, UIManager::window_resolution());

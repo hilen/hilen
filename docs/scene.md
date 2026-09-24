@@ -156,6 +156,15 @@ flat `ambient` color stands in. Highlights roll off through the Khronos PBR Neut
 compression without its black offset, so a color under the knee lands on screen as
 the hex it was written as.
 
+`day_night_sky` is a sky the shader draws every frame, so a game can move it with its
+clock, see `DayNightSky`: a blue gradient that darkens with `night`, an orange glow on
+the horizon towards a low sun by `sunset`, the sun disc and its glow, and at night
+stars from `star_seed` twinkling by `twinkle` and the moon disc with its glow. It is
+drawn in place of the cube `sky`, which still lights the scene when both are set, and
+fog blends it at the horizon the same way. It lights nothing itself, the game moves
+`sun` and `ambient` with it. Its values reach the sky shader as three vectors of
+`SceneView`.
+
 ## Picking
 
 A touch that no view takes falls through to the scene, the way a level gets one.
@@ -165,6 +174,12 @@ box, so a model is hit on its bounds. The nearest node gets `on_touch` with the
 world point hit, then the scene's `on_tap` fires with the ray, hit or not.
 `node_at` and `ray` on the scene answer the same question without a touch.
 
+The other way round, `Camera::screen_point` gives the pixel a world point lands on,
+and `view_point` on the scene the same place in points of the root view, where a view
+centered sits over it, a damage number or a name over a node. Both are `None` for a
+point behind the camera, so the view can hide. A scene test puts such views over its
+scene in `SceneTest::overlay`, which runs in the test and in presentation.
+
 ## Player
 
 `add_player` puts a first person `Player` in a scene with physics: a capsule on
@@ -172,6 +187,9 @@ rapier's kinematic character controller, with gravity, small steps, a jump on
 space and a push on the bodies it walks into. `w` `a` `s` `d` or the arrows walk it
 while held, read through `Keys::held`, and `look` turns it, the demo page calls
 that from a drag. While a player exists the camera looks out of its eyes.
+`add_player` makes a capsule 1.8 tall and 0.7 wide, `add_player_sized` takes the
+radius and the height for a smaller or bigger hero. `teleport` puts the player
+somewhere at once with no fall left, the way a game respawns it.
 
 `Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
 window, and reported as raw motion, which the player reads every step through
@@ -295,7 +313,10 @@ code, `Vertex colors` a camp of meshes colored face by face, `Collider shapes`
 bodies of every collider shape resting on heightfield hills, `Scene queries`
 rays, a sweep and a hitbox against static walls, `Node parenting` a knight whose
 arm, sword and hitbox follow its swing, walk and growth, and `Third person
-camera` a figure turning so a wall pulls the camera in. The loop runs free, so the frames
+camera` a figure turning so a wall pulls the camera in. `Day and night` a field under
+a `DayNightSky` at noon, in the afternoon, at sunset, at dusk and at night with the
+moon, and `View points` labels over a circling ball and a post, the post's hidden once
+it is behind the camera. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
 human hold pauses the scene's time, so the probes sit on a still picture. Rapier

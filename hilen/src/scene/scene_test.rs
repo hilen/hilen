@@ -47,6 +47,11 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
     fn canvas() -> (u32, u32) {
         (600, 600)
     }
+
+    /// Puts views over the scene once it started, the labels a game hangs
+    /// over its nodes, in the test and in presentation alike. `view` is
+    /// the root over the whole canvas. Nothing by default.
+    fn overlay(_: Weak<Self>, _: Weak<SceneTestView>) {}
 }
 
 /// The root a scene test runs under. The scene draws beneath the UI, so
@@ -165,9 +170,13 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
         Some(|| {
             let (width, height) = T::canvas();
 
-            UITest::set(SceneTestView::new(), width, height, true, get_test_name::<T>());
+            let view = UITest::set(SceneTestView::new(), width, height, true, get_test_name::<T>());
 
-            let scene = from_main(|| SceneManager::set_scene(T::default()));
+            let scene = from_main(move || {
+                let scene = SceneManager::set_scene(T::default());
+                T::overlay(scene, view);
+                scene
+            });
 
             let result = T::perform_test(scene);
 
@@ -189,7 +198,8 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
                 UIManager::override_scale(1.0);
                 let canvas = Size::new(width.lossy_convert(), height.lossy_convert());
                 UIManager::root_view().set_test_canvas(canvas);
-                SceneManager::set_scene(T::default());
+                let scene = SceneManager::set_scene(T::default());
+                T::overlay(scene, view);
                 view.enable_orbit();
             });
         })

@@ -15,6 +15,9 @@ struct SceneView {
     sun_depth: vec4<f32>,
     fog_color: vec4<f32>,
     fog_range: vec4<f32>,
+    sky_sun: vec4<f32>,
+    sky_moon: vec4<f32>,
+    sky_params: vec4<f32>,
     irradiance: array<vec4<f32>, 9>,
 }
 
