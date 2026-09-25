@@ -65,7 +65,7 @@ mod test {
 
     use crate::{
         deps::hreads::set_current_thread_as_main,
-        gm::flat::Shape,
+        gm::{Clock, flat::Shape},
         level::{Body, LevelCreation, LevelManager, LevelSetup, Sensor, level},
     };
 
@@ -98,9 +98,12 @@ mod test {
 
         let level = LevelManager::set_level(SensorLevel::default());
 
-        // 10 simulated seconds at the default 1/60 step. The body falls
-        // onto the sensor in about 1.5 of them under default gravity.
+        // 10 simulated seconds of 60 Hz frames on the stepped clock. The
+        // body falls onto the sensor in about 1.5 of them under default
+        // gravity.
+        Clock::enter_stepped();
         for _ in 0..600 {
+            Clock::advance_frame();
             LevelManager::update();
             if level.triggered {
                 break;
@@ -110,6 +113,7 @@ mod test {
         let triggered = level.triggered;
 
         LevelManager::stop_level();
+        Clock::exit_stepped();
 
         assert!(triggered, "Body never triggered the sensor");
     }

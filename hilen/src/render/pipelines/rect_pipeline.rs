@@ -1,3 +1,6 @@
+#[cfg(feature = "level")]
+use std::collections::HashMap;
+
 use bytemuck::Pod;
 use indexmap::IndexMap;
 use wgpu::{
@@ -157,6 +160,21 @@ impl<
     pub fn add_with_image(&mut self, instance: Instance, image: impl Into<ImageKey>) {
         assert!(TYPE.image());
         self.instances.entry(image.into()).or_default().push(instance);
+    }
+
+    /// Draws the image batches farthest first, by the farthest instance of
+    /// each. The batches otherwise go in the order their images were first
+    /// drawn in the process, and a soft cutout edge drawn before the batch
+    /// behind it blends with the clear color, then hides that batch there
+    /// by depth, a halo that depends on which image loaded first.
+    #[cfg(feature = "level")]
+    pub(crate) fn sort_back_to_front(&mut self, depth: impl Fn(&Instance) -> f32) {
+        let farthest: HashMap<ImageKey, f32> = self
+            .instances
+            .iter()
+            .map(|(key, batch)| (*key, batch.queued().iter().map(&depth).fold(f32::MIN, f32::max)))
+            .collect();
+        self.instances.sort_by(|a, _, b, _| farthest[b].total_cmp(&farthest[a]));
     }
 
     pub fn draw(&mut self, render_pass: &mut RenderPass, view: View) {

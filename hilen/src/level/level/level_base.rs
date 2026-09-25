@@ -8,8 +8,11 @@ use crate::{
         refs::{Own, Weak},
         vents::Event,
     },
-    gm::flat::Point,
-    level::{Level, LevelManager, Sprite, level::level_physics::LevelPhysics},
+    gm::{
+        color::{Color, WHITE},
+        flat::Point,
+    },
+    level::{Level, LevelManager, Light, Sprite, TileMap, level::level_physics::LevelPhysics},
     window::image::Image,
 };
 
@@ -18,7 +21,16 @@ use crate::{
 pub struct LevelBase {
     pub(crate) sprites: Vec<Own<dyn Sprite>>,
 
+    pub(crate) lights:    Vec<Own<Light>>,
+    pub(crate) tile_maps: Vec<Own<TileMap>>,
+
     pub background: Weak<Image>,
+
+    /// The light every sprite gets with no point light near it. White
+    /// draws the level unlit, a dark gray makes a cave that only the
+    /// lights show.
+    #[educe(Default = WHITE)]
+    pub ambient_light: Color,
 
     pub cursor_position: Point,
 
@@ -32,12 +44,13 @@ pub struct LevelBase {
 }
 
 impl LevelBase {
-    /// Physics steps per frame. Rapier's CCD covers a fast body hitting
-    /// a wall, but not a fast kinematic wall sweeping into a slow body,
-    /// that one only stays correct when a step moves the wall less than
-    /// the body is wide. The level sets its kinematic poses once per
-    /// step, so the wall moves in small hops instead of one jump.
-    pub const PHYSICS_SUBSTEPS: usize = 4;
+    /// Physics steps per level step. Rapier's CCD covers a fast body
+    /// hitting a wall, but not a fast kinematic wall sweeping into a slow
+    /// body, that one only stays correct when a step moves the wall less
+    /// than the body is wide. The level sets its kinematic poses once per
+    /// substep, so the wall moves in hops of a 480th of a second at the
+    /// default level step instead of one jump.
+    pub const PHYSICS_SUBSTEPS: usize = 2;
 
     pub fn has_physics(&self) -> bool {
         self.physics.is_some()

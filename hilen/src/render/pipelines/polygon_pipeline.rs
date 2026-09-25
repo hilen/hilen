@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable, cast_slice};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CompareFunction, IndexFormat, PipelineLayoutDescriptor,
-    PrimitiveTopology, RenderPass, RenderPipeline, ShaderStages, include_wgsl,
+    PrimitiveTopology, RenderPass, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
@@ -41,9 +41,18 @@ impl Default for PolygonPipeline {
     fn default() -> Self {
         let device = Window::device();
 
-        let shader = device.create_shader_module(include_wgsl!("shaders/polygon.wgsl"));
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label:  Some("polygon.wgsl"),
+            source: ShaderSource::Wgsl(
+                concat!(
+                    include_str!("shaders/sprite_view.wgsl"),
+                    include_str!("shaders/polygon.wgsl")
+                )
+                .into(),
+            ),
+        });
 
-        let view_layout = make_uniform_layout("polygon_sprite_view_layout", ShaderStages::VERTEX);
+        let view_layout = make_uniform_layout("polygon_sprite_view_layout", ShaderStages::VERTEX_FRAGMENT);
         let polygon_view_layout = make_uniform_layout("polygon_view_layout", ShaderStages::VERTEX_FRAGMENT);
 
         let uniform_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {

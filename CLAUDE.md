@@ -104,6 +104,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no input path yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
+- [docs/level.md](docs/level.md) — the 2D `level` module: the fixed step on the real
+  clock, level and screen points, the mouse, sprite flip, tint and pixel art filter,
+  tile maps and their collision, and the lights. Read before touching `hilen/src/level`,
+  `level_drawer.rs` or the sprite shaders.
 - [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, glb
   models with skins and clips, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
   budget of the mesh shader, scene tests and what is still to come. Read before touching

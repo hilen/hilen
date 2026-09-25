@@ -25,9 +25,15 @@ mod ui_clip_pipeline;
 mod ui_path_pipeline;
 
 #[cfg(feature = "level")]
-const SPRITE_CODE: &str = include_str!("shaders/sprite.wgsl");
+const SPRITE_CODE: &str = concat!(
+    include_str!("shaders/sprite_view.wgsl"),
+    include_str!("shaders/sprite.wgsl")
+);
 #[cfg(feature = "level")]
-const TEXTURED_SPRITE_CODE: &str = include_str!("shaders/sprite_textured.wgsl");
+const TEXTURED_SPRITE_CODE: &str = concat!(
+    include_str!("shaders/sprite_view.wgsl"),
+    include_str!("shaders/sprite_textured.wgsl")
+);
 const UI_CODE: &str = include_str!("shaders/ui_rect.wgsl");
 const UI_IMAGE_CODE: &str = include_str!("shaders/ui_image.wgsl");
 const UI_GRADIENT_CODE: &str = include_str!("shaders/ui_gradient.wgsl");

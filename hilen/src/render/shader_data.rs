@@ -2,21 +2,47 @@ use bytemuck::{Pod, Zeroable};
 use educe::Educe;
 
 #[cfg(feature = "level")]
-use crate::gm::flat::{Point, Size};
+use crate::gm::{
+    color::{Color, WHITE},
+    flat::{Point, Size},
+};
 
+/// Point lights one level frame draws, the size of the uniform array in
+/// `sprite_view.wgsl`.
+#[cfg(feature = "level")]
+pub(crate) const MAX_SPRITE_LIGHTS: usize = 64;
+
+/// One point light as the level shaders read it. `color.a` carries the
+/// intensity.
+#[cfg(feature = "level")]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Zeroable, Pod, PartialEq)]
+pub(crate) struct SpriteLight {
+    pub(crate) color:    Color,
+    pub(crate) position: Point,
+    pub(crate) radius:   f32,
+    pub(crate) falloff:  f32,
+}
+
+/// What every level shader shares in a frame, `sprite_view.wgsl` has the
+/// same struct.
 #[cfg(feature = "level")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
 #[educe(Default)]
 pub struct SpriteView {
-    pub camera_pos:      Point,
+    pub camera_pos:         Point,
     #[educe(Default = (1000, 1000).into())]
-    pub resolution:      Size,
-    pub camera_rotation: f32,
+    pub resolution:         Size,
+    pub camera_rotation:    f32,
     #[educe(Default = 1.0)]
-    pub scale:           f32,
-    #[allow(clippy::pub_underscore_fields)]
-    pub _padding:        u64,
+    pub scale:              f32,
+    pub(crate) light_count: u32,
+    pub(crate) padding:     u32,
+    #[educe(Default = WHITE)]
+    pub(crate) ambient:     Color,
+    #[educe(Default = [SpriteLight::default(); MAX_SPRITE_LIGHTS])]
+    pub(crate) lights:      [SpriteLight; MAX_SPRITE_LIGHTS],
 }
 
 #[cfg(all(test, feature = "level"))]
@@ -27,6 +53,8 @@ mod test {
     fn test() {
         // Web requirements
         assert_eq!(size_of::<SpriteView>() % 16, 0);
+        assert_eq!(size_of::<SpriteLight>(), 32);
+        assert_eq!(size_of::<SpriteView>(), 48 + 32 * MAX_SPRITE_LIGHTS);
     }
 }
 

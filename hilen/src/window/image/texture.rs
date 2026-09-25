@@ -10,7 +10,10 @@ use wgpu::{
 
 use crate::{
     gm::flat::Size,
-    window::{Window, image::Svg},
+    window::{
+        Window,
+        image::{ImageFilter, Svg},
+    },
 };
 
 #[derive(Debug)]
@@ -116,24 +119,33 @@ impl Texture {
 
         let view = texture.create_view(&TextureViewDescriptor::default());
 
-        let sampler = device.create_sampler(&SamplerDescriptor {
+        Self {
+            texture,
+            view,
+            sampler: Self::image_sampler(ImageFilter::Linear),
+            size,
+            channels,
+        }
+    }
+
+    /// The sampler of an image texture. Linear blends the texels a pixel
+    /// falls between, nearest keeps each texel a hard square, what pixel
+    /// art drawn bigger than its bitmap needs.
+    pub(crate) fn image_sampler(filter: ImageFilter) -> Sampler {
+        let (filter, mipmap_filter) = match filter {
+            ImageFilter::Linear => (FilterMode::Linear, MipmapFilterMode::Linear),
+            ImageFilter::Nearest => (FilterMode::Nearest, MipmapFilterMode::Nearest),
+        };
+        Window::device().create_sampler(&SamplerDescriptor {
             label: "texture_sampler".into(),
             address_mode_u: AddressMode::Repeat,
             address_mode_v: AddressMode::Repeat,
             address_mode_w: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mag_filter: filter,
+            min_filter: filter,
+            mipmap_filter,
             ..Default::default()
-        });
-
-        Self {
-            texture,
-            view,
-            sampler,
-            size,
-            channels,
-        }
+        })
     }
 
     /// A blank RGBA texture a pass can draw into and the image pipeline can

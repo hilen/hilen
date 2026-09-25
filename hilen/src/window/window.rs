@@ -649,16 +649,6 @@ impl Window {
             surface.presentable.configure(&window.device, &surface_config_with_size(size));
         }
     }
-
-    #[cfg(feature = "level")]
-    pub(crate) fn display_refresh_rate() -> u32 {
-        let Some(window) = Self::winit_window() else {
-            return 60;
-        };
-        window.current_monitor().map_or(60, |monitor| {
-            monitor.refresh_rate_millihertz().unwrap_or(60_000) / 1000
-        })
-    }
 }
 
 pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceConfiguration {

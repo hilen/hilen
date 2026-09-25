@@ -11,7 +11,7 @@ use winit::{
 use crate::deps::hreads::{is_main_thread, wait_for_next_frame};
 #[cfg(not_wasm)]
 use crate::deps::refs::Own;
-#[cfg(any(desktop, feature = "level"))]
+#[cfg(desktop)]
 use crate::gm::LossyConvert;
 #[cfg(feature = "scene")]
 use crate::scene_drawer::SceneDrawer;
@@ -527,10 +527,6 @@ impl crate::window::WindowEvents for AppRunner {
             });
 
             self.update();
-            #[cfg(feature = "level")]
-            {
-                *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
-            }
 
             crate::window::state::State::resize();
 
@@ -683,6 +679,9 @@ impl crate::window::WindowEvents for AppRunner {
     fn focus_changed(&mut self, focused: bool) {
         if !focused {
             Cursor::release();
+            // The release of a button held while focus left goes to
+            // the other app, it would stay held here for good.
+            crate::ui::Mouse::clear();
         }
     }
 

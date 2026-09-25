@@ -15,8 +15,8 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, LongPress, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents, UIManager,
-        ViewData, ViewFrame, check_touch,
+        Container, Cursor, LongPress, Mouse, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents,
+        UIManager, ViewData, ViewFrame, check_touch,
     },
 };
 
@@ -73,6 +73,9 @@ impl Input {
 
     pub(crate) fn process_touch_event(mut touch: Touch) -> bool {
         UIEvents::on_debug_touch().trigger(touch);
+
+        // Before any view can take the touch, the held state is raw.
+        Mouse::on_touch(&touch);
 
         if UIManager::touch_disabled() && touch.is_began() {
             return false;

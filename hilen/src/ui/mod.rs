@@ -45,7 +45,7 @@ pub use crate::{
     },
     window::{
         Font, PolygonMode, Screenshot,
-        image::{Image, NoImage, Tinted},
+        image::{Image, ImageFilter, NoImage, Tinted},
     },
 };
 

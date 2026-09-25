@@ -2,13 +2,10 @@ use std::{convert::Infallible, path::Path};
 
 use anyhow::Result;
 use log::error;
-#[cfg(feature = "scene")]
-use wgpu::Sampler;
-#[cfg(any(feature = "scene", feature = "video"))]
-use wgpu::TextureView;
 use wgpu::{
     BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingResource, BindingType, SamplerBindingType, ShaderStages, TextureSampleType, TextureViewDimension,
+    BindingResource, BindingType, Sampler, SamplerBindingType, ShaderStages, TextureSampleType, TextureView,
+    TextureViewDimension,
 };
 
 use crate::{
@@ -34,6 +31,7 @@ pub struct Image {
     pub size:     Size<u32>,
     pub channels: u8,
     bind:         ImageBind,
+    filter:       ImageFilter,
     /// Present for an svg, so an `ImageView` can rasterize it at the
     /// exact size it draws. `bind` then holds the old fixed raster that
     /// sprites and levels still draw.
@@ -48,27 +46,46 @@ impl Image {
     }
 
     pub(crate) fn bind_texture(texture: &Texture) -> ImageBind {
+        Self::bind_view(&texture.view, &texture.sampler)
+    }
+
+    fn bind_view(view: &TextureView, sampler: &Sampler) -> ImageBind {
         let bind = Window::device().create_bind_group(&wgpu::BindGroupDescriptor {
             label:   "image_bind_group".into(),
             layout:  Self::uniform_layout(),
             entries: &[
                 BindGroupEntry {
                     binding:  0,
-                    resource: BindingResource::TextureView(&texture.view),
+                    resource: BindingResource::TextureView(view),
                 },
                 BindGroupEntry {
                     binding:  1,
-                    resource: BindingResource::Sampler(&texture.sampler),
+                    resource: BindingResource::Sampler(sampler),
                 },
             ],
         });
         ImageBind {
             bind,
-            #[cfg(any(feature = "scene", feature = "video"))]
-            view: texture.view.clone(),
+            view: view.clone(),
             #[cfg(feature = "scene")]
-            sampler: texture.sampler.clone(),
+            sampler: sampler.clone(),
         }
+    }
+
+    /// How the image samples when drawn at another size than its bitmap,
+    /// for every view and sprite that draws it. Set it once after the
+    /// load, `Nearest` keeps pixel art sharp.
+    pub fn set_filter(&mut self, filter: ImageFilter) {
+        if self.filter == filter {
+            return;
+        }
+        self.filter = filter;
+        let view = self.bind.view.clone();
+        self.bind = Self::bind_view(&view, &Texture::image_sampler(filter));
+    }
+
+    pub fn filter(&self) -> ImageFilter {
+        self.filter
     }
 
     fn from_texture(texture: &Texture, svg: Option<Svg>) -> Self {
@@ -76,6 +93,7 @@ impl Image {
             size: texture.size,
             channels: texture.channels,
             bind: Self::bind_texture(texture),
+            filter: ImageFilter::Linear,
             svg,
         }
     }
@@ -200,4 +218,12 @@ impl Image {
             })
         })
     }
+}
+
+/// How an image samples between its texels, see `Image::set_filter`.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum ImageFilter {
+    #[default]
+    Linear,
+    Nearest,
 }

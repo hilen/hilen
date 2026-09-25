@@ -6,7 +6,7 @@ use crate::{
     deps::{refs::Weak, vents::Event},
     gm::{
         LossyConvert,
-        color::Color,
+        color::{Color, WHITE},
         flat::{Point, PointsPath, Shape, Size},
     },
     level::Sprite,
@@ -31,6 +31,13 @@ pub struct SpriteData {
 
     #[educe(Default = Color::random())]
     pub color: Color,
+
+    /// Multiplies every texel of the image, white draws it as it is.
+    #[educe(Default = WHITE)]
+    pub tint: Color,
+
+    /// Mirrors the image, the body and its collider stay as they are.
+    pub flip: Flip,
 
     #[educe(Default = 0.85)]
     pub z_position: f32,
@@ -91,4 +98,12 @@ impl SpriteData {
             }
         }
     }
+}
+
+/// Which ways a sprite's image is mirrored, `x` left to right and `y`
+/// top to bottom.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct Flip {
+    pub x: bool,
+    pub y: bool,
 }

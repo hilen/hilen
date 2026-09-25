@@ -3,8 +3,10 @@ mod event_handler;
 mod level;
 mod level_manager;
 mod level_test;
+mod light;
 mod sets;
 mod sprite_data;
+mod tile_map;
 mod to_collider;
 mod units;
 
@@ -16,7 +18,9 @@ pub use self::{
     level::{Level, LevelBase, LevelCreation, LevelInternal, LevelSetup, LevelTemplates},
     level_manager::LevelManager,
     level_test::{LevelRegistrable, LevelTest, LevelTestView, MaybeLevelTest, register_if_level_test},
-    sprite_data::SpriteData,
+    light::Light,
+    sprite_data::{Flip, SpriteData},
+    tile_map::{BoxMove, TileId, TileKind, TileMap},
     to_collider::ToCollider,
     units::*,
 };

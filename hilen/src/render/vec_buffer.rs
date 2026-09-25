@@ -58,6 +58,12 @@ impl<T> VecBuffer<T> {
         self.data.is_empty()
     }
 
+    /// The elements pushed since the last `load()`.
+    #[cfg(feature = "level")]
+    pub(crate) fn queued(&self) -> &[T] {
+        &self.data
+    }
+
     /// Elements pushed since the last `load()`, the index the next push
     /// lands at.
     #[cfg(feature = "scene")]
