@@ -262,6 +262,7 @@ impl InspectService {
             }
             #[cfg(not(desktop))]
             UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
+            UIRequest::Hold { keys, ms } => Self::hold(keys, ms),
             UIRequest::Keys { keys, modifiers } => {
                 // The modifiers hold only for this one request and release
                 // right after it, so a Cmd from an inspect request can never
@@ -355,6 +356,12 @@ impl InspectService {
                 center.y,
                 window.width,
                 window.height,
+            ));
+        }
+        if !view.contains_visible(center) {
+            return Err(format!(
+                "View {} center is cut off by a scroll view. Scroll it into view first.",
+                view.label()
             ));
         }
 

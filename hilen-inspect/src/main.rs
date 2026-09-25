@@ -20,6 +20,7 @@ use hilen::{
     },
     refs::{Own, hreads::set_current_thread_as_main},
     ui::{ModifiersState, NamedKey},
+    window::KeyCode,
 };
 use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
 use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
@@ -62,6 +63,24 @@ async fn main() -> Result<()> {
     run(&client, cli.command).await
 }
 
+/// The window space area a view can show in: the window cut down by every
+/// ancestor that clips its subviews. `scroller` is the innermost of those
+/// ancestors, the view a wheel scroll aims at to move this one into sight.
+#[derive(Clone, Copy)]
+struct Clip<'tree> {
+    left:     f32,
+    top:      f32,
+    right:    f32,
+    bottom:   f32,
+    scroller: Option<&'tree str>,
+}
+
+impl Clip<'_> {
+    fn center_y(&self) -> f32 {
+        f32::midpoint(self.top, self.bottom)
+    }
+}
+
 /// A view with its window space origin and effective visibility. Frames in
 /// the tree are local to the parent, locating walks them down.
 struct Located<'tree> {
@@ -69,21 +88,27 @@ struct Located<'tree> {
     x:      f32,
     y:      f32,
     hidden: bool,
+    clip:   Clip<'tree>,
 }
 
 impl Located<'_> {
-    fn status(&self, window: (f32, f32)) -> &'static str {
+    fn status(&self) -> &'static str {
         if self.hidden {
             return "hidden";
         }
         let size = self.view.frame.size;
-        if self.x + size.width < 0.0 || self.y + size.height < 0.0 || self.x > window.0 || self.y > window.1 {
+        let clip = self.clip;
+        if self.x + size.width <= clip.left
+            || self.y + size.height <= clip.top
+            || self.x >= clip.right
+            || self.y >= clip.bottom
+        {
             return "offscreen";
         }
         "visible"
     }
 
-    fn line(&self, window: (f32, f32)) -> String {
+    fn line(&self) -> String {
         format!(
             "{}{}  [{}, {}] {}x{}  {}  {}",
             self.view.label,
@@ -92,27 +117,56 @@ impl Located<'_> {
             self.y,
             self.view.frame.size.width,
             self.view.frame.size.height,
-            self.status(window),
+            self.status(),
             self.view.id,
         )
     }
 }
 
-fn locate<'tree>(view: &'tree ViewRepr, x: f32, y: f32, hidden: bool, out: &mut Vec<Located<'tree>>) {
+fn locate<'tree>(
+    view: &'tree ViewRepr,
+    (x, y): (f32, f32),
+    hidden: bool,
+    clip: Clip<'tree>,
+    out: &mut Vec<Located<'tree>>,
+) {
     let x = x + view.frame.origin.x;
     let y = y + view.frame.origin.y + view.content_offset;
     let hidden = hidden || view.hidden;
-    out.push(Located { view, x, y, hidden });
+    out.push(Located {
+        view,
+        x,
+        y,
+        hidden,
+        clip,
+    });
+    let inner = if view.clips {
+        Clip {
+            left:     clip.left.max(x),
+            top:      clip.top.max(y),
+            right:    clip.right.min(x + view.frame.size.width),
+            bottom:   clip.bottom.min(y + view.frame.size.height),
+            scroller: Some(&view.id),
+        }
+    } else {
+        clip
+    };
     for sub in &view.subviews {
-        locate(sub, x, y, hidden, out);
+        locate(sub, (x, y), hidden, inner, out);
     }
 }
 
-fn located_tree(root: &ViewRepr) -> ((f32, f32), Vec<Located<'_>>) {
-    let window = (root.frame.size.width, root.frame.size.height);
+fn located_tree(root: &ViewRepr) -> Vec<Located<'_>> {
+    let window = Clip {
+        left:     0.0,
+        top:      0.0,
+        right:    root.frame.size.width,
+        bottom:   root.frame.size.height,
+        scroller: None,
+    };
     let mut located = vec![];
-    locate(root, 0.0, 0.0, false, &mut located);
-    (window, located)
+    locate(root, (0.0, 0.0), false, window, &mut located);
+    located
 }
 
 fn matches_loosely(view: &ViewRepr, query: &str) -> bool {
@@ -124,18 +178,18 @@ fn matches_loosely(view: &ViewRepr, query: &str) -> bool {
 
 async fn find(client: &Client, query: &str, all: bool) -> Result<()> {
     let (_, root) = get_ui(client).await?;
-    let (window, located) = located_tree(&root);
+    let located = located_tree(&root);
 
     let mut shown = 0;
     for item in &located {
         if !matches_loosely(item.view, query) {
             continue;
         }
-        if !all && item.status(window) != "visible" {
+        if !all && item.status() != "visible" {
             continue;
         }
         shown += 1;
-        println!("{}", item.line(window));
+        println!("{}", item.line());
     }
 
     if shown == 0 {
@@ -156,13 +210,13 @@ async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
 
     loop {
         let (_, root) = get_ui(client).await?;
-        let (window, located) = located_tree(&root);
+        let located = located_tree(&root);
 
         if let Some(item) = located
             .iter()
-            .find(|item| matches_loosely(item.view, query) && item.status(window) == "visible")
+            .find(|item| matches_loosely(item.view, query) && item.status() == "visible")
         {
-            println!("{}", item.line(window));
+            println!("{}", item.line());
             return Ok(());
         }
 
@@ -192,12 +246,14 @@ async fn scroll(client: &Client, dy: f32, at: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Repeats window sized scroll steps until the view's center is inside
-/// the window. Fuzzy matching, the target is often known only by text.
+/// Repeats scroll steps until the view's center is inside the area it can
+/// show in, aimed at the scroll view that clips it, or at the window
+/// center when nothing clips it. Fuzzy matching, the target is often known only
+/// by text.
 async fn scroll_to(client: &Client, query: &str) -> Result<()> {
     for _ in 0..16 {
         let (_, root) = get_ui(client).await?;
-        let (window, located) = located_tree(&root);
+        let located = located_tree(&root);
         // Loose matching and the first hit, an ambiguous query is fine
         // here, any of the matches leads the scroll to the same place.
         let Some(item) = located.iter().find(|item| !item.hidden && matches_loosely(item.view, query)) else {
@@ -205,17 +261,18 @@ async fn scroll_to(client: &Client, query: &str) -> Result<()> {
         };
 
         let center = item.y + item.view.frame.size.height / 2.0;
-        if center > 0.0 && center < window.1 && !item.hidden {
-            println!("{}", item.line(window));
+        let clip = item.clip;
+        if center > clip.top && center < clip.bottom {
+            println!("{}", item.line());
             return Ok(());
         }
 
         send(
             client,
             UIRequest::Scroll {
-                view_id: None,
+                view_id: clip.scroller.map(str::to_string),
                 dx:      0.0,
-                dy:      window.1 / 2.0 - center,
+                dy:      clip.center_y() - center,
             }
             .into(),
         )
@@ -242,7 +299,7 @@ fn type_name(view: &ViewRepr) -> &str {
 /// exact text, preferring the same row. Reaches controls with no text of
 /// their own, like the open button on a list card.
 fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -> Result<&'tree ViewRepr> {
-    let (window, located) = located_tree(root);
+    let located = located_tree(root);
     let lowercase = anchor.to_lowercase();
 
     // An exact id works as the anchor too, it is the way out when several
@@ -251,7 +308,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
         .iter()
         .filter(|item| {
             item.view.id == anchor
-                || (item.status(window) == "visible"
+                || (item.status() == "visible"
                     && item.view.text.as_ref().is_some_and(|text| text.to_lowercase() == lowercase))
         })
         .collect();
@@ -260,7 +317,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
         [] => bail!("No visible view has the exact text: {anchor}"),
         [only] => only,
         candidates => {
-            let listed: Vec<String> = candidates.iter().map(|item| item.line(window)).collect();
+            let listed: Vec<String> = candidates.iter().map(|item| item.line()).collect();
             bail!("Ambiguous anchor: {anchor}\n{}", listed.join("\n"));
         }
     };
@@ -273,7 +330,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
     let nearest = located
         .iter()
         .filter(|item| {
-            item.status(window) == "visible"
+            item.status() == "visible"
                 && item.view.id != anchor_item.view.id
                 && type_name(item.view).eq_ignore_ascii_case(wanted_type)
         })
@@ -330,6 +387,30 @@ async fn keys(
     println!("ok");
 
     Ok(())
+}
+
+async fn hold(client: &Client, names: &[String], ms: u32) -> Result<()> {
+    let keys = names.iter().map(|name| parse_key_code(name)).collect::<Result<Vec<_>>>()?;
+    send(client, UIRequest::Hold { keys, ms }.into()).await?;
+    println!("ok");
+    Ok(())
+}
+
+/// `w` is `KeyW` and `1` is `Digit1`, the rest go through the serde
+/// form of `KeyCode`, the plain variant name.
+fn parse_key_code(name: &str) -> Result<KeyCode> {
+    let mut chars = name.chars();
+    let full = match (chars.next(), chars.next()) {
+        (Some(ch), None) if ch.is_ascii_alphabetic() => format!("Key{}", ch.to_ascii_uppercase()),
+        (Some(ch), None) if ch.is_ascii_digit() => format!("Digit{ch}"),
+        _ => name.to_string(),
+    };
+    match from_value(Value::String(full)) {
+        Ok(code) => Ok(code),
+        Err(_) => {
+            bail!("Unknown key: {name}. Use a letter, a digit or a winit KeyCode name like Space or ArrowUp")
+        }
+    }
 }
 
 /// `NamedKey` has no `FromStr`, its serde form is the plain variant name,
@@ -741,7 +822,53 @@ fn resolve(apps: &HashMap<String, SocketAddr>, app: Option<String>) -> Result<So
 
 #[cfg(test)]
 mod tests {
-    use super::{Freshness, freshness};
+    use hilen::{
+        inspect::ViewRepr,
+        refs::{Own, hreads::set_current_thread_as_main},
+        window::KeyCode,
+    };
+
+    use super::{Freshness, freshness, located_tree, parse_key_code};
+
+    fn view(
+        id: &str,
+        frame: (f32, f32, f32, f32),
+        clips: bool,
+        subviews: Vec<Own<ViewRepr>>,
+    ) -> Own<ViewRepr> {
+        Own::new(ViewRepr {
+            id: id.into(),
+            frame: frame.into(),
+            clips,
+            subviews,
+            ..ViewRepr::default()
+        })
+    }
+
+    /// The sidebar Dev item sat below the end of its scroll view and was
+    /// reported visible, so a tap on it pressed the view drawn there.
+    #[test]
+    fn a_row_cut_off_by_its_scroll_view_is_offscreen() {
+        set_current_thread_as_main();
+        let rows = view(
+            "rows",
+            (0.0, 0.0, 200.0, 600.0),
+            false,
+            vec![
+                view("shown", (0.0, 100.0, 200.0, 40.0), false, vec![]),
+                view("cut", (0.0, 480.0, 200.0, 40.0), false, vec![]),
+            ],
+        );
+        let scroll = view("scroll", (0.0, 70.0, 200.0, 390.0), true, vec![rows]);
+        let root = view("root", (0.0, 0.0, 800.0, 600.0), false, vec![scroll]);
+
+        let located = located_tree(&root);
+        let status = |id: &str| located.iter().find(|item| item.view.id == id).unwrap().status();
+        assert_eq!(status("shown"), "visible");
+        assert_eq!(status("cut"), "offscreen");
+        let cut = located.iter().find(|item| item.view.id == "cut").unwrap();
+        assert_eq!(cut.clip.scroller, Some("scroll"));
+    }
 
     #[test]
     fn current_when_engine_was_built_after_source() {
@@ -759,5 +886,15 @@ mod tests {
     #[test]
     fn ambiguous_when_app_started_after_source_but_engine_is_older() {
         assert_eq!(freshness(100, 300, 220), Freshness::EngineOlder { seconds: 120 });
+    }
+
+    #[test]
+    fn key_names_map_to_physical_keys() {
+        assert_eq!(parse_key_code("w").unwrap(), KeyCode::KeyW);
+        assert_eq!(parse_key_code("W").unwrap(), KeyCode::KeyW);
+        assert_eq!(parse_key_code("1").unwrap(), KeyCode::Digit1);
+        assert_eq!(parse_key_code("Space").unwrap(), KeyCode::Space);
+        assert_eq!(parse_key_code("ArrowUp").unwrap(), KeyCode::ArrowUp);
+        assert!(parse_key_code("Foo").is_err());
     }
 }

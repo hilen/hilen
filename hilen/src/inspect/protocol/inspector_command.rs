@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     gm::color::Color,
     ui::{ModifiersState, NamedKey},
+    window::KeyCode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +64,12 @@ pub enum UIRequest {
     Keys {
         keys:      Vec<Key>,
         modifiers: ModifiersState,
+    },
+    /// Holds physical keys down for `ms`, as `Keys::held` reads them,
+    /// then releases them. For input read every frame, like walking.
+    Hold {
+        keys: Vec<KeyCode>,
+        ms:   u32,
     },
     /// A left drag from one window point to another: began, moved steps
     /// and ended through the real input pipeline. Window coordinates in

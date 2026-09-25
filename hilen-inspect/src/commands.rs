@@ -10,8 +10,8 @@ use hilen::{
 use serde_json::{json, to_string_pretty};
 
 use super::{
-    build_time, drag, find, find_matches, get_ui, keys, print_edited, print_tree, quoted_text, resolve_near,
-    resolve_target, run_tests, screenshot, scroll, scroll_to, send, wait,
+    build_time, drag, find, find_matches, get_ui, hold, keys, print_edited, print_tree, quoted_text,
+    resolve_near, resolve_target, run_tests, screenshot, scroll, scroll_to, send, wait,
 };
 
 #[derive(Subcommand)]
@@ -140,6 +140,16 @@ pub(super) enum Command {
     ScrollTo { query: String },
     /// Resize the window, in points
     Resize { width: f32, height: f32 },
+    /// Hold physical keys down for a while, then release them, for input
+    /// read every frame like walking. A single letter or digit names its
+    /// key, anything else is a winit `KeyCode` name like Space or `ArrowUp`
+    Hold {
+        #[arg(required = true)]
+        keys: Vec<String>,
+        /// Milliseconds to hold
+        #[arg(long, default_value_t = 500, value_parser = clap::value_parser!(u32).range(1..=60_000))]
+        ms:   u32,
+    },
     /// Type text or press one named key, with modifiers held only for that
     /// input. Keys go where a real keyboard would send them, the focused text
     /// field and the app keymap.
@@ -239,6 +249,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             send(client, UIRequest::Resize { width, height }.into()).await?;
             println!("ok");
         }
+        Command::Hold { keys, ms } => hold(client, &keys, ms).await?,
         Command::Keys {
             text,
             key,

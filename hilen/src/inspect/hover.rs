@@ -1,17 +1,20 @@
-use std::sync::mpsc::channel;
-
 use crate::{
-    deps::hreads::{after, from_main},
-    gm::{LossyConvert, flat::Point},
-    inspect::{AppCommand, InspectService, inspect_service::find_view, weak_to_id},
+    deps::hreads::from_main,
+    gm::flat::Point,
+    inspect::{
+        AppCommand, InspectService,
+        inspect_service::find_view,
+        wait::{MAX_WAIT_MS, wait_ms},
+        weak_to_id,
+    },
     ui::{Hover, Input, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
     window::MouseButton,
 };
 
 impl InspectService {
-    pub(super) fn hover(view_id: Option<String>, wait_ms: u32) -> AppCommand {
-        if wait_ms > 60_000 {
-            return AppCommand::Error("Hover wait must be at most 60000 milliseconds".into());
+    pub(super) fn hover(view_id: Option<String>, wait: u32) -> AppCommand {
+        if wait > MAX_WAIT_MS {
+            return AppCommand::Error(format!("Hover wait must be at most {MAX_WAIT_MS} milliseconds"));
         }
         let result = from_main(move || {
             let position = if let Some(id) = &view_id {
@@ -24,6 +27,12 @@ impl InspectService {
                 if center.x < 0.0 || center.y < 0.0 || center.x > window.width || center.y > window.height {
                     return Err(format!(
                         "View {} center is outside the window. Scroll it into view first.",
+                        view.label()
+                    ));
+                }
+                if !view.contains_visible(center) {
+                    return Err(format!(
+                        "View {} center is cut off by a scroll view. Scroll it into view first.",
                         view.label()
                     ));
                 }
@@ -50,17 +59,10 @@ impl InspectService {
             return AppCommand::Error(error);
         }
 
-        if wait_ms > 0 {
-            let (send, recv) = channel();
-            from_main(move || {
-                let delay: f32 = wait_ms.lossy_convert();
-                after(delay / 1000.0, move || {
-                    send.send(()).expect("Hover wait receiver is gone");
-                });
-            });
-            if let Err(error) = recv.recv() {
-                return AppCommand::Error(format!("Hover wait failed: {error}"));
-            }
+        if wait > 0
+            && let Err(error) = wait_ms(wait)
+        {
+            return AppCommand::Error(format!("Hover {error}"));
         }
         let note = from_main(|| {
             let hovered = Hover::hovered();

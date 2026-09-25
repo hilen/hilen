@@ -23,7 +23,7 @@ Two clients exist:
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
-  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `drag`, `scroll`, `scroll-to`,
+  `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
@@ -35,8 +35,8 @@ view id, exact visible text, then exact label field name like `save_button` or
 and text substring rungs run only with `--fuzzy`, so a short query cannot land on an
 unrelated view. One match taps, several list the candidates and error. Hidden views and
 their subtrees never match a query, only an exact id reaches them, and the app refuses to
-tap a hidden view. The app also refuses a view whose center is outside the window instead
-of pretending the tap landed, and the reply carries a warning when another view sits over
+tap a hidden view. The app also refuses a view whose center is outside the window or cut
+off by a scroll view instead of pretending the tap landed, and the reply carries a warning when another view sits over
 the tap point. `tap --near <anchor> [--type Button]` taps the view of that type nearest
 to the anchor's row, which reaches unnamed controls like the textless open button on a
 list card. The anchor is an exact text or a view id. Dropdowns work like a human drives
@@ -53,12 +53,14 @@ Hover works on desktop and web; touch-only platforms return an error.
 
 `find <query>` prints one line per match, id, label and text substrings, with window
 space coordinates and a `visible`, `hidden` or `offscreen` status, `--all` includes the
-last two. `wait <query> [--timeout]` polls until a visible view matches. `drag <from_x>
+last two. A view outside every parent that clips its subviews, a row scrolled out of a
+list, is `offscreen` even inside the window. `wait <query> [--timeout]` polls until a visible view matches. `drag <from_x>
 <from_y> <to_x> <to_y> [--steps N]` holds the left button from one window point to
 another through the real input pipeline, for drag driven behavior like selecting text.
 `scroll <dy>
 [--at view]` injects a wheel scroll at the window center or a view's center, `scroll-to
-<query>` repeats window sized steps until the target is on screen. `resize <w> <h>`
+<query>` scrolls the list that clips the target, or the window with none, until the
+target is inside it. `resize <w> <h>`
 resizes the window in points, desktop only. Frames in the tree are local to the parent
 and do not include scrolling, absolute positions add `content_offset` down the tree,
 which `find`, `wait` and `scroll-to` already do.
@@ -69,17 +71,22 @@ which `find`, `wait` and `scroll-to` already do.
 and the next call types into it with nothing held. Keys go where a real keyboard sends
 them, the focused text field and the app keymap.
 
+`hold <keys>... [--ms 500]` holds physical keys down for a while, then releases them, for
+input read every frame through `Keys::held` like a walking player. `keys` presses and
+releases in one frame, so `Keys::held` never sees it. A letter or digit names its key,
+anything else is a winit `KeyCode` name like `Space` or `ArrowUp`.
+
 ## Protocol
 
 Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 (`transport.rs`), request in, response out:
 
 - `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames, scroll content offsets,
-    colors, texts, hidden flags and placer rules.
+    colors, texts, hidden flags, whether a view clips its subviews and placer rules.
 - `SetScale(f32)` — applies the scale on the main thread.
 - `Tap { view_id }` — injects a touch began plus ended at the view's center through the
   real input pipeline, exactly like a click. Refuses hidden views and views whose center
-  is outside the window, a tap there lands nowhere while looking like a success. Replies
+  is outside the window or cut off by a scroll view, a tap there lands nowhere while looking like a success. Replies
   with a fresh tree one frame later, so a page swap or a modal the tap triggered is
   already in it, plus an optional `note` naming the view sitting over the tap point when
   frame containment says the touch may land elsewhere, transparent empty overlays
@@ -97,6 +104,8 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   points the winit key handler uses, so a named key also fires its text char like a real
   key. The modifiers hold for this request only and reset to empty after it, a stuck Cmd
   can never leak into later input. Replies with a fresh tree one frame later.
+- `Hold { keys, ms }` — sets the `KeyCode`s held in `Keys`, waits `ms` on the engine
+  timer so frames keep running, then releases them. Replies with a fresh tree.
 - `EditRule { view_id, rule_index, offset, enabled }` — edits a placer rule of the live
   view. Offset applies to Side and Anchor rules and edits the ratio of Relative rules.
 - `SetText { view_id, text }` — sets the text of a live `Label`, `Button` or `TextField`.

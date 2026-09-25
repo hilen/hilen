@@ -3,10 +3,12 @@
 pub mod protocol;
 
 mod edit_log;
+mod hold;
 #[cfg(any(desktop, wasm))]
 mod hover;
 mod inspect_service;
 mod view_conversion;
+mod wait;
 #[cfg(wasm)]
 pub(crate) mod web_transport;
 
