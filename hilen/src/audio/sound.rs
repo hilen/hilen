@@ -6,7 +6,10 @@ use std::{
 
 use kira::{
     Decibels, Tween,
-    sound::static_sound::{StaticSoundData, StaticSoundHandle},
+    sound::{
+        FromFileError,
+        static_sound::{StaticSoundData, StaticSoundHandle},
+    },
 };
 use log::error;
 
@@ -90,17 +93,25 @@ impl ResourceLoader for Sound {
         Self::load_data(&data, path.display())
     }
 
+    /// A file kira cannot decode, like quad audio, gets the default sound, the
+    /// same as a missing file. A panic here stopped a game the first time such
+    /// a sound played.
     fn load_data(data: &[u8], name: impl ToString) -> Self {
-        let buffer = data.to_vec();
-
-        let data = StaticSoundData::from_media_source(Cursor::new(buffer))
-            .expect("StaticSoundData::from_media_source(Cursor::new(buffer))");
+        let name = name.to_string();
+        let data = decode(data).unwrap_or_else(|err| {
+            error!("Failed to decode sound {name}: {err}. Returning default sound");
+            decode(DEFAULT_SOUND_DATA).expect("the default sound decodes")
+        });
 
         Self {
-            path: name.to_string().into(),
+            path: name.into(),
             data,
         }
     }
+}
+
+fn decode(data: &[u8]) -> Result<StaticSoundData, FromFileError> {
+    StaticSoundData::from_media_source(Cursor::new(data.to_vec()))
 }
 
 impl Debug for Sound {
@@ -120,5 +131,13 @@ mod test {
         assert_eq!(decibels(0.0), Decibels::SILENCE);
         assert_eq!(decibels(0.000_01), Decibels::SILENCE);
         assert!((decibels(0.5).as_amplitude() - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn undecodable_data_gets_the_default_sound() {
+        let sound = Sound::load_data(b"not a sound", "broken.ogg");
+        let default = decode(DEFAULT_SOUND_DATA).expect("the default sound decodes");
+        assert_eq!(sound.path, PathBuf::from("broken.ogg"));
+        assert_eq!(sound.data.frames.len(), default.frames.len());
     }
 }
