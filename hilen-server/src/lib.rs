@@ -2,6 +2,7 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod helpers;
+pub mod prometheus;
 pub mod tracing_init;
 pub mod web;
 
@@ -11,6 +12,8 @@ pub use error::AppError;
 pub use helpers::{
     base_routes, bind, build_db, build_redis, download_mount, serve, serve_listener, serve_on,
 };
+pub use metrics;
+pub use prometheus::{install_metrics, metrics_mount};
 pub use redis;
 pub use rust_embed;
 pub use sqlx;

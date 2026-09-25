@@ -20,7 +20,11 @@ base routes and helpers over axum, sqlx and redis. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
 page requests at a running `trunk serve` for the dev loop. Its `auth` module is
-the server half of the Google login, see [docs/login.md](docs/login.md). It never
+the server half of the Google login, see [docs/login.md](docs/login.md). Its
+`prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
+the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
+route behind a Bearer token, since a stack with a public host has only one port
+to share. It never
 links the `hilen` UI crate, a backend and a client only share the wire.
 
 The UI tests are their own crate, `ui-test-suite`, so `demo` can link it and carry

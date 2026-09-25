@@ -278,7 +278,8 @@ lower one wins, so a canvas has to clear both.
 
 Width and height must fit the smallest supported screen, 640 by 1136 on an iPhone 5S,
 or the test cannot run on device. Height must also fit the desktop render surface,
-which is `App::initial_size`, 1200 by 1000 by default and not overridden by `ui-test`.
+which is the `initial_size` of the test runner app, 1200 by 1000, set in `ActorApp` in
+`hilen/src/app_runner.rs`.
 So the real ceiling is 640 by 1000, and 1136 is unreachable on desktop.
 
 Going over is silent, not loud. Nothing below 1000 renders, and the probe recorder

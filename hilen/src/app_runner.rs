@@ -256,6 +256,12 @@ impl AppRunner {
             fn make_root_view(&self) -> Own<dyn View> {
                 crate::ui::Container::new()
             }
+
+            // The test surface, pinned here and not taken from the app
+            // default, a bigger surface makes every frame read slower.
+            fn initial_size(&self) -> crate::gm::flat::Size {
+                (1200, 1000).into()
+            }
         }
 
         WINDOW_READY.lock().sub(|| {

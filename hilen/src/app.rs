@@ -36,8 +36,9 @@ pub trait App {
     /// The size of a fresh desktop window and of the headless surface, in
     /// physical pixels. A 2x display opens the window at half as many
     /// points, and a display too small for it shrinks the window to fit.
+    /// The default is 1200 by 900 points on a 2x display.
     fn initial_size(&self) -> Size {
-        (1200, 1000).into()
+        (2400, 1800).into()
     }
 
     /// A saved desktop window placement to restore at launch instead of

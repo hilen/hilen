@@ -106,6 +106,8 @@ lyon = "1.0"
 machine-uid = "0.6"
 mdns-sd = "0.20"
 memmap2 = "0.9"
+metrics = { version = "0.24", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 mime_guess = "2.0"
 ndk-context = "0.1"
 noise = "0.9"
