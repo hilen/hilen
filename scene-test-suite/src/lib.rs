@@ -33,6 +33,7 @@ mod day_and_night;
 mod drop_balls;
 mod fog;
 mod geometry;
+mod glow;
 mod lights;
 mod materials;
 mod models;

@@ -19,6 +19,13 @@ use crate::{
 /// short of it.
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.05;
 
+/// The keys that walk a player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalkKeys {
+    WasdAndArrows,
+    WasdOnly,
+}
+
 /// A player. A capsule the rapier character controller walks over the
 /// scene's colliders, with gravity, small steps, a jump and a push on the
 /// bodies it walks into. The scene camera looks out of its eyes, or with
@@ -45,6 +52,9 @@ pub struct Player {
     /// Reads the keyboard every step. Off for a scene that moves the
     /// player itself.
     pub keyboard:     bool,
+    /// Which keys walk. A game that gives the arrows another job walks on
+    /// `w` `a` `s` `d` only.
+    pub walk_keys:    WalkKeys,
     /// Turns with the captured mouse every step, see `Cursor`. Off for
     /// a scene that turns the player itself.
     pub mouse:        bool,
@@ -92,6 +102,7 @@ impl Player {
             eye_height: half_height + radius - 0.15,
             mass: 70.0,
             keyboard: true,
+            walk_keys: WalkKeys::WasdAndArrows,
             mouse: true,
             look_speed: 0.002,
             third_person: None,
@@ -158,8 +169,13 @@ impl Player {
         if !self.keyboard {
             return (Vec3::ZERO, false);
         }
+        let arrows = self.walk_keys == WalkKeys::WasdAndArrows;
         let axis = |negative: [KeyCode; 2], positive: [KeyCode; 2]| {
-            let held = |keys: [KeyCode; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
+            // The second key of each pair is the arrow.
+            let held = |keys: [KeyCode; 2]| {
+                let held = Keys::held(keys[0]) || (arrows && Keys::held(keys[1]));
+                f32::from(u8::from(held))
+            };
             held(positive) - held(negative)
         };
         let forward = axis(
@@ -233,9 +249,8 @@ impl Player {
 mod test {
     use super::*;
 
-    #[test]
-    fn direction_follows_yaw_and_pitch() {
-        let mut player = Player {
+    fn test_player() -> Player {
+        Player {
             body:         RigidBodyHandle::invalid(),
             collider:     ColliderHandle::invalid(),
             controller:   KinematicCharacterController::default(),
@@ -246,17 +261,42 @@ mod test {
             eye_height:   0.7,
             mass:         70.0,
             keyboard:     false,
+            walk_keys:    WalkKeys::WasdAndArrows,
             mouse:        false,
             look_speed:   0.002,
             third_person: None,
             vertical:     0.0,
             grounded:     false,
-        };
+        }
+    }
+
+    #[test]
+    fn direction_follows_yaw_and_pitch() {
+        let mut player = test_player();
         assert!((player.direction() - Vec3::NEG_Z).length() < 1e-6);
         player.look(FRAC_PI_2, 0.0);
         assert!((player.direction() - Vec3::X).length() < 1e-6);
         player.look(0.0, 10.0);
         assert!(player.direction().y < 1.0 && player.direction().y > 0.99);
         assert!((player.right() - Vec3::Z).length() < 1e-6);
+    }
+
+    #[test]
+    fn the_arrows_walk_only_while_allowed() {
+        let player = Player {
+            keyboard: true,
+            ..test_player()
+        };
+        Keys::set(KeyCode::ArrowUp, true);
+        let walks = player.wish().0.length() > 0.5;
+        let blocked = Player {
+            walk_keys: WalkKeys::WasdOnly,
+            ..player
+        }
+        .wish()
+        .0;
+        Keys::set(KeyCode::ArrowUp, false);
+        assert!(walks);
+        assert_eq!(blocked, Vec3::ZERO);
     }
 }

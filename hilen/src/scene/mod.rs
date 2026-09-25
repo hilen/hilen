@@ -36,7 +36,7 @@ pub use self::{
     node_data::NodeData,
     nodes::*,
     playback::Playback,
-    player::Player,
+    player::{Player, WalkKeys},
     scene::{QueryHit, Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates},
     scene_manager::SceneManager,
     scene_test::{MaybeSceneTest, SceneRegistrable, SceneTest, SceneTestView, register_if_scene_test},

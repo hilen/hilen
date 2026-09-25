@@ -4,7 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use kira::sound::static_sound::StaticSoundData;
+use kira::{
+    Decibels, Tween,
+    sound::static_sound::{StaticSoundData, StaticSoundHandle},
+};
 use log::error;
 
 use crate::{
@@ -18,10 +21,57 @@ pub struct Sound {
 
 impl Sound {
     pub fn play(&mut self) {
-        audio_manager().play(self.data.clone()).expect("Failed to play sound");
+        self.play_with_volume(1.0);
+    }
+
+    /// Plays once at `volume`, 1 as recorded and 0 silent, a linear
+    /// amplitude like a mixer fader.
+    pub fn play_with_volume(&mut self, volume: f32) {
+        audio_manager()
+            .play(self.data.volume(decibels(volume)))
+            .expect("Failed to play sound");
+    }
+
+    /// Plays over and over at `volume` until the returned `Playing` is
+    /// stopped or dropped, the way a campfire or a river sounds.
+    pub fn play_looped(&mut self, volume: f32) -> Playing {
+        let data = self.data.volume(decibels(volume)).loop_region(..);
+        let handle = audio_manager().play(data).expect("Failed to play sound");
+        Playing { handle }
     }
 }
 
+/// A sound that plays until it is stopped, see `Sound::play_looped`.
+/// Dropping it stops it.
+pub struct Playing {
+    handle: StaticSoundHandle,
+}
+
+impl Playing {
+    /// Changes the volume at once, 1 as recorded and 0 silent. A game
+    /// fades a sound with distance this way.
+    pub fn set_volume(&mut self, volume: f32) {
+        self.handle.set_volume(decibels(volume), Tween::default());
+    }
+
+    pub fn stop(&mut self) {
+        self.handle.stop(Tween::default());
+    }
+}
+
+impl Drop for Playing {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// A linear volume as kira's decibels. Kira treats -60 as silence.
+fn decibels(volume: f32) -> Decibels {
+    if volume <= 0.001 {
+        return Decibels::SILENCE;
+    }
+    Decibels((20.0 * volume.log10()).max(Decibels::SILENCE.0))
+}
 static DEFAULT_SOUND_DATA: &[u8] = include_bytes!("pek.wav");
 
 impl ResourceLoader for Sound {
@@ -56,5 +106,19 @@ impl ResourceLoader for Sound {
 impl Debug for Sound {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.path.fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn volume_maps_to_decibels() {
+        assert_eq!(decibels(1.0), Decibels::IDENTITY);
+        assert!((decibels(0.5).0 + 6.02).abs() < 0.01);
+        assert_eq!(decibels(0.0), Decibels::SILENCE);
+        assert_eq!(decibels(0.000_01), Decibels::SILENCE);
+        assert!((decibels(0.5).as_amplitude() - 0.5).abs() < 1e-4);
     }
 }

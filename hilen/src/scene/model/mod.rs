@@ -107,6 +107,7 @@ impl Model {
                     texture:      material.texture.map(|index| images[index]),
                     normal_map:   material.normal_map.map(|index| images[index]),
                     normal_scale: material.normal_scale,
+                    emissive:     0.0,
                 }),
             })
             .collect();

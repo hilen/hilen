@@ -12,7 +12,8 @@ struct MeshInstance {
     lights: vec4<u32>,
     normal_scale: f32,
     joint_base: u32,
-    padding: vec2<u32>,
+    emissive: f32,
+    padding: u32,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -401,6 +402,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         color += shade(s, l, light.color.rgb * attenuation);
     }
+
+    // Its own glow, the base color the lights would have shown.
+    color += base * instance.emissive;
 
     return vec4<f32>(encode(fogged(color, world_pos)), alpha);
 }

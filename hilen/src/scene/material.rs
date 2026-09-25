@@ -24,6 +24,12 @@ pub struct Material {
     /// How far the normal map tilts the normal, 1 as painted, more for
     /// deeper relief, the glTF normal scale.
     pub normal_scale: f32,
+    /// Light the surface gives off itself, lit or in the dark: its color
+    /// times this is added to what the lights give it. 0 for none, 1
+    /// shows the full color even at night, more blooms past it. Flames
+    /// and lamps glow this way. It lights nothing around it, a point
+    /// light does that.
+    pub emissive:     f32,
 }
 
 impl Default for Material {
@@ -35,6 +41,7 @@ impl Default for Material {
             texture:      None,
             normal_map:   None,
             normal_scale: 1.0,
+            emissive:     0.0,
         }
     }
 }

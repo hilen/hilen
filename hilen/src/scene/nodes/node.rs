@@ -177,6 +177,8 @@ pub trait NodeTemplates {
     fn set_material(&mut self, _: Material) -> &mut Self;
     fn set_metallic(&mut self, _: impl ToF32) -> &mut Self;
     fn set_roughness(&mut self, _: impl ToF32) -> &mut Self;
+    /// How much the node glows by its own color, see `Material::emissive`.
+    fn set_emissive(&mut self, _: impl ToF32) -> &mut Self;
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self;
     fn set_restitution(&mut self, _: f32, _: CoefficientCombineRule) -> &mut Self;
     fn set_position(&mut self, _: impl Into<Vec3>) -> &mut Self;
@@ -241,6 +243,11 @@ impl<T: ?Sized + Node> NodeTemplates for T {
 
     fn set_roughness(&mut self, roughness: impl ToF32) -> &mut Self {
         self.material.roughness = roughness.to_f32();
+        self
+    }
+
+    fn set_emissive(&mut self, emissive: impl ToF32) -> &mut Self {
+        self.material.emissive = emissive.to_f32();
         self
     }
 

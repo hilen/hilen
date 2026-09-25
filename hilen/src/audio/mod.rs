@@ -3,7 +3,7 @@
 pub(crate) mod manager;
 mod sound;
 
-pub use self::sound::Sound;
+pub use self::sound::{Playing, Sound};
 use crate::managed;
 
 managed!(Sound);

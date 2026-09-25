@@ -178,11 +178,10 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
                 scene
             });
 
-            let result = T::perform_test(scene);
-
-            from_main(SceneManager::stop_scene);
-
-            result
+            // The scene stays up through the final human hold and until the
+            // window closes. The next test stops it as it starts, and an in
+            // app run stops it with the rest of the harness in `restore_app`.
+            T::perform_test(scene)
         })
     }
 

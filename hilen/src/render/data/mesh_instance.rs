@@ -40,7 +40,8 @@ pub(crate) struct MeshInstance {
     /// buffer, what the skinned vertex stage reads. Zero on a static
     /// mesh, whose pipelines never read it.
     pub joint_base:   u32,
-    pub padding:      [u32; 2],
+    pub emissive:     f32,
+    pub padding:      u32,
 }
 
 impl MeshInstance {
@@ -61,7 +62,8 @@ impl MeshInstance {
             lights: lights.packed,
             normal_scale: material.normal_scale,
             joint_base,
-            padding: [0; 2],
+            emissive: material.emissive,
+            padding: 0,
         }
     }
 }

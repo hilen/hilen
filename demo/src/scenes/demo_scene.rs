@@ -175,6 +175,7 @@ impl SceneSetup for DemoScene {
             texture:      Some(Image::get("bricks.jpg")),
             normal_map:   Some(Image::get("bricks_normal.jpg")),
             normal_scale: 1.5,
+            emissive:     0.0,
         };
         for i in 0..WALL_BLOCKS {
             let x = (i.lossy_convert() - (WALL_BLOCKS - 1).lossy_convert() / 2.0) * 2.0;

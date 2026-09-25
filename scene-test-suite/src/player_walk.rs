@@ -48,6 +48,7 @@ impl SceneSetup for PlayerWalk {
             texture:      Some(Image::get("bricks.jpg")),
             normal_map:   Some(Image::get("bricks_normal.jpg")),
             normal_scale: 1.5,
+            emissive:     0.0,
         };
         for x in [-2.0, 0.0, 2.0] {
             self.make_node::<Wall>(Shape3::cuboid(2.0, 2.0, 0.5), Vec3::new(x, 1.0, -3.0))

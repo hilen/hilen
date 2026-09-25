@@ -97,7 +97,10 @@ the browser manifest.
 Every node has a `Material`: `color`, `metallic`, `roughness`, an optional base
 color `texture` that multiplies the color per texel, an optional `normal_map` in
 tangent space with green up, the glTF convention, and `normal_scale` for its
-depth. No tangents are stored, the shader builds the frame from the screen
+depth. `emissive` makes a node glow by its own color: its base color
+times the value is added to what the lights give it, so 1 shows the full color
+even at night. It lights nothing around it, a point light does that, the flames
+of a campfire are both. No tangents are stored, the shader builds the frame from the screen
 derivatives of the position and the uv. A `color` with alpha below one makes the
 node translucent, see below.
 
@@ -188,7 +191,8 @@ space and a push on the bodies it walks into. `w` `a` `s` `d` or the arrows walk
 while held, read through `Keys::held`, and `look` turns it, the demo page calls
 that from a drag. While a player exists the camera looks out of its eyes.
 `add_player` makes a capsule 1.8 tall and 0.7 wide, `add_player_sized` takes the
-radius and the height for a smaller or bigger hero. `teleport` puts the player
+radius and the height for a smaller or bigger hero. `walk_keys` set to `WalkKeys::WasdOnly`
+leaves the arrow keys to the game. `teleport` puts the player
 somewhere at once with no fall left, the way a game respawns it.
 
 `Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
@@ -316,7 +320,9 @@ arm, sword and hitbox follow its swing, walk and growth, and `Third person
 camera` a figure turning so a wall pulls the camera in. `Day and night` a field under
 a `DayNightSky` at noon, in the afternoon, at sunset, at dusk and at night with the
 moon, and `View points` labels over a circling ball and a post, the post's hidden once
-it is behind the camera. The loop runs free, so the frames
+it is behind the camera. `Glow` orange flames at night glowing by 0, 0.5 and 1, then the dark one
+turned to full glow. A scene test leaves its scene on screen through the final
+human hold, the next test or the end of the run stops it. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
 human hold pauses the scene's time, so the probes sit on a still picture. Rapier
