@@ -165,6 +165,7 @@ objc2-app-kit = { workspace = true }
 objc2-foundation = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }
 
