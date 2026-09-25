@@ -80,6 +80,15 @@ impl<T> VecBuffer<T> {
         self.buffer.slice(self.range.clone())
     }
 
+    /// The elements `range` of the last `load()`, counted from its first.
+    #[cfg(feature = "scene")]
+    pub(crate) fn elements(&self, range: Range<u32>) -> BufferSlice<'_> {
+        let stride: u64 = size_of::<T>().try_into().unwrap();
+        let start = self.range.start + u64::from(range.start) * stride;
+        let end = self.range.start + u64::from(range.end) * stride;
+        self.buffer.slice(start..end)
+    }
+
     pub(crate) fn buffer(&self) -> &Buffer {
         &self.buffer
     }

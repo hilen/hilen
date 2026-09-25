@@ -1,4 +1,4 @@
-use std::array::from_fn;
+use std::{array::from_fn, ops::Range};
 
 use wgpu::{
     BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer,
@@ -102,12 +102,14 @@ impl ShadowPass {
     }
 
     /// Draws every cascade's layer, `batches` the opaque draws of the
-    /// frame and `joints` the joint matrices they point at.
-    pub(crate) fn draw<'a>(
+    /// frame, each a mesh and its range of `instances`, and `joints` the
+    /// joint matrices they point at.
+    pub(crate) fn draw(
         &mut self,
         encoder: &mut CommandEncoder,
         view_projs: &[Mat4; SHADOW_CASCADES],
-        batches: &[(&'a MeshKey, &'a VecBuffer<MeshInstance>)],
+        instances: &VecBuffer<MeshInstance>,
+        batches: &[(&MeshKey, Range<u32>)],
         joints: &VecBuffer<Mat4>,
     ) {
         let joints_bind = cached(&mut self.joints_bind, StorageKey::of(joints), || {
@@ -136,10 +138,10 @@ impl ShadowPass {
             pass.set_bind_group(0, &cascade.bind, &[]);
             pass.set_bind_group(1, joints_bind, &[]);
 
-            for (key, instances) in batches {
+            for (key, range) in batches {
                 set_mesh(&mut pass, &key.mesh, &self.plain, &self.skinned);
-                pass.set_vertex_buffer(1, instances.slice());
-                pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
+                pass.set_vertex_buffer(1, instances.elements(range.clone()));
+                pass.draw_indexed(0..key.mesh.index_count, 0, 0..range.end - range.start);
             }
         }
     }

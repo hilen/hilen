@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, ops::Range};
 
 use indexmap::IndexMap;
 use plat::Platform;
@@ -70,20 +70,21 @@ type InstancesKey = (StorageKey, StorageKey);
 /// its bind was made, a dead one is bound as its plain stand in.
 type TexturesKey = (bool, bool);
 
-/// One instanced draw: the instances of a mesh and texture pair, and
-/// the bind group over them and the frame's joints. Every mesh buffer
-/// loads once per frame, so the bind holds until the buffer grows or
-/// the count changes, unlike a UI pipeline, see `RectPipeline`.
+/// One instanced draw: the instances of a mesh and texture pair. They
+/// wait on the CPU until `prepare` copies every batch into the one opaque
+/// buffer, one upload per frame, where a buffer per batch cost a staging
+/// buffer per batch. `drawn` is where they landed in it.
 #[derive(Default)]
 struct Batch {
-    instances: VecBuffer<MeshInstance>,
-    bind:      Option<CachedBind<InstancesKey>>,
+    pending: Vec<MeshInstance>,
+    drawn:   Range<u32>,
+    frame:   u64,
 }
 
 impl Batch {
     /// Whether `prepare` loaded this batch on `frame`.
     fn loaded(&self, frame: u64) -> bool {
-        self.instances.frame() == frame && self.instances.has_loaded()
+        self.frame == frame && !self.drawn.is_empty()
     }
 }
 
@@ -127,6 +128,11 @@ pub struct MeshPipeline {
     // the model and takes its key out at the next draw. An image can die
     // too, then the draw falls back to the plain textures.
     instances: IndexMap<MeshKey, Batch>,
+
+    /// The instances of every opaque batch of the frame, one bind over
+    /// all of them.
+    opaque_instances: VecBuffer<MeshInstance>,
+    opaque_bind:      Option<CachedBind<InstancesKey>>,
 
     /// The translucent nodes in draw order, the key of each and the
     /// bind over them.
@@ -229,6 +235,8 @@ impl Default for MeshPipeline {
             shadow: ShadowPass::new(device, &shadow_shader, Self::SHADOW_MAP_SIZE),
             instances_layout,
             instances: IndexMap::default(),
+            opaque_instances: VecBuffer::default(),
+            opaque_bind: None,
             transparent: VecBuffer::default(),
             transparent_keys: vec![],
             transparent_bind: None,
@@ -245,10 +253,8 @@ impl Default for MeshPipeline {
 }
 
 impl MeshPipeline {
-    pub(crate) fn add(&mut self, key: MeshKey, mut instance: MeshInstance) {
-        let batch = self.instances.entry(key).or_default();
-        instance.index = batch.instances.pending();
-        batch.instances.push(instance);
+    pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance) {
+        self.instances.entry(key).or_default().pending.push(instance);
     }
 
     /// Translucent nodes draw in the order they are added, so add them
@@ -307,10 +313,21 @@ impl MeshPipeline {
         }
         self.joints.load();
 
+        let frame = Window::render_frame();
         for batch in self.instances.values_mut() {
-            if !batch.instances.is_empty() {
-                batch.instances.load();
+            if batch.pending.is_empty() {
+                continue;
             }
+            let start = self.opaque_instances.pending();
+            for mut instance in batch.pending.drain(..) {
+                instance.index = self.opaque_instances.pending();
+                self.opaque_instances.push(instance);
+            }
+            batch.drawn = start..self.opaque_instances.pending();
+            batch.frame = frame;
+        }
+        if !self.opaque_instances.is_empty() {
+            self.opaque_instances.load();
         }
         if !self.transparent.is_empty() {
             self.transparent.load();
@@ -321,14 +338,19 @@ impl MeshPipeline {
 
         if shadows {
             self.shadow.fit(Window::device(), map_size);
-            let frame = Window::render_frame();
             let batches: Vec<_> = self
                 .instances
                 .iter()
                 .filter(|(_, batch)| batch.loaded(frame))
-                .map(|(key, batch)| (key, &batch.instances))
+                .map(|(key, batch)| (key, batch.drawn.clone()))
                 .collect();
-            self.shadow.draw(encoder, &view.sun_view_proj, &batches, &self.joints);
+            self.shadow.draw(
+                encoder,
+                &view.sun_view_proj,
+                &self.opaque_instances,
+                &batches,
+                &self.joints,
+            );
         }
     }
 
@@ -368,12 +390,19 @@ impl MeshPipeline {
         });
         render_pass.set_bind_group(2, lights_bind, &[]);
 
-        for (key, batch) in self.instances.iter_mut().filter(|(_, batch)| batch.loaded(frame)) {
+        if self.instances.values().any(|batch| batch.loaded(frame)) {
             let instances_bind = cached(
-                &mut batch.bind,
-                (StorageKey::of(&batch.instances), StorageKey::of(&self.joints)),
-                || instances_bind(&self.instances_layout, &batch.instances, &self.joints),
+                &mut self.opaque_bind,
+                (
+                    StorageKey::of(&self.opaque_instances),
+                    StorageKey::of(&self.joints),
+                ),
+                || instances_bind(&self.instances_layout, &self.opaque_instances, &self.joints),
             );
+            render_pass.set_bind_group(1, instances_bind, &[]);
+        }
+
+        for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
             let textures_bind = textures_bind(
                 &mut self.textures,
                 &self.textures_layout,
@@ -382,13 +411,13 @@ impl MeshPipeline {
                 &self.flat_normal,
             );
 
-            render_pass.set_bind_group(1, instances_bind, &[]);
             render_pass.set_bind_group(3, textures_bind, &[]);
             set_mesh(render_pass, &key.mesh, &self.opaque, &self.opaque_skinned);
-            render_pass.set_vertex_buffer(1, batch.instances.slice());
-
-            // Base vertex stays zero, an A7 draws nothing otherwise.
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.instances.len());
+            // The slice starts at the batch, so the draw starts at instance
+            // zero, an A7 cannot draw from a base instance. The `index`
+            // attribute still names the real slot for the fragment stage.
+            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(batch.drawn.clone()));
+            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.drawn.end - batch.drawn.start);
         }
 
         if translucent {

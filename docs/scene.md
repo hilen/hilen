@@ -261,15 +261,17 @@ matters far more, keep it at 0.1 or above.
 The sky draws first, one triangle with no depth test. `MeshPipeline` then does one
 instanced indexed draw per unit mesh and texture pair for the opaque nodes, and one
 draw per translucent node after them, back to front, blended and without a depth
-write. The instance carries the model matrix, the inverse transpose for normals and
-its own index in the buffer, see `MeshInstance`, so a translucent node drawn alone
-from the middle of the buffer needs no base instance, which an A7 cannot draw. The
+write. Every opaque batch lands in one instance buffer with one upload per frame. A
+buffer per batch cost a staging buffer per batch every frame. The instance carries the
+model matrix, the inverse transpose for normals and its own index in the buffer, see
+`MeshInstance`, so a batch or a translucent node drawn from a slice in the middle of
+the buffer needs no base instance, which an A7 cannot draw. The
 fragment reads the material and the light list from a storage binding at that
 index. Seven float components cross the vertex to fragment boundary, the uv, the
 normal, the flat index and the flat packed vertex color, and the world position is
 rebuilt from the depth. An A7
 draws nothing above eight, see [ios.md](ios.md). Every mesh buffer loads once per
-frame, so the bind groups over the view, the lights, each batch's instances and
+frame, so the bind groups over the view, the lights, the instances and
 each key's textures are kept from frame to frame and remade only when a buffer
 grows, a count changes, the sky or the shadow map is replaced or an image dies,
 see `render/bind_cache.rs`. Indices are 16 bit so every lane
