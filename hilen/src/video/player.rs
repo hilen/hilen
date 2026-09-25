@@ -62,10 +62,6 @@ pub(crate) enum PlayerEvent {
     Error(String),
 }
 
-/// Sound effects play on the engine's main track, which sits at minus 20 dB.
-/// A video track lifts its own sound back to unity.
-const MAIN_TRACK_OFFSET: f32 = 20.0;
-
 /// How long a stepped test waits for the decoder before giving up on a frame.
 const STEPPED_WAIT: Duration = Duration::from_secs(5);
 
@@ -264,10 +260,7 @@ impl Player {
     pub(crate) fn set_volume(&mut self, volume: f32) {
         self.volume = volume.clamp(0.0, 1.0);
         if let Some(track) = &mut self.track {
-            track.set_volume(
-                Decibels(MAIN_TRACK_OFFSET + decibels(self.volume)),
-                Tween::default(),
-            );
+            track.set_volume(Decibels(decibels(self.volume)), Tween::default());
         }
     }
 
@@ -442,8 +435,8 @@ impl Player {
             return;
         };
 
-        let track = audio_manager()
-            .add_sub_track(TrackBuilder::new().volume(Decibels(MAIN_TRACK_OFFSET + decibels(self.volume))));
+        let track =
+            audio_manager().add_sub_track(TrackBuilder::new().volume(Decibels(decibels(self.volume))));
         let mut track = match track {
             Ok(track) => track,
             Err(err) => {

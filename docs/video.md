@@ -28,8 +28,8 @@ message anywhere but desktop.
   `hilen/src/video/audio.rs`, resampled to packed stereo floats. Its playback
   position is the clock the picture follows. A video with no sound track
   follows the engine `Clock`, so a stepped test drives it frame by frame.
-  Sound effects play on the main track at minus 20 dB, a video track lifts
-  its own sound back to unity.
+  Sound effects play on their own track, 20 dB down until the app calls
+  `Sound::set_volume`. A video track is a separate track at its own volume.
 - A frame shows once the clock passes its timestamp minus half a frame
   interval. When more than one frame is due the newest shows and the rest
   count as dropped. A seek bumps a generation, frames from before it are

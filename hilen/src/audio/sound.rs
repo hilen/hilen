@@ -14,7 +14,9 @@ use kira::{
 use log::error;
 
 use crate::{
-    audio::manager::audio_manager, deps::refs::manage::ResourceLoader, filesystem::read_bytes as read,
+    audio::manager::{effects, effects_volume, set_effects_volume},
+    deps::refs::manage::ResourceLoader,
+    filesystem::read_bytes as read,
 };
 
 pub struct Sound {
@@ -23,6 +25,17 @@ pub struct Sound {
 }
 
 impl Sound {
+    /// The volume of every `Sound` at once, 1 as recorded and 0 silent. It
+    /// starts at 0.1, 20 dB down. A game that mixes its own levels sets 1.
+    /// A video has its own volume and does not follow this one.
+    pub fn set_volume(volume: f32) {
+        set_effects_volume(volume);
+    }
+
+    pub fn volume() -> f32 {
+        effects_volume()
+    }
+
     pub fn play(&mut self) {
         self.play_with_volume(1.0);
     }
@@ -30,7 +43,7 @@ impl Sound {
     /// Plays once at `volume`, 1 as recorded and 0 silent, a linear
     /// amplitude like a mixer fader.
     pub fn play_with_volume(&mut self, volume: f32) {
-        audio_manager()
+        effects()
             .play(self.data.volume(decibels(volume)))
             .expect("Failed to play sound");
     }
@@ -39,7 +52,7 @@ impl Sound {
     /// stopped or dropped, the way a campfire or a river sounds.
     pub fn play_looped(&mut self, volume: f32) -> Playing {
         let data = self.data.volume(decibels(volume)).loop_region(..);
-        let handle = audio_manager().play(data).expect("Failed to play sound");
+        let handle = effects().play(data).expect("Failed to play sound");
         Playing { handle }
     }
 }
@@ -69,7 +82,7 @@ impl Drop for Playing {
 }
 
 /// A linear volume as kira's decibels. Kira treats -60 as silence.
-fn decibels(volume: f32) -> Decibels {
+pub(crate) fn decibels(volume: f32) -> Decibels {
     if volume <= 0.001 {
         return Decibels::SILENCE;
     }
