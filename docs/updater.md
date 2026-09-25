@@ -77,6 +77,8 @@ inside the signed `.app`, so CI signs the bare binary with the same identity
 before hashing it, and the bundle keeps launching. On Windows the installer
 is only for the first install, later versions swap the exe directly.
 
-The kukareker port at `~/dev/apps/kukareker` is the reference wiring, its
-`src/updater.rs` holds the app state and its `build/release/` scripts sign
-and publish the manifest.
+Kukareker at `~/dev/apps/kukareker` is 1 example of the wiring, a desktop
+tool. Its `src/updater.rs` holds the app state and its `build/release/`
+scripts sign and publish the manifest. It is not a template for other apps.
+Each app keeps its own release pipeline, runners and download host, and a
+game can ship in a completely different way.
