@@ -5,6 +5,8 @@ mod measure_cache;
 mod shape_cache;
 mod shaped_layout;
 mod system_emoji;
+#[cfg(not_wasm)]
+mod system_fallback;
 mod text_layout;
 
 pub(crate) use fallback::runs_with_fallbacks;

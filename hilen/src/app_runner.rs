@@ -709,21 +709,23 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
-        #[cfg(not_wasm)]
         if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-            use winit::keyboard::KeyCode;
-
-            use crate::bug_report::{BugReport, InputRing};
+            use crate::bug_report::InputRing;
 
             InputRing::record(code);
 
-            let modifiers = InputRing::modifiers();
-
-            if code == KeyCode::KeyR
-                && modifiers.shift_key()
-                && (modifiers.control_key() || modifiers.super_key())
+            // The browser keeps Cmd+Shift+R as its hard reload, the page
+            // never sees it, see `install_reload_shortcut_listener`.
+            #[cfg(not_wasm)]
             {
-                BugReport::open();
+                let modifiers = InputRing::modifiers();
+
+                if code == winit::keyboard::KeyCode::KeyR
+                    && modifiers.shift_key()
+                    && (modifiers.control_key() || modifiers.super_key())
+                {
+                    crate::bug_report::BugReport::open();
+                }
             }
         }
 
@@ -738,7 +740,6 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
         Input::set_modifiers(modifiers.state());
-        #[cfg(not_wasm)]
         crate::bug_report::InputRing::set_modifiers(modifiers.state());
     }
 

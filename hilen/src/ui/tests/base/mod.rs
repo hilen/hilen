@@ -1,7 +1,5 @@
 mod animated_gif;
 mod animation_drives_frames;
-/// The bug report dialog rides Sentry, which does not run on wasm.
-#[cfg(not_wasm)]
 mod bug_report_dialog;
 mod frame_stepped_animation;
 mod hidden_parent_touch;
@@ -12,6 +10,10 @@ mod outline;
 mod overlay_touch_layer;
 mod script_wrap;
 mod switch_look;
+/// A browser page cannot read the system fonts, `Font::set_system_fallback`
+/// does nothing there.
+#[cfg(not_wasm)]
+mod system_font_fallback;
 mod title_frames;
 /// A phone and a page fill the screen, only a desktop window has an
 /// initial size.

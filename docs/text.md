@@ -156,9 +156,23 @@ the base, and gives each missing char a synthesized run with the first fallback
 that covers it, merged with its neighbors. So a fallback rides on the font runs
 machinery above and wrapping, measuring and the shape cache follow with no extra
 path. Whitespace and control chars stay with their font, shapers handle them
-without a glyph. A char no fallback covers keeps its font and draws notdef. The
-runner resets the fallbacks between tests, `GlyphFallback` covers the plain label
-and the split inside an explicit run.
+without a glyph. The runner resets the fallbacks between tests, `GlyphFallback`
+covers the plain label and the split inside an explicit run.
+
+After the registered fallbacks come the fonts the OS has installed, so text from
+the network in any script draws. `window/text/system_fallback.rs` walks the
+system font folders once through fontdb, on a thread started right after
+`before_launch`, and asks every face for the char in a fixed order: a short list
+of UI families per platform first, then upright regular faces, then the family
+name. fontdb knows no folder on iOS and Android, those two are added by hand.
+macOS `LastResort` is skipped, it has a placeholder for every code point. Files
+are memory mapped for good like the system emoji font, a face in a `.ttc` loads
+by its index, and the answer per char is cached, a miss too. A char no font
+covers draws notdef. On by default, `Font::set_system_fallback(false)` turns it
+off. The browser cannot read system fonts, there it does nothing. The system
+fonts differ per machine, so the UI test runner turns it off for every test and
+hands the app its own setting back after the run. `System font fallback` turns
+it on and checks where the IPA chars of a Jotunn description go.
 
 ## Color glyphs
 

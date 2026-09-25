@@ -57,6 +57,8 @@ impl InputRing {
         STATE.lock().modifiers = modifiers;
     }
 
+    /// Only the native shortcut reads it, the browser keeps the combo.
+    #[cfg(not_wasm)]
     pub(crate) fn modifiers() -> ModifiersState {
         STATE.lock().modifiers
     }

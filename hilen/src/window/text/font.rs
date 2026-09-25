@@ -12,6 +12,8 @@ use wgpu_text::{
     glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, VariableFont},
 };
 
+#[cfg(not_wasm)]
+use crate::window::text::system_fallback;
 use crate::{
     deps::refs::{
         Weak,
@@ -73,14 +75,16 @@ impl Font {
     ) -> Result<Self> {
         // Managed fonts live until process exit, leaking gives the raster
         // font and the shaping face one shared 'static copy of the data.
-        Self::from_static(name, Vec::leak(data.to_vec()), variations, stem_darkening)
+        Self::from_static(name, Vec::leak(data.to_vec()), 0, variations, stem_darkening)
     }
 
     /// Data that already lives for the whole process, a leaked buffer or
-    /// a mapped file, so nothing is copied.
+    /// a mapped file, so nothing is copied. `index` picks the face of a
+    /// collection, a `.ttc`, and is 0 for a single font file.
     pub(crate) fn from_static(
         name: impl ToString,
         data: &'static [u8],
+        index: u32,
         variations: &[([u8; 4], f32)],
         stem_darkening: f32,
     ) -> Result<Self> {
@@ -88,8 +92,8 @@ impl Font {
 
         let render_size = Window::render_size();
 
-        let mut font = FontRef::try_from_slice(data)?;
-        let mut face = Face::from_slice(data, 0)
+        let mut font = FontRef::try_from_slice_and_index(data, index)?;
+        let mut face = Face::from_slice(data, index)
             .ok_or_else(|| anyhow!("Failed to parse font '{}' for shaping", name.to_string()))?;
 
         for (tag, value) in variations {
@@ -147,6 +151,24 @@ impl Font {
 
     pub(crate) fn face(&self) -> &Face<'static> {
         &self.face
+    }
+
+    /// The family name the font file gives itself, like `Helvetica Neue`.
+    /// Older Apple fonts carry it only as a Mac Roman record, which
+    /// `to_string` does not decode, its ASCII range reads as is.
+    #[cfg(all(not_wasm, feature = "ui-tests"))]
+    pub(crate) fn family_name(&self) -> Option<String> {
+        use rustybuzz::ttf_parser::{PlatformId, name::Name, name_id::FAMILY};
+
+        let names: Vec<_> = self.face.names().into_iter().filter(|name| name.name_id == FAMILY).collect();
+        names.iter().find_map(Name::to_string).or_else(|| {
+            names
+                .iter()
+                .find(|name| {
+                    name.platform_id == PlatformId::Macintosh && name.encoding_id == 0 && name.name.is_ascii()
+                })
+                .map(|name| name.name.iter().map(|byte| char::from(*byte)).collect())
+        })
     }
 
     pub fn has_glyph(&self, char: char) -> bool {
@@ -333,6 +355,50 @@ impl Font {
 
     pub fn reset_fallbacks() {
         FALLBACK_FONTS.get_mut().clear();
+    }
+
+    /// After the registered fallbacks, a char is looked up in the fonts
+    /// the OS has installed, so text the app cannot know ahead, from the
+    /// network or the user, draws in any script. On by default. The
+    /// system font folders are walked once, off the main thread, from
+    /// launch. Does nothing in the browser, a page cannot read them.
+    pub fn set_system_fallback(enabled: bool) {
+        #[cfg(not_wasm)]
+        system_fallback::set_enabled(enabled);
+        #[cfg(wasm)]
+        if enabled {
+            log::debug!("System font fallback is not there in the browser");
+        }
+    }
+
+    /// Whether the system fonts are looked up, always false in the browser.
+    pub fn system_fallback() -> bool {
+        #[cfg(not_wasm)]
+        {
+            system_fallback::enabled()
+        }
+        #[cfg(wasm)]
+        {
+            false
+        }
+    }
+
+    /// Starts the system font walk early, so the first char that needs it
+    /// does not wait on the main thread.
+    pub(crate) fn prepare_system_fallback() {
+        #[cfg(not_wasm)]
+        if system_fallback::enabled() {
+            system_fallback::start_index();
+        }
+    }
+
+    /// Some registered or system fallback has color glyphs.
+    pub(crate) fn fallbacks_have_color() -> bool {
+        #[cfg(not_wasm)]
+        if system_fallback::any_color() {
+            return true;
+        }
+        Self::fallbacks().iter().any(|font| font.has_color())
     }
 
     pub(crate) fn fallbacks() -> Vec<Weak<Font>> {

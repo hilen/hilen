@@ -16,45 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Bug reporting and Sentry on wasm
-
-Found by bringing karkas style bug reporting into the engine. Desktop, iOS and
-Android landed, the browser did not.
-
-- Current: `App::sentry_url` and `BugReport` are native only. The sentry crate
-  does not run on wasm, so `setup_sentry` is gated `not_wasm` and `BugReport::open`
-  is a browser no-op like `system::Router`.
-- Needed: hand build the Sentry envelope, the event JSON plus attachment items,
-  and POST it to the DSN's envelope endpoint through `netrun`. The report dialog
-  and the rings are engine views and plain state, only the transport is missing.
-- Blocks: bug reports and crash events from web apps.
-
-## System font discovery
-
-Found by the glyph fallback work. The app that needs it now exists, blackforge
-at `~/dev/apps/blackforge`, a Valheim mod manager. Its Browse page shows
-package descriptions from Thunderstore, text that comes from the network, so
-the app cannot know the scripts ahead and cannot bundle a font for each.
-
-- Seen: the Jotunn package describes itself as `Jötunn (/ˈjɔːtʊn/, 'giant')`.
-  The label draws `/▯j▯▯t▯n/`. The 4 chars `ˈ` U+02C8, `ɔ` U+0254, `ː` U+02D0
-  and `ʊ` U+028A come out as the notdef box of the default font, narrower and
-  shorter than the letters around them. They sit in the IPA Extensions and
-  Spacing Modifier Letters blocks. The `ö` draws fine. The app registers no
-  fallbacks, which is what any app does by default.
-- Current: fallback fonts are explicit, `Font::set_fallbacks` takes fonts the
-  app loaded itself, and `Font::system_emoji` is the only font the engine
-  finds on the system, see [text.md](text.md). A char no registered font
-  covers draws notdef.
-- Needed: a per platform walk of the system font directories that picks a
-  font covering the missing script, the fontdb approach, registered as a
-  fallback after the explicit ones. Same file walk as the emoji lookup, plus
-  the cmap check `runs_with_fallbacks` already does.
-- Blocks: clean text in blackforge for any package whose description uses
-  phonetic, CJK or other chars outside the default font. Cyrillic is fine, the
-  default font covers it. The other driver apps are not blocked, every script
-  they show has a bundled font.
-
 ## Siri Remote input for tvOS
 
 Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real

@@ -1,21 +1,25 @@
 //! Glyph fallback. A char the effective font has no glyph for is drawn
-//! with the first registered fallback font that covers it, through a
-//! synthesized font run, so wrapping and measuring follow automatically.
+//! with the first registered fallback font that covers it, then with a
+//! system font when the app turned that on, through a synthesized font
+//! run, so wrapping and measuring follow automatically.
 
 use std::ops::Range;
 
+#[cfg(not_wasm)]
+use crate::window::text::system_fallback::{enabled as system_enabled, font_for as system_font};
 use crate::{
     deps::refs::Weak,
     window::{Font, text::FontRun},
 };
 
 /// Rebuilds `runs` so every char an effective font misses shapes with
-/// the first fallback that covers it. With no fallbacks registered the
-/// explicit runs come back untouched. Whitespace and control chars stay
+/// the first fallback that covers it, the system fonts last. With no
+/// fallbacks registered and the system fallback off the explicit runs
+/// come back untouched. Whitespace and control chars stay
 /// with their font, shapers handle them without a glyph.
 pub(crate) fn runs_with_fallbacks(text: &str, base: Weak<Font>, runs: Vec<FontRun>) -> Vec<FontRun> {
     let fallbacks = Font::fallbacks();
-    if fallbacks.is_empty() || text.is_empty() {
+    if (fallbacks.is_empty() && !system_enabled()) || text.is_empty() {
         return runs;
     }
 
@@ -47,6 +51,7 @@ pub(crate) fn runs_with_fallbacks(text: &str, base: Weak<Font>, runs: Vec<FontRu
             .iter()
             .copied()
             .find(|fallback| fallback.has_glyph(char))
+            .or_else(|| system_font(char))
             .unwrap_or(font);
         push(range, font);
     }
@@ -54,4 +59,14 @@ pub(crate) fn runs_with_fallbacks(text: &str, base: Weak<Font>, runs: Vec<FontRu
     // Base font spans need no run, absence of one means the base font.
     result.retain(|run| run.font.name != base.name);
     result
+}
+
+#[cfg(wasm)]
+fn system_enabled() -> bool {
+    false
+}
+
+#[cfg(wasm)]
+fn system_font(_: char) -> Option<Weak<Font>> {
+    None
 }

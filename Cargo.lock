@@ -2649,6 +2649,7 @@ dependencies = [
  "fastrand",
  "fern",
  "ffmpeg-next",
+ "fontdb",
  "futures-util",
  "getrandom 0.4.3",
  "glam 0.33.2",

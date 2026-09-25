@@ -113,6 +113,8 @@ aes-gcm = { workspace = true, optional = true }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fontdb = { workspace = true }
+memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true }
@@ -180,9 +182,6 @@ semver = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
 libc = { workspace = true }
-
-[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
-memmap2 = { workspace = true }
 
 [build-dependencies]
 getrandom = { workspace = true, optional = true }

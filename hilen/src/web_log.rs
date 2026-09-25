@@ -21,6 +21,10 @@ impl Log for WebLogger {
         }
         console_log::log(record);
 
+        // The bug report ring keeps the same lines the console shows, like
+        // the native dispatch does.
+        crate::bug_report::BugReport::push_log_line(record.args().to_string());
+
         #[cfg(feature = "inspect")]
         if record.level() <= Level::Info && crate::inspect::web_transport::is_open() {
             crate::inspect::web_transport::push_log(record.level().as_str(), record.args().to_string());

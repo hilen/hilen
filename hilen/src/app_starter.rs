@@ -83,6 +83,10 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
         app.before_launch();
 
+        // After `before_launch`, so an app that turns the system fallback
+        // off never walks the font folders.
+        crate::ui::Font::prepare_system_fallback();
+
         #[cfg(not_wasm)]
         if headless {
             use crate::gm::LossyConvert;
@@ -159,6 +163,17 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         crate::web_log::init();
 
         log::info!("Hello from wasm");
+
+        // The future is 'static, so it resolves on the browser loop while
+        // the app starts, and reporting turns on when it lands.
+        let sentry_url = app.sentry_url();
+        crate::deps::hreads::spawn(async move {
+            match sentry_url.await {
+                Ok(Some(url)) => crate::bug_report::set_dsn(&url),
+                Ok(None) => {}
+                Err(err) => log::warn!("Failed to get sentry URL: {err}"),
+            }
+        });
     }
 
     #[cfg(wasm)]

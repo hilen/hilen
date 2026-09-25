@@ -55,7 +55,7 @@ pub(crate) fn system_emoji() -> Option<Weak<Font>> {
         // OS runs, so the mapped bytes stay valid.
         let map = unsafe { Mmap::map(&file)? };
         let data: &'static [u8] = Box::leak(Box::new(map));
-        Font::from_static(NAME, data, &[], 0.0)
+        Font::from_static(NAME, data, 0, &[], 0.0)
     })
     .ok()
 }
