@@ -40,7 +40,8 @@ optimized build with a known key does not hold that text.
 
 No key means the public development key and a cargo warning. `HILEN_RELEASE` set means a
 missing key fails the build. `build/release/with-secrets.sh` sets the mark, since every
-shipped build runs through it. The cargo release profile cannot be the mark, `make run`
+shipped build runs through it, and the release scripts set it again on their own. The same
+mark blocks the `inspect` feature, see [inspect.md](inspect.md). The cargo release profile cannot be the mark, `make run`
 of an app builds with `--release` and must work without Infisical.
 
 The build script prints `rerun-if-env-changed` for both names. One such line turns off

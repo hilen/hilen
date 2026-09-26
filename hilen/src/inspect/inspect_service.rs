@@ -1,4 +1,6 @@
 use std::sync::OnceLock;
+#[cfg(not_wasm)]
+use std::{env::var, hint::black_box};
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -6,7 +8,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 #[cfg(not_wasm)]
-use log::info;
+use log::{info, warn};
 #[cfg(not_wasm)]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 #[cfg(not_wasm)]
@@ -17,7 +19,10 @@ use crate::deps::hreads::log_spawn;
 #[cfg(any(wasm, feature = "audio"))]
 use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
-use crate::inspect::protocol::{SERVICE_TYPE, serve};
+use crate::inspect::{
+    MARKER,
+    protocol::{SERVICE_TYPE, serve},
+};
 #[cfg(feature = "audio")]
 use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
@@ -39,6 +44,17 @@ pub struct InspectService;
 
 static APP_STARTED: OnceLock<u64> = OnceLock::new();
 
+/// A build without debug assertions starts the server only with this set to
+/// `1` at launch, so a release binary built outside the release scripts still
+/// ships with the server off.
+#[cfg(not_wasm)]
+const ENABLE_ENV: &str = "HILEN_INSPECT";
+
+#[cfg(not_wasm)]
+fn listener_allowed(debug_build: bool, enable: Option<&str>) -> bool {
+    debug_build || enable == Some("1")
+}
+
 impl InspectService {
     pub(crate) fn record_app_start() {
         APP_STARTED.get_or_init(current_unix_seconds);
@@ -46,6 +62,19 @@ impl InspectService {
 
     #[cfg(not_wasm)]
     pub(crate) fn start_listening() {
+        black_box(MARKER);
+
+        let debug_build = cfg!(debug_assertions);
+        if !listener_allowed(debug_build, var(ENABLE_ENV).ok().as_deref()) {
+            info!("Inspect server is off in a release build, set {ENABLE_ENV}=1 to start it");
+            return;
+        }
+        if !debug_build {
+            warn!(
+                "Inspect server is on in a release build. Anyone on the network can read and drive this app."
+            );
+        }
+
         log_spawn(async {
             let listener = TcpListener::bind("0.0.0.0:0").await?;
             let port = listener.local_addr()?.port();
@@ -532,4 +561,23 @@ pub(super) fn find_view(id: &str) -> Result<WeakView, String> {
     }
 
     search(UIManager::root_view(), id).ok_or_else(|| format!("View not found: {id}"))
+}
+
+#[cfg(all(test, not_wasm))]
+mod test {
+    use super::listener_allowed;
+
+    #[test]
+    fn debug_build_always_listens() {
+        assert!(listener_allowed(true, None));
+    }
+
+    #[test]
+    fn release_build_listens_only_when_asked() {
+        assert!(!listener_allowed(false, None));
+        assert!(!listener_allowed(false, Some("")));
+        assert!(!listener_allowed(false, Some("0")));
+        assert!(!listener_allowed(false, Some("true")));
+        assert!(listener_allowed(false, Some("1")));
+    }
 }

@@ -1,11 +1,38 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env::var,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+include!("src/inspect/release_guard.rs");
 
 fn main() {
     plat::platforms();
     stamp_build_time();
+    rerun_rules();
+    refuse_inspect_in_release();
 
     #[cfg(feature = "login")]
     session_key::embed();
+}
+
+/// One rerun line turns off the default rerun on any package file, which the
+/// build time stamp depends on. The file lines bring that back.
+fn rerun_rules() {
+    println!("cargo:rerun-if-env-changed={RELEASE_ENV}");
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+}
+
+/// A shipped build with the inspect server stops here. The runtime check in
+/// `InspectService::start_listening` and the file scan in the release scripts
+/// catch the builds that never set the mark.
+fn refuse_inspect_in_release() {
+    let mark = var(RELEASE_ENV).ok();
+
+    if let Some(error) = inspect_release_error(cfg!(feature = "inspect"), mark.as_deref()) {
+        panic!("{error}");
+    }
 }
 
 /// Stamps when this crate was last compiled, which `hilen-inspect build-time`
@@ -34,8 +61,9 @@ mod session_key {
         path::PathBuf,
     };
 
+    use super::RELEASE_ENV;
+
     const KEY_ENV: &str = "HILEN_SESSION_KEY";
-    const RELEASE_ENV: &str = "HILEN_RELEASE";
 
     /// Stands in when the build has no key, so a plain `cargo run` still gets
     /// a working `SessionStore`. It is public, a file sealed with it is only
@@ -50,13 +78,7 @@ mod session_key {
     /// two, so a strings search or a hex editor finds only noise.
     /// `store/session_key.rs` puts it back together at run time.
     pub fn embed() {
-        // One rerun line turns off the default rerun on any package file, which
-        // the build time stamp depends on. The file lines bring that back.
         println!("cargo:rerun-if-env-changed={KEY_ENV}");
-        println!("cargo:rerun-if-env-changed={RELEASE_ENV}");
-        println!("cargo:rerun-if-changed=src");
-        println!("cargo:rerun-if-changed=build.rs");
-        println!("cargo:rerun-if-changed=Cargo.toml");
 
         let from_env = var(KEY_ENV).ok().filter(|key| !key.is_empty());
         let release = var_os(RELEASE_ENV).is_some_and(|mark| !mark.is_empty());

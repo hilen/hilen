@@ -23,6 +23,11 @@ use rust_embed::RustEmbed;
 use rustls::crypto::ring::default_provider;
 use tracing::debug;
 
+/// The inspect marker of `hilen/src/inspect/mod.rs` in two pieces. They are
+/// joined at run time, so this binary never holds the whole string and a scan
+/// of a backend binary stays clean.
+const INSPECT_MARKER_PARTS: [&str; 2] = ["hilen-inspect-", "server-compiled-in"];
+
 /// When set, page requests are proxied to this url instead of the
 /// embedded dist. Point it at a running `trunk serve`.
 pub const WEB_DEV_PROXY_ENV: &str = "HILEN_WEB_DEV_PROXY";
@@ -55,6 +60,11 @@ pub(crate) fn install_tls_provider() {
 /// ```
 ///
 /// Reads [`WEB_DEV_PROXY_ENV`] once at router build time.
+///
+/// # Panics
+///
+/// In a release build, when the embedded dist carries the hilen inspect
+/// server. A deploy then fails at start instead of serving it.
 pub fn web_mount<A, S>() -> Router<S>
 where
     A: RustEmbed + 'static,
@@ -63,6 +73,10 @@ where
 }
 
 /// [`web_mount`] with the dev proxy target passed explicitly.
+///
+/// # Panics
+///
+/// Same as [`web_mount`].
 pub fn web_mount_with<A, S>(dev_proxy: Option<String>) -> Router<S>
 where
     A: RustEmbed + 'static,
@@ -73,8 +87,34 @@ where
         let client = reqwest::Client::new();
         Router::new().fallback(move |req: Request| proxy(client.clone(), target.clone(), req))
     } else {
+        if !cfg!(debug_assertions) {
+            refuse_inspect::<A>();
+        }
         Router::new().fallback(get(embedded::<A>))
     }
+}
+
+fn refuse_inspect<A: RustEmbed>() {
+    if let Some(file) = find_inspect::<A>() {
+        panic!(
+            r"The embedded web dist file {file} carries the hilen inspect server.
+Rebuild the dist without the `inspect` feature, see docs/inspect.md in the hilen repo."
+        );
+    }
+}
+
+/// The embedded wasm file that carries the inspect server, if any.
+fn find_inspect<A: RustEmbed>() -> Option<String> {
+    let marker = INSPECT_MARKER_PARTS.concat();
+
+    A::iter()
+        .filter(|path| path.ends_with(".wasm"))
+        .find(|path| A::get(path).is_some_and(|file| contains(&file.data, marker.as_bytes())))
+        .map(Into::into)
+}
+
+fn contains(data: &[u8], needle: &[u8]) -> bool {
+    data.windows(needle.len()).any(|window| window == needle)
 }
 
 async fn embedded<A: RustEmbed>(req: Request) -> Response {
@@ -127,4 +167,36 @@ async fn proxy(client: reqwest::Client, target: String, req: Request) -> Respons
     builder
         .body(Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+#[cfg(test)]
+mod test {
+    use rust_embed::RustEmbed;
+
+    use super::{INSPECT_MARKER_PARTS, find_inspect};
+
+    #[derive(RustEmbed)]
+    #[folder = "tests/inspect-dist/"]
+    struct WithInspect;
+
+    #[derive(RustEmbed)]
+    #[folder = "tests/dist/"]
+    struct Clean;
+
+    #[test]
+    fn dist_with_inspect_is_found() {
+        assert_eq!(find_inspect::<WithInspect>().as_deref(), Some("app_bg.wasm"));
+    }
+
+    #[test]
+    fn clean_dist_passes() {
+        assert!(find_inspect::<Clean>().is_none());
+    }
+
+    #[test]
+    fn marker_matches_the_engine() {
+        let engine = include_str!("../../hilen/src/inspect/mod.rs");
+
+        assert!(engine.contains(&INSPECT_MARKER_PARTS.concat()));
+    }
 }

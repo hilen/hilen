@@ -10,7 +10,8 @@ An app whose shipped artifact is a browser dist keeps the feature off the wasm t
 enabling it only through a target-conditional dependency section, see `beekeeper/web`
 in the `local` repo for the pattern.
 
-With the feature on, the app starts an inspect server at launch
+With the feature on, the app starts an inspect server at launch, a release build only with
+`HILEN_INSPECT=1`, see [Release builds](#release-builds)
 (`hilen/src/inspect/`): a TCP listener on an OS-assigned port, advertised over mDNS
 as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
 fixed ports, any number of apps per machine.
@@ -176,13 +177,41 @@ outside a `target` folder, an installed app or a device build, keeps only the in
 
 ## Release builds
 
-The `inspect` cargo feature is the one and only gate, by design. With the feature on the
-server works the same in debug and release builds, there is no `debug_assertions` gating.
-The flip side: an app that enables the feature carries the server in its release builds
-too, so a shipping app keeps the feature out of its shipped targets, which is what the
-target-conditional dependency pattern above does. The host-side tools `inspector` and
-`hilen-inspect` build in release like any other crate, `hilen-inspect` is excluded from default
-workspace members.
+The server lets anyone on the network read and drive the app, so a shipped app must never
+carry it. Kukareker shipped it in every release up to v0.5.16 because the cargo feature was
+the only gate. Now four independent checks stand in the way, so one mistake is not enough.
+
+- **Build block.** `hilen/build.rs` fails a build that has the feature while `HILEN_RELEASE`
+  is set, with no override. The logic is in `hilen/src/inspect/release_guard.rs`, shared with
+  its unit tests. `build/release/with-secrets.sh` sets the mark, and the release scripts
+  `mac.rs`, `linux.rs`, `win.rs` and `docker.rs` set it again on their own.
+- **Runtime gate.** A build without debug assertions starts the listener only when
+  `HILEN_INSPECT=1` is set at launch, and then logs a warning. A release binary built by hand,
+  outside the scripts, starts with the server off. Lanes that build release with the feature,
+  `make uui` and `make bench`, do not use the listener. An app whose `make run` is a release
+  build sets the variable there, like kukareker.
+- **File scan.** Every build with the module carries the `MARKER` bytes of
+  `hilen/src/inspect/mod.rs`, the start functions keep them alive. `build/shared/src/inspect.rs`
+  searches the built binary for them, and the release scripts stop before anything is signed,
+  packed or copied to `dist`. The iOS and Android build paths run the same scan when
+  `HILEN_RELEASE` is set, since their test builds carry the server on purpose.
+- **Web dist scan.** In a release build, `web_mount` of `hilen-server` searches the embedded
+  wasm for the marker and panics at start, so a deploy of a dist with the feature fails. The
+  browser transport only dials the page's own origin, but it still must not ship.
+
+The marker has three copies, in the engine, in `hilen-server` and in `build/shared`. The last
+two hold it in two pieces, so a scan of their own binaries stays clean. A `hilen-server` test
+checks its copy against the engine.
+
+An app turns the feature on only for its dev loop. A desktop app puts it behind its own
+feature, like `dev = ["hilen/inspect"]` in kukareker, which `make run` passes through
+`RUN_FEATURES` of `build/run.sh`. An app whose shipped artifact is a browser dist enables it
+only through a target-conditional dependency, see above. The host-side tools `inspector` and
+`hilen-inspect` build in release like any other crate, `hilen-inspect` is excluded from
+default workspace members.
+
+The request frame of the TCP transport is capped at 64 MiB, a bigger length prefix closes the
+connection before any buffer is allocated.
 
 ## Local hook
 

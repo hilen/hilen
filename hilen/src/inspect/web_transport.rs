@@ -4,9 +4,12 @@
 //! at `/hilen-inspect`. The protocol stays the same request in, response out
 //! JSON, one WebSocket text message per frame instead of a length prefix.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::{Sender, channel},
+use std::{
+    hint::black_box,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Sender, channel},
+    },
 };
 
 use parking_lot::Mutex;
@@ -18,7 +21,7 @@ use web_sys::{
 use crate::{
     deps::{hreads::on_main, refs::main_lock::MainLock},
     inspect::{
-        InspectService,
+        InspectService, MARKER,
         protocol::{AppCommand, InspectorCommand},
     },
 };
@@ -39,6 +42,8 @@ pub(crate) fn is_open() -> bool {
 }
 
 pub(crate) fn start_if_requested() {
+    black_box(MARKER);
+
     if !crate::web::query_flag("hilen_inspect") {
         return;
     }
