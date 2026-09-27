@@ -121,6 +121,13 @@ pub fn primary_or_largest(monitors: &[MonitorInfo], reported: Option<MonitorInfo
         .cloned()
 }
 
+/// Whether a placement may be saved. Windows moves a minimized window to
+/// -32000 and shrinks it to nothing, restored as is it opens off screen.
+#[cfg(desktop)]
+pub(crate) fn savable(placement: &WindowPlacement, minimized: bool) -> bool {
+    !minimized && placement.width > 0.0 && placement.height > 0.0
+}
+
 fn centered(monitor: &MonitorInfo, width: f64, height: f64) -> WindowPlacement {
     WindowPlacement {
         width,
@@ -330,6 +337,19 @@ mod tests {
             Some(monitors[0].clone())
         );
         assert_eq!(primary_or_largest(&[], None), None);
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn minimized_or_empty_window_is_not_saved() {
+        let mut placement = saved(None);
+        assert!(savable(&placement, false));
+        assert!(!savable(&placement, true));
+        placement.x = -32000.0;
+        placement.y = -32000.0;
+        placement.width = 0.0;
+        placement.height = 0.0;
+        assert!(!savable(&placement, false));
     }
 
     #[test]

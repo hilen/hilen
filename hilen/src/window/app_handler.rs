@@ -135,7 +135,13 @@ impl AppHandler {
 
     #[cfg(desktop)]
     fn placement_changed() {
-        if let Some(placement) = Window::placement() {
+        let Some(placement) = Window::placement() else {
+            return;
+        };
+        let minimized = Window::winit_window()
+            .and_then(winit::window::Window::is_minimized)
+            .unwrap_or(false);
+        if crate::window::placement::savable(&placement, minimized) {
             crate::app::app().window_placement_changed(&placement);
         }
     }

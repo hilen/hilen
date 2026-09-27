@@ -51,6 +51,8 @@ pub trait App {
     /// Fires on every desktop window resize and move with the fresh
     /// placement. This is the place to save it, there is no close hook
     /// because Cmd+Q on macOS ends the process without one.
+    /// It does not fire while the window is minimized, Windows reports a
+    /// minimized window off screen with no size.
     fn window_placement_changed(&self, _placement: &WindowPlacement) {}
 
     /// Log targets of the app itself, usually just the crate name. The
