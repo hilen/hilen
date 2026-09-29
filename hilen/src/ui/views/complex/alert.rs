@@ -7,7 +7,7 @@ use crate::{
         color::{BLACK, CLEAR, Color},
         flat::Size,
     },
-    ui::{Button, Container, Label, ModalView, Setup, UIColor, View, view::ViewData},
+    ui::{Button, Container, DynamicColor, Label, ModalView, Setup, UIColor, View, view::ViewData},
 };
 
 pub(super) const ALERT_WIDTH: f32 = 270.0;
@@ -16,10 +16,13 @@ pub(super) const BUTTON_HEIGHT: f32 = 44.0;
 pub(super) const MIN_TEXT_HEIGHT: f32 = 22.0;
 const MAX_TEXT_HEIGHT: f32 = 400.0;
 
-pub(super) const BACKGROUND: Color = Color::hex("#f9f9f9");
-pub(super) const SEPARATOR: Color = Color::hex("#c6c6c8");
-pub(super) const ACTION_BLUE: Color = Color::hex("#007aff");
-pub(super) const MESSAGE_COLOR: Color = Color::hex("#1c1c1e");
+// The iOS system alert colors, light and dark. A dark app used to get a
+// white alert, since these were light only.
+pub(super) const BACKGROUND: DynamicColor = DynamicColor::new(Color::hex("#f9f9f9"), Color::hex("#2c2c2e"));
+pub(super) const SEPARATOR: DynamicColor = DynamicColor::new(Color::hex("#c6c6c8"), Color::hex("#38383a"));
+pub(super) const ACTION_BLUE: DynamicColor = DynamicColor::new(Color::hex("#007aff"), Color::hex("#0a84ff"));
+pub(super) const MESSAGE_COLOR: DynamicColor =
+    DynamicColor::new(Color::hex("#1c1c1e"), Color::hex("#ffffff"));
 
 #[allow(clippy::type_complexity)]
 static LABEL_SETUP: Mutex<Option<Box<dyn FnOnce(Weak<Label>) + Send>>> = Mutex::new(None);
