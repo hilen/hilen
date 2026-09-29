@@ -435,8 +435,12 @@ impl Player {
             return;
         };
 
-        let track =
-            audio_manager().add_sub_track(TrackBuilder::new().volume(Decibels(decibels(self.volume))));
+        let Some(mut manager) = audio_manager() else {
+            error!("video {}: no sound, no audio output", self.source);
+            return;
+        };
+        let track = manager.add_sub_track(TrackBuilder::new().volume(Decibels(decibels(self.volume))));
+        drop(manager);
         let mut track = match track {
             Ok(track) => track,
             Err(err) => {

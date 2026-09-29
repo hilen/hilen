@@ -7,7 +7,7 @@ use std::{
 use kira::{
     Decibels, Tween,
     sound::{
-        FromFileError,
+        FromFileError, PlaybackState,
         static_sound::{StaticSoundData, StaticSoundHandle},
     },
 };
@@ -36,42 +36,80 @@ impl Sound {
         effects_volume()
     }
 
+    /// Whether the machine has an output device. Without one every sound is
+    /// silent and every `Playing` reports it is not playing. The first call
+    /// opens the device.
+    pub fn has_output() -> bool {
+        effects().is_some()
+    }
+
     pub fn play(&mut self) {
         self.play_with_volume(1.0);
     }
 
     /// Plays once at `volume`, 1 as recorded and 0 silent, a linear
-    /// amplitude like a mixer fader.
+    /// amplitude like a mixer fader. Nothing can stop it, `play_once` can.
     pub fn play_with_volume(&mut self, volume: f32) {
-        effects()
-            .play(self.data.volume(decibels(volume)))
-            .expect("Failed to play sound");
+        self.start(self.data.volume(decibels(volume)));
+    }
+
+    /// Plays once at `volume` like `play_with_volume`, and the returned
+    /// `Playing` stops it early. Dropping it stops the sound too, so a spoken
+    /// line kept in a field is cut off when the next line replaces it.
+    pub fn play_once(&mut self, volume: f32) -> Playing {
+        Playing {
+            handle: self.start(self.data.volume(decibels(volume))),
+        }
     }
 
     /// Plays over and over at `volume` until the returned `Playing` is
     /// stopped or dropped, the way a campfire or a river sounds.
     pub fn play_looped(&mut self, volume: f32) -> Playing {
-        let data = self.data.volume(decibels(volume)).loop_region(..);
-        let handle = effects().play(data).expect("Failed to play sound");
-        Playing { handle }
+        Playing {
+            handle: self.start(self.data.volume(decibels(volume)).loop_region(..)),
+        }
+    }
+
+    fn start(&self, data: StaticSoundData) -> Option<StaticSoundHandle> {
+        match effects()?.play(data) {
+            Ok(handle) => Some(handle),
+            Err(err) => {
+                error!("Failed to play sound {}: {err}", self.path.display());
+                None
+            }
+        }
     }
 }
 
-/// A sound that plays until it is stopped, see `Sound::play_looped`.
-/// Dropping it stops it.
+/// A sound started by `Sound::play_once` or `Sound::play_looped`. Dropping
+/// it stops the sound.
 pub struct Playing {
-    handle: StaticSoundHandle,
+    /// None when the sound never started, with no output device.
+    handle: Option<StaticSoundHandle>,
 }
 
 impl Playing {
     /// Changes the volume at once, 1 as recorded and 0 silent. A game
     /// fades a sound with distance this way.
     pub fn set_volume(&mut self, volume: f32) {
-        self.handle.set_volume(decibels(volume), Tween::default());
+        if let Some(handle) = &mut self.handle {
+            handle.set_volume(decibels(volume), Tween::default());
+        }
     }
 
     pub fn stop(&mut self) {
-        self.handle.stop(Tween::default());
+        if let Some(handle) = &mut self.handle {
+            handle.stop(Tween::default());
+        }
+    }
+
+    /// False once the sound played to its end or was stopped, and always
+    /// false without an output device. A stop fades out over a few
+    /// milliseconds, so it reads true right after `stop`.
+    pub fn is_playing(&self) -> bool {
+        self.handle
+            .as_ref()
+            .is_some_and(|handle| handle.state() != PlaybackState::Stopped)
     }
 }
 

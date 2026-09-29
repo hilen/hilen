@@ -16,6 +16,18 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Sound on iOS and Android
+
+Found by skaityk, which plays the spoken audio of a sentence. Most urgent.
+
+- Current: `Sound::play_once` and `Playing::is_playing` are proven by
+  `hilen/tests/sound.rs` on macOS and on Linux without an output device. The `audio`
+  feature has never been run on iOS or Android, and `cargo test` does not run there.
+- Needed: proof that a sound loaded with `load_data` from Ogg Vorbis bytes plays, stops
+  and ends on the iOS simulator, a real iPhone and the Android emulator, by the same
+  checks as `hilen/tests/sound.rs`. Sound is not UI, so this is not a UI test.
+- Blocks: skaityk's speaker button on phones.
+
 ## Siri Remote input for tvOS
 
 Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real

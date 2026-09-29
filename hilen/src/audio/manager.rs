@@ -7,6 +7,7 @@ use kira::{
     AudioManager, AudioManagerSettings, Tween,
     track::{TrackBuilder, TrackHandle},
 };
+use log::error;
 use parking_lot::{Mutex, MutexGuard};
 
 use crate::audio::sound::decibels;
@@ -15,30 +16,43 @@ use crate::audio::sound::decibels;
 /// next to them.
 const DEFAULT_EFFECTS_VOLUME: f32 = 0.1;
 
-static AUDIO_MANAGER: OnceLock<Mutex<AudioManager>> = OnceLock::new();
+/// None when the machine has no output device, like a CI runner or a
+/// desktop with nothing plugged in. Every sound is silent then.
+static AUDIO_MANAGER: OnceLock<Option<Mutex<AudioManager>>> = OnceLock::new();
 /// Every `Sound` plays on this track.
-static EFFECTS: OnceLock<Mutex<TrackHandle>> = OnceLock::new();
+static EFFECTS: OnceLock<Option<Mutex<TrackHandle>>> = OnceLock::new();
 static EFFECTS_VOLUME: AtomicU32 = AtomicU32::new(DEFAULT_EFFECTS_VOLUME.to_bits());
 
-pub(crate) fn audio_manager() -> MutexGuard<'static, AudioManager> {
+/// Opens the device on the first call. A missing device used to panic, so
+/// the first sound on such a machine took the app down.
+pub(crate) fn audio_manager() -> Option<MutexGuard<'static, AudioManager>> {
     AUDIO_MANAGER
-        .get_or_init(|| {
-            Mutex::new(
-                AudioManager::new(AudioManagerSettings::default()).expect("Failed to get audio manager"),
-            )
+        .get_or_init(|| match AudioManager::new(AudioManagerSettings::default()) {
+            Ok(manager) => Some(Mutex::new(manager)),
+            Err(err) => {
+                error!("No audio output, every sound is silent: {err}");
+                None
+            }
         })
-        .lock()
+        .as_ref()
+        .map(Mutex::lock)
 }
 
-pub(crate) fn effects() -> MutexGuard<'static, TrackHandle> {
+pub(crate) fn effects() -> Option<MutexGuard<'static, TrackHandle>> {
     EFFECTS
         .get_or_init(|| {
-            let track = audio_manager()
-                .add_sub_track(TrackBuilder::new().volume(decibels(effects_volume())))
-                .expect("Failed to add the sound effects track");
-            Mutex::new(track)
+            let track =
+                audio_manager()?.add_sub_track(TrackBuilder::new().volume(decibels(effects_volume())));
+            match track {
+                Ok(track) => Some(Mutex::new(track)),
+                Err(err) => {
+                    error!("No sound effects track, every sound is silent: {err}");
+                    None
+                }
+            }
         })
-        .lock()
+        .as_ref()
+        .map(Mutex::lock)
 }
 
 pub(crate) fn effects_volume() -> f32 {
@@ -49,7 +63,7 @@ pub(crate) fn effects_volume() -> f32 {
 /// opens on the first play.
 pub(crate) fn set_effects_volume(volume: f32) {
     EFFECTS_VOLUME.store(volume.to_bits(), Ordering::Relaxed);
-    if let Some(effects) = EFFECTS.get() {
+    if let Some(Some(effects)) = EFFECTS.get() {
         effects.lock().set_volume(decibels(volume), Tween::default());
     }
 }
