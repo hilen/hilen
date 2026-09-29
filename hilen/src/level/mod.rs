@@ -20,7 +20,7 @@ pub use self::{
     level_test::{LevelRegistrable, LevelTest, LevelTestView, MaybeLevelTest, register_if_level_test},
     light::Light,
     sprite_data::{Flip, SpriteData},
-    tile_map::{BoxMove, TileId, TileKind, TileMap},
+    tile_map::{BoxMove, TileCollision, TileId, TileKind, TileMap},
     to_collider::ToCollider,
     units::*,
 };

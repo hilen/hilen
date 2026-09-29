@@ -3,7 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::Shape,
     level::{
-        Banner, LevelCreation, LevelManager, LevelSetup, LevelTest, SpriteTemplates, TileKind, TileMap, level,
+        Banner, LevelCreation, LevelManager, LevelSetup, LevelTest, SpriteTemplates, TileCollision, TileKind,
+        TileMap, level,
     },
     refs::Weak,
     ui::{ImageFilter, Point},
@@ -35,7 +36,7 @@ impl LevelSetup for TileLayers {
         wall.tile_size = TILE;
         wall.origin = origin;
         let back = wall.add_kind(TileKind {
-            solid: false,
+            collision: TileCollision::None,
             ..tile("game/tile_wall.png")
         });
         wall.fill(0, 3, 24, 9, back);

@@ -37,6 +37,12 @@ finger counts as the left button.
 white by default. `Image::set_filter(ImageFilter::Nearest)` keeps pixel art sharp,
 once per image, for every sprite and view that draws it.
 
+The image sampler repeats, and under MSAA a pixel that a quad edge only partly covers
+runs its fragment at the pixel center, outside the quad. The uv there is past the
+image and wrapped to the opposite edge, a thin line of the bottom row along the top.
+`sprite_textured.wgsl` and `ui_image.wgsl` clamp the uv half a texel inside the image,
+pinned by `Sprite edges` and the UI test `Image edges`.
+
 The textured pipeline draws one batch per image. The batches go farthest first, by
 the farthest sprite of each, see `sort_back_to_front`. In the order the images were
 first seen, a soft cutout edge drawn before the batch behind it blended with the
@@ -45,10 +51,16 @@ clear color and hid that batch there by depth, a halo that depended on load orde
 ## Tile maps
 
 `LevelBase::add_tile_map` takes a `TileMap`, a grid of `TileKind`s, each with an image
-and a solid flag. A layer draws behind every sprite and behind the layers added
-before it, and only the cells on screen are drawn. `box_hits_solid`, `move_box` and
-`stands_on_solid` let an actor walk and land on the grid without rapier. `move_box`
-goes in hops under half a cell, so a fast box never skips a thin wall.
+and a `TileCollision`: `None` for decor, `Solid`, or `Platform`. A layer draws behind
+every sprite and behind the layers added before it, and only the cells on screen are
+drawn. `box_hits_solid`, `move_box` and `stands_on_solid` let an actor walk and land on
+the grid without rapier. `move_box` goes in hops under half a cell, so a fast box never
+skips a thin wall.
+
+A platform is a jump through ledge. It stops a box only when the box falls onto its
+top from above, never moving up or sideways, and `stands_on_solid` counts its top as
+ground. `move_box` with `drop_through` falls through it, for a held Down key.
+`is_solid` and `box_hits_solid` see only solid cells.
 
 ## Light
 

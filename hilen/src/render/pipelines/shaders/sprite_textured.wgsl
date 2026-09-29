@@ -55,7 +55,12 @@ fn v_main(
 
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let tex = textureSample(t_diffuse, s_diffuse, in.uv);
+    // Under MSAA a pixel the quad edge only partly covers runs at its
+    // center, outside the quad, with the uv past the image. The sampler
+    // repeats, so it would draw the texels of the opposite edge there.
+    let half_texel = 0.5 / vec2<f32>(textureDimensions(t_diffuse));
+    let uv = clamp(in.uv, half_texel, 1.0 - half_texel);
+    let tex = textureSample(t_diffuse, s_diffuse, uv);
 
     // Bilinear sampling smears a cutout edge across as many screen pixels
     // as the sprite is magnified. Reading the sampled alpha as a distance

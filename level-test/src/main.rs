@@ -12,6 +12,7 @@ mod level_lights;
 mod level_mouse;
 mod level_time;
 mod pixel_art;
+mod sprite_edges;
 mod sprite_flip;
 mod sprite_tint;
 mod tile_layers;

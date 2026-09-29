@@ -11,6 +11,7 @@ mod css_colors;
 mod cursor_capture;
 mod dispatch;
 mod global_styles;
+mod image_edges;
 /// Inspector hover uses the pointer pipeline, available on desktop and web.
 #[cfg(any(desktop, wasm))]
 mod inspect_hover;

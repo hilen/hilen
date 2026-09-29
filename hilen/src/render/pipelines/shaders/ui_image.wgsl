@@ -161,7 +161,12 @@ fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance: UIImageInstance = instances[in.index];
 
-    let tex = textureSample(t_diffuse, s_diffuse, in.uv);
+    // Under MSAA a pixel the quad edge only partly covers runs at its
+    // center, outside the quad, with the uv past the image. The sampler
+    // repeats, so it would draw the texels of the opposite edge there.
+    let half_texel = 0.5 / vec2<f32>(textureDimensions(t_diffuse));
+    let uv = clamp(in.uv, half_texel, 1.0 - half_texel);
+    let tex = textureSample(t_diffuse, s_diffuse, uv);
     let local_pos: vec2<f32> = in.corner_uv * instance.size;
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);

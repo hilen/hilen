@@ -17,26 +17,46 @@ impl TileId {
     pub const EMPTY: Self = Self(0);
 }
 
-/// What a tile looks like and whether a box stops at it. A kind with no
-/// image is not drawn, an invisible wall.
+/// How a box moving through the grid meets a tile.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TileCollision {
+    /// Stops nothing, decor.
+    None,
+    /// Stops a box from every side.
+    Solid,
+    /// Stops only a box falling onto its top, like a jump through ledge.
+    /// A box passes it moving up or sideways, and `move_box` drops
+    /// through it when asked.
+    Platform,
+}
+
+/// What a tile looks like and how a box meets it. A kind with no image is
+/// not drawn, an invisible wall or platform.
 #[derive(Debug, Clone)]
 pub struct TileKind {
-    pub image: Weak<Image>,
-    pub solid: bool,
+    pub image:     Weak<Image>,
+    pub collision: TileCollision,
 }
 
 impl TileKind {
     pub fn solid(image: impl ToImage) -> Self {
         Self {
-            image: image.to_image(),
-            solid: true,
+            image:     image.to_image(),
+            collision: TileCollision::Solid,
         }
     }
 
     pub fn decor(image: impl ToImage) -> Self {
         Self {
-            image: image.to_image(),
-            solid: false,
+            image:     image.to_image(),
+            collision: TileCollision::None,
+        }
+    }
+
+    pub fn platform(image: impl ToImage) -> Self {
+        Self {
+            image:     image.to_image(),
+            collision: TileCollision::Platform,
         }
     }
 }
@@ -165,14 +185,25 @@ impl TileMap {
         )
     }
 
-    pub fn is_solid(&self, x: i32, y: i32) -> bool {
+    /// How the cell `(x, y)` meets a box, cells outside the grid included.
+    pub fn collision(&self, x: i32, y: i32) -> TileCollision {
+        let outside = if self.outside_solid {
+            TileCollision::Solid
+        } else {
+            TileCollision::None
+        };
         let (Ok(ux), Ok(uy)) = (usize::try_from(x), usize::try_from(y)) else {
-            return self.outside_solid;
+            return outside;
         };
         if ux >= self.width || uy >= self.height {
-            return self.outside_solid;
+            return outside;
         }
-        self.kind(self.get(ux, uy)).is_some_and(|kind| kind.solid)
+        self.kind(self.get(ux, uy)).map_or(TileCollision::None, |kind| kind.collision)
+    }
+
+    /// Whether the cell stops a box from every side. A platform does not.
+    pub fn is_solid(&self, x: i32, y: i32) -> bool {
+        self.collision(x, y) == TileCollision::Solid
     }
 
     /// Whether the box from `min` to `max` overlaps a solid cell. A box
@@ -183,20 +214,35 @@ impl TileMap {
         (x0..=x1.max(x0)).any(|x| (y0..=y1.max(y0)).any(|y| self.is_solid(x, y)))
     }
 
-    /// Whether a box with this center and half size stands on a solid cell.
+    /// Whether a box with this center and half size stands on a solid
+    /// cell or on the top of a platform.
     pub fn stands_on_solid(&self, center: Point, half: Point) -> bool {
-        let feet = center.y - half.y - EDGE * 2.0;
+        let bottom = center.y - half.y;
+        let feet = bottom - EDGE * 2.0;
         self.box_hits_solid(
             Point::new(center.x - half.x, feet),
             Point::new(center.x + half.x, feet + EDGE),
-        )
+        ) || self.crosses_platform_top(center.x - half.x, center.x + half.x, bottom, feet)
+    }
+
+    /// Whether a box bottom spanning `min_x` to `max_x`, going down from
+    /// `was` to `now`, passes the top of a platform cell. A box already
+    /// below that top is passing up through the platform from under it.
+    fn crosses_platform_top(&self, min_x: f32, max_x: f32, was: f32, now: f32) -> bool {
+        let (x0, row) = self.cell_at(Point::new(min_x, now));
+        let (x1, _) = self.cell_at(Point::new(max_x - EDGE, now));
+        let top = self.cell_rect(0, row).max_y();
+        was >= top
+            && now < top
+            && (x0..=x1.max(x0)).any(|x| self.collision(x, row) == TileCollision::Platform)
     }
 
     /// Moves a box with this center and half size by `delta`, first along
     /// x and then along y, and stops it at the first solid cell on each
     /// axis. A long move goes in hops shorter than half a cell, so a fast
-    /// box never skips a thin wall.
-    pub fn move_box(&self, center: Point, half: Point, delta: Point) -> BoxMove {
+    /// box never skips a thin wall. A platform stops the box only when it
+    /// falls onto the platform's top, and never with `drop_through`.
+    pub fn move_box(&self, center: Point, half: Point, delta: Point, drop_through: bool) -> BoxMove {
         let mut result = BoxMove {
             position: center,
             ..BoxMove::default()
@@ -209,10 +255,10 @@ impl TileMap {
         let mut moving = Point::new(hop.x, hop.y);
         let hops: usize = hops.lossy_convert();
         for _ in 0..hops {
-            if moving.x != 0.0 && self.move_axis(&mut result, half, moving.x, true) {
+            if moving.x != 0.0 && self.move_axis(&mut result, half, moving.x, true, drop_through) {
                 moving.x = 0.0;
             }
-            if moving.y != 0.0 && self.move_axis(&mut result, half, moving.y, false) {
+            if moving.y != 0.0 && self.move_axis(&mut result, half, moving.y, false, drop_through) {
                 moving.y = 0.0;
             }
             if moving.x == 0.0 && moving.y == 0.0 {
@@ -223,8 +269,16 @@ impl TileMap {
         result
     }
 
-    /// One hop along one axis, true when a solid cell stopped it.
-    fn move_axis(&self, result: &mut BoxMove, half: Point, step: f32, along_x: bool) -> bool {
+    /// One hop along one axis, true when a solid cell or a platform top
+    /// stopped it.
+    fn move_axis(
+        &self,
+        result: &mut BoxMove,
+        half: Point,
+        step: f32,
+        along_x: bool,
+        drop_through: bool,
+    ) -> bool {
         let mut pos = result.position;
         if along_x {
             pos.x += step;
@@ -232,7 +286,20 @@ impl TileMap {
             pos.y += step;
         }
 
-        if !self.box_hits_solid(pos - half, pos + half) {
+        // A hop is shorter than half a cell, so it passes at most one row
+        // top, the top of the row the new bottom is in, where the floor
+        // below puts the box.
+        let lands_on_platform = !along_x
+            && step < 0.0
+            && !drop_through
+            && self.crosses_platform_top(
+                pos.x - half.x,
+                pos.x + half.x,
+                result.position.y - half.y,
+                pos.y - half.y,
+            );
+
+        if !lands_on_platform && !self.box_hits_solid(pos - half, pos + half) {
             result.position = pos;
             return false;
         }
@@ -323,12 +390,12 @@ mod test {
     fn room() -> (TileMap, TileId) {
         let mut map = TileMap::new(10, 10);
         let stone = map.add_kind(TileKind {
-            image: Weak::default(),
-            solid: true,
+            image:     Weak::default(),
+            collision: TileCollision::Solid,
         });
         let decor = map.add_kind(TileKind {
-            image: Weak::default(),
-            solid: false,
+            image:     Weak::default(),
+            collision: TileCollision::None,
         });
         map.fill(0, 0, 10, 1, stone);
         map.set(6, 1, stone);
@@ -359,7 +426,7 @@ mod test {
         let mut center = Point::new(2.5, 5.0);
         let mut landed = false;
         for _ in 0..100 {
-            let moved = map.move_box(center, HALF, Point::new(0.0, -0.2));
+            let moved = map.move_box(center, HALF, Point::new(0.0, -0.2), false);
             center = moved.position;
             landed |= moved.floor;
         }
@@ -371,7 +438,7 @@ mod test {
     #[test]
     fn a_walking_box_stops_at_a_wall() {
         let (map, _) = room();
-        let moved = map.move_box(Point::new(2.5, 1.41), HALF, Point::new(5.0, 0.0));
+        let moved = map.move_box(Point::new(2.5, 1.41), HALF, Point::new(5.0, 0.0), false);
         assert!(moved.wall);
         assert!(moved.position.x + HALF.x <= 6.0, "{moved:?}");
         assert!(moved.position.x + HALF.x > 5.99, "{moved:?}");
@@ -380,7 +447,7 @@ mod test {
     #[test]
     fn a_fast_box_does_not_skip_a_thin_wall() {
         let (map, _) = room();
-        let moved = map.move_box(Point::new(1.5, 1.41), HALF, Point::new(40.0, 0.0));
+        let moved = map.move_box(Point::new(1.5, 1.41), HALF, Point::new(40.0, 0.0), false);
         assert!(moved.wall);
         assert!(moved.position.x < 6.0, "{moved:?}");
     }
@@ -390,7 +457,7 @@ mod test {
         let (map, stone) = room();
         let mut map = map;
         map.set(2, 4, stone);
-        let moved = map.move_box(Point::new(2.5, 1.41), HALF, Point::new(0.0, 5.0));
+        let moved = map.move_box(Point::new(2.5, 1.41), HALF, Point::new(0.0, 5.0), false);
         assert!(moved.ceiling);
         assert!((moved.position.y + HALF.y - 4.0).abs() < 0.01, "{moved:?}");
     }
@@ -403,8 +470,94 @@ mod test {
         assert_eq!(map.cell_at(Point::new(-9.0, -19.0)), (0, 0));
         assert_eq!(map.cell_at(Point::new(21.0, -14.0)), (6, 1));
         assert!(map.box_hits_solid(Point::new(20.5, -14.5), Point::new(21.0, -14.0)));
-        let moved = map.move_box(Point::new(0.0, 0.0), Point::new(1.0, 1.0), Point::new(0.0, -30.0));
+        let moved = map.move_box(
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 1.0),
+            Point::new(0.0, -30.0),
+            false,
+        );
         assert!(moved.floor);
         assert!((moved.position.y - 1.0 - -15.0).abs() < 0.01, "{moved:?}");
+    }
+
+    /// The room with an invisible platform ledge on row 4, from x 1 to 5,
+    /// its top at y 5.
+    fn ledge() -> TileMap {
+        let (mut map, _) = room();
+        let ledge = map.add_kind(TileKind {
+            image:     Weak::default(),
+            collision: TileCollision::Platform,
+        });
+        map.fill(1, 4, 5, 1, ledge);
+        map
+    }
+
+    /// Moves the box down in small steps like gravity, returns where it
+    /// ended and whether any step landed it.
+    fn fall(map: &TileMap, mut center: Point, drop_through: bool) -> (Point, bool) {
+        let mut landed = false;
+        for _ in 0..100 {
+            let moved = map.move_box(center, HALF, Point::new(0.0, -0.2), drop_through);
+            center = moved.position;
+            landed |= moved.floor;
+        }
+        (center, landed)
+    }
+
+    #[test]
+    fn a_platform_is_not_a_wall() {
+        let map = ledge();
+        assert_eq!(map.collision(2, 4), TileCollision::Platform);
+        assert!(!map.is_solid(2, 4));
+        assert!(!map.box_hits_solid(Point::new(2.0, 4.0), Point::new(3.0, 5.0)));
+    }
+
+    #[test]
+    fn a_falling_box_lands_on_a_platform() {
+        let map = ledge();
+        let (center, landed) = fall(&map, Point::new(2.5, 8.0), false);
+        assert!(landed);
+        assert!((center.y - HALF.y - 5.0).abs() < 0.01, "{center:?}");
+        assert!(map.stands_on_solid(center, HALF));
+    }
+
+    #[test]
+    fn a_jump_passes_up_through_a_platform_and_lands_on_it() {
+        let map = ledge();
+        let moved = map.move_box(Point::new(2.5, 1.41), HALF, Point::new(0.0, 5.0), false);
+        assert!(!moved.hit(), "{moved:?}");
+        assert!((moved.position.y - 6.41).abs() < 0.01, "{moved:?}");
+
+        let (center, landed) = fall(&map, moved.position, false);
+        assert!(landed);
+        assert!((center.y - HALF.y - 5.0).abs() < 0.01, "{center:?}");
+    }
+
+    #[test]
+    fn a_box_inside_a_platform_falls_out_of_it() {
+        let map = ledge();
+        let inside = Point::new(2.5, 4.6);
+        assert!(!map.stands_on_solid(inside, HALF));
+        let (center, _) = fall(&map, inside, false);
+        assert!((center.y - HALF.y - 1.0).abs() < 0.01, "{center:?}");
+    }
+
+    #[test]
+    fn a_walking_box_passes_through_a_platform() {
+        let map = ledge();
+        let moved = map.move_box(Point::new(0.5, 4.5), HALF, Point::new(5.0, 0.0), false);
+        assert!(!moved.hit(), "{moved:?}");
+        assert!((moved.position.x - 5.5).abs() < 0.01, "{moved:?}");
+    }
+
+    #[test]
+    fn a_box_drops_through_a_platform() {
+        let map = ledge();
+        let (on_top, _) = fall(&map, Point::new(2.5, 8.0), false);
+        assert!(map.stands_on_solid(on_top, HALF));
+
+        let (center, landed) = fall(&map, on_top, true);
+        assert!(landed, "the floor stops it");
+        assert!((center.y - HALF.y - 1.0).abs() < 0.01, "{center:?}");
     }
 }
