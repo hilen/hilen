@@ -4,7 +4,7 @@ use crate::{
         LossyConvert,
         flat::{Point, Rect},
     },
-    level::{LevelBase, LevelManager},
+    level::{LevelBase, LevelManager, TileFrames, TileSides},
     window::image::{Image, ToImage},
 };
 
@@ -30,34 +30,42 @@ pub enum TileCollision {
     Platform,
 }
 
-/// What a tile looks like and how a box meets it. A kind with no image is
-/// not drawn, an invisible wall or platform.
+/// What a tile looks like and how a box meets it. A kind with no image and
+/// no frames is not drawn, an invisible wall or platform.
 #[derive(Debug, Clone)]
 pub struct TileKind {
     pub image:     Weak<Image>,
     pub collision: TileCollision,
+    /// Images picked by which neighbors join a cell, see
+    /// `TileMap::join`. A shape with no frames draws `image`.
+    pub frames:    TileFrames,
 }
 
 impl TileKind {
     pub fn solid(image: impl ToImage) -> Self {
-        Self {
-            image:     image.to_image(),
-            collision: TileCollision::Solid,
-        }
+        Self::new(image, TileCollision::Solid)
     }
 
     pub fn decor(image: impl ToImage) -> Self {
-        Self {
-            image:     image.to_image(),
-            collision: TileCollision::None,
-        }
+        Self::new(image, TileCollision::None)
     }
 
     pub fn platform(image: impl ToImage) -> Self {
+        Self::new(image, TileCollision::Platform)
+    }
+
+    pub fn new(image: impl ToImage, collision: TileCollision) -> Self {
         Self {
-            image:     image.to_image(),
-            collision: TileCollision::Platform,
+            image: image.to_image(),
+            collision,
+            frames: TileFrames::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_frames(mut self, frames: TileFrames) -> Self {
+        self.frames = frames;
+        self
     }
 }
 
@@ -92,6 +100,8 @@ pub struct TileMap {
     height: usize,
     kinds:  Vec<TileKind>,
     tiles:  Vec<TileId>,
+    /// Pairs of different kinds that join, each pair once, lower id first.
+    joins:  Vec<(TileId, TileId)>,
 
     pub origin:        Point,
     pub tile_size:     f32,
@@ -110,6 +120,7 @@ impl TileMap {
             height,
             kinds: vec![],
             tiles: vec![TileId::EMPTY; width * height],
+            joins: vec![],
             origin: Point::default(),
             tile_size: 1.0,
             outside_solid: true,
@@ -154,6 +165,62 @@ impl TileMap {
             id.0
         );
         self.tiles[y * self.width + x] = id;
+    }
+
+    /// Makes two kinds join, so a framed cell of one draws no edge toward
+    /// a cell of the other, like dirt meeting stone. A kind always joins
+    /// itself.
+    pub fn join(&mut self, a: TileId, b: TileId) {
+        let pair = if a.0 <= b.0 { (a, b) } else { (b, a) };
+        if a != b && !self.joins.contains(&pair) {
+            self.joins.push(pair);
+        }
+    }
+
+    fn joins(&self, a: TileId, b: TileId) -> bool {
+        if a == TileId::EMPTY || b == TileId::EMPTY {
+            return false;
+        }
+        let pair = if a.0 <= b.0 { (a, b) } else { (b, a) };
+        a == b || self.joins.contains(&pair)
+    }
+
+    /// Which neighbors of the cell `(x, y)` join it. Around the grid a
+    /// side joins when the outside is solid, so the world border draws
+    /// no edge.
+    pub fn sides(&self, x: usize, y: usize) -> TileSides {
+        let id = self.get(x, y);
+        let joins = |dx: i32, dy: i32| {
+            let (nx, ny) = (cell_index(x) + dx, cell_index(y) + dy);
+            let (Ok(ux), Ok(uy)) = (usize::try_from(nx), usize::try_from(ny)) else {
+                return self.outside_solid;
+            };
+            if ux >= self.width || uy >= self.height {
+                return self.outside_solid;
+            }
+            self.joins(id, self.get(ux, uy))
+        };
+        [
+            (0, 1, TileSides::UP),
+            (1, 0, TileSides::RIGHT),
+            (0, -1, TileSides::DOWN),
+            (-1, 0, TileSides::LEFT),
+        ]
+        .into_iter()
+        .filter(|&(dx, dy, _)| joins(dx, dy))
+        .fold(TileSides::NONE, |sides, (_, _, side)| sides | side)
+    }
+
+    /// The image the cell `(x, y)` draws, its frame when its kind has
+    /// one for the cell's shape. Not ok for an empty cell.
+    pub fn image_at(&self, x: usize, y: usize) -> Weak<Image> {
+        let Some(kind) = self.kind(self.get(x, y)) else {
+            return Weak::default();
+        };
+        if kind.frames.is_empty() {
+            return kind.image;
+        }
+        kind.frames.pick(self.sides(x, y), x, y).unwrap_or(kind.image)
     }
 
     /// Fills the rect of cells from `(x, y)`, `width` by `height` of them.
@@ -269,6 +336,44 @@ impl TileMap {
         result
     }
 
+    /// Moves a box like `move_box`, and a box standing on the ground that
+    /// walks into a ledge at most `step_up` high climbs onto it, the way a
+    /// Terraria player walks up one block without a jump. A ledge with no
+    /// room above it for the box stays a wall.
+    pub fn walk_box(
+        &self,
+        center: Point,
+        half: Point,
+        delta: Point,
+        drop_through: bool,
+        step_up: f32,
+    ) -> BoxMove {
+        let moved = self.move_box(center, half, delta, drop_through);
+        if !moved.wall || step_up <= 0.0 || delta.y > 0.0 || !self.stands_on_solid(center, half) {
+            return moved;
+        }
+        let raised = self.move_box(center, half, Point::new(0.0, step_up), drop_through);
+        if raised.ceiling {
+            return moved;
+        }
+        let ahead = self.move_box(raised.position, half, Point::new(delta.x, 0.0), drop_through);
+        if (ahead.position.x - center.x).abs() <= (moved.position.x - center.x).abs() + EDGE {
+            return moved;
+        }
+        let settled = self.move_box(
+            ahead.position,
+            half,
+            Point::new(0.0, delta.y - step_up),
+            drop_through,
+        );
+        BoxMove {
+            position: settled.position,
+            wall:     ahead.wall,
+            ceiling:  false,
+            floor:    settled.floor,
+        }
+    }
+
     /// One hop along one axis, true when a solid cell or a platform top
     /// stopped it.
     fn move_axis(
@@ -328,8 +433,8 @@ impl TileMap {
         true
     }
 
-    /// Every drawn cell whose square touches `visible`, with its kind.
-    pub(crate) fn visible_cells(&self, visible: Rect) -> impl Iterator<Item = (Rect, &TileKind)> {
+    /// Every drawn cell whose square touches `visible`, with its image.
+    pub(crate) fn visible_cells(&self, visible: Rect) -> impl Iterator<Item = (Rect, Weak<Image>)> {
         let (x0, y0) = self.cell_at(visible.origin);
         let (x1, y1) = self.cell_at(Point::new(visible.max_x(), visible.max_y()));
         let clamp_x = |x: i32| usize::try_from(x.max(0)).unwrap_or(0).min(self.width);
@@ -339,11 +444,8 @@ impl TileMap {
 
         (y0..y1).flat_map(move |y| {
             (x0..x1).filter_map(move |x| {
-                let kind = self.kind(self.tiles[y * self.width + x])?;
-                kind.image.is_ok().then(|| {
-                    let cell = self.cell_rect(cell_index(x), cell_index(y));
-                    (cell, kind)
-                })
+                let image = self.image_at(x, y);
+                image.is_ok().then(|| (self.cell_rect(cell_index(x), cell_index(y)), image))
             })
         })
     }
@@ -389,14 +491,8 @@ mod test {
     /// decor tile at x 3 that stops nothing.
     fn room() -> (TileMap, TileId) {
         let mut map = TileMap::new(10, 10);
-        let stone = map.add_kind(TileKind {
-            image:     Weak::default(),
-            collision: TileCollision::Solid,
-        });
-        let decor = map.add_kind(TileKind {
-            image:     Weak::default(),
-            collision: TileCollision::None,
-        });
+        let stone = map.add_kind(TileKind::new(Weak::default(), TileCollision::Solid));
+        let decor = map.add_kind(TileKind::new(Weak::default(), TileCollision::None));
         map.fill(0, 0, 10, 1, stone);
         map.set(6, 1, stone);
         map.set(3, 1, decor);
@@ -484,10 +580,7 @@ mod test {
     /// its top at y 5.
     fn ledge() -> TileMap {
         let (mut map, _) = room();
-        let ledge = map.add_kind(TileKind {
-            image:     Weak::default(),
-            collision: TileCollision::Platform,
-        });
+        let ledge = map.add_kind(TileKind::new(Weak::default(), TileCollision::Platform));
         map.fill(1, 4, 5, 1, ledge);
         map
     }
@@ -548,6 +641,45 @@ mod test {
         let moved = map.move_box(Point::new(0.5, 4.5), HALF, Point::new(5.0, 0.0), false);
         assert!(!moved.hit(), "{moved:?}");
         assert!((moved.position.x - 5.5).abs() < 0.01, "{moved:?}");
+    }
+
+    /// Walks the box right along the floor in small steps, like a body
+    /// running with gravity, and returns where it ended.
+    fn walk(map: &TileMap, mut center: Point, step_up: f32) -> Point {
+        for _ in 0..100 {
+            center = map.walk_box(center, HALF, Point::new(0.1, -0.05), false, step_up).position;
+        }
+        center
+    }
+
+    #[test]
+    fn a_walking_box_climbs_a_one_tile_ledge() {
+        let (map, _) = room();
+        let start = Point::new(2.5, 1.0 + HALF.y + EDGE);
+        let end = walk(&map, start, 1.0);
+        assert!(end.x > 7.0, "it climbed the wall at x 6: {end:?}");
+        assert!(
+            (end.y - HALF.y - 1.0).abs() < 0.01,
+            "and stands on the floor behind it: {end:?}"
+        );
+        let blocked = walk(&map, start, 0.0);
+        assert!(blocked.x < 6.0, "no step up, no climb: {blocked:?}");
+    }
+
+    #[test]
+    fn a_ledge_higher_than_the_step_stays_a_wall() {
+        let (mut map, stone) = room();
+        map.set(6, 2, stone);
+        let end = walk(&map, Point::new(2.5, 1.0 + HALF.y + EDGE), 1.0);
+        assert!(end.x < 6.0, "{end:?}");
+    }
+
+    #[test]
+    fn a_ledge_under_a_low_ceiling_stays_a_wall() {
+        let (mut map, stone) = room();
+        map.fill(4, 2, 4, 1, stone);
+        let end = walk(&map, Point::new(4.5, 1.0 + HALF.y + EDGE), 1.0);
+        assert!(end.x < 6.0, "no room over the ledge: {end:?}");
     }
 
     #[test]

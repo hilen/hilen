@@ -12,7 +12,7 @@ use crate::{
         color::{Color, WHITE},
         flat::Point,
     },
-    level::{Level, LevelManager, Light, Sprite, TileMap, level::level_physics::LevelPhysics},
+    level::{Level, LevelManager, Light, Sprite, Terrain, TileMap, level::level_physics::LevelPhysics},
     window::image::Image,
 };
 
@@ -23,6 +23,7 @@ pub struct LevelBase {
 
     pub(crate) lights:    Vec<Own<Light>>,
     pub(crate) tile_maps: Vec<Own<TileMap>>,
+    pub(crate) terrains:  Vec<Own<Terrain>>,
 
     pub background: Weak<Image>,
 

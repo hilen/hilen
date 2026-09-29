@@ -8,6 +8,8 @@ use wgpu::{
     TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
+#[cfg(feature = "level")]
+use crate::window::surface_texture_format;
 use crate::{
     gm::flat::Size,
     window::{
@@ -179,6 +181,49 @@ impl Texture {
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
             mipmap_filter: MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+            channels: 4,
+        }
+    }
+
+    /// A texture a pixel art level draws into at art resolution, in the
+    /// surface format so the level pipelines can draw into it, one sample,
+    /// read back with the nearest filter so each texel stays a hard square.
+    #[cfg(feature = "level")]
+    pub(crate) fn pixel_target(size: Size<u32>) -> Self {
+        let device = Window::device();
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label:           "pixel_art_target".into(),
+            size:            Extent3d {
+                width:                 size.width,
+                height:                size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    1,
+            dimension:       TextureDimension::D2,
+            format:          surface_texture_format(),
+            usage:           TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            view_formats:    &[],
+        });
+
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&SamplerDescriptor {
+            label: "pixel_art_sampler".into(),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
             ..Default::default()
         });
 

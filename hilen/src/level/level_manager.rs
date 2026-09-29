@@ -38,6 +38,10 @@ pub struct LevelManager {
 
     level: Option<Own<dyn Level>>,
 
+    /// Level units per art pixel when the level draws as pixel art, see
+    /// `set_pixel_art`.
+    pixel_size: Option<f32>,
+
     scale_changed: Option<Box<dyn FnMut(f32)>>,
 }
 
@@ -105,12 +109,14 @@ impl LevelManager {
         l.last_frame = None;
         l.accumulator = 0.0;
         l.time = 0.0;
+        l.pixel_size = None;
         l.level.as_ref().unwrap().__internal_setup();
         weak
     }
 
     pub fn stop_level() {
         SELF.get_mut().level = None;
+        SELF.get_mut().pixel_size = None;
         Self::set_scale(1.0);
         *Self::camera_pos() = (0, 0).into();
     }
@@ -156,8 +162,17 @@ impl LevelManager {
         SELF.get_mut().scale
     }
 
+    /// In pixel art the scale snaps so an art pixel covers a whole number
+    /// of screen pixels, see `set_pixel_art`.
     pub fn set_scale(scale: f32) {
         let sf = SELF.get_mut();
+        let scale = match sf.pixel_size {
+            Some(pixel) => {
+                let screen_pixels = (10.0 * scale * pixel).round().max(1.0);
+                screen_pixels / (10.0 * pixel)
+            }
+            None => scale,
+        };
         sf.scale = scale;
         if let Some(cb) = &mut sf.scale_changed {
             cb(scale);
@@ -189,6 +204,39 @@ impl LevelManager {
 
     pub fn camera_pos() -> &'static mut Point {
         &mut SELF.get_mut().camera_pos
+    }
+
+    /// Draw the level as pixel art, each `pixel_size` level units one art
+    /// pixel, or smooth again with `None`. The level renders at art
+    /// resolution into a texture that the screen shows with hard square
+    /// pixels, so a slope or a turned sprite breaks into a pixel staircase
+    /// the way pixel art does. The scale snaps to a whole number of screen
+    /// pixels per art pixel and the camera to a whole art pixel. A new
+    /// level starts smooth, so set it in the level setup.
+    pub fn set_pixel_art(pixel_size: Option<f32>) {
+        if let Some(pixel) = pixel_size {
+            assert!(pixel > 0.0, "an art pixel must be bigger than zero");
+        }
+        SELF.get_mut().pixel_size = pixel_size;
+        Self::set_scale(Self::scale());
+    }
+
+    /// Level units per art pixel, none when the level draws smooth.
+    pub fn pixel_size() -> Option<f32> {
+        SELF.pixel_size
+    }
+
+    /// The camera the level is drawn from. In pixel art it sits on a whole
+    /// art pixel, so the art grid never slides under the screen grid.
+    pub(crate) fn view_camera() -> Point {
+        let camera = *Self::camera_pos();
+        match SELF.pixel_size {
+            Some(pixel) => Point::new(
+                (camera.x / pixel).round() * pixel,
+                (camera.y / pixel).round() * pixel,
+            ),
+            None => camera,
+        }
     }
 
     /// Screen points per level unit. The sprite shader draws ten pixels
@@ -230,13 +278,13 @@ impl LevelManager {
         let center = UIManager::render_area() / 2.0;
         let pixels = screen * UIManager::scale();
         let offset = Point::new(pixels.x - center.width, center.height - pixels.y);
-        offset / Self::pixels_per_unit() + *Self::camera_pos()
+        offset / Self::pixels_per_unit() + Self::view_camera()
     }
 
     /// The screen point in UI points where a level point is drawn, to put
     /// a view over it, like a damage number over an enemy.
     pub fn screen_point(level: impl Into<Point>) -> Point {
-        let offset = (level.into() - *Self::camera_pos()) * Self::pixels_per_unit();
+        let offset = (level.into() - Self::view_camera()) * Self::pixels_per_unit();
         let center = UIManager::render_area() / 2.0;
         Point::new(center.width + offset.x, center.height - offset.y) / UIManager::scale()
     }
@@ -244,12 +292,61 @@ impl LevelManager {
     /// The level rect the screen shows.
     pub fn visible_rect() -> Rect {
         let half = UIManager::render_area() / 2.0 / Self::pixels_per_unit();
-        let camera = *Self::camera_pos();
+        let camera = Self::view_camera();
         Rect::new(
             camera.x - half.width,
             camera.y - half.height,
             half.width * 2.0,
             half.height * 2.0,
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serial_test::serial;
+
+    use crate::{
+        deps::hreads::set_current_thread_as_main,
+        gm::flat::Point,
+        level::{LevelManager, LevelSetup, level},
+    };
+
+    #[level]
+    #[derive(Default)]
+    struct Empty {}
+
+    impl LevelSetup for Empty {}
+
+    /// In pixel art an art pixel covers a whole number of screen pixels,
+    /// so the scale snaps, the camera sits on a whole art pixel, and a new
+    /// level starts smooth again.
+    #[test]
+    #[serial]
+    fn pixel_art_snaps_the_scale_and_the_camera() {
+        set_current_thread_as_main();
+        LevelManager::set_level(Empty::default());
+
+        LevelManager::set_pixel_art(Some(0.25));
+        // 10 pixels a unit times 1.3 is 3.25 screen pixels an art pixel, 3.
+        LevelManager::set_scale(1.3);
+        assert!(
+            (LevelManager::scale() - 1.2).abs() < 1e-6,
+            "{}",
+            LevelManager::scale()
+        );
+
+        *LevelManager::camera_pos() = Point::new(1.1, -0.3);
+        let camera = LevelManager::view_camera();
+        assert!(
+            (camera.x - 1.0).abs() < 1e-6 && (camera.y + 0.25).abs() < 1e-6,
+            "{camera}"
+        );
+
+        LevelManager::set_level(Empty::default());
+        assert_eq!(LevelManager::pixel_size(), None);
+        LevelManager::set_scale(1.3);
+        assert!((LevelManager::scale() - 1.3).abs() < 1e-6);
+        LevelManager::stop_level();
     }
 }

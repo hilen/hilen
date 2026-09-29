@@ -30,7 +30,7 @@ ui-tests = ["ui-proc/ui-tests", "dep:clap"]
 # Physics levels and the no physics game scene, with rapier, the level
 # proc macro, and the sprite, polygon and background pipelines. Off by
 # default, a GUI only app carries none of it.
-level = ["dep:level-proc", "dep:rapier2d"]
+level = ["dep:geo", "dep:level-proc", "dep:rapier2d"]
 # Registers every `impl LevelTest` into `LEVEL_TESTS`. Needs the shared
 # runner from `ui-tests`. `ui-tests` never pulls level in.
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
@@ -76,6 +76,7 @@ event-listener = { workspace = true }
 fastrand = { workspace = true }
 fern = { workspace = true }
 futures-util = { workspace = true }
+geo = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 hex = { workspace = true }
 image = { workspace = true }

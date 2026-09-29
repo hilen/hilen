@@ -30,6 +30,22 @@ const CLIP_TEST: StencilFaceState = StencilFaceState {
 #[cfg(feature = "scene")]
 pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// How a pipeline tests depth, what it draws, and how many samples a
+/// pixel of its pass has.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct PipelineShape {
+    pub(crate) depth_compare: CompareFunction,
+    pub(crate) topology:      PrimitiveTopology,
+    pub(crate) samples:       u32,
+}
+
+/// A pipeline built for a pass with `samples` samples a pixel. The level
+/// draws into the frame pass with the frame MSAA, or into a single sample
+/// pass at art resolution for pixel art.
+pub(crate) trait WithSamples {
+    fn with_samples(samples: u32) -> Self;
+}
+
 pub(crate) fn depth_stencil_state() -> DepthStencilState {
     DepthStencilState {
         format:              Texture::DEPTH_FORMAT,
@@ -63,6 +79,29 @@ pub(crate) trait DeviceHelper {
         depth_compare: CompareFunction,
         topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline {
+        self.pipeline_with(
+            label,
+            layout,
+            shader,
+            vertex_layout,
+            PipelineShape {
+                depth_compare,
+                topology,
+                samples: msaa_sample_count(),
+            },
+        )
+    }
+
+    /// Like `pipeline`, for a pass with its own sample count, like the
+    /// single sample pass a pixel art level draws into.
+    fn pipeline_with(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
     ) -> RenderPipeline;
 
     /// A pipeline that writes only the stencil. Where its fragment
@@ -137,15 +176,19 @@ impl DeviceHelper for Device {
         })
     }
 
-    fn pipeline(
+    fn pipeline_with(
         &self,
         label: &str,
         layout: &PipelineLayout,
         shader: &ShaderModule,
-        depth_compare: CompareFunction,
-        topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
     ) -> RenderPipeline {
+        let PipelineShape {
+            depth_compare,
+            topology,
+            samples,
+        } = shape;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -184,7 +227,7 @@ impl DeviceHelper for Device {
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },

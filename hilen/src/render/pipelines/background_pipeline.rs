@@ -12,10 +12,10 @@ use crate::{
         flat::{Point, Size, Vertex2D},
     },
     render::{
-        buffer_helper::BufferHelper, device_helper::DeviceHelper, uniform::make_uniform_layout,
-        vertex_layout::VertexLayout,
+        PipelineShape, buffer_helper::BufferHelper, device_helper::DeviceHelper,
+        uniform::make_uniform_layout, vertex_layout::VertexLayout,
     },
-    window::{Window, image::Image},
+    window::{Window, image::Image, msaa_sample_count},
 };
 
 const VAL: f32 = 100_000.0;
@@ -65,8 +65,9 @@ pub struct BackgroundPipeline {
     view:            BackgroundView,
 }
 
-impl Default for BackgroundPipeline {
-    fn default() -> Self {
+impl BackgroundPipeline {
+    /// Built for a pass with `samples` samples a pixel.
+    pub(crate) fn with_samples(samples: u32) -> Self {
         let device = Window::device();
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/background.wgsl"));
 
@@ -78,13 +79,16 @@ impl Default for BackgroundPipeline {
             immediate_size:     0,
         });
 
-        let render_pipeline = device.pipeline(
+        let render_pipeline = device.pipeline_with(
             "background_pipeline",
             &pipeline_layout,
             &shader,
-            CompareFunction::Less,
-            PrimitiveTopology::TriangleStrip,
             &[Vertex2D::VERTEX_LAYOUT],
+            PipelineShape {
+                depth_compare: CompareFunction::Less,
+                topology: PrimitiveTopology::TriangleStrip,
+                samples,
+            },
         );
 
         let view = BackgroundView {
@@ -139,6 +143,12 @@ impl BackgroundPipeline {
         render_pass.set_bind_group(1, image.bind(), &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.draw(RANGE, 0..1);
+    }
+}
+
+impl Default for BackgroundPipeline {
+    fn default() -> Self {
+        Self::with_samples(msaa_sample_count())
     }
 }
 

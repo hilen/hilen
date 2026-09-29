@@ -12,6 +12,7 @@ use crate::{
     deps::refs::Weak,
     gm::flat::{Point, Size, Vertex2D},
     render::{
+        PipelineShape, WithSamples,
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
         uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
@@ -21,6 +22,7 @@ use crate::{
     window::{
         Window,
         image::{Image, RASTER_KEEP_FRAMES},
+        msaa_sample_count,
     },
 };
 
@@ -82,9 +84,9 @@ impl<
     const SHADER_CODE: &'static str,
     View: Default + Pod,
     Instance: VertexLayout,
-> Default for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
+> WithSamples for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
 {
-    fn default() -> Self {
+    fn with_samples(samples: u32) -> Self {
         let device = Window::device();
         let binding = InstanceBinding::device();
 
@@ -115,22 +117,28 @@ impl<
         });
 
         let pipeline = if TYPE.image() {
-            device.pipeline(
+            device.pipeline_with(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                CompareFunction::Less,
-                PrimitiveTopology::TriangleStrip,
                 &[Vertex2D::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
+                PipelineShape {
+                    depth_compare: CompareFunction::Less,
+                    topology: PrimitiveTopology::TriangleStrip,
+                    samples,
+                },
             )
         } else {
-            device.pipeline(
+            device.pipeline_with(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                CompareFunction::Less,
-                PrimitiveTopology::TriangleStrip,
                 &[Point::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
+                PipelineShape {
+                    depth_compare: CompareFunction::Less,
+                    topology: PrimitiveTopology::TriangleStrip,
+                    samples,
+                },
             )
         };
 
@@ -217,5 +225,18 @@ impl<
         let frame = Window::render_frame();
         self.instances
             .retain(|key, instances| key.raster.is_none() || instances.frame() + RASTER_KEEP_FRAMES >= frame);
+    }
+}
+
+impl<
+    const TYPE: PipelineType,
+    const NAME: &'static str,
+    const SHADER_CODE: &'static str,
+    View: Default + Pod,
+    Instance: VertexLayout,
+> Default for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
+{
+    fn default() -> Self {
+        Self::with_samples(msaa_sample_count())
     }
 }

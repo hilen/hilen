@@ -15,10 +15,14 @@ mod lab_pipeline;
 mod mesh_pipeline;
 mod pipeline_type;
 #[cfg(feature = "level")]
+mod pixel_blit_pipeline;
+#[cfg(feature = "level")]
 mod polygon_pipeline;
 mod rect_pipeline;
 #[cfg(feature = "scene")]
 mod shadow_pass;
+#[cfg(feature = "level")]
+mod terrain_pipeline;
 mod ui_backdrop_pipeline;
 mod ui_blur_pipeline;
 mod ui_clip_pipeline;
@@ -70,8 +74,12 @@ pub(crate) use mesh_pipeline::MeshKey;
 #[cfg(feature = "scene")]
 pub use mesh_pipeline::MeshPipeline;
 #[cfg(feature = "level")]
+pub(crate) use pixel_blit_pipeline::PixelBlitPipeline;
+#[cfg(feature = "level")]
 pub use polygon_pipeline::PolygonPipeline;
 pub use rect_pipeline::ImageKey;
+#[cfg(feature = "level")]
+pub(crate) use terrain_pipeline::TerrainPipeline;
 pub use ui_backdrop_pipeline::UIBackdropPipeline;
 pub use ui_blur_pipeline::UIBlurPipeline;
 pub(crate) use ui_clip_pipeline::UIClipPipeline;
