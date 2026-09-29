@@ -21,12 +21,15 @@ original is the acceptance bar. Their ports drove the gaps below.
 Found by skaityk, which plays the spoken audio of a sentence. Most urgent.
 
 - Current: `Sound::play_once` and `Playing::is_playing` are proven by
-  `hilen/tests/sound.rs` on macOS and on Linux without an output device. The `audio`
-  feature has never been run on iOS or Android, and `cargo test` does not run there.
+  `hilen/tests/sound.rs` on macOS and on Linux without an output device. An app with the
+  `audio` feature links on iOS since hilen-mobile `0d63c98`. cpal's iOS backend reads the
+  `AVAudioSession` constants, and the template links AVFoundation in its Frameworks build
+  phase now. Skaityk 3.0.1 built, archived and uploaded to TestFlight with it. No one has
+  heard a sound on an iPhone or an Android device yet.
 - Needed: proof that a sound loaded with `load_data` from Ogg Vorbis bytes plays, stops
   and ends on the iOS simulator, a real iPhone and the Android emulator, by the same
   checks as `hilen/tests/sound.rs`. Sound is not UI, so this is not a UI test.
-- Blocks: skaityk's speaker button on phones.
+- Blocks: trusting skaityk's speaker button on phones.
 
 ## Siri Remote input for tvOS
 
