@@ -124,8 +124,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/login.md](docs/login.md) — the Google login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before
-  touching `hilen/src/login`, `hilen/src/store/session_*`, `hilen-server/src/auth` or the
-  session key part of `hilen/build.rs`.
+  touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the
+  session key part of `hilen-session/build.rs`.
 - [docs/forks.md](docs/forks.md) — the 5 forked crates, what each fork branch carries
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or

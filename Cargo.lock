@@ -2689,7 +2689,6 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "hilen"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "android_logger",
  "anyhow",
  "arbitrary",
@@ -2725,6 +2724,7 @@ dependencies = [
  "gltf",
  "hex",
  "hilen-pixels",
+ "hilen-session",
  "hilen-wgpu",
  "hilen-wgpu-text",
  "hilen-winit",
@@ -2738,7 +2738,6 @@ dependencies = [
  "local-ip-address",
  "log",
  "lyon",
- "machine-uid",
  "mdns-sd",
  "memmap2",
  "ndk-context",
@@ -2850,6 +2849,22 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hilen-session"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "base64",
+ "getrandom 0.4.3",
+ "log",
+ "machine-uid",
+ "plat",
+ "serial_test",
+ "sha2 0.11.0",
+ "web-sys",
 ]
 
 [[package]]

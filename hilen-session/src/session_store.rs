@@ -1,6 +1,9 @@
+#[cfg(not_wasm)]
+use std::path::Path;
+
 use anyhow::Result;
 
-use crate::store::{
+use crate::{
     encrypt::{decrypt, encrypt},
     session_key::session_key,
 };
@@ -31,6 +34,13 @@ impl SessionStore {
     pub fn clear() -> Result<()> {
         platform::remove()
     }
+
+    /// The folder of the session file. `hilen` sets it to the root of the
+    /// `OnDisk` files of the app, a tool with no window sets the same one.
+    #[cfg(not_wasm)]
+    pub fn set_root(path: impl AsRef<Path>) {
+        platform::set_root(path.as_ref());
+    }
 }
 
 fn seal(token: &str) -> Result<Vec<u8>> {
@@ -47,15 +57,23 @@ mod platform {
         fs::{create_dir_all, read as read_file, remove_file, write as write_file},
         io::ErrorKind,
         path::{Path, PathBuf},
+        sync::{Mutex, PoisonError},
     };
 
     use anyhow::{Context, Result};
 
-    use crate::store::on_disk::rooted;
+    static ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+    pub(super) fn set_root(path: &Path) {
+        *ROOT.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.to_path_buf());
+    }
 
     fn path() -> PathBuf {
-        rooted(Path::new("session.bin"))
+        let root = ROOT.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        root.map_or_else(|| PathBuf::from(FILE), |root| root.join(FILE))
     }
+
+    const FILE: &str = "session.bin";
 
     pub(super) fn read() -> Result<Option<Vec<u8>>> {
         match read_file(path()) {
@@ -123,16 +141,15 @@ mod platform {
 
 #[cfg(all(test, not_wasm))]
 mod test {
+    use std::env::temp_dir;
+
     use anyhow::Result;
     use serial_test::serial;
 
     use super::SessionStore;
-    use crate::store::OnDisk;
 
-    /// The root is one global shared with the `OnDisk` test, which sets the
-    /// same folder, so the two never pull it apart.
     fn use_test_root() {
-        OnDisk::<()>::set_root_path("~/.test_on_disk/");
+        SessionStore::set_root(temp_dir().join("hilen-session-test"));
     }
 
     #[test]

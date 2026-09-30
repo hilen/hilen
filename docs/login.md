@@ -29,12 +29,18 @@ one needs the same change in the other.
 
 ## The session key
 
+`SessionStore` lives in its own small crate, `hilen-session`, so a tool with no window,
+like the headless `blackforge play`, reads the same login without the engine. `hilen`
+re-exports it as `hilen::store::SessionStore` with the `login` feature, and
+`OnDisk::set_root_path` also sets the folder of its file, `SessionStore::set_root`. A tool
+with no engine calls `set_root` itself with the same folder.
+
 `SessionStore` seals the token with AES-256-GCM, a fresh nonce per save in front of the
 bytes. The key is SHA-256 over a context text, the built in key and the machine id.
 
-`hilen/build.rs` reads `HILEN_SESSION_KEY` when the `login` feature is on and writes
+`hilen-session/build.rs` reads `HILEN_SESSION_KEY` and writes
 `session_key.rs` into `OUT_DIR`: the key xored with a random mask, the mask, and the shift
-between the two. `store/session_key.rs` puts it back together behind `black_box`, without
+between the two. `hilen-session/src/session_key.rs` puts it back together behind `black_box`, without
 it the optimizer folds the constants back into the plain key. Checked once by hand: an
 optimized build with a known key does not hold that text.
 
@@ -44,10 +50,9 @@ shipped build runs through it, and the release scripts set it again on their own
 mark blocks the `inspect` feature, see [inspect.md](inspect.md). The cargo release profile cannot be the mark, `make run`
 of an app builds with `--release` and must work without Infisical.
 
-The build script prints `rerun-if-env-changed` for both names. One such line turns off
-the default rerun on any package file, which the build time stamp needs, so it also
-prints `rerun-if-changed` for `src`, `build.rs` and `Cargo.toml`. All of that only with
-the feature on.
+The build script of `hilen-session` prints `rerun-if-env-changed` for both names. A build
+without the key after one with it rebuilds the crate, so an app run like `make run`
+without Infisical takes the development key again.
 
 ## The button and its test
 

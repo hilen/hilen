@@ -56,7 +56,7 @@ webgl = ["wgpu/webgl"]
 # Google login against a `hilen-server` backend, the `GoogleLoginButton` view and
 # the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
 # at build time. Off by default, an app with no accounts carries none of it.
-login = ["dep:aes-gcm", "dep:getrandom", "dep:machine-uid"]
+login = ["dep:hilen-session", "dep:getrandom"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -110,7 +110,7 @@ level-proc = { workspace = true, optional = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
 gltf = { workspace = true, optional = true }
-aes-gcm = { workspace = true, optional = true }
+hilen-session = { workspace = true, optional = true }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -176,7 +176,6 @@ objc2-ui-kit = { workspace = true }
 arboard = { workspace = true }
 ed25519-dalek = { workspace = true }
 ffmpeg-next = { workspace = true, optional = true }
-machine-uid = { workspace = true, optional = true }
 open = { workspace = true }
 self-replace = { workspace = true }
 semver = { workspace = true }
@@ -185,7 +184,6 @@ semver = { workspace = true }
 libc = { workspace = true }
 
 [build-dependencies]
-getrandom = { workspace = true, optional = true }
 plat = { workspace = true }
 
 [dev-dependencies]

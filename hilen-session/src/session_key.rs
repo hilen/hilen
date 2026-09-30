@@ -7,7 +7,7 @@ use std::hint::black_box;
 
 use sha2::{Digest, Sha256};
 
-use crate::store::encrypt::EncryptionKey;
+use crate::encrypt::EncryptionKey;
 
 include!(concat!(env!("OUT_DIR"), "/session_key.rs"));
 
