@@ -73,6 +73,9 @@ pub struct ViewBase {
     pub(crate) is_hovered: bool,
 
     #[educe(Debug(ignore))]
+    pub(crate) is_hover_within: bool,
+
+    #[educe(Debug(ignore))]
     pub(crate) is_system: bool,
 
     #[educe(Debug(ignore))]
@@ -125,16 +128,22 @@ pub struct ViewEvents {
 
 #[derive(Default)]
 pub struct ViewTouchEvents {
-    pub all:       Event<Touch>,
-    pub began:     Event<Touch>,
-    pub moved:     Event<Touch>,
-    pub up_inside: UIEvent<Touch>,
+    pub all:          Event<Touch>,
+    pub began:        Event<Touch>,
+    pub moved:        Event<Touch>,
+    pub up_inside:    UIEvent<Touch>,
     /// Fires true on hover enter and false on exit. Only the topmost
     /// hover enabled view under the cursor is hovered. Desktop and the
     /// browser, since a touch screen has no pointer.
-    pub hovered:   UIEvent<bool>,
+    pub hovered:      UIEvent<bool>,
+    /// Fires true when the hovered view becomes this view or any view
+    /// inside it, and false when hover leaves the whole subtree, like CSS
+    /// `:hover` on a parent. Moving from a row onto its own button fires
+    /// nothing on the row. Only a hover enabled view is ever hovered, so
+    /// a view that wants its own area to count calls `enable_hover` too.
+    pub hover_within: UIEvent<bool>,
     /// A right click on desktop and in the browser, a long press on a
     /// touch screen. The touch position is in the view's own coordinates.
     /// A long press consumes the hold, so its release is not a tap.
-    pub secondary: UIEvent<Touch>,
+    pub secondary:    UIEvent<Touch>,
 }

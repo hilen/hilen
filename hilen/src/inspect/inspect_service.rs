@@ -125,8 +125,20 @@ impl InspectService {
             InspectorCommand::GetStartTime => {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
+            InspectorCommand::Quit => Self::quit(),
             InspectorCommand::UI(ui) => Self::process_ui_command(ui),
         }
+    }
+
+    #[cfg(desktop)]
+    fn quit() -> AppCommand {
+        crate::AppRunner::stop();
+        AppCommand::Ok
+    }
+
+    #[cfg(not(desktop))]
+    fn quit() -> AppCommand {
+        AppCommand::Error("Quit works on desktop only".into())
     }
 
     // Runs off the main thread, on a tokio task natively and on the inspect

@@ -21,8 +21,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        DynamicColor, Input, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View,
-        ViewData, ViewFrame, ViewSubviews, WeakView,
+        DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation, UIColor, UIEvent,
+        View, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
     window::Window,
 };
@@ -182,6 +182,13 @@ impl UIManager {
         selected_view.__base_view().is_selected = false;
         selected_view.__internal_on_selection_changed(false);
         *selected_view = Weak::default();
+    }
+
+    /// A text field has an editing session open. Its Escape ends the
+    /// editing, so nothing else may take that key.
+    pub(crate) fn text_editing() -> bool {
+        let selected = *Self::get().selected_view.lock();
+        selected.is_ok() && selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
     }
 
     pub(crate) fn set_selected(mut view: WeakView, selected: bool) {

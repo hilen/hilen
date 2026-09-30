@@ -4,10 +4,10 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::OnceEvent},
     gm::{
-        color::{BLACK, CLEAR, Color},
+        color::{BLACK, CLEAR},
         flat::Size,
     },
-    ui::{Button, Container, DynamicColor, Label, ModalView, Setup, UIColor, View, view::ViewData},
+    ui::{Button, Container, DialogStyle, Label, ModalView, Setup, UIColor, View, view::ViewData},
 };
 
 pub(super) const ALERT_WIDTH: f32 = 270.0;
@@ -15,14 +15,6 @@ pub(super) const PADDING: f32 = 20.0;
 pub(super) const BUTTON_HEIGHT: f32 = 44.0;
 pub(super) const MIN_TEXT_HEIGHT: f32 = 22.0;
 const MAX_TEXT_HEIGHT: f32 = 400.0;
-
-// The iOS system alert colors, light and dark. A dark app used to get a
-// white alert, since these were light only.
-pub(super) const BACKGROUND: DynamicColor = DynamicColor::new(Color::hex("#f9f9f9"), Color::hex("#2c2c2e"));
-pub(super) const SEPARATOR: DynamicColor = DynamicColor::new(Color::hex("#c6c6c8"), Color::hex("#38383a"));
-pub(super) const ACTION_BLUE: DynamicColor = DynamicColor::new(Color::hex("#007aff"), Color::hex("#0a84ff"));
-pub(super) const MESSAGE_COLOR: DynamicColor =
-    DynamicColor::new(Color::hex("#1c1c1e"), Color::hex("#ffffff"));
 
 #[allow(clippy::type_complexity)]
 static LABEL_SETUP: Mutex<Option<Box<dyn FnOnce(Weak<Label>) + Send>>> = Mutex::new(None);
@@ -53,18 +45,19 @@ impl Alert {
 
 impl Setup for Alert {
     fn setup(self: Weak<Self>) {
+        let style = DialogStyle::current();
         self.set_corner_radius(14);
-        self.set_color(BACKGROUND);
+        self.set_color(style.background);
 
         self.label.set_text_size(15);
-        self.label.set_text_color(MESSAGE_COLOR);
+        self.label.set_text_color(style.text);
         self.label.set_multiline(true);
         self.label.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
 
-        self.separator.set_color(SEPARATOR);
+        self.separator.set_color(style.separator);
         self.separator.place().lr(0).b(BUTTON_HEIGHT).h(1);
 
-        self.ok_button.set_text("OK").set_text_size(17).set_text_color(ACTION_BLUE);
+        self.ok_button.set_text("OK").set_text_size(17).set_text_color(style.button);
         self.ok_button.set_color(CLEAR);
         self.ok_button.place().lrb(0).h(BUTTON_HEIGHT);
 
@@ -87,6 +80,11 @@ impl ModalView<String> for Alert {
 
     fn modal_scrim_color() -> UIColor {
         BLACK.with_alpha(0.25).into()
+    }
+
+    /// Escape is the OK button, the only way out.
+    fn modal_cancel(self: Weak<Self>) -> Option<()> {
+        Some(())
     }
 
     fn setup_input(self: Weak<Self>, message: String) {

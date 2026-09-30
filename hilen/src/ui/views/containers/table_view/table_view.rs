@@ -54,6 +54,10 @@ pub struct TableView {
 
     pub(super) registry: CellRegistry,
 
+    /// A `scroll_to_row` made before the table had a size, applied on
+    /// the first layout that has one.
+    pending_row: Option<usize>,
+
     #[init]
     pub(super) scroll: ScrollView,
 }
@@ -70,6 +74,11 @@ impl Setup for TableView {
 
         self.size_changed().sub(move || {
             self.layout_cells(LayoutMode::Resize);
+            if self.height() > 0.0
+                && let Some(index) = self.pending_row.take()
+            {
+                self.scroll_to_row(index);
+            }
         });
 
         self.enable_touch_low_priority();
@@ -182,6 +191,36 @@ impl TableView {
     pub fn scroll_to_bottom(&mut self) {
         self.scroll.set_content_offset(f32::MIN);
         self.layout_cells(LayoutMode::Scroll);
+    }
+
+    /// Scrolls the row holding cell `index` to the top of the viewport,
+    /// the header scrolled away above it. Near the end the offset clamps,
+    /// so the last rows stay flush with the bottom instead. Reads the
+    /// current row geometry, so call it after `reload_data` when the
+    /// rows changed. A table with no size yet scrolls once it gets one.
+    pub fn scroll_to_row(&mut self, index: usize) {
+        if self.data.is_null() {
+            return;
+        }
+
+        let number_of_cells = self.data.number_of_cells();
+        if number_of_cells == 0 {
+            return;
+        }
+
+        let index = index.min(number_of_cells - 1);
+
+        if self.height() <= 0.0 {
+            self.pending_row = Some(index);
+            return;
+        }
+
+        if self.variable_heights && self.row_offsets.is_empty() {
+            self.rebuild_row_offsets(number_of_cells);
+        }
+
+        let top = self.rows(number_of_cells).top(index / self.columns) + self.header_height;
+        self.set_content_offset(-top);
     }
 
     /// Sets the scroll position: 0 is the top, negative values scroll

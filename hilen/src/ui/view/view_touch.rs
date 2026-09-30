@@ -14,6 +14,8 @@ pub(crate) const NO_TOUCH_ID: usize = 0;
 pub trait ViewTouch {
     fn is_selected(&self) -> bool;
     fn is_hovered(&self) -> bool;
+    /// This view or a view inside it is hovered, see `hover_within`.
+    fn is_hover_within(&self) -> bool;
     fn enable_touch(&self) -> &Self;
     fn enable_touch_low_priority(&self) -> &Self;
     fn enable_hover(&self) -> &Self;
@@ -35,6 +37,10 @@ impl<T: ?Sized + View> ViewTouch for T {
 
     fn is_hovered(&self) -> bool {
         self.__base_view().is_hovered
+    }
+
+    fn is_hover_within(&self) -> bool {
+        self.__base_view().is_hover_within
     }
 
     fn enable_touch(&self) -> &Self {

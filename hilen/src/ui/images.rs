@@ -1,4 +1,8 @@
-use crate::{deps::refs::Weak, window::image::Image};
+use crate::{
+    deps::refs::Weak,
+    gm::color::Color,
+    window::image::{Image, tint_svg},
+};
 
 pub struct UIImages;
 
@@ -18,6 +22,11 @@ impl UIImages {
 
     pub fn chevron_down() -> Weak<Image> {
         Image::from_file_data(include_bytes!("images/chevron_down.svg"), "chevron_down.svg")
+    }
+
+    /// The Lucide x, drawn in `tint`.
+    pub(crate) fn x(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/x.svg"), "x.svg", tint)
     }
 
     pub fn down() -> Weak<Image> {

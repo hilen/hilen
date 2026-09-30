@@ -449,6 +449,16 @@ async fn send(client: &Client, command: InspectorCommand) -> Result<AppCommand> 
     }
 }
 
+async fn quit(client: &Client, seconds: u64) -> Result<()> {
+    send(client, InspectorCommand::Quit).await?;
+    // The app answers before it exits. Its end closes the connection.
+    if timeout(Duration::from_secs(seconds), client.closed()).await.is_err() {
+        bail!("App was still running {seconds} seconds after the quit");
+    }
+    println!("quit");
+    Ok(())
+}
+
 async fn get_ui(client: &Client) -> Result<(f32, Own<ViewRepr>)> {
     let AppCommand::UI(UIResponse::SendUI { scale, root, .. }) =
         send(client, UIRequest::GetUI.into()).await?

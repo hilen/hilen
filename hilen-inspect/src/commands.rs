@@ -10,7 +10,7 @@ use hilen::{
 use serde_json::{json, to_string_pretty};
 
 use super::{
-    build_time, drag, find, find_matches, get_ui, hold, keys, print_edited, print_tree, quoted_text,
+    build_time, drag, find, find_matches, get_ui, hold, keys, print_edited, print_tree, quit, quoted_text,
     resolve_near, resolve_target, run_tests, screenshot, scroll, scroll_to, send, wait,
 };
 
@@ -181,6 +181,13 @@ pub(super) enum Command {
     /// file here. Tells a stale binary from a current one before anything is
     /// tested against it.
     BuildTime,
+    /// Close the app the way closing its window does and wait until its
+    /// process is gone. Desktop only.
+    Quit {
+        /// Seconds to wait for the process to end
+        #[arg(long, default_value_t = 10)]
+        timeout: u64,
+    },
 }
 
 pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
@@ -212,6 +219,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         }
         Command::RunTests => run_tests(client).await?,
         Command::BuildTime => build_time(client).await?,
+        Command::Quit { timeout } => quit(client, timeout).await?,
         Command::Edits => {
             let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
                 bail!("Unexpected response to edits");

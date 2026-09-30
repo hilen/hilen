@@ -23,6 +23,9 @@ mod hover_front;
 /// Hover re-pick on view removal, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_removal;
+/// Hover of a whole subtree, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_within;
 mod image_scissor;
 mod inject_touch;
 mod nine_segment;

@@ -129,8 +129,8 @@ impl LevelTest for TileFraming {
                     map.set(x, y, TileId::EMPTY);
                 }
             }
-            // A tunnel 5 blocks long and 2 high under the hero, in the stone with dirt
-            // above it.
+            // A tunnel 5 blocks long and 2 high under the hero, in the stone
+            // with dirt above it.
             map.fill(MIDDLE - 3, 5, 5, 2, TileId::EMPTY);
             // The pit floor turns to dirt, grass would grow back later.
             map.set(24, ground_top(24) - 3, level.dirt);

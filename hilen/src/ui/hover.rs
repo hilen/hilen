@@ -1,14 +1,20 @@
+use std::mem::replace;
+
 #[cfg(any(desktop, wasm))]
 use crate::gm::flat::Point;
 #[cfg(any(desktop, wasm))]
 use crate::ui::{TouchStack, UIManager};
 use crate::{
     deps::refs::main_lock::MainLock,
-    ui::{CursorIcon, Tooltip, WeakView},
+    ui::{CursorIcon, Tooltip, ViewSubviews, WeakView},
 };
 
 static HOVERED: MainLock<WeakView> = MainLock::new();
 static CURSOR: MainLock<CursorIcon> = MainLock::new();
+/// The hovered view and its ancestors, innermost first, each with
+/// `is_hover_within` set. Kept as a list, since a dead hovered view has
+/// no superview chain left to walk.
+static WITHIN: MainLock<Vec<WeakView>> = MainLock::new();
 #[cfg(any(desktop, wasm))]
 static LOCKED: MainLock<WeakView> = MainLock::new();
 
@@ -99,6 +105,7 @@ impl Hover {
             // cursor resets even though no hover event fires.
             *HOVERED.get_mut() = new;
             Self::apply_cursor(CursorIcon::default());
+            Self::update_within(new);
             return;
         }
 
@@ -116,6 +123,8 @@ impl Hover {
             base.events.touch.hovered.trigger(true);
         }
 
+        Self::update_within(new);
+
         let cursor = if new.is_ok() {
             new.__base_view().hover_cursor.unwrap_or_default()
         } else {
@@ -124,6 +133,36 @@ impl Hover {
         Self::apply_cursor(cursor);
 
         Tooltip::hover_changed(new);
+    }
+
+    /// Exits for the views hover left, innermost first, then enters for
+    /// the views it reached, outermost first, like DOM mouseleave and
+    /// mouseenter.
+    fn update_within(new: WeakView) {
+        let mut chain = Vec::new();
+        let mut view = new;
+        while view.is_ok() {
+            chain.push(view);
+            view = *view.superview();
+        }
+
+        let old = replace(WITHIN.get_mut(), chain.clone());
+
+        for view in &old {
+            if view.is_ok() && !chain.iter().any(|v| v.raw() == view.raw()) {
+                let base = view.__base_view();
+                base.is_hover_within = false;
+                base.events.touch.hover_within.trigger(false);
+            }
+        }
+
+        for view in chain.iter().rev() {
+            if !view.__base_view().is_hover_within {
+                let base = view.__base_view();
+                base.is_hover_within = true;
+                base.events.touch.hover_within.trigger(true);
+            }
+        }
     }
 
     /// The cursor icon hover currently asks for, `Default` off any view

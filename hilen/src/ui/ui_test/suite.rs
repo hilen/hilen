@@ -5,7 +5,7 @@ use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_fai
 use crate::level::LevelManager;
 use crate::{
     deps::hreads::from_main,
-    ui::{Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
+    ui::{DialogStyle, Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
 };
 
 pub struct TestRunReport {
@@ -21,10 +21,13 @@ pub struct TestRunReport {
 /// boxed into the test canvas, or with no root view at all.
 struct AppState {
     styles:         GlobalStyles,
+    dialog_style:   Option<DialogStyle>,
     text_size:      f32,
     scale_override: f32,
     clear_color:    UIColor,
     bug_animation:  Option<&'static [u8]>,
+    bug_style:      Option<crate::BugReportStyle>,
+    bug_email:      Option<String>,
     system_fonts:   bool,
 }
 
@@ -33,10 +36,13 @@ struct AppState {
 fn prepare_harness() -> AppState {
     let state = from_main(|| AppState {
         styles:         Style::take_globals(),
+        dialog_style:   DialogStyle::take_global(),
         text_size:      Label::default_text_size(),
         scale_override: UIManager::scale_override(),
         clear_color:    UIManager::clear_color(),
         bug_animation:  crate::BugReport::animation(),
+        bug_style:      crate::BugReportStyle::take_global(),
+        bug_email:      crate::BugReport::email(),
         system_fonts:   crate::ui::Font::system_fallback(),
     });
 
@@ -53,10 +59,13 @@ fn prepare_harness() -> AppState {
 fn restore_app(state: AppState) {
     Label::set_default_text_size(state.text_size);
     crate::BugReport::restore_animation(state.bug_animation);
+    crate::BugReport::restore_email(state.bug_email);
 
     from_main(move || {
         crate::ui::Font::set_system_fallback(state.system_fonts);
         Style::restore_globals(state.styles);
+        DialogStyle::restore_global(state.dialog_style.as_ref());
+        crate::BugReportStyle::restore_global(state.bug_style.as_ref());
         UIManager::restore_scale_override(state.scale_override);
         UIManager::set_clear_color(state.clear_color);
 
@@ -148,6 +157,8 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     };
 
     from_main(Style::take_globals);
+    from_main(DialogStyle::take_global);
+    from_main(crate::BugReportStyle::take_global);
     Label::set_default_text_size(32);
     (entry.present)();
 

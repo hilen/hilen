@@ -97,7 +97,7 @@ pub mod time {
 
 pub use app_runner::AppRunner;
 pub use assets::Assets;
-pub use bug_report::BugReport;
+pub use bug_report::{BugReport, BugReportStyle};
 #[cfg(not_wasm)]
 pub use log_file::{log_dir, log_file_path};
 

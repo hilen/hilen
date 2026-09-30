@@ -4,7 +4,7 @@ use crate::{
     deps::{refs::Weak, vents::Event},
     gm::color::LIGHT_GRAY,
     ui::{
-        Container, Setup, ViewFrame,
+        Container, Setup, UIColor, ViewFrame,
         view::{ViewData, ViewTouch},
     },
 };
@@ -30,6 +30,18 @@ impl CheckBox {
         self.selected.val(move |val| {
             callback(val);
         });
+        self
+    }
+
+    /// The box fill, its border and the dot drawn while it is on.
+    pub fn set_colors(
+        &self,
+        fill: impl Into<UIColor>,
+        border: impl Into<UIColor>,
+        dot: impl Into<UIColor>,
+    ) -> &Self {
+        self.set_color(fill).set_border_color(border);
+        self.dot.set_color(dot);
         self
     }
 

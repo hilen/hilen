@@ -7,27 +7,16 @@ use log::error;
 use ui_proc::view;
 
 use crate::{
-    bug_report::{BugReport, input_ring::KeyPress},
+    bug_report::{BugReport, BugReportStyle, input_ring::KeyPress},
     deps::{refs::Weak, vents::OnceEvent},
-    gm::{
-        color::{CLEAR, Color, WHITE},
-        flat::Size,
-    },
+    gm::{color::CLEAR, flat::Size},
     ui::{
         Anchor::{Height, Left, Right, Top, Y},
-        AnimatedImage, Button, CheckBox, Container, DynamicColor, ImageMode, ImageView, Label, ModalView,
-        ScrollView, Setup, TextAlignment, TextField, UIManager, ViewData, ViewFrame, ViewSubviews,
+        AnimatedImage, Button, CheckBox, Container, ImageMode, ImageView, Label, ModalView, ScrollView,
+        Setup, TextAlignment, TextField, UIImages, UIManager, ViewData, ViewFrame, ViewSubviews,
     },
     window::image::Image,
 };
-
-const PAGE: DynamicColor = DynamicColor::new(Color::hex("#f7f8fa"), Color::hex("#1e2126"));
-const TEXT: DynamicColor = DynamicColor::new(Color::hex("#17191d"), Color::hex("#f2f4f7"));
-const MUTED: DynamicColor = DynamicColor::new(Color::hex("#5d6570"), Color::hex("#a8b0bc"));
-const PANEL: DynamicColor = DynamicColor::new(Color::hex("#ececef"), Color::hex("#2a2e35"));
-const LINE: DynamicColor = DynamicColor::new(Color::hex("#e0e2e6"), Color::hex("#343941"));
-const FIELD_SELECTED: DynamicColor = DynamicColor::new(Color::hex("#e6edfa"), Color::hex("#3a4250"));
-const ACCENT: Color = Color::hex("#3c78f0");
 
 /// The description must carry enough to act on, matching the karkas
 /// dialog's rule.
@@ -84,13 +73,17 @@ pub struct BugReportForm {
 
 impl BugReportForm {
     fn caption(label: Weak<Label>, text: &str) {
-        label.set_text(text).set_text_size(12).set_text_color(MUTED);
+        label
+            .set_text(text)
+            .set_text_size(12)
+            .set_text_color(BugReportStyle::current().muted);
         label.set_alignment(TextAlignment::Left);
     }
 
     fn field(mut field: Weak<TextField>) {
-        field.set_color(PANEL).set_corner_radius(8);
-        field.set_text_color(TEXT).set_selected_color(FIELD_SELECTED);
+        let style = BugReportStyle::current();
+        field.set_color(style.panel).set_corner_radius(8);
+        field.set_text_color(style.text).set_selected_color(style.field_selected);
         field.set_text_size(15);
         field.set_alignment(TextAlignment::Left);
     }
@@ -98,6 +91,7 @@ impl BugReportForm {
 
 impl Setup for BugReportForm {
     fn setup(self: Weak<Self>) {
+        let style = BugReportStyle::current();
         Self::caption(self.email_label, "Your email (required)");
         self.email_label.place().t(16).l(24).size(300, 16);
 
@@ -135,16 +129,19 @@ impl Setup for BugReportForm {
             self.shot_caption.place().anchor(Top, self.counter, 14).l(24).size(300, 16);
         }
 
-        self.screenshot.set_corner_radius(8).set_border_color(LINE);
+        self.screenshot.set_corner_radius(8).set_border_color(style.line);
         self.screenshot.place().anchor(Top, self.shot_caption, 6).l(24).size(214, 120);
 
         Self::caption(self.log_caption, "Log (will be sent)");
         self.log_caption.place().anchor(Top, self.screenshot, 14).l(24).size(300, 16);
 
+        if let Some((fill, border, dot)) = style.check_box {
+            self.attach_keys.set_colors(fill, border, dot);
+        }
         self.attach_keys.place().anchor(Top, self.log_caption, 14).l(24).size(20, 20);
 
         self.keys_caption.set_text("Attach recent key presses").set_text_size(14);
-        self.keys_caption.set_text_color(TEXT).set_alignment(TextAlignment::Left);
+        self.keys_caption.set_text_color(style.text).set_alignment(TextAlignment::Left);
         self.keys_caption
             .place()
             .anchor(Left, self.attach_keys, 10)
@@ -152,17 +149,17 @@ impl Setup for BugReportForm {
             .w(300);
 
         self.keys_note.set_multiline(true).set_text_size(11);
-        self.keys_note.set_text_color(MUTED).set_alignment(TextAlignment::Left);
+        self.keys_note.set_text_color(style.muted).set_alignment(TextAlignment::Left);
         self.keys_note
             .set_text("Only modifier combos and navigation keys are recorded, never typed text.");
         self.keys_note.place().anchor(Top, self.attach_keys, 6).lr(24).h(28);
 
-        self.keys_panel.set_color(PANEL).set_corner_radius(8);
+        self.keys_panel.set_color(style.panel).set_corner_radius(8);
         self.keys_panel.place().anchor(Top, self.keys_note, 6).lr(24).h(110);
 
         let preview = self.keys_panel.add_view::<Label>();
         preview.set_multiline(true).set_text_size(12);
-        preview.set_color(CLEAR).set_text_color(MUTED);
+        preview.set_color(CLEAR).set_text_color(style.muted);
         preview.set_alignment(TextAlignment::Left);
         preview.place().t(8).lr(10).fit_text_height();
 
@@ -230,16 +227,17 @@ impl BugReportView {
 
 impl Setup for BugReportView {
     fn setup(self: Weak<Self>) {
-        self.set_color(PAGE);
+        let style = BugReportStyle::current();
+        self.set_color(style.page);
 
-        self.title.set_text("Report a bug").set_text_size(16).set_text_color(TEXT);
+        self.title.set_text("Report a bug").set_text_size(16).set_text_color(style.text);
         self.title.set_alignment(TextAlignment::Left);
         self.title.place().t(14).l(24).size(140, 20);
 
         self.hint
             .set_text("Cmd/Ctrl + Shift + R")
             .set_text_size(12)
-            .set_text_color(MUTED);
+            .set_text_color(style.muted);
         self.hint.set_alignment(TextAlignment::Left);
         self.hint
             .place()
@@ -247,12 +245,12 @@ impl Setup for BugReportView {
             .same([Y, Height], self.title)
             .w(160);
 
-        self.close.set_text("X").set_text_size(16);
-        self.close.set_color(CLEAR).set_text_color(MUTED);
+        self.close.set_image(UIImages::x(style.muted.resolve()));
+        self.close.set_color(CLEAR);
         self.close.place().t(10).r(16).size(28, 28);
         self.close.on_tap(move || self.hide_modal(None));
 
-        self.top_line.set_color(LINE);
+        self.top_line.set_color(style.line);
         self.top_line.place().t(48).lr(0).h(1);
 
         self.scroll.place().t(49).b(57).lr(0);
@@ -267,11 +265,18 @@ impl Setup for BugReportView {
         };
         self.form.place().t(0).l(0).r(0).h(form_height);
 
-        self.bottom_line.set_color(LINE);
+        self.bottom_line.set_color(style.line);
         self.bottom_line.place().b(56).lr(0).h(1);
 
         self.send.set_text("Send").set_text_size(15);
-        self.send.set_color(ACCENT).set_text_color(WHITE).set_corner_radius(8);
+        self.send
+            .set_color(style.accent)
+            .set_text_color(style.accent_text)
+            .set_corner_radius(8);
+        if let Some((color, text)) = style.disabled_send {
+            let mut send = self.send;
+            send.set_disabled_color(color).set_disabled_text_color(text);
+        }
         self.send.place().size(120, 36).br(10);
         self.send.on_tap(move || {
             if !self.valid() {
@@ -292,13 +297,17 @@ impl Setup for BugReportView {
         });
 
         self.cancel.set_text("Cancel").set_text_size(15);
-        self.cancel.set_color(CLEAR).set_text_color(MUTED);
+        self.cancel.set_color(CLEAR).set_text_color(style.muted);
         self.cancel
             .place()
             .anchor(Right, self.send, 12)
             .same([Y, Height], self.send)
             .w(90);
         self.cancel.on_tap(move || self.hide_modal(None));
+
+        if let Some(email) = BugReport::email() {
+            self.form.email.set_text(email);
+        }
 
         self.form.email.changed.val(move |_| self.update_state());
         self.form.description.changed.val(move |_| self.update_state());

@@ -14,6 +14,9 @@ pub enum InspectorCommand {
     RunTests,
     GetBuildTime,
     GetStartTime,
+    /// Closes the app the way closing its window does. Desktop only, a
+    /// phone or a browser page has no such exit.
+    Quit,
     UI(UIRequest),
 }
 

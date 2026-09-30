@@ -6,12 +6,12 @@ use crate::{
     },
     gm::{LossyConvert, color::CLEAR, flat::Size},
     ui::{
-        BlurView, ScrimView, Setup, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
+        BlurView, NamedKey, ScrimView, Setup, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
         view::ViewSubviews,
     },
 };
 
-pub trait ModalView<In = (), Out: 'static = ()>: 'static + View + Default {
+pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default {
     fn show_modally(view: Self) -> Weak<Self> {
         let mut view = Own::new(view);
         // Stacked modals must not share one z position, or the top one
@@ -42,6 +42,18 @@ pub trait ModalView<In = (), Out: 'static = ()>: 'static + View + Default {
         scrim.add_subview(view);
 
         weak.place().size(size.width, size.height).center();
+
+        UIManager::keymap().add(weak, NamedKey::Escape, move || {
+            // Only the topmost modal, a menu or a modal over it takes the
+            // key first, and a text field ends its editing first.
+            if TouchStack::top_layer_root().raw() != weak.raw() || UIManager::text_editing() {
+                return;
+            }
+            if let Some(result) = weak.modal_cancel() {
+                weak.hide_modal(result);
+            }
+        });
+
         weak
     }
 
@@ -84,6 +96,12 @@ pub trait ModalView<In = (), Out: 'static = ()>: 'static + View + Default {
     }
 
     fn modal_event(&self) -> &OnceEvent<Out>;
+
+    /// The result Escape ends the modal with, the same as its cancel
+    /// button gives. `None`, the default, leaves Escape off.
+    fn modal_cancel(self: Weak<Self>) -> Option<Out> {
+        None
+    }
 
     fn modal_size() -> Size;
 

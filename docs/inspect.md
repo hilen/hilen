@@ -26,7 +26,7 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`. The last discovery is cached in the temp dir, so repeat calls
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
@@ -132,6 +132,11 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `GetStartTime` — unix seconds of when the current process started, recorded before the
   app runner launches. Used with `GetBuildTime` to distinguish a source edit made after
   launch from an app-only source edit already present when the process started.
+- `Quit` — closes the app the way closing its window does, through `AppRunner::stop`,
+  and replies before it exits. Desktop only, elsewhere it replies with an error. The
+  flag is read where the event loop is about to wait and the stop wakes the loop, so an
+  idle or covered window quits too. `hilen-inspect quit [--timeout 10]` then waits until
+  the app closes the connection, which it does only when its process ends.
 - `PlaySound` — plays a sound in the app, for finding which instance is which.
 - `RunTests` — runs the app's whole UI test suite in the app and returns the total and
   every failure. Needs nothing from the app: every test registers into the engine's own

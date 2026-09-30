@@ -14,12 +14,9 @@ use crate::{
     },
     ui::{
         Anchor::Width,
-        Button, Container, Label, ModalView, Setup, UIColor,
+        Button, Container, DialogStyle, Label, ModalView, Setup, UIColor,
         view::ViewData,
-        views::complex::alert::{
-            ACTION_BLUE, ALERT_WIDTH, BACKGROUND, BUTTON_HEIGHT, MESSAGE_COLOR, MIN_TEXT_HEIGHT, PADDING,
-            SEPARATOR, fit_to_text,
-        },
+        views::complex::alert::{ALERT_WIDTH, BUTTON_HEIGHT, MIN_TEXT_HEIGHT, PADDING, fit_to_text},
     },
 };
 
@@ -27,8 +24,9 @@ use crate::{
 pub struct Question {
     question: String,
 
-    left:  String,
-    right: String,
+    left:        String,
+    right:       String,
+    destructive: bool,
 
     event:            OnceEvent<bool>,
     #[init]
@@ -51,6 +49,11 @@ impl ModalView<(), bool> for Question {
     fn modal_scrim_color() -> UIColor {
         BLACK.with_alpha(0.25).into()
     }
+
+    /// Escape answers with the left option, the no.
+    fn modal_cancel(self: Weak<Self>) -> Option<bool> {
+        Some(false)
+    }
 }
 
 impl Question {
@@ -66,6 +69,13 @@ impl Question {
     pub fn options(mut self, left: impl Into<String>, right: impl Into<String>) -> Self {
         self.left = left.into();
         self.right = right.into();
+        self
+    }
+
+    /// Draws the right button, the yes, in the destructive color of the
+    /// `DialogStyle`, for a question that deletes something.
+    pub fn destructive(mut self) -> Self {
+        self.destructive = true;
         self
     }
 
@@ -112,25 +122,26 @@ impl IntoFuture for Question {
 
 impl Setup for Question {
     fn setup(self: Weak<Self>) {
+        let style = DialogStyle::current();
         self.set_corner_radius(14);
-        self.set_color(BACKGROUND);
+        self.set_color(style.background);
 
         self.label.set_text_size(17);
-        self.label.set_text_color(MESSAGE_COLOR);
+        self.label.set_text_color(style.text);
         self.label.set_multiline(true);
         self.label.set_text(self.question.clone());
         self.label.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
 
-        self.separator.set_color(SEPARATOR);
+        self.separator.set_color(style.separator);
         self.separator.place().lr(0).b(BUTTON_HEIGHT).h(1);
 
-        self.button_separator.set_color(SEPARATOR);
+        self.button_separator.set_color(style.separator);
         self.button_separator.place().b(0).w(1).h(BUTTON_HEIGHT).center_x();
 
         self.cancel_button
             .set_text(self.left.clone())
             .set_text_size(17)
-            .set_text_color(ACTION_BLUE);
+            .set_text_color(style.button);
         self.cancel_button.set_color(CLEAR);
         self.cancel_button.place().h(BUTTON_HEIGHT).bl(0).relative(Width, self, 0.5);
         self.cancel_button.on_tap(move || self.hide_modal(false));
@@ -138,7 +149,11 @@ impl Setup for Question {
         self.ok_button
             .set_text(self.right.clone())
             .set_text_size(17)
-            .set_text_color(ACTION_BLUE);
+            .set_text_color(if self.destructive {
+                style.destructive
+            } else {
+                style.button
+            });
         self.ok_button.set_color(CLEAR);
         self.ok_button.place().h(BUTTON_HEIGHT).br(0).relative(Width, self, 0.5);
         self.ok_button.on_tap(move || self.hide_modal(true));

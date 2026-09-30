@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use anyhow::{Result, bail};
 use log::debug;
 use serde_json::{from_slice, to_vec};
@@ -34,6 +36,19 @@ impl Client {
         // The reply comes from the app the client chose, a screenshot can be
         // large.
         Ok(from_slice(&read_frame(&mut *stream, u32::MAX).await?)?)
+    }
+
+    /// Returns once the app closes the connection, which a quitting app
+    /// does only when its process ends.
+    pub async fn closed(&self) -> Result<()> {
+        let mut stream = self.stream.lock().await;
+        let mut byte = [0];
+        match stream.read(&mut byte).await {
+            Ok(0) => Ok(()),
+            Ok(_) => bail!("App sent data after the quit reply"),
+            Err(err) if err.kind() == ErrorKind::ConnectionReset => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 

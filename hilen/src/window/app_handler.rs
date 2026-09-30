@@ -151,6 +151,9 @@ impl AppHandler {
 
     pub(crate) fn close() {
         Self::current().close.store(true, Ordering::Relaxed);
+        // An idle or covered window draws no frame, and the flag is read
+        // where the loop is about to wait, so wake it once more.
+        crate::window::request_frame();
     }
 
     pub fn current() -> &'static mut Self {
@@ -372,6 +375,11 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.not_ready() {
+            return;
+        }
+
+        if self.close.load(Ordering::Relaxed) {
+            event_loop.exit();
             return;
         }
 

@@ -13,6 +13,7 @@ mod log_ring;
 #[cfg(not_wasm)]
 mod native;
 mod report_view;
+mod style;
 #[cfg(wasm)]
 mod web;
 
@@ -25,6 +26,7 @@ use log::{error, warn};
 /// Only the dialog UI test builds `KeyPress` values from outside.
 #[cfg(feature = "ui-tests")]
 pub(crate) use crate::bug_report::input_ring::KeyPress;
+pub use crate::bug_report::style::BugReportStyle;
 #[cfg(wasm)]
 pub(crate) use crate::bug_report::web::{report_panic, set_dsn};
 pub(crate) use crate::bug_report::{
@@ -45,6 +47,10 @@ static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
 /// there, the engine has no opinion on the content.
 static ANIMATION: std::sync::RwLock<Option<&'static [u8]>> = std::sync::RwLock::new(None);
 
+/// The email the report form opens with, set by an app that knows who
+/// is signed in.
+static EMAIL: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
 pub struct BugReport;
 
 impl BugReport {
@@ -63,6 +69,23 @@ impl BugReport {
     /// clears a test's animation so it cannot leak into the next test.
     pub(crate) fn restore_animation(gif: Option<&'static [u8]>) {
         *ANIMATION.write().expect("animation lock") = gif;
+    }
+
+    /// The email the report form opens with, for an app that knows who is
+    /// signed in. The reporter can still change it. An empty string clears
+    /// it, call that on sign out.
+    pub fn set_email(email: impl Into<String>) {
+        let email = email.into();
+        *EMAIL.write().expect("email lock") = (!email.is_empty()).then_some(email);
+    }
+
+    pub(crate) fn email() -> Option<String> {
+        EMAIL.read().expect("email lock").clone()
+    }
+
+    /// The test harness snapshot hand-back, like `restore_animation`.
+    pub(crate) fn restore_email(email: Option<String>) {
+        *EMAIL.write().expect("email lock") = email;
     }
 
     /// Bug reporting works only when the app opted into Sentry by
