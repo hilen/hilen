@@ -16,6 +16,29 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## App data folder is `~/.config/<app_name>` by default
+
+- Current: `Paths::storage()` in `hilen/src/filesystem/paths.rs` returns
+  `~/.<executable-name>` on desktop. That is straight in the home folder, and
+  it is named after the exe, so the debug binary and the installed binary of
+  one app can use 2 folders. The rule for every app is `~/.config/<app_name>`,
+  so each app now builds that path by hand with `Paths::config().join(name)`
+  and passes it to `OnDisk::set_root_path` in `before_launch`. An app that
+  forgets it writes `OnDisk` files relative to the working directory.
+  `hilen-server` has no call for the folder at all, a backend builds it from
+  `dirs::home_dir()` by hand.
+- Needed: one call that returns the data folder of an app,
+  `~/.config/<app_name>` on Mac, Windows and Linux, with the name given by the
+  app and not read from the exe. On iOS and Android it stays the documents dir
+  and the app storage dir. The engine creates the folder and sets it as the
+  `OnDisk` root before `before_launch` runs, so an app with no setup code
+  stores in the right place. The stored login session follows it. The same
+  call, or a twin with the same result, in `hilen-server` for a backend that
+  runs outside Docker. Decide what happens to `Paths::storage()`, and to the
+  data of apps that already have files in `~/.<executable-name>`.
+- Blocks: nothing is blocked, flixen and blackforge set the folder by hand.
+  It removes that hand written code from every app.
+
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
