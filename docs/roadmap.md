@@ -172,6 +172,11 @@ Small remainders not worth their own entry.
 - A scene picture, `SceneManager::picture`, is proven on desktop Metal only. The
   iOS simulator and the browser lanes have not run its 2 scene tests, and
   WebGL2 draws no scene at all yet.
+- The alpha cutout of a scene material is proven on desktop Metal only. The iOS
+  simulator and the browser lanes have not run `Cutout` and `Cutout shadows`. A
+  `.glb` material's `doubleSided` is not read, back faces are always culled, so a
+  leaf card is seen from one side. The cut edge is hard, alpha to coverage would
+  smooth it under MSAA.
 - Human mode has no frame step key. A stepped test pauses only on checks, an
   animation in flight cannot be walked one frame per key press with the frame
   number in the window title.

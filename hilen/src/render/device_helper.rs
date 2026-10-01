@@ -30,6 +30,20 @@ const CLIP_TEST: StencilFaceState = StencilFaceState {
 #[cfg(feature = "scene")]
 pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// How a mesh pipeline puts its fragments into the frame.
+#[cfg(feature = "scene")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum MeshDraw {
+    /// Replaces the target and writes depth.
+    Opaque,
+    /// The same, after dropping the fragments under the material's
+    /// cutout, see `Material::cutout`.
+    Cutout,
+    /// Blends over what is drawn and leaves the depth alone, so the
+    /// nodes behind it stay visible through it.
+    Translucent,
+}
+
 /// How a pipeline tests depth, what it draws, and how many samples a
 /// pixel of its pass has.
 #[derive(Debug, Copy, Clone)]
@@ -118,11 +132,9 @@ pub(crate) trait DeviceHelper {
         op: StencilOperation,
     ) -> RenderPipeline;
 
-    /// A pipeline for solid geometry. Back faces are culled, the fragment
-    /// replaces the target since a scene is opaque, depth and the stencil
-    /// clip test are the frame's shared ones.
-    /// A translucent one blends over what is drawn and leaves the
-    /// depth alone, so the nodes behind it stay visible through it.
+    /// A pipeline for solid geometry. Back faces are culled, depth and
+    /// the stencil clip test are the frame's shared ones, and `draw`
+    /// says what happens to a fragment.
     #[cfg(feature = "scene")]
     fn mesh_pipeline(
         &self,
@@ -131,7 +143,7 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        transparent: bool,
+        draw: MeshDraw,
     ) -> RenderPipeline;
 
     /// The skybox, one triangle over the viewport with no depth test
@@ -140,7 +152,8 @@ pub(crate) trait DeviceHelper {
     fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
 
     /// The sun's depth pass into the shadow map, no color target and a
-    /// slope scaled bias against acne.
+    /// slope scaled bias against acne. `fragment_entry` is the stage
+    /// that drops the fragments of a cut out node, a plain one has none.
     #[cfg(feature = "scene")]
     fn shadow_pipeline(
         &self,
@@ -149,6 +162,7 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
+        fragment_entry: Option<&str>,
     ) -> RenderPipeline;
 }
 
@@ -318,8 +332,9 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        transparent: bool,
+        draw: MeshDraw,
     ) -> RenderPipeline {
+        let transparent = draw == MeshDraw::Translucent;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -332,7 +347,11 @@ impl DeviceHelper for Device {
             },
             fragment:       FragmentState {
                 module:              shader,
-                entry_point:         "f_main".into(),
+                entry_point:         Some(match draw {
+                    MeshDraw::Opaque => "f_opaque",
+                    MeshDraw::Cutout => "f_cutout",
+                    MeshDraw::Translucent => "f_main",
+                }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
                     format:     surface_texture_format(),
@@ -378,6 +397,7 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
+        fragment_entry: Option<&str>,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -389,7 +409,12 @@ impl DeviceHelper for Device {
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers:             &buffers,
             },
-            fragment:       None,
+            fragment:       fragment_entry.map(|entry| FragmentState {
+                module:              shader,
+                entry_point:         Some(entry),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[],
+            }),
             primitive:      PrimitiveState {
                 topology:           PrimitiveTopology::TriangleList,
                 strip_index_format: None,

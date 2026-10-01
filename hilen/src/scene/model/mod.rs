@@ -108,6 +108,7 @@ impl Model {
                     normal_map:   material.normal_map.map(|index| images[index]),
                     normal_scale: material.normal_scale,
                     emissive:     0.0,
+                    cutout:       material.cutout,
                 }),
             })
             .collect();

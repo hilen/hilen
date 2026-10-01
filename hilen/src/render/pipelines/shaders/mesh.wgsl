@@ -13,7 +13,7 @@ struct MeshInstance {
     normal_scale: f32,
     joint_base: u32,
     emissive: f32,
-    padding: u32,
+    cutout: f32,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -341,8 +341,8 @@ fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
     return (packed[slot / 2u] >> ((slot % 2u) * 16u)) & 0xffffu;
 }
 
-@fragment
-fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
+// The lit color of a fragment and its alpha.
+fn lit(in: VertexOutput) -> vec4<f32> {
     let instance = instances[in.instance];
     let texel = textureSample(base_texture, base_sampler, in.uv);
     var map = textureSample(normal_texture, normal_sampler, in.uv).xyz * 2.0 - 1.0;
@@ -407,4 +407,29 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     color += base * instance.emissive;
 
     return vec4<f32>(encode(fogged(color, world_pos)), alpha);
+}
+
+// A translucent node, blended by its alpha.
+@fragment
+fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return lit(in);
+}
+
+// An opaque node replaces the target, so it writes a full alpha. The
+// alpha of its texture would leave a hole in a scene picture.
+@fragment
+fn f_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(lit(in).rgb, 1.0);
+}
+
+// A cut out node, see `Material::cutout`. Its own entry, so a plain
+// opaque draw carries no discard. The discard comes after every sample,
+// the derivatives of a dropped fragment are not to be trusted.
+@fragment
+fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
+    let color = lit(in);
+    if color.a < instances[in.instance].cutout {
+        discard;
+    }
+    return vec4<f32>(color.rgb, 1.0);
 }

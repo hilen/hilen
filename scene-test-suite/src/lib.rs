@@ -27,6 +27,10 @@ mod collider_shapes;
 /// pacing, see docs/roadmap.md.
 #[cfg(desktop)]
 mod colliders;
+mod cutout;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
+mod cutout_shadows;
 mod day_and_night;
 /// The physics rest, see `colliders`.
 #[cfg(desktop)]
@@ -34,6 +38,7 @@ mod drop_balls;
 mod fog;
 mod geometry;
 mod glow;
+mod leaves;
 mod lights;
 mod materials;
 mod models;

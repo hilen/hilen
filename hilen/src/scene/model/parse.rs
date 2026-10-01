@@ -15,10 +15,13 @@ use super::{
     rig::{Channel, Clip, Interpolation, Rig, RigNode, Skin, Track},
     split::split_u16,
 };
-use crate::gm::{
-    color::Color,
-    flat::Point,
-    volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+use crate::{
+    gm::{
+        color::Color,
+        flat::Point,
+        volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+    },
+    scene::Material,
 };
 
 /// Everything a `.glb` holds, decoded on the CPU and ready to upload.
@@ -60,6 +63,8 @@ pub(crate) struct MaterialSource {
     pub texture:      Option<usize>,
     pub normal_map:   Option<usize>,
     pub normal_scale: f32,
+    /// The alpha cutoff of a masked material.
+    pub cutout:       Option<f32>,
 }
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
@@ -384,22 +389,22 @@ fn material_source(material: &gltf::Material) -> Option<MaterialSource> {
 
     let pbr = material.pbr_metallic_roughness();
     let [r, g, b, a] = pbr.base_color_factor();
-    // Only a blended material is translucent, a masked one draws solid.
-    let alpha = if material.alpha_mode() == AlphaMode::Blend {
-        a
-    } else {
-        1.0
-    };
+    // A blended material is translucent and a masked one is cut out by
+    // its alpha, an opaque one ignores it.
+    let mode = material.alpha_mode();
+    let alpha = if mode == AlphaMode::Opaque { 1.0 } else { a };
+    let cutout = (mode == AlphaMode::Mask).then(|| material.alpha_cutoff().unwrap_or(Material::CUTOUT));
     let normal = material.normal_texture();
 
     Some(MaterialSource {
         // glTF factors are linear light, the engine's colors are encoded.
-        color:        Color::rgba(r, g, b, alpha).encoded(),
-        metallic:     pbr.metallic_factor(),
-        roughness:    pbr.roughness_factor(),
-        texture:      pbr.base_color_texture().map(|info| info.texture().source().index()),
-        normal_map:   normal.as_ref().map(|normal| normal.texture().source().index()),
+        color: Color::rgba(r, g, b, alpha).encoded(),
+        metallic: pbr.metallic_factor(),
+        roughness: pbr.roughness_factor(),
+        texture: pbr.base_color_texture().map(|info| info.texture().source().index()),
+        normal_map: normal.as_ref().map(|normal| normal.texture().source().index()),
         normal_scale: normal.map_or(1.0, |normal| normal.scale()),
+        cutout,
     })
 }
 
@@ -607,6 +612,30 @@ mod test {
         let material = model.parts[0].material.expect("the cube has a material");
         assert_eq!(material.texture, Some(0));
         assert!(model.parts[0].vertices.iter().any(|vertex| vertex.uv != Point::default()));
+    }
+
+    // The cutoff in the file is not the glTF default, so one that was
+    // dropped on the way shows. The texture stays a png, a jpeg has no
+    // alpha to cut by.
+    #[test]
+    fn leaf_card_is_masked_with_its_own_cutoff() {
+        let model = parse_glb(&fixture("leaf_card.glb"), "leaf_card.glb").unwrap();
+        assert_eq!(model.parts.len(), 2);
+        assert_eq!(model.images.len(), 1);
+        assert!(model.images[0].bytes.starts_with(b"\x89PNG"), "png bytes");
+        for part in &model.parts {
+            let material = part.material.expect("the cards have a material");
+            assert_eq!(material.texture, Some(0));
+            let cutout = material.cutout.expect("a masked material is cut out");
+            assert!((cutout - 0.3).abs() < 1e-6, "{cutout}");
+        }
+
+        let tree = parse_glb(&fixture("tree.glb"), "tree.glb").unwrap();
+        assert!(
+            tree.parts
+                .iter()
+                .all(|part| part.material.is_some_and(|material| material.cutout.is_none()))
+        );
     }
 
     // The bar is skinned to a chain of four bones and carries the one

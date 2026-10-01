@@ -22,8 +22,8 @@ use crate::{
         bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
         data::{LineVertex, MeshInstance, MeshLight},
-        device_helper::DeviceHelper,
-        pipelines::shadow_pass::ShadowPass,
+        device_helper::{DeviceHelper, MeshDraw},
+        pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
@@ -54,12 +54,16 @@ pub(super) const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
     SkinVertex::VERTEX_LAYOUT,
 ];
 
-/// What one instanced draw shares: the mesh and the two textures.
+/// What one instanced draw shares: the mesh, the two textures and the
+/// pipeline, a cut out node draws through its own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MeshKey {
     pub mesh:       Weak<Mesh>,
     pub texture:    Option<Weak<Image>>,
     pub normal_map: Option<Weak<Image>>,
+    /// Whether the material has a cutout. The threshold is the
+    /// instance's own.
+    pub cutout:     bool,
 }
 
 /// The sky cube, its sampler and the shadow map a view bind holds.
@@ -96,11 +100,11 @@ impl Batch {
 /// pipeline, the same shader from its other vertex entry, which blends
 /// the joint matrices its instance points at.
 pub struct MeshPipeline {
-    opaque:              RenderPipeline,
-    opaque_skinned:      RenderPipeline,
-    translucent:         RenderPipeline,
-    translucent_skinned: RenderPipeline,
-    sky:                 RenderPipeline,
+    /// Each a pipeline and its skinned twin.
+    opaque:      [RenderPipeline; 2],
+    cutout:      [RenderPipeline; 2],
+    translucent: [RenderPipeline; 2],
+    sky:         RenderPipeline,
 
     /// Debug lines in world space, the collider wireframes, drawn after
     /// every node and depth tested against them.
@@ -201,9 +205,21 @@ impl Default for MeshPipeline {
             immediate_size:     0,
         });
 
-        let [opaque, opaque_skinned] = mesh_pipelines(device, "mesh", &mesh_layout, &mesh_shader, false);
-        let [translucent, translucent_skinned] =
-            mesh_pipelines(device, "mesh_translucent", &mesh_layout, &mesh_shader, true);
+        let opaque = mesh_pipelines(device, "mesh", &mesh_layout, &mesh_shader, MeshDraw::Opaque);
+        let cutout = mesh_pipelines(
+            device,
+            "mesh_cutout",
+            &mesh_layout,
+            &mesh_shader,
+            MeshDraw::Cutout,
+        );
+        let translucent = mesh_pipelines(
+            device,
+            "mesh_translucent",
+            &mesh_layout,
+            &mesh_shader,
+            MeshDraw::Translucent,
+        );
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
         // The lines bind only the view, the sky's layout.
         let lines_pipeline = device.pipeline(
@@ -222,9 +238,8 @@ impl Default for MeshPipeline {
 
         Self {
             opaque,
-            opaque_skinned,
+            cutout,
             translucent,
-            translucent_skinned,
             sky,
             lines_pipeline,
             lines: VecBuffer::default(),
@@ -232,7 +247,13 @@ impl Default for MeshPipeline {
             view_buffer,
             black_sky: Sky::black(),
             view_bind: None,
-            shadow: ShadowPass::new(device, &shadow_shader, Self::SHADOW_MAP_SIZE),
+            shadow: ShadowPass::new(
+                device,
+                &shadow_shader,
+                Self::SHADOW_MAP_SIZE,
+                &instances_layout,
+                &textures_layout,
+            ),
             instances_layout,
             instances: IndexMap::default(),
             opaque_instances: VecBuffer::default(),
@@ -344,21 +365,43 @@ impl MeshPipeline {
             self.lines.load();
         }
 
-        if shadows {
+        if shadows && self.instances.values().any(|batch| batch.loaded(frame)) {
             self.shadow.fit(Window::device(), map_size);
-            let batches: Vec<_> = self
-                .instances
-                .iter()
-                .filter(|(_, batch)| batch.loaded(frame))
-                .map(|(key, batch)| (key, batch.drawn.clone()))
-                .collect();
+            let mut batches = vec![];
+            for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
+                // A cut out batch reads its texture's alpha in the pass.
+                let textures = key.cutout.then(|| {
+                    textures_bind(
+                        &mut self.textures,
+                        &self.textures_layout,
+                        key,
+                        &self.white,
+                        &self.flat_normal,
+                    )
+                    .clone()
+                });
+                batches.push(ShadowBatch {
+                    key,
+                    range: batch.drawn.clone(),
+                    textures,
+                });
+            }
+            let instances_bind = opaque_bind(
+                &mut self.opaque_bind,
+                &self.instances_layout,
+                &self.opaque_instances,
+                &self.joints,
+            );
             self.shadow.draw(
                 encoder,
                 &view.sun_view_proj,
                 &self.opaque_instances,
                 &batches,
-                &self.joints,
+                instances_bind,
             );
+        } else if shadows {
+            self.shadow.fit(Window::device(), map_size);
+            self.shadow.clear(encoder);
         }
     }
 
@@ -399,13 +442,11 @@ impl MeshPipeline {
         render_pass.set_bind_group(2, lights_bind, &[]);
 
         if self.instances.values().any(|batch| batch.loaded(frame)) {
-            let instances_bind = cached(
+            let instances_bind = opaque_bind(
                 &mut self.opaque_bind,
-                (
-                    StorageKey::of(&self.opaque_instances),
-                    StorageKey::of(&self.joints),
-                ),
-                || instances_bind(&self.instances_layout, &self.opaque_instances, &self.joints),
+                &self.instances_layout,
+                &self.opaque_instances,
+                &self.joints,
             );
             render_pass.set_bind_group(1, instances_bind, &[]);
         }
@@ -420,7 +461,8 @@ impl MeshPipeline {
             );
 
             render_pass.set_bind_group(3, textures_bind, &[]);
-            set_mesh(render_pass, &key.mesh, &self.opaque, &self.opaque_skinned);
+            let pipelines = if key.cutout { &self.cutout } else { &self.opaque };
+            set_mesh(render_pass, &key.mesh, pipelines);
             // The slice starts at the batch, so the draw starts at instance
             // zero, an A7 cannot draw from a base instance. The `index`
             // attribute still names the real slot for the fragment stage.
@@ -473,12 +515,7 @@ impl MeshPipeline {
                 &self.flat_normal,
             );
             render_pass.set_bind_group(3, textures_bind, &[]);
-            set_mesh(
-                render_pass,
-                &key.mesh,
-                &self.translucent,
-                &self.translucent_skinned,
-            );
+            set_mesh(render_pass, &key.mesh, &self.translucent);
             // The draw starts at instance zero of a slice that begins at
             // this node, its `index` attribute still names the real slot.
             let start = range.start + u64::try_from(i).expect("node count fits u64") * stride;
@@ -488,9 +525,10 @@ impl MeshPipeline {
     }
 }
 
-/// Picks the pipeline for the mesh and sets its vertex and index
-/// buffers, the skin buffer too when it has one.
-pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, plain: &RenderPipeline, skinned: &RenderPipeline) {
+/// Picks the pipeline for the mesh out of a pipeline and its skinned
+/// twin, and sets its vertex and index buffers, the skin buffer too
+/// when it has one.
+pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipeline; 2]) {
     match &mesh.skin_buffer {
         Some(skin) => {
             pass.set_pipeline(skinned);
@@ -509,7 +547,7 @@ fn mesh_pipelines(
     name: &str,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
-    translucent: bool,
+    draw: MeshDraw,
 ) -> [RenderPipeline; 2] {
     [
         device.mesh_pipeline(
@@ -518,7 +556,7 @@ fn mesh_pipelines(
             shader,
             STATIC_LAYOUTS,
             "v_main",
-            translucent,
+            draw,
         ),
         device.mesh_pipeline(
             &format!("{name}_skinned_pipeline"),
@@ -526,7 +564,7 @@ fn mesh_pipelines(
             shader,
             SKINNED_LAYOUTS,
             "v_skinned",
-            translucent,
+            draw,
         ),
     ]
 }
@@ -633,6 +671,19 @@ fn instances_bind(
                 resource: BindingResource::Buffer(loaded_range(joints)),
             },
         ],
+    })
+}
+
+/// The bind over the opaque instances and the joints of the frame, what
+/// the frame's pass and the shadow passes both draw with.
+fn opaque_bind<'a>(
+    slot: &'a mut Option<CachedBind<InstancesKey>>,
+    layout: &BindGroupLayout,
+    instances: &VecBuffer<MeshInstance>,
+    joints: &VecBuffer<Mat4>,
+) -> &'a BindGroup {
+    cached(slot, (StorageKey::of(instances), StorageKey::of(joints)), || {
+        instances_bind(layout, instances, joints)
     })
 }
 
@@ -767,7 +818,7 @@ fn loaded_range<T>(buffer: &VecBuffer<T>) -> BufferBinding<'_> {
 
 /// Binds the loaded part of a `VecBuffer` alone, so the shader indexes
 /// the same elements the draw uses.
-pub(super) fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
+fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
     Window::device().create_bind_group(&BindGroupDescriptor {
         label: Some(label),
         layout,

@@ -57,7 +57,9 @@ tree flattened into parts with their placements, so a node draws every mesh of t
 file at its own size and with its own materials. `set_scale` sizes a node uniformly
 on top of that, so a model in other units fits the scene, the collider and picking
 follow. A primitive without a material
-takes the node's `Material`. The collider is the box around the model's `bounds`,
+takes the node's `Material`. A material with `alphaMode` `MASK` loads as a cutout
+with its `alphaCutoff`, `BLEND` as translucent. `doubleSided` is not read, back
+faces are always culled. The collider is the box around the model's `bounds`,
 placed where the bounds are, so a model whose origin sits at its feet still rests
 on the floor. A primitive over 65535 vertices is split into parts so every lane
 draws 16 bit indices, and one without normals shades flat as glTF asks. Only a
@@ -89,7 +91,8 @@ with `blender --background --python deps/models/export_glb.py -- assets/models/t
 skins and actions included, and the script also mends what the old files miss.
 `deps/models/make_tree.py` builds the tree fixture from scratch, a trunk and four
 cone tiers and nothing else, since a model's collider is the box around its bounds
-and a ground plane in the file would make it a slab. Only the `.glb` files reach
+and a ground plane in the file would make it a slab. `deps/models/make_leaf_card.py`
+builds the leaf card, 2 crossed quads with a masked leaf texture. Only the `.glb` files reach
 the browser manifest.
 
 ## Materials and lights
@@ -103,6 +106,12 @@ even at night. It lights nothing around it, a point light does that, the flames
 of a campfire are both. No tangents are stored, the shader builds the frame from the screen
 derivatives of the position and the uv. A `color` with alpha below one makes the
 node translucent, see below.
+
+`cutout` cuts a node out by its alpha, leaves on a quad: `set_cutout(threshold)`,
+`Material::CUTOUT` is the usual 0.5. A fragment whose alpha, the color's times the
+vertex color's times the texel's, is under the threshold is not drawn. The rest is
+solid: depth written, batched with the opaque nodes, lit and shadowed the same, even
+with a color alpha below one. The edge is hard, a pixel is in or out.
 
 The shading is the Filament mobile model: Lambert diffuse, GGX, the fast height
 correlated Smith visibility and the Schlick Fresnel. A scene has one `sun`, a
@@ -141,7 +150,10 @@ them by distance, a depth texture cannot be filtered and a comparison sampler do
 not work on iOS 12. Acne is held off by a slope scaled bias in the pass, a depth
 bias of one texel and a push of up to a texel and a half along the normal that
 fades as the surface turns to face the sun, so a floor under a high sun keeps its
-shadows against its posts. Translucent nodes receive but do not cast.
+shadows against its posts. Translucent nodes receive but do not cast. A cut out
+node casts the shadow of what is drawn: its batches go through the cutout twins of
+the shadow pipelines, the only ones with a fragment stage, which read the same
+instance, vertex color and texel alpha and drop the same fragments.
 
 `fog` is distance fog, `Fog::new(color, start, end)`: every surface blends towards
 the color with its distance from the camera, untouched up to `start` and wholly fog
@@ -288,7 +300,10 @@ matters far more, keep it at 0.1 or above.
 The sky draws first, one triangle with no depth test. `MeshPipeline` then does one
 instanced indexed draw per unit mesh and texture pair for the opaque nodes, and one
 draw per translucent node after them, back to front, blended and without a depth
-write. Every opaque batch lands in one instance buffer with one upload per frame. A
+write. A cut out node is an opaque batch of its own, `MeshKey::cutout`, drawn
+through pipelines whose fragment entry `f_cutout` discards, so a plain opaque draw
+carries no discard. An opaque node writes alpha 1 through `f_opaque`, the alpha of
+its texture would leave a hole in a scene picture. Every opaque batch lands in one instance buffer with one upload per frame. A
 buffer per batch cost a staging buffer per batch every frame. The instance carries the
 model matrix, the inverse transpose for normals and its own index in the buffer, see
 `MeshInstance`, so a batch or a translucent node drawn from a slice in the middle of
@@ -297,7 +312,8 @@ fragment reads the material and the light list from a storage binding at that
 index. Seven float components cross the vertex to fragment boundary, the uv, the
 normal, the flat index and the flat packed vertex color, and the world position is
 rebuilt from the depth. An A7
-draws nothing above eight, see [ios.md](ios.md). Every mesh buffer loads once per
+draws nothing above eight, see [ios.md](ios.md). The cutout shadow pass carries
+four, the uv, the index and the color. Every mesh buffer loads once per
 frame, so the bind groups over the view, the lights, the instances and
 each key's textures are kept from frame to frame and remade only when a buffer
 grows, a count changes, the sky or the shadow map is replaced or an image dies,
@@ -354,7 +370,10 @@ running scene next to a picture of it in an `ImageView`, the same image drawn ag
 with the monkey, then 50 more pictures with the frame unchanged, and `Scene picture
 clear` one picture with a clear and with a given background over a light and a dark
 view while no scene runs. `Glow` orange flames at night glowing by 0, 0.5 and 1, then the dark one
-turned to full glow. A scene test leaves its scene on screen through the final
+turned to full glow. `Cutout` quads of leaves over a wall, not cut, cut out, 2
+crossed that hide each other by depth and the masked `leaf_card.glb`, then the
+threshold lowered so the leaves grow, and `Cutout shadows` the same quads over a
+floor, a square shadow from the one not cut and leaf shadows from the rest. A scene test leaves its scene on screen through the final
 human hold, the next test or the end of the run stops it. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A

@@ -41,7 +41,9 @@ pub(crate) struct MeshInstance {
     /// mesh, whose pipelines never read it.
     pub joint_base:   u32,
     pub emissive:     f32,
-    pub padding:      u32,
+    /// The alpha under which a fragment is not drawn, see
+    /// `Material::cutout`. Zero on a node that is not cut out.
+    pub cutout:       f32,
 }
 
 impl MeshInstance {
@@ -63,7 +65,7 @@ impl MeshInstance {
             normal_scale: material.normal_scale,
             joint_base,
             emissive: material.emissive,
-            padding: 0,
+            cutout: material.cutout.unwrap_or(0.0),
         }
     }
 }
@@ -124,6 +126,8 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, lights), 144);
         assert_eq!(offset_of!(MeshInstance, normal_scale), 160);
         assert_eq!(offset_of!(MeshInstance, joint_base), 164);
+        assert_eq!(offset_of!(MeshInstance, emissive), 168);
+        assert_eq!(offset_of!(MeshInstance, cutout), 172);
         assert_eq!(size_of::<MeshInstance>(), 176);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);

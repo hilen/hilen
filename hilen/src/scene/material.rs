@@ -7,7 +7,7 @@ pub struct Material {
     /// Encoded sRGB like every color. The diffuse color of a dielectric,
     /// the tint of the reflection of a metal. An alpha below one makes
     /// the node translucent, drawn after every opaque node, back to
-    /// front.
+    /// front, unless `cutout` is set.
     pub color:        Color,
     /// 0 is a dielectric, plastic, stone or paint. 1 is a metal, which
     /// has no diffuse and colors its reflection.
@@ -30,6 +30,17 @@ pub struct Material {
     /// and lamps glow this way. It lights nothing around it, a point
     /// light does that.
     pub emissive:     f32,
+    /// Cuts the shape of the alpha out of the node, leaves on a quad: a
+    /// fragment whose alpha, the color's times the texel's, is under
+    /// this is not drawn at all, and the rest draws solid, with depth,
+    /// lit and casting the shadow of what is left. `None` draws every
+    /// fragment. `Material::CUTOUT` is the usual threshold.
+    pub cutout:       Option<f32>,
+}
+
+impl Material {
+    /// The threshold glTF gives a masked material that names none.
+    pub const CUTOUT: f32 = 0.5;
 }
 
 impl Default for Material {
@@ -42,6 +53,7 @@ impl Default for Material {
             normal_map:   None,
             normal_scale: 1.0,
             emissive:     0.0,
+            cutout:       None,
         }
     }
 }

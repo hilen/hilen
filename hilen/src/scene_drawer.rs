@@ -98,9 +98,11 @@ impl NodeDraws<'_> {
             mesh,
             texture: material.texture,
             normal_map: material.normal_map,
+            cutout: material.cutout.is_some(),
         };
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
-        if material.color.a < 1.0 {
+        // A cut out node is solid where it is drawn, whatever its alpha.
+        if material.cutout.is_none() && material.color.a < 1.0 {
             self.translucent.push((self.distance, key, instance));
         } else {
             self.pipeline.add(key, instance);
