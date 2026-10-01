@@ -43,6 +43,9 @@ mod tab_focus;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;
+/// Focuses a field programmatically and types nothing, so it runs
+/// everywhere like [`text_field_theme`].
+mod text_field_caret_scale;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;
