@@ -72,6 +72,10 @@ impl Setup for TableView {
             self.layout_cells(LayoutMode::Scroll);
         });
 
+        self.scroll.on_scroll_x.sub(move || {
+            self.apply_sideways();
+        });
+
         self.size_changed().sub(move || {
             self.layout_cells(LayoutMode::Resize);
             if self.height() > 0.0
@@ -237,6 +241,32 @@ impl TableView {
         self.scroll.get_scroll_content_offset()
     }
 
+    /// Turns sideways scrolling on. `width` is how wide a row would be
+    /// with nothing cut off, the pinned parts plus the longest moving
+    /// part. A wider row than the table scrolls by the difference, with
+    /// a bar on the bottom edge. The cells keep the table width and stay
+    /// in place, only the views a cell marks with `set_moves_sideways`
+    /// move, all by the same offset.
+    pub fn set_content_width(&mut self, width: impl ToF32) -> &mut Self {
+        self.scroll.set_sideways_width(width.to_f32());
+        self.apply_sideways();
+        self
+    }
+
+    /// Sets the sideways scroll position: 0 is the left edge, negative
+    /// values scroll right. Clamped to the scrollable range.
+    pub fn set_content_offset_x(&mut self, offset: impl ToF32) -> &mut Self {
+        self.scroll.set_content_offset_x(offset);
+        self.apply_sideways();
+        self
+    }
+
+    /// The sideways scroll position: 0 at the left edge, negative right
+    /// of it.
+    pub fn content_offset_x(&self) -> f32 {
+        self.scroll.content_offset_x()
+    }
+
     /// Rows the data marks with `TableData::is_sticky` pin to the top of
     /// the viewport while their section scrolls by, and the next sticky
     /// row pushes the pinned one away. Off by default, turning it on
@@ -392,6 +422,7 @@ impl TableView {
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);
+        self.apply_sideways();
     }
 }
 

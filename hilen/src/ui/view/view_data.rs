@@ -49,6 +49,12 @@ pub trait ViewData {
     fn is_hidden_in_tree(&self) -> bool;
     fn set_hidden(&self, is_hidden: bool) -> &Self;
 
+    /// Inside a `TableView` cell, this view and its subviews move with
+    /// the sideways scroll of the table. Everything else in the cell
+    /// stays in place, so a cell pins a part by leaving it unmarked.
+    /// Put the marked view into a clipping view to cut it at an edge.
+    fn set_moves_sideways(&self, moves: bool) -> &Self;
+
     fn place(&self) -> &Placer;
     fn placer_copy(&self) -> Placer;
 
@@ -207,6 +213,15 @@ impl<T: ?Sized + View> ViewData for T {
 
     fn set_hidden(&self, is_hidden: bool) -> &Self {
         self.weak_view().__base_view().is_hidden = is_hidden;
+        self
+    }
+
+    fn set_moves_sideways(&self, moves: bool) -> &Self {
+        let base = self.__base_view();
+        base.moves_sideways = moves;
+        if !moves {
+            base.__content_offset_x = 0.0;
+        }
         self
     }
 

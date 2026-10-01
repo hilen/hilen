@@ -102,6 +102,15 @@ pub fn inject_scroll(scroll: impl ToF32) {
     human_pause();
 }
 
+/// A sideways wheel or trackpad scroll, negative moves the content left.
+#[allow(dead_code)]
+pub fn inject_scroll_x(scroll: impl ToF32) {
+    from_main(move || {
+        Input::on_scroll((scroll, 0).into());
+    });
+    human_pause();
+}
+
 pub fn inject_touches(data: impl ToString + Send + 'static) {
     let scale = UIManager::scale();
 

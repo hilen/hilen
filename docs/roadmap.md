@@ -16,36 +16,32 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Horizontal scrolling in ScrollView and TableView
+## A scene drawn into an image
 
-Found by kukareker, whose diff view cuts off long lines. Top priority.
+Found by the rail model viewer of blackforge, `~/dev/apps/blackforge/viewer`, whose
+start page is a grid of pictures of about 45 models. Top priority.
 
-- Current: scrolling is vertical only. `__content_offset` in `ui/view/view_base.rs` is
-  1 number, the vertical offset. `ScrollView::__process_wheel_scroll` calls
-  `self.on_scroll(delta.y)` and drops `delta.x`. The drag path reads only
-  `touch.position.y`. The scroll bar exists only on the right edge. `TableView` pins
-  its content width to its own width with `self.scroll.set_content_width(width)` in
-  `table_view/layout.rs`, in both the reset path and `layout_fixed_cells`, so a cell
-  can never be wider than the table.
+- Current: one scene is active, `SceneManager::set_scene`, and `SceneDrawer` draws it
+  in the main render pass over the whole root area, see How it draws in
+  [scene.md](scene.md). No call draws a scene anywhere else. The 3D scene entry below
+  lists "an embeddable `SceneView` that composites into any view frame instead of the
+  root area" as not built. So an app cannot show a 3D model inside a view, and cannot
+  make a picture of one.
 - Needed:
-  - `ScrollView` keeps a horizontal offset next to the vertical one, clamped to the
-    content width. The wheel `delta.x` moves it. Shift plus wheel moves it too, for a
-    mouse with no side wheel. A finger drag moves it where drag scrolling is on.
-  - A horizontal bar on the bottom edge, shown only when the content is wider than the
-    view, with the same look and theme colors as the vertical bar.
-  - `TableView::set_content_width`. Cells are laid out at that width instead of the
-    table width, and the table has its own horizontal offset getter and setter.
-  - Pinned parts in a table cell. A cell can keep some of its subviews in place while
-    the rest moves sideways and is clipped at the pinned edge. 1 pinned left column
-    is the simple case, line numbers next to code. A cell must also be able to hold 2
-    side by side regions, each with its own pinned left part, that move by the same
-    offset and each clip to their own half. That is a side by side diff.
-  - Views pinned to the right edge of the visible area, like a button shown on row
-    hover, stay there while the content moves under them.
-  - Sticky rows and `index_at` keep working with a horizontal offset.
-  - UI tests: wheel `delta.x`, Shift plus wheel, the bottom bar showing and hiding, a
-    wide table with a pinned column, and a cell with 2 regions moving together.
-- Blocks: reading long lines in the kukareker diff view, in unified and in split mode.
+  - A call that draws a scene once into an `Image` of a given pixel size, with its own
+    camera, sun, lights, sky and nodes, and a transparent or a given background. The
+    image is a normal managed `Image`, an `ImageView` shows it. The active scene and
+    the frame on screen are not touched.
+  - It works while another scene is active, and while none is.
+  - Many pictures in a row stay cheap: about 50 of 256 pixels at the start of an app,
+    with shared models and textures uploaded once.
+  - The same picture on every lane, WebGPU, WebGL2, Metal on an A7, so the MSAA, the
+    tonemap and the sRGB encode match the main pass.
+  - Scene tests: a picture of a model shown in an `ImageView` next to the same model in
+    the live scene, a transparent background over a colored view, and a picture made
+    while another scene runs.
+- Blocks: the picture grid of the blackforge rail model viewer. Its 3D view of one
+  model is built on the live scene and does not wait.
 
 ## Sound on iOS and Android
 
@@ -195,6 +191,11 @@ Small remainders not worth their own entry.
   the text field caret blink and double click, tooltip and long press delays still
   read `Instant`, so they drift under stepped time and their mid flight frames
   cannot be pinned. Each is a one line move to `Clock::now_ms` plus a test.
+- Sideways scrolling pins nothing in a plain `ScrollView`, its whole content
+  moves. Only a `TableView` cell keeps parts in place, through
+  `set_moves_sideways`.
+- The same text frame still differs by 1 color level between 2 runs of the
+  program after the glyph snap, see [text.md](text.md). The cause is not found.
 - Human mode has no frame step key. A stepped test pauses only on checks, an
   animation in flight cannot be walked one frame per key press with the frame
   number in the window title.

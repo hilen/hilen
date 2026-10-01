@@ -12,8 +12,8 @@ use crate::{
         flat::{Point, Size},
     },
     ui::{
-        Container, DynamicColor, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation, UIEvent,
-        UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
+        Container, DynamicColor, Input, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation,
+        UIEvent, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
         views::containers::scrolling::ScrollContent,
     },
 };
@@ -41,12 +41,24 @@ struct ManualContent {
 #[view]
 pub struct ScrollView {
     inertia:            f32,
+    inertia_x:          f32,
     began_touch:        Point,
     previous_touch:     Point,
     dragging:           bool,
+    /// The drag in flight moves the content sideways. A drag keeps the
+    /// axis it started on, so a finger going down a list does not also
+    /// shake it left and right.
+    drag_sideways:      bool,
     manual_content:     ManualContent,
     drag_disabled:      bool,
+    /// The sideways offset: 0 at the left edge, negative right of it.
+    offset_x:           f32,
+    /// Set by a host that moves its own views sideways, the table. The
+    /// offset then ranges over this width and the content stays put.
+    sideways_width:     Option<f32>,
     pub on_scroll:      Event<f32>,
+    /// The new sideways offset after it changed.
+    pub on_scroll_x:    Event<f32>,
     pub bottom_reached: UIEvent,
 
     #[init]
@@ -55,7 +67,10 @@ pub struct ScrollView {
     /// The scroll indicator on the right edge, its length the visible
     /// share of the content and its position the offset. Shown only
     /// when the content is taller than the view.
-    bar: Container,
+    bar:   Container,
+    /// The same indicator on the bottom edge, shown only when the
+    /// content is wider than the view.
+    bar_x: Container,
 }
 
 impl ScrollView {
@@ -90,13 +105,62 @@ impl ScrollView {
         self.manual_content.width = true;
         self.manual_content.height = true;
         self.content.content_size = size.into();
+        self.clamp_offset_x();
         self
     }
 
     pub fn set_content_width(&mut self, width: impl ToF32) -> &mut Self {
         self.manual_content.width = true;
         self.content.content_size.width = width.to_f32();
+        self.clamp_offset_x();
         self
+    }
+
+    /// Sets the sideways scroll position: 0 is the left edge, negative
+    /// values scroll right. Clamped to the scrollable range.
+    pub fn set_content_offset_x(&mut self, offset: impl ToF32) -> &mut Self {
+        self.offset_x = offset.to_f32().clamp(-self.range_x(), 0.0);
+        self.apply_offset_x();
+        self
+    }
+
+    /// The sideways scroll position: 0 at the left edge, negative right
+    /// of it.
+    pub fn content_offset_x(&self) -> f32 {
+        self.offset_x
+    }
+
+    pub(crate) fn set_sideways_width(&mut self, width: f32) {
+        self.sideways_width = Some(width);
+        self.clamp_offset_x();
+    }
+
+    pub(crate) fn has_sideways_width(&self) -> bool {
+        self.sideways_width.is_some()
+    }
+
+    /// How far the content can move sideways, 0 when it fits.
+    fn range_x(&self) -> f32 {
+        let content = self.sideways_width.unwrap_or(self.content.content_size.width);
+        (content - self.width()).max(0.0)
+    }
+
+    fn apply_offset_x(&mut self) {
+        self.content.__base_view().__content_offset_x = if self.sideways_width.is_some() {
+            0.0
+        } else {
+            self.offset_x
+        };
+    }
+
+    fn clamp_offset_x(&mut self) {
+        let min = -self.range_x();
+        if self.offset_x >= min {
+            return;
+        }
+        self.offset_x = min;
+        self.apply_offset_x();
+        self.on_scroll_x.trigger(min);
     }
 
     pub fn set_content_height(&mut self, height: impl ToF32) -> &mut Self {
@@ -130,6 +194,7 @@ impl ViewCallbacks for ScrollView {
         if !self.manual_content.width {
             self.content.content_size.width = self.width();
         }
+        self.clamp_offset_x();
         if !self.manual_content.height {
             let bottom = self
                 .content
@@ -143,6 +208,7 @@ impl ViewCallbacks for ScrollView {
         }
 
         self.update_bar();
+        self.update_bar_x();
     }
 }
 
@@ -166,6 +232,33 @@ impl ScrollView {
     }
 }
 
+impl ScrollView {
+    fn update_bar_x(&mut self) {
+        let width = self.width();
+        let range = self.range_x();
+
+        if range <= 0.0 || width <= 0.0 {
+            self.bar_x.set_hidden(true);
+            return;
+        }
+
+        // Stops short of the vertical bar, so the two never cross in the
+        // corner.
+        let corner = if self.bar.is_hidden() {
+            0.0
+        } else {
+            BAR_WIDTH + BAR_INSET
+        };
+        let track = width - BAR_INSET * 2.0 - corner;
+        let length = (track * width / (width + range)).max(BAR_MIN_LENGTH).min(track);
+        let x = BAR_INSET + (track - length) * -self.offset_x / range;
+
+        self.bar_x.set_hidden(false);
+        self.bar_x
+            .set_frame((x, self.height() - BAR_WIDTH - BAR_INSET, length, BAR_WIDTH));
+    }
+}
+
 impl Setup for ScrollView {
     fn clips_to_bounds(&self) -> bool {
         true
@@ -181,6 +274,10 @@ impl Setup for ScrollView {
         // the bar has to be pushed in front of everything in the content,
         // pinned sticky table rows and their raise included.
         self.bar.bump_z_position(UIManager::subview_z_offset() * 10.0);
+
+        self.bar_x.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
+        self.bar_x.set_hidden(true);
+        self.bar_x.bump_z_position(UIManager::subview_z_offset() * 10.0);
 
         self.size_changed().sub(move || {
             self.on_scroll(0.0);
@@ -223,6 +320,7 @@ impl Scrollable for ScrollView {
 
         let mut target_frame = self.content.__base_view().__absolute_frame;
         target_frame.origin.y -= self.content.__base_view().__content_offset;
+        target_frame.origin.x -= self.content.__base_view().__content_offset_x;
 
         // A scroll already dragged by one finger keeps following that finger
         // and ignores a second one, so two fingers never fight over it.
@@ -238,15 +336,35 @@ impl Scrollable for ScrollView {
 
         if touch.is_moved() && self.__base_view().__touch_id == touch.id {
             if !self.dragging {
-                if (touch.position.y - self.began_touch.y).abs() < DRAG_SLOP {
+                let moved = touch.position - self.began_touch;
+                let sideways = self.range_x() > 0.0 && moved.x.abs() > moved.y.abs();
+                let travel = if sideways { moved.x.abs() } else { moved.y.abs() };
+                if travel < DRAG_SLOP {
                     return true;
                 }
                 self.dragging = true;
+                self.drag_sideways = sideways;
+                if sideways {
+                    self.inertia = 0.0;
+                } else {
+                    self.inertia_x = 0.0;
+                }
                 self.previous_touch = self.began_touch;
                 TouchStack::cancel_touch(touch.id);
                 // cancel_touch clears every capture, including this scroll's
                 // if it is also a touch listener
                 self.__base_view().__touch_id = touch.id;
+            }
+
+            if self.drag_sideways {
+                let delta = touch.position.x - self.previous_touch.x;
+                self.previous_touch = touch.position;
+
+                if delta != 0.0 {
+                    self.inertia_x = delta;
+                    self.scroll_x(delta);
+                }
+                return true;
             }
 
             let delta = -(self.previous_touch.y - touch.position.y);
@@ -265,7 +383,16 @@ impl Scrollable for ScrollView {
     }
 
     fn __process_wheel_scroll(&mut self, delta: Point) {
+        // A mouse with no side wheel scrolls sideways with Shift held.
+        // macOS turns that into a sideways delta by itself, the other
+        // platforms still send it as a vertical one.
+        if delta.x == 0.0 && Input::modifiers().shift_key() && self.range_x() > 0.0 {
+            self.scroll_x(delta.y);
+            return;
+        }
+
         self.on_scroll(delta.y);
+        self.scroll_x(delta.x);
     }
 }
 
@@ -275,30 +402,53 @@ impl ScrollView {
     /// offset on any frame rate, only sooner or later. A test that taps
     /// rows after a drag waits for this before it taps.
     pub fn is_scrolling(&self) -> bool {
-        self.dragging || self.inertia != 0.0
+        self.dragging || self.inertia != 0.0 || self.inertia_x != 0.0
     }
 
     fn add_inertia_animation(&self) {
-        if self.inertia == 0.0 {
+        if self.inertia == 0.0 && self.inertia_x == 0.0 {
             return;
         }
 
         let mut scroll = weak_from_ref(self);
 
         let anim = UIAnimation::new(move |_, _| {
-            let inertia = scroll.inertia;
-            scroll.on_scroll(inertia);
-            scroll.inertia *= 0.97;
+            if scroll.inertia_x == 0.0 {
+                let inertia = scroll.inertia;
+                scroll.on_scroll(inertia);
+                scroll.inertia *= 0.97;
+            } else {
+                let inertia = scroll.inertia_x;
+                scroll.scroll_x(inertia);
+                scroll.inertia_x *= 0.97;
+            }
         })
         .finish_condition(move || {
-            if scroll.inertia.abs() > 0.2 {
+            if scroll.inertia.abs() > 0.2 || scroll.inertia_x.abs() > 0.2 {
                 return false;
             }
             scroll.inertia = 0.0;
+            scroll.inertia_x = 0.0;
             true
         });
 
         self.add_animation(anim);
+    }
+
+    fn scroll_x(&mut self, delta: f32) {
+        let range = self.range_x();
+        if range <= 0.0 {
+            return;
+        }
+
+        let offset = (self.offset_x + delta).clamp(-range, 0.0);
+        if (offset - self.offset_x).abs() < f32::EPSILON {
+            return;
+        }
+
+        self.offset_x = offset;
+        self.apply_offset_x();
+        self.on_scroll_x.trigger(offset);
     }
 
     fn on_scroll(&mut self, scroll: f32) {

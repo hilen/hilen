@@ -28,7 +28,36 @@ fn sticky_raise() -> f32 {
     UIManager::subview_z_offset() * 5.0
 }
 
+/// Hands the sideways offset to every marked view under `view`. A marked
+/// view carries its subtree along, so the walk stops there.
+fn shift_sideways(view: WeakView, offset: f32) {
+    if view.__base_view().moves_sideways {
+        view.__base_view().__content_offset_x = offset;
+        return;
+    }
+    for sub in view.subviews() {
+        shift_sideways(sub.weak(), offset);
+    }
+}
+
 impl TableView {
+    /// Moves the marked views of every cell on screen to the current
+    /// sideways offset. Runs after every layout too, a cell set up for a
+    /// new row comes back from the registry with the offset it left with.
+    pub(super) fn apply_sideways(&mut self) {
+        if !self.scroll.has_sideways_width() {
+            return;
+        }
+
+        let offset = self.scroll.content_offset_x();
+
+        for view in self.scroll.content.subviews() {
+            if !view.is_hidden() {
+                shift_sideways(view.weak(), offset);
+            }
+        }
+    }
+
     /// Recycles every cell and leaves only the header and the footer to
     /// scroll, the layout of a table with no rows.
     pub(super) fn clear_cells(&mut self) {

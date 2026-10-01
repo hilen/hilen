@@ -47,6 +47,20 @@ glyph's bounds through `ttf_parser` on every measure, and a table rebuilding
 hundreds of measured spans spent seconds there. Same 10 second sweep from
 `Font::process_queued`.
 
+## Glyph positions snap to the atlas grid
+
+The glyph atlas of `glyph_brush_draw_cache` keeps one raster per glyph and
+step of sub pixel position, 0.1 pixel by default. It rasterizes at the exact
+position of whichever glyph asks first and every later glyph in that step
+reuses it. So the same text got slightly different edges depending on which
+label drew first, and that changed from run to run: the same frame differed by
+up to 27 levels per channel, which is how a probe on a glyph edge failed in
+one run and passed in the next. `snap_to_cache` in `shaped_layout.rs` rounds
+every glyph position to that step before the brush sees it, so a step has one
+possible raster. A glyph moves by at most 0.05 pixels. Measured after it, the
+same frame differs by 1 level between runs. If the brush is ever built with
+another position tolerance, `CACHE_STEPS` follows it.
+
 ## Sizes are pixels per em
 
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`

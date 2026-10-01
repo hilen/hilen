@@ -40,7 +40,13 @@ pub struct ViewBase {
     pub(crate) border_width:         f32,
 
     #[allow(clippy::pub_underscore_fields)]
-    pub __content_offset: f32,
+    pub __content_offset:   f32,
+    #[allow(clippy::pub_underscore_fields)]
+    pub __content_offset_x: f32,
+
+    /// Follows the sideways offset of the table it sits in, see
+    /// `ViewData::set_moves_sideways`.
+    pub(crate) moves_sideways: bool,
 
     pub(crate) is_hidden: bool,
 

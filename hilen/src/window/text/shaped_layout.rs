@@ -535,6 +535,20 @@ impl ShapedLayout<'_> {
     }
 }
 
+/// Steps per pixel of the glyph atlas, 1 over its position tolerance of
+/// 0.1, the `glyph_brush_draw_cache` default the brush is built with.
+const CACHE_STEPS: f32 = 10.0;
+
+/// The atlas keeps one raster per glyph and step of sub pixel position,
+/// drawn at the exact position of whichever glyph asked first, and every
+/// later glyph in that step reuses it. So the same text came out with
+/// slightly different edges depending on which label drew first, which
+/// changed from run to run. A position on the step itself has only one
+/// possible raster.
+fn snap_to_cache(position: f32) -> f32 {
+    (position * CACHE_STEPS).round() / CACHE_STEPS
+}
+
 impl GlyphPositioner for ShapedLayout<'_> {
     fn calculate_glyphs<F, S>(
         &self,
@@ -593,7 +607,7 @@ impl GlyphPositioner for ShapedLayout<'_> {
                 glyph: Glyph {
                     id:       GlyphId(placed.id),
                     scale:    source.scale,
-                    position: point(placed.x, placed.y),
+                    position: point(snap_to_cache(placed.x), snap_to_cache(placed.y)),
                 },
                 font_id: first.font_id,
             });
