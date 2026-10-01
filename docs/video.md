@@ -36,6 +36,11 @@ message anywhere but desktop.
   hears a sound that is the media length divided by the speed, so its
   position times the speed is the position in the stream. A speed change or
   a sound track switch opens a fresh sound decoder at the current position.
+  Every open of a sound decoder after the first runs on a thread of its own,
+  and until it is there the video follows the engine clock. kira runs the
+  first seek of a decoder inside `play`, on the main thread, so that seek
+  reads nothing and the first decode on kira's thread goes to the place.
+  A slow network never holds the frame loop this way.
 - Text subtitles of a track inside the source are decoded on the video
   thread as their packets pass by, `hilen/src/video/subtitles.rs`, and sent
   as cues with the seek generation, like frames. Picking a track decodes
@@ -45,7 +50,9 @@ message anywhere but desktop.
   a line that began before that keyframe lies behind it. So every seek with
   a track on also starts a read back on its own thread, a demuxer of its own
   that reads the subtitle packets of the 10 seconds before the target and
-  hands over the line that is on screen there. A subtitle
+  hands over the line that is on screen there. When it finds none, it seeks
+  on the subtitle stream itself, to the last line that began before the
+  target however far back, so a line longer than 10 seconds shows too. A subtitle
   file from outside the source is read whole on its own thread. ffmpeg hands
   every text format over as an ASS line, the styling is dropped. The player
   shows the cue the clock is in. A video with no sound track
@@ -177,6 +184,11 @@ at 2.5 seconds, and seeks back while both demuxers wait. It pins that the
 video plays again from the target. With the index at the end the first seek
 of the sound reads the end of the file through the stall.
 
+`Video slow sound` plays `slow_sound.mkv` from a server that can stop
+answering, and measures how long the first play after a seek, a speed
+change, a sound track switch and a seek after the end keep the main thread
+while it does. Each took the 2 seconds the test waits before the fix.
+
 `Video tracks` plays `tracks.mkv`, 2 tone tracks and 2 subrip tracks, muted,
 and walks the track lists, the lines in step with the clock, a sound track
 switch that keeps the position, a subtitle switch, a seek, a seek into the
@@ -186,8 +198,10 @@ formulas outside the engine. `Video speed` pins the position at double and
 half speed under stepped time. `Video av1` plays an AV1 copy of the color
 fixture and pins that dav1d decodes it. The unit tests next to the code pin
 which sound track is heard, 440 against 1760 Hz, the length and the kept
-pitch at every speed, the cues of a track and of a file, and that dav1d and
-zlib are in the archive.
+pitch at every speed, the cues of a track and of a file, that the first seek
+of a sound waits for the first decode and still starts on the right sample,
+the 24 second line of `long_line.mkv` after a seek into it, and that dav1d
+and zlib are in the archive.
 
 `Video playback` in `ui-test-suite/src/views/video` plays `colors.mp4`, four
 solid frames at one per second, every frame a keyframe, no sound. Under

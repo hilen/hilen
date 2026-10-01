@@ -31,7 +31,8 @@ extractor needs a `Db` from the router state: a state that is a `PgPool` or a
 `SqlitePool` gives one, a state struct needs a `Db` field. Every query is in
 `hilen-server/src/auth/store.rs`, once per database. SQLite keeps ids as 16
 byte blobs the server makes and times as unix seconds, its schema is in
-`migrations_sqlite`. `store_test.rs` runs the whole login on a SQLite file.
+`migrations_sqlite`. `store_test.rs` runs the whole login on a SQLite file, and on a Postgres through tests that are ignored
+until `HILEN_TEST_POSTGRES_URL` names a server, the top of the file has the commands.
 `Config::redis_url` is none when `REDIS_URL` is not set.
 
 ## The wire

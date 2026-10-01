@@ -624,19 +624,9 @@ impl Player {
         self.drop_sound();
         // A decoder that opens on its thread comes in through
         // `take_opened_sound`, a second one here would open for nothing.
-        if self.audio.is_none() && self.sound_reads.opening.is_none() {
-            self.audio = match self.open_sound(self.audio_track) {
-                Ok(audio) => audio,
-                Err(err) => {
-                    error!("video {}: reopening the sound, {err}", self.source.location());
-                    None
-                }
-            };
+        if self.audio.is_none() && self.sound_reads.opening.is_none() && self.audio_track.is_some() {
+            self.open_sound_on_thread();
         }
-    }
-
-    fn open_sound(&self, track: Option<usize>) -> Result<Option<AudioDecoder>, FfmpegError> {
-        AudioDecoder::open(&self.source, Interrupt::new(&self.stop), track, self.speed)
     }
 
     fn drop_sound(&mut self) {
@@ -663,35 +653,16 @@ impl Player {
         self.audio_track
     }
 
-    /// Switches the sound to another track and keeps the position.
+    /// Switches the sound to another track and keeps the position. The new
+    /// track opens on a thread of its own.
     pub(crate) fn set_audio_track(&mut self, index: usize) {
         if self.audio_track == Some(index) || !self.audio_tracks().iter().any(|track| track.index == index) {
             return;
         }
-        let audio = match self.open_sound(Some(index)) {
-            Ok(Some(audio)) => audio,
-            Ok(None) => {
-                error!("video {}: no sound track {index}", self.source.location());
-                return;
-            }
-            Err(err) => {
-                error!(
-                    "video {}: sound track {index} did not open, {err}",
-                    self.source.location()
-                );
-                return;
-            }
-        };
-
-        let position = self.position();
-        self.drop_sound();
-        self.audio = Some(audio);
+        // The old track plays on until the new one has opened on its
+        // thread, `take_opened_sound` swaps them.
         self.audio_track = Some(index);
-        self.base = position;
-        self.started_ms = Clock::now_ms();
-        if self.playing && !self.flow.buffering {
-            self.start_sound();
-        }
+        self.open_sound_on_thread();
     }
 
     /// Plays faster or slower from where it is. The pitch of the sound is
@@ -710,8 +681,9 @@ impl Player {
         }
     }
 
-    /// A fresh sound decoder for the current track and speed, playing on
-    /// from the current position when the video plays.
+    /// A fresh sound decoder for the current track and speed. It opens on
+    /// its thread and plays on from where the video is by then, until it is
+    /// there the video follows the engine clock.
     fn reopen_sound(&mut self) {
         let position = self.position();
         self.drop_sound();
@@ -720,16 +692,7 @@ impl Player {
         if self.audio_track.is_none() {
             return;
         }
-        self.audio = match self.open_sound(self.audio_track) {
-            Ok(audio) => audio,
-            Err(err) => {
-                error!("video {}: reopening the sound, {err}", self.source.location());
-                None
-            }
-        };
-        if self.playing && !self.flow.buffering {
-            self.start_sound();
-        }
+        self.open_sound_on_thread();
     }
 
     /// Shows the cues of a subtitle track of the source, or none.

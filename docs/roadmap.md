@@ -16,42 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A sprite with an image scale is drawn in the wrong place
-
-- Current: `image_scale` of a sprite is meant to draw its picture bigger or
-  smaller than its body. The shader also scales the distance from the camera
-  to the sprite. `sprite_textured.wgsl` says so itself:
-  `// The image scale stretches the sprite's distance to the camera too.` and
-  `let world = view.camera_pos + (local + instance.position - view.camera_pos) * instance.scale;`.
-  So the picture is in the right place only while the camera sits exactly on the
-  sprite. Measured in labirintas on 2026-10-02 with a player of `image_scale`
-  1.68 at level point 0, 0 and the camera at 18.4, -0.8: the picture was drawn
-  12.5 units left of the body, outside a wall, 0.68 times the camera distance.
-  The body and its collisions were in the right place.
-- Needed: the image scale changes only the size of the picture around the
-  sprite position, `local * scale + instance.position`. A level test with a
-  scaled sprite and a camera away from it, checked by pixel position.
-- Blocks: any level whose camera does not sit on a scaled sprite. Labirintas
-  wants to show a whole small maze with a still camera, and to put the player
-  in the middle of the free screen area and not of the window. Until then its
-  camera stays exactly on the player.
-
-## A context menu cannot open above its anchor
-
-- Current: `ContextMenu` in `hilen/src/ui/views/controls/context_menu.rs` has
-  2 placements, `Placement::At` and `Placement::Below`. `show_below` puts the
-  menu under the anchor view. For a button in a bar at the bottom of the
-  window the menu does not fit there, so `fill` slides it up until it ends at
-  the window edge. It then covers its own button and the bar around it. The
-  subtitles menu of the flixen player opens this way, over the right end of
-  the player controls.
-- Needed: a menu that opens above its anchor, with the same `MenuAlign`, the
-  bottom edge of the menu `ANCHOR_GAP` over the top edge of the anchor. Either
-  a `show_above` next to `show_below`, or `show_below` flips to above by itself
-  when the menu does not fit under the anchor and fits over it.
-- Blocks: a clean menu from any bottom bar, the subtitles and the sound track
-  menu of flixen.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
@@ -84,19 +48,18 @@ playback speed, Now Playing and the media keys, zlib and dav1d. See
 - An outline or a shadow blur is cut at 12 pixels on the screen, the effect
   shader walks every pixel of that square. The effect entry points pass 8
   float components, the A7 limit, counted and not yet run on an A7 device.
-- Starting a sound runs its first seek on the main thread, kira does that
-  inside `play`. `Player::reset_sound`, a sound track switch and a speed
-  change open a sound decoder on the main thread too. On a slow network each
-  of them holds the frame loop. Only the sound a stalled seek replaces opens
-  on a thread of its own.
-- A seek to a line longer than 10 seconds can miss it, the subtitle read back
-  starts 10 seconds before the target.
+- A subtitle line that began more than 10 seconds before a seek target is
+  found through the index of the subtitle packets, proven on mkv. A container
+  with no such index still misses it. So does a long line under a shorter
+  line that is on screen at the target.
+- A switch of the sound track keeps the old track playing until the new one
+  has opened. When the new one fails to open, the old one plays on and
+  `audio_track` already names the new one.
 - The data folder is made and set as the `OnDisk` root on desktop only. On
   iOS and Android an app still sets the root itself.
 - Fullscreen, the pointer hide, the sound of a track switch and of a speed
   change, and a real media key press were tested with no window and no
-  speakers. The login queries on Postgres were moved into `store.rs` and not
-  run against a Postgres.
+  speakers.
 - `Inspect keys` failed once in the second round of a full suite run, the
   field got no text. It passed in the next full run and in 6 targeted runs,
   the cause is not found.

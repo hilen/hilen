@@ -15,6 +15,7 @@ mod level_time;
 mod pixel_art;
 mod sprite_edges;
 mod sprite_flip;
+mod sprite_image_scale;
 mod sprite_tint;
 mod terrain_ground;
 mod tile_framing;

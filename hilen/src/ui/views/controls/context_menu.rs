@@ -310,21 +310,32 @@ impl Setup for MenuItemView {
 static OPEN: MainLock<Weak<ContextMenu>> = MainLock::new();
 
 /// Which edge of the anchor view a menu from [`ContextMenu::show_below`]
-/// lines up with.
+/// or [`ContextMenu::show_above`] lines up with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuAlign {
     Left,
     Right,
 }
 
+impl MenuAlign {
+    /// The left edge of a menu `width` wide lined up with `anchor`.
+    fn x(self, anchor: Rect, width: f32) -> f32 {
+        match self {
+            Self::Left => anchor.x(),
+            Self::Right => anchor.max_x() - width,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Placement {
     At(Point),
     Below(Rect, MenuAlign),
+    Above(Rect, MenuAlign),
 }
 
 /// A floating list of actions anchored at a point, usually the cursor,
-/// or under a view, like a button's dropdown. One column, separators,
+/// or under or over a view, like a button's dropdown. One column, separators,
 /// icons, checks, disabled items, a danger tint, no submenus.
 /// Dismissed by a tap outside, Escape, or picking an item. Only one is
 /// open at a time, opening another closes the first.
@@ -359,6 +370,19 @@ impl ContextMenu {
         align: MenuAlign,
     ) -> Weak<Self> {
         Self::present(items, Placement::Below(*anchor.absolute_frame(), align))
+    }
+
+    /// Opens just over `anchor`, the bottom edge of the menu a gap above
+    /// the top edge of the anchor, for a button in a bar at the bottom of
+    /// the window, where a menu under the button would slide up over it.
+    /// `align` works like in [`Self::show_below`]. Slides back inside the
+    /// screen when it would not fit.
+    pub fn show_above(
+        items: Vec<MenuItem>,
+        anchor: impl Deref<Target = impl View + ?Sized>,
+        align: MenuAlign,
+    ) -> Weak<Self> {
+        Self::present(items, Placement::Above(*anchor.absolute_frame(), align))
     }
 
     fn present(items: Vec<MenuItem>, placement: Placement) -> Weak<Self> {
@@ -454,11 +478,11 @@ impl ContextMenu {
             let screen = UIManager::root_view().frame().size;
             let at = match placement {
                 Placement::At(at) => at,
-                Placement::Below(anchor, MenuAlign::Left) => {
-                    Point::new(anchor.x(), anchor.max_y() + ANCHOR_GAP)
+                Placement::Below(anchor, align) => {
+                    Point::new(align.x(anchor, width), anchor.max_y() + ANCHOR_GAP)
                 }
-                Placement::Below(anchor, MenuAlign::Right) => {
-                    Point::new(anchor.max_x() - width, anchor.max_y() + ANCHOR_GAP)
+                Placement::Above(anchor, align) => {
+                    Point::new(align.x(anchor, width), anchor.y() - ANCHOR_GAP - height)
                 }
             };
             let x = at.x.min(screen.width - width).max(0.0);

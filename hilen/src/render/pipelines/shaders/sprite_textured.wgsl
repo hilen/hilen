@@ -29,10 +29,11 @@ fn v_main(
     model: Vertex,
     instance: TexturedSpriteInstance,
 ) -> VertexOutput {
-    let local = (vec4<f32>(model.pos * instance.size, 0.0, 1.0) * rotation_z_matrix(-instance.rotation)).xy;
-
-    // The image scale stretches the sprite's distance to the camera too.
-    let world = view.camera_pos + (local + instance.position - view.camera_pos) * instance.scale;
+    // The image scale sizes the picture around the sprite position, the
+    // position itself stays where the body is.
+    let size  = instance.size * instance.scale;
+    let local = (vec4<f32>(model.pos * size, 0.0, 1.0) * rotation_z_matrix(-instance.rotation)).xy;
+    let world = local + instance.position;
 
     var uv = model.uv;
     if (instance.flags & 1u) != 0u {

@@ -36,7 +36,10 @@ finger counts as the left button.
 
 `SpriteData` has `flip` for mirrored images and `tint`, multiplied into every texel,
 white by default. `Image::set_filter(ImageFilter::Nearest)` keeps pixel art sharp,
-once per image, for every sprite and view that draws it.
+once per image, for every sprite and view that draws it. `image_scale` draws the
+picture bigger or smaller than the body, around the sprite position. It used to
+scale the distance to the camera too, `Sprite image scale` pins the place with the
+camera away from the sprite.
 
 The image sampler repeats, and under MSAA a pixel that a quad edge only partly covers
 runs its fragment at the pixel center, outside the quad. The uv there is past the

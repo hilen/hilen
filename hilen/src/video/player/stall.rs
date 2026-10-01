@@ -47,8 +47,8 @@ pub(super) struct SoundReads {
     pub(super) seeking: Option<f64>,
     /// The interrupt of the decoder inside the kira sound that plays.
     pub(super) playing: Option<Interrupt>,
-    /// A fresh sound decoder opens on its thread, after a stalled one was
-    /// dropped.
+    /// A fresh sound decoder opens on its thread. The open reads the
+    /// source, on the main thread a slow network would hold the frame loop.
     pub(super) opening: Option<Receiver<Result<Option<AudioDecoder>, String>>>,
 }
 
@@ -114,8 +114,7 @@ impl Player {
         }
     }
 
-    /// Drops the sound whose decoder waits in a read and opens a fresh one
-    /// on a thread of its own, the open talks to the same slow network.
+    /// Drops the sound whose decoder waits in a read and opens a fresh one.
     /// Until it is there the video follows the engine clock.
     fn replace_stalled_sound(&mut self) {
         if let Some(reads) = &self.sound_reads.playing {
@@ -124,6 +123,13 @@ impl Player {
             reads.break_read();
         }
         self.drop_sound();
+        self.open_sound_on_thread();
+    }
+
+    /// Opens a sound decoder for the chosen track and speed on a thread of
+    /// its own, it comes in through `take_opened_sound`. An open that is
+    /// still on its way is left behind, its answer goes nowhere.
+    pub(super) fn open_sound_on_thread(&mut self) {
         self.audio = None;
 
         let (send, receive) = channel();
@@ -161,13 +167,25 @@ impl Player {
             Err(TryRecvError::Disconnected) => Err("the thread that opens it is gone".to_string()),
         };
         self.sound_reads.opening = None;
-        match opened {
-            Ok(audio) => self.audio = audio,
-            Err(err) => {
-                error!("video {}: reopening the sound, {err}", self.source.location());
+        let audio = match opened {
+            Ok(Some(audio)) => audio,
+            Ok(None) => {
+                error!("video {}: no sound track to open", self.source.location());
                 return;
             }
+            Err(err) => {
+                error!("video {}: opening the sound, {err}", self.source.location());
+                return;
+            }
+        };
+        // A sound that still plays is the track from before a switch.
+        if self.sound.is_some() {
+            let position = self.position();
+            self.drop_sound();
+            self.base = position;
+            self.started_ms = Clock::now_ms();
         }
+        self.audio = Some(audio);
         if self.playing && !self.flow.buffering && self.sound.is_none() {
             self.base = self.position();
             self.started_ms = Clock::now_ms();

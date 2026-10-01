@@ -15,6 +15,7 @@ use std::{
 use ffmpeg_next::{
     Error, Packet,
     codec::{context::Context, decoder, subtitle},
+    ffi::{AVSEEK_FLAG_BACKWARD, av_seek_frame},
     format::context::Input,
     media,
 };
@@ -25,9 +26,13 @@ use crate::{
     video::{VideoSource, decoder::first_timestamp, source::Interrupt},
 };
 
-/// Seconds before a seek target the read back starts at. A line on screen
-/// at the target began at most this long before it.
+/// Seconds before a seek target the read back starts at. Lines that
+/// overlap each other at the target began at most this long before it.
 const READ_BACK: f64 = 10.0;
+
+/// Seconds read on from the place a seek on the subtitle stream lands at,
+/// for a line that began more than `READ_BACK` before the target.
+const LINE_READ: f64 = 2.0;
 
 /// How long a stepped test waits for the read back before it goes on.
 const STEPPED_WAIT: Duration = Duration::from_secs(5);
@@ -176,49 +181,110 @@ fn read_file(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Vec<Cue>, E
     Ok(cues)
 }
 
+/// One demuxer for the read back, with what it takes to time its packets.
+struct ReadBack {
+    input:      Input,
+    decoder:    CueDecoder,
+    /// Seconds the first timestamp of the picture sits at.
+    start:      f64,
+    time_bases: Vec<f64>,
+}
+
+impl ReadBack {
+    /// Reads on from where the demuxer stands and keeps the lines that are
+    /// on screen at `target`. Ends `past` seconds after the first packet
+    /// when that is given, and a second past the target at the latest.
+    fn lines_at(&mut self, target: f64, past: Option<f64>, cues: &mut Vec<Cue>) -> Result<(), Error> {
+        let index = self.decoder.stream();
+        let mut until = target + 1.0;
+        let mut first = true;
+        loop {
+            let mut packet = Packet::empty();
+            match packet.read(&mut self.input) {
+                Ok(()) => {}
+                Err(Error::Eof) => return Ok(()),
+                Err(err) => return Err(err),
+            }
+            let at = packet.pts().zip(self.time_bases.get(packet.stream())).map(|(pts, time_base)| {
+                let ticks: f64 = pts.lossy_convert();
+                ticks * time_base - self.start
+            });
+            if let (true, Some(at), Some(past)) = (first, at, past) {
+                until = until.min(at + past);
+                first = false;
+            }
+            // Pictures are stored out of order, so a packet a little past the
+            // target can come before a subtitle packet from before it.
+            if at.is_some_and(|at| at > until) {
+                return Ok(());
+            }
+            if packet.stream() == index
+                && let Some(cue) = self.decoder.decode(&packet, self.start, 0)?
+                && cue.start <= target
+                && target < cue.end
+                && !cues.iter().any(|have| same_line(have, &cue))
+            {
+                cues.push(cue);
+            }
+        }
+    }
+
+    /// Puts the demuxer on the last packet of the subtitle stream at or
+    /// before `target`, however far back that is. A container with an index
+    /// of its subtitle packets, like mkv and mp4, lands right on it.
+    fn seek_to_line(&mut self, target: f64) -> Result<(), Error> {
+        let index = self.decoder.stream();
+        let time_base = self.time_bases.get(index).copied().ok_or(Error::StreamNotFound)?;
+        let ticks: i64 = ((target + self.start) / time_base).lossy_convert();
+        let stream = i32::try_from(index).map_err(|_| Error::StreamNotFound)?;
+        // SAFETY: the context is the open demuxer this struct owns, and the
+        // stream index comes from one of its streams.
+        let code = unsafe { av_seek_frame(self.input.as_mut_ptr(), stream, ticks, AVSEEK_FLAG_BACKWARD) };
+        if code < 0 {
+            return Err(Error::from(code));
+        }
+        Ok(())
+    }
+}
+
 /// The cues of subtitle stream `index` that are on screen at `target`, read
 /// from a demuxer of their own. A seek restarts the picture at the keyframe
 /// before the target, and the packet of a line that began before that
 /// keyframe lies behind it, so the picture thread never sees it.
+///
+/// It reads the `READ_BACK` seconds before the target. When no line is on
+/// screen there, a line may still have begun earlier, so it also looks at
+/// the last packet of the stream before the target.
 fn read_back(
     source: &VideoSource,
     stop: &Arc<AtomicBool>,
     index: usize,
     target: f64,
 ) -> Result<Vec<Cue>, Error> {
-    let mut input = source.open(&Interrupt::new(stop))?;
+    let input = source.open(&Interrupt::new(stop))?;
     let video = input.streams().best(media::Type::Video).ok_or(Error::StreamNotFound)?;
     let start = first_timestamp(&video);
     let time_bases: Vec<f64> = input.streams().map(|stream| stream.time_base().into()).collect();
-    let mut decoder = CueDecoder::open(&input, index)?;
+    let decoder = CueDecoder::open(&input, index)?;
+    let mut reader = ReadBack {
+        input,
+        decoder,
+        start,
+        time_bases,
+    };
 
-    let from = (target - READ_BACK).max(0.0) + start;
-    let micros: i64 = (from * 1_000_000.0).lossy_convert();
-    input.seek(micros, ..micros)?;
+    let from = (target - READ_BACK).max(0.0);
+    let micros: i64 = ((from + start) * 1_000_000.0).lossy_convert();
+    reader.input.seek(micros, ..micros)?;
 
     let mut cues = Vec::new();
-    loop {
-        let mut packet = Packet::empty();
-        match packet.read(&mut input) {
-            Ok(()) => {}
-            Err(Error::Eof) => break,
-            Err(err) => return Err(err),
-        }
-        let at = packet.pts().zip(time_bases.get(packet.stream())).map(|(pts, time_base)| {
-            let ticks: f64 = pts.lossy_convert();
-            ticks * time_base - start
-        });
-        // Pictures are stored out of order, so a packet a little past the
-        // target can come before a subtitle packet from before it.
-        if at.is_some_and(|at| at > target + 1.0) {
-            break;
-        }
-        if packet.stream() == index
-            && let Some(cue) = decoder.decode(&packet, start, 0)?
-            && cue.start <= target
-            && target < cue.end
-        {
-            cues.push(cue);
+    reader.lines_at(target, None, &mut cues)?;
+
+    if cues.is_empty() && from > 0.0 {
+        match reader.seek_to_line(target) {
+            Ok(()) => reader.lines_at(target, Some(LINE_READ), &mut cues)?,
+            // No index of the subtitle packets, the window is all there is.
+            Err(err) => debug!("subtitles {}: no seek on track {index}, {err}", source.location()),
         }
     }
     Ok(cues)
@@ -515,6 +581,24 @@ mod test {
         let cues = read_back(&test_fixture("tracks.mkv"), &stop, 4, 1.2).expect("the fixture reads");
         assert_eq!(cues.len(), 1, "{cues:?}");
         assert!(close(&cues[0], 0.5, 1.5, "erste Zeile"), "{cues:?}");
+    }
+
+    /// `long_line.mkv` has a line from 2 to 26 seconds and one from 27 to
+    /// 28. A seek to 20 is 18 seconds into the long line, further back
+    /// than the read back window, which used to miss it.
+    #[test]
+    fn a_line_that_began_long_before_the_target_is_read_back() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let fixture = test_fixture("long_line.mkv");
+        let cues = read_back(&fixture, &stop, 1, 20.0).expect("the fixture reads");
+        assert_eq!(cues.len(), 1, "{cues:?}");
+        assert!(close(&cues[0], 2.0, 26.0, "a long line"), "{cues:?}");
+
+        let after = read_back(&fixture, &stop, 1, 26.5).expect("the fixture reads");
+        assert_eq!(after, Vec::new(), "the long line is over at 26.5");
+        let short = read_back(&fixture, &stop, 1, 27.5).expect("the fixture reads");
+        assert_eq!(short.len(), 1, "{short:?}");
+        assert!(close(&short[0], 27.0, 28.0, "a short line"), "{short:?}");
     }
 
     /// Between the 2 lines nothing is on screen, and a line that starts

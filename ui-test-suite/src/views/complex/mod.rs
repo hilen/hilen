@@ -4,6 +4,7 @@ mod alert_over_modal;
 mod backdrop_blur;
 mod buttons_on_table;
 mod context_menu;
+mod context_menu_above;
 mod context_menu_badges;
 mod context_menu_below;
 mod context_menu_icons;
