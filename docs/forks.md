@@ -95,13 +95,13 @@ When it merges and a 0.30 release carries it, drop the 2 tvos commits from the f
 ## ffmpeg-next and ffmpeg-sys-next
 
 Branch `hilen` at github.com/VladasZ/rust-ffmpeg and at
-github.com/VladasZ/rust-ffmpeg-sys, each on the upstream v9.0.0 tag with 1 commit on
+github.com/VladasZ/rust-ffmpeg-sys, each on the upstream v9.0.0 tag with 2 commits on
 top, both git dependencies pinned by rev. The `video` feature links them, see
 [video.md](video.md).
 
-- `rust-ffmpeg-sys`: the build script downloads the static archives that
-  `FFMPEG_DIR/prebuilt.txt` names for the target before it links them. Hilen's own
-  convention, fork only. The same commit drops the `QTKit` framework from the macOS
+- `rust-ffmpeg-sys`: with no `FFMPEG_DIR` and a static link, the build script downloads
+  the archive that its own `prebuilt.txt` names for the target into `OUT_DIR`, headers
+  and libraries, and links that. Hilen's own convention, fork only. The first commit drops the `QTKit` framework from the macOS
   link line, the arm64 SDK no longer ships it and every link printed an
   `ld: ignoring file` warning. Upstream candidate, not sent yet.
 - `rust-ffmpeg`: takes `ffmpeg-sys-next` from the sys fork by rev, so the tree holds

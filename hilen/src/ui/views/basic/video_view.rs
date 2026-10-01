@@ -9,7 +9,7 @@ use crate::{
         vents::Event,
     },
     ui::{ImageMode, ImageView, Setup, UIAnimation, ViewCallbacks, ViewData, ViewFrame},
-    video::{Player, PlayerEvent, VideoStats},
+    video::{Player, PlayerEvent, VideoSource, VideoState, VideoStats},
 };
 
 /// Unique per view, so two videos never share a frame texture.
@@ -27,28 +27,46 @@ pub struct VideoView {
     volume:  f32,
 
     keeping_alive: bool,
+    state:         VideoState,
 
     /// Fires once when playback reaches the end and the video does not loop.
     pub on_finish: Event<()>,
     /// Fires when the source cannot be opened or decoded, with the reason.
     pub on_error:  Event<String>,
+    /// Fires every time `state` changes, with the new state.
+    pub on_state:  Event<VideoState>,
 
     #[init]
     image_view: ImageView,
 }
 
 impl VideoView {
-    /// Opens a file path or an http url and shows its first frame. Replaces
-    /// whatever was playing.
-    pub fn set_source(&self, source: impl AsRef<str>) -> &Self {
+    /// Opens a file path or an http or https url and shows its first frame.
+    /// Replaces whatever was playing. A `VideoSource` carries request headers
+    /// for a stream behind a login.
+    pub fn set_source(&self, source: impl Into<VideoSource>) -> &Self {
         let mut this = weak_from_ref(self);
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let mut player = Player::open(source.as_ref(), format!("video-{id}"));
+        let mut player = Player::open(source.into(), format!("video-{id}"));
         player.set_volume(this.volume);
         player.set_loop(this.looping);
         this.player = Some(player);
         this.keep_frames_coming();
+        this.report_state();
         self
+    }
+
+    /// Loading, playing, buffering and the rest, see `VideoState`.
+    pub fn state(&self) -> VideoState {
+        self.player.as_ref().map_or(VideoState::Empty, Player::state)
+    }
+
+    fn report_state(mut self: Weak<Self>) {
+        let state = self.state();
+        if state != self.state {
+            self.state = state;
+            self.on_state.trigger(state);
+        }
     }
 
     pub fn play(&self) -> &Self {
@@ -57,13 +75,16 @@ impl VideoView {
             player.play();
         }
         this.keep_frames_coming();
+        this.report_state();
         self
     }
 
     pub fn pause(&self) -> &Self {
-        if let Some(player) = weak_from_ref(self).player.as_mut() {
+        let mut this = weak_from_ref(self);
+        if let Some(player) = this.player.as_mut() {
             player.pause();
         }
+        this.report_state();
         self
     }
 
@@ -82,6 +103,7 @@ impl VideoView {
             player.seek_to(seconds);
         }
         this.keep_frames_coming();
+        this.report_state();
         self
     }
 
@@ -166,6 +188,7 @@ impl ViewCallbacks for VideoView {
         if let Some(image) = image {
             self.image_view.set_image(image);
         }
+        self.weak().report_state();
         for event in events {
             match event {
                 PlayerEvent::Finished => self.on_finish.trigger(()),

@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel, sync_channel},
     },
     time::Duration,
@@ -28,6 +28,7 @@ use crate::{
     deps::refs::Weak,
     gm::{Clock, flat::Size},
     video::{
+        VideoSource,
         audio::AudioDecoder,
         count_to_f64,
         decoder::{self, Command, MediaInfo, Message, VideoFrame},
@@ -57,6 +58,26 @@ pub struct VideoStats {
     pub frame_rate:           f64,
 }
 
+/// Where a video stands, read with `VideoView::state` and reported through
+/// `VideoView::on_state`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum VideoState {
+    /// No source is set.
+    #[default]
+    Empty,
+    /// The source is opening, no frame has reached the screen yet.
+    Loading,
+    Paused,
+    Playing,
+    /// Playing, but the stream has not delivered the next frame. The clock
+    /// and the sound are held until it does.
+    Buffering,
+    /// Playback reached the end.
+    Finished,
+    /// The source could not be opened or decoded, `on_error` has the reason.
+    Failed,
+}
+
 pub(crate) enum PlayerEvent {
     Finished,
     Error(String),
@@ -64,6 +85,10 @@ pub(crate) enum PlayerEvent {
 
 /// How long a stepped test waits for the decoder before giving up on a frame.
 const STEPPED_WAIT: Duration = Duration::from_secs(5);
+
+/// Seconds the next frame may be late before playback holds for it. A slow
+/// frame or 2 drop as before, a stalled stream holds the clock.
+const STALL: f64 = 0.25;
 
 /// What reached the screen, for `VideoStats`.
 struct Counters {
@@ -97,6 +122,17 @@ struct Queue {
     shown:        bool,
 }
 
+/// How playback moves along the stream.
+#[derive(Default)]
+struct Flow {
+    /// Seconds the next frame is expected at.
+    due:       f64,
+    /// Playing, but held until the stream delivers frames again.
+    buffering: bool,
+    /// Playback reached the end and nothing moved it since.
+    finished:  bool,
+}
+
 struct Info {
     duration:   f64,
     frame_rate: f64,
@@ -104,7 +140,7 @@ struct Info {
 }
 
 pub(crate) struct Player {
-    source:     String,
+    source:     VideoSource,
     key:        String,
     commands:   Sender<Command>,
     messages:   Receiver<Message>,
@@ -117,6 +153,7 @@ pub(crate) struct Player {
     pending:    VecDeque<VideoFrame>,
     generation: u32,
     queue:      Queue,
+    flow:       Flow,
     failed:     bool,
     playing:    bool,
     looping:    bool,
@@ -128,22 +165,26 @@ pub(crate) struct Player {
     volume:     f32,
     decoded:    Arc<AtomicU64>,
     counters:   Counters,
+    /// Set when the player drops, it breaks a read that waits on the network.
+    stop:       Arc<AtomicBool>,
 }
 
 impl Player {
-    pub(crate) fn open(source: &str, key: String) -> Self {
+    pub(crate) fn open(source: VideoSource, key: String) -> Self {
         let (commands, command_receiver) = channel();
         let (message_sender, messages) = sync_channel(decoder::QUEUE);
         let decoded = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
         decoder::spawn(
-            source.to_string(),
+            source.clone(),
             command_receiver,
             message_sender,
             Arc::clone(&decoded),
+            Arc::clone(&stop),
         );
 
         Self {
-            source: source.to_string(),
+            source,
             key,
             commands,
             messages,
@@ -155,6 +196,7 @@ impl Player {
             pending: VecDeque::new(),
             generation: 0,
             queue: Queue::default(),
+            flow: Flow::default(),
             failed: false,
             playing: false,
             looping: false,
@@ -163,6 +205,7 @@ impl Player {
             volume: 1.0,
             decoded,
             counters: Counters::default(),
+            stop,
         }
     }
 
@@ -172,6 +215,22 @@ impl Player {
 
     pub(crate) fn is_playing(&self) -> bool {
         self.playing
+    }
+
+    pub(crate) fn state(&self) -> VideoState {
+        if self.failed {
+            VideoState::Failed
+        } else if !self.queue.shown {
+            VideoState::Loading
+        } else if self.flow.buffering {
+            VideoState::Buffering
+        } else if self.playing {
+            VideoState::Playing
+        } else if self.flow.finished {
+            VideoState::Finished
+        } else {
+            VideoState::Paused
+        }
     }
 
     pub(crate) fn duration(&self) -> f64 {
@@ -195,7 +254,7 @@ impl Player {
         if let Some(seconds) = self.sound_position() {
             return seconds;
         }
-        if self.playing {
+        if self.playing && !self.flow.buffering {
             self.base + (Clock::now_ms() - self.started_ms) / 1000.0
         } else {
             self.base
@@ -210,6 +269,7 @@ impl Player {
             self.seek_to(0.0);
         }
         self.playing = true;
+        self.flow.finished = false;
         self.started_ms = Clock::now_ms();
         self.start_sound();
     }
@@ -220,6 +280,7 @@ impl Player {
         }
         self.base = self.position();
         self.playing = false;
+        self.flow.buffering = false;
         if let Some(sound) = &mut self.sound {
             sound.pause(Tween::default());
         }
@@ -235,6 +296,8 @@ impl Player {
         self.generation += 1;
         self.pending.clear();
         self.queue.eof = false;
+        self.flow.finished = false;
+        self.flow.due = seconds;
         self.base = seconds;
         self.started_ms = Clock::now_ms();
         self.queue.seek_pending = true;
@@ -246,7 +309,7 @@ impl Player {
             })
             .is_err()
         {
-            error!("video {}: the decoder is gone", self.source);
+            error!("video {}: the decoder is gone", self.source.location());
         }
         if self.sound_position().is_some() {
             if let Some(sound) = &mut self.sound {
@@ -300,6 +363,7 @@ impl Player {
         if Clock::is_stepped() {
             self.wait_stepped(&mut events);
         }
+        self.hold_for_frames();
         let image = self.present();
         self.finish(&mut events);
         (image, events)
@@ -369,10 +433,45 @@ impl Player {
         }
     }
 
+    /// Holds the clock and the sound while the stream has no frame for the
+    /// picture, and lets them go once the queue is full again. Real time
+    /// only, a stepped test waits for the decoder instead.
+    fn hold_for_frames(&mut self) {
+        if !self.playing || self.failed {
+            return;
+        }
+        let ready = self.pending.len() >= decoder::QUEUE || self.queue.eof;
+        if self.flow.buffering {
+            if ready || Clock::is_stepped() {
+                self.flow.buffering = false;
+                self.started_ms = Clock::now_ms();
+                self.start_sound();
+            }
+            return;
+        }
+        if Clock::is_stepped() || ready || !self.pending.is_empty() {
+            return;
+        }
+        // Before the first frame there is nothing to be late against, the
+        // clock waits for the source to open.
+        if self.queue.shown && self.position() <= self.flow.due + STALL {
+            return;
+        }
+        self.base = self.position();
+        self.flow.buffering = true;
+        if let Some(sound) = &mut self.sound {
+            sound.pause(Tween::default());
+        }
+    }
+
     fn present(&mut self) -> Option<Weak<Image>> {
+        if self.flow.buffering {
+            return None;
+        }
         let front = self.pending.front()?.pts;
         let now = self.position();
-        let slack = self.info.as_ref().map_or(0.0, |info| 0.5 / info.frame_rate);
+        let interval = self.info.as_ref().map_or(0.0, |info| 1.0 / info.frame_rate);
+        let slack = interval / 2.0;
         let show = if self.playing {
             front <= now + slack
         } else {
@@ -400,6 +499,7 @@ impl Player {
         self.counters.presented += 1;
         self.queue.shown = true;
         self.queue.seek_pending = false;
+        self.flow.due = frame.pts + interval;
         Some(target.image())
     }
 
@@ -417,6 +517,7 @@ impl Player {
         }
         self.base = self.duration();
         self.playing = false;
+        self.flow.finished = true;
         if let Some(sound) = &mut self.sound {
             sound.pause(Tween::default());
         }
@@ -436,7 +537,7 @@ impl Player {
         };
 
         let Some(mut manager) = audio_manager() else {
-            error!("video {}: no sound, no audio output", self.source);
+            error!("video {}: no sound, no audio output", self.source.location());
             return;
         };
         let track = manager.add_sub_track(TrackBuilder::new().volume(Decibels(decibels(self.volume))));
@@ -444,7 +545,7 @@ impl Player {
         let mut track = match track {
             Ok(track) => track,
             Err(err) => {
-                error!("video {}: no sound track, {err}", self.source);
+                error!("video {}: no sound track, {err}", self.source.location());
                 return;
             }
         };
@@ -456,7 +557,7 @@ impl Player {
         }
         match track.play(data) {
             Ok(sound) => self.sound = Some(sound),
-            Err(err) => error!("video {}: no sound, {err:?}", self.source),
+            Err(err) => error!("video {}: no sound, {err:?}", self.source.location()),
         }
         self.track = Some(track);
     }
@@ -469,10 +570,10 @@ impl Player {
         }
         self.sound = None;
         if self.audio.is_none() {
-            self.audio = match AudioDecoder::open(&self.source) {
+            self.audio = match AudioDecoder::open(&self.source, &self.stop) {
                 Ok(audio) => audio,
                 Err(err) => {
-                    error!("video {}: reopening the sound, {err}", self.source);
+                    error!("video {}: reopening the sound, {err}", self.source.location());
                     None
                 }
             };
@@ -482,6 +583,7 @@ impl Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
         if let Some(sound) = &mut self.sound {
             sound.stop(Tween::default());
         }

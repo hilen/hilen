@@ -22,7 +22,7 @@ const FRAMES: u32 = 360;
 /// walls instead of settling where they land. Every ball is pushed at
 /// speed 3, turned 0.7 radians on from the one before. Written out,
 /// since `cos` and `sin` differ in the last bit between an arm64 Mac,
-/// the x86_64 simulator and wasm, and 24 colliding balls turn that bit
+/// the `x86_64` simulator and wasm, and 24 colliding balls turn that bit
 /// into another rest.
 const PUSHES: [(f32, f32); BALLS] = [
     (3.0, 0.0),

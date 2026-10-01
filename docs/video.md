@@ -1,6 +1,6 @@
 # Video playback
 
-`VideoView` plays a file or an http url, behind the `video` cargo feature. Desktop
+`VideoView` plays a file or an http or https url, behind the `video` cargo feature. Desktop
 only for now and proven on macOS, the other lanes are in [roadmap.md](roadmap.md).
 `demo` and `ui-test` turn it on through a macOS target table, so the iOS, Android
 and wasm builds carry none of it, and the feature fails to compile with a clear
@@ -35,32 +35,47 @@ message anywhere but desktop.
   count as dropped. A seek bumps a generation, frames from before it are
   dropped as they arrive, and decoding restarts at the keyframe before the
   target with the frames up to it decoded and skipped.
+- A stream that stalls holds playback. When the next frame is 0.25 seconds
+  late, the queue is empty and the stream has not ended, the clock and the
+  sound are held and the state is `Buffering`. Both go on once the queue is
+  full again or the stream ends. A play before the source opened waits the
+  same way, so the clock never runs ahead of the first frame. Stepped time
+  never holds, a stepped test waits for the decoder instead.
+- Each demuxer opens with an interrupt callback over a stop flag the player
+  sets when it drops, so a read that waits on the network does not keep its
+  thread after the view is gone.
 - Render on demand keeps the loop awake through an empty animation while a
   video plays, the way `AnimatedImage` does, so a paused video costs nothing.
 
 ## The API
 
-`set_source(path or url)`, `play`, `pause`, `is_playing`, `is_loaded`,
+`set_source(path, url or VideoSource)`, `play`, `pause`, `is_playing`, `is_loaded`,
 `seek_to(seconds)`, `duration`, `position`, `set_volume(0..1)`, `set_loop`,
-`set_mode(ImageMode)`, `stats() -> VideoStats` and the events `on_finish` and
-`on_error`. A broken file reports through `on_error` and the log, never a
+`set_mode(ImageMode)`, `stats() -> VideoStats`, `state() -> VideoState` and the
+events `on_finish`, `on_error` and `on_state`. `VideoState` is `Empty`,
+`Loading`, `Paused`, `Playing`, `Buffering`, `Finished` or `Failed`, and
+`on_state` fires on every change. `is_playing` stays true while buffering.
+A `VideoSource` carries request headers for an http or https source,
+`VideoSource::new(url).header("Authorization", token)`, so a session token
+stays out of the url. The picture and the sound demuxer both send them. The
+headers never reach a log line. A broken file reports through `on_error` and the log, never a
 panic. The demo has a Video page with a file picker, a path field, a progress
 slider and the stats line.
 
 ## The prebuilt ffmpeg
 
 The bindings are `ffmpeg-next` with its `static` feature, from the hilen forks of
-`rust-ffmpeg` and `rust-ffmpeg-sys`, see [forks.md](forks.md). They link static
-archives from `FFMPEG_DIR`, which `.cargo/config.toml` points at `hilen/ffmpeg`.
-The headers under `hilen/ffmpeg/include` are in git, bindgen needs them. The
-libraries under `hilen/ffmpeg/lib` are not: the build script of the forked
-`ffmpeg-sys-next` downloads the archive for the target named in
-`hilen/ffmpeg/prebuilt.txt`, a release asset of github.com/hilen/build, checks
-its sha256 and unpacks it once. The fetch lives in that build script and not in
-`hilen/build.rs`, because cargo orders nothing between a consumer's build script
-and the bindings crate, which needs the archives the moment it compiles. A fresh
-checkout lost that race every time. A download that fails fails the build script
-with the reason.
+`rust-ffmpeg` and `rust-ffmpeg-sys`, see [forks.md](forks.md). Nothing of ffmpeg
+lives in this repo. The build script of the forked `ffmpeg-sys-next` reads the
+`prebuilt.txt` next to it, downloads the archive for the target, a release asset
+of github.com/hilen/build with the headers and the libraries, checks its sha256
+and unpacks it once into its `OUT_DIR`. So an app outside this repo turns
+`video` on and builds with no setup and no engine checkout. The fetch lives in
+that build script because cargo orders nothing between a consumer's build script
+and the bindings crate, which needs the archive the moment it compiles. A
+download that fails fails the build script with the reason. `FFMPEG_DIR`, when
+set, wins and is used as it is, that is how a fresh archive is tried before it
+is published, `FFMPEG_DIR=$PWD/target/ffmpeg-dist`.
 
 To build a new archive, on the host it is for:
 
@@ -69,13 +84,13 @@ rust build/ffmpeg.rs                      # clones FFmpeg, configures, builds, d
 gh release create ffmpeg-<v>-<n> -R hilen/build dist/ffmpeg-*.tar.gz dist/ffmpeg-*.sha256
 ```
 
-then add or update the line in `prebuilt.txt`. The script passes the flags the
-`build` feature of `ffmpeg-sys-next` would, minus debug info, with the
-platform's hardware decoder on and avdevice and avfilter off, so a downloaded
-archive links the same way a source build did. Only `aarch64-apple-darwin`
-exists so far. An app outside this repo needs its own `[env] FFMPEG_DIR` in
-its `.cargo/config.toml` pointing at the engine checkout, that wiring is on
-the roadmap.
+then update the line in `prebuilt.txt` of the sys fork, push it, pin its rev in
+the `rust-ffmpeg` fork, push that, and pin its rev in the root `Cargo.toml`.
+The script passes the flags the `build` feature of `ffmpeg-sys-next` would,
+minus debug info, with the platform's hardware decoder on and avdevice and
+avfilter off. Autodetect is off, so TLS is named too, SecureTransport on macOS,
+without it the archive has no https protocol. Only `aarch64-apple-darwin`
+exists so far.
 
 ## Measured
 
@@ -94,7 +109,14 @@ demo's stats line after 14 seconds of playback:
 
 The drops are the first frames after the file opens.
 
-## The test
+## The tests
+
+`Video stream` in `ui-test-suite/src/views/video` plays `stream.mp4`, 6 seconds
+of the ffmpeg `testsrc2` pattern, from a local http server inside the test that
+holds the file back from the frame at 3 seconds. In real time it pins the token
+header on every request, the state order loading, paused, playing, buffering,
+playing, finished, and the position held while buffering. The unit test
+`https_protocol_is_linked` fails when the archive has no TLS.
 
 `Video playback` in `ui-test-suite/src/views/video` plays `colors.mp4`, four
 solid frames at one per second, every frame a keyframe, no sound. Under

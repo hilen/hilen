@@ -6,7 +6,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{Receiver, RecvError, SyncSender, TryRecvError},
     },
     thread::Builder,
@@ -14,7 +14,7 @@ use std::{
 
 use ffmpeg_next::{
     Error, Packet, codec, color, decoder,
-    format::{self, Pixel, context::Input},
+    format::{Pixel, context::Input},
     frame, media,
     software::scaling,
     threading,
@@ -24,7 +24,7 @@ use log::warn;
 
 use crate::{
     gm::LossyConvert,
-    video::{audio::AudioDecoder, count_to_f64, hw},
+    video::{VideoSource, audio::AudioDecoder, count_to_f64, hw},
 };
 
 /// Frames decoded ahead of the picture. Small on purpose, a 4K frame is 12 MB.
@@ -70,19 +70,20 @@ pub(crate) enum Command {
 }
 
 pub(crate) fn spawn(
-    source: String,
+    source: VideoSource,
     commands: Receiver<Command>,
     messages: SyncSender<Message>,
     decoded: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
 ) {
     Builder::new()
         .name("hilen-video".into())
         .spawn(move || {
-            if let Err(err) = run(&source, &commands, &messages, &decoded)
+            if let Err(err) = run(&source, &commands, &messages, &decoded, &stop)
                 && messages.send(Message::Error(err.to_string())).is_err()
             {
                 // The player is gone, nobody is left to show the error.
-                warn!("video {source}: {err}");
+                warn!("video {}: {err}", source.location());
             }
         })
         .expect("failed to spawn the video decode thread");
@@ -105,10 +106,8 @@ struct Decoding {
 }
 
 /// Opens the source and its decoders, and describes the stream.
-fn open(source: &str) -> Result<(Decoding, MediaInfo), Error> {
-    crate::video::init();
-
-    let input = format::input(source)?;
+fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, MediaInfo), Error> {
+    let input = source.open(stop)?;
     let stream = input.streams().best(media::Type::Video).ok_or(Error::StreamNotFound)?;
     let index = stream.index();
     let time_base: f64 = stream.time_base().into();
@@ -143,10 +142,10 @@ fn open(source: &str) -> Result<(Decoding, MediaInfo), Error> {
     let decoder = context.decoder().video()?;
     let name = decoder.codec().map(|codec| codec.name().to_string()).unwrap_or_default();
 
-    let audio = match AudioDecoder::open(source) {
+    let audio = match AudioDecoder::open(source, stop) {
         Ok(audio) => audio,
         Err(err) => {
-            warn!("video {source}: no sound, {err}");
+            warn!("video {}: no sound, {err}", source.location());
             None
         }
     };
@@ -175,12 +174,13 @@ fn open(source: &str) -> Result<(Decoding, MediaInfo), Error> {
 }
 
 fn run(
-    source: &str,
+    source: &VideoSource,
     commands: &Receiver<Command>,
     messages: &SyncSender<Message>,
     counter: &AtomicU64,
+    stop: &Arc<AtomicBool>,
 ) -> Result<(), Error> {
-    let (mut decoding, info) = open(source)?;
+    let (mut decoding, info) = open(source, stop)?;
     if messages.send(Message::Info(info)).is_err() {
         return Ok(());
     }

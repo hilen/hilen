@@ -3,18 +3,24 @@
 //! thread pulls pictures, and kira's playback position is the clock the
 //! picture follows.
 
-use std::mem::take;
+use std::{
+    mem::take,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use ffmpeg_next::{
     ChannelLayout, Error, Packet, codec, decoder,
-    format::{self, Sample, context::Input, sample::Type},
+    format::{Sample, context::Input, sample::Type},
     frame, media,
     software::resampling,
     util::error::EAGAIN,
 };
 use kira::{Frame, sound::streaming::Decoder};
 
-use crate::{gm::LossyConvert, video::count_to_f64};
+use crate::{
+    gm::LossyConvert,
+    video::{VideoSource, count_to_f64},
+};
 
 /// Frames of silence handed out past the end. kira walks chunk by chunk to
 /// the sample it wants, an empty chunk would leave it walking forever.
@@ -35,10 +41,8 @@ pub(crate) struct AudioDecoder {
 
 impl AudioDecoder {
     /// None when the source has no sound track.
-    pub(crate) fn open(source: &str) -> Result<Option<Self>, Error> {
-        crate::video::init();
-
-        let input = format::input(source)?;
+    pub(crate) fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Option<Self>, Error> {
+        let input = source.open(stop)?;
         let Some(stream) = input.streams().best(media::Type::Audio) else {
             return Ok(None);
         };

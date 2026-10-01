@@ -1970,7 +1970,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=461267f1bcb20cbfaac2013678fd0e4e3097c069#461267f1bcb20cbfaac2013678fd0e4e3097c069"
+source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=da1aa231feb55269173b86ef2a24ced3545f6ea0#da1aa231feb55269173b86ef2a24ced3545f6ea0"
 dependencies = [
  "bitflags 2.13.0",
  "ffmpeg-sys-next",
@@ -1980,7 +1980,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=277ff4bbfe70ed2d470cc6c020277cc1c5e7cb87#277ff4bbfe70ed2d470cc6c020277cc1c5e7cb87"
+source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=e0209d6ec10740ff41285a4760104ba733bf8e38#e0209d6ec10740ff41285a4760104ba733bf8e38"
 dependencies = [
  "bindgen",
  "cc",

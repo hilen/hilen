@@ -119,8 +119,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
 - [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
-  how to build one, and what was measured. Read before touching `hilen/src/video`, the
-  archive script or `hilen/ffmpeg`.
+  how to build one, request headers, the buffering state, and what was measured. Read
+  before touching `hilen/src/video` or the archive script.
 - [docs/login.md](docs/login.md) — the Google login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before

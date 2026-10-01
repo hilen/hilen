@@ -19,11 +19,15 @@ original is the acceptance bar. Their ports drove the gaps below.
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
-Its first version is macOS only. These entries are the top priority, in the
-order below. The first 10 block the first version, the rest block the full
-product.
+Its first version is macOS only. These entries are the top priority. They are
+split into batches, each sized for 1 work session, in the order to do them.
+Batches 1 to 4 block the first version, batches 5 to 8 block the full product.
 
-### Text subtitles in VideoView
+### Batch 1, tracks in VideoView
+
+Both need the list of streams of a source and a way to pick one, in `hilen/src/video`.
+
+#### Text subtitles in VideoView
 
 - Current: the decode loop drops every packet that is not the video stream,
   `packet.stream() != decoding.stream` in `hilen/src/video/decoder.rs`. The
@@ -37,7 +41,7 @@ product.
   like PGS come later on the same track list.
 - Blocks: any film watched with subtitles.
 
-### Audio track choice in VideoView
+#### Audio track choice in VideoView
 
 - Current: the sound always opens `input.streams().best(media::Type::Audio)`,
   `hilen/src/video/audio.rs`. There is no track list and no way to switch.
@@ -45,7 +49,11 @@ product.
   count, and a call to switch that keeps the position.
 - Blocks: a film with more than 1 language.
 
-### HDR and 10 bit video
+### Batch 2, HDR
+
+Alone, it is shader work in `nv12.wgsl` plus a measured run.
+
+#### HDR and 10 bit video
 
 - Current: a 10 bit frame comes back as P010 and goes through swscale to 8 bit
   NV12 with no tone mapping, `Decoding::scale` in `decoder.rs`. `nv12.wgsl`
@@ -56,58 +64,36 @@ product.
   10 bit file at full rate.
 - Blocks: correct colors for every HDR film. They play washed out today.
 
-### Video over https and with request headers
+### Batch 3, window and system calls
 
-- Current: the prebuilt archive is configured with `--disable-autodetect` in
-  `build/ffmpeg.rs`, so it has the `http` protocol and no `tls` or `https`
-  one. `set_source` takes a path or url only, no ffmpeg options reach
-  `format::input`, so a request carries no header.
-- Needed: TLS in the archive, SecureTransport on macOS, and a source that
-  takes request headers, so a session token does not go into the url.
-- Blocks: a stream from a server behind https, and a stream behind a login.
+3 small platform calls a player needs, none touches the video code.
 
-### The video feature in an app outside this repo
-
-- Current: `FFMPEG_DIR` comes from this repo's `.cargo/config.toml`, an app
-  elsewhere must point its own at the engine checkout, see
-  [video.md](video.md). Already named in the video lanes entry below.
-- Needed: an app that turns `video` on builds with no extra setup, on a
-  machine with no engine checkout.
-- Blocks: the first build of any video app that is not `demo`.
-
-### Buffering state in VideoView
-
-- Current: the events are `on_finish` and `on_error`. Real time never waits
-  for the decoder, so a stalled network read shows a frozen picture while the
-  clock runs on.
-- Needed: a state the app can read and an event for it, loading, playing,
-  buffering, and the clock held while the queue is empty and the stream has
-  not ended.
-- Blocks: a spinner over a stalled stream, and sound that stays in step after
-  a stall.
-
-### Fullscreen window
+#### Fullscreen window
 
 - Current: `Window` has no fullscreen call, only the system button on the
   title bar.
 - Needed: enter, leave and read fullscreen, with an event when it changes.
 - Blocks: a player's fullscreen key and button.
 
-### Hide the mouse pointer
+#### Hide the mouse pointer
 
 - Current: `set_cursor_visible` is called only from `Cursor::capture`, which
   also locks the pointer, `hilen/src/ui/input/cursor.rs`.
 - Needed: hide and show the pointer with no capture.
 - Blocks: a player that hides the pointer after a few still seconds.
 
-### Screen awake on desktop
+#### Screen awake on desktop
 
 - Current: `ScreenAwake` keeps the display on for mobile only, its doc says
   other targets keep their normal policy, `hilen/src/system/screen_awake.rs`.
 - Needed: the same guard on macOS, Windows and Linux.
 - Blocks: a film longer than the display sleep time.
 
-### SQLite in hilen-server
+### Batch 4, the backend
+
+Alone, it is the only entry in `hilen-server`.
+
+#### SQLite in hilen-server
 
 - Current: `build_db` returns a `PgPool` and sqlx has the `postgres` feature
   only. `Config::from_env` fails with no `DATABASE_URL` and no `REDIS_URL`.
@@ -116,7 +102,38 @@ product.
   and the Google login tables and queries on SQLite too.
 - Blocks: a backend that ships as 1 binary with 1 data file and no Docker.
 
-### Image downloads with headers, a memory bound and a disk cache
+### Batch 5, views for the player screen
+
+3 view features in `hilen/src/ui`, each with its own UI test.
+
+#### View opacity
+
+- Current: a view has a color with alpha, there is no setter that fades a
+  view together with its subviews.
+- Needed: an opacity per view that covers its whole subtree, usable in a
+  `UIAnimation`.
+- Blocks: player controls that fade in and out.
+
+#### Text outline and shadow
+
+- Current: `set_shadow` draws under the view's shape, a `Label` has no
+  outline and no shadow on its glyphs.
+- Needed: an outline or a soft shadow on label text.
+- Blocks: subtitles that stay readable over a bright picture.
+
+#### Multiline label with an ellipsis
+
+- Current: `set_ellipsize` works on a single line label, its doc says
+  multiline labels wrap and ignore it, `hilen/src/ui/views/basic/label.rs`.
+- Needed: a line limit on a multiline label with the ellipsis on the last
+  line.
+- Blocks: a description cut to 3 lines.
+
+### Batch 6, image downloads
+
+Alone, it reworks the image store.
+
+#### Image downloads with headers, a memory bound and a disk cache
 
 - Current: `Image::download` takes a name and a url, sends no header, keeps
   nothing on disk, and the image stays in the store until `free` is called
@@ -125,43 +142,28 @@ product.
   does not fetch again, and a bound on the memory the downloaded images hold.
 - Blocks: a grid of thousands of posters from a server behind a login.
 
-### Multiline label with an ellipsis
+### Batch 7, playback controls
 
-- Current: `set_ellipsize` works on a single line label, its doc says
-  multiline labels wrap and ignore it, `hilen/src/ui/views/basic/label.rs`.
-- Needed: a line limit on a multiline label with the ellipsis on the last
-  line.
-- Blocks: a description cut to 3 lines.
+Both sit on the sound clock and the play state.
 
-### View opacity
-
-- Current: a view has a color with alpha, there is no setter that fades a
-  view together with its subviews.
-- Needed: an opacity per view that covers its whole subtree, usable in a
-  `UIAnimation`.
-- Blocks: player controls that fade in and out.
-
-### Text outline and shadow
-
-- Current: `set_shadow` draws under the view's shape, a `Label` has no
-  outline and no shadow on its glyphs.
-- Needed: an outline or a soft shadow on label text.
-- Blocks: subtitles that stay readable over a bright picture.
-
-### Playback speed in VideoView
+#### Playback speed in VideoView
 
 - Current: no API, the clock is the sound position at its own rate.
 - Needed: a rate for picture and sound, with the pitch kept.
 - Blocks: watching at 1.5 times.
 
-### Media keys and Now Playing
+#### Media keys and Now Playing
 
 - Current: nothing in the engine reads the play, pause and next keys or
   reports to the system's Now Playing panel.
 - Needed: both, on macOS first.
 - Blocks: the keyboard media keys and the control center panel.
 
-### More in the ffmpeg archive
+### Batch 8, more in the archive
+
+Alone, it is another archive rebuild plus the sound channel layout.
+
+#### More in the ffmpeg archive
 
 - Current: no zlib and no software AV1 decoder, AV1 decodes only where
   VideoToolbox has it. Sound is always resampled to stereo.
@@ -283,8 +285,9 @@ sound. The rest of the platforms and the packaging are open.
 - Needed: an archive per desktop triple from `build/ffmpeg.rs`, Linux needs
   `libva-dev` and `nasm` in `build/setup.sh` and in the docker containers of
   the Linux CI job, Windows needs the ffmpeg configure under an MSYS2 shell,
-  then the target tables widen to `desktop`. Apps outside this repo need an
-  `[env] FFMPEG_DIR` recipe pointing at the engine checkout.
+  then the target tables widen to `desktop`. Each archive needs its TLS named
+  in the script, only SecureTransport on macOS is there, so https on Linux
+  and Windows is open with them.
   iOS and Android need archives cross built per target with VideoToolbox and
   MediaCodec, and the feature unlocked there. The browser cannot link
   ffmpeg, it hands the stream to an HTML5 video element and imports each
@@ -299,6 +302,10 @@ sound. The rest of the platforms and the packaging are open.
 
 Small remainders not worth their own entry.
 
+- A seek on a video whose network read is stalled waits for that read. The
+  decode thread takes commands only between packets. The interrupt callback
+  breaks a read only when the player drops, a seek would have to break it too
+  and reopen the connection at the target.
 - Tab focus traversal does not scroll. Tab selects the next text field even when
   it sits scrolled out of view inside a `ScrollView`, so the editing session
   starts off screen. Needs a scroll-to-view step in `select_next_field`, the way

@@ -8,12 +8,14 @@ mod decoder;
 mod hw;
 mod nv12;
 mod player;
+mod source;
 
 use std::sync::Once;
 
 use log::error;
-pub use player::VideoStats;
 pub(crate) use player::{Player, PlayerEvent};
+pub use player::{VideoState, VideoStats};
+pub use source::VideoSource;
 
 use crate::gm::LossyConvert;
 
