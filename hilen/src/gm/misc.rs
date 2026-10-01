@@ -37,12 +37,13 @@ impl<T, I: IntoIterator<Item = T>, Ret> Apply<T, Ret> for I {
 }
 
 pub trait Toggle {
-    fn toggle(&mut self) -> bool;
+    fn flip(&mut self) -> bool;
 }
 
 impl Toggle for bool {
-    /// Returns old value
-    fn toggle(&mut self) -> bool {
+    /// Returns old value. Not named `toggle`, Rust has its own
+    /// `bool::toggle` that returns nothing and wins over a trait method.
+    fn flip(&mut self) -> bool {
         *self = !*self;
         !*self
     }
@@ -93,10 +94,10 @@ mod test {
     }
 
     #[test]
-    fn toggle() {
+    fn flip_returns_the_old_value() {
         for mut val in [false, true] {
             let prev = val;
-            assert_eq!(val.toggle(), prev);
+            assert_eq!(val.flip(), prev);
             assert_eq!(val, !prev);
         }
     }

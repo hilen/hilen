@@ -412,7 +412,7 @@ impl ViewTest for ContextMenuTest {
         inject_touches("150 116 b\n150 116 e");
         from_main(move || {
             assert!(ContextMenu::open().is_ok());
-            assert!(view.picked.is_empty());
+            assert_eq!(view.picked.len(), 0);
         });
 
         // A tap outside closes it and does not reach the view below.

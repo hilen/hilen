@@ -183,7 +183,7 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
     context.set_threading(threads);
     hw::attach(&mut context);
     let decoder = context.decoder().video()?;
-    let name = decoder.codec().map(|codec| codec.name().to_string()).unwrap_or_default();
+    let name = decoder.codec().map_or_default(|codec| codec.name().to_string());
 
     let tracks = Tracks {
         audio:     audio_tracks(&input),

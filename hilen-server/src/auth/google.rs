@@ -23,7 +23,7 @@ pub(crate) struct GoogleIdentity {
 pub(crate) fn auth_url(config: &AuthConfig, state: &str) -> Result<String> {
     let url = Url::parse_with_params(
         &config.google_auth_url,
-        &[
+        [
             ("client_id", config.google_client_id.as_str()),
             ("redirect_uri", &config.redirect_uri()),
             ("response_type", "code"),
@@ -44,7 +44,7 @@ pub(crate) async fn exchange(http: &Client, config: &AuthConfig, code: &str) -> 
     // body wants, and it saves the `form` feature of reqwest.
     let form = Url::parse_with_params(
         "http://form.invalid/",
-        &[
+        [
             ("code", code),
             ("client_id", &config.google_client_id),
             ("client_secret", &config.google_client_secret),

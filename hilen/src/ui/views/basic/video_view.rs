@@ -164,10 +164,7 @@ impl VideoView {
 
     /// The sound tracks of the source, empty until it is loaded.
     pub fn audio_tracks(&self) -> Vec<AudioTrack> {
-        self.player
-            .as_ref()
-            .map(|player| player.audio_tracks().to_vec())
-            .unwrap_or_default()
+        self.player.as_ref().map_or_default(|player| player.audio_tracks().to_vec())
     }
 
     /// The `index` of the sound track that plays.
@@ -186,10 +183,7 @@ impl VideoView {
 
     /// The subtitle tracks of the source, empty until it is loaded.
     pub fn subtitle_tracks(&self) -> Vec<SubtitleTrack> {
-        self.player
-            .as_ref()
-            .map(|player| player.subtitle_tracks().to_vec())
-            .unwrap_or_default()
+        self.player.as_ref().map_or_default(|player| player.subtitle_tracks().to_vec())
     }
 
     /// Reports the lines of the track with this `index` through
@@ -220,7 +214,7 @@ impl VideoView {
     }
 
     pub fn stats(&self) -> VideoStats {
-        weak_from_ref(self).player.as_mut().map(Player::stats).unwrap_or_default()
+        weak_from_ref(self).player.as_mut().map_or_default(Player::stats)
     }
 
     /// Render on demand sleeps the loop unless continuous work is live. A

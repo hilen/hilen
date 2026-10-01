@@ -100,7 +100,7 @@ impl TableData for TreeTableTest {
             return;
         }
 
-        val.open.toggle();
+        val.open.flip();
         self.root.update_indices(0, 0);
         self.table.reload_data();
     }

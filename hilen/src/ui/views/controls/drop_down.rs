@@ -235,7 +235,7 @@ impl DropDown {
     }
 
     fn tapped(mut self: Weak<Self>) {
-        if self.opened.toggle() {
+        if self.opened.flip() {
             self.close();
         } else {
             self.open();

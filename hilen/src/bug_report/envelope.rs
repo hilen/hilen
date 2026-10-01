@@ -29,7 +29,7 @@ impl Dsn {
         }
 
         let host = url.host_str().ok_or_else(|| anyhow!("Sentry DSN has no host"))?;
-        let port = url.port().map(|port| format!(":{port}")).unwrap_or_default();
+        let port = url.port().map_or_default(|port| format!(":{port}"));
 
         let path = url.path().trim_matches('/');
         let (prefix, project) = match path.rsplit_once('/') {
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(item.filename.as_deref(), Some("log.txt"));
         assert_eq!(payload, b"line 1\nline 2\n");
 
-        assert!(rest.is_empty());
+        assert_eq!(rest.len(), 0);
 
         Ok(())
     }

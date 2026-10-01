@@ -194,7 +194,10 @@ fn part(mesh: &[MeshPart], kind: PartKind, material: MaterialId) -> Option<&Mesh
 fn a_chunk_mesh_has_a_fill_a_surface_and_an_outline() {
     let (mut terrain, dirt, stone) = ground();
     let mesh = terrain.chunk_mesh((0, -1));
-    assert!(!part(&mesh, PartKind::Fill, dirt).expect("a dirt fill").indices.is_empty());
+    assert_ne!(
+        part(&mesh, PartKind::Fill, dirt).expect("a dirt fill").indices.len(),
+        0
+    );
     assert!(part(&mesh, PartKind::Surface, stone).is_none());
 
     let strip = part(&mesh, PartKind::Surface, dirt).expect("a grass strip");

@@ -182,8 +182,7 @@ pub(super) fn chunk_edges<'a>(
             continue;
         };
         let covered = neighbor(side.neighbor(key))
-            .map(|shape| border_spans(shape, side.neighbor(key), side.opposite()))
-            .unwrap_or_default();
+            .map_or_default(|shape| border_spans(shape, side.neighbor(key), side.opposite()));
         let (from, to) = (side.along(a), side.along(b));
         for (s0, s1) in uncovered(from.min(to), from.max(to), &covered) {
             let at = |value: f64| a + (b - a) * ((value - from) / (to - from));

@@ -26,8 +26,7 @@ async fn fetch(path: &str) -> (StatusCode, String, Vec<u8>) {
     let mime = resp
         .headers()
         .get(header::CONTENT_TYPE)
-        .map(|v| v.to_str().unwrap().to_string())
-        .unwrap_or_default();
+        .map_or_default(|v| v.to_str().unwrap().to_string());
     let body = resp.into_body().collect().await.unwrap().to_bytes().to_vec();
     (status, mime, body)
 }

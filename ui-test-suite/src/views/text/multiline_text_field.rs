@@ -759,7 +759,7 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
 
     from_main(move || {
         assert_eq!(view.field.text().len(), before.len() - selected.len() + 1);
-        assert!(view.field.selected_text().is_empty());
+        assert_eq!(view.field.selected_text(), "");
     });
 
     // A drag from the end of one line back up to the start of it.
@@ -781,7 +781,7 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
             view.field.text().len() < before.len(),
             "typing must replace the selection"
         );
-        assert!(view.field.selected_text().is_empty());
+        assert_eq!(view.field.selected_text(), "");
     });
 
     // Shift plus arrows extend, a plain arrow collapses.
@@ -796,7 +796,7 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
     inject_named_key(NamedKey::ArrowRight);
 
     from_main(move || {
-        assert!(view.field.selected_text().is_empty());
+        assert_eq!(view.field.selected_text(), "");
     });
 
     // Select all, cut, paste. The clipboard part needs a display server,
@@ -850,7 +850,7 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
 
     from_main(move || {
         assert_eq!(view.field.text().len(), before.len() - word.len());
-        assert!(view.field.selected_text().is_empty());
+        assert_eq!(view.field.selected_text(), "");
     });
 
     Ok(())
@@ -951,7 +951,7 @@ fn check_column_wheel_resize(view: Weak<MultilineTextField>) -> Result<()> {
 
     from_main(move || {
         assert!(!view.field.is_selected(), "Escape must end editing");
-        assert!(!view.field.text().is_empty());
+        assert_ne!(view.field.text(), "");
     });
 
     check_colors(CHECK_16)?;

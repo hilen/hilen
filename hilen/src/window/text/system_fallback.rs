@@ -197,7 +197,7 @@ fn index() -> Vec<Candidate> {
 /// nearest weight, then the family name so the order is the same on
 /// every run.
 fn order(face: &FaceInfo) -> (usize, bool, u16, String) {
-    let family = face.families.first().map(|(name, _)| name.clone()).unwrap_or_default();
+    let family = face.families.first().map_or_default(|(name, _)| name.clone());
     let preferred = PREFERRED.iter().position(|name| *name == family).unwrap_or(PREFERRED.len());
     (
         preferred,

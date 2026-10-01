@@ -328,7 +328,7 @@ mod test {
     fn polyline_stroke() {
         let path = VectorPath::polyline([(0, 0), (50, 50), (100, 0)]);
         let (vertices, indices) = path.stroke_mesh(&StrokeStyle::width(4));
-        assert!(!vertices.is_empty());
+        assert_ne!(vertices.len(), 0);
         assert_eq!(indices.len() % 3, 0);
     }
 
@@ -336,14 +336,14 @@ mod test {
     fn polygon_fill() {
         let concave = [(0, 0), (100, 10), (100, 100), (50, 40), (0, 100)];
         let (vertices, indices) = VectorPath::polygon(concave).fill_mesh(FillRule::NonZero);
-        assert!(!vertices.is_empty());
+        assert_ne!(vertices.len(), 0);
         assert_eq!(indices.len() % 3, 0);
     }
 
     #[test]
     fn circle_fill() {
         let (vertices, indices) = VectorPath::circle((50, 50), 25).fill_mesh(FillRule::NonZero);
-        assert!(!vertices.is_empty());
+        assert_ne!(vertices.len(), 0);
         assert_eq!(indices.len() % 3, 0);
     }
 
@@ -358,7 +358,7 @@ mod test {
             .build();
 
         let (vertices, indices) = path.fill_mesh(FillRule::NonZero);
-        assert!(!vertices.is_empty());
+        assert_ne!(vertices.len(), 0);
         assert_eq!(indices.len() % 3, 0);
     }
 
@@ -367,7 +367,7 @@ mod test {
         let ring = VectorPath::builder().circle((50, 50), 40).circle((50, 50), 20).build();
 
         let (vertices, indices) = ring.fill_mesh(FillRule::EvenOdd);
-        assert!(!vertices.is_empty());
+        assert_ne!(vertices.len(), 0);
         assert_eq!(indices.len() % 3, 0);
 
         // Every triangle must stay outside the inner circle, so no
@@ -384,7 +384,7 @@ mod test {
     fn empty_path_yields_nothing() {
         let none: [Point; 0] = [];
         let (vertices, indices) = VectorPath::polyline(none).stroke_mesh(&StrokeStyle::default());
-        assert!(vertices.is_empty());
-        assert!(indices.is_empty());
+        assert_eq!(vertices.len(), 0);
+        assert_eq!(indices.len(), 0);
     }
 }

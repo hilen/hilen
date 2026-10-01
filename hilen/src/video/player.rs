@@ -366,7 +366,7 @@ impl Player {
             dropped:              self.counters.dropped,
             presented_per_second: rate,
             hardware:             self.counters.hardware,
-            decoder:              self.info.as_ref().map(|info| info.decoder.clone()).unwrap_or_default(),
+            decoder:              self.info.as_ref().map_or_default(|info| info.decoder.clone()),
             width:                size.width,
             height:               size.height,
             frame_rate:           self.info.as_ref().map_or(0.0, |info| info.frame_rate),

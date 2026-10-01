@@ -40,7 +40,7 @@ async fn token_reads_the_metrics() {
 async fn missing_token_is_refused() {
     let (status, body) = fetch(app_with_counter(), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert!(body.is_empty());
+    assert_eq!(body, "");
 }
 
 #[tokio::test]

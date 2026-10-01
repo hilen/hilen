@@ -107,10 +107,7 @@ impl<T: ?Sized> Weak<T> {
         let Some(stamp) = RefCounter::stamp_for_address(self.addr()) else {
             return false;
         };
-        if stamp != self.stamp {
-            return false;
-        }
-        true
+        stamp == self.stamp
     }
 
     pub fn is_null(&self) -> bool {
