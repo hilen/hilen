@@ -16,24 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Caret of a field focused in setup sits in the wrong place
-
-Found by wallet at `~/dev/apps/wallet`, its unlock screen focuses the password
-field in the `setup` of the root view.
-
-- Current: `TextField::focus` called in the `setup` of the root view places the
-  caret once, before the field has its final frame. The caret then stays about 8
-  points right of the text start, so an empty field shows it after the first
-  letter of the placeholder. The same call in the `setup` of a modal, which has
-  its size at that time, places the caret right. `size_changed` in
-  `hilen/src/ui/views/basic/text_field/mod.rs` runs only `update_layout`, never
-  `update_caret`, so nothing moves the caret after the first layout.
-- Needed: the caret and the selection views follow every change of the field
-  frame while it is being edited. A UI test that focuses a field in the `setup`
-  of the root view and checks the caret at the text start.
-- Blocks: the unlock screen of wallet, and any app that focuses a field on its
-  first screen.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
