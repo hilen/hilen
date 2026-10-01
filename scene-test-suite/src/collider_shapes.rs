@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, ensure};
 use hilen::{
-    dispatch::{from_main, wait_for_next_frame},
+    dispatch::from_main,
     gm::{
         color::U8Color,
         volume::{Mat4, Shape3, Vec3},
@@ -10,7 +10,7 @@ use hilen::{
     refs::Weak,
     scene::{
         Body, Camera, CoefficientCombineRule, ColliderShape, Heightfield, MeshData, Model, Node,
-        NodeTemplates, SceneCreation, SceneSetup, SceneTest, Sky, Wall, scene,
+        NodeTemplates, SceneCreation, SceneSetup, SceneTest, Sky, Wall, scene, step_scene,
     },
     ui::Color,
     ui_test::{check_colors, set_record_probe_count},
@@ -19,7 +19,7 @@ use hilen::{
 use crate::geometry::{Frustum, WHITE, append, capsule};
 
 /// Frames for the bodies to fall onto the hills and come to rest.
-const SETTLE_FRAMES: usize = 300;
+const SETTLE_FRAMES: u32 = 300;
 /// How far a resting body's lowest point may sit above the ground under
 /// its middle. A round bottom on a slope touches a little uphill of it.
 const REST_ABOVE: f32 = 0.2;
@@ -129,12 +129,14 @@ impl SceneSetup for ColliderShapes {
 }
 
 impl SceneTest for ColliderShapes {
+    fn stepped() -> bool {
+        true
+    }
+
     fn perform_test(scene: Weak<Self>) -> Result<()> {
         set_record_probe_count(128);
 
-        for _ in 0..SETTLE_FRAMES {
-            wait_for_next_frame();
-        }
+        step_scene(SETTLE_FRAMES);
 
         let rests = from_main(move || {
             scene

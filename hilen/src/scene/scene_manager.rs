@@ -28,12 +28,24 @@ pub struct SceneManager {
 
     /// Holds the scene's time, see `set_paused`.
     paused: bool,
+
+    /// Steps a stepped scene test may still take, see `set_stepped`.
+    /// `None` runs free, one step per turn of the main loop.
+    #[cfg(feature = "scene-tests")]
+    steps_left: Option<u32>,
 }
 
 impl SceneManager {
     pub(crate) fn update() {
         if Self::no_scene() || SELF.paused {
             return;
+        }
+
+        #[cfg(feature = "scene-tests")]
+        match &mut SELF.get_mut().steps_left {
+            Some(0) => return,
+            Some(left) => *left -= 1,
+            None => {}
         }
 
         Self::scene().__internal_update(*Self::update_interval());
@@ -75,7 +87,12 @@ impl SceneManager {
     }
 
     pub fn stop_scene() {
-        SELF.get_mut().scene = None;
+        let s = SELF.get_mut();
+        s.scene = None;
+        #[cfg(feature = "scene-tests")]
+        {
+            s.steps_left = None;
+        }
     }
 
     /// Stops the scene's time, the physics and every playing clip, and
@@ -84,6 +101,29 @@ impl SceneManager {
     /// still.
     pub(crate) fn set_paused(paused: bool) {
         SELF.get_mut().paused = paused;
+    }
+
+    /// Stepped, the scene's time stands still until `grant_steps` hands it
+    /// steps. The main loop turns as often as the machine lets it, so a
+    /// free running scene takes another number of steps between two waits
+    /// of a test on every lane.
+    #[cfg(feature = "scene-tests")]
+    pub(crate) fn set_stepped(stepped: bool) {
+        SELF.get_mut().steps_left = stepped.then_some(0);
+    }
+
+    #[cfg(feature = "scene-tests")]
+    pub(crate) fn grant_steps(steps: u32) {
+        let left =
+            SELF.get_mut().steps_left.as_mut().expect(
+                "step_scene on a scene that runs free. Return true from SceneTest::stepped to step it.",
+            );
+        *left += steps;
+    }
+
+    #[cfg(feature = "scene-tests")]
+    pub(crate) fn steps_left() -> u32 {
+        SELF.steps_left.unwrap_or(0)
     }
 
     pub(crate) fn scene() -> &'static dyn Scene {

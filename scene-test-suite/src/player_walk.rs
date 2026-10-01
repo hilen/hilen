@@ -1,10 +1,11 @@
 use anyhow::Result;
 use hilen::{
-    dispatch::{from_main, wait_for_next_frame},
+    dispatch::from_main,
     gm::volume::{Shape3, Vec3},
     refs::{Weak, manage::DataManager},
     scene::{
-        Body, Light, Material, Node, NodeTemplates, Player, SceneCreation, SceneSetup, SceneTest, Wall, scene,
+        Body, Light, Material, Node, NodeTemplates, Player, SceneCreation, SceneSetup, SceneTest, Wall,
+        scene, step_scene,
     },
     ui::{Color, Image},
     ui_test::{capture_screenshot, check_colors, hold_key, release_key, set_record_probe_count},
@@ -12,8 +13,8 @@ use hilen::{
 };
 
 /// Frames of walking, two seconds, more than the wall is away.
-const WALK_FRAMES: usize = 120;
-const SETTLE_FRAMES: usize = 20;
+const WALK_FRAMES: u32 = 120;
+const SETTLE_FRAMES: u32 = 20;
 const CRATE_START: Vec3 = Vec3::new(0.6, 0.5, 1.5);
 
 /// A first person player walks forward into a crate and on into a brick
@@ -66,6 +67,10 @@ impl SceneSetup for PlayerWalk {
 }
 
 impl SceneTest for PlayerWalk {
+    fn stepped() -> bool {
+        true
+    }
+
     fn perform_test(scene: Weak<Self>) -> Result<()> {
         set_record_probe_count(96);
 
@@ -73,15 +78,11 @@ impl SceneTest for PlayerWalk {
 
         // Spawned a little above the floor, the player settles onto it
         // first.
-        for _ in 0..SETTLE_FRAMES {
-            wait_for_next_frame();
-        }
+        step_scene(SETTLE_FRAMES);
         let start = player(scene).expect("the scene has a player");
 
         hold_key(KeyCode::KeyW);
-        for _ in 0..WALK_FRAMES {
-            wait_for_next_frame();
-        }
+        step_scene(WALK_FRAMES);
         release_key(KeyCode::KeyW);
 
         let stopped = player(scene).expect("the scene has a player");
@@ -102,19 +103,15 @@ impl SceneTest for PlayerWalk {
         );
 
         hold_key(KeyCode::Space);
-        wait_for_next_frame();
+        step_scene(1);
         release_key(KeyCode::Space);
-        for _ in 0..6 {
-            wait_for_next_frame();
-        }
+        step_scene(6);
         let airborne = player(scene).expect("the scene has a player");
         anyhow::ensure!(
             airborne.y > stopped.y + 0.15,
             "the jump did not lift the player, it is at {airborne:?}"
         );
-        for _ in 0..90 {
-            wait_for_next_frame();
-        }
+        step_scene(90);
         let landed = player(scene).expect("the scene has a player");
         anyhow::ensure!(
             (landed.y - stopped.y).abs() < 0.05,
@@ -139,100 +136,100 @@ impl SceneTest for PlayerWalk {
 }
 
 const WALL: &str = r"
-      12    4 - #8b887b
-      60    4 - #96938c
-     368    4 - #66635c
-     480    4 - #413e37
-     176    8 - #636059
-     308   20 - #2b2a22
-     240   24 - #4c493d
-     420   36 - #5a5851
-     536   36 - #807e74
-      92   40 - #605b50
-     592   44 - #646255
-     532   52 - #53534e
-     128   76 - #7d7d75
-     200   84 - #7e7b77
-     272   84 - #35332a
-     500   88 - #75746a
-      60   92 - #6b6653
-     400   92 - #78776d
-     456  100 - #77746b
-     564  100 - #28261f
-     348  112 - #4b4a3c
-       4  120 - #656055
-     116  128 - #b1ab98
-     120  128 - #cfc8ba
-     212  132 - #807e74
-     172  140 - #2a2821
-     504  144 - #837e74
-     260  156 - #484738
-      56  164 - #6e6959
-     432  168 - #706d68
-     560  176 - #7a766e
-       4  188 - #5f5a4d
-     416  196 - #28261f
-     224  200 - #38352c
-     168  204 - #66623d
-     348  204 - #2d2c25
-     104  208 - #302f27
-     580  228 - #4a4838
-       4  240 - #20201e
-     316  240 - #29271e
-     492  240 - #3a382c
-      12  244 - #25251d
-     420  252 - #4e4c3b
-      92  272 - #292924
-     224  272 - #656252
-     312  288 - #656354
-     516  304 - #36352e
-     584  304 - #4d4c3d
-      24  308 - #848179
-     156  316 - #767261
-     380  316 - #656355
-     452  328 - #837f74
-     228  332 - #8e8b83
-      84  340 - #3a3a28
-     268  340 - #535044
-     328  348 - #555348
-     588  352 - #504e39
-     200  356 - #75746d
-     476  368 - #7f7c74
-     524  376 - #34332c
-      16  384 - #5a5845
-     364  396 - #3c3a33
-     152  400 - #837e6f
-     440  400 - #817f72
-     104  404 - #4f4c38
-     276  408 - #57564c
-      12  428 - #666350
-     228  428 - #605d55
-     592  428 - #282721
-     176  436 - #797670
-      64  444 - #6d6a42
-     532  456 - #2c2a22
-     308  464 - #403e37
-     392  464 - #76746a
-     480  464 - #49472f
-       4  480 - #949289
-     224  480 - #9f9d92
-     108  484 - #5c5a3f
-     168  500 - #817d75
-     556  504 - #2c2b25
-     276  512 - #848279
-     356  520 - #656258
-     432  520 - #7b796c
-      56  524 - #4c4d3b
-     132  528 - #4f4b33
-       4  532 - #3a3627
-     232  540 - #8a887d
-     296  552 - #282620
-     524  564 - #272621
-       8  576 - #424034
-      92  584 - #23231f
-     588  584 - #333024
-     460  588 - #2a2a22
-     176  592 - #322f24
-     256  592 - #292723
-     380  592 - #27251c
+      68    4 - #8a887d
+     124    4 - #86837b
+     304    4 - #4d4b44
+     532    4 - #47433b
+      12    8 - #3e3d37
+     232    8 - #676459
+     424    8 - #807f7a
+     372   20 - #4f4f41
+     476   20 - #9b9a99
+     500   32 - #9a9690
+     592   40 - #868175
+     184   52 - #827d68
+     140   68 - #7f7c6f
+     568   76 - #7e7c74
+       4   80 - #6f6d68
+     252   80 - #88867c
+     444   80 - #7a786d
+      76   84 - #534f41
+     332   88 - #33322c
+     204   92 - #868479
+     504   96 - #3f3c36
+     140  116 - #b4b2a8
+     172  128 - #b7b1a6
+     480  132 - #7d7b76
+      12  136 - #949386
+     392  136 - #39382e
+      52  140 - #77756c
+     136  144 - #8a8783
+     556  144 - #878175
+      88  164 - #474332
+     284  168 - #7d7c61
+     220  172 - #484537
+     508  172 - #302e28
+     412  196 - #2f2e26
+     484  200 - #5d5a4a
+      24  212 - #5d5849
+     268  212 - #25231e
+     100  224 - #29261d
+     188  232 - #2a2922
+     364  240 - #27251d
+     580  240 - #313124
+     436  256 - #3e3c34
+      56  260 - #51503f
+       4  288 - #828072
+     228  304 - #827e6f
+      80  312 - #787770
+     288  312 - #69665b
+     492  312 - #58564a
+      40  328 - #474644
+     380  328 - #504e43
+     436  328 - #79756b
+     144  332 - #39382d
+     252  360 - #8f8e7b
+     544  360 - #9d9884
+     592  360 - #333325
+       8  364 - #77746f
+     484  364 - #7b7765
+     328  372 - #4b4841
+     224  376 - #767161
+      44  404 - #a6a394
+     256  404 - #7a766d
+     432  404 - #424037
+     128  416 - #41402d
+     480  416 - #929089
+     508  416 - #8f8b7b
+     368  424 - #504d44
+       4  432 - #7f7d75
+     304  436 - #737063
+      56  444 - #7e7b68
+     196  468 - #7a7666
+     448  472 - #817f76
+     564  472 - #484532
+     500  476 - #888373
+     272  480 - #a09e96
+     400  480 - #7d7a6f
+      36  484 - #9b9888
+     324  492 - #514f4a
+     116  504 - #59563c
+     208  516 - #535147
+      68  520 - #7a755e
+     396  520 - #4f4a44
+     512  524 - #7f7a66
+     464  528 - #88867b
+     588  528 - #2d2b22
+       8  532 - #575548
+     260  536 - #787569
+     304  540 - #898569
+     344  552 - #27251f
+      60  572 - #696851
+     128  588 - #28271e
+     592  588 - #2f2e25
+      12  592 - #353328
+     208  592 - #2e2c21
+     292  592 - #23231d
+     416  592 - #2b2a21
+     512  592 - #3b3927
 ";

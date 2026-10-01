@@ -1,12 +1,14 @@
 use anyhow::Result;
 use hilen::{
-    dispatch::{from_main, wait_for_next_frame},
+    dispatch::from_main,
     gm::{
         LossyConvert,
         volume::{Shape3, Vec3},
     },
     refs::Weak,
-    scene::{Body, Camera, Node, NodeTemplates, SceneCreation, SceneSetup, SceneTest, Wall, scene},
+    scene::{
+        Body, Camera, Node, NodeTemplates, SceneCreation, SceneSetup, SceneTest, Wall, scene, step_scene,
+    },
     ui::Color,
     ui_test::{capture_screenshot, check_colors, set_record_probe_count},
 };
@@ -15,10 +17,39 @@ const HALF: f32 = 4.0;
 const WALL: f32 = 0.5;
 const WALL_HEIGHT: f32 = 3.0;
 const BALLS: usize = 24;
-const FRAMES: usize = 360;
+const FRAMES: u32 = 360;
 /// A sideways push at the drop, so the balls roll and bounce off the
-/// walls instead of settling where they land.
-const PUSH: f32 = 3.0;
+/// walls instead of settling where they land. Every ball is pushed at
+/// speed 3, turned 0.7 radians on from the one before. Written out,
+/// since `cos` and `sin` differ in the last bit between an arm64 Mac,
+/// the x86_64 simulator and wasm, and 24 colliding balls turn that bit
+/// into another rest.
+const PUSHES: [(f32, f32); BALLS] = [
+    (3.0, 0.0),
+    (2.294_526_6, 1.932_653),
+    (0.509_901_46, 2.956_349_1),
+    (-1.514_538, 2.589_628_2),
+    (-2.826_666_8, 1.004_964_6),
+    (-2.809_37, -1.052_349_7),
+    (-1.470_783, -2.614_727),
+    (0.559_537_4, -2.947_357_7),
+    (2.326_697_3, -1.893_800_1),
+    (2.999_575_9, 0.050_440_848),
+    (2.261_706_8, 1.970_959_8),
+    (0.460_122_14, 2.964_504_5),
+    (-1.557_864_9, 2.563_797_5),
+    (-2.843_164_2, 0.957_296_7),
+    (-2.791_278_6, -1.099_438),
+    (-1.426_610_7, -2.639_087_2),
+    (0.609_014_03, -2.937_533_4),
+    (2.358_21, -1.854_412_3),
+    (2.998_304, 0.100_867_435),
+    (2.228_247_2, 2.008_709_7),
+    (0.410_211_62, 2.971_822_3),
+    (-1.600_752_7, 2.537_240_7),
+    (-2.858_858_3, 0.909_356_24),
+    (-2.772_398, -1.146_215_3),
+];
 /// Motion left by this speed counts as rest.
 const REST_SPEED: f32 = 0.02;
 
@@ -87,8 +118,8 @@ impl SceneSetup for DropBalls {
             // drop with this push flies over it and out of the world.
             let y = 1.5 + (i % 3).lossy_convert() * 0.5;
             let mut ball = self.make_node::<Body>(Shape3::Ball(0.4), Vec3::new(x, y, z));
-            let angle = i.lossy_convert() * 0.7;
-            ball.set_velocity(Vec3::new(angle.cos() * PUSH, 0.0, angle.sin() * PUSH))
+            let (push_x, push_z) = PUSHES[i];
+            ball.set_velocity(Vec3::new(push_x, 0.0, push_z))
                 .set_damping(0.6, 0.6)
                 .set_friction(1.0)
                 .set_color(Color::hex(BALL_COLORS[i % BALL_COLORS.len()]));
@@ -100,12 +131,14 @@ impl SceneSetup for DropBalls {
 const BALL_COLORS: [&str; 6] = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22"];
 
 impl SceneTest for DropBalls {
+    fn stepped() -> bool {
+        true
+    }
+
     fn perform_test(scene: Weak<Self>) -> Result<()> {
         set_record_probe_count(64);
 
-        for _ in 0..FRAMES {
-            wait_for_next_frame();
-        }
+        step_scene(FRAMES);
 
         let (positions, speeds): (Vec<Vec3>, Vec<f32>) = from_main(move || {
             scene
@@ -137,66 +170,66 @@ impl SceneTest for DropBalls {
 const DROP_BALLS: &str = r"
      592    4 - #597c95
      476  108 - #474e4e
-     180  172 - #c8702a
-     240  180 - #a03a31
-     160  184 - #99a1a2
-     284  184 - #ebc133
-     376  184 - #9f63b9
-     440  184 - #99a1a2
-     256  188 - #e65a4f
-     300  188 - #d0aa21
-     268  192 - #3583bb
-     356  192 - #5a3769
-     252  200 - #945853
-     276  200 - #479dde
-     368  200 - #804d96
-     256  204 - #4e738e
-     272  208 - #4b9cdb
-     144  252 - #959c9d
-     428  272 - #237040
+     180  172 - #c86f2a
+     240  180 - #9f3930
+     292  180 - #edc337
+     160  184 - #99a1a1
+     260  184 - #e7574b
+     356  184 - #563564
+     440  184 - #99a1a1
+     368  188 - #9b62b3
+     380  188 - #9b5db5
+     268  204 - #4598d7
+     228  208 - #b34035
+     284  208 - #3789c4
+     256  212 - #ba8681
+     144  252 - #959c9c
      448  272 - #42cb77
-     376  276 - #563564
-     396  276 - #9c60b5
-     448  284 - #3dc874
-     396  288 - #9d62b6
-     440  292 - #2c9957
+     380  280 - #78488c
+     428  280 - #247342
+     400  284 - #a164bb
+     440  292 - #2c9857
+     388  296 - #7b4a90
      364  300 - #b08f1f
-     332  312 - #f09257
-     332  316 - #e8853d
-     436  316 - #7e471f
-     376  324 - #e2b822
-     456  324 - #f19a67
-     280  336 - #71b1eb
-     152  344 - #c9cfcf
-     204  344 - #9b3830
-     464  344 - #cacfcf
+     332  312 - #eb9056
+     368  316 - #f0ca5e
+     436  320 - #814820
+     460  320 - #e88742
+      72  324 - #60696a
+     376  324 - #e2b823
+     184  332 - #c9cfcf
+     276  336 - #509fdd
+     464  344 - #c9cfcf
      428  348 - #7e2f28
-     464  352 - #cb8c86
-     284  356 - #4e8d67
-     324  356 - #6e4381
-     328  356 - #714485
-      60  360 - #606969
-     188  360 - #ac3d33
-     216  372 - #ce493c
-     308  372 - #5f3a6f
-     268  376 - #247141
-     288  376 - #6ddd92
-     328  376 - #af7dc6
-     164  400 - #2b9756
-     356  400 - #7e471f
-     216  404 - #2e6e9d
+     452  352 - #eb6e65
+     220  356 - #c14439
+     324  356 - #6e4281
+     328  356 - #714484
+     192  364 - #cd493c
+     308  368 - #563564
+     288  372 - #54d282
+     268  376 - #237040
+     292  376 - #54d583
+     328  376 - #af7dc7
+     212  404 - #3076a8
+     124  412 - #b3921f
+     372  416 - #ed9868
      428  416 - #856c1c
-     208  420 - #63a9e5
-     372  420 - #e98948
-     468  420 - #27587e
-     168  424 - #44cf7a
+     164  420 - #69dc90
+     468  420 - #27597e
      456  424 - #255478
-     144  428 - #b2911f
-     124  432 - #fed560
-     288  436 - #27814a
+     144  428 - #af8f1f
+     212  428 - #479ede
+     284  428 - #257744
+     124  432 - #f1cb64
+     412  432 - #8d731c
+     164  436 - #7bb393
      448  436 - #7b7f4e
-     188  444 - #754789
-     432  444 - #efc437
-     484  444 - #3f9adb
-     592  468 - #7d8989
+     196  440 - #69407b
+     436  440 - #f0c856
+     272  444 - #2c9957
+     300  444 - #37c36f
+     452  444 - #285e86
+     476  444 - #64aae5
+     592  476 - #7d8989
 ";

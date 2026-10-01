@@ -20,20 +20,21 @@ mod animations;
 #[cfg(not_wasm)]
 mod cascades;
 mod code_meshes;
-/// The physics rest, see `colliders`.
-#[cfg(desktop)]
+/// The wireframe lines, see `colliders`.
+#[cfg(not_wasm)]
 mod collider_shapes;
-/// The physics rest lands elsewhere under the browser and simulator frame
-/// pacing, see docs/roadmap.md.
-#[cfg(desktop)]
+/// `SwiftShader` draws the green wireframe lines in another shade, see
+/// docs/roadmap.md.
+#[cfg(not_wasm)]
 mod colliders;
 mod cutout;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]
 mod cutout_shadows;
 mod day_and_night;
-/// The physics rest, see `colliders`.
-#[cfg(desktop)]
+/// The same bits as on desktop in the browser, the picture fails on
+/// `SwiftShader`, see docs/roadmap.md.
+#[cfg(not_wasm)]
 mod drop_balls;
 mod fog;
 mod geometry;
@@ -48,8 +49,9 @@ mod models;
 mod mouse_look;
 mod node_parenting;
 mod picking;
-/// The physics rest, see `colliders`.
-#[cfg(desktop)]
+/// The same bits as on desktop in the browser, the picture fails on
+/// `SwiftShader`, see docs/roadmap.md.
+#[cfg(not_wasm)]
 mod player_walk;
 mod primitives;
 mod scene_picture;

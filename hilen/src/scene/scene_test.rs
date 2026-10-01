@@ -52,6 +52,20 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
     /// over its nodes, in the test and in presentation alike. `view` is
     /// the root over the whole canvas. Nothing by default.
     fn overlay(_: Weak<Self>, _: Weak<SceneTestView>) {}
+
+    /// A stepped scene stands still from its setup on and moves only by
+    /// `step_scene`. A test that pins where physics ends up needs it, a
+    /// free running scene takes another number of steps on every lane.
+    fn stepped() -> bool {
+        false
+    }
+}
+
+/// Moves a stepped scene on by exactly `steps` of its update and returns
+/// once the last one ran, see `SceneTest::stepped`.
+pub fn step_scene(steps: u32) {
+    from_main(move || SceneManager::grant_steps(steps));
+    while from_main(SceneManager::steps_left) > 0 {}
 }
 
 /// The root a scene test runs under. The scene draws beneath the UI, so
@@ -174,6 +188,7 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
 
             let scene = from_main(move || {
                 let scene = SceneManager::set_scene(T::default());
+                SceneManager::set_stepped(T::stepped());
                 T::overlay(scene, view);
                 scene
             });
