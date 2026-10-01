@@ -3,13 +3,7 @@ use std::{net::SocketAddr, path::Path};
 use anyhow::Result;
 use axum::{Json, Router, routing::get};
 use serde_json::json;
-use sqlx::{PgPool, postgres::PgPoolOptions};
 use tower_http::{services::ServeDir, trace::TraceLayer};
-
-pub async fn build_db(database_url: &str) -> Result<PgPool> {
-    let pool = PgPoolOptions::new().max_connections(8).connect(database_url).await?;
-    Ok(pool)
-}
 
 pub fn build_redis(redis_url: &str) -> Result<redis::Client> {
     let client = redis::Client::open(redis_url)?;

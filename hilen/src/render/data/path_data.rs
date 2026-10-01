@@ -35,7 +35,9 @@ struct PathView {
     kind:       u32,
     stop_count: u32,
     grain:      f32,
-    _padding:   [u32; 3],
+    /// How much the owning view is faded, 0 for not at all.
+    fade:       f32,
+    _padding:   [u32; 2],
 }
 
 /// One tessellated path on the GPU: an indexed triangle mesh in the
@@ -86,7 +88,8 @@ impl PathData {
             kind,
             stop_count: u32::try_from(paint.count).unwrap(),
             grain: paint.grain,
-            _padding: [0; 3],
+            fade: 0.0,
+            _padding: [0; 2],
         };
 
         let view_buffer = device.buffer(&view, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
@@ -106,12 +109,13 @@ impl PathData {
     /// Compares against the last uploaded state and writes the uniform
     /// only when something moved, so a static path costs nothing per
     /// frame.
-    pub fn prepare(&mut self, position: Point, resolution: Size, scale: f32, z_position: f32) {
+    pub fn prepare(&mut self, position: Point, resolution: Size, scale: f32, z_position: f32, opacity: f32) {
         let view = PathView {
             position,
             resolution,
             z_position,
             scale,
+            fade: 1.0 - opacity,
             ..self.view
         };
 

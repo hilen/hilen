@@ -9,6 +9,9 @@ mod css_colors;
 /// after a real click, which no test can inject.
 #[cfg(desktop)]
 mod cursor_capture;
+/// Hiding the pointer needs a mouse, like the capture.
+#[cfg(desktop)]
+mod cursor_hidden;
 mod dispatch;
 mod global_styles;
 mod image_edges;
@@ -53,3 +56,7 @@ mod transition_rich;
 mod translucent_over_text;
 mod transparency;
 mod view_order;
+/// A phone app always fills its screen, and a browser grants fullscreen
+/// only after a real click, which no test can inject.
+#[cfg(desktop)]
+mod window_fullscreen;

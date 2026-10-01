@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_back,
     level::{Control, LevelManager},
-    refs::{Weak, manage::DataManager},
+    refs::Weak,
     ui::{AlertErr, Button, DPadView, Image, Setup, Spinner, StickView, ViewData, ViewSubviews, view},
 };
 

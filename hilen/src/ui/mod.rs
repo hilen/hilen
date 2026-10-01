@@ -2,6 +2,7 @@ mod gradient;
 mod hover;
 mod images;
 mod input;
+mod label_drawer;
 mod layout;
 mod modal_view;
 mod navigation_view;

@@ -20,6 +20,9 @@
 mod google;
 mod routes;
 mod session;
+mod store;
+#[cfg(test)]
+mod store_test;
 mod user;
 mod wire;
 
@@ -28,21 +31,31 @@ use std::{env, sync::Arc};
 use anyhow::{Context, Result};
 use axum::extract::FromRef;
 use reqwest::Client;
-use sqlx::PgPool;
 
 pub use self::{routes::auth_routes, user::User, wire::UserInfo};
-use crate::web::install_tls_provider;
+use crate::{Db, web::install_tls_provider};
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
-/// Creates and updates `users`, `sessions` and `pending_logins`. The record
-/// of what ran is in a table of its own, so the app's migrator on the same
-/// database never sees these files and never complains about them.
-pub async fn migrate(db: &PgPool) -> Result<()> {
-    let mut migrator = sqlx::migrate!("./migrations");
-    migrator.dangerous_set_table_name("_hilen_auth_migrations");
-    migrator.run(db).await.context("the hilen auth migrations failed")
+/// Creates and updates `users`, `sessions` and `pending_logins`, on Postgres
+/// or on SQLite, each from its own files. The record of what ran is in a
+/// table of its own, so the app's migrator on the same database never sees
+/// these files and never complains about them.
+pub async fn migrate(db: impl Into<Db>) -> Result<()> {
+    match db.into() {
+        Db::Postgres(pool) => {
+            let mut migrator = sqlx::migrate!("./migrations");
+            migrator.dangerous_set_table_name("_hilen_auth_migrations");
+            migrator.run(&pool).await
+        }
+        Db::Sqlite(pool) => {
+            let mut migrator = sqlx::migrate!("./migrations_sqlite");
+            migrator.dangerous_set_table_name("_hilen_auth_migrations");
+            migrator.run(&pool).await
+        }
+    }
+    .context("the hilen auth migrations failed")
 }
 
 /// One Google client of the type "Web application" per app. Its allowed
@@ -94,24 +107,24 @@ impl AuthConfig {
 
 #[derive(Clone)]
 pub struct AuthState {
-    pub(crate) db:     PgPool,
+    pub(crate) db:     Db,
     pub(crate) config: Arc<AuthConfig>,
     pub(crate) http:   Client,
 }
 
 impl AuthState {
-    pub fn new(db: PgPool, config: AuthConfig) -> Self {
+    pub fn new(db: impl Into<Db>, config: AuthConfig) -> Self {
         install_tls_provider();
 
         Self {
-            db,
+            db:     db.into(),
             config: Arc::new(config),
-            http: Client::new(),
+            http:   Client::new(),
         }
     }
 }
 
-impl FromRef<AuthState> for PgPool {
+impl FromRef<AuthState> for Db {
     fn from_ref(state: &AuthState) -> Self {
         state.db.clone()
     }

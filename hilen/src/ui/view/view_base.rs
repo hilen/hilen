@@ -50,6 +50,14 @@ pub struct ViewBase {
 
     pub(crate) is_hidden: bool,
 
+    /// See `ViewData::set_opacity`.
+    #[educe(Default = 1.0)]
+    pub(crate) opacity:      f32,
+    /// This view's opacity times the opacity of every view above it, set
+    /// on each update, so the drawer reads one number per view.
+    #[educe(Default = 1.0)]
+    pub(crate) tree_opacity: f32,
+
     #[educe(Default = crate::ui::UIManager::ROOT_VIEW_Z_OFFSET)]
     pub(crate) z_position: f32,
 

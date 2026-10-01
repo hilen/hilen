@@ -29,6 +29,7 @@ mod hover_within;
 mod image_scissor;
 mod inject_touch;
 mod nine_segment;
+mod opacity;
 mod rounded_clip;
 mod secondary_click;
 mod shadow;

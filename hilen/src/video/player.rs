@@ -29,10 +29,12 @@ use crate::{
     gm::{Clock, flat::Size},
     video::{
         VideoSource,
-        audio::AudioDecoder,
+        audio::{AudioDecoder, SPEEDS},
         count_to_f64,
-        decoder::{self, Command, MediaInfo, Message, VideoFrame},
+        decoder::{self, Command, MediaInfo, Message, Tracks, VideoFrame},
         nv12::Nv12Target,
+        subtitles::Subtitles,
+        tracks::{AudioTrack, SubtitleTrack},
     },
     window::image::Image,
 };
@@ -81,6 +83,8 @@ pub enum VideoState {
 pub(crate) enum PlayerEvent {
     Finished,
     Error(String),
+    /// The subtitle line to show, none clears it.
+    Subtitle(Option<String>),
 }
 
 /// How long a stepped test waits for the decoder before giving up on a frame.
@@ -137,36 +141,42 @@ struct Info {
     duration:   f64,
     frame_rate: f64,
     decoder:    String,
+    tracks:     Tracks,
 }
 
 pub(crate) struct Player {
-    source:     VideoSource,
-    key:        String,
-    commands:   Sender<Command>,
-    messages:   Receiver<Message>,
-    info:       Option<Info>,
+    source:      VideoSource,
+    key:         String,
+    commands:    Sender<Command>,
+    messages:    Receiver<Message>,
+    info:        Option<Info>,
     /// The sound decoder until the first play makes a sound of it.
-    audio:      Option<AudioDecoder>,
-    track:      Option<TrackHandle>,
-    sound:      Option<StreamingSoundHandle<FfmpegError>>,
-    target:     Option<Nv12Target>,
-    pending:    VecDeque<VideoFrame>,
-    generation: u32,
-    queue:      Queue,
-    flow:       Flow,
-    failed:     bool,
-    playing:    bool,
-    looping:    bool,
+    audio:       Option<AudioDecoder>,
+    track:       Option<TrackHandle>,
+    sound:       Option<StreamingSoundHandle<FfmpegError>>,
+    target:      Option<Nv12Target>,
+    pending:     VecDeque<VideoFrame>,
+    generation:  u32,
+    queue:       Queue,
+    flow:        Flow,
+    failed:      bool,
+    playing:     bool,
+    looping:     bool,
     /// Seconds into the stream while paused, and what the clock counts from
     /// while playing without sound.
-    base:       f64,
+    base:        f64,
     /// `Clock` milliseconds when play started, for the clock without sound.
-    started_ms: f64,
-    volume:     f32,
-    decoded:    Arc<AtomicU64>,
-    counters:   Counters,
+    started_ms:  f64,
+    volume:      f32,
+    decoded:     Arc<AtomicU64>,
+    counters:    Counters,
     /// Set when the player drops, it breaks a read that waits on the network.
-    stop:       Arc<AtomicBool>,
+    stop:        Arc<AtomicBool>,
+    /// The stream index of the sound track that plays.
+    audio_track: Option<usize>,
+    /// How fast the video plays, 1 is its own speed.
+    speed:       f64,
+    subtitles:   Subtitles,
 }
 
 impl Player {
@@ -206,6 +216,9 @@ impl Player {
             decoded,
             counters: Counters::default(),
             stop,
+            audio_track: None,
+            speed: 1.0,
+            subtitles: Subtitles::default(),
         }
     }
 
@@ -239,15 +252,18 @@ impl Player {
 
     /// The loop keeps rendering while this is true.
     pub(crate) fn needs_frames(&self) -> bool {
-        !self.failed && (self.playing || self.queue.seek_pending || !self.queue.shown)
+        !self.failed
+            && (self.playing || self.queue.seek_pending || !self.queue.shown || self.subtitles.pending())
     }
 
-    /// The sound's position while it plays, it is the clock.
+    /// The sound's position while it plays, it is the clock. kira hears a
+    /// sound that is shorter or longer by the speed, so its position times
+    /// the speed is the position in the stream.
     fn sound_position(&self) -> Option<f64> {
         self.sound
             .as_ref()
             .filter(|sound| sound.state() != PlaybackState::Stopped)
-            .map(StreamingSoundHandle::position)
+            .map(|sound| sound.position() * self.speed)
     }
 
     pub(crate) fn position(&self) -> f64 {
@@ -255,7 +271,7 @@ impl Player {
             return seconds;
         }
         if self.playing && !self.flow.buffering {
-            self.base + (Clock::now_ms() - self.started_ms) / 1000.0
+            self.base + (Clock::now_ms() - self.started_ms) / 1000.0 * self.speed
         } else {
             self.base
         }
@@ -301,6 +317,7 @@ impl Player {
         self.base = seconds;
         self.started_ms = Clock::now_ms();
         self.queue.seek_pending = true;
+        self.subtitles.seek();
         if self
             .commands
             .send(Command::Seek {
@@ -313,7 +330,7 @@ impl Player {
         }
         if self.sound_position().is_some() {
             if let Some(sound) = &mut self.sound {
-                sound.seek_to(seconds);
+                sound.seek_to(seconds / self.speed);
             }
         } else {
             self.reset_sound();
@@ -366,6 +383,11 @@ impl Player {
         self.hold_for_frames();
         let image = self.present();
         self.finish(&mut events);
+        if self.subtitles.update(self.position(), &self.source) {
+            events.push(PlayerEvent::Subtitle(
+                self.subtitles.shown().map(ToString::to_string),
+            ));
+        }
         (image, events)
     }
 
@@ -380,25 +402,38 @@ impl Player {
 
     fn handle(&mut self, message: Message, events: &mut Vec<PlayerEvent>) {
         match message {
-            Message::Info(MediaInfo {
-                duration,
-                width,
-                height,
-                frame_rate,
-                decoder,
-                audio,
-            }) => {
+            Message::Info(info) => {
+                let MediaInfo {
+                    duration,
+                    width,
+                    height,
+                    frame_rate,
+                    decoder,
+                    audio,
+                    tracks,
+                } = *info;
+                self.audio_track = audio.as_ref().map(AudioDecoder::stream);
                 self.audio = audio;
+                // The decode thread opened the sound at its own speed.
+                if (self.speed - 1.0).abs() > f64::EPSILON {
+                    self.reopen_sound();
+                }
                 self.info = Some(Info {
                     duration,
                     frame_rate,
                     decoder,
+                    tracks,
                 });
-                self.target = Some(Nv12Target::new(&self.key, Size::new(width, height)));
+                self.target = Some(Nv12Target::new(&self.key, Size::new(width, height), false));
             }
             Message::Frame(frame) => {
                 if frame.generation == self.generation {
                     self.pending.push_back(frame);
+                }
+            }
+            Message::Cue(cue) => {
+                if cue.generation == self.generation {
+                    self.subtitles.push(cue);
                 }
             }
             Message::Eof { generation } => {
@@ -488,9 +523,9 @@ impl Player {
         }
         let frame = self.pending.pop_front()?;
 
-        let size = Size::new(frame.width, frame.height);
-        if self.target.as_ref().is_none_or(|target| target.size() != size) {
-            self.target = Some(Nv12Target::new(&self.key, size));
+        if self.target.as_ref().is_none_or(|target| !target.fits(&frame)) {
+            let size = Size::new(frame.width, frame.height);
+            self.target = Some(Nv12Target::new(&self.key, size, frame.ten_bit));
         }
         let target = self.target.as_ref()?;
         target.show(&frame);
@@ -550,8 +585,8 @@ impl Player {
             }
         };
 
-        let mut data =
-            StreamingSoundData::from_decoder(audio).start_position(PlaybackPosition::Seconds(self.base));
+        let mut data = StreamingSoundData::from_decoder(audio)
+            .start_position(PlaybackPosition::Seconds(self.base / self.speed));
         if self.looping {
             data = data.loop_region(..);
         }
@@ -570,7 +605,7 @@ impl Player {
         }
         self.sound = None;
         if self.audio.is_none() {
-            self.audio = match AudioDecoder::open(&self.source, &self.stop) {
+            self.audio = match AudioDecoder::open(&self.source, &self.stop, self.audio_track, self.speed) {
                 Ok(audio) => audio,
                 Err(err) => {
                     error!("video {}: reopening the sound, {err}", self.source.location());
@@ -578,6 +613,140 @@ impl Player {
                 }
             };
         }
+    }
+}
+
+/// The tracks of the source: the sound track choice and the subtitles.
+impl Player {
+    pub(crate) fn audio_tracks(&self) -> &[AudioTrack] {
+        self.info.as_ref().map_or(&[], |info| &info.tracks.audio)
+    }
+
+    pub(crate) fn subtitle_tracks(&self) -> &[SubtitleTrack] {
+        self.info.as_ref().map_or(&[], |info| &info.tracks.subtitles)
+    }
+
+    pub(crate) fn audio_track(&self) -> Option<usize> {
+        self.audio_track
+    }
+
+    /// Switches the sound to another track and keeps the position.
+    pub(crate) fn set_audio_track(&mut self, index: usize) {
+        if self.audio_track == Some(index) || !self.audio_tracks().iter().any(|track| track.index == index) {
+            return;
+        }
+        let audio = match AudioDecoder::open(&self.source, &self.stop, Some(index), self.speed) {
+            Ok(Some(audio)) => audio,
+            Ok(None) => {
+                error!("video {}: no sound track {index}", self.source.location());
+                return;
+            }
+            Err(err) => {
+                error!(
+                    "video {}: sound track {index} did not open, {err}",
+                    self.source.location()
+                );
+                return;
+            }
+        };
+
+        let position = self.position();
+        if let Some(sound) = &mut self.sound {
+            sound.stop(Tween::default());
+        }
+        self.sound = None;
+        self.audio = Some(audio);
+        self.audio_track = Some(index);
+        self.base = position;
+        self.started_ms = Clock::now_ms();
+        if self.playing && !self.flow.buffering {
+            self.start_sound();
+        }
+    }
+
+    /// Plays faster or slower from where it is. The pitch of the sound is
+    /// kept.
+    pub(crate) fn set_speed(&mut self, speed: f64) {
+        let speed = speed.clamp(SPEEDS.0, SPEEDS.1);
+        if (speed - self.speed).abs() < f64::EPSILON {
+            return;
+        }
+        let position = self.position();
+        self.speed = speed;
+        self.base = position;
+        self.started_ms = Clock::now_ms();
+        if self.info.is_some() {
+            self.reopen_sound();
+        }
+    }
+
+    /// A fresh sound decoder for the current track and speed, playing on
+    /// from the current position when the video plays.
+    fn reopen_sound(&mut self) {
+        let position = self.position();
+        if let Some(sound) = &mut self.sound {
+            sound.stop(Tween::default());
+        }
+        self.sound = None;
+        self.base = position;
+        self.started_ms = Clock::now_ms();
+        if self.audio_track.is_none() {
+            return;
+        }
+        self.audio = match AudioDecoder::open(&self.source, &self.stop, self.audio_track, self.speed) {
+            Ok(audio) => audio,
+            Err(err) => {
+                error!("video {}: reopening the sound, {err}", self.source.location());
+                None
+            }
+        };
+        if self.playing && !self.flow.buffering {
+            self.start_sound();
+        }
+    }
+
+    /// Shows the cues of a subtitle track of the source, or none.
+    pub(crate) fn set_subtitle_track(&mut self, index: Option<usize>) {
+        self.subtitles.reset();
+        self.send(Command::Subtitle(index));
+        if index.is_some() {
+            self.restart_picture();
+        }
+    }
+
+    /// Shows the cues of a subtitle file from outside the source.
+    pub(crate) fn set_subtitle_file(&mut self, source: VideoSource) {
+        self.send(Command::Subtitle(None));
+        self.subtitles.load_file(source, &self.stop);
+    }
+
+    pub(crate) fn subtitle(&self) -> Option<&str> {
+        self.subtitles.shown()
+    }
+
+    fn send(&self, command: Command) {
+        if self.commands.send(command).is_err() {
+            error!("video {}: the decoder is gone", self.source.location());
+        }
+    }
+
+    /// Decodes again from where the picture is, with the sound left alone.
+    /// The demuxer runs ahead of the picture, so the cues of a track picked
+    /// just now have already gone by, this brings them back.
+    fn restart_picture(&mut self) {
+        if self.info.is_none() {
+            return;
+        }
+        let seconds = self.position();
+        self.generation += 1;
+        self.pending.clear();
+        self.queue.eof = false;
+        self.queue.seek_pending = true;
+        self.flow.due = seconds;
+        self.send(Command::Seek {
+            generation: self.generation,
+            seconds,
+        });
     }
 }
 

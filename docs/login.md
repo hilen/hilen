@@ -21,6 +21,19 @@ same moment. The browser history only ever holds the hash.
 - A row nobody finished is dropped after 10 minutes, the client gives up after the same time.
 - Sessions keep only the SHA-256 of the token. All times are the database clock.
 
+## The database
+
+The login runs on Postgres and on SQLite. `hilen_server::Db` is either pool,
+`build_db` makes the Postgres one and `build_sqlite` the SQLite one, a file
+with foreign keys on and a WAL journal, so a backend can ship as 1 binary with
+1 data file. `AuthState::new` and `auth::migrate` take either pool. The `User`
+extractor needs a `Db` from the router state: a state that is a `PgPool` or a
+`SqlitePool` gives one, a state struct needs a `Db` field. Every query is in
+`hilen-server/src/auth/store.rs`, once per database. SQLite keeps ids as 16
+byte blobs the server makes and times as unix seconds, its schema is in
+`migrations_sqlite`. `store_test.rs` runs the whole login on a SQLite file.
+`Config::redis_url` is none when `REDIS_URL` is not set.
+
 ## The wire
 
 `hilen-server` never links `hilen`, so `wire.rs` exists twice, `hilen/src/login/wire.rs`

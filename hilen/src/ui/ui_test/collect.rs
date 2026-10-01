@@ -93,6 +93,7 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         crate::ui::Keys::clear();
         crate::ui::Mouse::clear();
         crate::ui::Cursor::reset();
+        crate::window::reset_fullscreen();
         // The dialog animation is global app state, a test that registers
         // one must not leak it into the next. The suite snapshot hands the
         // app's own animation back after the run.

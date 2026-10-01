@@ -73,13 +73,17 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
 /// managed downloads use. For data that is not a managed resource,
 /// like the asset manifest.
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
-    let data = client()
-        .get(absolute_url(url).as_ref())
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    fetch_bytes_with(url, &[]).await
+}
+
+/// `fetch_bytes` with request headers, for a server behind a login. A 404
+/// page is an error here, not bytes, or it would fail later in a parser.
+pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
+    let mut request = client().get(absolute_url(url).as_ref());
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let data = request.send().await?.error_for_status()?.bytes().await?;
     Ok(data.to_vec())
 }
 
@@ -170,6 +174,17 @@ pub trait DataManager<T: Managed> {
 
     #[allow(async_fn_in_trait)]
     async fn download(name: impl ToString, url: &str) -> Result<Weak<T>> {
+        Self::download_from(name, fetch_bytes(url)).await
+    }
+
+    /// Loads the resource `name` from the bytes `source` gives. The same
+    /// name asked for while that runs waits for it instead of starting a
+    /// second one, and `source` runs only for the first.
+    #[allow(async_fn_in_trait)]
+    async fn download_from(
+        name: impl ToString,
+        source: impl Future<Output = Result<Vec<u8>>>,
+    ) -> Result<Weak<T>> {
         /// Wakes the waiters even if the leading download errors,
         /// panics, or its task is dropped mid await.
         struct FinishGuard {
@@ -217,15 +232,7 @@ pub trait DataManager<T: Managed> {
             name:      name.clone(),
         };
 
-        // Without the status check a 404 page would be stored as the
-        // resource bytes and fail later in the parser, far from here.
-        let data = client()
-            .get(absolute_url(url).as_ref())
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
+        let data = source.await?;
 
         Ok(Self::load(&data, &name))
     }

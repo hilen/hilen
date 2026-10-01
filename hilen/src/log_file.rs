@@ -42,7 +42,7 @@ pub(crate) fn create() -> Result<PathBuf> {
     Ok(path)
 }
 
-fn app_name() -> Result<String> {
+pub(crate) fn app_name() -> Result<String> {
     let exe = current_exe().context("current exe")?;
     let Some(stem) = exe.file_stem().and_then(|s| s.to_str()) else {
         bail!("exe {} has no name", exe.display());

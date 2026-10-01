@@ -9,6 +9,8 @@ use crate::{deps::refs::main_lock::MainLock, gm::flat::Point, ui::UIEvent, windo
 #[derive(Default)]
 struct CursorState {
     captured:   bool,
+    /// Hidden by the app, apart from a capture.
+    hidden:     bool,
     /// Raw mouse motion since `take_motion` last ran.
     motion:     Point,
     on_capture: UIEvent<bool>,
@@ -39,6 +41,33 @@ impl Cursor {
         CURSOR.captured
     }
 
+    /// Hides the mouse pointer over the window and leaves it free, the way
+    /// a video player does after a few still seconds. A capture hides it
+    /// too, and a release shows it again only when it is not hidden here.
+    pub fn hide() {
+        Self::set_hidden(true);
+    }
+
+    pub fn show() {
+        Self::set_hidden(false);
+    }
+
+    /// Hidden by `hide`. A captured mouse is hidden as well and reads false
+    /// here.
+    pub fn hidden() -> bool {
+        CURSOR.hidden
+    }
+
+    fn set_hidden(hidden: bool) {
+        if Self::hidden() == hidden {
+            return;
+        }
+        CURSOR.get_mut().hidden = hidden;
+        if let Some(window) = Window::winit_window() {
+            window.set_cursor_visible(!hidden && !Self::captured());
+        }
+    }
+
     /// Fires with `true` when the mouse is captured and `false` when it
     /// is released, by `release`, Escape or a lost focus alike.
     pub fn on_capture() -> &'static UIEvent<bool> {
@@ -62,6 +91,7 @@ impl Cursor {
     /// captured for the next test.
     pub(crate) fn reset() {
         Self::release();
+        Self::show();
         CURSOR.get_mut().motion = Point::default();
     }
 
@@ -98,5 +128,5 @@ fn grab(window: &winit::window::Window, captured: bool) {
     if let Err(error) = result {
         warn!("Failed to grab the cursor: {error}");
     }
-    window.set_cursor_visible(!captured);
+    window.set_cursor_visible(!captured && !Cursor::hidden());
 }

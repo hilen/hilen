@@ -13,7 +13,10 @@ use crate::{
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         view::{ViewData, ViewSubviews},
-        views::basic::label_runs::StyleRun,
+        views::basic::{
+            label_runs::StyleRun,
+            label_style::{TextOutline, TextShadow},
+        },
     },
     window::{Font, TextLayout, image::ToImage},
 };
@@ -64,6 +67,13 @@ pub struct Label {
     pub text: String,
 
     multiline: bool,
+
+    /// The most lines a multiline label shows, 0 for no limit. See
+    /// `set_max_lines`.
+    pub(super) max_lines: usize,
+
+    pub(super) text_outline: Option<TextOutline>,
+    pub(super) text_shadow:  Option<TextShadow>,
 
     ellipsize: Ellipsize,
 
@@ -291,9 +301,16 @@ impl Label {
     pub fn size_for_width(&self, width: f32) -> Size {
         let margin = self.alignment_margin();
         let bound = self.multiline.then_some(width - margin);
-        let runs = self.shaping_runs(&self.text);
+        // With a line limit the frame is as tall as what is drawn, not as
+        // the whole text.
+        let text = if self.limits_lines() {
+            self.display_text(width)
+        } else {
+            &self.text
+        };
+        let runs = self.shaping_runs(text);
         let measured = self.font().measure(
-            &self.text,
+            text,
             self.text_size,
             bound,
             self.letter_spacing,
@@ -397,14 +414,21 @@ impl Label {
 
     /// The text the drawer paints at the given frame width: the full text
     /// while it fits, the truncated copy with the trailing ellipsis when
-    /// it does not. The full text unless `set_ellipsize` opted in.
+    /// it does not. The full text unless `set_ellipsize` opted in, or a
+    /// multiline label has `set_max_lines`.
     pub fn display_text(&self, width: f32) -> &str {
-        if self.ellipsize == Ellipsize::None || self.multiline || self.text.is_empty() {
+        let clamps_lines = self.limits_lines();
+        let cuts_line = self.ellipsize != Ellipsize::None && !self.multiline;
+        if !(clamps_lines || cuts_line) || self.text.is_empty() {
             return &self.text;
         }
 
         if self.ellipsized.as_ref().is_none_or(|(w, _)| (*w - width).abs() > f32::EPSILON) {
-            let truncated = self.truncate_to(width);
+            let truncated = if clamps_lines {
+                self.truncate_to_lines(width)
+            } else {
+                self.truncate_to(width)
+            };
             weak_from_ref(self).ellipsized = Some((width, truncated));
         }
 

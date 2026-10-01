@@ -4,6 +4,7 @@ mod window_events;
 
 mod app_handler;
 mod frame_counter;
+mod fullscreen;
 #[cfg(desktop)]
 mod icon;
 pub mod image;
@@ -48,4 +49,8 @@ pub use self::{
     window::*,
     window_events::*,
 };
-pub(crate) use self::{app_handler::UserEvent, redraw::request_frame};
+pub(crate) use self::{
+    app_handler::UserEvent,
+    fullscreen::{reset_fullscreen, sync_fullscreen},
+    redraw::request_frame,
+};

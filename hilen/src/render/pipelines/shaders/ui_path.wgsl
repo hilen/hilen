@@ -15,6 +15,8 @@ struct PathView {
     kind: u32,
     stop_count: u32,
     grain: f32,
+    // How much the owning view is faded, 0 for not at all.
+    fade: f32,
 }
 
 const KIND_LINEAR: u32 = 1u;
@@ -130,6 +132,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if path_view.grain != 0.0 {
         color = vec4<f32>(color.rgb * (1.0 + grain(in.local) * path_view.grain), color.a);
     }
+
+    // The mix is premultiplied here, so the fade scales all 4.
+    color = color * (1.0 - path_view.fade);
 
     // An invisible fragment must not write depth, it would mask what
     // draws behind this path later, the trap the rect shader also

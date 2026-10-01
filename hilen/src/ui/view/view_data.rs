@@ -45,6 +45,14 @@ pub trait ViewData {
     fn shadow(&self) -> Option<Shadow>;
     fn set_shadow(&self, shadow: impl Into<Option<Shadow>>) -> &Self;
 
+    /// How much of the view shows, 1 by default. See `set_opacity`.
+    fn opacity(&self) -> f32;
+    /// Fades the view together with everything inside it, 0 shows nothing
+    /// and 1 everything. Set it from a `UIAnimation` to fade controls in and
+    /// out. Every part is faded by itself, so where 2 parts overlap the one
+    /// behind shows through the one in front while they fade.
+    fn set_opacity(&self, opacity: impl ToF32) -> &Self;
+
     fn is_hidden(&self) -> bool;
     fn is_hidden_in_tree(&self) -> bool;
     fn set_hidden(&self, is_hidden: bool) -> &Self;
@@ -187,6 +195,15 @@ impl<T: ?Sized + View> ViewData for T {
 
     fn set_shadow(&self, shadow: impl Into<Option<Shadow>>) -> &Self {
         self.__base_view().shadow = shadow.into();
+        self
+    }
+
+    fn opacity(&self) -> f32 {
+        self.__base_view().opacity
+    }
+
+    fn set_opacity(&self, opacity: impl ToF32) -> &Self {
+        self.__base_view().opacity = opacity.to_f32().clamp(0.0, 1.0);
         self
     }
 

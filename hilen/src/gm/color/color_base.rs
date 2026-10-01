@@ -36,6 +36,18 @@ impl<T> Color<T> {
     }
 }
 
+impl Color {
+    /// The same color with its alpha scaled by `opacity`, 1 leaves it as it
+    /// is.
+    #[must_use]
+    pub(crate) fn faded(&self, opacity: f32) -> Self {
+        Self {
+            a: self.a * opacity,
+            ..*self
+        }
+    }
+}
+
 impl<T: Copy> Color<T> {
     pub(crate) const fn as_slice(&self) -> [T; 4] {
         [self.r, self.g, self.b, self.a]

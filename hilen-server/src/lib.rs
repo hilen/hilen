@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod db;
 pub mod error;
 pub mod helpers;
 pub mod prometheus;
@@ -8,10 +9,9 @@ pub mod web;
 
 pub use axum;
 pub use config::Config;
+pub use db::{Db, build_db, build_sqlite};
 pub use error::AppError;
-pub use helpers::{
-    base_routes, bind, build_db, build_redis, download_mount, serve, serve_listener, serve_on,
-};
+pub use helpers::{base_routes, bind, build_redis, download_mount, serve, serve_listener, serve_on};
 pub use metrics;
 pub use prometheus::{install_metrics, metrics_mount};
 pub use redis;

@@ -9,7 +9,7 @@ use std::{
 };
 
 use ffmpeg_next::{
-    ChannelLayout, Error, Packet, codec, decoder,
+    ChannelLayout, Error, Packet, codec, decoder, filter,
     format::{Sample, context::Input, sample::Type},
     frame, media,
     software::resampling,
@@ -26,6 +26,9 @@ use crate::{
 /// the sample it wants, an empty chunk would leave it walking forever.
 const TAIL: usize = 1024;
 
+/// The speeds the tempo filter takes in one stage.
+pub(crate) const SPEEDS: (f64, f64) = (0.5, 4.0);
+
 pub(crate) struct AudioDecoder {
     input:     Input,
     stream:    usize,
@@ -37,13 +40,46 @@ pub(crate) struct AudioDecoder {
     /// Decoded past a seek but not handed out yet.
     pending:   Vec<Frame>,
     eof:       bool,
+    /// How fast the sound plays, 1 is its own speed. kira sees a sound that
+    /// is the media length divided by this, so its sample `n` is the media
+    /// sample `n * speed`.
+    speed:     f64,
+    /// Changes the speed and keeps the pitch, none at speed 1.
+    tempo:     Option<filter::Graph>,
+}
+
+/// A graph that plays stereo floats at `speed` with the pitch kept, ffmpeg's
+/// `atempo`.
+fn tempo_graph(rate: u32, speed: f64) -> Result<filter::Graph, Error> {
+    let buffer = filter::find("abuffer").ok_or(Error::FilterNotFound)?;
+    let sink = filter::find("abuffersink").ok_or(Error::FilterNotFound)?;
+
+    let mut graph = filter::Graph::new();
+    let format = format!("time_base=1/{rate}:sample_rate={rate}:sample_fmt=flt:channel_layout=stereo");
+    graph.add(&buffer, "in", &format)?;
+    graph.add(&sink, "out", "")?;
+    graph.output("in", 0)?.input("out", 0)?.parse(&format!("atempo={speed}"))?;
+    graph.validate()?;
+    Ok(graph)
 }
 
 impl AudioDecoder {
     /// None when the source has no sound track.
-    pub(crate) fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Option<Self>, Error> {
+    /// `track` is the stream to play, the best one when none is named.
+    pub(crate) fn open(
+        source: &VideoSource,
+        stop: &Arc<AtomicBool>,
+        track: Option<usize>,
+        speed: f64,
+    ) -> Result<Option<Self>, Error> {
         let input = source.open(stop)?;
-        let Some(stream) = input.streams().best(media::Type::Audio) else {
+        let stream = match track {
+            Some(index) => input
+                .streams()
+                .find(|stream| stream.index() == index && stream.parameters().medium() == media::Type::Audio),
+            None => input.streams().best(media::Type::Audio),
+        };
+        let Some(stream) = stream else {
             return Ok(None);
         };
         let index = stream.index();
@@ -72,7 +108,13 @@ impl AudioDecoder {
             ChannelLayout::STEREO,
             rate,
         )?;
-        let frames = (duration * f64::from(rate)).ceil().lossy_convert();
+        let speed = speed.clamp(SPEEDS.0, SPEEDS.1);
+        let frames = (duration * f64::from(rate) / speed).ceil().lossy_convert();
+        let tempo = if (speed - 1.0).abs() < f64::EPSILON {
+            None
+        } else {
+            Some(tempo_graph(rate, speed)?)
+        };
 
         Ok(Some(Self {
             input,
@@ -84,7 +126,14 @@ impl AudioDecoder {
             frames,
             pending: Vec::new(),
             eof: false,
+            speed,
+            tempo,
         }))
+    }
+
+    /// The index of the stream it plays.
+    pub(crate) fn stream(&self) -> usize {
+        self.stream
     }
 
     /// The next packet of the sound stream, None at the end.
@@ -122,7 +171,36 @@ impl AudioDecoder {
             }
             let mut converted = frame::Audio::empty();
             self.resampler.run(&decoded, &mut converted)?;
-            push_samples(out, &converted);
+            match &mut self.tempo {
+                Some(tempo) => {
+                    converted.set_pts(None);
+                    tempo.get("in").ok_or(Error::FilterNotFound)?.source().add(&converted)?;
+                    drain(tempo, out)?;
+                }
+                None => push_samples(out, &converted),
+            }
+        }
+    }
+
+    /// The end of the stream: what the tempo filter still holds comes out.
+    fn finish_tempo(&mut self, out: &mut Vec<Frame>) -> Result<(), Error> {
+        if let Some(tempo) = &mut self.tempo {
+            tempo.get("in").ok_or(Error::FilterNotFound)?.source().flush()?;
+            drain(tempo, out)?;
+        }
+        Ok(())
+    }
+}
+
+/// Every frame the tempo filter has ready.
+fn drain(tempo: &mut filter::Graph, out: &mut Vec<Frame>) -> Result<(), Error> {
+    let mut sink = tempo.get("out").ok_or(Error::FilterNotFound)?;
+    loop {
+        let mut filtered = frame::Audio::empty();
+        match sink.sink().frame(&mut filtered) {
+            Ok(()) => push_samples(out, &filtered),
+            Err(Error::Other { errno: EAGAIN } | Error::Eof) => return Ok(()),
+            Err(err) => return Err(err),
         }
     }
 }
@@ -163,6 +241,9 @@ impl Decoder for AudioDecoder {
             } else {
                 self.eof = true;
                 self.decoder.send_eof()?;
+                self.receive_all(&mut out)?;
+                self.finish_tempo(&mut out)?;
+                continue;
             }
             self.receive_all(&mut out)?;
         }
@@ -172,13 +253,20 @@ impl Decoder for AudioDecoder {
     /// Lands on the keyframe before the sample and reports where that is.
     /// kira walks forward from there to the sample it asked for.
     fn seek(&mut self, index: usize) -> Result<usize, Error> {
-        let seconds =
-            count_to_f64(u64::try_from(index).expect("a sample index fits u64")) / f64::from(self.rate);
+        // kira counts samples of the sound it hears, the stream is `speed`
+        // times that far along.
+        let seconds = count_to_f64(u64::try_from(index).expect("a sample index fits u64"))
+            / f64::from(self.rate)
+            * self.speed;
         let micros: i64 = (seconds * 1_000_000.0).lossy_convert();
         self.input.seek(micros, ..micros)?;
         self.decoder.flush();
         self.eof = false;
         self.pending.clear();
+        // The filter holds sound from before the seek, a fresh one does not.
+        if self.tempo.is_some() {
+            self.tempo = Some(tempo_graph(self.rate, self.speed)?);
+        }
 
         loop {
             let Some(packet) = self.next_packet()? else {
@@ -192,8 +280,74 @@ impl Decoder for AudioDecoder {
                 continue;
             }
             self.pending = out;
-            let landed = first.unwrap_or(seconds) * f64::from(self.rate);
+            let landed = first.unwrap_or(seconds) / self.speed * f64::from(self.rate);
             return Ok(landed.round().max(0.0).lossy_convert());
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    use kira::sound::streaming::Decoder;
+
+    use crate::video::{audio::AudioDecoder, count_to_f64, test_fixture};
+
+    /// The tone of a track in Hz from the sign changes of its sound, and how
+    /// many seconds of sound the track gives, at a playback speed.
+    fn heard(track: Option<usize>, speed: f64) -> (f64, f64) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut decoder = AudioDecoder::open(&test_fixture("tracks.mkv"), &stop, track, speed)
+            .expect("the fixture opens")
+            .expect("the fixture has sound");
+        let mut frames = Vec::new();
+        while !decoder.eof {
+            frames.extend(decoder.decode().expect("the fixture decodes"));
+        }
+        let crossings = frames
+            .windows(2)
+            .filter(|pair| (pair[0].left < 0.0) != (pair[1].left < 0.0))
+            .count();
+        let seconds = count_to_f64(frames.len() as u64) / f64::from(decoder.sample_rate());
+        (count_to_f64(crossings as u64) / 2.0 / seconds, seconds)
+    }
+
+    fn tone(track: Option<usize>) -> f64 {
+        heard(track, 1.0).0
+    }
+
+    /// The fixture is 4 seconds of a 440 Hz tone. At double speed it must be
+    /// 2 seconds long and at half speed 8, and still sound at 440 Hz, the
+    /// pitch is kept. A plain resample would give 880 and 220 Hz.
+    #[test]
+    fn speed_changes_the_length_and_keeps_the_pitch() {
+        for (speed, length) in [(1.0, 4.0), (2.0, 2.0), (0.5, 8.0), (1.5, 4.0 / 1.5)] {
+            let (hz, seconds) = heard(Some(1), speed);
+            assert!(
+                (seconds - length).abs() < 0.1,
+                "at speed {speed} the sound is {seconds} s long"
+            );
+            assert!((hz - 440.0).abs() < 15.0, "at speed {speed} the tone is {hz} Hz");
+        }
+    }
+
+    /// The fixture has a 440 Hz track at stream 1 and a 1760 Hz track at
+    /// stream 2. The decoder must play the one it was asked for, and the
+    /// first one when none is named.
+    #[test]
+    fn the_chosen_sound_track_plays() {
+        assert!(
+            (tone(Some(1)) - 440.0).abs() < 20.0,
+            "stream 1 is the 440 Hz tone"
+        );
+        assert!(
+            (tone(Some(2)) - 1760.0).abs() < 40.0,
+            "stream 2 is the 1760 Hz tone"
+        );
+        assert!(
+            (tone(None) - 440.0).abs() < 20.0,
+            "no choice plays the first track"
+        );
     }
 }

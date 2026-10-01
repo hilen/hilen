@@ -7,14 +7,11 @@ use axum::{
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::types::Uuid;
 
 use crate::{
     AppError,
     auth::{
-        AuthState, User,
-        google::{self, GoogleIdentity},
-        session,
+        AuthState, User, google, session, store,
         user::bearer_token,
         wire::{PollRequest, PollResponse, UserInfo},
     },
@@ -56,28 +53,11 @@ async fn start(
         ));
     }
 
-    sqlx::query("DELETE FROM pending_logins WHERE created_at < now() - make_interval(mins => $1)")
-        .bind(PENDING_MINUTES)
-        .execute(&state.db)
-        .await?;
+    store::prune_pending(&state.db, PENDING_MINUTES).await?;
 
     let oauth_state = session::new_token()?;
 
-    // A reload of the page starts over. A challenge that already has its user
-    // is left alone, or a second person opening the same link could swap
-    // their account in under the app that is waiting for the first.
-    let started = sqlx::query(
-        r"
-INSERT INTO pending_logins (challenge, state) VALUES ($1, $2)
-ON CONFLICT (challenge) DO UPDATE SET state = EXCLUDED.state, created_at = now()
-WHERE pending_logins.user_id IS NULL",
-    )
-    .bind(&query.challenge)
-    .bind(&oauth_state)
-    .execute(&state.db)
-    .await?;
-
-    if started.rows_affected() == 0 {
+    if !store::start_pending(&state.db, &query.challenge, &oauth_state).await? {
         return Err(AppError::BadRequest("this login is already finished".to_owned()));
     }
 
@@ -120,48 +100,15 @@ async fn callback(State(state): State<AuthState>, Query(query): Query<CallbackQu
 
 /// False when no login waits for this `state`, it timed out or never was.
 async fn finish(state: &AuthState, code: &str, oauth_state: &str) -> anyhow::Result<bool> {
-    let waiting: Option<(String,)> = sqlx::query_as(
-        r"
-SELECT challenge FROM pending_logins
-WHERE state = $1 AND user_id IS NULL AND created_at > now() - make_interval(mins => $2)",
-    )
-    .bind(oauth_state)
-    .bind(PENDING_MINUTES)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if waiting.is_none() {
+    if !store::is_waiting(&state.db, oauth_state, PENDING_MINUTES).await? {
         return Ok(false);
     }
 
     let identity = google::exchange(&state.http, &state.config, code).await?;
-    let user_id = upsert_user(state, &identity).await?;
-
-    sqlx::query("UPDATE pending_logins SET user_id = $2 WHERE state = $1")
-        .bind(oauth_state)
-        .bind(user_id)
-        .execute(&state.db)
-        .await?;
+    let user_id = store::upsert_user(&state.db, &identity).await?;
+    store::finish_pending(&state.db, oauth_state, user_id).await?;
 
     Ok(true)
-}
-
-/// Name, email and picture follow Google on every login.
-async fn upsert_user(state: &AuthState, identity: &GoogleIdentity) -> Result<Uuid, sqlx::Error> {
-    let (id,): (Uuid,) = sqlx::query_as(
-        r"
-INSERT INTO users (google_sub, email, name, picture) VALUES ($1, $2, $3, $4)
-ON CONFLICT (google_sub) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
-RETURNING id",
-    )
-    .bind(&identity.sub)
-    .bind(&identity.email)
-    .bind(&identity.name)
-    .bind(&identity.picture)
-    .fetch_one(&state.db)
-    .await?;
-
-    Ok(id)
 }
 
 async fn poll(
@@ -170,20 +117,7 @@ async fn poll(
 ) -> Result<Json<PollResponse>, AppError> {
     let challenge = hex::encode(Sha256::digest(request.verifier.as_bytes()));
 
-    // Taking the row out is what makes the hand over happen once, two polls
-    // at the same moment cannot both get a session.
-    let finished: Option<(Uuid,)> = sqlx::query_as(
-        r"
-DELETE FROM pending_logins
-WHERE challenge = $1 AND user_id IS NOT NULL AND created_at > now() - make_interval(mins => $2)
-RETURNING user_id",
-    )
-    .bind(&challenge)
-    .bind(PENDING_MINUTES)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let Some((user_id,)) = finished else {
+    let Some(user_id) = store::take_finished(&state.db, &challenge, PENDING_MINUTES).await? else {
         return Ok(Json(PollResponse::Pending));
     };
 

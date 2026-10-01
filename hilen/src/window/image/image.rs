@@ -1,4 +1,4 @@
-use std::{convert::Infallible, path::Path};
+use std::{convert::Infallible, path::Path, sync::atomic::AtomicU64};
 
 use anyhow::Result;
 use log::error;
@@ -28,14 +28,17 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Image {
-    pub size:     Size<u32>,
-    pub channels: u8,
-    bind:         ImageBind,
-    filter:       ImageFilter,
+    pub size:            Size<u32>,
+    pub channels:        u8,
+    bind:                ImageBind,
+    filter:              ImageFilter,
     /// Present for an svg, so an `ImageView` can rasterize it at the
     /// exact size it draws. `bind` then holds the old fixed raster that
     /// sprites and levels still draw.
-    pub svg:      Option<Svg>,
+    pub svg:             Option<Svg>,
+    /// The render frame an `ImageView` last drew it on, 0 for never. The
+    /// memory bound of downloaded images frees the ones drawn longest ago.
+    pub(crate) drawn_at: AtomicU64,
 }
 
 impl Image {
@@ -95,6 +98,7 @@ impl Image {
             bind: Self::bind_texture(texture),
             filter: ImageFilter::Linear,
             svg,
+            drawn_at: AtomicU64::new(0),
         }
     }
 

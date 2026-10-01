@@ -1,13 +1,15 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::atomic::Ordering,
+};
 
 use wgpu::RenderPass;
-use wgpu_text::{Section, Text, TextBuilder, glyph_brush::HorizontalAlign};
 
 use crate::{
-    deps::refs::{Weak, main_lock::MainLock},
+    deps::refs::main_lock::MainLock,
     gm::{
         LossyConvert,
-        color::{CLEAR, Color, TURQUOISE},
+        color::{CLEAR, TURQUOISE},
         flat::{CornerRadii, Rect, Size},
     },
     pipelines::Pipelines,
@@ -17,14 +19,14 @@ use crate::{
         data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
-        BlurView, DrawingView, ImageView, Label, ScrimView, TextAlignment, UIManager, VerticalAlignment,
-        View, ViewData, ViewFrame, ViewLayout, ViewSubviews,
+        BlurView, DrawingView, ImageView, Label, ScrimView, UIManager, View, ViewData, ViewFrame, ViewLayout,
+        ViewSubviews, label_drawer::TextSections,
     },
-    window::{Font, RenderFrame, ShapedLayout, ShapedParams, VerticalAlign, Window, image::Svg},
+    window::{RenderFrame, Window, image::Svg},
 };
 
 static GRADIENT_DRAWER: MainLock<UIGradientPipeline> = MainLock::new();
-static IMAGE_RECT_DRAWER: MainLock<UIImageRectPipeline> = MainLock::new();
+pub(super) static IMAGE_RECT_DRAWER: MainLock<UIImageRectPipeline> = MainLock::new();
 static SHADOW_DRAWER: MainLock<UIShadowPipeline> = MainLock::new();
 static SCRIM_DRAWER: MainLock<UIRectPipeline> = MainLock::new();
 static BLUR_DRAWER: MainLock<UIBlurPipeline> = MainLock::new();
@@ -35,8 +37,6 @@ static CLIP_DRAWER: MainLock<UIClipPipeline> = MainLock::new();
 /// Set during update when a visible `BlurView` wants a blur, read by
 /// the window before it picks the frame's render target.
 static NEEDS_SAMPLING: MainLock<bool> = MainLock::new();
-
-type TextSections<'a> = Vec<(Weak<Font>, Vec<(Section<'a>, ShapedParams)>)>;
 
 struct DrawContext<'a> {
     text_sections: TextSections<'a>,
@@ -63,7 +63,7 @@ impl UIDrawer {
     pub(crate) fn update() {
         UIManager::commit_animations();
         *NEEDS_SAMPLING.get_mut() = false;
-        Self::update_view(UIManager::root_view().deref_mut());
+        Self::update_view(UIManager::root_view().deref_mut(), 1.0);
     }
 
     pub(crate) fn needs_sampleable_frame() -> bool {
@@ -174,7 +174,7 @@ impl UIDrawer {
         if let Some(label) = view.as_any().downcast_ref::<Label>()
             && !label.text.is_empty()
         {
-            Self::draw_label(&frame, label, sections, scale);
+            Self::draw_label(&frame, label, sections, scale, 1.0);
         }
 
         let root_frame = UIManager::root_view_static().frame();
@@ -213,8 +213,8 @@ impl UIDrawer {
             },
             UIRectInstance::new(
                 *frame,
-                *view.color(),
-                *view.border_color(),
+                view.color().faded(view.__base_view().tree_opacity),
+                view.border_color().faded(view.__base_view().tree_opacity),
                 view.border_width(),
                 view.corner_radii(),
                 view.z_position(),
@@ -224,10 +224,12 @@ impl UIDrawer {
         );
     }
 
-    fn update_view(view: &mut dyn View) {
+    fn update_view(view: &mut dyn View, parent_opacity: f32) {
         if view.is_hidden() {
             return;
         }
+        let opacity = parent_opacity * view.opacity();
+        view.__base_view().tree_opacity = opacity;
         view.layout();
         view.calculate_absolute_frame();
         view.update();
@@ -245,7 +247,7 @@ impl UIDrawer {
         let mut i = 0;
         while i < view.subviews().len() {
             let mut child = view.subviews()[i].weak();
-            Self::update_view(child.deref_mut());
+            Self::update_view(child.deref_mut(), opacity);
             i += 1;
         }
     }
@@ -253,7 +255,11 @@ impl UIDrawer {
     fn draw_view<'a>(render_frame: &mut RenderFrame, view: &'a dyn View, ctx: &mut DrawContext<'a>) {
         let frame = *view.absolute_frame();
 
-        if view.is_hidden() || frame.size.has_no_area() {
+        // A view faded to nothing draws nothing, and neither does anything
+        // inside it.
+        let opacity = view.__base_view().tree_opacity;
+
+        if view.is_hidden() || frame.size.has_no_area() || opacity <= 0.0 {
             return;
         }
 
@@ -266,7 +272,7 @@ impl UIDrawer {
             Self::enter_scissor(render_frame, &frame, ctx);
         }
 
-        Self::draw_shadow(view, &frame, ctx.scale);
+        Self::draw_shadow(view, &frame, ctx.scale, opacity);
 
         if let Some(blur) = view.as_any().downcast_ref::<BlurView>()
             && blur.blur_radius() > 0.0
@@ -279,14 +285,17 @@ impl UIDrawer {
             // only when the rect is in front of all queued text. Text
             // writes depth over whole glyph boxes, so a rect behind it,
             // like a text selection, would get holes around the glyphs.
-            if is_translucent(view) && !ctx.text_sections.is_empty() && view.z_position() < ctx.nearest_text {
+            if is_translucent(view, opacity)
+                && !ctx.text_sections.is_empty()
+                && view.z_position() < ctx.nearest_text
+            {
                 Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
                 Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             }
-            Self::draw_background(view, &frame, ctx.scale);
+            Self::draw_background(view, &frame, ctx.scale, opacity);
         }
 
-        Self::draw_content(view, &frame, ctx);
+        Self::draw_content(view, &frame, ctx, opacity);
 
         if ctx.debug_frames {
             Self::draw_debug_frame(view, &frame, ctx.scale);
@@ -364,7 +373,7 @@ impl UIDrawer {
         ctx.scissor = clip_rect;
     }
 
-    fn draw_shadow(view: &dyn View, frame: &Rect, scale: f32) {
+    fn draw_shadow(view: &dyn View, frame: &Rect, scale: f32, opacity: f32) {
         if let Some(shadow) = view.shadow()
             && shadow.radius > 0.0
             && shadow.color.a > 0.0
@@ -372,7 +381,7 @@ impl UIDrawer {
             SHADOW_DRAWER.get_mut().add(UIShadowInstance {
                 position: frame.origin + shadow.offset,
                 size: frame.size,
-                color: shadow.color,
+                color: shadow.color.faded(opacity),
                 corner_radii: view.corner_radii(),
                 blur: shadow.radius,
                 z_position: view.z_position(),
@@ -382,13 +391,13 @@ impl UIDrawer {
         }
     }
 
-    fn draw_background(view: &dyn View, frame: &Rect, scale: f32) {
+    fn draw_background(view: &dyn View, frame: &Rect, scale: f32, opacity: f32) {
         if view.as_any().downcast_ref::<ScrimView>().is_some() {
             if view.color().a > 0.0 {
                 SCRIM_DRAWER.get_mut().add(UIRectInstance::new(
                     *frame,
-                    *view.color(),
-                    *view.border_color(),
+                    view.color().faded(opacity),
+                    view.border_color().faded(opacity),
                     view.border_width(),
                     view.corner_radii(),
                     view.z_position(),
@@ -396,19 +405,23 @@ impl UIDrawer {
                 ));
             }
         } else if let Some(gradient) = view.gradient() {
-            GRADIENT_DRAWER.get_mut().add(gradient.instance(
-                *frame,
-                view.corner_radii(),
-                *view.border_color(),
-                view.border_width(),
-                view.z_position(),
-                scale,
-            ));
+            GRADIENT_DRAWER.get_mut().add(
+                gradient
+                    .instance(
+                        *frame,
+                        view.corner_radii(),
+                        *view.border_color(),
+                        view.border_width(),
+                        view.z_position(),
+                        scale,
+                    )
+                    .faded(opacity),
+            );
         } else if view.color().a > 0.0 || view.border_color().a > 0.0 {
             Pipelines::rect().add(UIRectInstance::new(
                 *frame,
-                *view.color(),
-                *view.border_color(),
+                view.color().faded(opacity),
+                view.border_color().faded(opacity),
                 view.border_width(),
                 view.corner_radii(),
                 view.z_position(),
@@ -417,10 +430,11 @@ impl UIDrawer {
         }
     }
 
-    fn draw_content<'a>(view: &'a dyn View, frame: &Rect, ctx: &mut DrawContext<'a>) {
+    fn draw_content<'a>(view: &'a dyn View, frame: &Rect, ctx: &mut DrawContext<'a>, opacity: f32) {
         if let Some(image_view) = view.as_any().downcast_ref::<ImageView>() {
             if image_view.image().is_ok() {
                 let image = image_view.image();
+                image.drawn_at.store(Window::render_frame(), Ordering::Relaxed);
                 let raster = image.svg.as_ref().map(|svg| {
                     let size = image_view.raster_size(ctx.scale);
                     svg.touch(size, Window::render_frame());
@@ -438,7 +452,8 @@ impl UIDrawer {
                         image_view.flip_x,
                         image_view.flip_y,
                         ctx.scale,
-                    ),
+                    )
+                    .with_opacity(opacity),
                     ImageKey { image, raster },
                 );
             }
@@ -451,9 +466,9 @@ impl UIDrawer {
             } else {
                 ctx.nearest_text.min(z)
             };
-            Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale);
-            Self::draw_color_glyphs(frame, label, ctx.scale);
-            Self::draw_underlines(frame, label, ctx.scale);
+            Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale, opacity);
+            Self::draw_color_glyphs(frame, label, ctx.scale, opacity);
+            Self::draw_underlines(frame, label, ctx.scale, opacity);
         } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {
             ctx.paths.extend(drawing.paths());
         }
@@ -503,247 +518,12 @@ impl UIDrawer {
             scale,
         )
     }
-
-    /// The shaping parameters of a label drawn at `scale`, the same for
-    /// the brush and for the color glyph images.
-    fn label_params(label: &Label, text: &str, scale: f32) -> ShapedParams {
-        ShapedParams {
-            tracking:    label.letter_spacing() * scale,
-            multiline:   label.is_multiline(),
-            h_align:     match label.alignment {
-                TextAlignment::Left => HorizontalAlign::Left,
-                TextAlignment::Center => HorizontalAlign::Center,
-                TextAlignment::Right => HorizontalAlign::Right,
-            },
-            v_align:     match label.vertical_alignment {
-                VerticalAlignment::Top => VerticalAlign::Top,
-                VerticalAlignment::Center => VerticalAlign::Center,
-            },
-            line_height: label.line_height().map(|height| height * scale),
-            base:        label.font(),
-            runs:        label.shaping_runs(text),
-        }
-    }
-
-    /// Where a label's text anchors inside its pixel `frame` and the
-    /// bounds it wraps in, the section geometry of the brush.
-    fn label_geometry(frame: &Rect, label: &Label) -> ((f32, f32), (f32, f32)) {
-        let center = frame.center();
-        let margin = 16.0;
-
-        let bounds = (
-            frame.width() - if label.alignment.center() { 0.0 } else { margin },
-            frame.height(),
-        );
-        let position = (
-            match label.alignment {
-                TextAlignment::Left => frame.x() + margin,
-                TextAlignment::Center => center.x,
-                TextAlignment::Right => frame.max_x() - margin,
-            },
-            match label.vertical_alignment {
-                VerticalAlignment::Top => frame.y(),
-                VerticalAlignment::Center => center.y,
-            },
-        );
-        (position, bounds)
-    }
-
-    /// The color glyphs of a label, the emoji of a color font, as images
-    /// at the positions the shaper gave them. The brush skips these
-    /// glyphs, see `ShapedLayout::color_glyphs`.
-    fn draw_color_glyphs(frame: &Rect, label: &Label, scale: f32) {
-        if !label.uses_color_font() {
-            return;
-        }
-
-        let text = label.display_text(frame.size.width);
-        let params = Self::label_params(label, text, scale);
-        let font = params.base;
-
-        let frame = frame * scale;
-        let (position, bounds) = Self::label_geometry(&frame, label);
-        let layout = ShapedLayout {
-            emit: &font.name,
-            params,
-        };
-        let scale_px = label.text_size() * scale * font.em_scale();
-        let z = label.z_position() - UIManager::additional_z_offset();
-
-        for placed in layout.color_glyphs(scale_px, text, position, bounds.0) {
-            let Some(glyph) = placed.font.color_glyph(placed.id, placed.px_per_em) else {
-                continue;
-            };
-            // Snapped to whole pixels, a fractional origin would blur the
-            // image and land on different pixels per GPU.
-            let x = (placed.x + glyph.left).round() / scale;
-            let y = (placed.baseline + glyph.top).round() / scale;
-            let size = glyph.size / scale;
-            let rect: Rect = (x, y, size.width, size.height).into();
-
-            IMAGE_RECT_DRAWER.get_mut().add_with_image(
-                UIImageInstance::new(
-                    rect,
-                    (0, 0, 1, 1).into(),
-                    CLEAR,
-                    0.0,
-                    CornerRadii::default(),
-                    z,
-                    false,
-                    false,
-                    scale,
-                ),
-                glyph.image,
-            );
-        }
-    }
-
-    fn draw_label<'a>(frame: &Rect, label: &'a Label, sections: &mut TextSections<'a>, scale: f32) {
-        // The full text, or the ellipsized copy when the label opted in
-        // and the text overflows this width.
-        let text = label.display_text(frame.size.width);
-
-        let frame = frame * scale;
-
-        let params = Self::label_params(label, text, scale);
-        let font = params.base;
-
-        let scale_px = label.text_size() * scale * font.em_scale();
-        let z = label.z_position() - UIManager::additional_z_offset();
-
-        let make_text = |slice: &'a str, color: &Color| {
-            Text::new(slice).with_scale(scale_px).with_color(color.as_slice()).with_z(z)
-        };
-
-        let mut section = Section::new();
-
-        if label.color_runs().is_empty() {
-            let mut colored = make_text(text, label.text_color());
-
-            // After `with_color`, which sets both ends of the ramp so that a
-            // label without a gradient stays flat.
-            if let Some(end) = label.text_end_color() {
-                colored = colored.with_end_color(end.as_slice());
-            }
-
-            section = section.add_text(colored);
-        } else {
-            // One glyph_brush text per run and per gap between runs. The
-            // layout shapes them as one string and only picks the color
-            // per glyph, so a run boundary never breaks kerning.
-            //
-            // Runs are byte ranges of the full text. An ellipsized copy is
-            // shorter and ends in the multi byte ellipsis, so a clamped
-            // range backs off to a char boundary of what is drawn, which
-            // keeps the ellipsis itself in the text color.
-            let clamp = |position: usize| {
-                let mut position = position.min(text.len());
-                while !text.is_char_boundary(position) {
-                    position -= 1;
-                }
-                position
-            };
-            let mut cursor = 0;
-
-            for run in label.color_runs() {
-                let (start, end) = (clamp(run.range.start), clamp(run.range.end));
-                if start >= end {
-                    continue;
-                }
-                if cursor < start {
-                    section = section.add_text(make_text(&text[cursor..start], label.text_color()));
-                }
-                section = section.add_text(make_text(&text[start..end], &run.color));
-                cursor = end;
-            }
-
-            if cursor < text.len() {
-                section = section.add_text(make_text(&text[cursor..], label.text_color()));
-            }
-        }
-
-        let (position, bounds) = Self::label_geometry(&frame, label);
-        let section = section.with_bounds(bounds).with_screen_position(position);
-
-        // A font run draws through its own font's brush, so the section
-        // is queued once per font it touches. Every copy lays the whole
-        // text out and keeps the glyphs of its own font.
-        let mut fonts = vec![font];
-        for run in &params.runs {
-            if !fonts.iter().any(|f| f.name == run.font.name) {
-                fonts.push(run.font);
-            }
-        }
-
-        for font in fonts {
-            match sections.iter_mut().find(|(f, _)| f.name == font.name) {
-                Some((_, list)) => list.push((section.clone(), params.clone())),
-                None => sections.push((font, vec![(section.clone(), params.clone())])),
-            }
-        }
-    }
-
-    /// One rect under every line piece of an underlined run, in the
-    /// color the text has there. Between the label background and its
-    /// glyphs, so a descender paints over the line like in a browser.
-    fn draw_underlines(frame: &Rect, label: &Label, scale: f32) {
-        let text = label.display_text(frame.size.width);
-        let ranges = label.underline_runs(text);
-        if ranges.is_empty() {
-            return;
-        }
-
-        let layout = label.text_layout_for(text);
-        let inset = label.text_inset();
-        // Snapped to whole screen pixels. A hairline on a fractional row
-        // gets its two partial rows blended differently by every GPU, a
-        // whole row reads the same everywhere, and a crisp line is what a
-        // browser draws too.
-        let (position, thickness) = layout.underline;
-        let thickness = (thickness * scale).round().max(1.0) / scale;
-        let z = label.z_position() - UIManager::additional_z_offset() / 2.0;
-
-        let top = match label.vertical_alignment {
-            VerticalAlignment::Top => frame.y(),
-            VerticalAlignment::Center => frame.y() + frame.height() / 2.0 - layout.total_height() / 2.0,
-        };
-
-        for (index, line) in layout.lines.iter().enumerate() {
-            let line_x = match label.alignment {
-                TextAlignment::Left => frame.x() + inset,
-                TextAlignment::Center => frame.x() + (frame.width() - line.width) / 2.0,
-                TextAlignment::Right => frame.max_x() - inset - line.width,
-            };
-            let count: f32 = index.lossy_convert();
-            let baseline = top + layout.ascent + count * layout.line_height;
-            let y = ((baseline - position) * scale).round() / scale;
-
-            for range in &ranges {
-                let start = range.start.max(line.start);
-                let end = range.end.min(line.end);
-                if start >= end {
-                    continue;
-                }
-                let x0 = layout.x_on_line(index, start);
-                let x1 = layout.x_on_line(index, end);
-
-                Pipelines::rect().add(UIRectInstance::new(
-                    (line_x + x0, y, x1 - x0, thickness).into(),
-                    label.color_at(start),
-                    CLEAR,
-                    0.0,
-                    CornerRadii::default(),
-                    z,
-                    scale,
-                ));
-            }
-        }
-    }
 }
 
-/// A scrim is left out, it already flushes after all text.
-fn is_translucent(view: &dyn View) -> bool {
-    let partial = |alpha: f32| alpha > 0.0 && alpha < 1.0;
+/// A scrim is left out, it already flushes after all text. `opacity` is
+/// the fade of the view's tree, it makes a solid color translucent too.
+fn is_translucent(view: &dyn View, opacity: f32) -> bool {
+    let partial = |alpha: f32| alpha > 0.0 && alpha * opacity < 1.0;
     view.as_any().downcast_ref::<ScrimView>().is_none()
         && (partial(view.color().a) || partial(view.border_color().a))
 }

@@ -77,9 +77,22 @@ impl<T: AsRef<str>> From<T> for VideoSource {
 mod test {
     use std::sync::{Arc, atomic::AtomicBool};
 
-    use ffmpeg_next::Error;
+    use ffmpeg_next::{Error, decoder::find_by_name};
 
     use crate::video::VideoSource;
+
+    /// The prebuilt archive must carry the software AV1 decoder and zlib.
+    /// The png decoder is the witness for zlib, ffmpeg builds it only with
+    /// zlib in.
+    #[test]
+    fn dav1d_and_zlib_are_linked() {
+        crate::video::init();
+        assert!(
+            find_by_name("libdav1d").is_some(),
+            "the ffmpeg archive has no dav1d"
+        );
+        assert!(find_by_name("png").is_some(), "the ffmpeg archive has no zlib");
+    }
 
     /// The prebuilt archive must carry TLS. Nothing listens on the port, so
     /// the open fails either way, with a connect error when the https protocol

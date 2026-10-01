@@ -49,6 +49,16 @@ pub(crate) struct UIGradientInstance {
 }
 
 impl UIGradientInstance {
+    /// The same gradient with every color faded by `opacity`, 1 leaves it as
+    /// it is.
+    #[must_use]
+    pub(crate) fn faded(mut self, opacity: f32) -> Self {
+        self.start_color = self.start_color.faded(opacity);
+        self.end_color = self.end_color.faded(opacity);
+        self.border_color = self.border_color.faded(opacity);
+        self
+    }
+
     /// `ui_gradient.wgsl` matches these against its `kind` field.
     pub const LINEAR: u32 = 0;
     pub const RADIAL: u32 = 1;

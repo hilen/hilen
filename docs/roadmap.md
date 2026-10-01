@@ -16,160 +16,67 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Caret of a field focused in setup sits in the wrong place
+
+Found by wallet at `~/dev/apps/wallet`, its unlock screen focuses the password
+field in the `setup` of the root view.
+
+- Current: `TextField::focus` called in the `setup` of the root view places the
+  caret once, before the field has its final frame. The caret then stays about 8
+  points right of the text start, so an empty field shows it after the first
+  letter of the placeholder. The same call in the `setup` of a modal, which has
+  its size at that time, places the caret right. `size_changed` in
+  `hilen/src/ui/views/basic/text_field/mod.rs` runs only `update_layout`, never
+  `update_caret`, so nothing moves the caret after the first layout.
+- Needed: the caret and the selection views follow every change of the field
+  frame while it is being edited. A UI test that focuses a field in the `setup`
+  of the root view and checks the caret at the text start.
+- Blocks: the unlock screen of wallet, and any app that focuses a field on its
+  first screen.
+
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
-Its first version is macOS only. These entries are the top priority. They are
-split into batches, each sized for 1 work session, in the order to do them.
-Batches 1 to 4 block the first version, batches 5 to 8 block the full product.
+Its first version is macOS only. The gaps landed in 8 batches: tracks and
+subtitles, HDR, fullscreen, pointer hide and screen awake, SQLite in
+`hilen-server`, view opacity, the line limit and text outline, image downloads,
+playback speed, Now Playing and the media keys, zlib and dav1d. See
+[video.md](video.md), [text.md](text.md) and [login.md](login.md). What is left:
 
-### Batch 1, tracks in VideoView
+### Surround sound
 
-Both need the list of streams of a source and a way to pick one, in `hilen/src/video`.
+- Current: the sound of a video is resampled to stereo in
+  `hilen/src/video/audio.rs`. kira's `Frame` has a `left` and a `right` sample
+  and nothing else, so no layout with more channels can pass through it.
+- Needed: an output path with more than 2 channels for a video's sound, which
+  means a sound engine next to kira or in place of it, and the sound in its own
+  channel layout when the output device has the channels.
+- Blocks: surround sound of a film.
 
-#### Text subtitles in VideoView
+### What the flixen batches left open
 
-- Current: the decode loop drops every packet that is not the video stream,
-  `packet.stream() != decoding.stream` in `hilen/src/video/decoder.rs`. The
-  view has no subtitle API. The prebuilt ffmpeg has the `srt` and `ass`
-  decoders.
-- Needed: the list of subtitle tracks of a source with language and title, a
-  call to pick one or none, and an event that carries the text of the cue to
-  show and clears it when it ends, in step with the video clock and with a
-  seek. A way to load a subtitle file from outside the source, an `.srt` path
-  or url. ASS styling is dropped, only the text goes out. Picture subtitles
-  like PGS come later on the same track list.
-- Blocks: any film watched with subtitles.
-
-#### Audio track choice in VideoView
-
-- Current: the sound always opens `input.streams().best(media::Type::Audio)`,
-  `hilen/src/video/audio.rs`. There is no track list and no way to switch.
-- Needed: the list of sound tracks with language, title, codec and channel
-  count, and a call to switch that keeps the position.
-- Blocks: a film with more than 1 language.
-
-### Batch 2, HDR
-
-Alone, it is shader work in `nv12.wgsl` plus a measured run.
-
-#### HDR and 10 bit video
-
-- Current: a 10 bit frame comes back as P010 and goes through swscale to 8 bit
-  NV12 with no tone mapping, `Decoding::scale` in `decoder.rs`. `nv12.wgsl`
-  knows BT.709 and BT.601 only. The speed of this path is not measured,
-  [video.md](video.md) measured h264 only.
-- Needed: PQ and HLG with BT.2020 read from the stream and tone mapped to SDR
-  in the convert pass, a P010 upload with no swscale, and a measured 4K HEVC
-  10 bit file at full rate.
-- Blocks: correct colors for every HDR film. They play washed out today.
-
-### Batch 3, window and system calls
-
-3 small platform calls a player needs, none touches the video code.
-
-#### Fullscreen window
-
-- Current: `Window` has no fullscreen call, only the system button on the
-  title bar.
-- Needed: enter, leave and read fullscreen, with an event when it changes.
-- Blocks: a player's fullscreen key and button.
-
-#### Hide the mouse pointer
-
-- Current: `set_cursor_visible` is called only from `Cursor::capture`, which
-  also locks the pointer, `hilen/src/ui/input/cursor.rs`.
-- Needed: hide and show the pointer with no capture.
-- Blocks: a player that hides the pointer after a few still seconds.
-
-#### Screen awake on desktop
-
-- Current: `ScreenAwake` keeps the display on for mobile only, its doc says
-  other targets keep their normal policy, `hilen/src/system/screen_awake.rs`.
-- Needed: the same guard on macOS, Windows and Linux.
-- Blocks: a film longer than the display sleep time.
-
-### Batch 4, the backend
-
-Alone, it is the only entry in `hilen-server`.
-
-#### SQLite in hilen-server
-
-- Current: `build_db` returns a `PgPool` and sqlx has the `postgres` feature
-  only. `Config::from_env` fails with no `DATABASE_URL` and no `REDIS_URL`.
-  The `auth` module and its migrations take a `PgPool`.
-- Needed: a SQLite pool next to the Postgres one, Redis optional in `Config`,
-  and the Google login tables and queries on SQLite too.
-- Blocks: a backend that ships as 1 binary with 1 data file and no Docker.
-
-### Batch 5, views for the player screen
-
-3 view features in `hilen/src/ui`, each with its own UI test.
-
-#### View opacity
-
-- Current: a view has a color with alpha, there is no setter that fades a
-  view together with its subviews.
-- Needed: an opacity per view that covers its whole subtree, usable in a
-  `UIAnimation`.
-- Blocks: player controls that fade in and out.
-
-#### Text outline and shadow
-
-- Current: `set_shadow` draws under the view's shape, a `Label` has no
-  outline and no shadow on its glyphs.
-- Needed: an outline or a soft shadow on label text.
-- Blocks: subtitles that stay readable over a bright picture.
-
-#### Multiline label with an ellipsis
-
-- Current: `set_ellipsize` works on a single line label, its doc says
-  multiline labels wrap and ignore it, `hilen/src/ui/views/basic/label.rs`.
-- Needed: a line limit on a multiline label with the ellipsis on the last
-  line.
-- Blocks: a description cut to 3 lines.
-
-### Batch 6, image downloads
-
-Alone, it reworks the image store.
-
-#### Image downloads with headers, a memory bound and a disk cache
-
-- Current: `Image::download` takes a name and a url, sends no header, keeps
-  nothing on disk, and the image stays in the store until `free` is called
-  by hand, `hilen/src/deps/refs/manage/data_manager.rs`.
-- Needed: request headers for a download, a disk cache so a second launch
-  does not fetch again, and a bound on the memory the downloaded images hold.
-- Blocks: a grid of thousands of posters from a server behind a login.
-
-### Batch 7, playback controls
-
-Both sit on the sound clock and the play state.
-
-#### Playback speed in VideoView
-
-- Current: no API, the clock is the sound position at its own rate.
-- Needed: a rate for picture and sound, with the pitch kept.
-- Blocks: watching at 1.5 times.
-
-#### Media keys and Now Playing
-
-- Current: nothing in the engine reads the play, pause and next keys or
-  reports to the system's Now Playing panel.
-- Needed: both, on macOS first.
-- Blocks: the keyboard media keys and the control center panel.
-
-### Batch 8, more in the archive
-
-Alone, it is another archive rebuild plus the sound channel layout.
-
-#### More in the ffmpeg archive
-
-- Current: no zlib and no software AV1 decoder, AV1 decodes only where
-  VideoToolbox has it. Sound is always resampled to stereo.
-- Needed: zlib, dav1d, and the sound in its own channel layout when the
-  output device has more than 2 channels.
-- Blocks: files with compressed headers, AV1 on older Macs, surround sound.
+- AV1 always decodes in software through dav1d, also on a Mac whose hardware
+  has an AV1 decoder, ffmpeg lists dav1d first. Picking the hardware decoder
+  where VideoToolbox has one needs such a Mac to prove it.
+- Now Playing and the media keys are macOS only. Windows needs the System
+  Media Transport Controls, Linux needs MPRIS.
+- A subtitle line that started before the keyframe a seek lands on does not
+  show until the next line, the decode restarts at that keyframe.
+- Picture subtitles like PGS are listed as tracks and show nothing.
+- The disk cache of downloaded images has no size bound and never checks a
+  url again.
+- View opacity fades every part by itself. Parts that overlap show through
+  each other while they fade, a group fade needs an offscreen pass.
+- A text outline is 8 copies of the text around it. Past a width of about 2
+  points the copies no longer close into a ring. A soft text shadow needs the
+  blur in the glyph shader.
+- Fullscreen, the pointer hide, the sound of a track switch and of a speed
+  change, and a real media key press were tested with no window and no
+  speakers. The login queries on Postgres were moved into `store.rs` and not
+  run against a Postgres.
+- `Inspect keys` failed once in the second round of a full suite run, the
+  field got no text. It passed in the next full run and in 6 targeted runs,
+  the cause is not found.
 
 ## Siri Remote input for tvOS
 
@@ -294,7 +201,6 @@ sound. The rest of the platforms and the packaging are open.
   frame with `copyExternalImageToTexture`, the one place the `VideoView`
   backend differs. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
   through the wgpu hal, only after an A/B shows the copy costs frames.
-  Subtitles and track switching sit on top of the decode thread.
 - Blocks: video on any platform but macOS, and a shipped app on macOS until
   the packaging question of a static archive per triple is settled.
 

@@ -115,6 +115,21 @@ copy the shape cache returns, so measure, wrap and drawing agree. A tab
 at the very end of a text still measures as one space, `glyph_brush`
 bounds the last glyph by its own advance. `Label tab` pins the behavior.
 
+## Line limit, outline and shadow
+
+`set_max_lines(n)` on a multiline label cuts the text to `n` lines and ends the
+last one in an ellipsis, the CSS `line-clamp`. The cut is the longest start of
+the text that still wraps into the limit with the ellipsis after it, found by
+binary search over the layout and cached per width like the single line
+ellipsis. `size_for_width` then measures what is drawn.
+
+`set_text_outline(color, width)` and `set_text_shadow(color, offset)` draw the
+same text again in 1 color behind the glyphs, 8 copies on a circle for the
+outline and 1 moved copy for the shadow, in `hilen/src/ui/label_drawer.rs`.
+Text writes depth over whole glyph boxes and sits only 2 depth steps in front
+of its view, so each copy is `f32::EPSILON` nearer than the one before and the
+text itself comes forward by the number of copies.
+
 ## Matching other renderers
 
 Browsers composite text in sRGB space and so does the engine: render targets

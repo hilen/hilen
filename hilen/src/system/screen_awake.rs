@@ -1,5 +1,8 @@
 use super::AppActivity;
 
+#[cfg(all(feature = "ui-tests", desktop))]
+#[path = "screen_awake_desktop_test.rs"]
+mod tests_desktop;
 #[cfg(feature = "ui-tests")]
 #[path = "screen_awake_test.rs"]
 mod tests_ui;
@@ -10,10 +13,15 @@ use crate::deps::{
 
 static STATE: MainLock<AwakeState> = MainLock::new();
 
-/// Keeps the mobile display awake while the app is active. Does not prevent
-/// manual locking or enable background execution. Other targets retain their
-/// normal display policy. Acquire on the main thread; dropping releases it.
-/// Multiple owners may hold a guard without cancelling each other's request.
+/// What the system shows as the reason the display stays on.
+#[cfg(desktop)]
+const REASON: &str = "hilen app keeps the screen on";
+
+/// Keeps the display awake while the app is active, on a phone and on a
+/// desktop. Does not prevent manual locking or enable background execution.
+/// A browser keeps its normal display policy. Acquire on the main thread;
+/// dropping releases it. Multiple owners may hold a guard without cancelling
+/// each other's request.
 #[must_use = "the screen stays awake only while the guard is held"]
 pub struct ScreenAwake {
     state: &'static MainLock<AwakeState>,
@@ -95,8 +103,37 @@ fn set_screen_awake(enabled: bool) {
         );
     }
 
-    #[cfg(not(any(ios, android)))]
-    log::trace!("Mobile screen awake request: {enabled}");
+    #[cfg(desktop)]
+    {
+        use keepawake::{Builder, KeepAwake};
+        use log::warn;
+
+        use crate::log_file::app_name;
+
+        /// The hold the system has on file for this app, dropped to end it.
+        static HOLD: MainLock<Option<KeepAwake>> = MainLock::new();
+
+        *HOLD.get_mut() = if enabled {
+            match Builder::default()
+                .display(true)
+                .reason(REASON)
+                .app_name(app_name().unwrap_or_else(|_| "hilen".to_string()))
+                .app_reverse_domain("io.hilen.app")
+                .create()
+            {
+                Ok(hold) => Some(hold),
+                Err(err) => {
+                    warn!("the screen cannot be kept awake: {err}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+    }
+
+    #[cfg(wasm)]
+    log::trace!("Screen awake request ignored in a browser: {enabled}");
 }
 
 #[cfg(test)]

@@ -2,9 +2,9 @@ use axum::{
     extract::{FromRef, FromRequestParts},
     http::{HeaderMap, header::AUTHORIZATION, request::Parts},
 };
-use sqlx::{PgPool, types::Uuid};
+use sqlx::types::Uuid;
 
-use crate::{AppError, auth::session};
+use crate::{AppError, Db, auth::session};
 
 /// The logged in user. Put it in the arguments of a route and the route only
 /// runs for a request with a live session, everybody else gets a 401.
@@ -15,8 +15,9 @@ use crate::{AppError, auth::session};
 /// }
 /// ```
 ///
-/// The state of the router has to give out the `PgPool`, which a state that
-/// is the pool does, and so does one with `#[derive(FromRef)]`.
+/// The state of the router has to give out the [`Db`]. A state that is a
+/// `PgPool` or a `SqlitePool` does, and so does one with `#[derive(FromRef)]`
+/// and a `Db` field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct User {
     pub id:      Uuid,
@@ -27,14 +28,14 @@ pub struct User {
 
 impl<S> FromRequestParts<S> for User
 where
-    PgPool: FromRef<S>,
+    Db: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let token = bearer_token(&parts.headers).ok_or(AppError::Unauthorized)?;
-        let db = PgPool::from_ref(state);
+        let db = Db::from_ref(state);
 
         session::user_of(&db, token).await?.ok_or(AppError::Unauthorized)
     }

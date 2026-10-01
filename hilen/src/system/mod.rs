@@ -6,6 +6,7 @@ mod android_jni;
 pub(crate) mod app_activity;
 mod clipboard;
 mod locale;
+mod media_session;
 mod open_url;
 mod router;
 mod screen_awake;
@@ -14,6 +15,7 @@ mod updater;
 pub use app_activity::AppActivity;
 pub use clipboard::Clipboard;
 pub use locale::{language_code, locale};
+pub use media_session::{MediaCommand, MediaSession, NowPlaying};
 pub use open_url::open_url;
 pub use router::Router;
 #[cfg(wasm)]

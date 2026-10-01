@@ -186,7 +186,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = mixed.a;
     }
 
-    alpha *= coverage;
+    // The fade of the view's opacity, 0 to 255 in bits 8 to 15 of the flags.
+    let fade: f32 = f32((instance.flags >> 8u) & 255u) / 255.0;
+    alpha *= coverage * (1.0 - fade);
 
     if alpha < 0.004 {
         discard;

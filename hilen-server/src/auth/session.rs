@@ -3,13 +3,12 @@
 
 use anyhow::{Result, anyhow};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, types::Uuid};
+use sqlx::types::Uuid;
 
-use crate::auth::User;
-
-/// All times are the database clock, so a server with a wrong clock cannot
-/// hand out sessions that are already over.
-const LIFETIME_DAYS: i32 = 90;
+use crate::{
+    Db,
+    auth::{User, store},
+};
 
 /// 64 hex characters of OS randomness. Also the `state` of a Google redirect.
 pub(crate) fn new_token() -> Result<String> {
@@ -22,79 +21,18 @@ pub(crate) fn hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
-pub(crate) async fn create(db: &PgPool, user_id: Uuid) -> Result<String> {
+pub(crate) async fn create(db: &Db, user_id: Uuid) -> Result<String> {
     let token = new_token()?;
-
-    sqlx::query(
-        r"
-INSERT INTO sessions (token_hash, user_id, expires_at)
-VALUES ($1, $2, now() + make_interval(days => $3))",
-    )
-    .bind(hash(&token))
-    .bind(user_id)
-    .bind(LIFETIME_DAYS)
-    .execute(db)
-    .await?;
-
+    store::create_session(db, &hash(&token), user_id).await?;
     Ok(token)
 }
 
-#[derive(sqlx::FromRow)]
-struct SessionUser {
-    id:      Uuid,
-    email:   String,
-    name:    String,
-    picture: Option<String>,
-    /// Not used for a day or more.
-    stale:   bool,
+pub(crate) async fn user_of(db: &Db, token: &str) -> Result<Option<User>, sqlx::Error> {
+    store::session_user(db, &hash(token)).await
 }
 
-/// The user a token belongs to. A session in use moves its end forward, at
-/// most once a day so that a busy app does not write on every request.
-pub(crate) async fn user_of(db: &PgPool, token: &str) -> Result<Option<User>, sqlx::Error> {
-    let token_hash = hash(token);
-
-    let found: Option<SessionUser> = sqlx::query_as(
-        r"
-SELECT u.id, u.email, u.name, u.picture, s.last_used_at < now() - interval '1 day' AS stale
-FROM sessions s
-JOIN users u ON u.id = s.user_id
-WHERE s.token_hash = $1 AND s.expires_at > now()",
-    )
-    .bind(&token_hash)
-    .fetch_optional(db)
-    .await?;
-
-    let Some(found) = found else {
-        return Ok(None);
-    };
-
-    if found.stale {
-        sqlx::query(
-            r"
-UPDATE sessions SET last_used_at = now(), expires_at = now() + make_interval(days => $2)
-WHERE token_hash = $1",
-        )
-        .bind(&token_hash)
-        .bind(LIFETIME_DAYS)
-        .execute(db)
-        .await?;
-    }
-
-    Ok(Some(User {
-        id:      found.id,
-        email:   found.email,
-        name:    found.name,
-        picture: found.picture,
-    }))
-}
-
-pub(crate) async fn delete(db: &PgPool, token: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
-        .bind(hash(token))
-        .execute(db)
-        .await?;
-    Ok(())
+pub(crate) async fn delete(db: &Db, token: &str) -> Result<(), sqlx::Error> {
+    store::delete_session(db, &hash(token)).await
 }
 
 #[cfg(test)]

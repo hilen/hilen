@@ -9,6 +9,8 @@ mod hw;
 mod nv12;
 mod player;
 mod source;
+mod subtitles;
+mod tracks;
 
 use std::sync::Once;
 
@@ -16,6 +18,7 @@ use log::error;
 pub(crate) use player::{Player, PlayerEvent};
 pub use player::{VideoState, VideoStats};
 pub use source::VideoSource;
+pub use tracks::{AudioTrack, SubtitleTrack};
 
 use crate::gm::LossyConvert;
 
@@ -36,4 +39,13 @@ pub(crate) fn init() {
 pub(crate) fn count_to_f64(count: u64) -> f64 {
     let count = i64::try_from(count).expect("a media count fits i64");
     count.lossy_convert()
+}
+
+/// A fixture of the video UI tests, by file name.
+#[cfg(test)]
+pub(crate) fn test_fixture(name: &str) -> VideoSource {
+    VideoSource::new(format!(
+        "{}/../ui-test-suite/src/views/video/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }

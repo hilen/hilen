@@ -164,9 +164,11 @@ winit = { workspace = true }
 rfd = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true }
 objc2-foundation = { workspace = true }
+objc2-media-player = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2 = { workspace = true }
@@ -177,6 +179,7 @@ objc2-ui-kit = { workspace = true }
 arboard = { workspace = true }
 ed25519-dalek = { workspace = true }
 ffmpeg-next = { workspace = true, optional = true }
+keepawake = { workspace = true }
 open = { workspace = true }
 self-replace = { workspace = true }
 semver = { workspace = true }

@@ -68,6 +68,7 @@ axum = "0.8"
 base64 = "0.22"
 bit_ops = "0.2"
 byte-unit = "5.2"
+block2 = "0.6"
 bytemuck = { version = "1.25", features = ["derive"] }
 chrono = "0.4"
 clap = { version = "4.6", features = ["derive"] }
@@ -84,7 +85,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
-ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "da1aa231feb55269173b86ef2a24ced3545f6ea0", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling", "static"] }
+ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "4a524387b9eabbf6db9bc6c74cdabd566f6fef7b", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
 # the 0.23 that usvg pulls, one copy in the tree
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
@@ -100,6 +101,7 @@ infisical = "0.0.3"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 http-body-util = "0.1"
 jni = "0.22"
+keepawake = "0.6"
 kira = "0.12"
 libc = "0.2"
 local-ip-address = "0.6"
@@ -119,7 +121,8 @@ objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSValue"] }
+objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
 open = "5.4"
 parking_lot = "0.12"
@@ -158,6 +161,7 @@ sqlx = { version = "0.9", features = [
   "runtime-tokio",
   "tls-rustls-ring",
   "postgres",
+  "sqlite",
   "migrate",
   "macros",
   "chrono",

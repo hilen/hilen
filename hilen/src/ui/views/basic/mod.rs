@@ -5,6 +5,7 @@ mod circle_view;
 mod image_view;
 mod label;
 mod label_runs;
+mod label_style;
 mod nine_segment_image_view;
 mod progress_view;
 mod slider;

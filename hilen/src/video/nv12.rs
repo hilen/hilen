@@ -1,7 +1,7 @@
-//! NV12 planes to an RGBA image on the GPU. Two textures take the decoder's
-//! planes as they are, one fullscreen pass converts them into the image the
-//! `ImageView` draws, so aspect modes, corner radii and flips work on a video
-//! frame like on any picture.
+//! Decoder planes to an RGBA image on the GPU. Two textures take the
+//! decoder's planes as they are, 8 bit NV12 or 10 bit P010, one fullscreen pass
+//! converts them into the image the `ImageView` draws, so aspect modes, corner
+//! radii and flips work on a video frame like on any picture.
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
@@ -20,7 +20,7 @@ use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::flat::Size,
     render::uniform::{UniformBind, make_uniform_layout},
-    video::decoder::VideoFrame,
+    video::decoder::{Matrix, Transfer, VideoFrame},
     window::{Window, image::Image},
 };
 
@@ -30,8 +30,9 @@ const SHADER: &str = include_str!("nv12.wgsl");
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Pod, Zeroable)]
 struct Nv12Params {
     full_range: u32,
-    bt601:      u32,
-    padding:    [u32; 2],
+    matrix:     u32,
+    ten_bit:    u32,
+    transfer:   u32,
 }
 
 struct Nv12Pipeline {
@@ -133,21 +134,30 @@ impl Nv12Pipeline {
 
 /// The planes and the image of one video, sized to its frames.
 pub(crate) struct Nv12Target {
-    size:   Size<u32>,
-    y:      Texture,
-    uv:     Texture,
-    bind:   BindGroup,
-    params: UniformBind<Nv12Params>,
-    image:  Weak<Image>,
+    size:    Size<u32>,
+    ten_bit: bool,
+    y:       Texture,
+    uv:      Texture,
+    bind:    BindGroup,
+    params:  UniformBind<Nv12Params>,
+    image:   Weak<Image>,
 }
 
 impl Nv12Target {
-    pub(crate) fn new(key: &str, size: Size<u32>) -> Self {
+    /// `ten_bit` planes hold 2 bytes per sample. They go up as 2 and 4 byte
+    /// texels of 8 bit channels and the shader joins the bytes, so no 16 bit
+    /// texture format is needed, those are an optional device feature.
+    pub(crate) fn new(key: &str, size: Size<u32>, ten_bit: bool) -> Self {
         let device = Window::device();
         let shared = pipeline();
 
-        let y = plane_texture("video_y", size, TextureFormat::R8Unorm);
-        let uv = plane_texture("video_uv", chroma_size(size), TextureFormat::Rg8Unorm);
+        let (y_format, uv_format) = if ten_bit {
+            (TextureFormat::Rg8Unorm, TextureFormat::Rgba8Unorm)
+        } else {
+            (TextureFormat::R8Unorm, TextureFormat::Rg8Unorm)
+        };
+        let y = plane_texture("video_y", size, y_format);
+        let uv = plane_texture("video_uv", chroma_size(size), uv_format);
         let y_view = y.create_view(&TextureViewDescriptor::default());
         let uv_view = uv.create_view(&TextureViewDescriptor::default());
 
@@ -175,6 +185,7 @@ impl Nv12Target {
 
         Self {
             size,
+            ten_bit,
             y,
             uv,
             bind,
@@ -185,6 +196,11 @@ impl Nv12Target {
 
     pub(crate) fn size(&self) -> Size<u32> {
         self.size
+    }
+
+    /// The target takes this frame's size and sample width.
+    pub(crate) fn fits(&self, frame: &VideoFrame) -> bool {
+        self.size == Size::new(frame.width, frame.height) && self.ten_bit == frame.ten_bit
     }
 
     pub(crate) fn image(&self) -> Weak<Image> {
@@ -204,8 +220,17 @@ impl Nv12Target {
         );
         self.params.update(Nv12Params {
             full_range: u32::from(frame.full_range),
-            bt601:      u32::from(frame.bt601),
-            padding:    [0; 2],
+            matrix:     match frame.matrix {
+                Matrix::Bt709 => 0,
+                Matrix::Bt601 => 1,
+                Matrix::Bt2020 => 2,
+            },
+            ten_bit:    u32::from(frame.ten_bit),
+            transfer:   match frame.transfer {
+                Transfer::Sdr => 0,
+                Transfer::Pq => 1,
+                Transfer::Hlg => 2,
+            },
         });
 
         let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {

@@ -1,6 +1,7 @@
 mod gif;
 mod image;
 mod image_bind;
+mod remote;
 mod svg;
 mod texture;
 mod tinted_image;

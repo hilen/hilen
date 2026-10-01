@@ -24,14 +24,37 @@ use log::warn;
 
 use crate::{
     gm::LossyConvert,
-    video::{VideoSource, audio::AudioDecoder, count_to_f64, hw},
+    video::{
+        VideoSource,
+        audio::AudioDecoder,
+        count_to_f64, hw,
+        subtitles::{Cue, CueDecoder},
+        tracks::{AudioTrack, SubtitleTrack, audio_tracks, subtitle_tracks},
+    },
 };
 
 /// Frames decoded ahead of the picture. Small on purpose, a 4K frame is 12 MB.
 pub(crate) const QUEUE: usize = 3;
 
-/// One decoded picture as NV12, a luma plane and an interleaved chroma plane
-/// at half size, each row `stride` bytes as the decoder laid it out.
+/// The matrix that turns the frame's YUV into RGB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Matrix {
+    Bt709,
+    Bt601,
+    Bt2020,
+}
+
+/// How the frame's signal maps to light. PQ and HLG are the HDR curves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transfer {
+    Sdr,
+    Pq,
+    Hlg,
+}
+
+/// One decoded picture, a luma plane and an interleaved chroma plane at half
+/// size, each row `stride` bytes as the decoder laid it out. NV12 with a byte
+/// per sample, or P010 with 2 bytes per sample when `ten_bit`.
 pub(crate) struct VideoFrame {
     pub generation: u32,
     /// Seconds from the start of the stream.
@@ -42,8 +65,10 @@ pub(crate) struct VideoFrame {
     pub y_stride:   u32,
     pub uv:         Vec<u8>,
     pub uv_stride:  u32,
+    pub ten_bit:    bool,
     pub full_range: bool,
-    pub bt601:      bool,
+    pub matrix:     Matrix,
+    pub transfer:   Transfer,
     /// Decoded by the hardware device, not the software codec.
     pub hardware:   bool,
 }
@@ -55,17 +80,34 @@ pub(crate) struct MediaInfo {
     pub frame_rate: f64,
     pub decoder:    String,
     pub audio:      Option<AudioDecoder>,
+    pub tracks:     Tracks,
+}
+
+/// The tracks of a source the app can pick from.
+#[derive(Default)]
+pub(crate) struct Tracks {
+    pub audio:     Vec<AudioTrack>,
+    pub subtitles: Vec<SubtitleTrack>,
 }
 
 pub(crate) enum Message {
-    Info(MediaInfo),
+    /// Boxed, it is several times the size of a frame message.
+    Info(Box<MediaInfo>),
     Frame(VideoFrame),
-    Eof { generation: u32 },
+    Cue(Cue),
+    Eof {
+        generation: u32,
+    },
     Error(String),
 }
 
 pub(crate) enum Command {
-    Seek { generation: u32, seconds: f64 },
+    Seek {
+        generation: u32,
+        seconds:    f64,
+    },
+    /// The subtitle stream to decode cues of, or none.
+    Subtitle(Option<usize>),
     Stop,
 }
 
@@ -103,6 +145,7 @@ struct Decoding {
     /// so the frames up to here are decoded and dropped.
     skip_until: Option<f64>,
     sent:       u64,
+    cues:       Option<CueDecoder>,
 }
 
 /// Opens the source and its decoders, and describes the stream.
@@ -142,7 +185,12 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
     let decoder = context.decoder().video()?;
     let name = decoder.codec().map(|codec| codec.name().to_string()).unwrap_or_default();
 
-    let audio = match AudioDecoder::open(source, stop) {
+    let tracks = Tracks {
+        audio:     audio_tracks(&input),
+        subtitles: subtitle_tracks(&input),
+    };
+
+    let audio = match AudioDecoder::open(source, stop, None, 1.0) {
         Ok(audio) => audio,
         Err(err) => {
             warn!("video {}: no sound, {err}", source.location());
@@ -157,6 +205,7 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
         frame_rate,
         decoder: name,
         audio,
+        tracks,
     };
     let decoding = Decoding {
         input,
@@ -169,6 +218,7 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
         generation: 0,
         skip_until: None,
         sent: 0,
+        cues: None,
     };
     Ok((decoding, info))
 }
@@ -181,7 +231,7 @@ fn run(
     stop: &Arc<AtomicBool>,
 ) -> Result<(), Error> {
     let (mut decoding, info) = open(source, stop)?;
-    if messages.send(Message::Info(info)).is_err() {
+    if messages.send(Message::Info(Box::new(info))).is_err() {
         return Ok(());
     }
     let mut eof = false;
@@ -190,11 +240,8 @@ fn run(
         // Every queued command, the latest seek wins.
         loop {
             match commands.try_recv() {
-                Ok(Command::Seek { generation, seconds }) => {
-                    decoding.seek(generation, seconds)?;
-                    eof = false;
-                }
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
+                Ok(command) => decoding.apply(command, &mut eof)?,
                 Err(TryRecvError::Empty) => break,
             }
         }
@@ -202,11 +249,8 @@ fn run(
         if eof {
             // Nothing to decode until a seek, so block instead of spinning.
             match commands.recv() {
-                Ok(Command::Seek { generation, seconds }) => {
-                    decoding.seek(generation, seconds)?;
-                    eof = false;
-                }
                 Ok(Command::Stop) | Err(RecvError) => return Ok(()),
+                Ok(command) => decoding.apply(command, &mut eof)?,
             }
             continue;
         }
@@ -215,6 +259,11 @@ fn run(
         match packet.read(&mut decoding.input) {
             Ok(()) => {
                 if packet.stream() != decoding.stream {
+                    if let Some(cue) = decoding.cue(&packet)
+                        && messages.send(Message::Cue(cue)).is_err()
+                    {
+                        return Ok(());
+                    }
                     continue;
                 }
                 decoding.decoder.send_packet(&packet)?;
@@ -242,6 +291,41 @@ fn run(
 }
 
 impl Decoding {
+    /// A seek or a subtitle choice. A stop never comes here, the loop ends on
+    /// it.
+    fn apply(&mut self, command: Command, eof: &mut bool) -> Result<(), Error> {
+        match command {
+            Command::Seek { generation, seconds } => {
+                self.seek(generation, seconds)?;
+                *eof = false;
+            }
+            Command::Subtitle(None) | Command::Stop => self.cues = None,
+            Command::Subtitle(Some(index)) => {
+                self.cues = match CueDecoder::open(&self.input, index) {
+                    Ok(cues) => Some(cues),
+                    Err(err) => {
+                        warn!("video: no subtitles from track {index}, {err}");
+                        None
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// The cue of a packet of the chosen subtitle stream. A line that fails
+    /// to decode is skipped, the film goes on without it.
+    fn cue(&mut self, packet: &Packet) -> Option<Cue> {
+        let cues = self.cues.as_mut().filter(|cues| cues.stream() == packet.stream())?;
+        match cues.decode(packet, self.start, self.generation) {
+            Ok(cue) => cue,
+            Err(err) => {
+                warn!("video: a subtitle line did not decode, {err}");
+                None
+            }
+        }
+    }
+
     fn seek(&mut self, generation: u32, seconds: f64) -> Result<(), Error> {
         self.generation = generation;
         let target = seconds.max(0.0);
@@ -298,15 +382,17 @@ impl Decoding {
             picture
         };
 
+        // The 2 layouts the convert pass reads go up as they are. Anything
+        // else, planar YUV from a software decoder, goes through swscale once.
         let mut scaled = frame::Video::empty();
-        let nv12 = if source.format() == Pixel::NV12 {
+        let nv12 = if matches!(source.format(), Pixel::NV12 | Pixel::P010LE) {
             source
         } else {
             self.scale(source, &mut scaled)?;
             &scaled
         };
 
-        let (full_range, bt601) = color_info(picture);
+        let (full_range, matrix, transfer) = color_info(picture);
 
         Ok(VideoFrame {
             generation: self.generation,
@@ -317,14 +403,17 @@ impl Decoding {
             y_stride: stride(nv12, 0),
             uv: nv12.data(1).to_vec(),
             uv_stride: stride(nv12, 1),
+            ten_bit: nv12.format() == Pixel::P010LE,
             full_range,
-            bt601,
+            matrix,
+            transfer,
             hardware,
         })
     }
 
-    /// Software decoders give planar YUV, 10 bit hardware content comes back
-    /// as P010. One converter, rebuilt when the source changes.
+    /// Software decoders give planar YUV. It becomes NV12, or P010 when the
+    /// source has more than 8 bits, so no depth is lost before the tone map.
+    /// One converter, rebuilt when the source changes.
     fn scale(&mut self, source: &frame::Video, out: &mut frame::Video) -> Result<(), Error> {
         let fits = self.scaler.as_ref().is_some_and(|scaler| {
             let input = scaler.input();
@@ -333,11 +422,16 @@ impl Decoding {
                 && input.height == source.height()
         });
         if !fits {
+            let target = if depth(source.format()) > 8 {
+                Pixel::P010LE
+            } else {
+                Pixel::NV12
+            };
             self.scaler = Some(scaling::Context::get(
                 source.format(),
                 source.width(),
                 source.height(),
-                Pixel::NV12,
+                target,
                 source.width(),
                 source.height(),
                 scaling::Flags::BILINEAR,
@@ -351,14 +445,32 @@ fn stride(picture: &frame::Video, plane: usize) -> u32 {
     u32::try_from(picture.stride(plane)).expect("a plane stride fits u32")
 }
 
-/// Full range and the BT.601 matrix, from the stream when it says, else the
-/// usual guess: standard definition is 601, anything bigger 709.
-fn color_info(picture: &frame::Video) -> (bool, bool) {
-    let full_range = picture.color_range() == color::Range::JPEG;
-    let bt601 = match picture.color_space() {
-        color::Space::BT470BG | color::Space::SMPTE170M | color::Space::SMPTE240M => true,
-        color::Space::BT709 => false,
-        _ => picture.height() < 720,
+/// Bits per sample of the first component of a pixel format.
+fn depth(format: Pixel) -> i32 {
+    let Some(descriptor) = format.descriptor() else {
+        return 8;
     };
-    (full_range, bt601)
+    // SAFETY: ffmpeg's descriptors are static tables, the pointer of an
+    // existing one is valid for the life of the program.
+    unsafe { (*descriptor.as_ptr()).comp[0].depth }
+}
+
+/// Full range, the matrix and the transfer curve, from the stream when it
+/// says. Else the usual guess: standard definition is 601, anything bigger
+/// 709, and SDR.
+fn color_info(picture: &frame::Video) -> (bool, Matrix, Transfer) {
+    let full_range = picture.color_range() == color::Range::JPEG;
+    let matrix = match picture.color_space() {
+        color::Space::BT470BG | color::Space::SMPTE170M | color::Space::SMPTE240M => Matrix::Bt601,
+        color::Space::BT709 => Matrix::Bt709,
+        color::Space::BT2020NCL | color::Space::BT2020CL => Matrix::Bt2020,
+        _ if picture.height() < 720 => Matrix::Bt601,
+        _ => Matrix::Bt709,
+    };
+    let transfer = match picture.color_transfer_characteristic() {
+        color::TransferCharacteristic::SMPTE2084 => Transfer::Pq,
+        color::TransferCharacteristic::ARIB_STD_B67 => Transfer::Hlg,
+        _ => Transfer::Sdr,
+    };
+    (full_range, matrix, transfer)
 }

@@ -16,7 +16,8 @@ app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, s
 `dead_code` lint stays meaningful.
 
 `hilen-server` is the backend base crate for app backends, config, error type,
-base routes and helpers over axum, sqlx and redis. It also carries the standard
+base routes and helpers over axum, sqlx and redis, on Postgres or on SQLite
+through its `Db` type, Redis optional. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
 page requests at a running `trunk serve` for the dev loop. Its `auth` module is
@@ -119,8 +120,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
 - [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
-  how to build one, request headers, the buffering state, and what was measured. Read
-  before touching `hilen/src/video` or the archive script.
+  how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
+  mapping, playback speed, and what was measured. Read before touching `hilen/src/video`
+  or the archive script.
 - [docs/login.md](docs/login.md) — the Google login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before

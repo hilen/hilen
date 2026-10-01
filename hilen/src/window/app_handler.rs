@@ -17,7 +17,7 @@ use crate::{
     gm::flat::Point,
     system::app_activity::{self, ActivityChange},
     ui::Cursor,
-    window::{Window, WindowEvents, state::State},
+    window::{Window, WindowEvents, state::State, sync_fullscreen},
 };
 
 static APP_HANDLER: MainLock<Option<AppHandler>> = MainLock::new();
@@ -329,6 +329,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 }
 
                 Self::window().record_inner_size(physical_size);
+                sync_fullscreen();
                 State::resize();
                 Self::placement_changed();
 

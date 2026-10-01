@@ -9,7 +9,7 @@ use crate::{
         vents::Event,
     },
     ui::{ImageMode, ImageView, Setup, UIAnimation, ViewCallbacks, ViewData, ViewFrame},
-    video::{Player, PlayerEvent, VideoSource, VideoState, VideoStats},
+    video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 
 /// Unique per view, so two videos never share a frame texture.
@@ -25,16 +25,20 @@ pub struct VideoView {
 
     looping: bool,
     volume:  f32,
+    speed:   f64,
 
     keeping_alive: bool,
     state:         VideoState,
 
     /// Fires once when playback reaches the end and the video does not loop.
-    pub on_finish: Event<()>,
+    pub on_finish:   Event<()>,
     /// Fires when the source cannot be opened or decoded, with the reason.
-    pub on_error:  Event<String>,
+    pub on_error:    Event<String>,
     /// Fires every time `state` changes, with the new state.
-    pub on_state:  Event<VideoState>,
+    pub on_state:    Event<VideoState>,
+    /// Fires with the subtitle line to show, and with none when it ends. The
+    /// app draws the text, the view only says what and when.
+    pub on_subtitle: Event<Option<String>>,
 
     #[init]
     image_view: ImageView,
@@ -50,6 +54,7 @@ impl VideoView {
         let mut player = Player::open(source.into(), format!("video-{id}"));
         player.set_volume(this.volume);
         player.set_loop(this.looping);
+        player.set_speed(this.speed);
         this.player = Some(player);
         this.keep_frames_coming();
         this.report_state();
@@ -127,6 +132,22 @@ impl VideoView {
         self
     }
 
+    /// How fast the video plays, 1 by default.
+    pub fn speed(&self) -> f64 {
+        self.speed
+    }
+
+    /// Plays at this speed from where it is, 0.5 to 4. The sound keeps its
+    /// pitch.
+    pub fn set_speed(&self, speed: f64) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.speed = speed.clamp(0.5, 4.0);
+        if let Some(player) = this.player.as_mut() {
+            player.set_speed(speed);
+        }
+        self
+    }
+
     pub fn set_loop(&self, looping: bool) -> &Self {
         let mut this = weak_from_ref(self);
         this.looping = looping;
@@ -139,6 +160,63 @@ impl VideoView {
     pub fn set_mode(&self, mode: ImageMode) -> &Self {
         weak_from_ref(self).image_view.mode = mode;
         self
+    }
+
+    /// The sound tracks of the source, empty until it is loaded.
+    pub fn audio_tracks(&self) -> Vec<AudioTrack> {
+        self.player
+            .as_ref()
+            .map(|player| player.audio_tracks().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// The `index` of the sound track that plays.
+    pub fn audio_track(&self) -> Option<usize> {
+        self.player.as_ref().and_then(Player::audio_track)
+    }
+
+    /// Switches the sound to the track with this `index` and keeps the
+    /// position.
+    pub fn set_audio_track(&self, index: usize) -> &Self {
+        if let Some(player) = weak_from_ref(self).player.as_mut() {
+            player.set_audio_track(index);
+        }
+        self
+    }
+
+    /// The subtitle tracks of the source, empty until it is loaded.
+    pub fn subtitle_tracks(&self) -> Vec<SubtitleTrack> {
+        self.player
+            .as_ref()
+            .map(|player| player.subtitle_tracks().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// Reports the lines of the track with this `index` through
+    /// `on_subtitle`, none turns subtitles off.
+    pub fn set_subtitle_track(&self, index: Option<usize>) -> &Self {
+        let mut this = weak_from_ref(self);
+        if let Some(player) = this.player.as_mut() {
+            player.set_subtitle_track(index);
+        }
+        this.keep_frames_coming();
+        self
+    }
+
+    /// Reports the lines of a subtitle file from outside the source, an
+    /// `.srt` path or url, through `on_subtitle`.
+    pub fn set_subtitle_file(&self, source: impl Into<VideoSource>) -> &Self {
+        let mut this = weak_from_ref(self);
+        if let Some(player) = this.player.as_mut() {
+            player.set_subtitle_file(source.into());
+        }
+        this.keep_frames_coming();
+        self
+    }
+
+    /// The subtitle line on screen now.
+    pub fn subtitle(&self) -> Option<String> {
+        self.player.as_ref().and_then(Player::subtitle).map(ToString::to_string)
     }
 
     pub fn stats(&self) -> VideoStats {
@@ -171,6 +249,7 @@ impl Setup for VideoView {
     fn setup(mut self: Weak<Self>) {
         self.image_view.place().back();
         self.volume = 1.0;
+        self.speed = 1.0;
     }
 }
 
@@ -192,6 +271,7 @@ impl ViewCallbacks for VideoView {
         for event in events {
             match event {
                 PlayerEvent::Finished => self.on_finish.trigger(()),
+                PlayerEvent::Subtitle(text) => self.on_subtitle.trigger(text),
                 PlayerEvent::Error(message) => {
                     error!("video: {message}");
                     self.on_error.trigger(message);

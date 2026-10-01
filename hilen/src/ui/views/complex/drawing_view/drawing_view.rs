@@ -6,7 +6,7 @@ use crate::{
         flat::{FillRule, Paint, Point, StrokeStyle, VectorPath},
     },
     render::data::PathData,
-    ui::{UIManager, ViewCallbacks, view::ViewFrame},
+    ui::{UIManager, View, ViewCallbacks, view::ViewFrame},
 };
 
 /// Draws vector paths: stroked polylines and curves, filled shapes.
@@ -24,9 +24,10 @@ impl ViewCallbacks for DrawingView {
         let resolution = UIManager::window_resolution();
         let scale = UIManager::scale();
         let z_position = self.z_position();
+        let opacity = self.__base_view().tree_opacity;
 
         for path in &mut self.paths {
-            path.prepare(position, resolution, scale, z_position);
+            path.prepare(position, resolution, scale, z_position, opacity);
         }
     }
 }
