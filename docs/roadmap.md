@@ -16,6 +16,37 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Horizontal scrolling in ScrollView and TableView
+
+Found by kukareker, whose diff view cuts off long lines. Top priority.
+
+- Current: scrolling is vertical only. `__content_offset` in `ui/view/view_base.rs` is
+  1 number, the vertical offset. `ScrollView::__process_wheel_scroll` calls
+  `self.on_scroll(delta.y)` and drops `delta.x`. The drag path reads only
+  `touch.position.y`. The scroll bar exists only on the right edge. `TableView` pins
+  its content width to its own width with `self.scroll.set_content_width(width)` in
+  `table_view/layout.rs`, in both the reset path and `layout_fixed_cells`, so a cell
+  can never be wider than the table.
+- Needed:
+  - `ScrollView` keeps a horizontal offset next to the vertical one, clamped to the
+    content width. The wheel `delta.x` moves it. Shift plus wheel moves it too, for a
+    mouse with no side wheel. A finger drag moves it where drag scrolling is on.
+  - A horizontal bar on the bottom edge, shown only when the content is wider than the
+    view, with the same look and theme colors as the vertical bar.
+  - `TableView::set_content_width`. Cells are laid out at that width instead of the
+    table width, and the table has its own horizontal offset getter and setter.
+  - Pinned parts in a table cell. A cell can keep some of its subviews in place while
+    the rest moves sideways and is clipped at the pinned edge. 1 pinned left column
+    is the simple case, line numbers next to code. A cell must also be able to hold 2
+    side by side regions, each with its own pinned left part, that move by the same
+    offset and each clip to their own half. That is a side by side diff.
+  - Views pinned to the right edge of the visible area, like a button shown on row
+    hover, stay there while the content moves under them.
+  - Sticky rows and `index_at` keep working with a horizontal offset.
+  - UI tests: wheel `delta.x`, Shift plus wheel, the bottom bar showing and hiding, a
+    wide table with a pinned column, and a cell with 2 regions moving together.
+- Blocks: reading long lines in the kukareker diff view, in unified and in split mode.
+
 ## Sound on iOS and Android
 
 Found by skaityk, which plays the spoken audio of a sentence. Most urgent.
