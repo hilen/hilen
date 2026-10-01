@@ -20,23 +20,19 @@ use crate::{
     window::{Font, ShapedLayout, ShapedParams, VerticalAlign},
 };
 
-/// Where the copies of an outline sit around a glyph, in outline widths: 8
-/// points of a circle. Up to a width of about 2 points the copies close into
-/// a ring with no gaps.
-const OUTLINE_RING: [(f32, f32); 8] = [
-    (1.0, 0.0),
-    (0.707, 0.707),
-    (0.0, 1.0),
-    (-0.707, 0.707),
-    (-1.0, 0.0),
-    (-0.707, -0.707),
-    (0.0, -1.0),
-    (0.707, -0.707),
-];
-
 /// How much nearer each layer of an outlined text sits than the one before,
 /// 2 steps of a 24 bit depth buffer around the middle of its range.
 const LAYER_STEP: f32 = f32::EPSILON;
+
+/// What a copy of the text under the text itself is made of.
+enum Under {
+    /// The glyphs as they are, a hard shadow.
+    Plain,
+    /// Every glyph edge moved out by this many pixels, an outline.
+    Wider(f32),
+    /// The glyphs blurred with this radius in pixels, a soft shadow.
+    Blurred(f32),
+}
 
 pub(super) type TextSections<'a> = Vec<(Weak<Font>, Vec<(Section<'a>, ShapedParams)>)>;
 
@@ -214,32 +210,43 @@ impl UIDrawer {
         let mut section = section.with_bounds(bounds).with_screen_position(position);
 
         // The shadow and the outline are the same text again in 1 color,
-        // moved and queued before the text itself. Text writes depth over
+        // queued before the text itself. The outline is 1 copy the text
+        // shader widens, a soft shadow 1 copy it blurs, see the effect
+        // entry points of the `wgpu_text` fork. Text writes depth over
         // whole glyph boxes, so every copy sits a little nearer than the one
         // before it, or it would be cut by the boxes of the last one. The
         // text is 2 depth steps in front of its view, there is no room
         // behind it, so the copies start where plain text sits and the
-        // text itself comes forward. 9 layers stay far inside the gap to
+        // text itself comes forward. 3 layers stay far inside the gap to
         // the next view.
         let mut under = Vec::new();
         if let Some(shadow) = label.text_shadow() {
-            under.push((shadow.color, shadow.offset * scale));
+            let kind = if shadow.blur > 0.0 {
+                Under::Blurred(shadow.blur * scale)
+            } else {
+                Under::Plain
+            };
+            under.push((shadow.color, shadow.offset * scale, kind));
         }
         if let Some(outline) = label.text_outline() {
-            let reach = outline.width * scale;
-            under.extend(
-                OUTLINE_RING
-                    .iter()
-                    .map(|(x, y)| (outline.color, Point::new(x * reach, y * reach))),
-            );
+            under.push((
+                outline.color,
+                Point::default(),
+                Under::Wider(outline.width * scale),
+            ));
         }
         let mut layers = Vec::with_capacity(under.len() + 1);
-        for (index, (color, offset)) in under.iter().enumerate() {
+        for (index, (color, offset, kind)) in under.iter().enumerate() {
             let forward: f32 = index.lossy_convert();
             let copy = Text::new(text)
                 .with_scale(scale_px)
                 .with_color(color.faded(opacity).as_slice())
                 .with_z(z - forward * LAYER_STEP);
+            let copy = match kind {
+                Under::Plain => copy,
+                Under::Wider(width) => copy.with_outline(*width),
+                Under::Blurred(radius) => copy.with_blur(*radius),
+            };
             layers.push(
                 Section::new()
                     .add_text(copy)

@@ -9,6 +9,11 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use event_listener::Event;
+#[cfg(not_wasm)]
+use reqwest::{
+    StatusCode,
+    header::{ETAG, IF_NONE_MATCH},
+};
 
 use crate::deps::{
     hreads::on_main,
@@ -85,6 +90,49 @@ pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec
     }
     let data = request.send().await?.error_for_status()?.bytes().await?;
     Ok(data.to_vec())
+}
+
+/// What a conditional fetch brought back.
+#[cfg(not_wasm)]
+pub(crate) enum Fetched {
+    /// The server still has the picture the etag names.
+    NotModified,
+    Fresh {
+        bytes: Vec<u8>,
+        etag:  Option<String>,
+    },
+}
+
+/// `fetch_bytes_with` that also sends `etag` as `If-None-Match` when there
+/// is one, and hands back the etag of a fresh answer.
+#[cfg(not_wasm)]
+pub(crate) async fn fetch_if_changed(
+    url: &str,
+    headers: &[(&str, &str)],
+    etag: Option<&str>,
+) -> Result<Fetched> {
+    let mut request = client().get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    if let Some(etag) = etag {
+        request = request.header(IF_NONE_MATCH, etag);
+    }
+
+    let response = request.send().await?;
+    if response.status() == StatusCode::NOT_MODIFIED {
+        return Ok(Fetched::NotModified);
+    }
+    let response = response.error_for_status()?;
+    let etag = response
+        .headers()
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(ToString::to_string);
+    Ok(Fetched::Fresh {
+        bytes: response.bytes().await?.to_vec(),
+        etag,
+    })
 }
 
 pub trait DataManager<T: Managed> {

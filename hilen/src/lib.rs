@@ -101,6 +101,7 @@ pub use assets::Assets;
 pub use bug_report::{BugReport, BugReportStyle};
 #[cfg(not_wasm)]
 pub use log_file::{log_dir, log_file_path};
+pub use project_proc::project_name;
 
 pub use crate::{
     deps::vents::{Event, OnceEvent},

@@ -50,10 +50,11 @@ fn wait_for_line(view: Weak<VideoTracks>, text: Option<&'static str>) -> Result<
 /// tracks are listed with their language, a subtitle track reports its lines
 /// in step with the clock and clears them, a switch of the sound track keeps
 /// the position, a switch of the subtitle track and a seek bring the right
-/// lines, a subtitle file from outside the source works the same way, and
-/// none turns the lines off. Real time, the sound is the clock. The sound is
-/// muted, `the_chosen_sound_track_plays` in the engine pins which track is
-/// heard.
+/// lines, a seek into the middle of a line shows the line that began before
+/// the seek point, a subtitle file from outside the source works the same
+/// way, and none turns the lines off. Real time, the sound is the clock. The
+/// sound is muted, `the_chosen_sound_track_plays` in the engine pins which
+/// track is heard.
 #[view]
 struct VideoTracks {
     #[init]
@@ -171,6 +172,21 @@ impl ViewTest for VideoTracks {
         });
         wait_for_line(view, Some("erste Zeile"))?;
         checkpoint("after a seek back, the first German line")?;
+
+        // A seek into the middle of a line shows that line. The fixture has
+        // a keyframe every second, so the picture restarts at 1 second, and
+        // the line began at 0.5, before it. Paused, and from a place with
+        // no line, so only the seek can bring it.
+        from_main(move || {
+            view.video.pause();
+            view.video.seek_to(1.7);
+        });
+        wait_for_line(view, None)?;
+        from_main(move || {
+            view.video.seek_to(1.2);
+        });
+        wait_for_line(view, Some("erste Zeile"))?;
+        checkpoint("paused at 1.2 s, the line that began before the seek point")?;
 
         // A file from outside the source, paused so the line stays.
         from_main(move || {

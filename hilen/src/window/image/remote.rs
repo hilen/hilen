@@ -2,24 +2,22 @@
 //! for a server behind a login, a disk cache so a second launch does not
 //! fetch again, and a bound on the memory the downloaded images hold.
 
-use std::{
-    fs::{create_dir_all, read, write},
-    path::PathBuf,
-    sync::atomic::Ordering,
-};
+use std::{path::PathBuf, sync::atomic::Ordering};
+#[cfg(not_wasm)]
+use std::{thread, time::Duration};
 
 use anyhow::Result;
-use log::warn;
-use sha2::{Digest, Sha256};
+#[cfg(not_wasm)]
+use log::error;
 
+#[cfg(wasm)]
+use crate::deps::refs::manage::fetch_bytes_with;
+#[cfg(not_wasm)]
+use crate::window::image::disk_cache::DiskCache;
 use crate::{
     deps::{
         hreads::on_main,
-        refs::{
-            __internal_deps::Mutex,
-            Weak,
-            manage::{DataManager, fetch_bytes_with},
-        },
+        refs::{__internal_deps::Mutex, Weak, manage::DataManager},
     },
     window::{Window, image::Image},
 };
@@ -29,17 +27,23 @@ use crate::{
 const ON_SCREEN_FRAMES: u64 = 2;
 
 struct Remote {
-    cache_dir: Option<PathBuf>,
+    #[cfg(not_wasm)]
+    cache: DiskCache,
     /// Bytes the downloaded images may hold, 0 for no bound.
-    limit:     usize,
+    limit: usize,
     /// The name of every downloaded image still alive, with its bytes.
-    held:      Vec<(String, usize)>,
+    held:  Vec<(String, usize)>,
 }
 
 static REMOTE: Mutex<Remote> = Mutex::new(Remote {
-    cache_dir: None,
-    limit:     0,
-    held:      Vec::new(),
+    #[cfg(not_wasm)]
+    cache:                  DiskCache {
+        dir:         None,
+        limit:       0,
+        recheck_age: None,
+    },
+    limit:                  0,
+    held:                   Vec::new(),
 });
 
 impl Image {
@@ -77,7 +81,40 @@ impl Image {
     /// give the same picture. A browser has its own cache, there this does
     /// nothing.
     pub fn set_download_cache_dir(dir: Option<PathBuf>) {
-        REMOTE.lock().cache_dir = dir;
+        #[cfg(not_wasm)]
+        {
+            REMOTE.lock().cache.dir = dir;
+            trim_cache();
+        }
+        #[cfg(wasm)]
+        log::debug!("No image disk cache in a browser, {dir:?} is not used");
+    }
+
+    /// The most bytes the cache folder holds, 0 for no bound, the default.
+    /// Over it, the files used longest ago are deleted, at once and after
+    /// every download that writes a file.
+    pub fn set_download_cache_limit(bytes: u64) {
+        #[cfg(not_wasm)]
+        {
+            REMOTE.lock().cache.limit = bytes;
+            trim_cache();
+        }
+        #[cfg(wasm)]
+        log::debug!("No image disk cache in a browser, the bound of {bytes} bytes is not used");
+    }
+
+    /// How many seconds a cached file is trusted before the server is asked
+    /// about it again, none for never, the default. The question carries
+    /// the `ETag` the server sent with the file, so a picture that did not
+    /// change costs 1 small request and no download. When the server cannot
+    /// be reached the cached file is used.
+    pub fn set_download_cache_recheck_age(seconds: Option<u64>) {
+        #[cfg(not_wasm)]
+        {
+            REMOTE.lock().cache.recheck_age = seconds.map(Duration::from_secs);
+        }
+        #[cfg(wasm)]
+        log::debug!("No image disk cache in a browser, the recheck age {seconds:?} is not used");
     }
 
     /// The most bytes of pixels downloaded images hold, 0 for no bound, the
@@ -92,32 +129,36 @@ impl Image {
 }
 
 /// The bytes of a url, from the disk cache when it has them.
+#[cfg(not_wasm)]
 async fn bytes_of(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
-    let cached = cache_file(url);
-    if let Some(path) = &cached
-        && let Ok(bytes) = read(path)
-    {
-        return Ok(bytes);
-    }
-
-    let bytes = fetch_bytes_with(url, headers).await?;
-
-    if let Some(path) = &cached {
-        let stored = path.parent().map_or(Ok(()), create_dir_all).and_then(|()| write(path, &bytes));
-        if let Err(err) = stored {
-            warn!("image cache: {} not written, {err}", path.display());
-        }
-    }
-    Ok(bytes)
+    let cache = REMOTE.lock().cache.clone();
+    cache.bytes_of(url, headers).await
 }
 
-/// Where the cache keeps the bytes of a url, none with no cache folder.
-fn cache_file(url: &str) -> Option<PathBuf> {
-    if cfg!(target_arch = "wasm32") {
-        return None;
+/// A browser has its own cache, the cache settings do nothing there.
+#[cfg(wasm)]
+async fn bytes_of(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
+    fetch_bytes_with(url, headers).await
+}
+
+/// Brings the cache folder under its bound on a thread of its own, the
+/// folder can hold thousands of files and the caller is the main thread.
+#[cfg(not_wasm)]
+fn trim_cache() {
+    let cache = REMOTE.lock().cache.clone();
+    let Some(dir) = cache.dir.clone() else {
+        return;
+    };
+    if cache.limit == 0 {
+        return;
     }
-    let dir = REMOTE.lock().cache_dir.clone()?;
-    Some(dir.join(hex::encode(Sha256::digest(url.as_bytes()))))
+    // No file is in use by this call, so nothing is exempt.
+    let spawned = thread::Builder::new()
+        .name("image-cache".into())
+        .spawn(move || cache.prune(&dir));
+    if let Err(err) = spawned {
+        error!("image cache: the trim thread did not start, {err}");
+    }
 }
 
 /// Frees the downloaded images drawn longest ago until the rest fits the

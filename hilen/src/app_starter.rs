@@ -70,6 +70,22 @@ pub(crate) fn hilen_start_with_app_headless(app: Box<dyn App>) -> std::ffi::c_in
     start_with_app(app, true)
 }
 
+/// The data folder exists and is the `OnDisk` root before the app runs any
+/// code of its own, so an app with no setup stores in the right place.
+#[cfg(desktop)]
+fn prepare_storage() {
+    use std::fs::create_dir_all;
+
+    use crate::{filesystem::Paths, store::OnDisk};
+
+    let dir = Paths::storage();
+    if let Err(err) = create_dir_all(&dir) {
+        log::error!("Failed to create the data folder {}: {err}", dir.display());
+    }
+    log::info!("Data folder: {}", dir.display());
+    OnDisk::<()>::set_root_path(dir);
+}
+
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
@@ -80,6 +96,9 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         // engine's first request.
         #[cfg(not_wasm)]
         crate::deps::netrun::tls::install_provider();
+
+        #[cfg(desktop)]
+        prepare_storage();
 
         app.before_launch();
 
@@ -195,4 +214,37 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     }
 
     0
+}
+
+#[cfg(all(test, desktop))]
+mod test {
+    use std::fs::remove_dir_all;
+
+    use anyhow::Result;
+    use serial_test::serial;
+
+    use crate::{app_starter::prepare_storage, filesystem::Paths, store::OnDisk};
+
+    /// The step the starter runs before `before_launch`. An app that sets
+    /// no root of its own must find its settings in the data folder, never
+    /// in the working directory.
+    #[test]
+    #[serial(on_disk_root)]
+    fn the_data_folder_exists_and_is_the_on_disk_root_before_the_app_runs() -> Result<()> {
+        Paths::use_test_storage();
+        let dir = Paths::storage();
+        if dir.exists() {
+            remove_dir_all(&dir)?;
+        }
+
+        prepare_storage();
+
+        assert!(dir.is_dir(), "{} was not created", dir.display());
+        let stored: OnDisk<u32> = OnDisk::new("prepare_storage_test.json");
+        stored.set(7_u32);
+        assert!(dir.join("prepare_storage_test.json").is_file());
+        assert_eq!(stored.get(), Some(7));
+        stored.reset();
+        Ok(())
+    }
 }

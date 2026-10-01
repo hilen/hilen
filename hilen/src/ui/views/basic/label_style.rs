@@ -19,11 +19,13 @@ pub(crate) struct TextOutline {
     pub width: f32,
 }
 
-/// A copy of the glyphs in this color, moved by `offset` points.
+/// A copy of the glyphs in this color, moved by `offset` points and blurred
+/// with a radius of `blur` points, 0 for a hard copy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TextShadow {
     pub color:  Color,
     pub offset: Point,
+    pub blur:   f32,
 }
 
 impl Label {
@@ -43,7 +45,8 @@ impl Label {
 
     /// Draws a ring of `color` around the glyphs, `width` points out, so
     /// the text reads over a bright or a dark picture alike. A width of 0
-    /// takes it off.
+    /// takes it off. The widest ring is 12 pixels on the screen, a wider
+    /// one is drawn at that.
     pub fn set_text_outline(&self, color: impl Into<Color>, width: impl ToF32) -> &Self {
         let width = width.to_f32();
         weak_from_ref(self).text_outline = (width > 0.0).then(|| TextOutline {
@@ -57,10 +60,26 @@ impl Label {
     /// `offset` points. A clear color takes it off.
     pub fn set_text_shadow(&self, color: impl Into<Color>, offset: impl Into<Point>) -> &Self {
         let color = color.into();
-        weak_from_ref(self).text_shadow = (color.a > 0.0).then(|| TextShadow {
+        let mut this = weak_from_ref(self);
+        this.text_shadow = (color.a > 0.0).then(|| TextShadow {
             color,
             offset: offset.into(),
+            blur: this.text_shadow_blur,
         });
+        self
+    }
+
+    /// Makes the shadow soft, a blur with a radius of `radius` points like
+    /// the blur of a CSS text shadow. 0 is the hard shadow, the default.
+    /// It is kept when the shadow is set again. The widest blur is 12
+    /// pixels on the screen.
+    pub fn set_text_shadow_blur(&self, radius: impl ToF32) -> &Self {
+        let blur = radius.to_f32().max(0.0);
+        let mut this = weak_from_ref(self);
+        this.text_shadow_blur = blur;
+        if let Some(shadow) = &mut this.text_shadow {
+            shadow.blur = blur;
+        }
         self
     }
 

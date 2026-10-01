@@ -3,10 +3,7 @@
 //! thread pulls pictures, and kira's playback position is the clock the
 //! picture follows.
 
-use std::{
-    mem::take,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::mem::take;
 
 use ffmpeg_next::{
     ChannelLayout, Error, Packet, codec, decoder, filter,
@@ -19,7 +16,7 @@ use kira::{Frame, sound::streaming::Decoder};
 
 use crate::{
     gm::LossyConvert,
-    video::{VideoSource, count_to_f64},
+    video::{VideoSource, count_to_f64, source::Interrupt},
 };
 
 /// Frames of silence handed out past the end. kira walks chunk by chunk to
@@ -46,6 +43,8 @@ pub(crate) struct AudioDecoder {
     speed:     f64,
     /// Changes the speed and keeps the pitch, none at speed 1.
     tempo:     Option<filter::Graph>,
+    /// Ends a read of this demuxer that waits on the network.
+    reads:     Interrupt,
 }
 
 /// A graph that plays stereo floats at `speed` with the pitch kept, ffmpeg's
@@ -66,13 +65,17 @@ fn tempo_graph(rate: u32, speed: f64) -> Result<filter::Graph, Error> {
 impl AudioDecoder {
     /// None when the source has no sound track.
     /// `track` is the stream to play, the best one when none is named.
+    /// `reads` is this demuxer's own, a break of it ends the decoder for
+    /// good, it gives silence from then on: kira takes a seek only between
+    /// reads, so the player drops a sound that waits in a read and opens a
+    /// fresh one.
     pub(crate) fn open(
         source: &VideoSource,
-        stop: &Arc<AtomicBool>,
+        reads: Interrupt,
         track: Option<usize>,
         speed: f64,
     ) -> Result<Option<Self>, Error> {
-        let input = source.open(stop)?;
+        let input = source.open(&reads)?;
         let stream = match track {
             Some(index) => input
                 .streams()
@@ -128,7 +131,13 @@ impl AudioDecoder {
             eof: false,
             speed,
             tempo,
+            reads,
         }))
+    }
+
+    /// The interrupt of this demuxer, for the player to watch its reads.
+    pub(crate) fn reads(&self) -> Interrupt {
+        self.reads.clone()
     }
 
     /// The index of the stream it plays.
@@ -140,12 +149,20 @@ impl AudioDecoder {
     fn next_packet(&mut self) -> Result<Option<Packet>, Error> {
         loop {
             let mut packet = Packet::empty();
-            match packet.read(&mut self.input) {
+            let read = {
+                let _reading = self.reads.reading();
+                packet.read(&mut self.input)
+            };
+            match read {
                 Ok(()) => {
                     if packet.stream() == self.stream {
                         return Ok(Some(packet));
                     }
                 }
+                // The player broke the read and dropped this sound. It ends
+                // here in silence. An error would be worse, kira calls a
+                // decoder that fails again and again with no pause.
+                Err(_) if self.reads.is_broken() => return Ok(None),
                 Err(Error::Eof) => return Ok(None),
                 Err(err) => return Err(err),
             }
@@ -259,7 +276,20 @@ impl Decoder for AudioDecoder {
             / f64::from(self.rate)
             * self.speed;
         let micros: i64 = (seconds * 1_000_000.0).lossy_convert();
-        self.input.seek(micros, ..micros)?;
+        let sought = {
+            let _reading = self.reads.reading();
+            self.input.seek(micros, ..micros)
+        };
+        match sought {
+            Ok(()) => {}
+            // A broken decoder is at its end for good, see `next_packet`.
+            Err(_) if self.reads.is_broken() => {
+                self.eof = true;
+                self.pending.clear();
+                return Ok(self.frames);
+            }
+            Err(err) => return Err(err),
+        }
         self.decoder.flush();
         self.eof = false;
         self.pending.clear();
@@ -292,15 +322,16 @@ mod test {
 
     use kira::sound::streaming::Decoder;
 
-    use crate::video::{audio::AudioDecoder, count_to_f64, test_fixture};
+    use crate::video::{audio::AudioDecoder, count_to_f64, source::Interrupt, test_fixture};
 
     /// The tone of a track in Hz from the sign changes of its sound, and how
     /// many seconds of sound the track gives, at a playback speed.
     fn heard(track: Option<usize>, speed: f64) -> (f64, f64) {
         let stop = Arc::new(AtomicBool::new(false));
-        let mut decoder = AudioDecoder::open(&test_fixture("tracks.mkv"), &stop, track, speed)
-            .expect("the fixture opens")
-            .expect("the fixture has sound");
+        let mut decoder =
+            AudioDecoder::open(&test_fixture("tracks.mkv"), Interrupt::new(&stop), track, speed)
+                .expect("the fixture opens")
+                .expect("the fixture has sound");
         let mut frames = Vec::new();
         while !decoder.eof {
             frames.extend(decoder.decode().expect("the fixture decodes"));

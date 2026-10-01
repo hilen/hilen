@@ -124,11 +124,25 @@ binary search over the layout and cached per width like the single line
 ellipsis. `size_for_width` then measures what is drawn.
 
 `set_text_outline(color, width)` and `set_text_shadow(color, offset)` draw the
-same text again in 1 color behind the glyphs, 8 copies on a circle for the
-outline and 1 moved copy for the shadow, in `hilen/src/ui/label_drawer.rs`.
+same text again in 1 color behind the glyphs, 1 copy each, in
+`hilen/src/ui/label_drawer.rs`. `set_text_shadow_blur(radius)` makes the
+shadow soft. The outline copy and a blurred shadow go through the effect
+pipeline of the `wgpu_text` fork, entry points `vs_effect` and `fs_effect`:
+the glyph quad grows by the spread and the fragment shader walks the square
+of pixels around it. The outline takes the strongest coverage within the
+width, the blur a gaussian whose sigma is half the radius, like a CSS text
+shadow. A sample outside the glyph's own box is skipped, the atlas has other
+glyphs there. The spread is cut at 12 pixels. The effect glyphs draw before
+the plain ones of the same batch, with a depth test that lets an equal depth
+pass, since their grown quads overlap the quads next to them.
 Text writes depth over whole glyph boxes and sits only 2 depth steps in front
 of its view, so each copy is `f32::EPSILON` nearer than the one before and the
 text itself comes forward by the number of copies.
+
+The effect shader passes exactly 8 float components to the fragment stage,
+the A7 limit of [ios.md](ios.md): the atlas position, the 4 distances to the
+edges of the glyph box, and the color and spread packed into 2 floats as
+whole numbers.
 
 ## Matching other renderers
 

@@ -24,9 +24,10 @@ pub fn demultiply_rgba(pixels: &[PremultipliedColorU8]) -> Vec<u8> {
 /// box filter, an odd edge keeps its last row or column, down to 1 by 1.
 /// Alpha weighted, so a transparent neighbor does not bleed its color
 /// into a covered texel. Every level comes with its width and height.
-pub fn mip_chain(data: &[u8], width: u32, height: u32, channels: u8) -> Vec<(Vec<u8>, (u32, u32))> {
+/// The pixels come by value, level 0 is that same buffer and never a copy.
+pub fn mip_chain(data: Vec<u8>, width: u32, height: u32, channels: u8) -> Vec<(Vec<u8>, (u32, u32))> {
     let channels = usize::from(channels);
-    let mut levels = vec![(data.to_vec(), (width, height))];
+    let mut levels = vec![(data, (width, height))];
     while let Some((pixels, (width, height))) = levels.last()
         && (*width > 1 || *height > 1)
     {
@@ -73,7 +74,7 @@ mod tests {
     #[test]
     fn mip_chain_halves_down_to_one_texel() {
         let data = vec![255; 4 * 4 * 4];
-        let levels = mip_chain(&data, 4, 4, 4);
+        let levels = mip_chain(data, 4, 4, 4);
         let sizes: Vec<(u32, u32)> = levels.iter().map(|(_, size)| *size).collect();
         assert_eq!(sizes, [(4, 4), (2, 2), (1, 1)]);
         assert_eq!(levels[2].0, [255, 255, 255, 255]);
@@ -83,7 +84,7 @@ mod tests {
     fn mip_chain_keeps_odd_edges_and_weights_by_alpha() {
         // A 3 by 1 row: opaque red, transparent green, opaque red.
         let data = vec![255, 0, 0, 255, 0, 255, 0, 0, 255, 0, 0, 255];
-        let levels = mip_chain(&data, 3, 1, 4);
+        let levels = mip_chain(data, 3, 1, 4);
         assert_eq!(levels[1].1, (1, 1));
         // The transparent green texel contributes no color, only alpha.
         assert_eq!(levels[1].0, [255, 0, 0, 128]);
@@ -92,7 +93,15 @@ mod tests {
     #[test]
     fn mip_chain_averages_single_channel() {
         let data = vec![0, 100, 200, 100];
-        let levels = mip_chain(&data, 2, 2, 1);
+        let levels = mip_chain(data, 2, 2, 1);
         assert_eq!(levels[1].0, [100]);
+    }
+
+    #[test]
+    fn mip_chain_level_0_is_the_given_buffer() {
+        let data = vec![7; 8 * 8 * 4];
+        let given = data.as_ptr();
+        let levels = mip_chain(data, 8, 8, 4);
+        assert_eq!(levels[0].0.as_ptr(), given, "level 0 was copied");
     }
 }

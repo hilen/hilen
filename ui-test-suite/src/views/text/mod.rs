@@ -18,6 +18,7 @@ mod label_line_height;
 mod label_max_lines;
 mod label_measure;
 mod label_outline;
+mod label_soft_shadow;
 mod label_stress;
 mod label_tab;
 mod label_vertical_alignment;

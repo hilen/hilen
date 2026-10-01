@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod data_dir;
 pub mod db;
 pub mod error;
 pub mod helpers;
@@ -15,6 +16,7 @@ pub use error::AppError;
 pub use helpers::{base_routes, bind, build_redis, download_mount, serve, serve_listener, serve_on};
 pub use log_file::{log_dir, log_file_path};
 pub use metrics;
+pub use project_proc::project_name;
 pub use prometheus::{install_metrics, metrics_mount};
 pub use redis;
 pub use rust_embed;

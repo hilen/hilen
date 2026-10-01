@@ -77,8 +77,10 @@ pub struct Label {
     /// `set_max_lines`.
     pub(super) max_lines: usize,
 
-    pub(super) text_outline: Option<TextOutline>,
-    pub(super) text_shadow:  Option<TextShadow>,
+    pub(super) text_outline:     Option<TextOutline>,
+    pub(super) text_shadow:      Option<TextShadow>,
+    /// Kept apart from the shadow, so the blur can be set before it.
+    pub(super) text_shadow_blur: f32,
 
     ellipsize: Ellipsize,
 

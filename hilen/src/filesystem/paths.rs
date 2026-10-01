@@ -1,9 +1,18 @@
+#[cfg(desktop)]
+use std::env::temp_dir;
 use std::path::PathBuf;
 
 use parking_lot::Mutex;
 use plat::Platform;
 
+#[cfg(desktop)]
+use crate::app::hilen_project_name;
+
 static STORAGE_PATH: Mutex<Option<String>> = Mutex::new(None);
+
+/// A test run stores here and never in the data folder of a real app.
+#[cfg(desktop)]
+static TEST_STORAGE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 pub struct Paths;
 
@@ -23,15 +32,32 @@ impl Paths {
         Self::home().join(".config")
     }
 
+    /// The data folder of the app. On desktop `~/.config/<project_name>`,
+    /// with the name from the app's `hilen.toml`, so every binary of one
+    /// project shares one folder. The engine creates it and makes it the
+    /// `OnDisk` root before `before_launch` runs.
     pub fn storage() -> PathBuf {
         #[cfg(wasm)]
         {
             PathBuf::default()
         }
-        #[cfg(not_wasm)]
+        #[cfg(mobile)]
         {
             format!("{}/.{}", Self::home().display(), Self::executable_name()).into()
         }
+        #[cfg(desktop)]
+        {
+            let test = TEST_STORAGE.lock().clone();
+            test.unwrap_or_else(|| Self::config().join(hilen_project_name()))
+        }
+    }
+
+    /// Points `storage` at a temp folder. The test runners start an app of
+    /// the engine itself, which has no project name and must not touch the
+    /// folder of a real app.
+    #[cfg(desktop)]
+    pub(crate) fn use_test_storage() {
+        *TEST_STORAGE.lock() = Some(temp_dir().join("hilen-test-storage"));
     }
 
     pub fn executable_name() -> String {

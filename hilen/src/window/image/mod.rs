@@ -1,3 +1,5 @@
+#[cfg(not_wasm)]
+mod disk_cache;
 mod gif;
 mod image;
 mod image_bind;

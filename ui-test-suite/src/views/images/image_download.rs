@@ -177,10 +177,15 @@ impl ViewTest for ImageDownload {
         ensure!(!alive("poster-1"), "the image is freed");
         let again = download("poster-1", format!("{server}/1"), true)?;
         ensure!(served("/1") == 1, "the second download made no request");
-        ensure!(
-            read_dir(&cache)?.count() == 1,
-            "the cache folder holds the one picture"
-        );
+        // Next to the picture sits its `.meta` file, with the etag and
+        // the time the server was asked.
+        let mut pictures = 0;
+        for entry in read_dir(&cache)? {
+            if entry?.path().extension().is_none() {
+                pictures += 1;
+            }
+        }
+        ensure!(pictures == 1, "the cache folder holds the one picture");
         show(again, "poster 1 again, from the disk cache");
         checkpoint("poster 1 shows again, with no request")?;
 

@@ -7,6 +7,8 @@ The engine is one library crate, `hilen`, with modules like `gm`, `ui`, `window`
 `render`, `level` under `hilen/src/`. The foundational crates `hreads`, `refs`, `vents`
 and `netrun` are modules under `hilen/src/deps/`, not separate crates, so a published
 `hilen` is one self contained library. `deps/` holds only the proc macro crates,
+`project-proc` among them, which reads `project_name` from `hilen.toml` at build time
+for `hilen` and `hilen-server`,
 `ui-proc-test`, the compile check for the `view` macro, `hilen-pixels`, the per pixel
 loops kept optimized in dev builds by a profile override, plus `plat`, which stays its
 own crate because three build scripts call its `platforms()` to set the cfg aliases and
@@ -157,6 +159,22 @@ in place of the exe name, newest 10 kept, a panic included. The first line names
 `HILEN_LOG_FILE=off` writes no file, for a backend in Docker that keeps its lines in
 `docker logs`. The code is `hilen-server/src/log_file.rs`, a copy of the folder and trim
 rules of `hilen/src/log_file.rs`, since the server crate never links `hilen`.
+
+## Data folder
+
+All data of an app lives in `~/.config/<project_name>` on desktop. The name is the
+`project_name` of the `hilen.toml` above the app crate, `hilen::register_app!(MyApp)`
+reads it at build time and an app without that line stops at start. The engine creates
+the folder and sets it as the `OnDisk` root before `before_launch`. `Paths::storage()`
+returns it. On iOS and Android `Paths::storage()` is what it was and the app sets the
+root itself. A backend gets the same folder from `hilen_server::data_dir!()`, so a
+Docker build of a backend has to copy `hilen.toml` in. The test runners start the
+engine's own app, which has no name, their storage is a folder in the temp dir.
+
+Downloaded images can be kept on disk, `Image::set_download_cache_dir`.
+`set_download_cache_limit(bytes)` deletes the files used longest ago over the bound, and
+`set_download_cache_recheck_age(seconds)` asks the server about an older file again with
+its `ETag`. The code is `hilen/src/window/image/disk_cache.rs`.
 
 ## Assets folder
 

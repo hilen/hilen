@@ -16,28 +16,21 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## App data folder is `~/.config/<app_name>` by default
+## A context menu cannot open above its anchor
 
-- Current: `Paths::storage()` in `hilen/src/filesystem/paths.rs` returns
-  `~/.<executable-name>` on desktop. That is straight in the home folder, and
-  it is named after the exe, so the debug binary and the installed binary of
-  one app can use 2 folders. The rule for every app is `~/.config/<app_name>`,
-  so each app now builds that path by hand with `Paths::config().join(name)`
-  and passes it to `OnDisk::set_root_path` in `before_launch`. An app that
-  forgets it writes `OnDisk` files relative to the working directory.
-  `hilen-server` has no call for the folder at all, a backend builds it from
-  `dirs::home_dir()` by hand.
-- Needed: one call that returns the data folder of an app,
-  `~/.config/<app_name>` on Mac, Windows and Linux, with the name given by the
-  app and not read from the exe. On iOS and Android it stays the documents dir
-  and the app storage dir. The engine creates the folder and sets it as the
-  `OnDisk` root before `before_launch` runs, so an app with no setup code
-  stores in the right place. The stored login session follows it. The same
-  call, or a twin with the same result, in `hilen-server` for a backend that
-  runs outside Docker. Decide what happens to `Paths::storage()`, and to the
-  data of apps that already have files in `~/.<executable-name>`.
-- Blocks: nothing is blocked, flixen and blackforge set the folder by hand.
-  It removes that hand written code from every app.
+- Current: `ContextMenu` in `hilen/src/ui/views/controls/context_menu.rs` has
+  2 placements, `Placement::At` and `Placement::Below`. `show_below` puts the
+  menu under the anchor view. For a button in a bar at the bottom of the
+  window the menu does not fit there, so `fill` slides it up until it ends at
+  the window edge. It then covers its own button and the bar around it. The
+  subtitles menu of the flixen player opens this way, over the right end of
+  the player controls.
+- Needed: a menu that opens above its anchor, with the same `MenuAlign`, the
+  bottom edge of the menu `ANCHOR_GAP` over the top edge of the anchor. Either
+  a `show_above` next to `show_below`, or `show_below` flips to above by itself
+  when the menu does not fit under the anchor and fits over it.
+- Blocks: a clean menu from any bottom bar, the subtitles and the sound track
+  menu of flixen.
 
 ## Flixen, the media player gaps
 
@@ -65,16 +58,21 @@ playback speed, Now Playing and the media keys, zlib and dav1d. See
   where VideoToolbox has one needs such a Mac to prove it.
 - Now Playing and the media keys are macOS only. Windows needs the System
   Media Transport Controls, Linux needs MPRIS.
-- A subtitle line that started before the keyframe a seek lands on does not
-  show until the next line, the decode restarts at that keyframe.
 - Picture subtitles like PGS are listed as tracks and show nothing.
-- The disk cache of downloaded images has no size bound and never checks a
-  url again.
 - View opacity fades every part by itself. Parts that overlap show through
   each other while they fade, a group fade needs an offscreen pass.
-- A text outline is 8 copies of the text around it. Past a width of about 2
-  points the copies no longer close into a ring. A soft text shadow needs the
-  blur in the glyph shader.
+- An outline or a shadow blur is cut at 12 pixels on the screen, the effect
+  shader walks every pixel of that square. The effect entry points pass 8
+  float components, the A7 limit, counted and not yet run on an A7 device.
+- Starting a sound runs its first seek on the main thread, kira does that
+  inside `play`. `Player::reset_sound`, a sound track switch and a speed
+  change open a sound decoder on the main thread too. On a slow network each
+  of them holds the frame loop. Only the sound a stalled seek replaces opens
+  on a thread of its own.
+- A seek to a line longer than 10 seconds can miss it, the subtitle read back
+  starts 10 seconds before the target.
+- The data folder is made and set as the `OnDisk` root on desktop only. On
+  iOS and Android an app still sets the root itself.
 - Fullscreen, the pointer hide, the sound of a track switch and of a speed
   change, and a real media key press were tested with no window and no
   speakers. The login queries on Postgres were moved into `store.rs` and not
@@ -213,10 +211,6 @@ sound. The rest of the platforms and the packaging are open.
 
 Small remainders not worth their own entry.
 
-- A seek on a video whose network read is stalled waits for that read. The
-  decode thread takes commands only between packets. The interrupt callback
-  breaks a read only when the player drops, a seek would have to break it too
-  and reopen the connection at the target.
 - Tab focus traversal does not scroll. Tab selects the next text field even when
   it sits scrolled out of view inside a `ScrollView`, so the editing session
   starts off screen. Needs a scroll-to-view step in `select_next_field`, the way

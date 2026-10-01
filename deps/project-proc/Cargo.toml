@@ -1,0 +1,20 @@
+[package]
+authors.workspace = true
+description = "The project_name of hilen.toml as a compile time string, for hilen and hilen-server."
+edition.workspace = true
+license.workspace = true
+name = "project-proc"
+repository.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+anyhow = { workspace = true }
+quote = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+
+[lints]
+workspace = true

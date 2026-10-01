@@ -33,6 +33,47 @@ pub struct TextureRawData {
     pub channels: u8,
 }
 
+/// The pixels of a texture with every mip level built. Building them needs
+/// no device, so a load on a worker thread does it there and the main
+/// thread is left with the upload alone.
+pub(crate) struct TextureLevels {
+    levels:   Vec<(Vec<u8>, Size<u32>)>,
+    size:     Size<u32>,
+    channels: u8,
+    format:   TextureFormat,
+}
+
+impl TextureRawData {
+    pub(crate) fn into_levels(self) -> TextureLevels {
+        let Self { data, size, channels } = self;
+
+        // Plain Unorm, the whole pipeline works on encoded sRGB values.
+        // Image bytes are already encoded, sampling must return them
+        // unchanged. An sRGB format here would decode on sample and the
+        // image would render one decode too dark.
+        let (channels, format) = match channels {
+            1 => (1, TextureFormat::R8Unorm),
+            3 | 4 => (4, TextureFormat::Rgba8Unorm),
+            ch => panic!("Invalid number of channels: {ch}"),
+        };
+
+        // The whole mip chain, so an image drawn smaller than its bitmap
+        // is box filtered instead of skipping texels. Svgs rasterize at
+        // eight times their size and icons draw at a fraction of that.
+        let levels = hilen_pixels::mip_chain(data, size.width, size.height, channels)
+            .into_iter()
+            .map(|(pixels, (width, height))| (pixels, Size::new(width, height)))
+            .collect();
+
+        TextureLevels {
+            levels,
+            size,
+            channels,
+            format,
+        }
+    }
+}
+
 impl Texture {
     pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 
@@ -61,29 +102,28 @@ impl Texture {
         })
     }
 
-    pub fn from_raw_data(TextureRawData { data, size, channels }: TextureRawData, label: &str) -> Self {
+    pub fn from_raw_data(data: TextureRawData, label: &str) -> Self {
+        Self::from_levels(data.into_levels(), label)
+    }
+
+    /// Only the calls that need the device, the pixel work is done in
+    /// `TextureRawData::into_levels`.
+    pub(crate) fn from_levels(
+        TextureLevels {
+            levels,
+            size,
+            channels,
+            format,
+        }: TextureLevels,
+        label: &str,
+    ) -> Self {
         let extend_size = Extent3d {
             width:                 size.width,
             height:                size.height,
             depth_or_array_layers: 1,
         };
 
-        // Plain Unorm, the whole pipeline works on encoded sRGB values.
-        // Image bytes are already encoded, sampling must return them
-        // unchanged. An sRGB format here would decode on sample and the
-        // image would render one decode too dark.
-        let (channels, format) = match channels {
-            1 => (1, TextureFormat::R8Unorm),
-            3 | 4 => (4, TextureFormat::Rgba8Unorm),
-            ch => panic!("Invalid number of channels: {ch}"),
-        };
-
         let device = Window::device();
-
-        // The whole mip chain, so an image drawn smaller than its bitmap
-        // is box filtered instead of skipping texels. Svgs rasterize at
-        // eight times their size and icons draw at a fraction of that.
-        let levels = mip_chain(&data, size, channels);
 
         let texture = device.create_texture(&TextureDescriptor {
             label: label.into(),
@@ -297,10 +337,28 @@ fn _save_rgba_image(buffer: &[u8], width: u32, height: u32, path: &str) -> Resul
     Ok(())
 }
 
-/// The mip levels with their sizes, see `hilen_pixels::mip_chain`.
-fn mip_chain(data: &[u8], size: Size<u32>, channels: u8) -> Vec<(Vec<u8>, Size<u32>)> {
-    hilen_pixels::mip_chain(data, size.width, size.height, channels)
-        .into_iter()
-        .map(|(pixels, (width, height))| (pixels, Size::new(width, height)))
-        .collect()
+#[cfg(test)]
+mod test {
+    use super::TextureRawData;
+    use crate::gm::flat::Size;
+
+    /// A unit test has no device and no main thread, so every level this
+    /// returns was built in the step a worker thread runs. A mip chain
+    /// moved back behind the device would leave nothing to assert here.
+    #[test]
+    fn mip_levels_are_built_without_a_device() {
+        let raw = TextureRawData {
+            data:     vec![200; 8 * 4 * 4],
+            size:     Size::new(8, 4),
+            channels: 4,
+        };
+        let given = raw.data.as_ptr();
+
+        let levels = raw.into_levels();
+
+        let sizes: Vec<_> = levels.levels.iter().map(|(_, size)| (size.width, size.height)).collect();
+        assert_eq!(sizes, [(8, 4), (4, 2), (2, 1), (1, 1)]);
+        assert_eq!(levels.levels[0].0.as_ptr(), given, "level 0 was copied");
+        assert_eq!(levels.levels[3].0, [200; 4]);
+    }
 }

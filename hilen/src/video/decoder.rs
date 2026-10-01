@@ -6,21 +6,21 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         mpsc::{Receiver, RecvError, SyncSender, TryRecvError},
     },
     thread::Builder,
 };
 
 use ffmpeg_next::{
-    Error, Packet, codec, color, decoder,
+    Error, Packet, Stream, codec, color, decoder,
     format::{Pixel, context::Input},
     frame, media,
     software::scaling,
     threading,
     util::error::EAGAIN,
 };
-use log::warn;
+use log::{debug, warn};
 
 use crate::{
     gm::LossyConvert,
@@ -28,6 +28,7 @@ use crate::{
         VideoSource,
         audio::AudioDecoder,
         count_to_f64, hw,
+        source::Interrupt,
         subtitles::{Cue, CueDecoder},
         tracks::{AudioTrack, SubtitleTrack, audio_tracks, subtitle_tracks},
     },
@@ -111,17 +112,18 @@ pub(crate) enum Command {
     Stop,
 }
 
+/// `reads` ends a read of the picture demuxer that waits on the network.
 pub(crate) fn spawn(
     source: VideoSource,
     commands: Receiver<Command>,
     messages: SyncSender<Message>,
     decoded: Arc<AtomicU64>,
-    stop: Arc<AtomicBool>,
+    reads: Interrupt,
 ) {
     Builder::new()
         .name("hilen-video".into())
         .spawn(move || {
-            if let Err(err) = run(&source, &commands, &messages, &decoded, &stop)
+            if let Err(err) = run(&source, &commands, &messages, &decoded, &reads)
                 && messages.send(Message::Error(err.to_string())).is_err()
             {
                 // The player is gone, nobody is left to show the error.
@@ -146,20 +148,22 @@ struct Decoding {
     skip_until: Option<f64>,
     sent:       u64,
     cues:       Option<CueDecoder>,
+    /// Seconds decoding stands at: the target of the last seek, then the
+    /// end of the last frame sent.
+    at:         f64,
+    /// The source was opened again after a broken read and has to be
+    /// brought back to these seconds, unless a seek comes first.
+    resume:     Option<f64>,
 }
 
-/// Opens the source and its decoders, and describes the stream.
-fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, MediaInfo), Error> {
-    let input = source.open(stop)?;
+/// Opens the source and its picture decoder, and describes the stream. The
+/// sound is opened by the caller.
+fn open(source: &VideoSource, reads: &Interrupt) -> Result<(Decoding, MediaInfo), Error> {
+    let input = source.open(reads)?;
     let stream = input.streams().best(media::Type::Video).ok_or(Error::StreamNotFound)?;
     let index = stream.index();
     let time_base: f64 = stream.time_base().into();
-    let start = if stream.start_time() > 0 {
-        let first: f64 = stream.start_time().lossy_convert();
-        first * time_base
-    } else {
-        0.0
-    };
+    let start = first_timestamp(&stream);
     let rate: f64 = stream.avg_frame_rate().into();
     let frame_rate = if rate.is_finite() && rate > 0.0 {
         rate
@@ -190,21 +194,13 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
         subtitles: subtitle_tracks(&input),
     };
 
-    let audio = match AudioDecoder::open(source, stop, None, 1.0) {
-        Ok(audio) => audio,
-        Err(err) => {
-            warn!("video {}: no sound, {err}", source.location());
-            None
-        }
-    };
-
     let info = MediaInfo {
         duration,
         width: decoder.width(),
         height: decoder.height(),
         frame_rate,
         decoder: name,
-        audio,
+        audio: None,
         tracks,
     };
     let decoding = Decoding {
@@ -219,8 +215,21 @@ fn open(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<(Decoding, Media
         skip_until: None,
         sent: 0,
         cues: None,
+        at: 0.0,
+        resume: None,
     };
     Ok((decoding, info))
+}
+
+/// Seconds the first timestamp of a stream sits at.
+pub(crate) fn first_timestamp(stream: &Stream) -> f64 {
+    if stream.start_time() > 0 {
+        let first: f64 = stream.start_time().lossy_convert();
+        let time_base: f64 = stream.time_base().into();
+        first * time_base
+    } else {
+        0.0
+    }
 }
 
 fn run(
@@ -228,87 +237,167 @@ fn run(
     commands: &Receiver<Command>,
     messages: &SyncSender<Message>,
     counter: &AtomicU64,
-    stop: &Arc<AtomicBool>,
+    reads: &Interrupt,
 ) -> Result<(), Error> {
-    let (mut decoding, info) = open(source, stop)?;
+    let (mut decoding, mut info) = open(source, reads)?;
+    info.audio = match AudioDecoder::open(source, reads.fresh(), None, 1.0) {
+        Ok(audio) => audio,
+        Err(err) => {
+            warn!("video {}: no sound, {err}", source.location());
+            None
+        }
+    };
     if messages.send(Message::Info(Box::new(info))).is_err() {
         return Ok(());
     }
     let mut eof = false;
 
     loop {
-        // Every queued command, the latest seek wins.
-        loop {
-            match commands.try_recv() {
-                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => decoding.apply(command, &mut eof)?,
-                Err(TryRecvError::Empty) => break,
-            }
-        }
-
-        if eof {
-            // Nothing to decode until a seek, so block instead of spinning.
-            match commands.recv() {
-                Ok(Command::Stop) | Err(RecvError) => return Ok(()),
-                Ok(command) => decoding.apply(command, &mut eof)?,
-            }
-            continue;
-        }
-
-        let mut packet = Packet::empty();
-        match packet.read(&mut decoding.input) {
-            Ok(()) => {
-                if packet.stream() != decoding.stream {
-                    if let Some(cue) = decoding.cue(&packet)
-                        && messages.send(Message::Cue(cue)).is_err()
-                    {
-                        return Ok(());
-                    }
-                    continue;
-                }
-                decoding.decoder.send_packet(&packet)?;
-            }
-            Err(Error::Eof) => {
-                decoding.decoder.send_eof()?;
-                eof = true;
+        match decoding.step(commands, messages, counter, &mut eof, reads) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            // A seek broke a read that waited on the network. The
+            // connection of that read is of no use, the source opens again.
+            Err(Error::Exit) if !reads.stopped() => {
+                decoding.reopen(source, reads)?;
+                eof = false;
             }
             Err(err) => return Err(err),
-        }
-
-        if !decoding.receive(messages, counter)? {
-            return Ok(());
-        }
-        if eof
-            && messages
-                .send(Message::Eof {
-                    generation: decoding.generation,
-                })
-                .is_err()
-        {
-            return Ok(());
         }
     }
 }
 
 impl Decoding {
+    /// One round of the decode loop: the queued commands, then one packet.
+    /// False once the player is gone. `Error::Exit` when a seek broke a
+    /// read, whatever error the demuxer made of it.
+    fn step(
+        &mut self,
+        commands: &Receiver<Command>,
+        messages: &SyncSender<Message>,
+        counter: &AtomicU64,
+        eof: &mut bool,
+        reads: &Interrupt,
+    ) -> Result<bool, Error> {
+        // Every queued command, the latest seek wins.
+        loop {
+            match commands.try_recv() {
+                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(false),
+                Ok(command) => self.apply(command, eof, reads)?,
+                Err(TryRecvError::Empty) => break,
+            }
+        }
+        // After a reopen with no seek in the queue decoding goes on where
+        // it stood.
+        if let Some(at) = self.resume.take() {
+            self.seek(self.generation, at, reads)?;
+        }
+
+        if *eof {
+            // Nothing to decode until a seek, so block instead of spinning.
+            match commands.recv() {
+                Ok(Command::Stop) | Err(RecvError) => return Ok(false),
+                Ok(command) => self.apply(command, eof, reads)?,
+            }
+            return Ok(true);
+        }
+
+        let mut packet = Packet::empty();
+        let read = {
+            let _reading = reads.reading();
+            packet.read(&mut self.input)
+        };
+        match read {
+            Ok(()) => {
+                if packet.stream() != self.stream {
+                    if let Some(cue) = self.cue(&packet)
+                        && messages.send(Message::Cue(cue)).is_err()
+                    {
+                        return Ok(false);
+                    }
+                    return Ok(true);
+                }
+                self.decoder.send_packet(&packet)?;
+            }
+            // Some demuxers report a broken read as the end of the file.
+            Err(_) if reads.is_broken() => return Err(Error::Exit),
+            Err(Error::Eof) => {
+                self.decoder.send_eof()?;
+                *eof = true;
+            }
+            Err(err) => return Err(err),
+        }
+
+        if !self.receive(messages, counter)? {
+            return Ok(false);
+        }
+        if *eof
+            && messages
+                .send(Message::Eof {
+                    generation: self.generation,
+                })
+                .is_err()
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Opens the source again after a broken read, with the generation, the
+    /// subtitle track and the place decoding stood at carried over. A seek
+    /// that waits in the queue is taken by the next step before anything is
+    /// read at the old place.
+    fn reopen(&mut self, source: &VideoSource, reads: &Interrupt) -> Result<(), Error> {
+        loop {
+            reads.clear();
+            match open(source, reads) {
+                Ok((mut fresh, _)) => {
+                    fresh.generation = self.generation;
+                    fresh.sent = self.sent;
+                    fresh.at = self.at;
+                    fresh.resume = Some(self.at);
+                    fresh.cues = self.cues.as_ref().and_then(|cues| fresh.open_cues(cues.stream()));
+                    debug!(
+                        "video {}: open again after a broken read, decoding stood at {:.2} s",
+                        source.location(),
+                        self.at
+                    );
+                    *self = fresh;
+                    return Ok(());
+                }
+                // Another seek came while it opened.
+                Err(_) if reads.is_broken() && !reads.stopped() => {}
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    fn open_cues(&self, index: usize) -> Option<CueDecoder> {
+        match CueDecoder::open(&self.input, index) {
+            Ok(cues) => Some(cues),
+            Err(err) => {
+                warn!("video: no subtitles from track {index}, {err}");
+                None
+            }
+        }
+    }
+
     /// A seek or a subtitle choice. A stop never comes here, the loop ends on
     /// it.
-    fn apply(&mut self, command: Command, eof: &mut bool) -> Result<(), Error> {
+    fn apply(&mut self, command: Command, eof: &mut bool, reads: &Interrupt) -> Result<(), Error> {
         match command {
             Command::Seek { generation, seconds } => {
-                self.seek(generation, seconds)?;
+                // Before the seek runs, so a break in the middle of it
+                // still leaves a place to come back to.
+                self.generation = generation;
+                self.at = seconds.max(0.0);
+                self.resume = None;
+                self.seek(generation, seconds, reads)?;
+                debug!("video: seek {generation} to {seconds:.2} s done");
                 *eof = false;
             }
             Command::Subtitle(None) | Command::Stop => self.cues = None,
-            Command::Subtitle(Some(index)) => {
-                self.cues = match CueDecoder::open(&self.input, index) {
-                    Ok(cues) => Some(cues),
-                    Err(err) => {
-                        warn!("video: no subtitles from track {index}, {err}");
-                        None
-                    }
-                };
-            }
+            Command::Subtitle(Some(index)) => self.cues = self.open_cues(index),
         }
         Ok(())
     }
@@ -326,11 +415,20 @@ impl Decoding {
         }
     }
 
-    fn seek(&mut self, generation: u32, seconds: f64) -> Result<(), Error> {
+    fn seek(&mut self, generation: u32, seconds: f64, reads: &Interrupt) -> Result<(), Error> {
         self.generation = generation;
         let target = seconds.max(0.0);
+        self.at = target;
         let micros: i64 = ((target + self.start) * 1_000_000.0).lossy_convert();
-        self.input.seek(micros, ..micros)?;
+        let sought = {
+            let _reading = reads.reading();
+            self.input.seek(micros, ..micros)
+        };
+        match sought {
+            Ok(()) => {}
+            Err(_) if reads.is_broken() => return Err(Error::Exit),
+            Err(err) => return Err(err),
+        }
         self.decoder.flush();
         self.skip_until = Some(target);
         Ok(())
@@ -355,6 +453,7 @@ impl Decoding {
 
             let frame = self.convert(&picture, pts)?;
             self.sent += 1;
+            self.at = pts + 1.0 / self.frame_rate;
             counter.fetch_add(1, Ordering::Relaxed);
             if messages.send(Message::Frame(frame)).is_err() {
                 return Ok(false);

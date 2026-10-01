@@ -56,7 +56,7 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 7 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+release with 8 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
 limit, since the gradient commit. The first 2 commits are the upstream candidates, in
 the order they go upstream:
 
@@ -79,7 +79,8 @@ targets and hilen renders into plain Unorm since 2026-07-26, see
 [colors.md](colors.md), so it never ran. The old heads of that day are
 `pin-2026-09-19`, `pin-2026-09-19b` and `pin-2026-09-19c`.
 
-The second color per section, the stem darkening entry point and the `hilen-wgpu`
+The second color per section, the stem darkening entry point, the effect pipeline
+for outlines and soft shadows, see [text.md](text.md), and the `hilen-wgpu`
 dependency stay in the fork.
 
 ## winit

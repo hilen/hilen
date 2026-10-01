@@ -127,6 +127,7 @@ mod test {
     use std::sync::LazyLock;
 
     use serde::{Deserialize, Serialize};
+    use serial_test::serial;
 
     use crate::{filesystem::Paths, store::OnDisk};
 
@@ -143,7 +144,9 @@ mod test {
     fn check_send<T: Send>(_send: &T) {}
     fn check_sync<T: Sync>(_sync: &T) {}
 
+    // The root is one global, the start test in `app_starter` sets it too.
     #[test]
+    #[serial(on_disk_root)]
     fn stored() {
         OnDisk::<()>::set_root_path("~/.test_on_disk/");
 

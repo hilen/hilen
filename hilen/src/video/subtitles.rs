@@ -6,9 +6,10 @@ use std::{
     sync::{
         Arc,
         atomic::AtomicBool,
-        mpsc::{Receiver, TryRecvError, channel},
+        mpsc::{Receiver, RecvTimeoutError, TryRecvError, channel},
     },
     thread::Builder,
+    time::Duration,
 };
 
 use ffmpeg_next::{
@@ -17,9 +18,19 @@ use ffmpeg_next::{
     format::context::Input,
     media,
 };
-use log::warn;
+use log::{debug, warn};
 
-use crate::{gm::LossyConvert, video::VideoSource};
+use crate::{
+    gm::{Clock, LossyConvert},
+    video::{VideoSource, decoder::first_timestamp, source::Interrupt},
+};
+
+/// Seconds before a seek target the read back starts at. A line on screen
+/// at the target began at most this long before it.
+const READ_BACK: f64 = 10.0;
+
+/// How long a stepped test waits for the read back before it goes on.
+const STEPPED_WAIT: Duration = Duration::from_secs(5);
 
 /// One line of subtitles and the seconds of the stream it shows for.
 #[derive(Debug, Clone, PartialEq)]
@@ -138,7 +149,7 @@ pub(crate) fn plain_text(ass: &str) -> String {
 
 /// Every cue of a subtitle file, read to its end.
 fn read_file(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Vec<Cue>, Error> {
-    let mut input = source.open(stop)?;
+    let mut input = source.open(&Interrupt::new(stop))?;
     let index = input
         .streams()
         .best(media::Type::Subtitle)
@@ -165,19 +176,77 @@ fn read_file(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Vec<Cue>, E
     Ok(cues)
 }
 
+/// The cues of subtitle stream `index` that are on screen at `target`, read
+/// from a demuxer of their own. A seek restarts the picture at the keyframe
+/// before the target, and the packet of a line that began before that
+/// keyframe lies behind it, so the picture thread never sees it.
+fn read_back(
+    source: &VideoSource,
+    stop: &Arc<AtomicBool>,
+    index: usize,
+    target: f64,
+) -> Result<Vec<Cue>, Error> {
+    let mut input = source.open(&Interrupt::new(stop))?;
+    let video = input.streams().best(media::Type::Video).ok_or(Error::StreamNotFound)?;
+    let start = first_timestamp(&video);
+    let time_bases: Vec<f64> = input.streams().map(|stream| stream.time_base().into()).collect();
+    let mut decoder = CueDecoder::open(&input, index)?;
+
+    let from = (target - READ_BACK).max(0.0) + start;
+    let micros: i64 = (from * 1_000_000.0).lossy_convert();
+    input.seek(micros, ..micros)?;
+
+    let mut cues = Vec::new();
+    loop {
+        let mut packet = Packet::empty();
+        match packet.read(&mut input) {
+            Ok(()) => {}
+            Err(Error::Eof) => break,
+            Err(err) => return Err(err),
+        }
+        let at = packet.pts().zip(time_bases.get(packet.stream())).map(|(pts, time_base)| {
+            let ticks: f64 = pts.lossy_convert();
+            ticks * time_base - start
+        });
+        // Pictures are stored out of order, so a packet a little past the
+        // target can come before a subtitle packet from before it.
+        if at.is_some_and(|at| at > target + 1.0) {
+            break;
+        }
+        if packet.stream() == index
+            && let Some(cue) = decoder.decode(&packet, start, 0)?
+            && cue.start <= target
+            && target < cue.end
+        {
+            cues.push(cue);
+        }
+    }
+    Ok(cues)
+}
+
+/// The same line decoded twice. Both times come from the same packet
+/// through the same math, so the times match to the bit.
+fn same_line(a: &Cue, b: &Cue) -> bool {
+    a.start.to_bits() == b.start.to_bits() && a.end.to_bits() == b.end.to_bits() && a.text == b.text
+}
+
 /// What the player knows about subtitles: the cues in hand and the text on
 /// screen.
 #[derive(Default)]
 pub(crate) struct Subtitles {
-    cues:    Vec<Cue>,
+    cues:         Vec<Cue>,
     /// A file from outside the source is loading on its thread.
-    loading: Option<Receiver<Result<Vec<Cue>, String>>>,
+    loading:      Option<Receiver<Result<Vec<Cue>, String>>>,
     /// The cues came from a file, so a seek keeps them.
-    file:    bool,
-    shown:   Option<String>,
+    file:         bool,
+    /// The subtitle stream of the source the cues come from.
+    track:        Option<usize>,
+    /// The line that is on screen at a seek target is read on its thread.
+    reading_back: Option<Receiver<Vec<Cue>>>,
+    shown:        Option<String>,
     /// The choice changed, the text on screen has to be looked at again even
     /// while paused.
-    dirty:   bool,
+    dirty:        bool,
 }
 
 impl Subtitles {
@@ -185,8 +254,45 @@ impl Subtitles {
     pub(crate) fn reset(&mut self) {
         self.cues.clear();
         self.loading = None;
+        self.reading_back = None;
         self.file = false;
+        self.track = None;
         self.dirty = true;
+    }
+
+    /// The cues come from this subtitle stream of the source from now on.
+    pub(crate) fn set_track(&mut self, index: Option<usize>) {
+        self.track = index;
+    }
+
+    /// Starts reading the line that is on screen at `target`. The picture
+    /// thread decodes again from the keyframe before the target and sends
+    /// the lines from there on, a line that began earlier comes from here.
+    pub(crate) fn read_back(&mut self, source: &VideoSource, stop: &Arc<AtomicBool>, target: f64) {
+        let Some(index) = self.track else {
+            return;
+        };
+        let (send, receive) = channel();
+        // A newer seek drops the receiver of the older one, so a late
+        // answer for an old target never reaches the cues.
+        self.reading_back = Some(receive);
+        let source = source.clone();
+        let stop = Arc::clone(stop);
+        Builder::new()
+            .name("hilen-subtitles".into())
+            .spawn(move || {
+                let cues = match read_back(&source, &stop, index, target) {
+                    Ok(cues) => cues,
+                    Err(err) => {
+                        warn!("video {}: no subtitle line read back, {err}", source.location());
+                        Vec::new()
+                    }
+                };
+                if send.send(cues).is_err() {
+                    debug!("subtitles {}: a newer seek took over", source.location());
+                }
+            })
+            .expect("failed to spawn the subtitle thread");
     }
 
     /// Starts reading a subtitle file from outside the source.
@@ -208,24 +314,54 @@ impl Subtitles {
             .expect("failed to spawn the subtitle thread");
     }
 
+    /// A line both the picture thread and the read back found is kept once.
     pub(crate) fn push(&mut self, cue: Cue) {
-        if !self.file {
+        let known = self.cues.iter().any(|have| same_line(have, &cue));
+        if !self.file && !known {
             self.cues.push(cue);
         }
     }
 
     /// A seek leaves the cues of a track inside the source behind, the
-    /// decoder sends the ones after the target again.
-    pub(crate) fn seek(&mut self) {
+    /// decoder sends the ones after the target again and the read back the
+    /// one that is on screen at the target.
+    pub(crate) fn seek(&mut self, source: &VideoSource, stop: &Arc<AtomicBool>, target: f64) {
         if !self.file {
             self.cues.clear();
         }
         self.dirty = true;
+        self.read_back(source, stop, target);
     }
 
     /// The player has to keep updating until the text on screen is settled.
     pub(crate) fn pending(&self) -> bool {
-        self.dirty || self.loading.is_some()
+        self.dirty || self.loading.is_some() || self.reading_back.is_some()
+    }
+
+    /// Takes the lines the read back found. Under stepped time it waits for
+    /// them, a test must see the line on the frame after the seek.
+    fn take_read_back(&mut self) {
+        let Some(reading) = &self.reading_back else {
+            return;
+        };
+        let cues = if Clock::is_stepped() {
+            match reading.recv_timeout(STEPPED_WAIT) {
+                Ok(cues) => Some(cues),
+                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => Some(Vec::new()),
+            }
+        } else {
+            match reading.try_recv() {
+                Ok(cues) => Some(cues),
+                Err(TryRecvError::Disconnected) => Some(Vec::new()),
+                Err(TryRecvError::Empty) => None,
+            }
+        };
+        if let Some(cues) = cues {
+            self.reading_back = None;
+            for cue in cues {
+                self.push(cue);
+            }
+        }
     }
 
     pub(crate) fn shown(&self) -> Option<&str> {
@@ -249,6 +385,7 @@ impl Subtitles {
                 Err(TryRecvError::Empty) => {}
             }
         }
+        self.take_read_back();
         self.dirty = false;
 
         let text = self
@@ -271,9 +408,13 @@ mod test {
 
     use ffmpeg_next::{Error, Packet};
 
-    use crate::video::{
-        subtitles::{Cue, CueDecoder, plain_text, read_file},
-        test_fixture,
+    use crate::{
+        gm::LossyConvert,
+        video::{
+            source::Interrupt,
+            subtitles::{Cue, CueDecoder, plain_text, read_back, read_file},
+            test_fixture,
+        },
     };
 
     #[test]
@@ -303,7 +444,9 @@ mod test {
     #[test]
     fn a_track_inside_the_source_gives_its_cues() {
         let stop = Arc::new(AtomicBool::new(false));
-        let mut input = test_fixture("tracks.mkv").open(&stop).expect("the fixture opens");
+        let mut input = test_fixture("tracks.mkv")
+            .open(&Interrupt::new(&stop))
+            .expect("the fixture opens");
         let mut decoder = CueDecoder::open(&input, 4).expect("stream 4 is a subtitle track");
 
         let mut cues = Vec::new();
@@ -325,5 +468,65 @@ mod test {
         assert!(close(&cues[0], 0.5, 1.5, "erste Zeile"), "{cues:?}");
         assert!(close(&cues[1], 2.0, 3.0, "zweite Zeile"), "{cues:?}");
         assert_eq!(cues[0].generation, 7);
+    }
+
+    /// The lines the picture thread gets after a seek: the demuxer lands on
+    /// the keyframe before the target and reads on from there.
+    fn seen_after_seek(target: f64) -> Vec<String> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut input = test_fixture("tracks.mkv")
+            .open(&Interrupt::new(&stop))
+            .expect("the fixture opens");
+        let mut decoder = CueDecoder::open(&input, 4).expect("stream 4 is a subtitle track");
+        let micros: i64 = (target * 1_000_000.0).lossy_convert();
+        input.seek(micros, ..micros).expect("the fixture seeks");
+
+        let mut lines = Vec::new();
+        loop {
+            let mut packet = Packet::empty();
+            match packet.read(&mut input) {
+                Ok(()) => {
+                    if packet.stream() == decoder.stream()
+                        && let Some(cue) = decoder.decode(&packet, 0.0, 0).expect("the line decodes")
+                    {
+                        lines.push(cue.text);
+                    }
+                }
+                Err(Error::Eof) => break,
+                Err(err) => panic!("reading the fixture: {err}"),
+            }
+        }
+        lines
+    }
+
+    /// The fixture has a keyframe every second and the line `erste Zeile`
+    /// from 0.5 to 1.5. A seek to 1.2 lands on the keyframe at 1, behind
+    /// the packet of that line, so the picture thread never sends it. The
+    /// read back finds it.
+    #[test]
+    fn a_line_that_began_before_the_seek_keyframe_is_read_back() {
+        assert_eq!(
+            seen_after_seek(1.2),
+            ["zweite Zeile"],
+            "the picture thread misses the first line"
+        );
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let cues = read_back(&test_fixture("tracks.mkv"), &stop, 4, 1.2).expect("the fixture reads");
+        assert_eq!(cues.len(), 1, "{cues:?}");
+        assert!(close(&cues[0], 0.5, 1.5, "erste Zeile"), "{cues:?}");
+    }
+
+    /// Between the 2 lines nothing is on screen, and a line that starts
+    /// after the target is left to the picture thread.
+    #[test]
+    fn the_read_back_gives_only_the_line_on_screen_at_the_target() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let fixture = test_fixture("tracks.mkv");
+        let between = read_back(&fixture, &stop, 4, 1.7).expect("the fixture reads");
+        assert_eq!(between, Vec::new());
+        let cues = read_back(&fixture, &stop, 4, 2.5).expect("the fixture reads");
+        assert_eq!(cues.len(), 1, "{cues:?}");
+        assert!(close(&cues[0], 2.0, 3.0, "zweite Zeile"), "{cues:?}");
     }
 }

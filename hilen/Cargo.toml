@@ -109,6 +109,7 @@ plat = { workspace = true }
 reflected = { workspace = true }
 
 level-proc = { workspace = true, optional = true }
+project-proc = { workspace = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
 gltf = { workspace = true, optional = true }

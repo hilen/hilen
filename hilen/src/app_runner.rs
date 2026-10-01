@@ -270,6 +270,9 @@ impl AppRunner {
             crate::deps::hreads::unasync(actions).unwrap();
         });
 
+        #[cfg(desktop)]
+        crate::filesystem::Paths::use_test_storage();
+
         if headless {
             crate::app_starter::hilen_start_with_app_headless(Box::new(ActorApp));
         } else {

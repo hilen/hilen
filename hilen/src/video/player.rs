@@ -33,11 +33,15 @@ use crate::{
         count_to_f64,
         decoder::{self, Command, MediaInfo, Message, Tracks, VideoFrame},
         nv12::Nv12Target,
+        player::stall::{SeekWatch, SoundReads},
+        source::Interrupt,
         subtitles::Subtitles,
         tracks::{AudioTrack, SubtitleTrack},
     },
     window::image::Image,
 };
+
+mod stall;
 
 /// Playback counters for an overlay or a log line.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -177,6 +181,10 @@ pub(crate) struct Player {
     /// How fast the video plays, 1 is its own speed.
     speed:       f64,
     subtitles:   Subtitles,
+    /// Ends a read of the picture demuxer that waits on the network.
+    reads:       Interrupt,
+    sound_reads: SoundReads,
+    seek_watch:  Option<SeekWatch>,
 }
 
 impl Player {
@@ -185,12 +193,13 @@ impl Player {
         let (message_sender, messages) = sync_channel(decoder::QUEUE);
         let decoded = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
+        let reads = Interrupt::new(&stop);
         decoder::spawn(
             source.clone(),
             command_receiver,
             message_sender,
             Arc::clone(&decoded),
-            Arc::clone(&stop),
+            reads.clone(),
         );
 
         Self {
@@ -219,6 +228,9 @@ impl Player {
             audio_track: None,
             speed: 1.0,
             subtitles: Subtitles::default(),
+            reads,
+            sound_reads: SoundReads::default(),
+            seek_watch: None,
         }
     }
 
@@ -263,7 +275,10 @@ impl Player {
         self.sound
             .as_ref()
             .filter(|sound| sound.state() != PlaybackState::Stopped)
-            .map(|sound| sound.position() * self.speed)
+            .map(|sound| {
+                // Until the sound took a seek its position is the old place.
+                self.sound_reads.seeking.unwrap_or_else(|| sound.position() * self.speed)
+            })
     }
 
     pub(crate) fn position(&self) -> f64 {
@@ -317,7 +332,7 @@ impl Player {
         self.base = seconds;
         self.started_ms = Clock::now_ms();
         self.queue.seek_pending = true;
-        self.subtitles.seek();
+        self.subtitles.seek(&self.source, &self.stop, seconds);
         if self
             .commands
             .send(Command::Seek {
@@ -331,10 +346,12 @@ impl Player {
         if self.sound_position().is_some() {
             if let Some(sound) = &mut self.sound {
                 sound.seek_to(seconds / self.speed);
+                self.sound_reads.seeking = Some(seconds);
             }
         } else {
             self.reset_sound();
         }
+        self.seek_watch = Some(SeekWatch::new());
     }
 
     pub(crate) fn set_volume(&mut self, volume: f32) {
@@ -376,6 +393,9 @@ impl Player {
     /// The image to show, when it changed, and what happened since last time.
     pub(crate) fn update(&mut self) -> (Option<Weak<Image>>, Vec<PlayerEvent>) {
         let mut events = Vec::new();
+        self.settle_sound_seek();
+        self.break_stalled_reads();
+        self.take_opened_sound();
         self.receive(&mut events);
         if Clock::is_stepped() {
             self.wait_stepped(&mut events);
@@ -570,6 +590,7 @@ impl Player {
         let Some(audio) = self.audio.take() else {
             return;
         };
+        self.sound_reads.playing = Some(audio.reads());
 
         let Some(mut manager) = audio_manager() else {
             error!("video {}: no sound, no audio output", self.source.location());
@@ -600,12 +621,11 @@ impl Player {
     /// A stopped kira sound is gone for good, so a replay or a seek past the
     /// end needs a fresh decoder for the next play.
     fn reset_sound(&mut self) {
-        if let Some(sound) = &mut self.sound {
-            sound.stop(Tween::default());
-        }
-        self.sound = None;
-        if self.audio.is_none() {
-            self.audio = match AudioDecoder::open(&self.source, &self.stop, self.audio_track, self.speed) {
+        self.drop_sound();
+        // A decoder that opens on its thread comes in through
+        // `take_opened_sound`, a second one here would open for nothing.
+        if self.audio.is_none() && self.sound_reads.opening.is_none() {
+            self.audio = match self.open_sound(self.audio_track) {
                 Ok(audio) => audio,
                 Err(err) => {
                     error!("video {}: reopening the sound, {err}", self.source.location());
@@ -613,6 +633,19 @@ impl Player {
                 }
             };
         }
+    }
+
+    fn open_sound(&self, track: Option<usize>) -> Result<Option<AudioDecoder>, FfmpegError> {
+        AudioDecoder::open(&self.source, Interrupt::new(&self.stop), track, self.speed)
+    }
+
+    fn drop_sound(&mut self) {
+        if let Some(sound) = &mut self.sound {
+            sound.stop(Tween::default());
+        }
+        self.sound = None;
+        self.sound_reads.playing = None;
+        self.sound_reads.seeking = None;
     }
 }
 
@@ -635,7 +668,7 @@ impl Player {
         if self.audio_track == Some(index) || !self.audio_tracks().iter().any(|track| track.index == index) {
             return;
         }
-        let audio = match AudioDecoder::open(&self.source, &self.stop, Some(index), self.speed) {
+        let audio = match self.open_sound(Some(index)) {
             Ok(Some(audio)) => audio,
             Ok(None) => {
                 error!("video {}: no sound track {index}", self.source.location());
@@ -651,10 +684,7 @@ impl Player {
         };
 
         let position = self.position();
-        if let Some(sound) = &mut self.sound {
-            sound.stop(Tween::default());
-        }
-        self.sound = None;
+        self.drop_sound();
         self.audio = Some(audio);
         self.audio_track = Some(index);
         self.base = position;
@@ -684,16 +714,13 @@ impl Player {
     /// from the current position when the video plays.
     fn reopen_sound(&mut self) {
         let position = self.position();
-        if let Some(sound) = &mut self.sound {
-            sound.stop(Tween::default());
-        }
-        self.sound = None;
+        self.drop_sound();
         self.base = position;
         self.started_ms = Clock::now_ms();
         if self.audio_track.is_none() {
             return;
         }
-        self.audio = match AudioDecoder::open(&self.source, &self.stop, self.audio_track, self.speed) {
+        self.audio = match self.open_sound(self.audio_track) {
             Ok(audio) => audio,
             Err(err) => {
                 error!("video {}: reopening the sound, {err}", self.source.location());
@@ -708,6 +735,7 @@ impl Player {
     /// Shows the cues of a subtitle track of the source, or none.
     pub(crate) fn set_subtitle_track(&mut self, index: Option<usize>) {
         self.subtitles.reset();
+        self.subtitles.set_track(index);
         self.send(Command::Subtitle(index));
         if index.is_some() {
             self.restart_picture();
@@ -747,6 +775,7 @@ impl Player {
             generation: self.generation,
             seconds,
         });
+        self.subtitles.read_back(&self.source, &self.stop, seconds);
     }
 }
 

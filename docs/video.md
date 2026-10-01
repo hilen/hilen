@@ -40,7 +40,12 @@ message anywhere but desktop.
   thread as their packets pass by, `hilen/src/video/subtitles.rs`, and sent
   as cues with the seek generation, like frames. Picking a track decodes
   again from the current position with the sound left alone, the demuxer
-  runs ahead of the picture and the cues had already gone by. A subtitle
+  runs ahead of the picture and the cues had already gone by. A seek
+  restarts the picture at the keyframe before the target, and the packet of
+  a line that began before that keyframe lies behind it. So every seek with
+  a track on also starts a read back on its own thread, a demuxer of its own
+  that reads the subtitle packets of the 10 seconds before the target and
+  hands over the line that is on screen there. A subtitle
   file from outside the source is read whole on its own thread. ffmpeg hands
   every text format over as an ASS line, the styling is dropped. The player
   shows the cue the clock is in. A video with no sound track
@@ -58,9 +63,23 @@ message anywhere but desktop.
   full again or the stream ends. A play before the source opened waits the
   same way, so the clock never runs ahead of the first frame. Stepped time
   never holds, a stepped test waits for the decoder instead.
-- Each demuxer opens with an interrupt callback over a stop flag the player
-  sets when it drops, so a read that waits on the network does not keep its
-  thread after the view is gone.
+- Each demuxer opens with its own `Interrupt`, `hilen/src/video/source.rs`. It
+  ends a read that waits on the network when the player drops, so the thread
+  does not outlive the view, and when a seek must not wait behind it.
+- A seek while the stream is stalled, `hilen/src/video/player/stall.rs`. The
+  picture thread takes a seek only between packets and kira only between
+  reads. For 5 seconds after a seek the player watches both demuxers, and a
+  read that has lasted more than half a second is taken as stalled. The
+  picture thread then gets its read broken, opens the source again and takes
+  the seek. Some demuxers report a broken read as the end of the file, so
+  the break is told by the flag and not by the error. The sound cannot be
+  handled that way, its decoder lives on kira's thread and kira calls a
+  decoder that fails again with no pause. So the stalled sound is dropped,
+  its decoder ends in silence, and a fresh one opens on a thread and plays
+  from where the video is. Until then the video follows the engine clock.
+- After a seek the position is the seek target until the sound has reached
+  it. kira takes the seek on its own thread, and before that its position
+  is the old place, which would run the picture through its frames.
 - Render on demand keeps the loop awake through an empty animation while a
   video plays, the way `AnimatedImage` does, so a paused video costs nothing.
 
@@ -152,10 +171,16 @@ header on every request, the state order loading, paused, playing, buffering,
 playing, finished, and the position held while buffering. The unit test
 `https_protocol_is_linked` fails when the archive has no TLS.
 
+`Video stalled seek` plays `stalled.mkv`, the picture and 1 sound track of
+`tracks.mkv` with the index at the front, from a server that stops sending
+at 2.5 seconds, and seeks back while both demuxers wait. It pins that the
+video plays again from the target. With the index at the end the first seek
+of the sound reads the end of the file through the stall.
+
 `Video tracks` plays `tracks.mkv`, 2 tone tracks and 2 subrip tracks, muted,
 and walks the track lists, the lines in step with the clock, a sound track
-switch that keeps the position, a subtitle switch, a seek and a subtitle
-file. `Video hdr` shows a PQ, an HLG and a 10 bit SDR fixture of flat bars,
+switch that keeps the position, a subtitle switch, a seek, a seek into the
+middle of a line that began before the keyframe, and a subtitle file. `Video hdr` shows a PQ, an HLG and a 10 bit SDR fixture of flat bars,
 HEVC main 10 coded lossless, whose colors were computed from the standards'
 formulas outside the engine. `Video speed` pins the position at double and
 half speed under stepped time. `Video av1` plays an AV1 copy of the color

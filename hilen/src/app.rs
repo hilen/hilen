@@ -105,10 +105,25 @@ pub extern "C" fn hilen_create_app() -> Box<dyn App> {
     panic!("you need to use hilen::register_app!(YourApp) macro")
 }
 
+/// The `project_name` of the app's `hilen.toml`, the name of its data
+/// folder. `register_app!` puts the real one into the final crate, this
+/// one is linked when an app has no `register_app!`.
+#[cfg(desktop)]
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub extern "Rust" fn hilen_project_name() -> &'static str {
+    panic!("The app has no name, add hilen::register_app!(YourApp) to its main.rs")
+}
+
 #[macro_export]
 macro_rules! register_app {
     ($app:ty) => {
         pub use hilen;
+
+        #[unsafe(no_mangle)]
+        pub extern "Rust" fn hilen_project_name() -> &'static str {
+            hilen::project_name!()
+        }
 
         #[unsafe(no_mangle)]
         #[allow(improper_ctypes_definitions)]
@@ -149,6 +164,16 @@ mod tests {
         fn log_files_kept(&self) -> usize {
             5
         }
+    }
+
+    /// This test binary has no `register_app!`, so the stub of the engine
+    /// answers. An app in that state must stop with the fix in the message
+    /// and never fall back to a folder named after its exe.
+    #[cfg(desktop)]
+    #[test]
+    #[should_panic(expected = "add hilen::register_app!")]
+    fn an_app_without_register_app_has_no_name() {
+        crate::app::hilen_project_name();
     }
 
     #[test]

@@ -186,12 +186,16 @@ impl ResourceLoader for Image {
             .transpose()
             .unwrap_or_else(|err| panic!("Failed to parse svg {name}. Err: {err}"));
 
+        // On the calling thread. A download decodes on a worker, and the
+        // box filter over every pixel must not run on the main thread.
+        let levels = raw_data.into_levels();
+
         let decode_time = decode_started.elapsed();
         if decode_time.as_millis() > 100 {
             log::debug!("Decoding image {name} took {} ms", decode_time.as_millis());
         }
 
-        from_main(move || Image::from_texture(&Texture::from_raw_data(raw_data, &name), svg))
+        from_main(move || Image::from_texture(&Texture::from_levels(levels, &name), svg))
     }
 }
 

@@ -82,6 +82,7 @@ mod test {
     use std::sync::{Arc, atomic::AtomicBool};
 
     use crate::video::{
+        source::Interrupt,
         test_fixture,
         tracks::{audio_tracks, subtitle_tracks},
     };
@@ -89,7 +90,9 @@ mod test {
     #[test]
     fn tracks_of_the_fixture_are_listed() {
         let stop = Arc::new(AtomicBool::new(false));
-        let input = test_fixture("tracks.mkv").open(&stop).expect("the fixture opens");
+        let input = test_fixture("tracks.mkv")
+            .open(&Interrupt::new(&stop))
+            .expect("the fixture opens");
 
         let audio = audio_tracks(&input);
         let seen: Vec<_> = audio

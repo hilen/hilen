@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use anyhow::{Context, Result, bail};
-#[cfg(any(desktop, wasm))]
+#[cfg(wasm)]
 use log::error;
 use log::{info, warn};
 use plat::Platform;
@@ -19,7 +19,7 @@ use wgpu::{
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
 #[cfg(desktop)]
-use crate::window::icon::apply_icon;
+use crate::window::icon::set_icon;
 use crate::{
     deps::hreads::on_main,
     gm::{
@@ -515,11 +515,7 @@ impl Window {
     /// the icon from the bundle or the page, so the call does nothing there.
     pub fn set_icon(data: &'static [u8]) {
         #[cfg(desktop)]
-        on_main(move || {
-            if let Err(err) = apply_icon(data) {
-                error!("Failed to set the app icon: {err}");
-            }
-        });
+        set_icon(data);
         #[cfg(not(desktop))]
         log::debug!(
             "The {} byte app icon is not applied here, the bundle or the page carries it",

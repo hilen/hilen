@@ -39,6 +39,21 @@ impl App for ExampleApp {
     }
 }
 
+hilen::register_app!(ExampleApp);
+
 fn main() {
     ExampleApp::start();
+}
+
+#[cfg(test)]
+mod test {
+    use hilen::filesystem::Paths;
+
+    /// `register_app!` above put the `project_name` of the repo's
+    /// `hilen.toml` into this binary. The folder follows that name and not
+    /// the name of the exe, which is `example-app` here.
+    #[test]
+    fn the_data_folder_is_named_after_the_project() {
+        assert_eq!(Paths::storage(), Paths::config().join("demo"));
+    }
 }
