@@ -143,6 +143,12 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
             self.raised = true;
         }
 
+        // Without a hover first, like on a phone, the border is still
+        // the app's own here. Kept now, or the panel would copy the accent.
+        if self.idle_border.is_none() {
+            self.idle_border = Some(*self.border_color());
+        }
+
         self.set_border_color(self.accent);
 
         let text_color = self.text_color;

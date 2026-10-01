@@ -9,6 +9,7 @@ mod context_menu_below;
 mod context_menu_icons;
 mod dialog_style;
 mod drop_down;
+mod drop_down_in_modal;
 mod drop_down_style;
 mod modal_blur;
 mod modal_escape;

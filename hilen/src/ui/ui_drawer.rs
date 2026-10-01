@@ -272,11 +272,10 @@ impl UIDrawer {
             Self::enter_scissor(render_frame, &frame, ctx);
         }
 
-        Self::draw_shadow(view, &frame, ctx.scale, opacity);
-
         if let Some(blur) = view.as_any().downcast_ref::<BlurView>()
             && blur.blur_radius() > 0.0
         {
+            Self::draw_shadow(view, &frame, ctx.scale, opacity);
             Self::blur_barrier(render_frame, blur, &frame, ctx);
         } else {
             // Rects flush before text and write depth, so text queued
@@ -292,6 +291,10 @@ impl UIDrawer {
                 Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
                 Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             }
+            // Queued after the flush above, never before it. A shadow
+            // shares its view's z and the first draw at a z wins, so a
+            // shadow flushed ahead of its view would cover it.
+            Self::draw_shadow(view, &frame, ctx.scale, opacity);
             Self::draw_background(view, &frame, ctx.scale, opacity);
         }
 
