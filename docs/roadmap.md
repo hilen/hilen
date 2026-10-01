@@ -16,6 +16,26 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A sprite with an image scale is drawn in the wrong place
+
+- Current: `image_scale` of a sprite is meant to draw its picture bigger or
+  smaller than its body. The shader also scales the distance from the camera
+  to the sprite. `sprite_textured.wgsl` says so itself:
+  `// The image scale stretches the sprite's distance to the camera too.` and
+  `let world = view.camera_pos + (local + instance.position - view.camera_pos) * instance.scale;`.
+  So the picture is in the right place only while the camera sits exactly on the
+  sprite. Measured in labirintas on 2026-10-02 with a player of `image_scale`
+  1.68 at level point 0, 0 and the camera at 18.4, -0.8: the picture was drawn
+  12.5 units left of the body, outside a wall, 0.68 times the camera distance.
+  The body and its collisions were in the right place.
+- Needed: the image scale changes only the size of the picture around the
+  sprite position, `local * scale + instance.position`. A level test with a
+  scaled sprite and a camera away from it, checked by pixel position.
+- Blocks: any level whose camera does not sit on a scaled sprite. Labirintas
+  wants to show a whole small maze with a still camera, and to put the player
+  in the middle of the free screen area and not of the window. Until then its
+  camera stays exactly on the player.
+
 ## A context menu cannot open above its anchor
 
 - Current: `ContextMenu` in `hilen/src/ui/views/controls/context_menu.rs` has
