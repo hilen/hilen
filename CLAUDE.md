@@ -139,7 +139,8 @@ Docs should be concise.
 
 Every launch logs to stdout and to a file, `~/Library/Logs/<app>/` on mac,
 `%LOCALAPPDATA%\<app>\logs\` on Windows, `~/.local/state/<app>/logs/` on Linux, named
-`<app>-<date>_<time>.log` after the exe, newest 10 kept. The first lines name the file.
+`<app>-<date>_<time>.log` after the exe, newest 10 kept. An app sets another number with
+`App::log_files_kept`. The first lines name the file.
 `hilen::log_file_path()` returns it, `hilen::log_dir(app)` the folder. A GUI build on
 Windows has no console and a dock launch on mac has no terminal, so the file is the only
 log of a shipped app. Android has no file, its lines go to logcat through the same

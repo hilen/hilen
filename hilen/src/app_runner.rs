@@ -58,7 +58,7 @@ impl AppRunner {
     }
 
     #[cfg(not_wasm)]
-    pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
+    pub(crate) fn setup_log(app_targets: &'static [&'static str], log_files_kept: usize) {
         use chrono::Local;
         use fern::Dispatch;
         use log::{Level, LevelFilter, info, warn};
@@ -93,7 +93,9 @@ impl AppRunner {
 
         // The file gets a timestamp per line, the console stays as it is so
         // the lines tests grep for keep their shape.
-        let file = match crate::log_file::create().and_then(|path| Ok((fern::log_file(&path)?, path))) {
+        let file = match crate::log_file::create(log_files_kept)
+            .and_then(|path| Ok((fern::log_file(&path)?, path)))
+        {
             Ok((file, path)) => Some((
                 Dispatch::new()
                     .format(|out, message, _| {

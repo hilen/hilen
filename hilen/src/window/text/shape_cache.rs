@@ -43,13 +43,23 @@ pub(crate) struct ShapeCache {
 impl ShapeCache {
     /// The glyphs of `line`, shaping it on a miss. Clusters in the
     /// result are relative to the line start.
+    ///
+    /// A `secret` line is shaped every time and never stored. The cache
+    /// keeps a copy of every line as its key, for 10 seconds after the
+    /// last use and with no end while no frame is drawn, and a secret
+    /// must not sit there.
     pub(crate) fn get_or_shape(
         &mut self,
         line: &str,
         px_per_unit: f32,
         tracking: f32,
+        secret: bool,
         shape: impl FnOnce() -> Vec<ShapedGlyph>,
     ) -> Vec<ShapedGlyph> {
+        if secret {
+            return shape();
+        }
+
         let params = ShapeParams {
             px_per_unit: px_per_unit.to_bits(),
             tracking:    tracking.to_bits(),
@@ -84,5 +94,48 @@ impl ShapeCache {
             lines.retain(|_, line| now - line.last_used < KEEP);
         }
         self.lines.retain(|_, lines| !lines.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::ShapeCache;
+
+    fn cached_lines(cache: &ShapeCache) -> usize {
+        cache.lines.values().map(HashMap::len).sum()
+    }
+
+    #[test]
+    fn a_plain_line_is_shaped_once_and_kept() {
+        let mut cache = ShapeCache::default();
+        let mut shaped = 0;
+
+        for _ in 0..2 {
+            cache.get_or_shape("hello", 0.01, 0.0, false, || {
+                shaped += 1;
+                vec![]
+            });
+        }
+
+        assert_eq!(shaped, 1);
+        assert_eq!(cached_lines(&cache), 1);
+    }
+
+    #[test]
+    fn a_secret_line_is_shaped_every_time_and_never_kept() {
+        let mut cache = ShapeCache::default();
+        let mut shaped = 0;
+
+        for _ in 0..2 {
+            cache.get_or_shape("twelve secret words", 0.01, 0.0, true, || {
+                shaped += 1;
+                vec![]
+            });
+        }
+
+        assert_eq!(shaped, 2);
+        assert_eq!(cached_lines(&cache), 0);
     }
 }

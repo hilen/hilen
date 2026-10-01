@@ -2,6 +2,7 @@ use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
 use ui_proc::view;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     deps::refs::{Weak, weak_from_ref},
@@ -18,7 +19,8 @@ use crate::{
             label_style::{TextOutline, TextShadow},
         },
     },
-    window::{Font, TextLayout, image::ToImage},
+    window::{Font, Shaping, TextLayout, image::ToImage},
+    wipe::joined,
 };
 
 static DEFAULT_TEXT_SIZE: AtomicF32 = AtomicF32::new(16.0);
@@ -66,6 +68,9 @@ pub struct Label {
 
     pub text: String,
 
+    /// The text is a secret, see `set_secret`.
+    secret: bool,
+
     multiline: bool,
 
     /// The most lines a multiline label shows, 0 for no limit. See
@@ -80,8 +85,9 @@ pub struct Label {
     /// The truncation computed for the cached width: the width it was
     /// computed at, and the shortened copy, `None` when the full text
     /// fits there. Dropped by every setter that changes what a
-    /// truncation depends on.
-    pub(super) ellipsized: Option<(f32, Option<String>)>,
+    /// truncation depends on. The copy wipes itself when dropped, it is
+    /// a part of the text and the text may be a secret.
+    pub(super) ellipsized: Option<(f32, Option<Zeroizing<String>>)>,
 
     #[educe(Default = BLACK)]
     text_color: Color,
@@ -127,11 +133,54 @@ impl Label {
     /// Also drops the color and font runs, they were ranges of the old text.
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
         let mut this = weak_from_ref(self);
+        if this.secret {
+            this.text.zeroize();
+        }
         this.text = text.to_label();
         this.color_runs.clear();
         this.font_runs.clear();
         this.ellipsized = None;
         self
+    }
+
+    /// Marks the text of this label as a secret, like a recovery phrase.
+    /// Call it before `set_text`.
+    ///
+    /// A secret label writes zeros over its text before the memory is
+    /// freed, when the text is replaced and when the label is dropped.
+    /// The copy cut for an ellipsis is wiped the same way. The text stays
+    /// out of the shape and measure caches of the font, which keep a copy
+    /// of every other text for some seconds, so a secret label is shaped
+    /// again on every frame that draws it.
+    ///
+    /// Give the text as `&str`. A `String` passed by value is the copy of
+    /// the caller and is freed as it is. Change the text with `set_text`
+    /// only, a write to the `text` field frees the old text as it is.
+    ///
+    /// What cannot be wiped is what the text became on its way to the
+    /// screen. The shaper, the glyph brush and the GPU buffers hold the
+    /// glyph numbers and positions of the drawn text until other text
+    /// takes their place, and the glyph atlas keeps the picture of every
+    /// drawn glyph for the life of the font. That is not the text, but
+    /// together with the font it tells what was drawn.
+    pub fn set_secret(&self, secret: bool) -> &Self {
+        weak_from_ref(self).secret = secret;
+        self
+    }
+
+    pub fn is_secret(&self) -> bool {
+        self.secret
+    }
+
+    /// How this label shapes `text`, for the font to measure and lay it
+    /// out the way the drawer does.
+    pub(super) fn shaping(&self, text: &str) -> Shaping {
+        Shaping {
+            tracking:    self.letter_spacing,
+            line_height: self.line_height,
+            runs:        self.shaping_runs(text),
+            secret:      self.secret,
+        }
     }
 
     /// Paints byte ranges of the text in their own colors, the rest keeps
@@ -308,15 +357,7 @@ impl Label {
         } else {
             &self.text
         };
-        let runs = self.shaping_runs(text);
-        let measured = self.font().measure(
-            text,
-            self.text_size,
-            bound,
-            self.letter_spacing,
-            runs,
-            self.line_height,
-        );
+        let measured = self.font().measure(text, self.text_size, bound, self.shaping(text));
 
         if measured.has_no_area() {
             return measured;
@@ -353,15 +394,7 @@ impl Label {
     /// diff panel selects code.
     pub fn text_layout_for(&self, text: &str) -> TextLayout {
         let bound = self.multiline.then_some(self.width() - self.alignment_margin());
-        let runs = self.shaping_runs(text);
-        self.font().text_layout(
-            text,
-            self.text_size,
-            bound,
-            self.letter_spacing,
-            runs,
-            self.line_height,
-        )
+        self.font().text_layout(text, self.text_size, bound, self.shaping(text))
     }
 
     /// Where the drawn text starts inside the frame, see `alignment_margin`.
@@ -433,19 +466,22 @@ impl Label {
         }
 
         match &self.ellipsized.as_ref().expect("just computed").1 {
-            Some(text) => text,
+            Some(text) => text.as_str(),
             None => &self.text,
         }
     }
 
-    fn truncate_to(&self, width: f32) -> Option<String> {
+    fn truncate_to(&self, width: f32) -> Option<Zeroizing<String>> {
         const ELLIPSIS: &str = "…";
 
         let available = width - self.alignment_margin();
         let mut font = self.font();
         let mut fits = |text: &str| {
-            let runs = self.shaping_runs(text);
-            font.measure(text, self.text_size, None, self.letter_spacing, runs, None).width <= available
+            let shaping = Shaping {
+                line_height: None,
+                ..self.shaping(text)
+            };
+            font.measure(text, self.text_size, None, shaping).width <= available
         };
 
         if fits(&self.text) {
@@ -475,10 +511,10 @@ impl Label {
                 } else {
                     cuts[kept - 1]
                 };
-                format!("{ELLIPSIS}{}", &self.text[start..])
+                joined(&[ELLIPSIS, &self.text[start..]])
             } else {
                 let end = if kept == 0 { 0 } else { cuts[kept - 1] };
-                format!("{}{ELLIPSIS}", &self.text[..end])
+                joined(&[&self.text[..end], ELLIPSIS])
             }
         };
 
@@ -546,6 +582,14 @@ impl Setup for Label {
     }
 }
 
+impl Drop for Label {
+    fn drop(&mut self) {
+        if self.secret {
+            self.text.zeroize();
+        }
+    }
+}
+
 impl ViewCallbacks for Label {
     fn theme_changed(&mut self) {
         if let Some(color) = self.dynamic_text_color {
@@ -579,5 +623,72 @@ impl<T: ?Sized + View> AddLabel for T {
         label.place().center().h(20).lr(0);
         label.text = text.to_label();
         self
+    }
+}
+
+#[cfg(all(test, not_wasm))]
+mod tests {
+    use serial_test::serial;
+
+    use crate::{
+        deps::hreads::set_current_thread_as_main,
+        ui::{Label, Setup},
+        wipe::probe::{Freed, Watch},
+    };
+
+    const FIRST: &str = "correct horse battery staple";
+    const SECOND: &str = "another text of the same label";
+
+    #[test]
+    #[serial]
+    fn a_secret_label_wipes_its_text_when_replaced_and_when_dropped() {
+        set_current_thread_as_main();
+        let label = Label::new();
+        label.set_secret(true);
+
+        label.set_text(FIRST);
+        let first = Watch::on(label.text());
+        label.set_text(SECOND);
+
+        assert_eq!(first.freed(), Freed::Wiped);
+
+        let second = Watch::on(label.text());
+        drop(label);
+
+        assert_eq!(second.freed(), Freed::Wiped);
+    }
+
+    // The control of the test above, it shows the probe would see a label
+    // that does not wipe.
+    #[test]
+    #[serial]
+    fn a_plain_label_frees_its_text_as_it_is() {
+        set_current_thread_as_main();
+        let label = Label::new();
+
+        label.set_text(FIRST);
+        let first = Watch::on(label.text());
+        label.set_text(SECOND);
+
+        assert_eq!(first.freed(), Freed::WithContent);
+
+        let second = Watch::on(label.text());
+        drop(label);
+
+        assert_eq!(second.freed(), Freed::WithContent);
+    }
+
+    #[test]
+    #[serial]
+    fn a_label_marked_secret_after_its_text_was_set_still_wipes_it() {
+        set_current_thread_as_main();
+        let label = Label::new();
+
+        label.set_text(FIRST);
+        label.set_secret(true);
+        let first = Watch::on(label.text());
+        drop(label);
+
+        assert_eq!(first.freed(), Freed::Wiped);
     }
 }

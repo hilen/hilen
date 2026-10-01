@@ -254,3 +254,24 @@ same color, which costs one `mix` and no branch. Per glyph this is 12 bytes,
 `Vertex` went from 52 to 64.
 
 `set_text_color` clears a gradient, so the two cannot both be live on one label.
+
+## Secret text
+
+`Label::set_secret(true)` marks the text of a label as a secret, like a recovery
+phrase. Call it before `set_text`. The label then writes zeros over its text before
+the memory is freed, when the text is replaced and when the label is dropped. The
+text stays out of the shape cache and the measure cache, so such a label is shaped
+again on every frame that draws it. Keep it to the few labels that need it.
+
+A `TextField` holds a secret from its first `set_secure(true)`, also while
+`set_secure(false)` shows the text. Every edit builds the new text in one buffer of
+the exact size, `joined` in `hilen/src/wipe.rs`, and the old one is wiped. Its
+`changed` and `editing_ended` events carry one bullet per character, the real text is
+read with `text()`. A copy of shown text goes through `Clipboard::set_secret`.
+
+What cannot be wiped: a `String` passed to `set_text` by value is the copy of the
+caller. Single typed characters pass through winit and the event queue as they are.
+The shaper, the glyph brush and the GPU buffers keep the glyph numbers and positions
+of drawn text until other text replaces them, and the glyph atlas keeps the picture
+of every drawn glyph. On iOS the system text field behind the keyboard keeps its own
+copy. With the `inspect` feature the inspector still gets the real text.

@@ -1,8 +1,9 @@
 //! The caret, the selection, the keys and the clipboard of a text field.
 
 use web_time::{Duration, Instant};
+use zeroize::Zeroizing;
 
-use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
+use super::{MASK, MULTILINE_TOP_INSET, TextField};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -14,10 +15,10 @@ use crate::{
     ui::{
         Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
         WeakView,
-        text_field_constraint::AcceptChar,
         view::{ViewData, ViewFrame, ViewTouch},
     },
     window::{NamedKey, TextLayout},
+    wipe::joined,
 };
 
 const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
@@ -26,18 +27,11 @@ const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 const DOUBLE_CLICK_DISTANCE: f32 = 6.0;
 
+// The entered text, the one the caret indexes, is read through `text`,
+// which borrows it. Nothing here copies it to read it, a copy of a secure
+// field would be freed with the password still in it. An edit builds the
+// new text with `joined`, in one buffer that wipes itself.
 impl TextField {
-    /// The text the caret indexes, empty while the placeholder shows.
-    pub(super) fn entered_text(&self) -> String {
-        self.text().to_string()
-    }
-
-    /// The text the label draws, the mask of a secure field.
-    fn display_text(&self) -> String {
-        let text = self.entered_text();
-        if self.is_secure() { mask(&text) } else { text }
-    }
-
     /// A byte index into the entered text as a byte index into the
     /// displayed text. The two differ only in a secure field, where every
     /// character becomes one mask character.
@@ -45,7 +39,7 @@ impl TextField {
         if !self.is_secure() {
             return byte;
         }
-        self.entered_text()[..byte].chars().count() * MASK.len_utf8()
+        self.text()[..byte].chars().count() * MASK.len_utf8()
     }
 
     /// The inverse of `display_byte`.
@@ -54,7 +48,7 @@ impl TextField {
             return display;
         }
         let chars = display / MASK.len_utf8();
-        let text = self.entered_text();
+        let text = self.text();
         text.char_indices().nth(chars).map_or(text.len(), |(index, _)| index)
     }
 
@@ -67,8 +61,12 @@ impl TextField {
         Some((anchor.min(self.caret), anchor.max(self.caret)))
     }
 
+    /// The layout of the displayed text, which the label holds: the
+    /// entered text, or its mask in a secure field. While the field is
+    /// empty the label holds the placeholder and nothing is displayed.
     fn layout(&self) -> TextLayout {
-        self.label.text_layout_for(&self.display_text())
+        let displayed = if self.placeholding { "" } else { self.label.text() };
+        self.label.text_layout_for(displayed)
     }
 
     pub(super) fn on_char(self: Weak<Self>, ch: char) {
@@ -92,14 +90,14 @@ impl TextField {
         if backspace {
             self.delete_backward();
         } else {
-            self.insert(&ch.to_string());
+            self.insert(ch.encode_utf8(&mut [0; 4]));
         }
     }
 
     fn on_command(mut self: Weak<Self>, ch: char) {
         match ch.to_ascii_lowercase() {
             'a' => {
-                let len = self.entered_text().len();
+                let len = self.text().len();
                 self.anchor = Some(0);
                 self.caret = len;
                 self.update_caret();
@@ -116,11 +114,23 @@ impl TextField {
     }
 
     fn copy(self: Weak<Self>) {
-        let text = self.selected_text();
-        if text.is_empty() || self.is_secure() {
+        // A field that hides its text copies nothing.
+        if self.is_secure() {
             return;
         }
-        if let Err(err) = Clipboard::set_text(text) {
+        let Some((start, end)) = self.selection() else {
+            return;
+        };
+        let selected = &self.text()[start..end];
+
+        // A field that shows its secret copies it the way a secret is
+        // copied, kept on this device and out of clipboard managers.
+        let copied = if self.holds_secret() {
+            Clipboard::set_secret(selected)
+        } else {
+            Clipboard::set_text(selected)
+        };
+        if let Err(err) = copied {
             log::error!("Failed to copy from a text field: {err}");
         }
     }
@@ -130,7 +140,9 @@ impl TextField {
     #[cfg(not_wasm)]
     fn paste(self: Weak<Self>) {
         match Clipboard::get_text() {
-            Ok(text) => self.insert(&text),
+            // Wiped after the insert, a paste into a secure field is the
+            // usual way a password gets there.
+            Ok(text) => self.insert(&Zeroizing::new(text)),
             Err(err) => log::warn!("Nothing to paste: {err}"),
         }
     }
@@ -154,8 +166,8 @@ impl TextField {
                     self.move_caret(start, false);
                     return;
                 }
-                let text = self.entered_text();
-                let target = text[..self.caret].chars().last().map_or(0, |ch| self.caret - ch.len_utf8());
+                let caret = self.caret;
+                let target = self.text()[..caret].chars().last().map_or(0, |ch| caret - ch.len_utf8());
                 self.move_caret(target, shift);
             }
             NamedKey::ArrowRight => {
@@ -163,11 +175,8 @@ impl TextField {
                     self.move_caret(end, false);
                     return;
                 }
-                let text = self.entered_text();
-                let target = text[self.caret..]
-                    .chars()
-                    .next()
-                    .map_or(self.caret, |ch| self.caret + ch.len_utf8());
+                let caret = self.caret;
+                let target = self.text()[caret..].chars().next().map_or(caret, |ch| caret + ch.len_utf8());
                 self.move_caret(target, shift);
             }
             NamedKey::Home | NamedKey::End => {
@@ -251,42 +260,42 @@ impl TextField {
 
     /// Replaces the selection, or inserts at the caret, with `text`.
     pub(super) fn insert(mut self: Weak<Self>, text: &str) {
-        let mut current = self.entered_text();
-
-        if let Some((start, end)) = self.selection() {
-            current.replace_range(start..end, "");
+        let selection = self.selection();
+        if let Some((start, _)) = selection {
             self.caret = start;
         }
         self.anchor = None;
 
-        let mut inserted = String::new();
-        for ch in text.chars() {
-            let probe = format!("{current}{inserted}");
-            if self.constraint.accept_char(ch, &probe) {
-                inserted.push(ch);
-            }
-        }
+        // Only a constraint needs a copy, the chars it accepts.
+        let accepted = self.constraint.as_ref().map(|constraint| constraint.filter(text));
+        let inserted = accepted.as_ref().map_or(text, |accepted| accepted.as_str());
 
         if inserted.is_empty() {
             self.update_caret();
             return;
         }
 
-        let caret = self.caret.min(current.len());
-        current.insert_str(caret, &inserted);
-        self.caret = caret + inserted.len();
-        self.commit(current);
+        let current = self.text();
+        let (start, end) = selection.unwrap_or_else(|| {
+            let caret = self.caret.min(current.len());
+            (caret, caret)
+        });
+        let edited = joined(&[&current[..start], inserted, &current[end..]]);
+
+        self.caret = start + inserted.len();
+        self.commit(edited);
     }
 
     fn delete_selection(mut self: Weak<Self>) -> bool {
         let Some((start, end)) = self.selection() else {
             return false;
         };
-        let mut text = self.entered_text();
-        text.replace_range(start..end, "");
+        let current = self.text();
+        let edited = joined(&[&current[..start], &current[end..]]);
+
         self.caret = start;
         self.anchor = None;
-        self.commit(text);
+        self.commit(edited);
         true
     }
 
@@ -295,22 +304,25 @@ impl TextField {
             return;
         }
 
-        let mut text = self.entered_text();
+        let caret = self.caret;
+        let current = self.text();
 
-        let Some(ch) = text[..self.caret].chars().last() else {
+        let Some(ch) = current[..caret].chars().last() else {
             return;
         };
 
-        self.caret -= ch.len_utf8();
-        text.remove(self.caret);
-        self.commit(text);
+        let start = caret - ch.len_utf8();
+        let edited = joined(&[&current[..start], &current[caret..]]);
+
+        self.caret = start;
+        self.commit(edited);
     }
 
     /// Shows typed text without moving the caret, unlike `set_text`
     /// which puts the caret at the end.
-    fn commit(mut self: Weak<Self>, text: String) {
+    fn commit(mut self: Weak<Self>, text: Zeroizing<String>) {
         let caret = self.caret;
-        self.set_text(text);
+        self.replace_text(text);
         self.caret = caret;
         self.update_caret();
     }
@@ -379,7 +391,7 @@ impl TextField {
 
     /// Selects the run of letters and digits around `byte`.
     fn select_word_at(mut self: Weak<Self>, byte: usize) {
-        let text = self.entered_text();
+        let text = self.text();
         let is_word = |ch: char| ch.is_alphanumeric();
 
         let start = text[..byte]

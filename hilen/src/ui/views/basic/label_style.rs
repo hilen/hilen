@@ -2,11 +2,14 @@
 //! of lines with an ellipsis on the last one, and an outline or a shadow
 //! behind the glyphs that keeps text readable over a picture.
 
+use zeroize::Zeroizing;
+
 use crate::{
     deps::refs::weak_from_ref,
     gm::{ToF32, color::Color, flat::Point},
     ui::Label,
     window::TextLayout,
+    wipe::joined,
 };
 
 /// A ring of this color around every glyph, `width` points out.
@@ -76,21 +79,18 @@ impl Label {
 
     /// The layout of `text` wrapped at a frame `width`.
     fn layout_at(&self, text: &str, width: f32) -> TextLayout {
-        let runs = self.shaping_runs(text);
         self.font().text_layout(
             text,
             self.text_size(),
             Some(width - self.text_inset()),
-            self.letter_spacing(),
-            runs,
-            self.line_height(),
+            self.shaping(text),
         )
     }
 
     /// The longest start of the text that, with an ellipsis after it, wraps
     /// into the line limit at this frame width. None when the whole text
     /// already does.
-    pub(super) fn truncate_to_lines(&self, width: f32) -> Option<String> {
+    pub(super) fn truncate_to_lines(&self, width: f32) -> Option<Zeroizing<String>> {
         const ELLIPSIS: &str = "…";
 
         let fits = |text: &str| self.layout_at(text, width).line_count() <= self.max_lines;
@@ -102,7 +102,7 @@ impl Label {
         let ends: Vec<usize> = self.text.char_indices().map(|(index, _)| index).collect();
         // The spaces before the cut go, an ellipsis after a space reads as
         // a stray word.
-        let candidate = |kept: usize| format!("{}{ELLIPSIS}", self.text[..ends[kept]].trim_end());
+        let candidate = |kept: usize| joined(&[self.text[..ends[kept]].trim_end(), ELLIPSIS]);
 
         // The longest fitting cut by binary search. When even the bare
         // ellipsis does not fit it still draws, like CSS does.

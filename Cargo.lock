@@ -2953,6 +2953,7 @@ dependencies = [
  "web-sys",
  "web-time",
  "webpki-roots 1.0.9",
+ "zeroize",
 ]
 
 [[package]]

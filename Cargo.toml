@@ -118,7 +118,7 @@ noise = "0.9"
 nonempty = "0.12"
 # The debug check of every message signature took over half of a debug frame in Metal.
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPasteboard", "NSResponder"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSValue"] }
@@ -211,6 +211,7 @@ webpki-roots = "1.0"
 wgpu = { package = "hilen-wgpu", version = "30.0" }
 wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "c15872b762cdb93fcab4810da812381f71e6c48f" }
 winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
+zeroize = "1.9"
 
 plat = { version = "0.10", path = "deps/plat" }
 reflected = "0.30"

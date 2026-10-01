@@ -62,6 +62,15 @@ pub trait App {
         &[]
     }
 
+    /// How many log files of the app stay on disk, the one of this launch
+    /// counted in. Older ones are removed at every start, before the new
+    /// file is written. The default is 10. This launch always writes its
+    /// file, so 0 keeps 1 like 1 does. Android and the browser write no
+    /// log file and never read this.
+    fn log_files_kept(&self) -> usize {
+        10
+    }
+
     fn start()
     where Self: Default + Sized + 'static {
         hilen_start_with_app(Box::new(Self::default()));
@@ -112,4 +121,43 @@ macro_rules! register_app {
             Box::new(<$app>::default())
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        App,
+        deps::refs::Own,
+        ui::{Container, Setup, View},
+    };
+
+    struct Plain;
+
+    impl App for Plain {
+        fn make_root_view(&self) -> Own<dyn View> {
+            Container::new()
+        }
+    }
+
+    struct FewLogs;
+
+    impl App for FewLogs {
+        fn make_root_view(&self) -> Own<dyn View> {
+            Container::new()
+        }
+
+        fn log_files_kept(&self) -> usize {
+            5
+        }
+    }
+
+    #[test]
+    fn an_app_keeps_10_log_files_unless_it_names_another_count() {
+        // Through the box, the way the starter reads the hook.
+        let plain: Box<dyn App> = Box::new(Plain);
+        let few: Box<dyn App> = Box::new(FewLogs);
+
+        assert_eq!(plain.log_files_kept(), 10);
+        assert_eq!(few.log_files_kept(), 5);
+    }
 }

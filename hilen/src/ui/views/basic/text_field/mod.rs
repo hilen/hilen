@@ -1,7 +1,10 @@
 mod editing;
 
+use std::mem::take;
+
 use ui_proc::view;
 use web_time::Instant;
+use zeroize::Zeroizing;
 
 use crate::{
     deps::{
@@ -46,8 +49,11 @@ pub struct TextField {
     multiline:         bool,
 
     /// The real text of a secure field, `None` for a plain one. The label
-    /// only ever shows one mask character per character of it.
-    secret: Option<String>,
+    /// only ever shows one mask character per character of it. Every
+    /// change puts a new buffer here, and the old one writes zeros over
+    /// itself before its memory is freed, so does the last one when the
+    /// field is dropped.
+    secret: Option<Zeroizing<String>>,
 
     /// Byte index into the text where typing inserts.
     caret: usize,
@@ -117,13 +123,18 @@ impl Setup for TextField {
             UIManager::open_keyboard(self.absolute_frame());
         } else {
             if let Some(string) = UIManager::close_keyboard() {
-                self.set_text(string);
+                self.replace_text(Zeroizing::new(string));
             }
             UIEvents::keyboard_input().unsubscribe(self);
             UIEvents::keyboard_key().unsubscribe(self);
 
             self.anchor = None;
-            self.editing_ended.trigger(self.label.text().to_string());
+            let ended_with = if self.holds_secret() {
+                mask(self.text())
+            } else {
+                self.label.text().to_string()
+            };
+            self.editing_ended.trigger(ended_with);
         }
 
         let color = if selected {
@@ -170,27 +181,55 @@ impl TextField {
 
     /// What the user entered. The placeholder is a hint drawn by the label,
     /// never text, so an empty field reads as empty.
+    ///
+    /// The text is borrowed from the field, nothing is copied. A copy the
+    /// caller makes of a secret is the caller's to wipe.
     pub fn text(&self) -> &str {
         if self.placeholding {
             return "";
         }
         match &self.secret {
-            Some(secret) => secret,
+            Some(secret) => secret.as_str(),
             None => self.label.text(),
         }
     }
 
     /// A password field. The entered text stays readable through `text`,
     /// the label shows one bullet per character and copy is disabled.
+    ///
+    /// From the first `set_secure(true)` on, the field holds a secret for
+    /// good, also while `set_secure(false)` shows the text. Such a field:
+    ///
+    /// - writes zeros over its text before the memory is freed, on every change
+    ///   and when the field is dropped, and makes no copy on the way that is
+    ///   freed as it is,
+    /// - never puts the text into `changed` and `editing_ended`, which hand a
+    ///   `String` to the subscriber. Both carry one bullet per character, the
+    ///   real text is read with `text`,
+    /// - copies shown text with `Clipboard::set_secret`.
+    ///
+    /// What stays outside of this: a `String` given to `set_text` by
+    /// value is the copy of the caller, single typed characters pass
+    /// through the window system and the event queue as they are, on iOS
+    /// the system text field that owns the keyboard keeps its own copy,
+    /// and a shown text leaves glyphs behind like every drawn text, see
+    /// `Label::set_secret`.
     pub fn set_secure(&self, secure: bool) -> &Self {
-        let text = self.entered_text();
-        weak_from_ref(self).secret = secure.then(String::new);
-        self.set_text(text);
-        self
+        if secure {
+            self.label.set_secret(true);
+        }
+        let text = Zeroizing::new(self.text().to_owned());
+        weak_from_ref(self).secret = secure.then(Zeroizing::default);
+        self.replace_text(text)
     }
 
     pub fn is_secure(&self) -> bool {
         self.secret.is_some()
+    }
+
+    /// The field was secure at some point, see `set_secure`.
+    pub(super) fn holds_secret(&self) -> bool {
+        self.label.is_secret()
     }
 
     /// Height of the scrollable content, the lines plus the inset in
@@ -211,10 +250,11 @@ impl TextField {
         caret.y() >= top - 0.5 && caret.max_y() <= top + self.height() + 0.5
     }
 
-    /// The selected text, empty when nothing is selected.
+    /// The selected text, empty when nothing is selected. A copy the
+    /// caller owns, also of a secure field.
     pub fn selected_text(&self) -> String {
         match self.selection() {
-            Some((start, end)) => self.entered_text()[start..end].to_string(),
+            Some((start, end)) => self.text()[start..end].to_string(),
             None => String::new(),
         }
     }
@@ -225,31 +265,49 @@ impl TextField {
     }
 
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
-        let text = self.filter_constraint(text);
+        self.replace_text(Zeroizing::new(text.to_label()))
+    }
 
-        if self.secret.is_some() {
-            weak_from_ref(self).secret = Some(text.clone());
-        }
+    /// Every change of the text ends here. The text comes in a buffer
+    /// that wipes itself, so a part that is not kept, the chars a
+    /// constraint drops or the whole text of a field that shows it, never
+    /// stays behind in freed memory.
+    pub(super) fn replace_text(&self, text: Zeroizing<String>) -> &Self {
+        let mut this = weak_from_ref(self);
+
+        let mut text = match &self.constraint {
+            Some(constraint) => constraint.filter(&text),
+            None => text,
+        };
+        let len = text.len();
+
+        // A field that holds a secret never hands it to an event.
+        let masked = self.holds_secret().then(|| mask(&text));
 
         if text.is_empty() && !self.placeholder.is_empty() {
-            weak_from_ref(self).placeholding = true;
+            this.placeholding = true;
             self.label.set_text(self.placeholder.clone());
             self.label.set_text_color(self.placeholder_color.unwrap_or(LIGHTER_GRAY.into()));
         } else {
-            weak_from_ref(self).placeholding = false;
-            if self.is_secure() {
-                self.label.set_text(mask(&text));
-            } else {
-                self.label.set_text(&text);
-            }
+            this.placeholding = false;
+            match &masked {
+                Some(masked) if self.is_secure() => self.label.set_text(masked),
+                _ => self.label.set_text(text.as_str()),
+            };
             self.label.set_text_color(self.text_color);
         }
 
-        weak_from_ref(self).caret = text.len();
-        weak_from_ref(self).anchor = None;
-        weak_from_ref(self).update_caret();
+        let changed_to = masked.unwrap_or_else(|| take(&mut *text));
 
-        self.changed.trigger(text);
+        if self.is_secure() {
+            this.secret = Some(text);
+        }
+
+        this.caret = len;
+        this.anchor = None;
+        this.update_caret();
+
+        self.changed.trigger(changed_to);
         self
     }
 
@@ -260,7 +318,7 @@ impl TextField {
     /// Programmatic focus, the same editing session a tap starts. The
     /// caret lands at the end of the entered text.
     pub fn focus(&self) {
-        weak_from_ref(self).caret = self.entered_text().len();
+        weak_from_ref(self).caret = self.text().len();
         weak_from_ref(self).anchor = None;
         UIManager::set_selected(self.weak_view(), true);
     }
@@ -271,13 +329,6 @@ impl TextField {
 
     pub fn is_empty(&self) -> bool {
         self.text().is_empty()
-    }
-
-    fn filter_constraint(&self, text: impl ToLabel) -> String {
-        match &self.constraint {
-            Some(constraint) => constraint.filter(text),
-            None => text.to_label(),
-        }
     }
 
     pub fn float_only(&mut self) -> &mut Self {

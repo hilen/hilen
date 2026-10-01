@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use web_time::{Duration, Instant};
 
-use crate::gm::flat::Size;
+use crate::{gm::flat::Size, window::text::Shaping};
 
 /// How long an unused measurement stays cached before the sweep drops it.
 const KEEP: Duration = Duration::from_secs(10);
@@ -21,6 +21,30 @@ pub(crate) struct MeasureKey {
     pub tracking:    u32,
     pub line_height: Option<u32>,
     pub runs:        Vec<(String, usize, usize)>,
+}
+
+impl MeasureKey {
+    /// The key of one measurement, `None` for a secret. The key holds a
+    /// copy of the text and the cache keeps it for 10 seconds after the
+    /// last use, with no end while no frame is drawn, so a secret is
+    /// measured every time and never stored.
+    pub(crate) fn of(text: &str, size: f32, width: Option<f32>, shaping: &Shaping) -> Option<Self> {
+        if shaping.secret {
+            return None;
+        }
+        Some(Self {
+            text:        text.to_string(),
+            size:        size.to_bits(),
+            width:       width.map(f32::to_bits),
+            tracking:    shaping.tracking.to_bits(),
+            line_height: shaping.line_height.map(f32::to_bits),
+            runs:        shaping
+                .runs
+                .iter()
+                .map(|run| (run.font.name.clone(), run.range.start, run.range.end))
+                .collect(),
+        })
+    }
 }
 
 struct CachedMeasure {
@@ -77,7 +101,7 @@ impl MeasureCache {
 #[cfg(test)]
 mod tests {
     use super::{MeasureCache, MeasureKey};
-    use crate::gm::flat::Size;
+    use crate::{gm::flat::Size, window::text::Shaping};
 
     fn key(text: &str) -> MeasureKey {
         MeasureKey {
@@ -108,5 +132,22 @@ mod tests {
         let mut other = key("hello");
         other.size = 13.0_f32.to_bits();
         assert_eq!(cache.get(&other), None);
+    }
+
+    #[test]
+    fn a_plain_text_gets_the_key_the_cache_stores_it_under() {
+        let made = MeasureKey::of("hello", 12.0, None, &Shaping::default());
+
+        assert!(made == Some(key("hello")));
+    }
+
+    #[test]
+    fn a_secret_gets_no_key_so_the_cache_never_holds_its_text() {
+        let shaping = Shaping {
+            secret: true,
+            ..Shaping::default()
+        };
+
+        assert!(MeasureKey::of("twelve secret words", 12.0, None, &shaping).is_none());
     }
 }

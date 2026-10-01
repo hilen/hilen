@@ -43,6 +43,7 @@ mod log_file;
 #[cfg(any(desktop, target_os = "android"))]
 mod panic_log;
 mod pipelines;
+mod wipe;
 
 #[cfg(feature = "audio")]
 pub mod audio;

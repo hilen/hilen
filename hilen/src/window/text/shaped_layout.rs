@@ -17,6 +17,7 @@ use crate::{
         Font,
         text::{TextLayout, TextLine},
     },
+    wipe::joined,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,6 +31,21 @@ pub(crate) enum VerticalAlign {
 pub(crate) struct FontRun {
     pub range: Range<usize>,
     pub font:  Weak<Font>,
+}
+
+/// How a label shapes a text, what `Font::measure` and `Font::text_layout`
+/// need next to the text, its size and its wrap width.
+#[derive(Clone, Default)]
+pub(crate) struct Shaping {
+    /// Extra points added to every glyph advance.
+    pub tracking:    f32,
+    /// Points between baselines, `None` for the font's own line height.
+    pub line_height: Option<f32>,
+    /// Sorted, not overlapping, on char boundaries.
+    pub runs:        Vec<FontRun>,
+    /// The text is a secret, so it stays out of the shape and measure
+    /// caches, which keep a copy of every text as their key.
+    pub secret:      bool,
 }
 
 /// Per label shaping parameters, collected where the label is drawn.
@@ -49,6 +65,8 @@ pub(crate) struct ShapedParams {
     pub base:        Weak<Font>,
     /// Sorted, not overlapping, on char boundaries.
     pub runs:        Vec<FontRun>,
+    /// The text is a secret and stays out of the shape cache.
+    pub secret:      bool,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -182,29 +200,34 @@ impl ShapedLayout<'_> {
         let font = source.font;
         let tracking = self.params.tracking;
 
-        let mut glyphs =
-            font.shape_cache()
-                .get_mut()
-                .get_or_shape(segment, source.px_per_unit, tracking, || {
-                    let mut buffer = UnicodeBuffer::new();
-                    buffer.push_str(segment);
+        let shape_now = || {
+            let mut buffer = UnicodeBuffer::new();
+            buffer.push_str(segment);
 
-                    let shaped = shape(font.face(), &[], buffer);
+            let shaped = shape(font.face(), &[], buffer);
 
-                    shaped
-                        .glyph_infos()
-                        .iter()
-                        .zip(shaped.glyph_positions())
-                        .map(|(info, pos)| ShapedGlyph {
-                            id:        u16::try_from(info.glyph_id).unwrap_or_default(),
-                            cluster:   info.cluster as usize,
-                            source:    0,
-                            x_advance: pos.x_advance.lossy_convert() * source.px_per_unit + tracking,
-                            x_offset:  pos.x_offset.lossy_convert() * source.px_per_unit,
-                            y_offset:  pos.y_offset.lossy_convert() * source.px_per_unit,
-                        })
-                        .collect()
-                });
+            shaped
+                .glyph_infos()
+                .iter()
+                .zip(shaped.glyph_positions())
+                .map(|(info, pos)| ShapedGlyph {
+                    id:        u16::try_from(info.glyph_id).unwrap_or_default(),
+                    cluster:   info.cluster as usize,
+                    source:    0,
+                    x_advance: pos.x_advance.lossy_convert() * source.px_per_unit + tracking,
+                    x_offset:  pos.x_offset.lossy_convert() * source.px_per_unit,
+                    y_offset:  pos.y_offset.lossy_convert() * source.px_per_unit,
+                })
+                .collect()
+        };
+
+        let mut glyphs = font.shape_cache().get_mut().get_or_shape(
+            segment,
+            source.px_per_unit,
+            tracking,
+            self.params.secret,
+            shape_now,
+        );
 
         for glyph in &mut glyphs {
             glyph.cluster += offset;
@@ -577,7 +600,10 @@ impl GlyphPositioner for ShapedLayout<'_> {
         // a split is what the font says, then each glyph goes back to the
         // text its cluster came from.
         let sections: Vec<_> = sections.iter().map(ToSectionText::to_section_text).collect();
-        let text: String = sections.iter().map(|section| section.text).collect();
+        // Wiped after use, this copy is made for every drawn label and the
+        // text may be a secret.
+        let parts: Vec<&str> = sections.iter().map(|section| section.text).collect();
+        let text = joined(&parts);
 
         let mut starts = Vec::with_capacity(sections.len());
         let mut start = 0;

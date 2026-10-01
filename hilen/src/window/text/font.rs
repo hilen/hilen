@@ -28,7 +28,7 @@ use crate::{
     window::{
         msaa_sample_count, surface_texture_format,
         text::{
-            FontRun, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, TextLayout,
+            MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, Shaping, TextLayout,
             VerticalAlign,
             color_glyph::{self, ColorGlyph},
             system_emoji,
@@ -203,53 +203,39 @@ impl Font {
             .clone()
     }
 
-    fn params(
-        &self,
-        tracking: f32,
-        width: Option<f32>,
-        runs: Vec<FontRun>,
-        line_height: Option<f32>,
-    ) -> ShapedParams {
+    fn params(&self, width: Option<f32>, shaping: Shaping) -> ShapedParams {
         ShapedParams {
-            tracking,
-            multiline: width.is_some(),
-            h_align: wgpu_text::glyph_brush::HorizontalAlign::Left,
-            v_align: VerticalAlign::Center,
-            line_height,
-            base: weak_from_ref(self),
-            runs,
+            tracking:    shaping.tracking,
+            multiline:   width.is_some(),
+            h_align:     wgpu_text::glyph_brush::HorizontalAlign::Left,
+            v_align:     VerticalAlign::Center,
+            line_height: shaping.line_height,
+            base:        weak_from_ref(self),
+            runs:        shaping.runs,
+            secret:      shaping.secret,
         }
     }
 
     /// Size the text takes when drawn at `size`. `width` bounds wrapping,
-    /// `None` measures a single unbounded line. `runs` are the byte
-    /// ranges drawn with other fonts. Layout params must mirror
+    /// `None` measures a single unbounded line. The runs of `shaping` are
+    /// the byte ranges drawn with other fonts. Layout params must mirror
     /// `draw_label` or measured sizes will not match rendering.
     pub(crate) fn measure(
         &mut self,
         text: &str,
         size: impl ToF32,
         width: Option<f32>,
-        tracking: f32,
-        runs: Vec<FontRun>,
-        line_height: Option<f32>,
+        shaping: Shaping,
     ) -> Size {
         if text.is_empty() {
             return Size::default();
         }
 
-        let key = MeasureKey {
-            text:        text.to_string(),
-            size:        size.to_f32().to_bits(),
-            width:       width.map(f32::to_bits),
-            tracking:    tracking.to_bits(),
-            line_height: line_height.map(f32::to_bits),
-            runs:        runs
-                .iter()
-                .map(|run| (run.font.name.clone(), run.range.start, run.range.end))
-                .collect(),
-        };
-        if let Some(cached) = self.measure_cache.get_mut().get(&key) {
+        let line_height = shaping.line_height;
+        let key = MeasureKey::of(text, size.to_f32(), width, &shaping);
+        if let Some(key) = &key
+            && let Some(cached) = self.measure_cache.get_mut().get(key)
+        {
             return cached;
         }
 
@@ -260,7 +246,7 @@ impl Font {
 
         let layout = ShapedLayout {
             emit:   &self.name,
-            params: self.params(tracking, width, runs, line_height),
+            params: self.params(width, shaping),
         };
 
         let Some(bounds) = self.brush.glyph_bounds_custom_layout(section, &layout) else {
@@ -277,7 +263,9 @@ impl Font {
         };
 
         let measured = Size::new(bounds.width(), height);
-        self.measure_cache.get_mut().insert(key, measured);
+        if let Some(key) = key {
+            self.measure_cache.get_mut().insert(key, measured);
+        }
         measured
     }
 
@@ -288,13 +276,11 @@ impl Font {
         text: &str,
         size: impl ToF32,
         width: Option<f32>,
-        tracking: f32,
-        runs: Vec<FontRun>,
-        line_height: Option<f32>,
+        shaping: Shaping,
     ) -> TextLayout {
         let layout = ShapedLayout {
             emit:   &self.name,
-            params: self.params(tracking, width, runs, line_height),
+            params: self.params(width, shaping),
         };
 
         let scale = PxScale::from(size.to_f32() * self.em_scale);

@@ -59,6 +59,7 @@ impl UIDrawer {
             line_height: label.line_height().map(|height| height * scale),
             base:        label.font(),
             runs:        label.shaping_runs(text),
+            secret:      label.is_secret(),
         }
     }
 

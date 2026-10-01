@@ -141,7 +141,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     let headless = headless || std::env::var("HILEN_HEADLESS").is_ok();
 
     #[cfg(not_wasm)]
-    AppRunner::setup_log(app.log_targets());
+    AppRunner::setup_log(app.log_targets(), app.log_files_kept());
 
     #[cfg(linux)]
     crate::window::wsl::prepare();
