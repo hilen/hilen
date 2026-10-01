@@ -13,6 +13,8 @@ mod background_pipeline;
 mod lab_pipeline;
 #[cfg(feature = "scene")]
 mod mesh_pipeline;
+#[cfg(feature = "scene")]
+mod picture_pipeline;
 mod pipeline_type;
 #[cfg(feature = "level")]
 mod pixel_blit_pipeline;
@@ -73,6 +75,8 @@ pub(crate) use lab_pipeline::LabPipeline;
 pub(crate) use mesh_pipeline::MeshKey;
 #[cfg(feature = "scene")]
 pub use mesh_pipeline::MeshPipeline;
+#[cfg(feature = "scene")]
+pub(crate) use picture_pipeline::PicturePipeline;
 #[cfg(feature = "level")]
 pub(crate) use pixel_blit_pipeline::PixelBlitPipeline;
 #[cfg(feature = "level")]

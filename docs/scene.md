@@ -250,6 +250,33 @@ as big as it is in the world. `world_scale` is the scale times every parent's. A
 child's collider moves and grows along every step. A `Body` cannot hang on a
 parent and a loop of parents panics.
 
+## Pictures
+
+`SceneManager::picture(scene, name, size, background)` draws a scene once into a
+managed `Image` of `size` pixels, a picture of a model for a grid or a list. The
+scene is set up, drawn with its own camera, sun, lights, sky and nodes, and
+dropped. The running scene and the frame on screen are not touched, and none has
+to run. `background` shows where nothing is drawn, `CLEAR` leaves the picture see
+through, a sky or fog covers it. The image is keyed by the name and the size, the
+same pair draws into the same image again, so a view over it shows the new
+picture with nothing set on it. A picture has no time, so its scene has no
+physics, it is made of `Prop` nodes, anything else panics.
+
+`SceneDrawer::picture` gathers the scene into the one shared `MeshPipeline` with
+its own encoder and submits it at once, then `forget_frame` empties the
+pipeline, so the frame's own draw on the same frame number does not draw the
+picture's nodes again. For the same reason `MeshPipeline::prepare` zeroes the
+range of every batch nothing was added to. The pass draws into targets of the
+picture's size in the surface format with the frame's sample count, the
+pipelines are the frame's own, and resolves. `PicturePipeline` then copies the
+resolved frame into the image's RGBA texture with the color divided by its
+alpha: over a clear background the frame holds color times coverage, from the
+multisample resolve and from every blended node, and an image draws with
+straight alpha, so without the divide every outline gets a dark rim. The
+targets are kept for the next picture of the same size. 50 pictures of 256
+pixels take about 18 ms of CPU time in a debug build and 12 ms in release on an
+M series Mac, models and textures are managed and load once.
+
 ## How it draws
 
 The scene draws in the main render pass, before the level and the UI, into the
@@ -322,7 +349,11 @@ arm, sword and hitbox follow its swing, walk and growth, and `Third person
 camera` a figure turning so a wall pulls the camera in. `Day and night` a field under
 a `DayNightSky` at noon, in the afternoon, at sunset, at dusk and at night with the
 moon, and `View points` labels over a circling ball and a post, the post's hidden once
-it is behind the camera. `Glow` orange flames at night glowing by 0, 0.5 and 1, then the dark one
+it is behind the camera. `Scene picture` a tree in a
+running scene next to a picture of it in an `ImageView`, the same image drawn again
+with the monkey, then 50 more pictures with the frame unchanged, and `Scene picture
+clear` one picture with a clear and with a given background over a light and a dark
+view while no scene runs. `Glow` orange flames at night glowing by 0, 0.5 and 1, then the dark one
 turned to full glow. A scene test leaves its scene on screen through the final
 human hold, the next test or the end of the run stops it. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
@@ -347,6 +378,6 @@ the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): an embeddable scene
-view, and culling nodes outside a cascade's box on the CPU so a short shadow
+The remaining deliveries are in [roadmap.md](roadmap.md): an embeddable live
+scene view, a picture is the still one, and culling nodes outside a cascade's box on the CPU so a short shadow
 distance also cuts the shadow passes on a big level.

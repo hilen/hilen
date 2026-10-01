@@ -8,7 +8,7 @@ use wgpu::{
     TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
-#[cfg(feature = "level")]
+#[cfg(any(feature = "level", feature = "scene"))]
 use crate::window::surface_texture_format;
 use crate::{
     gm::flat::Size,
@@ -152,7 +152,7 @@ impl Texture {
 
     /// A blank RGBA texture a pass can draw into and the image pipeline can
     /// sample, one mip level, clamped edges.
-    #[cfg(feature = "video")]
+    #[cfg(any(feature = "video", feature = "scene"))]
     pub(crate) fn render_target(size: Size<u32>, label: &str) -> Self {
         let device = Window::device();
 
@@ -196,7 +196,7 @@ impl Texture {
     /// A texture a pixel art level draws into at art resolution, in the
     /// surface format so the level pipelines can draw into it, one sample,
     /// read back with the nearest filter so each texel stays a hard square.
-    #[cfg(feature = "level")]
+    #[cfg(any(feature = "level", feature = "scene"))]
     pub(crate) fn pixel_target(size: Size<u32>) -> Self {
         let device = Window::device();
 

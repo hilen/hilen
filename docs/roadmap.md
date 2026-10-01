@@ -16,33 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A scene drawn into an image
-
-Found by the rail model viewer of blackforge, `~/dev/apps/blackforge/viewer`, whose
-start page is a grid of pictures of about 45 models. Top priority.
-
-- Current: one scene is active, `SceneManager::set_scene`, and `SceneDrawer` draws it
-  in the main render pass over the whole root area, see How it draws in
-  [scene.md](scene.md). No call draws a scene anywhere else. The 3D scene entry below
-  lists "an embeddable `SceneView` that composites into any view frame instead of the
-  root area" as not built. So an app cannot show a 3D model inside a view, and cannot
-  make a picture of one.
-- Needed:
-  - A call that draws a scene once into an `Image` of a given pixel size, with its own
-    camera, sun, lights, sky and nodes, and a transparent or a given background. The
-    image is a normal managed `Image`, an `ImageView` shows it. The active scene and
-    the frame on screen are not touched.
-  - It works while another scene is active, and while none is.
-  - Many pictures in a row stay cheap: about 50 of 256 pixels at the start of an app,
-    with shared models and textures uploaded once.
-  - The same picture on every lane, WebGPU, WebGL2, Metal on an A7, so the MSAA, the
-    tonemap and the sRGB encode match the main pass.
-  - Scene tests: a picture of a model shown in an `ImageView` next to the same model in
-    the live scene, a transparent background over a colored view, and a picture made
-    while another scene runs.
-- Blocks: the picture grid of the blackforge rail model viewer. Its 3D view of one
-  model is built on the live scene and does not wait.
-
 ## Sound on iOS and Android
 
 Found by skaityk, which plays the spoken audio of a sentence. Most urgent.
@@ -196,6 +169,11 @@ Small remainders not worth their own entry.
   `set_moves_sideways`.
 - The same text frame still differs by 1 color level between 2 runs of the
   program after the glyph snap, see [text.md](text.md). The cause is not found.
+- A scene picture, `SceneManager::picture`, is proven on desktop Metal only. The
+  iOS simulator and the browser lanes have not run its 2 scene tests, and
+  WebGL2 draws no scene at all yet.
+- `Collider shapes` and `Vertex colors` fail in the desktop scene suite, each
+  on 1 probe, the same way every run, as of `9f640a7a`. The cause is not found.
 - Human mode has no frame step key. A stepped test pauses only on checks, an
   animation in flight cannot be walked one frame per key press with the frame
   number in the window title.

@@ -47,6 +47,8 @@ mod picking;
 #[cfg(desktop)]
 mod player_walk;
 mod primitives;
+mod scene_picture;
+mod scene_picture_clear;
 mod scene_queries;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]

@@ -1,20 +1,76 @@
-use wgpu::{CommandEncoder, RenderPass};
+use wgpu::{
+    CommandEncoder, CommandEncoderDescriptor, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureView, TextureViewDescriptor,
+};
 
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::{
+        LossyConvert,
         color::Color,
+        flat::Size,
         volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
     },
-    render::{MeshKey, MeshPipeline, SceneView, data::MeshInstance},
+    render::{MeshKey, MeshPipeline, PicturePipeline, SceneView, data::MeshInstance},
     scene::{
-        DayNightSky, LightPick, Material, Mesh, Model, Node, Playback, SceneManager, collider_lines,
+        DayNightSky, LightPick, Material, Mesh, Model, Node, Playback, Scene, SceneManager, collider_lines,
         pick_lights, sun_cascades,
     },
     ui::{UIManager, ui_drawer::set_viewport},
+    window::{
+        Window,
+        image::{Image, ImageBind, Texture},
+        msaa_sample_count, surface_texture_format,
+    },
 };
 
 static MESH: MainLock<MeshPipeline> = MainLock::new();
+static PICTURE: MainLock<PicturePipeline> = MainLock::new();
+static PICTURE_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
+
+/// What a picture is drawn into before it becomes an image, kept for the
+/// next picture of the same size, so a grid of pictures makes them once.
+struct PictureTargets {
+    size:     Size<u32>,
+    /// The multisampled color, none when multisampling is off.
+    msaa:     Option<TextureView>,
+    depth:    Texture,
+    /// Where the samples resolve to, in the surface format.
+    resolved: Texture,
+    bind:     ImageBind,
+}
+
+impl PictureTargets {
+    fn new(size: Size<u32>) -> Self {
+        let device = Window::device();
+        let msaa = (msaa_sample_count() > 1).then(|| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label:           Some("picture_msaa"),
+                    size:            wgpu::Extent3d {
+                        width:                 size.width,
+                        height:                size.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count:    msaa_sample_count(),
+                    dimension:       wgpu::TextureDimension::D2,
+                    format:          surface_texture_format(),
+                    usage:           wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats:    &[],
+                })
+                .create_view(&TextureViewDescriptor::default())
+        });
+        let resolved = Texture::pixel_target(size);
+        Self {
+            size,
+            msaa,
+            depth: Texture::create_depth_texture(device, size, msaa_sample_count(), "picture_depth"),
+            bind: Image::bind_texture(&resolved),
+            resolved,
+        }
+    }
+}
 
 const COLLIDER_COLOR: Color = Color::hex("#00ff60");
 
@@ -124,8 +180,18 @@ impl SceneDrawer {
             return;
         }
 
-        let area = UIManager::render_area();
-        let scene = SceneManager::scene();
+        Self::gather(
+            SceneManager::scene(),
+            UIManager::render_area(),
+            DEPTH_BAND,
+            encoder,
+        );
+    }
+
+    /// Gathers the nodes of `scene` into the pipeline for a target of
+    /// `area` pixels that draws in the depth band `depth`, loads them and
+    /// draws the shadow map.
+    fn gather(scene: &dyn Scene, area: Size, depth: (f32, f32), encoder: &mut CommandEncoder) {
         let pipeline = MESH.get_mut();
         let camera = scene.camera;
 
@@ -223,7 +289,7 @@ impl SceneDrawer {
                 ambient.b,
                 f32::from(u8::from(sky.is_some())),
             ),
-            viewport: Vec4::new(area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1 - DEPTH_BAND.0),
+            viewport: Vec4::new(area.width, area.height, depth.0, depth.1 - depth.0),
             sun_texel,
             sun_depth,
             fog_color,
@@ -253,5 +319,86 @@ impl SceneDrawer {
         );
 
         set_viewport(pass, UIManager::window_resolution());
+    }
+
+    /// Draws `scene` once into the image `name` of `size` pixels, over
+    /// `background`. Its own encoder and its own submit, so the frame on
+    /// screen and the running scene are not touched, the mesh pipeline is
+    /// shared and left empty for the frame's own draw.
+    pub(crate) fn picture(scene: &dyn Scene, name: &str, size: Size<u32>, background: Color) -> Weak<Image> {
+        assert!(
+            size.width > 0 && size.height > 0,
+            "A scene picture needs a size, got {size:?}"
+        );
+
+        let image = Image::render_target(&format!("{name}-{}x{}", size.width, size.height), size);
+
+        let slot = PICTURE_TARGETS.get_mut();
+        if slot.as_ref().is_none_or(|targets| targets.size != size) {
+            *slot = Some(PictureTargets::new(size));
+        }
+        let targets = slot.as_ref().expect("just set");
+
+        let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
+        let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("scene_picture"),
+        });
+
+        Self::gather(scene, area, (0.0, 1.0), &mut encoder);
+
+        let (color, resolve_target) = match &targets.msaa {
+            Some(msaa) => (msaa, Some(&targets.resolved.view)),
+            None => (&targets.resolved.view, None),
+        };
+        // Color times alpha, what a blended node leaves in the frame too,
+        // the picture pass divides it back out.
+        let alpha = f64::from(background.a);
+        let clear = wgpu::Color {
+            r: f64::from(background.r) * alpha,
+            g: f64::from(background.g) * alpha,
+            b: f64::from(background.b) * alpha,
+            a: alpha,
+        };
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label:                    Some("Scene Picture Pass"),
+                color_attachments:        &[Some(RenderPassColorAttachment {
+                    view: color,
+                    depth_slice: None,
+                    resolve_target,
+                    ops: Operations {
+                        load:  LoadOp::Clear(clear),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                    view:        &targets.depth.view,
+                    depth_ops:   Some(Operations {
+                        load:  LoadOp::Clear(1.0),
+                        store: StoreOp::Discard,
+                    }),
+                    stencil_ops: Some(Operations {
+                        load:  LoadOp::Clear(0),
+                        store: StoreOp::Discard,
+                    }),
+                }),
+                occlusion_query_set:      None,
+                timestamp_writes:         None,
+                multiview_mask:           None,
+            });
+            pass.set_viewport(0.0, 0.0, area.width, area.height, 0.0, 1.0);
+            MESH.get_mut().draw(
+                &mut pass,
+                scene.sky.as_ref(),
+                scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
+            );
+        }
+
+        PICTURE.get_mut().draw(&mut encoder, &targets.bind.bind, image.view());
+        Window::queue().submit([encoder.finish()]);
+        MESH.get_mut().forget_frame();
+
+        image
     }
 }

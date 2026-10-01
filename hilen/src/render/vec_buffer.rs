@@ -82,6 +82,13 @@ impl<T> VecBuffer<T> {
         self.len > 0
     }
 
+    /// Drops what the last `load()` landed, so `has_loaded` is false until
+    /// the next one. The buffer and its cursor stay.
+    #[cfg(feature = "scene")]
+    pub(crate) fn forget(&mut self) {
+        self.len = 0;
+    }
+
     pub(crate) fn slice(&self) -> BufferSlice<'_> {
         self.buffer.slice(self.range.clone())
     }

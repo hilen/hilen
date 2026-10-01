@@ -8,7 +8,10 @@ use rapier3d::{
 
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
+    gm::{color::Color, flat::Size},
     scene::{Scene, scene::ScenePhysics},
+    scene_drawer::SceneDrawer,
+    window::image::Image,
 };
 
 static SELF: MainLock<SceneManager> = MainLock::new();
@@ -45,6 +48,30 @@ impl SceneManager {
         s.scene = Some(scene);
         s.scene.as_ref().unwrap().__internal_setup();
         weak
+    }
+
+    /// Draws `scene` once into an image of `size` pixels and returns it, a
+    /// picture of a model for a grid or a list. The scene is set up, drawn
+    /// with its own camera, sun, lights, sky and nodes, and dropped. The
+    /// running scene and the frame on screen are not touched, and none has
+    /// to run. Where nothing is drawn the picture shows `background`,
+    /// `CLEAR` leaves it see through, and a sky or fog covers it. The image
+    /// is managed under `name` and the size, the same pair draws into the
+    /// same image again. A picture has no time, so its scene has no physics,
+    /// it is made of `Prop` nodes.
+    pub fn picture<T: Scene + 'static>(
+        scene: T,
+        name: &str,
+        size: impl Into<Size<u32>>,
+        background: impl Into<Color>,
+    ) -> Weak<Image> {
+        let scene = Own::new(scene);
+        scene.__internal_setup();
+        assert!(
+            !scene.has_physics(),
+            "A scene picture has no physics. Build its scene of Prop nodes and leave needs_physics off."
+        );
+        SceneDrawer::picture(&*scene, name, size.into(), background.into())
     }
 
     pub fn stop_scene() {

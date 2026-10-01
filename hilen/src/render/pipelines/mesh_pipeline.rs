@@ -315,7 +315,11 @@ impl MeshPipeline {
 
         let frame = Window::render_frame();
         for batch in self.instances.values_mut() {
+            // A batch nothing added to draws nothing. Its range can still be
+            // from this same frame number, a picture is drawn between two
+            // frames and the scene on screen loaded the frame before it.
             if batch.pending.is_empty() {
+                batch.drawn = 0..0;
                 continue;
             }
             let start = self.opaque_instances.pending();
@@ -329,10 +333,14 @@ impl MeshPipeline {
         if !self.opaque_instances.is_empty() {
             self.opaque_instances.load();
         }
-        if !self.transparent.is_empty() {
+        if self.transparent.is_empty() {
+            self.transparent.forget();
+        } else {
             self.transparent.load();
         }
-        if !self.lines.is_empty() {
+        if self.lines.is_empty() {
+            self.lines.forget();
+        } else {
             self.lines.load();
         }
 
@@ -431,6 +439,18 @@ impl MeshPipeline {
             render_pass.set_vertex_buffer(0, self.lines.slice());
             render_pass.draw(0..self.lines.len(), 0..1);
         }
+    }
+
+    /// Lets go of everything loaded this frame. A picture is drawn and
+    /// submitted on its own, and the frame's draw that follows on the same
+    /// frame number must not draw the picture's nodes again.
+    pub(crate) fn forget_frame(&mut self) {
+        for batch in self.instances.values_mut() {
+            batch.drawn = 0..0;
+        }
+        self.transparent.forget();
+        self.transparent_keys.clear();
+        self.lines.forget();
     }
 
     fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
