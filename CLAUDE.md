@@ -149,6 +149,14 @@ A panic is logged too, `panic_log.rs` hooks it on desktop and Android and writes
 message, the file and line and a backtrace as an error line, then runs the earlier hook.
 A crash at a user's machine is read from that log file. iOS and wasm have their own hooks.
 
+A backend on `hilen-server` logs the same way. `tracing_init::init(name)` writes the stdout
+lines without color codes to `<name>-<date>_<time>.log` in the same folders, with `name`
+in place of the exe name, newest 10 kept, a panic included. The first line names the file.
+`hilen_server::log_file_path()` returns it. `HILEN_LOG_DIR` sets another folder and
+`HILEN_LOG_FILE=off` writes no file, for a backend in Docker that keeps its lines in
+`docker logs`. The code is `hilen-server/src/log_file.rs`, a copy of the folder and trim
+rules of `hilen/src/log_file.rs`, since the server crate never links `hilen`.
+
 ## Assets folder
 
 On desktop `assets_root.rs` finds the `assets` folder with file checks only, first walking
