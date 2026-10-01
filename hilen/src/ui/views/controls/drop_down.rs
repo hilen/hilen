@@ -1,14 +1,18 @@
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        netrun::Function,
+        refs::{Own, Weak, weak_from_ref},
+    },
     gm::{
-        LossyConvert, ToF32, Toggle,
+        ToF32, Toggle,
         color::{CLEAR, Color, LIGHT_BLUE, WHITE},
         flat::{LineCap, LineJoin, StrokeStyle, VectorPath},
     },
     ui::{
-        Button, Container, DrawingView, ImageView, Label, Setup, Shadow, TextAlignment, ToLabel, UIColor,
-        UIEvent, UIImages, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
+        Button, CellRegistry, Container, DrawingView, ImageView, Label, Setup, Shadow, TableData, TableView,
+        TextAlignment, UIColor, UIImages, UIManager, View, ViewData, ViewFrame, ViewSubviews, ViewTouch,
+        WeakView, struct_name, view,
     },
 };
 
@@ -19,23 +23,59 @@ const PANEL_PADDING: f32 = 4.0;
 const PANEL_GAP: f32 = 6.0;
 const ROW_RADIUS: f32 = 6.0;
 const CHECK: f32 = 14.0;
+/// The open list never comes closer than this to the edge of the window.
+const SCREEN_MARGIN: f32 = 8.0;
 
-/// A closed box with the picked value and a chevron. A tap opens a
-/// panel under it, or above when there is no room, with one row per
-/// value. Rows light up on hover, the picked one shows in the accent
-/// color with a check mark. The box's own color, border and corners are
-/// its look, the panel copies them.
+/// What a `DropDown` shows. Like `TableData` for a table: the drop down
+/// owns no values, it only knows the index of the picked row.
+///
+/// A plain list of texts needs none of this, `TextDropDown` is that. A
+/// custom drop down is its own view, it holds a `DropDown`, owns the data
+/// and implements this trait.
+pub trait DropDownData {
+    fn number_of_rows(&self) -> usize;
+
+    fn row_height(&self, _: usize) -> f32 {
+        ROW_HEIGHT
+    }
+
+    /// The text of a row that has no cell of its own.
+    fn title(&self, _: usize) -> String {
+        String::new()
+    }
+
+    /// A cell for this row out of the cell types given to
+    /// `DropDown::register_cell`. `None` gives the default text row with
+    /// `title`. A cell is reused for other rows, so set everything the row
+    /// decides on every call. It draws all of itself, also how hovered and
+    /// picked look, the drop down adds nothing around it.
+    fn setup_cell(&mut self, _: usize, _: &mut CellRegistry) -> Option<WeakView> {
+        None
+    }
+
+    /// The cell of the closed box for the picked row. The same as the row
+    /// cell unless the box needs another look.
+    fn setup_box_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Option<WeakView> {
+        self.setup_cell(index, registry)
+    }
+
+    /// The user picked this row.
+    fn row_selected(&mut self, index: usize);
+}
+
+/// A closed box with the picked row and a chevron. A tap opens a panel
+/// under it, or above when there is more room, with the rows of its data
+/// source in a table. The panel is as tall as its rows and scrolls only
+/// when they do not fit the window. The box's own color, border and
+/// corners are its look, the panel copies them.
 #[view]
-pub struct DropDown<T: 'static> {
-    values:  Vec<T>,
-    opened:  bool,
-    changed: Event<T>,
-
-    custom_format: Option<Box<dyn Fn(T) -> String>>,
+pub struct DropDown {
+    data:   Weak<dyn DropDownData>,
+    opened: bool,
 
     selected_index: usize,
 
-    /// Applied to the collapsed label and to every row.
+    /// Applied to the collapsed label and to every default row.
     text_color: Option<UIColor>,
     text_size:  Option<f32>,
     accent:     Color,
@@ -44,30 +84,70 @@ pub struct DropDown<T: 'static> {
     idle_border: Option<Color>,
     raised:      bool,
 
-    rows: Vec<Weak<DropDownRow>>,
+    /// The view whose color, border and corners are the look of the box.
+    /// The drop down itself unless a view around it draws the box.
+    look: WeakView,
+
+    box_registry: CellRegistry,
+    box_cell:     WeakView,
+    table:        Weak<TableView>,
 
     #[init]
     button: Button,
+    holder: Container,
     label:  Label,
     arrow:  ImageView,
     panel:  Container,
 }
 
-impl<T: ToLabel + Clone + 'static> DropDown<T> {
-    pub fn on_changed(&self, action: impl FnMut(T) + Send + 'static) {
-        self.changed.val(action);
+impl DropDown {
+    pub fn set_data_source(mut self: Weak<Self>, data: Weak<dyn DropDownData>) -> Weak<Self> {
+        self.data = data;
+        self.reload();
+        self
     }
 
-    pub fn try_get_value(&self) -> Option<&T> {
-        self.values.get(self.selected_index)
+    /// A cell type the data source can ask its registry for.
+    pub fn register_cell<T: View + Default + 'static>(mut self: Weak<Self>) -> Weak<Self> {
+        self.table.register_cell::<T>();
+        self.box_registry.constructors.insert(
+            struct_name::<T>(),
+            Function::new(|()| -> Own<dyn View> { T::new() }),
+        );
+        self
     }
 
-    pub fn value(&self) -> &T {
-        assert!(!self.values.is_empty());
-        self.values.get(self.selected_index).unwrap()
+    /// The rows changed. A picked index past the end falls back to the
+    /// first row.
+    pub fn reload(mut self: Weak<Self>) {
+        if self.selected_index >= self.rows() {
+            self.selected_index = 0;
+        }
+        self.refresh_box();
+        if self.opened {
+            self.layout_panel();
+        }
     }
 
-    /// The text shown while the drop down is collapsed.
+    pub fn selected_index(&self) -> usize {
+        self.selected_index
+    }
+
+    /// Points the drop down at a row and updates the closed box. The list
+    /// stays closed and `row_selected` is not called, so restoring a pick
+    /// is never mistaken for a user pick. Returns false and changes
+    /// nothing when there is no such row.
+    pub fn select(mut self: Weak<Self>, index: usize) -> bool {
+        if index >= self.rows() {
+            return false;
+        }
+        self.selected_index = index;
+        self.refresh_box();
+        true
+    }
+
+    /// The text shown while the drop down is collapsed, empty when the
+    /// box shows a cell of the data source.
     pub fn text(&self) -> &str {
         self.label.text()
     }
@@ -76,12 +156,7 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
         self.opened
     }
 
-    pub fn set_values(&mut self, values: Vec<T>) {
-        self.values = values;
-        self.select_index(0);
-    }
-
-    /// Text color of the collapsed label and the rows.
+    /// Text color of the collapsed label and the default rows.
     pub fn set_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
         let color = color.into();
         self.text_color = Some(color);
@@ -96,35 +171,67 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
         self
     }
 
-    /// The color of the picked row, the check mark, the hover wash and
-    /// the border while hovered or open.
+    /// The color of the picked default row, its check mark, the hover
+    /// wash and the border while hovered or open.
     pub fn set_accent_color(&mut self, color: impl Into<Color>) -> &mut Self {
         self.accent = color.into();
         self
     }
 
-    pub fn custom_format(&mut self, format: impl Fn(T) -> String + 'static) {
-        self.custom_format = Some(Box::new(format));
-        self.set_values(self.values.clone());
+    pub fn accent_color(&self) -> Color {
+        self.accent
     }
 
-    fn format(&self, value: T) -> String {
-        match &self.custom_format {
-            Some(format) => format(value),
-            None => value.to_label(),
+    /// A view around the drop down draws the box, so its color, border
+    /// and corners are the look the panel copies and the hover lights.
+    pub fn set_look_source(&mut self, view: WeakView) -> &mut Self {
+        self.look = view;
+        self
+    }
+
+    fn rows(&self) -> usize {
+        if self.data.is_null() {
+            0
+        } else {
+            self.data.number_of_rows()
         }
     }
 
-    fn select_index(&mut self, index: usize) {
-        self.selected_index = index;
+    fn look(&self) -> WeakView {
+        if self.look.is_null() {
+            self.weak_view()
+        } else {
+            self.look
+        }
+    }
 
-        let Some(value) = self.values.get(index).cloned() else {
+    /// The closed box shows the picked row, as a cell of the data source
+    /// or as its title.
+    fn refresh_box(mut self: Weak<Self>) {
+        if self.box_cell.is_ok() {
+            self.box_cell.set_hidden(true);
+            let old = self.box_cell;
+            self.box_registry.load_old_cells(vec![old]);
+        }
+        self.box_cell = Weak::default();
+
+        if self.rows() == 0 {
+            self.label.set_hidden(false);
             self.label.set_text("");
             return;
-        };
+        }
 
-        let text = self.format(value);
-        self.label.set_text(text);
+        let index = self.selected_index;
+        let mut data = self.data;
+        if let Some(cell) = data.setup_box_cell(index, &mut self.box_registry) {
+            cell.place().clear().back();
+            self.box_cell = cell;
+            self.label.set_hidden(true);
+            self.label.set_text("");
+        } else {
+            self.label.set_hidden(false);
+            self.label.set_text(data.title(index));
+        }
     }
 
     fn tapped(mut self: Weak<Self>) {
@@ -145,99 +252,108 @@ impl<T: ToLabel + Clone + 'static> DropDown<T> {
 
         // Without a hover first, like on a phone, the border is still
         // the app's own here. Kept now, or the panel would copy the accent.
+        let look = self.look();
         if self.idle_border.is_none() {
-            self.idle_border = Some(*self.border_color());
+            self.idle_border = Some(*look.border_color());
         }
 
-        self.set_border_color(self.accent);
+        look.set_border_color(self.accent);
+        self.layout_panel();
+    }
 
-        let text_color = self.text_color;
-        let text_size = self.text_size;
-        let accent = self.accent;
+    /// The panel is as tall as its rows, up to the room the window has
+    /// on the better side of the box. Past that the table scrolls.
+    fn layout_panel(mut self: Weak<Self>) {
+        let look = self.look();
+        let rows = self.rows();
+        let data = self.data;
+        let wanted: f32 = (0..rows).map(|index| data.row_height(index)).sum::<f32>() + 2.0 * PANEL_PADDING;
 
-        self.panel.remove_all_subviews();
-        self.rows.clear();
+        let frame = *self.absolute_frame();
+        let window = UIManager::root_view().height();
+        let room_below = window - frame.max_y() - PANEL_GAP - SCREEN_MARGIN;
+        let room_above = frame.y() - PANEL_GAP - SCREEN_MARGIN;
 
-        let count = self.values.len();
-        let panel_height = ROW_HEIGHT * count.lossy_convert() + 2.0 * PANEL_PADDING;
-        let width = self.width();
-
-        let below = self.superview().height() - self.max_y() >= panel_height + PANEL_GAP;
+        let below = wanted <= room_below || room_below >= room_above;
+        let room = if below { room_below } else { room_above };
+        let height = wanted.min(room.max(ROW_HEIGHT + 2.0 * PANEL_PADDING));
         let y = if below {
             self.height() + PANEL_GAP
         } else {
-            -(panel_height + PANEL_GAP)
+            -(height + PANEL_GAP)
         };
 
         self.panel
-            .set_color(*self.color())
-            .set_corner_radii(self.corner_radii())
-            .set_border_width(self.border_width())
-            .set_border_color(self.idle_border.unwrap_or(*self.border_color()))
+            .set_color(*look.color())
+            .set_corner_radii(look.corner_radii())
+            .set_border_width(look.border_width())
+            .set_border_color(self.idle_border.unwrap_or(*look.border_color()))
             .set_shadow(Shadow::default());
-        self.panel.set_frame((0.0, y, width, panel_height));
+        self.panel.set_frame((0.0, y, self.width(), height));
         self.panel.set_hidden(false);
-
-        for (index, value) in self.values.clone().into_iter().enumerate() {
-            let row = self.panel.add_view::<DropDownRow>();
-            row.set_frame((
-                PANEL_PADDING,
-                PANEL_PADDING + ROW_HEIGHT * index.lossy_convert(),
-                width - 2.0 * PANEL_PADDING,
-                ROW_HEIGHT,
-            ));
-            row.setup_row(
-                self.format(value),
-                index == self.selected_index,
-                accent,
-                text_color,
-                text_size,
-            );
-            row.picked.val(self, move |()| self.pick(index));
-            self.rows.push(row);
-        }
+        self.table.reload_data();
     }
 
     fn close(mut self: Weak<Self>) {
+        self.opened = false;
         self.panel.set_hidden(true);
-        self.panel.remove_all_subviews();
-        self.rows.clear();
         if let Some(border) = self.idle_border {
-            self.set_border_color(border);
+            self.look().set_border_color(border);
         }
     }
 
     fn pick(mut self: Weak<Self>, index: usize) {
-        self.select_index(index);
-        self.changed.trigger(self.values[index].clone());
-        self.opened = false;
+        self.selected_index = index;
+        self.refresh_box();
         self.close();
+        let mut data = self.data;
+        data.row_selected(index);
     }
 }
 
-impl<T: ToLabel + Clone + PartialEq + 'static> DropDown<T> {
-    /// Points the drop down at `value` and updates the collapsed text.
-    /// The list stays closed and `changed` does not fire, so restoring a
-    /// selection is never mistaken for a user pick. Returns false and
-    /// changes nothing when the value is not among the current ones.
-    pub fn set_value(&mut self, value: &T) -> bool {
-        let Some(index) = self.values.iter().position(|existing| existing == value) else {
-            return false;
-        };
+impl TableData for DropDown {
+    fn cell_height(&self, index: usize) -> f32 {
+        self.data.row_height(index)
+    }
 
-        self.select_index(index);
+    fn number_of_cells(&self) -> usize {
+        self.rows()
+    }
 
-        true
+    fn cell_selected(&mut self, index: usize) {
+        weak_from_ref(self).pick(index);
+    }
+
+    fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> WeakView {
+        let mut data = self.data;
+        if let Some(cell) = data.setup_cell(index, registry) {
+            return cell;
+        }
+
+        let row = registry.cell::<DropDownRow>();
+        row.setup_row(
+            data.title(index),
+            index == self.selected_index,
+            self.accent,
+            self.text_color,
+            self.text_size,
+        );
+        row
     }
 }
 
-impl<T: ToLabel + Clone + 'static> Setup for DropDown<T> {
+impl Setup for DropDown {
     fn setup(mut self: Weak<Self>) {
         self.accent = LIGHT_BLUE;
         self.set_color(WHITE);
 
         self.button.set_color(CLEAR).place().back();
         self.button.on_tap(move || self.tapped());
+
+        self.holder.set_color(CLEAR);
+        self.holder.place().l(0).r(INSET + ARROW).tb(0);
+        let holder = self.holder.weak_view();
+        self.box_registry.set_parent(holder);
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
         self.label.place().l(INSET).r(INSET + ARROW + 6.0).tb(0);
@@ -246,29 +362,37 @@ impl<T: ToLabel + Clone + 'static> Setup for DropDown<T> {
         self.arrow.place().r(INSET - 2.0).center_y().size(ARROW, ARROW);
 
         self.panel.set_hidden(true);
+        self.table = self.panel.add_view::<TableView>();
+        self.table.set_color(CLEAR);
+        self.table.place().all_sides(PANEL_PADDING);
+        self.table
+            .set_data_source(self)
+            .register_cell::<DropDownRow>()
+            .set_variable_heights(true);
 
         // The border the app set is what idle looks like. Read on the
         // first hover or open, after the app's setup has run.
         self.enable_hover();
         self.touch().hovered.val(self, move |hovered| {
+            let look = self.look();
             if self.idle_border.is_none() {
-                self.idle_border = Some(*self.border_color());
+                self.idle_border = Some(*look.border_color());
             }
             if hovered {
-                self.set_border_color(self.accent);
+                look.set_border_color(self.accent);
             } else if !self.opened
                 && let Some(border) = self.idle_border
             {
-                self.set_border_color(border);
+                look.set_border_color(border);
             }
         });
     }
 }
 
-/// One row of the open panel.
+/// The default row of the open panel: a text, and a check mark on the
+/// picked one.
 #[view]
 struct DropDownRow {
-    picked:   UIEvent,
     accent:   Color,
     selected: bool,
 
@@ -295,6 +419,8 @@ impl DropDownRow {
         if let Some(size) = text_size {
             self.label.set_text_size(size);
         }
+        // A reused row may have been the picked one before.
+        self.check.remove_all_paths();
         if selected {
             self.label.set_text_color(accent);
             let path = VectorPath::polyline([(1.5, 7.5), (5.5, 11.5), (12.5, 3.0)]);
@@ -328,9 +454,6 @@ impl Setup for DropDownRow {
 
         self.check.set_color(CLEAR);
         self.check.place().r(INSET - PANEL_PADDING).center_y().size(CHECK, CHECK);
-
-        self.enable_touch();
-        self.touch().up_inside.sub(self, move || self.picked.trigger(()));
 
         self.enable_hover();
         self.touch().hovered.val(self, move |hovered| self.refresh(hovered));

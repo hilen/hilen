@@ -4,8 +4,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLACK, Color, DropDown, Label, ModalView, Setup, Size, TextAlignment, UIColor, ViewData, ViewTest,
-        WHITE, view,
+        BLACK, Color, Label, ModalView, Setup, Size, TextAlignment, TextDropDown, UIColor, ViewData,
+        ViewTest, WHITE, view,
     },
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
@@ -18,7 +18,7 @@ struct DropDownModal {
 
     #[init]
     title: Label,
-    drop:  DropDown<&'static str>,
+    drop:  TextDropDown,
 }
 
 impl Setup for DropDownModal {

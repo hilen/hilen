@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{Color, Container, DropDown, Setup, ViewData, ViewTest, view},
+    ui::{Color, Container, Setup, TextDropDown, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
 
@@ -12,7 +12,7 @@ use hilen::{
 struct DropDownStyle {
     #[init]
     card: Container,
-    drop: DropDown<&'static str>,
+    drop: TextDropDown,
 }
 
 impl Setup for DropDownStyle {
@@ -42,7 +42,7 @@ impl ViewTest for DropDownStyle {
         // The panel opens 6 under the box at y 116, rows are 36 tall, so
         // "Two" spans 156..192.
         inject_touches(TOUCHES_2);
-        anyhow::ensure!(view.drop.value() == &"Two", "picked {}", view.drop.value());
+        anyhow::ensure!(view.drop.value() == "Two", "picked {}", view.drop.value());
         check_colors(COLORS_3)?;
 
         Ok(())

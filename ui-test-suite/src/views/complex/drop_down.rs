@@ -3,7 +3,7 @@ use hilen::{
     dispatch::from_main,
     gm::Apply,
     refs::Weak,
-    ui::{DropDown, Setup, ViewData, ViewTest, view},
+    ui::{Setup, TextDropDown, ViewData, ViewTest, view},
     ui_test::{
         inject_touches, inject_touches_delayed,
         state::{append_state, get_state},
@@ -13,8 +13,8 @@ use hilen::{
 #[view]
 struct DropDownTestView {
     #[init]
-    top: DropDown<&'static str>,
-    bot: DropDown<&'static str>,
+    top: TextDropDown,
+    bot: TextDropDown,
 }
 
 impl Setup for DropDownTestView {
@@ -36,8 +36,8 @@ impl Setup for DropDownTestView {
 
 impl ViewTest for DropDownTestView {
     fn perform_test(view: Weak<Self>) -> Result<()> {
-        assert_eq!(view.top.value(), &"Dog");
-        assert_eq!(view.bot.value(), &"Car");
+        assert_eq!(view.top.value(), "Dog");
+        assert_eq!(view.bot.value(), "Car");
 
         inject_touches_delayed(
             r"
@@ -52,23 +52,23 @@ impl ViewTest for DropDownTestView {
         ",
         );
 
-        assert_eq!(view.top.value(), &"Cat");
-        assert_eq!(view.bot.value(), &"Boat");
+        assert_eq!(view.top.value(), "Cat");
+        assert_eq!(view.bot.value(), "Boat");
 
         let picked = get_state::<String>();
 
         assert!(from_main(move || {
             let mut bot = view.bot;
-            bot.set_value(&"Plane")
+            bot.set_value("Plane")
         }));
-        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.value(), "Plane");
         assert_eq!(view.bot.text(), "Plane");
 
         assert!(!from_main(move || {
             let mut bot = view.bot;
-            bot.set_value(&"Train")
+            bot.set_value("Train")
         }));
-        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.value(), "Plane");
         assert_eq!(view.bot.text(), "Plane");
 
         // A rebuilt list falls back to the first entry, and set_value is
@@ -77,14 +77,14 @@ impl ViewTest for DropDownTestView {
             let mut bot = view.bot;
             bot.set_values(vec!["Car", "Plane", "Rocket"]);
         });
-        assert_eq!(view.bot.value(), &"Car");
+        assert_eq!(view.bot.value(), "Car");
         assert_eq!(view.bot.text(), "Car");
 
         assert!(from_main(move || {
             let mut bot = view.bot;
-            bot.set_value(&"Plane")
+            bot.set_value("Plane")
         }));
-        assert_eq!(view.bot.value(), &"Plane");
+        assert_eq!(view.bot.value(), "Plane");
         assert_eq!(view.bot.text(), "Plane");
 
         assert_eq!(get_state::<String>(), picked);
@@ -101,7 +101,7 @@ impl ViewTest for DropDownTestView {
         ",
         );
 
-        assert_eq!(view.bot.value(), &"Rocket");
+        assert_eq!(view.bot.value(), "Rocket");
         assert_eq!(view.bot.text(), "Rocket");
         assert_eq!(get_state::<String>(), format!("{picked}Rocket\n"));
 

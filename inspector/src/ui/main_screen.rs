@@ -10,7 +10,7 @@ use hilen::{
     ui::{
         AlertErr,
         Anchor::{Right, Top},
-        Button, DropDown, Setup, UIEvent, UIManager, ViewData, async_link_button, view,
+        Button, Setup, TextDropDown, UIEvent, UIManager, ViewData, async_link_button, view,
     },
 };
 use log::error;
@@ -30,7 +30,7 @@ pub struct MainScreen {
     selected_id:    Option<String>,
 
     #[init]
-    clients: DropDown<String>,
+    clients: TextDropDown,
 
     play_sound:   Button,
     get_ui:       Button,
@@ -167,7 +167,7 @@ impl MainScreen {
     }
 
     fn reload_clients(mut self: Weak<Self>) {
-        let ids = self.apps.iter().map(|(id, _)| id.clone()).collect();
+        let ids: Vec<String> = self.apps.iter().map(|(id, _)| id.clone()).collect();
         self.clients.set_values(ids);
     }
 

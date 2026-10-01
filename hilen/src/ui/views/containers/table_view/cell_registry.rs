@@ -5,19 +5,27 @@ use crate::{
         netrun::Function,
         refs::{Own, Weak},
     },
-    ui::{TableView, View, ViewData, ViewSubviews},
+    ui::{TableView, View, ViewData, ViewSubviews, WeakView},
 };
 
 #[derive(Default)]
 pub struct CellRegistry {
-    table:            Weak<TableView>,
+    /// The view new cells are added to, the scroll of a table.
+    parent:           WeakView,
     pub free_cells:   HashMap<String, Vec<Weak<dyn View>>>,
     pub constructors: HashMap<&'static str, Function<(), Own<dyn View>>>,
 }
 
 impl CellRegistry {
     pub(crate) fn set_table(&mut self, table: Weak<TableView>) {
-        self.table = table;
+        // The content, not the scroll: only the scroll type itself sends a
+        // new child on to its content.
+        self.parent = table.scroll.content.weak_view();
+    }
+
+    /// For a registry outside a table, like the closed box of a drop down.
+    pub(crate) fn set_parent(&mut self, parent: WeakView) {
+        self.parent = parent;
     }
 
     pub(crate) fn load_old_cells(&mut self, mut cells: Vec<Weak<dyn View>>) {
@@ -47,7 +55,7 @@ impl CellRegistry {
             let owned = constructor.call(());
             let weak = owned.weak();
 
-            self.table.scroll.add_subview(owned);
+            self.parent.add_subview(owned);
 
             weak
         }

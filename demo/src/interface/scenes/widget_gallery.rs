@@ -1,8 +1,8 @@
 use hilen::{
     refs::Weak,
     ui::{
-        Alert, BLACK, Button, CheckBox, Container, DropDown, Label, NumberView, ProgressView, ScrollView,
-        Setup, Shadow, Spinner, SpinnerLockOnView, Switch, TextAlignment, TextField, View, ViewData,
+        Alert, BLACK, Button, CheckBox, Container, Label, NumberView, ProgressView, ScrollView, Setup,
+        Shadow, Spinner, SpinnerLockOnView, Switch, TextAlignment, TextDropDown, TextField, View, ViewData,
         ViewSubviews, WHITE, WeakView, view,
     },
 };
@@ -113,7 +113,7 @@ impl WidgetGallery {
         button.place().b(10).center_x().size(120, 30);
         button.on_tap(move || self.toggle_spin(target.weak_view()));
 
-        let mut drop = self.tile("DropDown").add_view::<DropDown<&'static str>>();
+        let mut drop = self.tile("DropDown").add_view::<TextDropDown>();
         drop.set_values(vec!["One", "Two", "Three"]);
         drop.set_text_color(TEXT).set_text_size(15);
         drop.set_color(BG)
