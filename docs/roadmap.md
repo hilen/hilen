@@ -16,33 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## The update state lives in the engine
-
-Found by flixen at `~/dev/apps/flixen`, the third app that needs self update.
-
-**Current.** `system::Updater` in `hilen/src/system/updater.rs` has the calls `check`,
-`install`, `install_with_progress` and `relaunch`, and `App::update_source` gives the
-manifest address, the version and the key. Everything between them is left to the app.
-Kukareker and Blackforge each carry an `updater.rs` of 167 lines for it: a state on a
-`MainLock` with the phases `Idle`, `Checking`, `Available` and `Installing`, the found
-version, the percent, the last error and a `changed` event, a check after launch through
-`dispatch::after`, the install through `spawn` and `on_main`, and an env var that
-overrides the manifest address for a local test. The 2 files are the same apart from the
-app name, how the key is read and 1 line of percent math.
-
-**Needed.** That state module in the engine, for every desktop app. An app gives only
-its public key. The engine takes the version from the app's package and builds the
-manifest address from the app name, `https://get.vladas.xyz/<name>/updater.json` by
-default, with a way for an app to give another address and with the env var override
-`<NAME>_UPDATE_URL` kept. The engine runs the first check after launch by itself. A view
-reads the phase, the version, the percent and the error, starts the install, and
-subscribes to `changed`. More than 1 view can subscribe. Off the desktop every call is a
-no-op, like `Updater` today. `docs/updater.md` and the `updater.md` chapter of the hilen
-skill then describe this instead of a module per app.
-
-**Blocks.** The update button of flixen. Kukareker and Blackforge can drop their copies
-when they move.
-
 ## The ffmpeg archive for Windows x64
 
 Found by flixen at `~/dev/apps/flixen`, whose first release ships for Windows x64. This

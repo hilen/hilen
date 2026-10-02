@@ -21,6 +21,58 @@ pub struct UpdateSource {
     pub verify_key:      String,
 }
 
+/// The download server an app updates from unless it names another
+/// address in `App::update_url`. The manifest of an app is
+/// `<host>/<project_name>/updater.json`.
+pub const DEFAULT_UPDATE_HOST: &str = "https://get.vladas.xyz";
+
+/// The update source of an app that gives its key in `App::update_key`,
+/// `None` for an app with no key and outside the desktop.
+pub(crate) fn app_update_source(key: Option<&str>, url: Option<String>) -> Option<UpdateSource> {
+    #[cfg(desktop)]
+    {
+        use crate::app::{hilen_app_version, hilen_project_name};
+
+        let name = hilen_project_name();
+        let env = std::env::var(update_url_env(name)).ok();
+        Some(source_for(name, hilen_app_version(), key?, url, env))
+    }
+    #[cfg(not(desktop))]
+    {
+        drop((key, url));
+        None
+    }
+}
+
+/// The env var that points the updater of app `name` at another manifest,
+/// like a local file server for a test without a release.
+#[cfg(desktop)]
+fn update_url_env(name: &str) -> String {
+    format!("{}_UPDATE_URL", name.to_uppercase().replace('-', "_"))
+}
+
+/// The env var wins over the address of the app, and that one over the
+/// default server.
+#[cfg(desktop)]
+fn source_for(
+    name: &str,
+    version: &str,
+    key: &str,
+    url: Option<String>,
+    env: Option<String>,
+) -> UpdateSource {
+    let manifest_url = env
+        .filter(|url| !url.trim().is_empty())
+        .or(url)
+        .unwrap_or_else(|| format!("{DEFAULT_UPDATE_HOST}/{name}/updater.json"));
+    UpdateSource {
+        manifest_url,
+        current_version: version.to_string(),
+        // A key read with `include_str!` ends with a line break.
+        verify_key: key.trim().to_string(),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct UpdateManifest {
     pub version:   String,
@@ -298,9 +350,44 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
 
     use super::{
-        UpdateManifest, dir_writable, key, newer, replace_keeping_permissions, verify_sha256,
-        verify_signature,
+        UpdateManifest, dir_writable, key, newer, replace_keeping_permissions, source_for, update_url_env,
+        verify_sha256, verify_signature,
     };
+
+    #[test]
+    fn the_source_of_an_app_points_at_the_default_server_under_its_name() {
+        let source = source_for("flixen", "0.1.0", "abc\n", None, None);
+
+        assert_eq!(source.manifest_url, "https://get.vladas.xyz/flixen/updater.json");
+        assert_eq!(source.current_version, "0.1.0");
+        assert_eq!(source.verify_key, "abc");
+    }
+
+    #[test]
+    fn the_address_of_the_app_wins_over_the_default_and_the_env_var_over_both() {
+        let own = Some("https://example.com/u.json".to_string());
+        let env = Some("http://localhost:8000/updater.json".to_string());
+
+        assert_eq!(
+            source_for("flixen", "0.1.0", "abc", own.clone(), None).manifest_url,
+            "https://example.com/u.json"
+        );
+        assert_eq!(
+            source_for("flixen", "0.1.0", "abc", own.clone(), env).manifest_url,
+            "http://localhost:8000/updater.json"
+        );
+        // An env var that is set and empty changes nothing.
+        assert_eq!(
+            source_for("flixen", "0.1.0", "abc", own, Some(" ".to_string())).manifest_url,
+            "https://example.com/u.json"
+        );
+    }
+
+    #[test]
+    fn the_env_var_is_named_after_the_app() {
+        assert_eq!(update_url_env("flixen"), "FLIXEN_UPDATE_URL");
+        assert_eq!(update_url_env("my-app"), "MY_APP_UPDATE_URL");
+    }
 
     #[test]
     fn manifest_parses() {

@@ -596,6 +596,9 @@ impl crate::window::WindowEvents for AppRunner {
 
             crate::app::app().after_launch();
 
+            #[cfg(desktop)]
+            crate::system::UpdateState::check_after_launch();
+
             #[cfg(not_wasm)]
             crate::deps::hreads::spawn(async {
                 debug!("window ready");

@@ -4,24 +4,48 @@
 place. Mobile goes through the stores and wasm updates by rehosting, so every
 call outside the desktop is a no-op like `system::Router`.
 
-## The contract
+## The app side
 
-The app opts in from `App::update_source`:
+An app gives 1 thing, its public key:
 
 ```rust
-fn update_source(&self) -> PinnedFuture<Option<UpdateSource>> {
-    Box::pin(async {
-        Ok(Some(UpdateSource {
-            manifest_url:    "https://host/app/download/updater.json".into(),
-            current_version: env!("CARGO_PKG_VERSION").into(),
-            verify_key:      VERIFY_KEY.into(),
-        }))
-    })
+fn update_key(&self) -> Option<&'static str> {
+    Some(include_str!("../assets/update-key.pub"))
 }
 ```
 
-`verify_key` is the hex of a raw 32 byte ed25519 public key. Its private half
-signs every release artifact in CI and never ships. The manifest:
+The key is the hex of a raw 32 byte ed25519 public key. Its private half signs
+every release artifact in CI and never ships. With the key the engine does the
+rest:
+
+- The version is the one of the app's own package. `register_app!` puts it into
+  the app as `hilen_app_version`, so an app with an update key needs
+  `register_app!`.
+- The manifest address is `<DEFAULT_UPDATE_HOST>/<project_name>/updater.json`,
+  with `https://get.vladas.xyz` as the host and the `project_name` of the app's
+  `hilen.toml`. An app that ships from another place returns the full address
+  from `App::update_url`.
+- The env var `<NAME>_UPDATE_URL`, the project name in capitals with `_` for
+  `-`, wins over both. It points a build at a local file server with a hand
+  made `updater.json`, the way to test the whole flow without a release.
+- 3 seconds after launch the engine checks once.
+
+`system::UpdateState` holds what a view shows. All of it is main thread only:
+
+- `UpdateState::get()` gives `phase()`, one of `Idle`, `Checking`, `Available`
+  and `Installing`, the found `version()`, the download `progress()` in whole
+  percent, the `error()` of the last failed check or install, and the short
+  forms `has_update()` and `busy()`.
+- `UpdateState::on_change(view, action)` runs the action after every change for
+  as long as the view lives. Any number of views can subscribe.
+- `UpdateState::check()` asks again, `UpdateState::install()` downloads,
+  verifies, swaps the binary and starts the new one. A failed install goes back
+  to `Idle` with the error set.
+
+`App::update_source` is still there for an app that builds its source by itself
+or decides it at run time. Its default builds the source from `update_key` and
+`update_url`. The first check after launch runs only for an app with
+`update_key`. The manifest:
 
 ```json
 {
@@ -64,9 +88,10 @@ permissions, so the swap stays on one filesystem.
 - `Updater::relaunch()` spawns the new binary at the same path and stops
   this one.
 
-All three run on tokio, so an app wires them with `spawn` and `on_main` like
-any other fetch. The callback runs on the download task, post to main
-before touching a view.
+All three run on tokio. `UpdateState` wraps them with `spawn` and `on_main`, so
+an app normally never calls them. An app that does wires them like any other
+fetch. The progress callback runs on the download task, post to main before
+touching a view.
 
 ## What the swap means for packaging
 
@@ -77,8 +102,9 @@ inside the signed `.app`, so CI signs the bare binary with the same identity
 before hashing it, and the bundle keeps launching. On Windows the installer
 is only for the first install, later versions swap the exe directly.
 
-Kukareker at `~/dev/apps/kukareker` is 1 example of the wiring, a desktop
-tool. Its `src/updater.rs` holds the app state and its `build/release/`
-scripts sign and publish the manifest. It is not a template for other apps.
+Kukareker and Blackforge were wired before `UpdateState` existed. Each still
+carries its own state module in `updater.rs` and overrides `update_source`,
+which keeps working. Their `build/release/` scripts sign and publish the
+manifest. They are not a template for other apps.
 Each app keeps its own release pipeline, runners and download host, and a
 game can ship in a completely different way.

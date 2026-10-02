@@ -4,7 +4,7 @@ use crate::{
     app_starter::hilen_start_with_app,
     deps::refs::{Own, main_lock::MainLock},
     gm::flat::Size,
-    system::UpdateSource,
+    system::{UpdateSource, app_update_source},
     ui::View,
     window::WindowPlacement,
 };
@@ -82,10 +82,28 @@ pub trait App {
         Box::pin(async { Ok(None) })
     }
 
+    /// The public half of the app's update key as hex, the one thing an
+    /// app gives to update itself on the desktop. With it the engine
+    /// checks for a new version after launch and keeps the result in
+    /// `system::UpdateState`. `None` leaves self update off.
+    fn update_key(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// The address of the update manifest, for an app that does not ship
+    /// from the default download server. `None` means
+    /// `<DEFAULT_UPDATE_HOST>/<project_name>/updater.json`.
+    fn update_url(&self) -> Option<String> {
+        None
+    }
+
     /// Returns where `system::Updater` checks for new versions, `None`
-    /// to disable self update, or a configuration error.
+    /// to disable self update, or a configuration error. The default
+    /// builds it from `update_key` and `update_url`, an app overrides
+    /// this only to decide the source at run time.
     fn update_source(&self) -> PinnedFuture<Option<UpdateSource>> {
-        Box::pin(async { Ok(None) })
+        let source = app_update_source(self.update_key(), self.update_url());
+        Box::pin(async move { Ok(source) })
     }
 }
 
@@ -115,6 +133,15 @@ pub extern "Rust" fn hilen_project_name() -> &'static str {
     panic!("The app has no name, add hilen::register_app!(YourApp) to its main.rs")
 }
 
+/// The version of the app's own package, what the updater compares a
+/// manifest against. `register_app!` puts the real one into the final crate.
+#[cfg(desktop)]
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub extern "Rust" fn hilen_app_version() -> &'static str {
+    panic!("The app has no version, add hilen::register_app!(YourApp) to its main.rs")
+}
+
 #[macro_export]
 macro_rules! register_app {
     ($app:ty) => {
@@ -123,6 +150,11 @@ macro_rules! register_app {
         #[unsafe(no_mangle)]
         pub extern "Rust" fn hilen_project_name() -> &'static str {
             hilen::project_name!()
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "Rust" fn hilen_app_version() -> &'static str {
+            env!("CARGO_PKG_VERSION")
         }
 
         #[unsafe(no_mangle)]
