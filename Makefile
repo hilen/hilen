@@ -82,6 +82,8 @@ ci:
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo clippy -p demo --features bench --all-targets -- -D warnings
 	cargo clippy -p demo --target wasm32-unknown-unknown --all-targets -- -D warnings
+	# demo turns `ui-tests` on, which hides what a plain GUI app compiles on wasm.
+	cargo clippy -p example-app --target wasm32-unknown-unknown --all-targets -- -D warnings
 	cargo machete
 
 lint:

@@ -30,6 +30,10 @@ pub use winit::{
     window::Theme,
 };
 
+/// On wasm only the test suite reads the flag, the frame pacing that
+/// reads it natively lives in a `not_wasm` block.
+#[cfg(any(not_wasm, feature = "ui-tests"))]
+pub(crate) use self::redraw::continuous_render_active;
 #[cfg(not_wasm)]
 pub(crate) use self::redraw::{
     frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
@@ -49,8 +53,5 @@ pub(crate) use self::{
     app_handler::UserEvent,
     fullscreen::{reset_fullscreen, sync_fullscreen},
     redraw::request_frame,
+    render_frame::PassTarget,
 };
-/// On wasm only the test suite reads the flag, the frame pacing that
-/// reads it natively lives in a `not_wasm` block.
-#[cfg(any(not_wasm, feature = "ui-tests"))]
-pub(crate) use self::{redraw::continuous_render_active, render_frame::PassTarget};
