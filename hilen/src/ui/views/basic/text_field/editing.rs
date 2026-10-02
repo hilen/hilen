@@ -3,7 +3,7 @@
 use web_time::{Duration, Instant};
 use zeroize::Zeroizing;
 
-use super::{MASK, MULTILINE_TOP_INSET, TextField};
+use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -160,7 +160,16 @@ impl TextField {
             // never inserts a tab character.
             NamedKey::Tab => self.select_next_field(shift),
             NamedKey::Enter if self.multiline => self.insert("\n"),
-            NamedKey::Enter | NamedKey::Escape => UIManager::unselect_view(),
+            NamedKey::Enter => {
+                let text = if self.holds_secret() {
+                    mask(self.text())
+                } else {
+                    self.text().to_string()
+                };
+                UIManager::unselect_view();
+                self.submitted.trigger(text);
+            }
+            NamedKey::Escape => UIManager::unselect_view(),
             NamedKey::ArrowLeft => {
                 if let Some((start, _)) = self.selection().filter(|_| !shift) {
                     self.move_caret(start, false);

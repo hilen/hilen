@@ -61,6 +61,9 @@ mod text_field_placeholder_color;
 /// Reads the text of empty and filled fields, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_text;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
+mod text_field_submit;
 /// Sets colors and switches themes without typing, so unlike the other
 /// text field tests it runs everywhere.
 mod text_field_theme;

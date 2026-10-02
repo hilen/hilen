@@ -105,6 +105,14 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
 
     fn modal_size() -> Size;
 
+    /// Gives the open modal another size, it stays centered. For a form
+    /// whose fields show and hide, `modal_size` is only the size it opens
+    /// with.
+    fn set_modal_size(self: Weak<Self>, size: impl Into<Size>) {
+        let size = size.into();
+        self.place().clear().size(size.width, size.height).center();
+    }
+
     /// The color of the fullscreen backdrop behind the modal.
     /// Transparent by default, override to dim the background.
     fn modal_scrim_color() -> UIColor {

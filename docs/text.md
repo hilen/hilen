@@ -285,8 +285,8 @@ again on every frame that draws it. Keep it to the few labels that need it.
 A `TextField` holds a secret from its first `set_secure(true)`, also while
 `set_secure(false)` shows the text. Every edit builds the new text in one buffer of
 the exact size, `joined` in `hilen/src/wipe.rs`, and the old one is wiped. Its
-`changed` and `editing_ended` events carry one bullet per character, the real text is
-read with `text()`. A copy of shown text goes through `Clipboard::set_secret`.
+`changed`, `editing_ended` and `submitted` events carry one bullet per character, the
+real text is read with `text()`. A copy of shown text goes through `Clipboard::set_secret`.
 
 What cannot be wiped: a `String` passed to `set_text` by value is the copy of the
 caller. Single typed characters pass through winit and the event queue as they are.

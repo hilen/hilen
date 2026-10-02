@@ -7,12 +7,12 @@ use crate::{
     gm::{
         ToF32, Toggle,
         color::{CLEAR, Color, LIGHT_BLUE, WHITE},
-        flat::{LineCap, LineJoin, StrokeStyle, VectorPath},
+        flat::{LineCap, LineJoin, Point, StrokeStyle, VectorPath},
     },
     ui::{
         Button, CellRegistry, Container, DrawingView, ImageView, Label, Setup, Shadow, TableData, TableView,
-        TextAlignment, TouchStack, UIColor, UIImages, UIManager, View, ViewData, ViewFrame, ViewSubviews,
-        ViewTouch, WeakView, struct_name, view,
+        TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData, ViewFrame,
+        ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
 };
 
@@ -299,6 +299,19 @@ impl DropDown {
         self.table.reload_data();
     }
 
+    /// A press anywhere but on the box or the open panel closes the list,
+    /// like a menu. That also covers a second drop down: the press that
+    /// opens it lands outside this one.
+    fn close_on_touch_outside(self: Weak<Self>, at: Point) {
+        if !self.opened {
+            return;
+        }
+        if self.absolute_frame().contains(at) || self.panel.absolute_frame().contains(at) {
+            return;
+        }
+        self.close();
+    }
+
     fn close(mut self: Weak<Self>) {
         self.opened = false;
         self.panel.set_hidden(true);
@@ -374,6 +387,8 @@ impl Setup for DropDown {
             .set_data_source(self)
             .register_cell::<DropDownRow>()
             .set_variable_heights(true);
+
+        UIEvents::touch_began().val(self, move |touch| self.close_on_touch_outside(touch.position));
 
         // The border the app set is what idle looks like. Read on the
         // first hover or open, after the app's setup has run.

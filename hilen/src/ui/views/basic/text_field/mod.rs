@@ -69,6 +69,11 @@ pub struct TextField {
 
     pub editing_ended: Event<String>,
 
+    /// Enter in a single line field. It fires after `editing_ended`, with
+    /// the same text, so a form confirms on it the way its button does.
+    /// A multiline field never fires it, Enter is a new line there.
+    pub submitted: Event<String>,
+
     /// All of these live inside the scroll content so a multiline field
     /// scrolls its lines, the selection and the caret together. A single
     /// line field never scrolls, its content is exactly the field.
