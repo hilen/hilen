@@ -104,17 +104,6 @@ impl UIDrawer {
 
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
-        // The scrim flushes after everything including text, so its
-        // translucent color dims the whole frame drawn so far. The
-        // modal above it owns the depth buffer and stays untouched.
-        SCRIM_DRAWER.get_mut().draw(
-            render_frame.pass(),
-            RectView {
-                resolution,
-                _padding: 0,
-            },
-        );
-
         // When the frame rendered into the intermediate scene texture,
         // copy the finished scene to the real surface.
         let scene = render_frame.scene_view().clone();
@@ -195,6 +184,39 @@ impl UIDrawer {
         );
     }
 
+    /// Everything drawn so far flushes, text included, and the scrim draws
+    /// over it at once. Its modal draws after it, onto the dimmed frame,
+    /// so a clear or half clear pixel of the modal shows the dimmed page.
+    /// A scrim drawn last, under the depth of the modal, left the page at
+    /// full brightness under every pixel the modal only partly covers.
+    fn scrim_barrier(render_frame: &mut RenderFrame, view: &dyn View, frame: &Rect, ctx: &mut DrawContext) {
+        let opacity = view.__base_view().tree_opacity;
+        if view.color().a <= 0.0 {
+            return;
+        }
+
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+
+        let scrim = SCRIM_DRAWER.get_mut();
+        scrim.add(UIRectInstance::new(
+            *frame,
+            view.color().faded(opacity),
+            view.border_color().faded(opacity),
+            view.border_width(),
+            view.corner_radii(),
+            view.z_position(),
+            ctx.scale,
+        ));
+        scrim.draw(
+            render_frame.pass(),
+            RectView {
+                resolution: ctx.resolution,
+                _padding:   0,
+            },
+        );
+    }
+
     fn update_view(view: &mut dyn View, parent_opacity: f32) {
         if view.is_hidden() {
             return;
@@ -261,6 +283,8 @@ impl UIDrawer {
         {
             Self::draw_shadow(view, &frame, ctx.scale, opacity);
             Self::blur_barrier(render_frame, blur, &frame, ctx);
+        } else if view.as_any().downcast_ref::<ScrimView>().is_some() {
+            Self::scrim_barrier(render_frame, view, &frame, ctx);
         } else {
             // Rects flush before text and write depth, so text queued
             // behind a translucent rect would fail the depth test and
@@ -417,19 +441,7 @@ impl UIDrawer {
     }
 
     fn draw_background(view: &dyn View, frame: &Rect, scale: f32, opacity: f32) {
-        if view.as_any().downcast_ref::<ScrimView>().is_some() {
-            if view.color().a > 0.0 {
-                SCRIM_DRAWER.get_mut().add(UIRectInstance::new(
-                    *frame,
-                    view.color().faded(opacity),
-                    view.border_color().faded(opacity),
-                    view.border_width(),
-                    view.corner_radii(),
-                    view.z_position(),
-                    scale,
-                ));
-            }
-        } else if let Some(gradient) = view.gradient() {
+        if let Some(gradient) = view.gradient() {
             GRADIENT_DRAWER.get_mut().add(
                 gradient
                     .instance(
@@ -592,12 +604,11 @@ impl UIDrawer {
     }
 }
 
-/// A scrim is left out, it already flushes after all text. `opacity` is
-/// the fade of the view's tree, it makes a solid color translucent too.
+/// `opacity` is the fade of the view's tree, it makes a solid color
+/// translucent too.
 fn is_translucent(view: &dyn View, opacity: f32) -> bool {
     let partial = |alpha: f32| alpha > 0.0 && alpha * opacity < 1.0;
-    view.as_any().downcast_ref::<ScrimView>().is_none()
-        && (partial(view.color().a) || partial(view.border_color().a))
+    partial(view.color().a) || partial(view.border_color().a)
 }
 
 fn scissor(pass: &mut RenderPass, rect: Rect<u32>) {

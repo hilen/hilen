@@ -183,6 +183,18 @@ impl Placer {
         self
     }
 
+    /// For a container with `all_wrap`. `view`, a subview of it, stays out
+    /// of the rows and keeps the place its own rules give it, a corner of
+    /// the container. A row next to it ends before it, or starts after it
+    /// when it sits in the left half, with the margin of `all` between.
+    /// The rows under it use the full width again, and the container never
+    /// ends above its bottom. Place it from the top, the height of the
+    /// container is not known while it is laid out.
+    pub fn wrap_around(&self, view: impl Deref<Target = impl View + ?Sized>) -> &Self {
+        *self.wrap_around.borrow_mut() = Some(view.weak_view());
+        self
+    }
+
     pub fn distribute_ratio<const LEN: usize>(&self, ratios: [impl ToF32; LEN]) -> &Self {
         let ratios: Vec<_> = ratios.iter().map(|ratio| ratio.to_f32()).collect();
         assert!(!ratios.is_empty(), "Distribute ratios cannot be empty");

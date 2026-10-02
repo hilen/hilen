@@ -20,6 +20,7 @@ mod modal_blur;
 mod modal_escape;
 mod modal_resize;
 mod modal_scrim;
+mod modal_scrim_picture;
 mod number_view;
 mod number_view_design;
 mod point_view;

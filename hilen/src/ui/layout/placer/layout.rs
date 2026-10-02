@@ -194,18 +194,23 @@ impl Placer {
     /// only its origin is set. Wraps before a child that would cross the
     /// container width, each row is as tall as its tallest child. Hidden
     /// children take no space. Sets the container height to the content.
+    /// The view of `wrap_around` stays out of the rows, a row beside it is
+    /// shorter.
     fn wrap_layout(&mut self, frame: RMut) {
         let margin = *self.all_margin.borrow();
         let width = frame.width();
+        let corner_view = *self.wrap_around.borrow();
+        let corner = corner_frame(corner_view);
 
         let mut x = 0.0;
         let mut y = 0.0;
         let mut row_height: f32 = 0.0;
+        let mut span = (0.0, width);
 
         for view in self.view.subviews() {
             let mut view = view.weak();
 
-            if view.is_hidden() {
+            if view.is_hidden() || corner_view.is_some_and(|corner| corner.raw() == view.raw()) {
                 continue;
             }
 
@@ -217,10 +222,36 @@ impl Placer {
 
             let size = view.frame().size;
 
-            if x > 0.0 && x + size.width > width {
-                x = 0.0;
-                y += row_height + margin;
-                row_height = 0.0;
+            loop {
+                let height = row_height.max(size.height);
+                let new_span = row_span(corner, width, margin, y, height);
+
+                if x > span.0 {
+                    // A taller child can make a started row reach the
+                    // corner view, then it goes to the next row too.
+                    if new_span == span && x + size.width <= span.1 {
+                        break;
+                    }
+                    y += row_height + margin;
+                    row_height = 0.0;
+                    span = row_span(corner, width, margin, y, 0.0);
+                    x = span.0;
+                    continue;
+                }
+
+                // Too wide for the room beside the corner view, so the
+                // row moves under it, where the full width is free.
+                if let Some(corner) = corner
+                    && new_span != (0.0, width)
+                    && new_span.0 + size.width > new_span.1
+                {
+                    y = corner.max_y() + margin;
+                    continue;
+                }
+
+                span = new_span;
+                x = span.0;
+                break;
             }
 
             view.set_position((x, y));
@@ -229,7 +260,8 @@ impl Placer {
             row_height = row_height.max(size.height);
         }
 
-        frame.size.height = y + row_height;
+        let bottom = corner.map_or(0.0, |corner| corner.max_y());
+        frame.size.height = (y + row_height).max(bottom);
     }
 
     fn between_super_layout(&mut self, frame: RMut, side: Anchor, view: WeakView) {
@@ -257,6 +289,34 @@ impl Placer {
 
     fn has_top(&self) -> bool {
         self.rules.borrow().iter().any(|rule| rule.side().is_some_and(Anchor::is_top))
+    }
+}
+
+/// The frame of the view a wrap keeps clear, laid out now for the same
+/// reason as the children of the wrap.
+fn corner_frame(view: Option<WeakView>) -> Option<Rect> {
+    let mut view = view?;
+    if view.is_null() || view.is_hidden() {
+        return None;
+    }
+    view.layout();
+    Some(*view.frame())
+}
+
+/// Where a row at `y` of this height starts and ends. A row that touches
+/// the corner view ends before it, or starts after it when the view is in
+/// the left half.
+fn row_span(corner: Option<Rect>, width: f32, margin: f32, y: f32, height: f32) -> (f32, f32) {
+    let Some(corner) = corner else {
+        return (0.0, width);
+    };
+    if y >= corner.max_y() || y + height <= corner.y() {
+        return (0.0, width);
+    }
+    if corner.center().x < width / 2.0 {
+        (corner.max_x() + margin, width)
+    } else {
+        (0.0, corner.x() - margin)
     }
 }
 

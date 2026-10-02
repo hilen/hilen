@@ -16,49 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Scrim under the clear pixels of a modal
-
-Found by labirintas at `~/dev/apps/labirintas`, whose dialogs have a wood panel picture
-with rounded corners as their background.
-
-**Current.** `UIDrawer` in `hilen/src/ui/ui_drawer.rs` draws the scrim last: "The scrim
-flushes after everything including text, so its translucent color dims the whole frame
-drawn so far. The modal above it owns the depth buffer and stays untouched." An
-`ImageView` inside the modal writes depth for its whole frame, also where the picture is
-fully clear. So the scrim is not drawn under the clear corners of the picture, and the
-page behind shows there at full brightness, as 4 bright wedges around a dimmed dialog.
-The same holds for every clear pixel of any picture in a modal.
-
-**Needed.** The scrim dims every pixel where the modal itself draws nothing. A clear or
-half clear pixel of a picture in a modal shows the dimmed page behind it.
-
-**Blocks.** The pause and the win dialog of labirintas in its Boards look, their corners
-are bright.
-
-## Wrap layout around a corner view
-
-Found by skaityk at `~/dev/apps/skaityk`, whose reader panel holds a row of word views
-and a speaker button in its top right corner.
-
-**Current.** `Placer::all_wrap` in `hilen/src/ui/layout/placer/setup.rs` says
-"Subviews flow left to right in declaration order and wrap to the next row when the
-width runs out". `wrap_layout` in `hilen/src/ui/layout/placer/layout.rs` breaks a row
-on `x + size.width > width`, where `width` is the full container width for every row.
-There is no way to make some rows shorter. So a view that sits in a corner of the
-wrapped area needs a free column for the whole height of the container, and all rows
-lose that width, not only the rows next to the view.
-
-**Needed.** A way to tell a wrapping container about a rectangle to keep clear, in
-its own coordinates, for example the top right 52 by 52 points. A row whose vertical
-span touches the rectangle ends at the left edge of the rectangle, or starts at its
-right edge when the rectangle is on the left. Rows below it use the full width again.
-The container height still fits all rows, and never ends above the bottom of the
-rectangle. It works with any child sizes and with rows of mixed height.
-
-**Blocks.** The small screen layout of the skaityk reader. The Lithuanian words must
-wrap under the speaker button, and the translation slots under the "Translate all"
-button, so only the first rows are shorter.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
