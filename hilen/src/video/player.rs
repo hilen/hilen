@@ -656,12 +656,17 @@ impl Player {
     /// Switches the sound to another track and keeps the position. The new
     /// track opens on a thread of its own.
     pub(crate) fn set_audio_track(&mut self, index: usize) {
-        if self.audio_track == Some(index) || !self.audio_tracks().iter().any(|track| track.index == index) {
+        if !self.audio_tracks().iter().any(|track| track.index == index) {
             return;
         }
-        // The old track plays on until the new one has opened on its
-        // thread, `take_opened_sound` swaps them.
-        self.audio_track = Some(index);
+        let switching = self.sound_reads.switching;
+        if switching == Some(index) || (switching.is_none() && self.audio_track == Some(index)) {
+            return;
+        }
+        // The old track plays on and stays the one named until the new one
+        // has opened on its thread, `take_opened_sound` swaps them. A switch
+        // back to the old track while the new one opens opens the old one.
+        self.sound_reads.switching = (self.audio_track != Some(index)).then_some(index);
         self.open_sound_on_thread();
     }
 
@@ -698,7 +703,7 @@ impl Player {
     /// Shows the cues of a subtitle track of the source, or none.
     pub(crate) fn set_subtitle_track(&mut self, index: Option<usize>) {
         self.subtitles.reset();
-        self.subtitles.set_track(index);
+        self.subtitles.set_track(index, &self.source, &self.stop);
         self.send(Command::Subtitle(index));
         if index.is_some() {
             self.restart_picture();

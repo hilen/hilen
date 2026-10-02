@@ -53,6 +53,17 @@ pub trait ViewData {
     /// behind shows through the one in front while they fade.
     fn set_opacity(&self, opacity: impl ToF32) -> &Self;
 
+    /// Whether the view fades as one picture, off by default.
+    fn group_opacity(&self) -> bool;
+    /// Makes `set_opacity` fade the view and everything inside it as one
+    /// picture, so parts that overlap do not show through each other, like
+    /// the controls over a video or a card with a title on its image. The
+    /// view then draws into an image of the frame size first, which costs
+    /// a render pass and that image, so turn it on only where parts overlap.
+    /// At opacity 1 nothing changes. A `BlurView` inside a group blurs what
+    /// was drawn before the group, not the parts of the group under it.
+    fn set_group_opacity(&self, group: bool) -> &Self;
+
     fn is_hidden(&self) -> bool;
     fn is_hidden_in_tree(&self) -> bool;
     fn set_hidden(&self, is_hidden: bool) -> &Self;
@@ -204,6 +215,15 @@ impl<T: ?Sized + View> ViewData for T {
 
     fn set_opacity(&self, opacity: impl ToF32) -> &Self {
         self.__base_view().opacity = opacity.to_f32().clamp(0.0, 1.0);
+        self
+    }
+
+    fn group_opacity(&self) -> bool {
+        self.__base_view().group_opacity
+    }
+
+    fn set_group_opacity(&self, group: bool) -> &Self {
+        self.__base_view().group_opacity = group;
         self
     }
 

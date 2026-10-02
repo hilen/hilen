@@ -2,6 +2,8 @@
 //! as its packets pass by, a file from outside is read whole on its own
 //! thread. Both end as cues, and the player shows the one the clock is in.
 
+mod track_read;
+
 use std::{
     sync::{
         Arc,
@@ -9,7 +11,7 @@ use std::{
         mpsc::{Receiver, RecvTimeoutError, TryRecvError, channel},
     },
     thread::Builder,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use ffmpeg_next::{
@@ -23,7 +25,7 @@ use log::{debug, warn};
 
 use crate::{
     gm::{Clock, LossyConvert},
-    video::{VideoSource, decoder::first_timestamp, source::Interrupt},
+    video::{VideoSource, decoder::first_timestamp, source::Interrupt, subtitles::track_read::read_track},
 };
 
 /// Seconds before a seek target the read back starts at. Lines that
@@ -296,6 +298,13 @@ fn same_line(a: &Cue, b: &Cue) -> bool {
     a.start.to_bits() == b.start.to_bits() && a.end.to_bits() == b.end.to_bits() && a.text == b.text
 }
 
+/// What the thread that reads a whole track sends.
+enum TrackLine {
+    Line(Cue),
+    /// The track was read to its end, every line was sent.
+    Done,
+}
+
 /// What the player knows about subtitles: the cues in hand and the text on
 /// screen.
 #[derive(Default)]
@@ -309,6 +318,13 @@ pub(crate) struct Subtitles {
     track:        Option<usize>,
     /// The line that is on screen at a seek target is read on its thread.
     reading_back: Option<Receiver<Vec<Cue>>>,
+    /// Every line of the chosen track read so far by the read of the whole
+    /// track. A seek keeps them.
+    whole:        Vec<Cue>,
+    /// That read is on its thread, with what ends it.
+    reading:      Option<(Receiver<TrackLine>, Interrupt)>,
+    /// That read reached the end, `whole` has every line of the track.
+    whole_done:   bool,
     shown:        Option<String>,
     /// The choice changed, the text on screen has to be looked at again even
     /// while paused.
@@ -321,14 +337,87 @@ impl Subtitles {
         self.cues.clear();
         self.loading = None;
         self.reading_back = None;
+        self.whole.clear();
+        self.whole_done = false;
+        if let Some((_, reads)) = self.reading.take() {
+            reads.break_read();
+        }
         self.file = false;
         self.track = None;
         self.dirty = true;
     }
 
     /// The cues come from this subtitle stream of the source from now on.
-    pub(crate) fn set_track(&mut self, index: Option<usize>) {
+    /// Every line of the track is read once on a thread of its own, until
+    /// that is done a seek still reads back the line at its target.
+    pub(crate) fn set_track(&mut self, index: Option<usize>, source: &VideoSource, stop: &Arc<AtomicBool>) {
         self.track = index;
+        let Some(index) = index else {
+            return;
+        };
+        let (send, receive) = channel();
+        let reads = Interrupt::new(stop);
+        self.reading = Some((receive, reads.clone()));
+        let source = source.clone();
+        Builder::new()
+            .name("hilen-subtitles".into())
+            .spawn(move || {
+                let read = read_track(&source, &reads, index, &mut |cue| {
+                    send.send(TrackLine::Line(cue)).is_ok()
+                });
+                match read {
+                    Ok(how) => {
+                        debug!(
+                            "subtitles {}: track {index} read whole, {how:?}",
+                            source.location()
+                        );
+                        if send.send(TrackLine::Done).is_err() {
+                            debug!("subtitles {}: another track took over", source.location());
+                        }
+                    }
+                    // The player dropped or picked another track.
+                    Err(Error::Exit) => {}
+                    Err(err) => warn!("video {}: track {index} not read whole, {err}", source.location()),
+                }
+            })
+            .expect("failed to spawn the subtitle thread");
+    }
+
+    /// Takes the lines the read of the whole track has sent. Under stepped
+    /// time it waits for the end of the track, so a test sees the same
+    /// lines on every run.
+    fn take_track_lines(&mut self) {
+        let Some((lines, _)) = &self.reading else {
+            return;
+        };
+        let deadline = Instant::now() + STEPPED_WAIT;
+        loop {
+            let line = if Clock::is_stepped() {
+                lines.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+            } else {
+                match lines.try_recv() {
+                    Ok(line) => Some(line),
+                    Err(TryRecvError::Empty) => return,
+                    Err(TryRecvError::Disconnected) => None,
+                }
+            };
+            match line {
+                Some(TrackLine::Line(cue)) => self.whole.push(cue),
+                Some(TrackLine::Done) => {
+                    self.whole_done = true;
+                    self.cues.clear();
+                    self.reading_back = None;
+                    self.reading = None;
+                    return;
+                }
+                // The read failed or ran out of time, the read back of a
+                // seek stays in use.
+                None => {
+                    self.reading = None;
+                    return;
+                }
+            }
+        }
     }
 
     /// Starts reading the line that is on screen at `target`. The picture
@@ -338,6 +427,10 @@ impl Subtitles {
         let Some(index) = self.track else {
             return;
         };
+        // Every line of the track is in hand.
+        if self.whole_done {
+            return;
+        }
         let (send, receive) = channel();
         // A newer seek drops the receiver of the older one, so a late
         // answer for an old target never reaches the cues.
@@ -382,8 +475,8 @@ impl Subtitles {
 
     /// A line both the picture thread and the read back found is kept once.
     pub(crate) fn push(&mut self, cue: Cue) {
-        let known = self.cues.iter().any(|have| same_line(have, &cue));
-        if !self.file && !known {
+        let known = self.cues.iter().chain(&self.whole).any(|have| same_line(have, &cue));
+        if !self.file && !self.whole_done && !known {
             self.cues.push(cue);
         }
     }
@@ -451,14 +544,17 @@ impl Subtitles {
                 Err(TryRecvError::Empty) => {}
             }
         }
+        self.take_track_lines();
         self.take_read_back();
         self.dirty = false;
 
+        // Of the lines on screen at once the one that began last shows.
         let text = self
             .cues
             .iter()
-            .rev()
-            .find(|cue| cue.start <= position && position < cue.end)
+            .chain(&self.whole)
+            .filter(|cue| cue.start <= position && position < cue.end)
+            .max_by(|a, b| a.start.total_cmp(&b.start))
             .map(|cue| cue.text.clone());
         if text == self.shown {
             return false;
@@ -470,7 +566,11 @@ impl Subtitles {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, atomic::AtomicBool};
+    use std::{
+        sync::{Arc, atomic::AtomicBool},
+        thread::sleep,
+        time::{Duration, Instant},
+    };
 
     use ffmpeg_next::{Error, Packet};
 
@@ -478,7 +578,7 @@ mod test {
         gm::LossyConvert,
         video::{
             source::Interrupt,
-            subtitles::{Cue, CueDecoder, plain_text, read_back, read_file},
+            subtitles::{Cue, CueDecoder, Subtitles, plain_text, read_back, read_file},
             test_fixture,
         },
     };
@@ -599,6 +699,43 @@ mod test {
         let short = read_back(&fixture, &stop, 1, 27.5).expect("the fixture reads");
         assert_eq!(short.len(), 1, "{short:?}");
         assert!(close(&short[0], 27.0, 28.0, "a short line"), "{short:?}");
+    }
+
+    /// `overlap.mkv` has a line from 2 to 26 seconds and a shorter one over
+    /// it from 18 to 21. The read back of a seek to 20 finds the short one
+    /// in its window and never looked further back, so after 21 the long
+    /// line was gone. With the whole track read it shows again.
+    #[test]
+    fn a_long_line_under_a_shorter_one_shows_after_a_seek() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let fixture = test_fixture("overlap.mkv");
+        let back = read_back(&fixture, &stop, 1, 20.0).expect("the fixture reads");
+        assert_eq!(
+            back.len(),
+            1,
+            "the read back alone misses the long line: {back:?}"
+        );
+
+        let mut subtitles = Subtitles::default();
+        subtitles.set_track(Some(1), &fixture, &stop);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !subtitles.whole_done && Instant::now() < deadline {
+            subtitles.update(0.0, &fixture);
+            sleep(Duration::from_millis(5));
+        }
+        assert!(subtitles.whole_done, "the track was not read");
+
+        subtitles.seek(&fixture, &stop, 20.0);
+        assert!(
+            subtitles.reading_back.is_none(),
+            "no read back with the whole track in hand"
+        );
+        subtitles.update(20.0, &fixture);
+        assert_eq!(subtitles.shown(), Some("a short line over it"));
+        subtitles.update(22.0, &fixture);
+        assert_eq!(subtitles.shown(), Some("a long line"));
+        subtitles.update(26.5, &fixture);
+        assert_eq!(subtitles.shown(), None);
     }
 
     /// Between the 2 lines nothing is on screen, and a line that starts

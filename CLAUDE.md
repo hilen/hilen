@@ -166,10 +166,11 @@ All data of an app lives in `~/.config/<project_name>` on desktop. The name is t
 `project_name` of the `hilen.toml` above the app crate, `hilen::register_app!(MyApp)`
 reads it at build time and an app without that line stops at start. The engine creates
 the folder and sets it as the `OnDisk` root before `before_launch`. `Paths::storage()`
-returns it. On iOS and Android `Paths::storage()` is what it was and the app sets the
-root itself. A backend gets the same folder from `hilen_server::data_dir!()`, so a
-Docker build of a backend has to copy `hilen.toml` in. The test runners start the
-engine's own app, which has no name, their storage is a folder in the temp dir.
+returns it. On iOS and Android the folder is `.<exe name>` inside the documents dir
+and inside the private files dir, made and set as the root the same way. A backend
+gets the same folder from `hilen_server::data_dir!()`, so a Docker build of a backend
+has to copy `hilen.toml` in. The test runners start the engine's own app, which has no
+name, their storage is a folder in the temp dir.
 
 Downloaded images can be kept on disk, `Image::set_download_cache_dir`.
 `set_download_cache_limit(bytes)` deletes the files used longest ago over the bound, and

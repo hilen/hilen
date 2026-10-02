@@ -11,8 +11,8 @@ use crate::{
     },
     ui::{
         Button, CellRegistry, Container, DrawingView, ImageView, Label, Setup, Shadow, TableData, TableView,
-        TextAlignment, UIColor, UIImages, UIManager, View, ViewData, ViewFrame, ViewSubviews, ViewTouch,
-        WeakView, struct_name, view,
+        TextAlignment, TouchStack, UIColor, UIImages, UIManager, View, ViewData, ViewFrame, ViewSubviews,
+        ViewTouch, WeakView, struct_name, view,
     },
 };
 
@@ -259,6 +259,11 @@ impl DropDown {
 
         look.set_border_color(self.accent);
         self.layout_panel();
+
+        // Drawn in front is not enough, a touch goes to the view that
+        // registered last. A sibling under the panel that turned its touch
+        // on after this drop down would take the taps meant for the rows.
+        TouchStack::raise_subtree(self.weak_view());
     }
 
     /// The panel is as tall as its rows, up to the room the window has

@@ -44,12 +44,15 @@ pub(super) struct SoundReads {
     /// Seconds the sound was asked to seek to and has not reached yet.
     /// kira takes a seek on its own thread, until then its position is
     /// the place from before the seek and must not drive the picture.
-    pub(super) seeking: Option<f64>,
+    pub(super) seeking:   Option<f64>,
     /// The interrupt of the decoder inside the kira sound that plays.
-    pub(super) playing: Option<Interrupt>,
+    pub(super) playing:   Option<Interrupt>,
     /// A fresh sound decoder opens on its thread. The open reads the
     /// source, on the main thread a slow network would hold the frame loop.
-    pub(super) opening: Option<Receiver<Result<Option<AudioDecoder>, String>>>,
+    pub(super) opening:   Option<Receiver<Result<Option<AudioDecoder>, String>>>,
+    /// The track a switch asked for. It is the track of the video only once
+    /// it has opened, a track that fails to open leaves the old one named.
+    pub(super) switching: Option<usize>,
 }
 
 impl SeekWatch {
@@ -136,7 +139,7 @@ impl Player {
         self.sound_reads.opening = Some(receive);
         let source = self.source.clone();
         let reads = Interrupt::new(&self.stop);
-        let (track, speed) = (self.audio_track, self.speed);
+        let (track, speed) = (self.sound_reads.switching.or(self.audio_track), self.speed);
         let spawned = Builder::new().name("hilen-video-sound".into()).spawn(move || {
             let opened = AudioDecoder::open(&source, reads, track, speed).map_err(|err| err.to_string());
             if send.send(opened).is_err() {
@@ -167,6 +170,9 @@ impl Player {
             Err(TryRecvError::Disconnected) => Err("the thread that opens it is gone".to_string()),
         };
         self.sound_reads.opening = None;
+        // Failed or not, the switch is over. The old track is still the one
+        // named, and it plays on when the new one did not open.
+        let switching = self.sound_reads.switching.take();
         let audio = match opened {
             Ok(Some(audio)) => audio,
             Ok(None) => {
@@ -178,6 +184,9 @@ impl Player {
                 return;
             }
         };
+        if switching.is_some() {
+            self.audio_track = Some(audio.stream());
+        }
         // A sound that still plays is the track from before a switch.
         if self.sound.is_some() {
             let position = self.position();
@@ -191,5 +200,91 @@ impl Player {
             self.started_ms = Clock::now_ms();
             self.start_sound();
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        sync::{Arc, atomic::AtomicBool, mpsc::channel},
+        thread::sleep,
+        time::{Duration, Instant},
+    };
+
+    use crate::video::{
+        audio::AudioDecoder,
+        decoder::Tracks,
+        player::{Info, Player},
+        source::Interrupt,
+        test_fixture,
+        tracks::audio_tracks,
+    };
+
+    /// The player of the fixture with 2 sound tracks, the 440 Hz tone at
+    /// stream 1 named as the one that plays.
+    fn player() -> Player {
+        let source = test_fixture("tracks.mkv");
+        let stop = Arc::new(AtomicBool::new(false));
+        let input = source.open(&Interrupt::new(&stop)).expect("the fixture opens");
+        let mut player = Player::open(source, "switch".to_string());
+        player.audio_track = Some(1);
+        player.info = Some(Info {
+            duration:   4.0,
+            frame_rate: 30.0,
+            decoder:    String::new(),
+            tracks:     Tracks {
+                audio:     audio_tracks(&input),
+                subtitles: Vec::new(),
+            },
+        });
+        player
+    }
+
+    /// A switch to a track that fails to open used to name the new track at
+    /// once, so `audio_track` said one track while the other one played.
+    #[test]
+    fn a_track_that_fails_to_open_leaves_the_old_one_named() {
+        let mut player = player();
+        player.set_audio_track(2);
+        // The answer of the thread that opens the track is swapped for a
+        // failed one.
+        let (send, receive) = channel();
+        player.sound_reads.opening = Some(receive);
+        assert_eq!(
+            player.audio_track(),
+            Some(1),
+            "the old track until the new one opened"
+        );
+
+        send.send(Err("no such stream".to_string()))
+            .expect("the player waits for the sound");
+        player.take_opened_sound();
+        assert_eq!(
+            player.audio_track(),
+            Some(1),
+            "the old track after the failed open"
+        );
+        assert_eq!(player.sound_reads.switching, None, "the switch is over");
+    }
+
+    /// The same switch with a track that opens: the new track is named once
+    /// its decoder is in hand, not before.
+    #[test]
+    fn a_track_that_opens_is_named_once_it_opened() {
+        let mut player = player();
+        player.set_audio_track(2);
+        assert_eq!(
+            player.audio_track(),
+            Some(1),
+            "the old track while the new one opens"
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while player.sound_reads.opening.is_some() && Instant::now() < deadline {
+            player.take_opened_sound();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(player.audio_track(), Some(2), "the new track once it opened");
+        assert_eq!(player.audio.as_ref().map(AudioDecoder::stream), Some(2));
     }
 }

@@ -10,6 +10,10 @@ mod offscreen_clip;
 mod outline;
 mod overlay_touch_layer;
 mod script_wrap;
+/// Typing goes through the screen keyboard on a phone, a field takes
+/// injected chars on desktop only.
+#[cfg(desktop)]
+mod stale_selection;
 mod switch_look;
 /// A browser page cannot read the system fonts, `Font::set_system_fallback`
 /// does nothing there.

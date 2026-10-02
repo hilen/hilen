@@ -21,48 +21,34 @@ original is the acceptance bar. Their ports drove the gaps below.
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
 Its first version is macOS only. The gaps landed in 8 batches: tracks and
 subtitles, HDR, fullscreen, pointer hide and screen awake, SQLite in
-`hilen-server`, view opacity, the line limit and text outline, image downloads,
-playback speed, Now Playing and the media keys, zlib and dav1d. See
+`hilen-server`, view opacity with the group fade, the line limit and text
+outline, image downloads, playback speed, Now Playing and the media keys, zlib
+and dav1d, the whole track subtitle read. See
 [video.md](video.md), [text.md](text.md) and [login.md](login.md). What is left:
-
-### Surround sound
-
-- Current: the sound of a video is resampled to stereo in
-  `hilen/src/video/audio.rs`. kira's `Frame` has a `left` and a `right` sample
-  and nothing else, so no layout with more channels can pass through it.
-- Needed: an output path with more than 2 channels for a video's sound, which
-  means a sound engine next to kira or in place of it, and the sound in its own
-  channel layout when the output device has the channels.
-- Blocks: surround sound of a film.
 
 ### What the flixen batches left open
 
 - AV1 always decodes in software through dav1d, also on a Mac whose hardware
   has an AV1 decoder, ffmpeg lists dav1d first. Picking the hardware decoder
-  where VideoToolbox has one needs such a Mac to prove it.
+  where VideoToolbox has one needs such a Mac to prove it, an M3 or newer.
 - Now Playing and the media keys are macOS only. Windows needs the System
-  Media Transport Controls, Linux needs MPRIS.
-- Picture subtitles like PGS are listed as tracks and show nothing.
-- View opacity fades every part by itself. Parts that overlap show through
-  each other while they fade, a group fade needs an offscreen pass.
-- An outline or a shadow blur is cut at 12 pixels on the screen, the effect
-  shader walks every pixel of that square. The effect entry points pass 8
-  float components, the A7 limit, counted and not yet run on an A7 device.
-- A subtitle line that began more than 10 seconds before a seek target is
-  found through the index of the subtitle packets, proven on mkv. A container
-  with no such index still misses it. So does a long line under a shorter
-  line that is on screen at the target.
-- A switch of the sound track keeps the old track playing until the new one
-  has opened. When the new one fails to open, the old one plays on and
-  `audio_track` already names the new one.
-- The data folder is made and set as the `OnDisk` root on desktop only. On
-  iOS and Android an app still sets the root itself.
-- Fullscreen, the pointer hide, the sound of a track switch and of a speed
-  change, and a real media key press were tested with no window and no
-  speakers.
-- `Inspect keys` failed once in the second round of a full suite run, the
-  field got no text. It passed in the next full run and in 6 targeted runs,
-  the cause is not found.
+  Media Transport Controls. Raise this point only when the roadmap is read
+  on Windows.
+- Linux needs MPRIS for the same. Raise this point only when the roadmap is
+  read on Linux.
+- The outline and the soft shadow of a label are images made on the CPU
+  now, see [text.md](text.md). The effect entry points of the `wgpu_text`
+  fork, `vs_effect` and `fs_effect`, are unused and can leave the fork. They
+  were never run on an A7 device.
+- A film with no index of its subtitle packets is read through once when a
+  subtitle track is picked, over http that downloads the whole file. Until
+  that read is done a seek finds only a line that began in the 10 seconds
+  before its target.
+- The data folder on Android is made and set by the engine, the code
+  compiles in the docker build and has not run on a device or an emulator.
+- A group fade draws into an image of the frame size with its own depth and
+  multisample target, made on first use and kept. A target of the size of
+  the group would cost less memory.
 
 ## Siri Remote input for tvOS
 

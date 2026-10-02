@@ -22,6 +22,7 @@ mod label_soft_shadow;
 mod label_stress;
 mod label_tab;
 mod label_vertical_alignment;
+mod label_wide_effect;
 mod letter_spacing;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]

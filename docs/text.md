@@ -124,25 +124,26 @@ binary search over the layout and cached per width like the single line
 ellipsis. `size_for_width` then measures what is drawn.
 
 `set_text_outline(color, width)` and `set_text_shadow(color, offset)` draw the
-same text again in 1 color behind the glyphs, 1 copy each, in
-`hilen/src/ui/label_drawer.rs`. `set_text_shadow_blur(radius)` makes the
-shadow soft. The outline copy and a blurred shadow go through the effect
-pipeline of the `wgpu_text` fork, entry points `vs_effect` and `fs_effect`:
-the glyph quad grows by the spread and the fragment shader walks the square
-of pixels around it. The outline takes the strongest coverage within the
-width, the blur a gaussian whose sigma is half the radius, like a CSS text
-shadow. A sample outside the glyph's own box is skipped, the atlas has other
-glyphs there. The spread is cut at 12 pixels. The effect glyphs draw before
-the plain ones of the same batch, with a depth test that lets an equal depth
-pass, since their grown quads overlap the quads next to them.
-Text writes depth over whole glyph boxes and sits only 2 depth steps in front
-of its view, so each copy is `f32::EPSILON` nearer than the one before and the
-text itself comes forward by the number of copies.
+same text again in 1 color behind the glyphs. `set_text_shadow_blur(radius)`
+makes the shadow soft. A hard shadow is a plain copy of the text through the
+brush, `hilen/src/ui/label_drawer.rs`.
 
-The effect shader passes exactly 8 float components to the fragment stage,
-the A7 limit of [ios.md](ios.md): the atlas position, the 4 distances to the
-edges of the glyph box, and the color and spread packed into 2 floats as
-whole numbers.
+The outline and a soft shadow are images, `hilen/src/ui/label_effect.rs`. The
+glyphs of the label, of every font it uses, raster on the CPU into one
+coverage map, the same outlines at the same places the brush draws. The map
+is spread in 2 passes, along the rows and then down the columns, in
+`deps/pixels/src/spread.rs`: the outline moves every edge out by its width,
+round at the corners, the blur is a gaussian whose sigma is half the radius,
+like a CSS text shadow. So the cost grows with the spread and not with its
+square, and no spread is cut. The image is drawn pixel for pixel as 1 quad
+of the image pipeline and kept by the hash of the text, its layout, its
+place against the whole pixel origin of the label and the effect. It is made
+again only when one of them changes, and freed 120 frames after its last
+draw.
+
+Text writes depth over whole glyph boxes and sits only 2 depth steps in front
+of its view, so each layer is `f32::EPSILON` nearer than the one before and the
+text itself comes forward by the number of layers.
 
 ## Matching other renderers
 

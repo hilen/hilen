@@ -22,16 +22,38 @@ use crate::{
 
 /// How much nearer each layer of an outlined text sits than the one before,
 /// 2 steps of a 24 bit depth buffer around the middle of its range.
-const LAYER_STEP: f32 = f32::EPSILON;
+pub(super) const LAYER_STEP: f32 = f32::EPSILON;
 
 /// What a copy of the text under the text itself is made of.
-enum Under {
+pub(super) enum Under {
     /// The glyphs as they are, a hard shadow.
     Plain,
     /// Every glyph edge moved out by this many pixels, an outline.
     Wider(f32),
     /// The glyphs blurred with this radius in pixels, a soft shadow.
     Blurred(f32),
+}
+
+/// The copies of a label's text that lie under it, the shadow first and
+/// the outline over it, each with its color and its offset in pixels.
+pub(super) fn under_layers(label: &Label, scale: f32) -> Vec<(Color, Point, Under)> {
+    let mut under = Vec::new();
+    if let Some(shadow) = label.text_shadow() {
+        let kind = if shadow.blur > 0.0 {
+            Under::Blurred(shadow.blur * scale)
+        } else {
+            Under::Plain
+        };
+        under.push((shadow.color, shadow.offset * scale, kind));
+    }
+    if let Some(outline) = label.text_outline() {
+        under.push((
+            outline.color,
+            Point::default(),
+            Under::Wider(outline.width * scale),
+        ));
+    }
+    under
 }
 
 pub(super) type TextSections<'a> = Vec<(Weak<Font>, Vec<(Section<'a>, ShapedParams)>)>;
@@ -209,44 +231,25 @@ impl UIDrawer {
         let (position, bounds) = Self::label_geometry(&frame, label);
         let mut section = section.with_bounds(bounds).with_screen_position(position);
 
-        // The shadow and the outline are the same text again in 1 color,
-        // queued before the text itself. The outline is 1 copy the text
-        // shader widens, a soft shadow 1 copy it blurs, see the effect
-        // entry points of the `wgpu_text` fork. Text writes depth over
-        // whole glyph boxes, so every copy sits a little nearer than the one
-        // before it, or it would be cut by the boxes of the last one. The
-        // text is 2 depth steps in front of its view, there is no room
-        // behind it, so the copies start where plain text sits and the
-        // text itself comes forward. 3 layers stay far inside the gap to
-        // the next view.
-        let mut under = Vec::new();
-        if let Some(shadow) = label.text_shadow() {
-            let kind = if shadow.blur > 0.0 {
-                Under::Blurred(shadow.blur * scale)
-            } else {
-                Under::Plain
-            };
-            under.push((shadow.color, shadow.offset * scale, kind));
-        }
-        if let Some(outline) = label.text_outline() {
-            under.push((
-                outline.color,
-                Point::default(),
-                Under::Wider(outline.width * scale),
-            ));
-        }
+        // A hard shadow is the same text again in 1 color, queued before
+        // the text itself. The outline and a soft shadow are images, see
+        // `label_effect.rs`. Text writes depth over whole glyph boxes, so
+        // every layer sits a little nearer than the one before it, or it
+        // would be cut by the boxes of the last one. The text is 2 depth
+        // steps in front of its view, there is no room behind it, so the
+        // layers start where plain text sits and the text itself comes
+        // forward. 3 layers stay far inside the gap to the next view.
+        let under = under_layers(label, scale);
         let mut layers = Vec::with_capacity(under.len() + 1);
         for (index, (color, offset, kind)) in under.iter().enumerate() {
+            if !matches!(kind, Under::Plain) {
+                continue;
+            }
             let forward: f32 = index.lossy_convert();
             let copy = Text::new(text)
                 .with_scale(scale_px)
                 .with_color(color.faded(opacity).as_slice())
                 .with_z(z - forward * LAYER_STEP);
-            let copy = match kind {
-                Under::Plain => copy,
-                Under::Wider(width) => copy.with_outline(*width),
-                Under::Blurred(radius) => copy.with_blur(*radius),
-            };
             layers.push(
                 Section::new()
                     .add_text(copy)

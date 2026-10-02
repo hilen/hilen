@@ -52,11 +52,18 @@ pub struct ViewBase {
 
     /// See `ViewData::set_opacity`.
     #[educe(Default = 1.0)]
-    pub(crate) opacity:      f32,
+    pub(crate) opacity:       f32,
     /// This view's opacity times the opacity of every view above it, set
     /// on each update, so the drawer reads one number per view.
     #[educe(Default = 1.0)]
-    pub(crate) tree_opacity: f32,
+    pub(crate) tree_opacity:  f32,
+    /// See `ViewData::set_group_opacity`.
+    pub(crate) group_opacity: bool,
+    /// The opacity the picture of this view's group is drawn with, 1 when
+    /// the view is no group or has nothing to fade. A group draws its own
+    /// parts at full strength, so its `tree_opacity` is 1.
+    #[educe(Default = 1.0)]
+    pub(crate) group_alpha:   f32,
 
     #[educe(Default = crate::ui::UIManager::ROOT_VIEW_Z_OFFSET)]
     pub(crate) z_position: f32,

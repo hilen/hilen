@@ -7,6 +7,7 @@ mod command_held;
 mod corner_radii;
 mod dynamic_clear_color;
 mod gradient;
+mod group_opacity;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`
 /// only calls `Hover::update` under `#[cfg(any(desktop, wasm))]`, so on a phone
 /// this test waits for an event the engine never sends, asserts on the main

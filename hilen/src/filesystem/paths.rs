@@ -21,11 +21,24 @@ impl Paths {
         if Platform::IOS {
             dirs::document_dir()
         } else if Platform::ANDROID {
-            STORAGE_PATH.lock().clone().map(PathBuf::from)
+            Self::android_home()
         } else {
             dirs::home_dir()
         }
         .expect("Failed to get home directory")
+    }
+
+    /// The path the shell crate set, else the private files folder the
+    /// system gives the app, so a shell with no Java hook stores too.
+    #[cfg(android)]
+    fn android_home() -> Option<PathBuf> {
+        let set = STORAGE_PATH.lock().clone().map(PathBuf::from);
+        set.or_else(crate::filesystem::read::android_data_path)
+    }
+
+    #[cfg(not(android))]
+    fn android_home() -> Option<PathBuf> {
+        STORAGE_PATH.lock().clone().map(PathBuf::from)
     }
 
     pub fn config() -> PathBuf {
@@ -34,8 +47,9 @@ impl Paths {
 
     /// The data folder of the app. On desktop `~/.config/<project_name>`,
     /// with the name from the app's `hilen.toml`, so every binary of one
-    /// project shares one folder. The engine creates it and makes it the
-    /// `OnDisk` root before `before_launch` runs.
+    /// project shares one folder. On a phone a folder inside the documents
+    /// dir on iOS and inside the private files dir on Android. The engine
+    /// creates it and makes it the `OnDisk` root before `before_launch` runs.
     pub fn storage() -> PathBuf {
         #[cfg(wasm)]
         {

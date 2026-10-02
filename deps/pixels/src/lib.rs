@@ -4,8 +4,10 @@
 //! then spent 11 seconds in its mip chain at every browser start.
 
 mod cube;
+mod spread;
 
 pub use cube::*;
+pub use spread::*;
 use tiny_skia::PremultipliedColorU8;
 
 /// Straight alpha RGBA bytes of a tiny-skia raster. Its pixels are

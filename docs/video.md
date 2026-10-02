@@ -36,6 +36,8 @@ message anywhere but desktop.
   hears a sound that is the media length divided by the speed, so its
   position times the speed is the position in the stream. A speed change or
   a sound track switch opens a fresh sound decoder at the current position.
+  The old track plays on and stays the one `audio_track` names until the
+  new one has opened, a track that fails to open changes nothing.
   Every open of a sound decoder after the first runs on a thread of its own,
   and until it is there the video follows the engine clock. kira runs the
   first seek of a decoder inside `play`, on the main thread, so that seek
@@ -52,7 +54,15 @@ message anywhere but desktop.
   that reads the subtitle packets of the 10 seconds before the target and
   hands over the line that is on screen there. When it finds none, it seeks
   on the subtitle stream itself, to the last line that began before the
-  target however far back, so a line longer than 10 seconds shows too. A subtitle
+  target however far back, so a line longer than 10 seconds shows too. That
+  read back is only the fast answer. Picking a track also reads all its
+  lines once on a thread of its own, `hilen/src/video/subtitles/track_read.rs`,
+  and keeps them over every seek. With an index of the subtitle packets,
+  mp4 always and matroska when its cues list them, it jumps from line to
+  line. Without one it reads the source through with every other stream
+  thrown away. Once that is done a seek reads nothing back, and a long line
+  under a shorter one shows again when the shorter one ends. Of the lines
+  on screen at once the one that began last shows. A subtitle
   file from outside the source is read whole on its own thread. ffmpeg hands
   every text format over as an ASS line, the styling is dropped. The player
   shows the cue the clock is in. A video with no sound track
@@ -200,8 +210,10 @@ fixture and pins that dav1d decodes it. The unit tests next to the code pin
 which sound track is heard, 440 against 1760 Hz, the length and the kept
 pitch at every speed, the cues of a track and of a file, that the first seek
 of a sound waits for the first decode and still starts on the right sample,
-the 24 second line of `long_line.mkv` after a seek into it, and that dav1d
-and zlib are in the archive.
+the 24 second line of `long_line.mkv` after a seek into it, the long line of
+`overlap.mkv` under a shorter one, the whole track read through the index
+and, for `no_index.mkv`, through the file, that a sound track that fails to
+open leaves the old one named, and that dav1d and zlib are in the archive.
 
 `Video playback` in `ui-test-suite/src/views/video` plays `colors.mp4`, four
 solid frames at one per second, every frame a keyframe, no sound. Under

@@ -14,7 +14,7 @@ use crate::{
     },
     pipelines::Pipelines,
     render::{
-        ImageKey, UIBackdropPipeline, UIBlurPipeline, UIClipPipeline, UIGradientPipeline,
+        ImageKey, UIBackdropPipeline, UIBlurPipeline, UIClipPipeline, UIGradientPipeline, UIGroupPipeline,
         UIImageRectPipeline, UIPathPipeline, UIRectPipeline, UIShadowPipeline,
         data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
@@ -33,6 +33,7 @@ static BLUR_DRAWER: MainLock<UIBlurPipeline> = MainLock::new();
 static BACKDROP_DRAWER: MainLock<UIBackdropPipeline> = MainLock::new();
 static PATH_DRAWER: MainLock<UIPathPipeline> = MainLock::new();
 static CLIP_DRAWER: MainLock<UIClipPipeline> = MainLock::new();
+static GROUP_DRAWER: MainLock<UIGroupPipeline> = MainLock::new();
 
 /// Set during update when a visible `BlurView` wants a blur, read by
 /// the window before it picks the frame's render target.
@@ -55,6 +56,9 @@ struct DrawContext<'a> {
     /// How many rounded clips the visited view is inside, the stencil
     /// reference of the pass. Reapplied with the scissor.
     clip_depth:    u32,
+    /// How many group fades the visited view is inside, the index of the
+    /// image the next group draws into.
+    group_level:   usize,
 }
 
 pub struct UIDrawer;
@@ -87,6 +91,7 @@ impl UIDrawer {
             resolution,
             scissor: display_rect,
             clip_depth: 0,
+            group_level: 0,
         };
 
         let root = UIManager::root_view_static();
@@ -95,6 +100,7 @@ impl UIDrawer {
 
         Self::flush_pipelines(render_frame.pass(), resolution, &mut ctx.paths);
         Svg::drop_stale_everywhere();
+        Self::drop_stale_text_effects();
         scissor(render_frame.pass(), display_rect);
 
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
@@ -229,7 +235,13 @@ impl UIDrawer {
             return;
         }
         let opacity = parent_opacity * view.opacity();
-        view.__base_view().tree_opacity = opacity;
+        // A group draws itself and its subviews at full strength, its
+        // picture is what fades.
+        let base = view.__base_view();
+        let grouped = base.group_opacity && opacity < 1.0;
+        base.group_alpha = if grouped { opacity } else { 1.0 };
+        let opacity = if grouped { 1.0 } else { opacity };
+        base.tree_opacity = opacity;
         view.layout();
         view.calculate_absolute_frame();
         view.update();
@@ -258,9 +270,16 @@ impl UIDrawer {
         // A view faded to nothing draws nothing, and neither does anything
         // inside it.
         let opacity = view.__base_view().tree_opacity;
+        let group_alpha = view.__base_view().group_alpha;
 
-        if view.is_hidden() || frame.size.has_no_area() || opacity <= 0.0 {
+        if view.is_hidden() || frame.size.has_no_area() || opacity <= 0.0 || group_alpha <= 0.0 {
             return;
+        }
+
+        let grouped = group_alpha < 1.0;
+        let outer_clip_depth = ctx.clip_depth;
+        if grouped {
+            Self::enter_group(render_frame, ctx);
         }
 
         view.before_render(render_frame.pass());
@@ -344,6 +363,44 @@ impl UIDrawer {
             scissor(render_frame.pass(), parent_scissor);
             ctx.scissor = parent_scissor;
         }
+
+        if grouped {
+            Self::leave_group(render_frame, ctx, outer_clip_depth, group_alpha);
+        }
+    }
+
+    /// Everything drawn so far flushes into the pass it belongs to, then
+    /// the passes draw into the image of the group. That image starts
+    /// empty with a stencil of its own, so no rounded clip is entered in
+    /// it yet. The scissor stays, the image has the size of the frame.
+    fn enter_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>) {
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+
+        let target = GROUP_DRAWER.get_mut().target(ctx.group_level, ctx.resolution.lossy_convert());
+        render_frame.push_target(target);
+        ctx.group_level += 1;
+        ctx.clip_depth = 0;
+
+        let pass = render_frame.pass();
+        scissor(pass, ctx.scissor);
+        pass.set_stencil_reference(0);
+    }
+
+    /// The views of the group flush into its image, then the image draws
+    /// once, with the opacity, into the pass the group sits in.
+    fn leave_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>, clip_depth: u32, opacity: f32) {
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+
+        render_frame.pop_target();
+        ctx.group_level -= 1;
+        ctx.clip_depth = clip_depth;
+
+        let pass = render_frame.pass();
+        scissor(pass, ctx.scissor);
+        pass.set_stencil_reference(clip_depth);
+        GROUP_DRAWER.get_mut().draw(pass, ctx.group_level, opacity);
     }
 
     /// Text is deferred, so everything queued outside this clip
@@ -470,6 +527,7 @@ impl UIDrawer {
                 ctx.nearest_text.min(z)
             };
             Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale, opacity);
+            Self::draw_text_effects(frame, label, ctx.scale, opacity);
             Self::draw_color_glyphs(frame, label, ctx.scale, opacity);
             Self::draw_underlines(frame, label, ctx.scale, opacity);
         } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {

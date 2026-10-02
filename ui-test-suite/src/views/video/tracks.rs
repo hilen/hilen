@@ -151,10 +151,12 @@ impl ViewTest for VideoTracks {
             (after - before).abs() < 0.3,
             "the position holds over a sound track switch, {before} to {after}"
         );
-        ensure!(
-            from_main(move || view.video.audio_track()) == Some(GERMAN_SOUND),
-            "the second sound track plays after the switch"
-        );
+        // The new track is named once it has opened on its thread, until
+        // then the old one plays on and stays the one named.
+        wait_until("the second sound track plays after the switch", move || {
+            view.video.audio_track() == Some(GERMAN_SOUND)
+        })?;
+        from_main(move || view.describe());
         wait_for_line(view, Some("second line"))?;
         checkpoint("sound track 2, styling dropped from the second line")?;
 

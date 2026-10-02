@@ -72,7 +72,7 @@ pub(crate) fn hilen_start_with_app_headless(app: Box<dyn App>) -> std::ffi::c_in
 
 /// The data folder exists and is the `OnDisk` root before the app runs any
 /// code of its own, so an app with no setup stores in the right place.
-#[cfg(desktop)]
+#[cfg(not_wasm)]
 fn prepare_storage() {
     use std::fs::create_dir_all;
 
@@ -97,7 +97,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         #[cfg(not_wasm)]
         crate::deps::netrun::tls::install_provider();
 
-        #[cfg(desktop)]
+        #[cfg(not_wasm)]
         prepare_storage();
 
         app.before_launch();

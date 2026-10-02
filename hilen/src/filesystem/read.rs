@@ -10,6 +10,13 @@ pub(crate) fn set_android_app(app: crate::AndroidApp) {
     assert!(ANDROID_APP.set(app).is_ok(), "Double setting of AndroidApp");
 }
 
+/// The private files folder of the app, none before the android start
+/// handed the `AndroidApp` over.
+#[cfg(android)]
+pub(crate) fn android_data_path() -> Option<std::path::PathBuf> {
+    ANDROID_APP.get()?.internal_data_path()
+}
+
 /// Android assets live inside the APK, not on the filesystem, so reads go
 /// through the `AAssetManager`.
 #[cfg(android)]

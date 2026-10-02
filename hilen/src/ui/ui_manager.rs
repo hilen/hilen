@@ -184,6 +184,13 @@ impl UIManager {
         *selected_view = Weak::default();
     }
 
+    /// Puts a dead pointer into the selection, what a selected view leaves
+    /// there when it is removed, for the test of that state.
+    #[cfg(all(feature = "ui-tests", desktop))]
+    pub(crate) fn select_dead_view(view: WeakView) {
+        *Self::get().selected_view.lock() = view;
+    }
+
     /// A text field has an editing session open. Its Escape ends the
     /// editing, so nothing else may take that key.
     pub(crate) fn text_editing() -> bool {
@@ -198,8 +205,10 @@ impl UIManager {
 
         // A tap on the view that is already selected changes nothing. Going
         // through deselect and reselect would end its editing session in
-        // the middle of a drag.
-        if selected && selected_view.addr() == view.addr() {
+        // the middle of a drag. The selected view has to be alive for
+        // that: a selected view that was removed stays here as a dead
+        // pointer, and a new view can get its address.
+        if selected && selected_view.is_ok() && selected_view.addr() == view.addr() {
             return;
         }
 

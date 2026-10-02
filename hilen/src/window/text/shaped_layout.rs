@@ -509,6 +509,36 @@ impl ShapedLayout<'_> {
             .collect()
     }
 
+    /// Every glyph of `text` the brush draws, of the base font and of every
+    /// run font, at the place `calculate_glyphs` gives it. For a raster of
+    /// the text outside the brush, the outline and the soft shadow.
+    pub(crate) fn plain_glyphs(
+        &self,
+        scale: f32,
+        text: &str,
+        screen: (f32, f32),
+        bound_w: f32,
+    ) -> Vec<(Weak<Font>, Glyph)> {
+        let scale = PxScale::from(scale);
+        let sources = self.sources(scale);
+        self.place(scale, text, screen, bound_w, &sources)
+            .into_iter()
+            .filter_map(|placed| {
+                let source = &sources[placed.source];
+                (!source.font.is_color_glyph(placed.id, source.px_per_em)).then(|| {
+                    (
+                        source.font,
+                        Glyph {
+                            id:       GlyphId(placed.id),
+                            scale:    source.scale,
+                            position: point(snap_to_cache(placed.x), snap_to_cache(placed.y)),
+                        },
+                    )
+                })
+            })
+            .collect()
+    }
+
     /// Lines and caret positions of `text` at the base font's `scale`.
     pub(crate) fn text_layout(&self, scale: PxScale, text: &str, bound_w: f32) -> TextLayout {
         let base = self.params.base;

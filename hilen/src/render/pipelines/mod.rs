@@ -28,6 +28,7 @@ mod terrain_pipeline;
 mod ui_backdrop_pipeline;
 mod ui_blur_pipeline;
 mod ui_clip_pipeline;
+mod ui_group_pipeline;
 mod ui_path_pipeline;
 
 #[cfg(feature = "level")]
@@ -87,6 +88,7 @@ pub(crate) use terrain_pipeline::TerrainPipeline;
 pub use ui_backdrop_pipeline::UIBackdropPipeline;
 pub use ui_blur_pipeline::UIBlurPipeline;
 pub(crate) use ui_clip_pipeline::UIClipPipeline;
+pub use ui_group_pipeline::UIGroupPipeline;
 pub use ui_path_pipeline::UIPathPipeline;
 
 use crate::render::data::{UIGradientInstance, UIImageInstance, UIShadowInstance};
