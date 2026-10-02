@@ -95,7 +95,6 @@ impl UIDrawer {
         };
 
         let root = UIManager::root_view_static();
-        Self::precache_text(root, ctx.scale);
         Self::draw_view(render_frame, root, &mut ctx);
 
         Self::flush_pipelines(render_frame.pass(), resolution, &mut ctx.paths);
@@ -155,40 +154,6 @@ impl UIDrawer {
             }
             font.process_queued().unwrap();
             font.brush.draw(pass);
-        }
-    }
-
-    fn precache_text(view: &dyn View, scale: f32) {
-        let mut text_sections = vec![];
-        Self::collect_text(view, scale, &mut text_sections);
-
-        for (mut font, sections) in text_sections {
-            for (section, params) in sections {
-                font.queue_shaped(section, params);
-            }
-            font.process_queued().unwrap();
-        }
-    }
-
-    fn collect_text<'a>(view: &'a dyn View, scale: f32, sections: &mut TextSections<'a>) {
-        let frame = *view.absolute_frame();
-
-        if view.is_hidden() || frame.size.has_no_area() {
-            return;
-        }
-
-        if let Some(label) = view.as_any().downcast_ref::<Label>()
-            && !label.text.is_empty()
-        {
-            Self::draw_label(&frame, label, sections, scale, 1.0);
-        }
-
-        let root_frame = UIManager::root_view_static().frame();
-
-        for subview in view.subviews() {
-            if subview.dont_hide() || subview.absolute_frame().intersects(root_frame) {
-                Self::collect_text(subview.deref(), scale, sections);
-            }
         }
     }
 

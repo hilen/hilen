@@ -24,16 +24,14 @@ Linux, Android and wasm builds of `hilen-wgpu` are identical to upstream.
 - Tag the Metal layer with an explicit sRGB colorspace, 1 line in the match. Upstream sets
   nil, its comment says the layer default treats content as sRGB, but Apple's doc for
   `CAMetalLayer.colorspace` says the nil default means the content is not color matched,
-  so sRGB content oversaturates on a P3 display. Upstream has the bug on file as
-  [gfx-rs/wgpu#10013](https://github.com/gfx-rs/wgpu/issues/10013) since 2026-08-05,
-  labeled bug by the maintainers, with a pixel measurement. The same line is open
-  upstream as [gfx-rs/wgpu#10286](https://github.com/gfx-rs/wgpu/pull/10286) by another
-  contributor since 2026-09-08, approved on 2026-09-18, it closes the issue. No PR
-  from us.
+  so sRGB content oversaturates on a P3 display. Upstream had the bug on file as
+  [gfx-rs/wgpu#10013](https://github.com/gfx-rs/wgpu/issues/10013). The same line was
+  merged upstream as [gfx-rs/wgpu#10286](https://github.com/gfx-rs/wgpu/pull/10286) by
+  another contributor on 2026-09-29, on trunk only. No PR from us.
 
-Both fixes land on trunk, which is v31, and neither is copied to the upstream `v30`
+Both fixes are on trunk, which is v31, and neither is copied to the upstream `v30`
 branch. The decision is to wait for v31, not to send a backport. The upstream v31
-milestone is due 2026-09-23. Once hilen moves to a v31 that holds both, the fork carries
+milestone is due 2026-10-09. Once hilen moves to a v31 that holds both, the fork carries
 only the rename, so hilen goes back to stock `wgpu` and the `hilen-wgpu` crates stop.
 `wgpu_text` moves in the same step, its fork depends on `hilen-wgpu` and two `wgpu`
 crates do not interchange, see [ios.md](ios.md). Check on an iOS 12 device and on a P3
@@ -56,23 +54,31 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 8 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
-limit, since the gradient commit. The first 2 commits are the upstream candidates, in
-the order they go upstream:
+release with 9 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+limit, since the gradient commit. The examples do not build there, they still import
+`wgpu_text` and the crate is renamed. 3 commits are the upstream candidates, in the
+order they go upstream:
 
 - Expose custom layout queueing and glyph bounds, `queue_custom_layout`,
   `process_queued`, `glyph_bounds_custom_layout`, named after the `glyph_brush`
-  methods they wrap. Sent as
-  [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-19
-  from the branch `custom-layout`, the fork commit is that same commit.
+  methods they wrap. Merged upstream as
+  [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-23,
+  released in v30.0.1.
 - Several `queue` and `draw` calls per frame. The vertex buffer is bump allocated, a
   plain `queue` or `process_queued` starts it over and `queue_append` or
   `process_queued_append` writes after the earlier batch, so a forgotten call shows the
   wrong text at once and never leaks. `Font::begin_frame` and its `first_batch` flag
-  pick the call in hilen. It needs `process_queued`, so the PR waits for #47 to merge,
-  the commit is ready on the branch `multi-draw`. It answers
+  pick the call in hilen. Not sent yet, the commit is on the branch `multi-draw`,
+  rebased onto upstream v30.0.1. It answers
   [Blatko1/wgpu-text#22](https://github.com/Blatko1/wgpu-text/issues/22) and
   [Blatko1/wgpu-text#34](https://github.com/Blatko1/wgpu-text/issues/34).
+- Earlier batches keep their glyphs when the cache texture is full. A later batch
+  whose texture writes land on a glyph an earlier batch of the frame still draws
+  writes into a copy of the texture, and the next frame starts with a texture of
+  double size. Without it 2 labels at 72 pixels break on the default 256 by 256
+  texture, the reason the maintainer gave up on several draws in
+  [Blatko1/wgpu-text#17](https://github.com/Blatko1/wgpu-text/issues/17). It goes
+  upstream in the same PR as the commit above. See [text.md](text.md).
 
 The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
 targets and hilen renders into plain Unorm since 2026-07-26, see

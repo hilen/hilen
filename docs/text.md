@@ -11,17 +11,21 @@ label's `Font`. Each `Font` owns a `wgpu_text::TextBrush` for rasterization and 
 (`hilen/src/window/text/shaped_layout.rs`), a custom `GlyphPositioner` that shapes
 every line with rustybuzz and hands pre-positioned glyphs to glyph_brush.
 
-Before drawing, the UI tree queues every visible label once and processes each font's
-glyph atlas to its final layout for the frame. Clip boundaries, and a translucent
-background in front of all queued text, flush text several times in one frame.
-The second keeps text behind a dim layer visible, since a rect writes depth and
-would hide text flushed after it. A translucent rect behind queued text, like a
-selection, does not flush, text writes depth over whole glyph boxes and would
-cut holes in it. Without the preload, a later flush can grow and reorder the
-shared atlas after earlier vertices already captured its texture coordinates,
-which renders unrelated glyph fragments in those earlier labels. The draw pass
-then queues the same sections for their actual clipped batches against the
-stable atlas.
+Clip boundaries, and a translucent background in front of all queued text, flush
+text several times in one frame. The second keeps text behind a dim layer visible,
+since a rect writes depth and would hide text flushed after it. A translucent rect
+behind queued text, like a selection, does not flush, text writes depth over whole
+glyph boxes and would cut holes in it.
+
+Every flush is its own batch of the font's brush, and all batches share the glyph
+atlas. A full atlas gives a later batch the space of glyphs it does not use, and
+all texture writes of a frame run before the render pass, so an earlier batch
+would draw unrelated glyph fragments. The `wgpu_text` fork prevents it: when a
+write of a later batch lands on a glyph an earlier batch of the frame still draws,
+the writes go into a copy of the atlas, the earlier draw keeps the old one, and
+the next frame starts with an atlas of double size. `Clipped text batches` and
+`Text corruption` pin it. The engine used to queue every visible label once before
+drawing to keep the atlas stable, that preload pass is gone.
 
 Shaping through rustybuzz exists because ab_glyph reads only the legacy `kern`
 table. Modern fonts, Roboto included, keep kerning in `GPOS`, so the builtin

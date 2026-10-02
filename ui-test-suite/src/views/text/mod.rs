@@ -1,3 +1,4 @@
+mod clipped_text_batches;
 mod color_emoji;
 /// A text field is a different thing on a phone. Typing goes through the screen
 /// keyboard, not through injected key events, so these drive a field that never

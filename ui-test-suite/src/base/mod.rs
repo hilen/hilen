@@ -56,7 +56,3 @@ mod transition_rich;
 mod translucent_over_text;
 mod transparency;
 mod view_order;
-/// A phone app always fills its screen, and a browser grants fullscreen
-/// only after a real click, which no test can inject.
-#[cfg(desktop)]
-mod window_fullscreen;

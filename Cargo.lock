@@ -3197,7 +3197,7 @@ dependencies = [
 [[package]]
 name = "hilen-wgpu-text"
 version = "30.0.1"
-source = "git+https://github.com/VladasZ/wgpu-text?rev=079df7eb7e3273af1fc848edd290d43fb0ecbce8#079df7eb7e3273af1fc848edd290d43fb0ecbce8"
+source = "git+https://github.com/VladasZ/wgpu-text?rev=24c05738add6307a08829b3836ec230a6439fb9e#24c05738add6307a08829b3836ec230a6439fb9e"
 dependencies = [
  "bytemuck",
  "glyph_brush",
