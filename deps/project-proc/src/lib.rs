@@ -6,6 +6,8 @@
 //! where the app repo is. The crate that calls the macro always sits
 //! inside that repo, so the search starts at its own folder and walks up.
 
+mod assets;
+
 use std::{
     env::var,
     fs::read_to_string,
@@ -43,6 +45,39 @@ pub fn project_name(input: TokenStream) -> TokenStream {
                 const _: &[u8] = include_bytes!(#path);
                 #name
             }}
+        }
+        Err(err) => {
+            let message = format!("{err:#}");
+            quote! { compile_error!(#message) }
+        }
+    }
+    .into()
+}
+
+/// The files of the app's `assets` folder as a list of name and bytes, for
+/// `hilen::embed_assets!`. The folder is the nearest one at or above the
+/// crate that calls it.
+#[proc_macro]
+pub fn embedded_assets(input: TokenStream) -> TokenStream {
+    let packed = if input.is_empty() {
+        var("CARGO_MANIFEST_DIR")
+            .context("CARGO_MANIFEST_DIR is not set")
+            .and_then(|dir| assets::find(Path::new(&dir)))
+            .and_then(|dir| assets::collect(&dir))
+    } else {
+        Err(anyhow!("embedded_assets!() takes no arguments"))
+    };
+
+    match packed {
+        Ok(packed) => {
+            let names = packed.iter().map(|(name, _)| name);
+            // The include also makes cargo build the crate again when a
+            // packed file changes. A file added later is seen only by a
+            // build that compiles the crate anyway, a release build does.
+            let paths = packed.iter().map(|(_, path)| path.to_string_lossy().into_owned());
+            quote! {
+                &[#((#names, include_bytes!(#paths) as &[u8])),*]
+            }
         }
         Err(err) => {
             let message = format!("{err:#}");

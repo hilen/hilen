@@ -133,6 +133,34 @@ pub extern "Rust" fn hilen_project_name() -> &'static str {
     panic!("The app has no name, add hilen::register_app!(YourApp) to its main.rs")
 }
 
+/// The files an app packed into its binary with `embed_assets!`, each with
+/// its name below the `assets` folder. An app without the macro links this
+/// empty list.
+#[cfg(desktop)]
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub extern "Rust" fn hilen_embedded_assets() -> &'static [(&'static str, &'static [u8])] {
+    &[]
+}
+
+/// Packs the `fonts`, `images`, `models` and `sounds` folders of the app's
+/// `assets` into the binary. Call it once, next to `register_app!`. A
+/// desktop app that ships as 1 executable needs it, an installed app has no
+/// `assets` folder. The engine reads a file from disk when it is there and
+/// from the packed copy when it is not, so a run from the repo still sees
+/// an edited file at once. Phones and the browser carry their assets in
+/// their own bundle, there the macro adds nothing.
+#[macro_export]
+macro_rules! embed_assets {
+    () => {
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+        #[unsafe(no_mangle)]
+        pub extern "Rust" fn hilen_embedded_assets() -> &'static [(&'static str, &'static [u8])] {
+            hilen::embedded_assets!()
+        }
+    };
+}
+
 /// The version of the app's own package, what the updater compares a
 /// manifest against. `register_app!` puts the real one into the final crate.
 #[cfg(desktop)]

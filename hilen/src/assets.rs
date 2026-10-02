@@ -39,6 +39,13 @@ impl Assets {
             .join("assets")
     }
 
+    /// `path`, or `None` before the app started. A unit test reads files
+    /// with no app around.
+    #[cfg(desktop)]
+    pub(crate) fn started_path() -> Option<PathBuf> {
+        ROOT_PATH.get().map(|root| root.join("assets"))
+    }
+
     /// Fired on the main thread with the loaded fraction while a group
     /// downloads. Native loads from disk on demand, so it only ever
     /// fires the final 1.0.

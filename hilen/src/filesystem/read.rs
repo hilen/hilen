@@ -31,7 +31,19 @@ pub(crate) fn read_bytes(path: &Path) -> io::Result<Vec<u8>> {
     Ok(data)
 }
 
+/// A file on disk wins. An asset that is not there is read from the copy
+/// the app packed into its binary, the normal case of an installed
+/// desktop app, see `embedded`.
 #[cfg(not_android)]
 pub(crate) fn read_bytes(path: &Path) -> io::Result<Vec<u8>> {
-    std::fs::read(path)
+    let read = std::fs::read(path);
+    #[cfg(desktop)]
+    if let Err(err) = &read
+        && err.kind() == io::ErrorKind::NotFound
+        && let Some(assets) = crate::assets::Assets::started_path()
+        && let Some(packed) = crate::embedded::read(&assets, path)
+    {
+        return Ok(packed.to_vec());
+    }
+    read
 }

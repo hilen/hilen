@@ -188,7 +188,10 @@ impl AppRunner {
 
             let root = crate::assets_root::find(current_dir().ok().as_deref(), current_exe().ok().as_deref());
             if root.is_none() {
-                log::info!("no assets folder found, only embedded assets load");
+                log::info!(
+                    "no assets folder found, the app packed {} assets into its binary",
+                    crate::embedded::count()
+                );
             }
 
             crate::assets::Assets::init(root.unwrap_or_default());

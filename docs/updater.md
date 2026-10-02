@@ -96,7 +96,15 @@ touching a view.
 ## What the swap means for packaging
 
 The updater replaces one file, so an app that self updates must ship as one
-executable. A helper next to the binary is never updated, fold it into the
+executable. That covers its assets too. An installed app has no `assets`
+folder: the Mac bundle and the Windows installer pack only the binary. So a
+desktop app that ships calls `hilen::embed_assets!();` once, next to
+`register_app!`. It packs the `fonts`, `images`, `models` and `sounds` folders
+of the app's `assets` into the binary at build time. The engine reads a file
+from disk when it is there and from the packed copy when it is not, so a run
+from the repo still sees an edited file at once. The start log says how many
+files were packed when no folder was found. A file added to `assets` is packed
+by the next build that compiles the app crate, a release build always does. A helper next to the binary is never updated, fold it into the
 main binary behind an env var or an argument. On mac the swapped binary sits
 inside the signed `.app`, so CI signs the bare binary with the same identity
 before hashing it, and the bundle keeps launching. On Windows the installer

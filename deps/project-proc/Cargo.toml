@@ -1,6 +1,6 @@
 [package]
 authors.workspace = true
-description = "The project_name of hilen.toml as a compile time string, for hilen and hilen-server."
+description = "What hilen reads from an app repo at build time: the project_name of hilen.toml and the files of the assets folder."
 edition.workspace = true
 license.workspace = true
 name = "project-proc"
