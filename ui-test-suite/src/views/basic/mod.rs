@@ -27,6 +27,7 @@ mod hover_removal;
 /// Hover of a whole subtree, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_within;
+mod image_cut;
 mod image_scissor;
 mod inject_touch;
 mod nine_segment;

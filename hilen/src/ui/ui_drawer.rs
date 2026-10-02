@@ -460,6 +460,11 @@ impl UIDrawer {
             if image_view.image().is_ok() {
                 let image = image_view.image();
                 image.drawn_at.store(Window::render_frame(), Ordering::Relaxed);
+                if image_view.cut().is_some() {
+                    Self::draw_cut(image_view, ctx.scale, opacity);
+                    return;
+                }
+
                 let raster = image.svg.as_ref().map(|svg| {
                     let size = image_view.raster_size(ctx.scale);
                     svg.touch(size, Window::render_frame());
@@ -497,6 +502,47 @@ impl UIDrawer {
             Self::draw_underlines(frame, label, ctx.scale, opacity);
         } else if let Some(drawing) = view.as_any().downcast_ref::<DrawingView>() {
             ctx.paths.extend(drawing.paths());
+        }
+    }
+
+    /// A cut image draws as up to 3 quads of the same texture, see
+    /// `ImageView::set_cut`.
+    fn draw_cut(image_view: &ImageView, scale: f32, opacity: f32) {
+        let Some(cut) = image_view.cut() else {
+            return;
+        };
+        let image = image_view.image();
+        let image_size: Size = image.size.into();
+
+        // An svg rasterizes whole at the scale of the view, the quads then
+        // show parts of that raster.
+        let raster = image.svg.as_ref().map(|svg| {
+            let natural = cut.scaled_size(*image_view.absolute_frame(), image_size) * scale;
+            let size = Size::new(
+                natural.width.round().max(1.0).lossy_convert(),
+                natural.height.round().max(1.0).lossy_convert(),
+            );
+            svg.touch(size, Window::render_frame());
+            (size.width, size.height)
+        });
+
+        let drawer = IMAGE_RECT_DRAWER.get_mut();
+        for (frame, uv) in cut.parts(*image_view.absolute_frame(), image_size, scale) {
+            drawer.add_with_image(
+                UIImageInstance::new(
+                    frame,
+                    uv,
+                    CLEAR,
+                    0.0,
+                    CornerRadii::default(),
+                    image_view.z_position(),
+                    false,
+                    false,
+                    scale,
+                )
+                .with_opacity(opacity),
+                ImageKey { image, raster },
+            );
         }
     }
 

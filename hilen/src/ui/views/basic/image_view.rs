@@ -2,13 +2,14 @@ use std::fmt::Display;
 
 use ui_proc::view;
 
+use super::image_cut::ImageCut;
 use crate::{
     deps::refs::{Weak, weak_from_ref},
     gm::{
         LossyConvert,
         flat::{Rect, Size},
     },
-    ui::{NineSegmentImageView, Setup, ViewData, ViewFrame, ViewSubviews},
+    ui::{CutAxis, NineSegmentImageView, Setup, ViewData, ViewFrame, ViewSubviews},
     window::image::{Image, ToImage},
 };
 
@@ -26,6 +27,8 @@ pub struct ImageView {
 
     nine_segment: Weak<NineSegmentImageView>,
 
+    cut: Option<ImageCut>,
+
     pub mode: ImageMode,
 
     pub flip_x: bool,
@@ -40,6 +43,24 @@ impl ImageView {
     pub fn set_image(&self, image: impl ToImage) -> &Self {
         weak_from_ref(self).image = image.to_image();
         self
+    }
+
+    /// Fits a long image to a view of any length with nothing stretched. The
+    /// image scales as a whole to the size of the view across `axis`, so a
+    /// bigger view gets bigger ends. The first `start` and the last `end`
+    /// pixels of the image along `axis` always show, and the middle is cut: a
+    /// short view shows a short piece of it, a long view a longer piece. The
+    /// piece is taken next to the first end, so only the last end meets a
+    /// cut, and the picture has to be even along its length for that cut to
+    /// join. A view longer than the image stretches the middle. `mode`, the
+    /// flips, the corner radii and the border of the view do not apply.
+    pub fn set_cut(&self, axis: CutAxis, start: f32, end: f32) -> &Self {
+        weak_from_ref(self).cut = Some(ImageCut { axis, start, end });
+        self
+    }
+
+    pub(crate) fn cut(&self) -> Option<ImageCut> {
+        self.cut
     }
 
     pub fn set_resizing_image(&mut self, name: impl Display) -> &mut Self {
