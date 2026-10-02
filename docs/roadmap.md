@@ -16,6 +16,25 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Scrim under the clear pixels of a modal
+
+Found by labirintas at `~/dev/apps/labirintas`, whose dialogs have a wood panel picture
+with rounded corners as their background.
+
+**Current.** `UIDrawer` in `hilen/src/ui/ui_drawer.rs` draws the scrim last: "The scrim
+flushes after everything including text, so its translucent color dims the whole frame
+drawn so far. The modal above it owns the depth buffer and stays untouched." An
+`ImageView` inside the modal writes depth for its whole frame, also where the picture is
+fully clear. So the scrim is not drawn under the clear corners of the picture, and the
+page behind shows there at full brightness, as 4 bright wedges around a dimmed dialog.
+The same holds for every clear pixel of any picture in a modal.
+
+**Needed.** The scrim dims every pixel where the modal itself draws nothing. A clear or
+half clear pixel of a picture in a modal shows the dimmed page behind it.
+
+**Blocks.** The pause and the win dialog of labirintas in its Boards look, their corners
+are bright.
+
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.

@@ -39,6 +39,7 @@ mod slider;
 mod slider_horizontal;
 mod slider_sizing;
 mod switch;
+mod switch_colors;
 mod theme_switch;
 /// Hover tooltips need a pointer, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
