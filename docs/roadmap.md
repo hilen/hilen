@@ -16,6 +16,58 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The update state lives in the engine
+
+Found by flixen at `~/dev/apps/flixen`, the third app that needs self update.
+
+**Current.** `system::Updater` in `hilen/src/system/updater.rs` has the calls `check`,
+`install`, `install_with_progress` and `relaunch`, and `App::update_source` gives the
+manifest address, the version and the key. Everything between them is left to the app.
+Kukareker and Blackforge each carry an `updater.rs` of 167 lines for it: a state on a
+`MainLock` with the phases `Idle`, `Checking`, `Available` and `Installing`, the found
+version, the percent, the last error and a `changed` event, a check after launch through
+`dispatch::after`, the install through `spawn` and `on_main`, and an env var that
+overrides the manifest address for a local test. The 2 files are the same apart from the
+app name, how the key is read and 1 line of percent math.
+
+**Needed.** That state module in the engine, for every desktop app. An app gives only
+its public key. The engine takes the version from the app's package and builds the
+manifest address from the app name, `https://get.vladas.xyz/<name>/updater.json` by
+default, with a way for an app to give another address and with the env var override
+`<NAME>_UPDATE_URL` kept. The engine runs the first check after launch by itself. A view
+reads the phase, the version, the percent and the error, starts the install, and
+subscribes to `changed`. More than 1 view can subscribe. Off the desktop every call is a
+no-op, like `Updater` today. `docs/updater.md` and the `updater.md` chapter of the hilen
+skill then describe this instead of a module per app.
+
+**Blocks.** The update button of flixen. Kukareker and Blackforge can drop their copies
+when they move.
+
+## The ffmpeg archive for Windows x64
+
+Found by flixen at `~/dev/apps/flixen`, whose first release ships for Windows x64. This
+is 1 part of "Video playback, the other lanes" below, pulled up because a release waits
+for it.
+
+**Current.** [video.md](video.md) says of the prebuilt ffmpeg: "Only
+`aarch64-apple-darwin` exists so far." `prebuilt.txt` in the `ffmpeg-sys-next` fork has
+that 1 line. The engine names D3D11VA as the Windows device in
+`hilen/src/video/decoder.rs`, and it was never run. `build/ffmpeg.rs` has a Windows
+branch for the hardware decoder and no TLS library named for it. The release build of an
+app runs in docker on Linux with `cargo xwin` for `x86_64-pc-windows-msvc`, see
+`build/release/win.rs`, so the archive must link there, with the static C runtime the
+skill asks for.
+
+**Needed.** An archive for `x86_64-pc-windows-msvc` from `build/ffmpeg.rs`, published as
+a release asset of `hilen/build`, with its line in `prebuilt.txt`. D3D11VA decode on, a
+TLS library named so https works, Schannel is the one Windows ships, plus dav1d and
+zlib like the macOS archive. An app with the `video` feature then builds through
+`build/release/win.rs` with no setup, and the exe imports only DLLs that a clean
+Windows has. A video over https plays on a real Windows with sound, with hardware decode
+for h264 and HEVC.
+
+**Blocks.** The Windows release of flixen, and video on Windows in any app.
+
 ## Scrim under the clear pixels of a modal
 
 Found by labirintas at `~/dev/apps/labirintas`, whose dialogs have a wood panel picture
@@ -34,6 +86,30 @@ half clear pixel of a picture in a modal shows the dimmed page behind it.
 
 **Blocks.** The pause and the win dialog of labirintas in its Boards look, their corners
 are bright.
+
+## Wrap layout around a corner view
+
+Found by skaityk at `~/dev/apps/skaityk`, whose reader panel holds a row of word views
+and a speaker button in its top right corner.
+
+**Current.** `Placer::all_wrap` in `hilen/src/ui/layout/placer/setup.rs` says
+"Subviews flow left to right in declaration order and wrap to the next row when the
+width runs out". `wrap_layout` in `hilen/src/ui/layout/placer/layout.rs` breaks a row
+on `x + size.width > width`, where `width` is the full container width for every row.
+There is no way to make some rows shorter. So a view that sits in a corner of the
+wrapped area needs a free column for the whole height of the container, and all rows
+lose that width, not only the rows next to the view.
+
+**Needed.** A way to tell a wrapping container about a rectangle to keep clear, in
+its own coordinates, for example the top right 52 by 52 points. A row whose vertical
+span touches the rectangle ends at the left edge of the rectangle, or starts at its
+right edge when the rectangle is on the left. Rows below it use the full width again.
+The container height still fits all rows, and never ends above the bottom of the
+rectangle. It works with any child sizes and with rows of mixed height.
+
+**Blocks.** The small screen layout of the skaityk reader. The Lithuanian words must
+wrap under the speaker button, and the translation slots under the "Translate all"
+button, so only the first rows are shorter.
 
 ## Flixen, the media player gaps
 
