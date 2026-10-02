@@ -68,8 +68,7 @@ order they go upstream:
   plain `queue` or `process_queued` starts it over and `queue_append` or
   `process_queued_append` writes after the earlier batch, so a forgotten call shows the
   wrong text at once and never leaks. `Font::begin_frame` and its `first_batch` flag
-  pick the call in hilen. Not sent yet, the commit is on the branch `multi-draw`,
-  rebased onto upstream v30.0.1. It answers
+  pick the call in hilen. It answers
   [Blatko1/wgpu-text#22](https://github.com/Blatko1/wgpu-text/issues/22) and
   [Blatko1/wgpu-text#34](https://github.com/Blatko1/wgpu-text/issues/34).
 - Earlier batches keep their glyphs when the cache texture is full. A later batch
@@ -77,8 +76,13 @@ order they go upstream:
   writes into a copy of the texture, and the next frame starts with a texture of
   double size. Without it 2 labels at 72 pixels break on the default 256 by 256
   texture, the reason the maintainer gave up on several draws in
-  [Blatko1/wgpu-text#17](https://github.com/Blatko1/wgpu-text/issues/17). It goes
-  upstream in the same PR as the commit above. See [text.md](text.md).
+  [Blatko1/wgpu-text#17](https://github.com/Blatko1/wgpu-text/issues/17). See
+  [text.md](text.md).
+
+The last 2 went upstream together, 1 commit on the branch `multi-draw` on top of
+upstream v30.0.1, sent as
+[Blatko1/wgpu-text#48](https://github.com/Blatko1/wgpu-text/pull/48) on 2026-10-02.
+That commit has shorter comments than the 2 on `master`, the code does the same.
 
 The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
 targets and hilen renders into plain Unorm since 2026-07-26, see
