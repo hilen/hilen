@@ -209,10 +209,11 @@ impl ViewTest for VideoSlowSound {
         let track = held(&HOLD, true, move || {
             view.video.set_audio_track(SECOND_SOUND);
         });
-        ensure!(
-            from_main(move || view.video.audio_track()) == Some(SECOND_SOUND),
-            "the second sound track is the chosen one"
-        );
+        // The old track stays the named one until the new one has opened on
+        // its thread, and the network opened again only now.
+        wait_until("the second sound track to be the chosen one", move || {
+            view.video.audio_track() == Some(SECOND_SOUND)
+        })?;
 
         from_main(move || {
             view.video.set_speed(1.0).play();

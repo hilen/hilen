@@ -1,8 +1,9 @@
 # Video playback
 
 `VideoView` plays a file or an http or https url, behind the `video` cargo feature. Desktop
-only for now and proven on macOS, the other lanes are in [roadmap.md](roadmap.md).
-`demo` and `ui-test` turn it on through a macOS target table, so the iOS, Android
+only for now and proven on macOS and on Windows x64, the other lanes are in
+[roadmap.md](roadmap.md). `demo` and `ui-test` turn it on through a target table for
+those 2 systems, so the iOS, Android
 and wasm builds carry none of it, and the feature fails to compile with a clear
 message anywhere but desktop.
 
@@ -77,7 +78,10 @@ message anywhere but desktop.
 - A stream that stalls holds playback. When the next frame is 0.25 seconds
   late, the queue is empty and the stream has not ended, the clock and the
   sound are held and the state is `Buffering`. Both go on once the queue is
-  full again or the stream ends. A play before the source opened waits the
+  full again or the stream ends. The sound is the clock, and on a stalled
+  stream its own read can run dry before the picture is late. So a clock that
+  has stood still for 0.25 seconds with an empty queue holds playback the same
+  way. A play before the source opened waits the
   same way, so the clock never runs ahead of the first frame. Stepped time
   never holds, a stepped test waits for the decoder instead.
 - Each demuxer opens with its own `Interrupt`, `hilen/src/video/source.rs`. It
@@ -155,7 +159,22 @@ the archive has no https protocol. zlib is on, and the script builds dav1d,
 the software AV1 decoder, into the same prefix first, it needs `meson` and
 `ninja`. `lib/link.txt` in the archive names what has to be linked besides the
 ffmpeg libraries, one `<kind>=<name>` per line, and the sys fork links those.
-Only `aarch64-apple-darwin` exists so far.
+There is an archive for `aarch64-apple-darwin` and for `x86_64-pc-windows-msvc`.
+
+The Windows archive is the one that is not built on its own host.
+`rust build/ffmpeg-win.rs` cross builds it in docker on any machine, with clang
+in cl mode and the MSVC headers and libraries from
+[xwin](https://github.com/Jake-Shadle/xwin). That is the same kind of build the
+Windows release of an app is, so the archive links there, and it links with the
+Microsoft linker on a real Windows too. It has D3D11VA, Schannel as its TLS,
+zlib and dav1d, all with the static C runtime, and its `lib/link.txt` also
+names the Windows libraries ffmpeg needs. The first build of the docker image
+unpacks the SDK, which takes about 40 minutes.
+
+On Windows the bindings need libclang at build time, `scoop install llvm` brings
+it. On an Intel HD 630 h264 and HEVC, 10 bit included, decode on the GPU, AV1
+decodes in dav1d. The first frame of every video logs its decoder and whether
+it is the hardware one.
 
 ## Measured
 

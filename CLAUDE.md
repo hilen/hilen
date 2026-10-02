@@ -42,7 +42,7 @@ report. `render-test` is only for the render pipelines drawn directly.
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
 with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device. `video` is video
-playback through a prebuilt static ffmpeg and kira, desktop only and proven on macOS, see
+playback through a prebuilt static ffmpeg and kira, desktop only and proven on macOS and Windows x64, see
 [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).

@@ -146,9 +146,13 @@ impl ViewTest for VideoStalledSeek {
         from_main(move || {
             view.video.play();
         });
-        wait_until("the stream to stall", move || {
+        let stalled = wait_until("the stream to stall", move || {
             view.video.state() == VideoState::Buffering
-        })?;
+        });
+        if stalled.is_err() {
+            let (state, position) = from_main(move || (view.video.state(), view.video.position()));
+            bail!("the stream did not stall, state {state:?} at {position:.2} s");
+        }
         let held = from_main(move || view.video.position());
         ensure!(
             held > 1.0 && held < 3.0,

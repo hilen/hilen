@@ -16,31 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## The ffmpeg archive for Windows x64
-
-Found by flixen at `~/dev/apps/flixen`, whose first release ships for Windows x64. This
-is 1 part of "Video playback, the other lanes" below, pulled up because a release waits
-for it.
-
-**Current.** [video.md](video.md) says of the prebuilt ffmpeg: "Only
-`aarch64-apple-darwin` exists so far." `prebuilt.txt` in the `ffmpeg-sys-next` fork has
-that 1 line. The engine names D3D11VA as the Windows device in
-`hilen/src/video/decoder.rs`, and it was never run. `build/ffmpeg.rs` has a Windows
-branch for the hardware decoder and no TLS library named for it. The release build of an
-app runs in docker on Linux with `cargo xwin` for `x86_64-pc-windows-msvc`, see
-`build/release/win.rs`, so the archive must link there, with the static C runtime the
-skill asks for.
-
-**Needed.** An archive for `x86_64-pc-windows-msvc` from `build/ffmpeg.rs`, published as
-a release asset of `hilen/build`, with its line in `prebuilt.txt`. D3D11VA decode on, a
-TLS library named so https works, Schannel is the one Windows ships, plus dav1d and
-zlib like the macOS archive. An app with the `video` feature then builds through
-`build/release/win.rs` with no setup, and the exe imports only DLLs that a clean
-Windows has. A video over https plays on a real Windows with sound, with hardware decode
-for h264 and HEVC.
-
-**Blocks.** The Windows release of flixen, and video on Windows in any app.
-
 ## Scrim under the clear pixels of a modal
 
 Found by labirintas at `~/dev/apps/labirintas`, whose dialogs have a wood panel picture
@@ -217,32 +192,35 @@ gate.
 
 ## Video playback, the other lanes
 
-Desktop macOS landed, see [video.md](video.md): `VideoView` behind the `video`
-feature, ffmpeg from prebuilt static archives, VideoToolbox decode, kira for
-the sound and as the clock, a 1080p60 and a 4K30 file play at full rate with
-sound. The rest of the platforms and the packaging are open.
+Desktop macOS and Windows x64 landed, see [video.md](video.md): `VideoView` behind
+the `video` feature, ffmpeg from prebuilt static archives, VideoToolbox and
+D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
+4K30 file play at full rate with sound. The rest of the platforms are open.
 
-- Current: the archive exists for `aarch64-apple-darwin` only. `demo` and
-  `ui-test` turn the feature on through a macOS target table. The engine
-  declares VAAPI for Linux and D3D11VA for Windows, neither has an archive
-  nor a CI lane. A decoded 4K
+- Current: the archive exists for `aarch64-apple-darwin` and for
+  `x86_64-pc-windows-msvc`. `demo` and `ui-test` turn the feature on through
+  a target table for macOS and Windows. On Windows the 8 video UI tests and
+  the video unit tests pass on a real machine, run by hand, no CI lane runs
+  them there. Sound on Windows was checked by the tests only, nobody
+  listened, and no large file was measured for dropped frames. The engine
+  declares VAAPI for Linux, which has no archive and no CI lane. A decoded 4K
   frame is copied through system memory, 12 MB a frame, and plays at rate.
   Each `VideoView` keeps one frame image per source size for good, the
   managed image store never frees.
-- Needed: an archive per desktop triple from `build/ffmpeg.rs`, Linux needs
-  `libva-dev` and `nasm` in `build/setup.sh` and in the docker containers of
-  the Linux CI job, Windows needs the ffmpeg configure under an MSYS2 shell,
-  then the target tables widen to `desktop`. Each archive needs its TLS named
-  in the script, only SecureTransport on macOS is there, so https on Linux
-  and Windows is open with them.
+- Needed: an archive for Linux and for the Intel Mac from `build/ffmpeg.rs`,
+  and for Windows on ARM from `build/ffmpeg-win.rs`. Linux needs `libva-dev`
+  and `nasm` in `build/setup.sh` and in the docker containers of the Linux CI
+  job, and its TLS named in the script. Then the target tables widen to
+  `desktop`. A person plays a real film on Windows, with sound, and reads
+  the dropped frames off the stats line.
   iOS and Android need archives cross built per target with VideoToolbox and
   MediaCodec, and the feature unlocked there. The browser cannot link
   ffmpeg, it hands the stream to an HTML5 video element and imports each
   frame with `copyExternalImageToTexture`, the one place the `VideoView`
   backend differs. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
   through the wgpu hal, only after an A/B shows the copy costs frames.
-- Blocks: video on any platform but macOS, and a shipped app on macOS until
-  the packaging question of a static archive per triple is settled.
+- Blocks: video on Linux, the Intel Mac, Windows on ARM, the phones and the
+  browser.
 
 ## Leftovers inside landed features
 

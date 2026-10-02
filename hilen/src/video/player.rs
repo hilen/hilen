@@ -20,7 +20,7 @@ use kira::{
     },
     track::{TrackBuilder, TrackHandle},
 };
-use log::error;
+use log::{error, info};
 use web_time::Instant;
 
 use crate::{
@@ -139,6 +139,33 @@ struct Flow {
     buffering: bool,
     /// Playback reached the end and nothing moved it since.
     finished:  bool,
+    /// Where the clock stood when no frame was left, and since when.
+    stand:     Option<Stand>,
+}
+
+/// A place of the clock and the time it was first seen there.
+#[derive(Clone, Copy)]
+struct Stand {
+    position: f64,
+    since_ms: f64,
+}
+
+/// True once the clock has stood at `position` for `STALL` seconds. The
+/// sound is the clock, and its own read can stall with the stream. Then
+/// the position never gets late against the next frame, it just stops.
+fn clock_stands(stand: &mut Option<Stand>, position: f64, now_ms: f64) -> bool {
+    match stand {
+        Some(stand) if (stand.position - position).abs() < f64::EPSILON => {
+            now_ms - stand.since_ms >= STALL * 1000.0
+        }
+        _ => {
+            *stand = Some(Stand {
+                position,
+                since_ms: now_ms,
+            });
+            false
+        }
+    }
 }
 
 struct Info {
@@ -505,13 +532,19 @@ impl Player {
             return;
         }
         if Clock::is_stepped() || ready || !self.pending.is_empty() {
+            self.flow.stand = None;
             return;
         }
         // Before the first frame there is nothing to be late against, the
         // clock waits for the source to open.
-        if self.queue.shown && self.position() <= self.flow.due + STALL {
+        let position = self.position();
+        if self.queue.shown
+            && position <= self.flow.due + STALL
+            && !clock_stands(&mut self.flow.stand, position, Clock::now_ms())
+        {
             return;
         }
+        self.flow.stand = None;
         self.base = self.position();
         self.flow.buffering = true;
         if let Some(sound) = &mut self.sound {
@@ -550,6 +583,16 @@ impl Player {
         let target = self.target.as_ref()?;
         target.show(&frame);
 
+        if !self.queue.shown {
+            info!(
+                "video {}: first frame, {} by {} pixels, decoder {}, {}",
+                self.source.location(),
+                frame.width,
+                frame.height,
+                self.info.as_ref().map_or("unknown", |info| info.decoder.as_str()),
+                if frame.hardware { "hardware" } else { "software" }
+            );
+        }
         self.counters.hardware = frame.hardware;
         self.counters.presented += 1;
         self.queue.shown = true;
@@ -765,5 +808,34 @@ fn decibels(volume: f32) -> f32 {
         Decibels::SILENCE.0
     } else {
         20.0 * volume.log10()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{STALL, clock_stands};
+
+    /// The sound is the clock, and on a stalled stream its own read can run
+    /// dry before the picture is late. Playback then stood still in the
+    /// Playing state, with no way for an app to show that it waits.
+    #[test]
+    fn a_clock_that_stopped_counts_as_stalled_after_the_stall_time() {
+        let mut stand = None;
+        let stall_ms = STALL * 1000.0;
+
+        assert!(!clock_stands(&mut stand, 2.5, 1000.0));
+        assert!(!clock_stands(&mut stand, 2.5, 1000.0 + stall_ms - 1.0));
+        assert!(clock_stands(&mut stand, 2.5, 1000.0 + stall_ms));
+    }
+
+    #[test]
+    fn a_clock_that_moves_is_never_stalled() {
+        let mut stand = None;
+
+        assert!(!clock_stands(&mut stand, 2.0, 1000.0));
+        assert!(!clock_stands(&mut stand, 2.2, 2000.0));
+        assert!(!clock_stands(&mut stand, 2.4, 3000.0));
+        // It stopped only now, the time before does not count.
+        assert!(!clock_stands(&mut stand, 2.4, 3100.0));
     }
 }
