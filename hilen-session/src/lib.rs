@@ -1,5 +1,5 @@
 //! The login session token of a hilen app, sealed on disk. `hilen` keeps the
-//! `GoogleLogin` token here, and a tool with no window reads the same login
+//! `Login` token here, and a tool with no window reads the same login
 //! through this crate without the engine.
 
 mod encrypt;

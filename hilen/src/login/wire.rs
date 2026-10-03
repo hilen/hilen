@@ -4,13 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The logged in user, as the server knows them from Google.
+/// The logged in user, as the server knows them from Google or Apple.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginUser {
     pub id:      String,
     pub email:   String,
     pub name:    String,
-    /// A link to the Google profile picture.
+    /// A link to the Google profile picture. An Apple account has none.
     pub picture: Option<String>,
 }
 

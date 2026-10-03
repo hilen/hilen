@@ -183,6 +183,10 @@ D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
 
 Small remainders not worth their own entry.
 
+- Sign in with Apple was never run against the real Apple, which refuses
+  `localhost` as a return address. The exchange, the form post and the revoke are
+  proven against a stand in server only, see [login.md](login.md). The first backend
+  with a real service id proves them.
 - Tab focus traversal does not scroll. Tab selects the next text field even when
   it sits scrolled out of view inside a `ScrollView`, so the editing session
   starts off screen. Needs a scroll-to-view step in `select_next_field`, the way

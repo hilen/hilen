@@ -9,7 +9,7 @@ use sqlx::types::{Uuid, uuid::Builder};
 
 use crate::{
     Db,
-    auth::{User, google::GoogleIdentity},
+    auth::{User, identity::Identity},
 };
 
 const SESSION_DAYS: i32 = 90;
@@ -32,7 +32,8 @@ macro_rules! on_db {
     };
 }
 
-/// A random id, version 4. Postgres makes its own, SQLite has no such default.
+/// A random id, version 4, for a new user. SQLite has no default that makes
+/// one, so the server makes it for both databases.
 fn new_id() -> Result<Uuid> {
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes).map_err(|error| anyhow!("no random bytes for an id: {error}"))?;
@@ -123,40 +124,120 @@ RETURNING user_id",
     Ok(finished.map(|(user_id,)| user_id))
 }
 
-/// Name, email and picture follow Google on every login.
-pub(crate) async fn upsert_user(db: &Db, identity: &GoogleIdentity) -> Result<Uuid> {
-    let (id,): (Uuid,) = match db {
-        Db::Postgres(pool) => {
-            sqlx::query_as(
+/// The body of `login_user`, the same statements on either database inside
+/// one transaction.
+macro_rules! login_user_on {
+    ($pool:expr, $identity:expr) => {{
+        let identity: &Identity = $identity;
+        let provider = identity.provider.name();
+        let mut transaction = $pool.begin().await?;
+
+        let known: Option<(Uuid,)> =
+            sqlx::query_as("SELECT user_id FROM identities WHERE provider = $1 AND subject = $2")
+                .bind(provider)
+                .bind(&identity.subject)
+                .fetch_optional(&mut *transaction)
+                .await?;
+
+        let user_id = if let Some((user_id,)) = known {
+            sqlx::query(
                 r"
-INSERT INTO users (google_sub, email, name, picture) VALUES ($1, $2, $3, $4)
-ON CONFLICT (google_sub) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
-RETURNING id",
+UPDATE users SET email = $2, name = COALESCE($3, name), picture = COALESCE($4, picture)
+WHERE id = $1",
             )
-            .bind(&identity.sub)
+            .bind(user_id)
             .bind(&identity.email)
             .bind(&identity.name)
             .bind(&identity.picture)
-            .fetch_one(pool)
-            .await?
-        }
-        Db::Sqlite(pool) => {
-            sqlx::query_as(
+            .execute(&mut *transaction)
+            .await?;
+
+            sqlx::query(
                 r"
-INSERT INTO users (id, google_sub, email, name, picture) VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (google_sub) DO UPDATE SET email = excluded.email, name = excluded.name, picture = excluded.picture
-RETURNING id",
+UPDATE identities SET refresh_token = COALESCE($3, refresh_token)
+WHERE provider = $1 AND subject = $2",
             )
-            .bind(new_id()?)
-            .bind(&identity.sub)
+            .bind(provider)
+            .bind(&identity.subject)
+            .bind(&identity.refresh_token)
+            .execute(&mut *transaction)
+            .await?;
+
+            user_id
+        } else {
+            let same_email: Option<(Uuid,)> = sqlx::query_as(
+                "SELECT id FROM users WHERE lower(email) = lower($1) ORDER BY created_at LIMIT 1",
+            )
             .bind(&identity.email)
-            .bind(&identity.name)
-            .bind(&identity.picture)
-            .fetch_one(pool)
-            .await?
-        }
-    };
-    Ok(id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+            let user_id = if let Some((user_id,)) = same_email {
+                user_id
+            } else {
+                let user_id = new_id()?;
+                sqlx::query("INSERT INTO users (id, email, name, picture) VALUES ($1, $2, $3, $4)")
+                    .bind(user_id)
+                    .bind(&identity.email)
+                    .bind(identity.name.as_ref().unwrap_or(&identity.email))
+                    .bind(&identity.picture)
+                    .execute(&mut *transaction)
+                    .await?;
+                user_id
+            };
+
+            sqlx::query(
+                "INSERT INTO identities (provider, subject, user_id, refresh_token) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(provider)
+            .bind(&identity.subject)
+            .bind(user_id)
+            .bind(&identity.refresh_token)
+            .execute(&mut *transaction)
+            .await?;
+
+            user_id
+        };
+
+        transaction.commit().await?;
+        user_id
+    }};
+}
+
+/// The user of a login, made on the first one. An identity seen before logs
+/// into its user, and the email follows the provider, the name and the picture
+/// too when the provider sent them. A new identity whose email already belongs
+/// to a user joins that user, so a person with Google and Apple on one email
+/// is one user. Every email here is verified by its provider. A new user with
+/// no name is named by the email.
+pub(crate) async fn login_user(db: &Db, identity: &Identity) -> Result<Uuid> {
+    Ok(match db {
+        Db::Postgres(pool) => login_user_on!(pool, identity),
+        Db::Sqlite(pool) => login_user_on!(pool, identity),
+    })
+}
+
+/// What Apple has to be told to forget before the user goes.
+pub(crate) async fn apple_refresh_tokens(db: &Db, user_id: Uuid) -> Result<Vec<String>, sqlx::Error> {
+    let both = r"
+SELECT refresh_token FROM identities
+WHERE user_id = $1 AND provider = 'apple' AND refresh_token IS NOT NULL";
+    let tokens: Vec<(String,)> = on_db!(db, both, both, |sql, pool| sqlx::query_as(sql)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await)?;
+    Ok(tokens.into_iter().map(|(token,)| token).collect())
+}
+
+/// Removes the user. The identities, the sessions and every row of an app
+/// table that points at the user with a cascade go along.
+pub(crate) async fn delete_user(db: &Db, user_id: Uuid) -> Result<(), sqlx::Error> {
+    let both = "DELETE FROM users WHERE id = $1";
+    on_db!(db, both, both, |sql, pool| sqlx::query(sql)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map(|_| ()))
 }
 
 pub(crate) async fn create_session(db: &Db, token_hash: &[u8], user_id: Uuid) -> Result<(), sqlx::Error> {

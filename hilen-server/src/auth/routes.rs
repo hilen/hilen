@@ -1,5 +1,5 @@
 use axum::{
-    Json, Router,
+    Form, Json, Router,
     extract::{Query, State},
     http::HeaderMap,
     response::{Html, IntoResponse, Redirect, Response},
@@ -11,13 +11,15 @@ use sha2::{Digest, Sha256};
 use crate::{
     AppError,
     auth::{
-        AuthState, User, google, session, store,
+        AppleConfig, AuthState, User, apple, google,
+        identity::{Identity, Provider},
+        session, store,
         user::bearer_token,
         wire::{PollRequest, PollResponse, UserInfo},
     },
 };
 
-/// How long the user has to get through the Google pages.
+/// How long the user has to get through the pages of the provider.
 const PENDING_MINUTES: i32 = 10;
 
 /// The login routes, with their state already in, so the result merges into
@@ -25,16 +27,23 @@ const PENDING_MINUTES: i32 = 10;
 ///
 /// - `GET /auth/google?challenge=` sends the browser on to Google.
 /// - `GET /auth/google/callback` is where Google sends it back.
+/// - `GET /auth/apple?challenge=` sends the browser on to Apple, 404 when the
+///   config has no Apple part.
+/// - `POST /auth/apple/callback` is the form Apple posts on the way back.
 /// - `POST /auth/poll` hands the waiting app its session, once.
 /// - `GET /auth/me` is the user of a session.
 /// - `POST /auth/logout` ends a session.
+/// - `POST /auth/delete` removes the user of a session for good.
 pub fn auth_routes<S>(state: AuthState) -> Router<S> {
     Router::new()
-        .route("/auth/google", get(start))
-        .route("/auth/google/callback", get(callback))
+        .route("/auth/google", get(start_google))
+        .route("/auth/google/callback", get(google_callback))
+        .route("/auth/apple", get(start_apple))
+        .route("/auth/apple/callback", post(apple_callback))
         .route("/auth/poll", post(poll))
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
+        .route("/auth/delete", post(delete))
         .with_state(state)
 }
 
@@ -43,11 +52,35 @@ struct StartQuery {
     challenge: String,
 }
 
-async fn start(
+async fn start_google(
     State(state): State<AuthState>,
     Query(query): Query<StartQuery>,
 ) -> Result<Redirect, AppError> {
-    if !is_challenge(&query.challenge) {
+    let oauth_state = start(&state, &query.challenge).await?;
+    Ok(Redirect::to(&google::auth_url(&state.config, &oauth_state)?))
+}
+
+async fn start_apple(
+    State(state): State<AuthState>,
+    Query(query): Query<StartQuery>,
+) -> Result<Redirect, AppError> {
+    let apple = apple_config(&state)?;
+    let oauth_state = start(&state, &query.challenge).await?;
+    Ok(Redirect::to(&apple::auth_url(
+        &state.config,
+        apple,
+        &oauth_state,
+    )?))
+}
+
+fn apple_config(state: &AuthState) -> Result<&AppleConfig, AppError> {
+    state.config.apple.as_ref().ok_or(AppError::NotFound)
+}
+
+/// Remembers the login that starts and gives the `state` the provider has to
+/// bring back.
+async fn start(state: &AuthState, challenge: &str) -> Result<String, AppError> {
+    if !is_challenge(challenge) {
         return Err(AppError::BadRequest(
             "the challenge is not a SHA-256 in hex".to_owned(),
         ));
@@ -57,30 +90,96 @@ async fn start(
 
     let oauth_state = session::new_token()?;
 
-    if !store::start_pending(&state.db, &query.challenge, &oauth_state).await? {
+    if !store::start_pending(&state.db, challenge, &oauth_state).await? {
         return Err(AppError::BadRequest("this login is already finished".to_owned()));
     }
 
-    Ok(Redirect::to(&google::auth_url(&state.config, &oauth_state)?))
+    Ok(oauth_state)
 }
 
 #[derive(Deserialize)]
-struct CallbackQuery {
+struct GoogleAnswer {
     code:  Option<String>,
     state: Option<String>,
     error: Option<String>,
 }
 
 /// A person looks at the answer of this one, so every outcome is a page.
-async fn callback(State(state): State<AuthState>, Query(query): Query<CallbackQuery>) -> Response {
-    let app = &state.config.app_name;
-
-    let (Some(code), Some(oauth_state)) = (query.code, query.state) else {
-        tracing::info!("google login stopped: {:?}", query.error);
-        return page(app, "Sign in was cancelled", "You can close this tab.");
+async fn google_callback(State(state): State<AuthState>, Query(answer): Query<GoogleAnswer>) -> Response {
+    let (Some(code), Some(oauth_state)) = (answer.code, answer.state) else {
+        tracing::info!("google login stopped: {:?}", answer.error);
+        return cancelled_page(&state);
     };
 
-    match finish(&state, &code, &oauth_state).await {
+    let finished = finish(
+        &state,
+        &oauth_state,
+        google::exchange(&state.http, &state.config, &code),
+    )
+    .await;
+    outcome_page(&state, Provider::Google, finished)
+}
+
+#[derive(Deserialize)]
+struct AppleAnswer {
+    code:  Option<String>,
+    state: Option<String>,
+    /// The name as JSON, on the first login of an account only.
+    user:  Option<String>,
+    error: Option<String>,
+}
+
+/// A person looks at the answer of this one too.
+async fn apple_callback(State(state): State<AuthState>, Form(answer): Form<AppleAnswer>) -> Response {
+    let Ok(apple) = apple_config(&state) else {
+        return AppError::NotFound.into_response();
+    };
+    let (Some(code), Some(oauth_state)) = (answer.code, answer.state) else {
+        tracing::info!("apple login stopped: {:?}", answer.error);
+        return cancelled_page(&state);
+    };
+
+    let finished = finish(
+        &state,
+        &oauth_state,
+        apple::exchange(&state.http, &state.config, apple, &code, answer.user.as_deref()),
+    )
+    .await;
+    outcome_page(&state, Provider::Apple, finished)
+}
+
+/// Runs `exchange` and gives the waiting login its user. False when no login
+/// waits for this `state`, it timed out or never was, and then the provider
+/// is not asked at all.
+async fn finish(
+    state: &AuthState,
+    oauth_state: &str,
+    exchange: impl Future<Output = anyhow::Result<Identity>>,
+) -> anyhow::Result<bool> {
+    if !store::is_waiting(&state.db, oauth_state, PENDING_MINUTES).await? {
+        return Ok(false);
+    }
+
+    let identity = exchange.await?;
+    let user_id = store::login_user(&state.db, &identity).await?;
+    store::finish_pending(&state.db, oauth_state, user_id).await?;
+    tracing::info!("{} login done for user {user_id}", identity.provider.name());
+
+    Ok(true)
+}
+
+fn cancelled_page(state: &AuthState) -> Response {
+    page(
+        &state.config.app_name,
+        "Sign in was cancelled",
+        "You can close this tab.",
+    )
+}
+
+fn outcome_page(state: &AuthState, provider: Provider, finished: anyhow::Result<bool>) -> Response {
+    let app = &state.config.app_name;
+
+    match finished {
         Ok(true) => page(
             app,
             &format!("You are signed in to {app}"),
@@ -92,23 +191,10 @@ async fn callback(State(state): State<AuthState>, Query(query): Query<CallbackQu
             "Go back to the app and start again.",
         ),
         Err(error) => {
-            tracing::error!("google login failed: {error:?}");
+            tracing::error!("{} login failed: {error:?}", provider.name());
             page(app, "Sign in did not work", "Go back to the app and try again.")
         }
     }
-}
-
-/// False when no login waits for this `state`, it timed out or never was.
-async fn finish(state: &AuthState, code: &str, oauth_state: &str) -> anyhow::Result<bool> {
-    if !store::is_waiting(&state.db, oauth_state, PENDING_MINUTES).await? {
-        return Ok(false);
-    }
-
-    let identity = google::exchange(&state.http, &state.config, code).await?;
-    let user_id = store::upsert_user(&state.db, &identity).await?;
-    store::finish_pending(&state.db, oauth_state, user_id).await?;
-
-    Ok(true)
 }
 
 async fn poll(
@@ -137,6 +223,34 @@ async fn me(user: User) -> Json<UserInfo> {
 async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<(), AppError> {
     let token = bearer_token(&headers).ok_or(AppError::Unauthorized)?;
     session::delete(&state.db, token).await?;
+    Ok(())
+}
+
+/// Removes the user for good. Apple is told first to forget what it gave out
+/// for the user. A revoke that fails is logged and the user still goes, a
+/// person must be able to leave also when Apple is down.
+async fn delete(State(state): State<AuthState>, user: User) -> Result<(), AppError> {
+    let tokens = store::apple_refresh_tokens(&state.db, user.id).await?;
+
+    match &state.config.apple {
+        Some(apple) => {
+            for token in &tokens {
+                if let Err(error) = apple::revoke(&state.http, apple, token).await {
+                    tracing::error!("apple revoke failed for user {}: {error:?}", user.id);
+                }
+            }
+        }
+        None if !tokens.is_empty() => {
+            tracing::error!(
+                "user {} has an Apple token and the config has no Apple part, nothing revoked",
+                user.id
+            );
+        }
+        None => {}
+    }
+
+    store::delete_user(&state.db, user.id).await?;
+    tracing::info!("user {} deleted", user.id);
     Ok(())
 }
 

@@ -23,7 +23,7 @@ through its `Db` type, Redis optional. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
 page requests at a running `trunk serve` for the dev loop. Its `auth` module is
-the server half of the Google login, see [docs/login.md](docs/login.md). Its
+the server half of the Google and Apple login, see [docs/login.md](docs/login.md). Its
 `prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
 the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
 route behind a Bearer token, since a stack with a public host has only one port
@@ -46,7 +46,7 @@ playback through a prebuilt static ffmpeg and kira, desktop only and proven on m
 [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
-`login` is the Google login client, the `GoogleLoginButton` view and the sealed `SessionStore`,
+`login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views and the sealed `SessionStore`,
 see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
 `demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on, and `video` on macOS.
@@ -125,7 +125,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
   how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
   mapping, playback speed, and what was measured. Read before touching `hilen/src/video`
   or the archive script.
-- [docs/login.md](docs/login.md) — the Google login: the poll flow between `hilen::login` and
+- [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before
   touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the

@@ -2,23 +2,15 @@
 //! sends them back with a code, and `exchange` trades that code for who they
 //! are.
 
-use anyhow::{Context, Result, anyhow, bail};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use anyhow::{Context, Result, bail};
 use reqwest::{Client, Url};
 use serde::Deserialize;
-use serde_json::{from_slice, from_str};
+use serde_json::from_str;
 
-use crate::auth::AuthConfig;
-
-/// Who Google says the user is.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GoogleIdentity {
-    /// Google's own id of the account. It never changes, an email can.
-    pub sub:     String,
-    pub email:   String,
-    pub name:    String,
-    pub picture: Option<String>,
-}
+use crate::auth::{
+    AuthConfig,
+    identity::{Identity, Provider, claims_of},
+};
 
 pub(crate) fn auth_url(config: &AuthConfig, state: &str) -> Result<String> {
     let url = Url::parse_with_params(
@@ -39,7 +31,7 @@ pub(crate) fn auth_url(config: &AuthConfig, state: &str) -> Result<String> {
     Ok(url.into())
 }
 
-pub(crate) async fn exchange(http: &Client, config: &AuthConfig, code: &str) -> Result<GoogleIdentity> {
+pub(crate) async fn exchange(http: &Client, config: &AuthConfig, code: &str) -> Result<Identity> {
     // The query string of a throwaway address is the same encoding a form
     // body wants, and it saves the `form` feature of reqwest.
     let form = Url::parse_with_params(
@@ -86,26 +78,20 @@ struct IdTokenClaims {
     picture:        Option<String>,
 }
 
-/// Reads the claims out of the id token. The signature is not checked, and
-/// does not have to be: the token came straight from Google over TLS in answer
-/// to our own request, nobody else had a hand on it.
-fn identity_of(id_token: &str) -> Result<GoogleIdentity> {
-    let payload = id_token
-        .split('.')
-        .nth(1)
-        .ok_or_else(|| anyhow!("the id token has no payload part"))?;
-    let json = URL_SAFE_NO_PAD.decode(payload).context("the id token payload is not base64")?;
-    let claims: IdTokenClaims = from_slice(&json).context("the id token payload does not parse")?;
+fn identity_of(id_token: &str) -> Result<Identity> {
+    let claims: IdTokenClaims = claims_of(id_token)?;
 
     if !claims.email_verified {
         bail!("the email of this Google account is not verified");
     }
 
-    Ok(GoogleIdentity {
-        name:    claims.name.unwrap_or_else(|| claims.email.clone()),
-        sub:     claims.sub,
-        email:   claims.email,
-        picture: claims.picture,
+    Ok(Identity {
+        provider:      Provider::Google,
+        subject:       claims.sub,
+        email:         claims.email,
+        name:          claims.name,
+        picture:       claims.picture,
+        refresh_token: None,
     })
 }
 
@@ -151,17 +137,17 @@ mod test {
         );
         let identity = identity_of(&token)?;
 
-        assert_eq!(identity.sub, "123");
+        assert_eq!(identity.subject, "123");
         assert_eq!(identity.email, "a@b.c");
-        assert_eq!(identity.name, "Anna");
+        assert_eq!(identity.name.as_deref(), Some("Anna"));
         assert_eq!(identity.picture.as_deref(), Some("https://p/x.png"));
         Ok(())
     }
 
     #[test]
-    fn a_missing_name_falls_back_to_the_email() -> Result<()> {
+    fn a_missing_name_is_none() -> Result<()> {
         let token = id_token(r#"{"sub":"123","email":"a@b.c","email_verified":true}"#);
-        assert_eq!(identity_of(&token)?.name, "a@b.c");
+        assert_eq!(identity_of(&token)?.name, None);
         Ok(())
     }
 

@@ -54,8 +54,8 @@ scene-tests = ["scene", "ui-tests", "level-proc/scene-tests", "rapier3d/enhanced
 pointers_info = []
 stats = []
 webgl = ["wgpu/webgl"]
-# Google login against a `hilen-server` backend, the `GoogleLoginButton` view and
-# the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
+# Google and Apple login against a `hilen-server` backend, the two login button
+# views and the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
 # at build time. Off by default, an app with no accounts carries none of it.
 login = ["dep:hilen-session", "dep:getrandom"]
 

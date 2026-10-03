@@ -23,6 +23,7 @@ mime_guess                  = { workspace = true }
 project-proc                = { workspace = true }
 redis                       = { workspace = true }
 reqwest                     = { workspace = true }
+ring                        = { workspace = true }
 rust-embed                  = { workspace = true }
 rustls                      = { workspace = true }
 serde                       = { workspace = true }

@@ -10,7 +10,8 @@ use crate::{
     auth::{User, store},
 };
 
-/// 64 hex characters of OS randomness. Also the `state` of a Google redirect.
+/// 64 hex characters of OS randomness. Also the `state` of a
+/// redirect to Google or Apple.
 pub(crate) fn new_token() -> Result<String> {
     let mut bytes = [0; 32];
     getrandom::fill(&mut bytes).map_err(|error| anyhow!("no random bytes for a token: {error}"))?;

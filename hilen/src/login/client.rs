@@ -33,17 +33,37 @@ static CLIENT: LazyLock<Client> = LazyLock::new(client);
 /// number than its own knows it is no longer wanted.
 static ATTEMPT: AtomicU64 = AtomicU64::new(0);
 
-/// Google login against the `auth` routes of a `hilen-server` backend.
+/// Who the user logs in with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Provider {
+    Google,
+    /// The backend needs its Apple config, without it the page answers 404.
+    Apple,
+}
+
+impl Provider {
+    /// The route of the backend that starts this login.
+    const fn route(self) -> &'static str {
+        match self {
+            Self::Google => "google",
+            Self::Apple => "apple",
+        }
+    }
+}
+
+/// Login against the `auth` routes of a `hilen-server` backend, with Google
+/// or with Apple.
 ///
-/// The app never talks to Google. It opens a page of its own backend in the
-/// browser and asks the backend every two seconds if the login is done. The
-/// page address carries only the hash of a secret made here, the secret itself
-/// goes out with the polls, so the browser history is of no use to anyone.
+/// The app never talks to the provider. It opens a page of its own backend in
+/// the browser and asks the backend every two seconds if the login is done.
+/// The page address carries only the hash of a secret made here, the secret
+/// itself goes out with the polls, so the browser history is of no use to
+/// anyone.
 ///
 /// Every callback runs on the main thread.
-pub struct GoogleLogin;
+pub struct Login;
 
-impl GoogleLogin {
+impl Login {
     /// The origin of the app backend, like `https://myapp.example.com`. Call
     /// it once at launch, before anything else here.
     pub fn set_server(origin: impl ToString) {
@@ -53,12 +73,17 @@ impl GoogleLogin {
     /// Opens the login page and waits for the user to finish there. Call it
     /// straight from a tap, a browser blocks a page opened any later. A
     /// cancelled login never calls `done`.
-    pub fn start(done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+    pub fn start(provider: Provider, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
         let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
 
         let opened = server().and_then(|server| {
             let verifier = new_verifier()?;
-            open_url(format!("{server}/auth/google?challenge={}", challenge(&verifier)))?;
+            log::info!("{} login started", provider.route());
+            open_url(format!(
+                "{server}/auth/{}?challenge={}",
+                provider.route(),
+                challenge(&verifier)
+            ))?;
             Ok((server, verifier))
         });
 
@@ -103,10 +128,20 @@ impl GoogleLogin {
             on_main(move || done(result));
         });
     }
+
+    /// Removes the account on the server for good, with everything the
+    /// server keeps for it, and forgets the session here. The session stays
+    /// when the server cannot be reached, so the user can try again.
+    pub fn delete_account(done: impl FnOnce(Result<()>) + Send + 'static) {
+        spawn(async move {
+            let result = delete_user().await;
+            on_main(move || done(result));
+        });
+    }
 }
 
 #[cfg(feature = "ui-tests")]
-impl GoogleLogin {
+impl Login {
     /// Puts another server in and hands the old one back, for a test that has
     /// to be sure a tap cannot open a real login page.
     pub(super) fn swap_server(server: Option<String>) -> Option<String> {
@@ -120,7 +155,7 @@ fn server() -> Result<String> {
     SERVER
         .lock()
         .clone()
-        .ok_or_else(|| anyhow!("no login server, call GoogleLogin::set_server at launch"))
+        .ok_or_else(|| anyhow!("no login server, call Login::set_server at launch"))
 }
 
 fn new_verifier() -> Result<String> {
@@ -152,6 +187,7 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Option<Re
         match poll(server, verifier).await {
             Ok(PollResponse::Pending) => failures = 0,
             Ok(PollResponse::Done { token, user }) => {
+                log::info!("login done");
                 return Some(SessionStore::save(&token).map(|()| user));
             }
             Err(error) => {
@@ -205,6 +241,22 @@ async fn end_session() -> Result<()> {
     // An unknown session is as logged out as it gets.
     match send::<()>(request).await? {
         Reply::Ok(()) | Reply::Unauthorized => Ok(()),
+    }
+}
+
+async fn delete_user() -> Result<()> {
+    let Some(token) = SessionStore::load() else {
+        bail!("nobody is logged in");
+    };
+
+    let request = CLIENT.post(format!("{}/auth/delete", server()?)).bearer_auth(token);
+
+    // A session the server no longer knows has no account to delete.
+    match send::<()>(request).await? {
+        Reply::Ok(()) | Reply::Unauthorized => {
+            log::info!("the account is deleted");
+            SessionStore::clear()
+        }
     }
 }
 

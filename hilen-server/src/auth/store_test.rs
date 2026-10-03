@@ -24,8 +24,9 @@ use axum::{
     routing::get,
 };
 use sqlx::{
-    AssertSqlSafe, SqlitePool,
+    AssertSqlSafe, PgPool, SqlitePool,
     postgres::{PgConnectOptions, PgPoolOptions},
+    types::Uuid,
 };
 use tower::ServiceExt;
 
@@ -33,7 +34,7 @@ use crate::{
     Db,
     auth::{
         User,
-        google::GoogleIdentity,
+        identity::{Identity, Provider},
         migrate,
         session::{self, hash, new_token},
         store,
@@ -45,7 +46,7 @@ const POSTGRES_URL: &str = "HILEN_TEST_POSTGRES_URL";
 
 /// A fresh database file with the login tables. A file and not memory, each
 /// connection of a pool would get a memory database of its own.
-async fn sqlite() -> Result<(SqlitePool, Db)> {
+pub(crate) async fn sqlite() -> Result<(SqlitePool, Db)> {
     let path = temp_dir().join(format!("hilen-auth-test-{}.db", new_token()?));
     let pool = build_sqlite(&format!("sqlite://{}", path.display())).await?;
     migrate(&pool).await?;
@@ -57,6 +58,16 @@ async fn sqlite() -> Result<(SqlitePool, Db)> {
 /// drops the database afterwards, passed or not.
 async fn on_postgres<Test>(test: Test) -> Result<()>
 where Test: AsyncFnOnce(Db) -> Result<()> {
+    on_empty_postgres(async |pool: PgPool| {
+        migrate(&pool).await?;
+        test(Db::from(&pool)).await
+    })
+    .await
+}
+
+/// The same with no tables yet, for a test that migrates by itself.
+async fn on_empty_postgres<Test>(test: Test) -> Result<()>
+where Test: AsyncFnOnce(PgPool) -> Result<()> {
     let url = var(POSTGRES_URL)
         .with_context(|| format!("set {POSTGRES_URL} to a Postgres that may create databases"))?;
     let admin = PgPoolOptions::new().max_connections(1).connect(&url).await?;
@@ -68,10 +79,7 @@ where Test: AsyncFnOnce(Db) -> Result<()> {
 
     let options = PgConnectOptions::from_str(&url)?.database(&name);
     let pool = PgPoolOptions::new().max_connections(8).connect_with(options).await?;
-    let result = match migrate(&pool).await {
-        Ok(()) => test(Db::from(&pool)).await,
-        Err(error) => Err(error),
-    };
+    let result = test(pool.clone()).await;
 
     pool.close().await;
     sqlx::query(AssertSqlSafe(format!(r#"DROP DATABASE "{name}""#)))
@@ -91,15 +99,6 @@ async fn run(db: &Db, postgres: &'static str, sqlite: &'static str) -> Result<()
         }
     }
     Ok(())
-}
-
-async fn pending_count(db: &Db) -> Result<i64> {
-    let sql = "SELECT count(*) FROM pending_logins";
-    let (count,): (i64,) = match db {
-        Db::Postgres(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
-        Db::Sqlite(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
-    };
-    Ok(count)
 }
 
 /// Seconds until the session of `token` ends.
@@ -122,13 +121,35 @@ async fn seconds_left(db: &Db, token: &str) -> Result<i64> {
     Ok(seconds)
 }
 
-fn identity(name: &str) -> GoogleIdentity {
-    GoogleIdentity {
-        sub:     "google-sub-1".to_owned(),
-        email:   "ana@example.com".to_owned(),
-        name:    name.to_owned(),
-        picture: None,
+fn identity(name: &str) -> Identity {
+    Identity {
+        provider:      Provider::Google,
+        subject:       "google-sub-1".to_owned(),
+        email:         "ana@example.com".to_owned(),
+        name:          Some(name.to_owned()),
+        picture:       Some("https://p/ana.png".to_owned()),
+        refresh_token: None,
     }
+}
+
+/// An Apple login. Apple sends the name on the first one only.
+fn apple_identity(email: &str, name: Option<&str>, refresh_token: &str) -> Identity {
+    Identity {
+        provider:      Provider::Apple,
+        subject:       "apple-sub-1".to_owned(),
+        email:         email.to_owned(),
+        name:          name.map(ToOwned::to_owned),
+        picture:       None,
+        refresh_token: Some(refresh_token.to_owned()),
+    }
+}
+
+async fn count(db: &Db, sql: &'static str) -> Result<i64> {
+    let (count,): (i64,) = match db {
+        Db::Postgres(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
+        Db::Sqlite(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
+    };
+    Ok(count)
 }
 
 async fn a_login_runs_from_start_to_session(db: Db) -> Result<()> {
@@ -141,7 +162,7 @@ async fn a_login_runs_from_start_to_session(db: Db) -> Result<()> {
     // Nothing to hand over before Google has answered.
     assert_eq!(store::take_finished(&db, "challenge", 10).await?, None);
 
-    let user_id = store::upsert_user(&db, &identity("Ana")).await?;
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
     store::finish_pending(&db, "state-2", user_id).await?;
     assert!(!store::is_waiting(&db, "state-2", 10).await?);
 
@@ -163,8 +184,8 @@ async fn a_login_runs_from_start_to_session(db: Db) -> Result<()> {
 }
 
 async fn the_same_google_account_is_the_same_user(db: Db) -> Result<()> {
-    let first = store::upsert_user(&db, &identity("Ana")).await?;
-    let second = store::upsert_user(&db, &identity("Ana Maria")).await?;
+    let first = store::login_user(&db, &identity("Ana")).await?;
+    let second = store::login_user(&db, &identity("Ana Maria")).await?;
     assert_eq!(first, second, "one account, one id");
 
     let token = session::create(&db, first).await?;
@@ -186,9 +207,9 @@ async fn old_logins_and_ended_sessions_are_gone(db: Db) -> Result<()> {
         "11 minutes is too old"
     );
     store::prune_pending(&db, 10).await?;
-    assert_eq!(pending_count(&db).await?, 0);
+    assert_eq!(count(&db, "SELECT count(*) FROM pending_logins").await?, 0);
 
-    let user_id = store::upsert_user(&db, &identity("Ana")).await?;
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
     let token = session::create(&db, user_id).await?;
 
     // Not used for 2 days: the next use moves the end forward again.
@@ -222,6 +243,85 @@ async fn old_logins_and_ended_sessions_are_gone(db: Db) -> Result<()> {
     Ok(())
 }
 
+async fn google_and_apple_on_one_email_are_one_user(db: Db) -> Result<()> {
+    let google = store::login_user(&db, &identity("Ana")).await?;
+    // The email differs in case only, and Apple brings no name this time.
+    let apple = store::login_user(&db, &apple_identity("Ana@Example.com", None, "refresh-1")).await?;
+    assert_eq!(google, apple, "the same email is the same user");
+    assert_eq!(count(&db, "SELECT count(*) FROM users").await?, 1);
+    assert_eq!(count(&db, "SELECT count(*) FROM identities").await?, 2);
+
+    let token = session::create(&db, google).await?;
+    let user = session::user_of(&db, &token).await?.expect("the session has its user");
+    assert_eq!(user.name, "Ana", "a login with no name keeps the name");
+    assert_eq!(
+        user.picture.as_deref(),
+        Some("https://p/ana.png"),
+        "a login with no picture keeps the picture"
+    );
+    Ok(())
+}
+
+async fn another_email_is_another_user(db: Db) -> Result<()> {
+    let google = store::login_user(&db, &identity("Ana")).await?;
+    let relay = "x7k2@privaterelay.appleid.com";
+    let apple = store::login_user(&db, &apple_identity(relay, Some("Ana Maria"), "refresh-1")).await?;
+    assert_ne!(google, apple, "a hidden email cannot be tied to the Google user");
+
+    let token = session::create(&db, apple).await?;
+    let user = session::user_of(&db, &token).await?.expect("the session has its user");
+    assert_eq!(user.name, "Ana Maria", "the name of the first Apple login");
+
+    // The second Apple login has no name and a new refresh token.
+    let again = store::login_user(&db, &apple_identity(relay, None, "refresh-2")).await?;
+    assert_eq!(again, apple, "one Apple account, one id");
+    let user = session::user_of(&db, &token).await?.expect("the session has its user");
+    assert_eq!(user.name, "Ana Maria", "the name stays");
+    assert_eq!(
+        store::apple_refresh_tokens(&db, apple).await?,
+        ["refresh-2"],
+        "the newest token is the one to revoke"
+    );
+    assert_eq!(
+        store::apple_refresh_tokens(&db, google).await?,
+        Vec::<String>::new()
+    );
+    Ok(())
+}
+
+async fn a_new_user_with_no_name_is_named_by_the_email(db: Db) -> Result<()> {
+    let user_id = store::login_user(&db, &apple_identity("ana@example.com", None, "refresh-1")).await?;
+    let token = session::create(&db, user_id).await?;
+    let user = session::user_of(&db, &token).await?.expect("the session has its user");
+    assert_eq!(user.name, "ana@example.com");
+    Ok(())
+}
+
+async fn a_deleted_user_leaves_nothing(db: Db) -> Result<()> {
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
+    store::login_user(&db, &apple_identity("ana@example.com", None, "refresh-1")).await?;
+    let token = session::create(&db, user_id).await?;
+    assert!(store::start_pending(&db, "challenge", "state").await?);
+    store::finish_pending(&db, "state", user_id).await?;
+
+    store::delete_user(&db, user_id).await?;
+
+    assert_eq!(session::user_of(&db, &token).await?, None);
+    for table in [
+        "SELECT count(*) FROM users",
+        "SELECT count(*) FROM identities",
+        "SELECT count(*) FROM sessions",
+        "SELECT count(*) FROM pending_logins",
+    ] {
+        assert_eq!(count(&db, table).await?, 0, "{table}");
+    }
+
+    // The same account can come back, as a new user.
+    let back = store::login_user(&db, &identity("Ana")).await?;
+    assert_ne!(back, user_id);
+    Ok(())
+}
+
 async fn whoami(user: User) -> String {
     user.email
 }
@@ -231,7 +331,7 @@ async fn a_route_with_a_user_needs_a_session<State>(state: State, db: Db) -> Res
 where
     State: Clone + Send + Sync + 'static,
     Db: FromRef<State>, {
-    let user_id = store::upsert_user(&db, &identity("Ana")).await?;
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
     let token = session::create(&db, user_id).await?;
 
     let app = Router::new().route("/whoami", get(whoami)).with_state(state);
@@ -275,6 +375,145 @@ async fn sqlite_old_logins_and_ended_sessions_are_gone() -> Result<()> {
 async fn sqlite_a_route_with_a_user_needs_a_session() -> Result<()> {
     let (pool, db) = sqlite().await?;
     a_route_with_a_user_needs_a_session(pool, db).await
+}
+
+#[tokio::test]
+async fn sqlite_google_and_apple_on_one_email_are_one_user() -> Result<()> {
+    google_and_apple_on_one_email_are_one_user(sqlite().await?.1).await
+}
+
+#[tokio::test]
+async fn sqlite_another_email_is_another_user() -> Result<()> {
+    another_email_is_another_user(sqlite().await?.1).await
+}
+
+#[tokio::test]
+async fn sqlite_a_new_user_with_no_name_is_named_by_the_email() -> Result<()> {
+    a_new_user_with_no_name_is_named_by_the_email(sqlite().await?.1).await
+}
+
+#[tokio::test]
+async fn sqlite_a_deleted_user_leaves_nothing() -> Result<()> {
+    a_deleted_user_leaves_nothing(sqlite().await?.1).await
+}
+
+/// A database made before the identities table, with a Google user, a live
+/// session and a row of an app table that points at the user. The second
+/// migration builds `users` again on SQLite, and none of the 3 may get lost.
+#[tokio::test]
+async fn sqlite_a_database_of_the_first_migration_moves_over() -> Result<()> {
+    let path = temp_dir().join(format!("hilen-auth-test-{}.db", new_token()?));
+    let pool = build_sqlite(&format!("sqlite://{}", path.display())).await?;
+    let db = Db::from(&pool);
+
+    let mut first = sqlx::migrate!("./migrations_sqlite");
+    first.dangerous_set_table_name("_hilen_auth_migrations");
+    first.migrations = first.migrations.iter().take(1).cloned().collect();
+    first.run(&pool).await?;
+
+    let user_id = Uuid::from_u128(7);
+    let token = "the token of an old session";
+    sqlx::query("INSERT INTO users (id, google_sub, email, name) VALUES ($1, 'google-sub-1', 'ana@example.com', 'Ana')")
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, unixepoch() + 600)")
+        .bind(hash(token))
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("CREATE TABLE notes (user_id BLOB NOT NULL REFERENCES users (id) ON DELETE CASCADE)")
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO notes (user_id) VALUES ($1)")
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+
+    migrate(&pool).await?;
+
+    let user = session::user_of(&db, token).await?.expect("the old session still logs in");
+    assert_eq!((user.id, user.name.as_str()), (user_id, "Ana"));
+    assert_eq!(count(&db, "SELECT count(*) FROM notes").await?, 1);
+    assert_eq!(
+        store::login_user(&db, &identity("Ana")).await?,
+        user_id,
+        "the Google account is still this user"
+    );
+
+    // Foreign keys are back on and point at the new `users` table.
+    let (foreign_keys,): (i64,) = sqlx::query_as("PRAGMA foreign_keys").fetch_one(&pool).await?;
+    assert_eq!(foreign_keys, 1);
+    store::delete_user(&db, user_id).await?;
+    assert_eq!(count(&db, "SELECT count(*) FROM notes").await?, 0);
+    assert_eq!(count(&db, "SELECT count(*) FROM sessions").await?, 0);
+    Ok(())
+}
+
+/// The Postgres twin of the test above.
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_database_of_the_first_migration_moves_over() -> Result<()> {
+    on_empty_postgres(async |pool: PgPool| {
+        let db = Db::from(&pool);
+
+        let mut first = sqlx::migrate!("./migrations");
+        first.dangerous_set_table_name("_hilen_auth_migrations");
+        first.migrations = first.migrations.iter().take(1).cloned().collect();
+        first.run(&pool).await?;
+
+        let user_id = Uuid::from_u128(7);
+        let token = "the token of an old session";
+        sqlx::query(
+            "INSERT INTO users (id, google_sub, email, name) VALUES ($1, 'google-sub-1', 'ana@example.com', 'Ana')",
+        )
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '10 minutes')",
+        )
+        .bind(hash(token))
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+
+        migrate(&pool).await?;
+
+        let user = session::user_of(&db, token).await?.expect("the old session still logs in");
+        assert_eq!((user.id, user.name.as_str()), (user_id, "Ana"));
+        assert_eq!(
+            store::login_user(&db, &identity("Ana")).await?,
+            user_id,
+            "the Google account is still this user"
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_google_and_apple_on_one_email_are_one_user() -> Result<()> {
+    on_postgres(google_and_apple_on_one_email_are_one_user).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_another_email_is_another_user() -> Result<()> {
+    on_postgres(another_email_is_another_user).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_new_user_with_no_name_is_named_by_the_email() -> Result<()> {
+    on_postgres(a_new_user_with_no_name_is_named_by_the_email).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_deleted_user_leaves_nothing() -> Result<()> {
+    on_postgres(a_deleted_user_leaves_nothing).await
 }
 
 #[tokio::test]

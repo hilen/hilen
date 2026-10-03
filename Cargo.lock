@@ -3007,6 +3007,7 @@ dependencies = [
  "project-proc",
  "redis",
  "reqwest 0.13.4",
+ "ring",
  "rust-embed",
  "rustls",
  "serde",

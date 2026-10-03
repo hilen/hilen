@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
-    login::{GoogleLogin, GoogleLoginButton},
+    login::{GoogleLoginButton, Login},
     ui::{Setup, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches},
 };
@@ -104,9 +104,9 @@ impl ViewTest for GoogleLoginButtonLook {
         // A real tap opens the browser of whoever runs the suite. With no
         // server the login fails before that, which is the path checked here.
         // The demo sets a server at launch and runs this suite from inside.
-        let server = from_main(|| GoogleLogin::swap_server(None));
+        let server = from_main(|| Login::swap_server(None));
         inject_touches(TAP_BUTTON);
-        from_main(move || GoogleLogin::swap_server(server));
+        from_main(move || Login::swap_server(server));
 
         let failure = from_main(move || view.failure.clone());
         assert!(
