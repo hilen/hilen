@@ -74,7 +74,9 @@ macro_rules! login_button {
             /// not a failure.
             pub failed:    Event<String>,
 
-            waiting: bool,
+            waiting:      bool,
+            sign_in_text: Option<String>,
+            waiting_text: Option<String>,
 
             #[init]
             mark:    ImageView,
@@ -86,6 +88,38 @@ macro_rules! login_button {
         impl $name {
             pub fn is_waiting(&self) -> bool {
                 self.waiting
+            }
+
+            /// The title of the button at rest, for an app in another
+            /// language. English when not set.
+            pub fn set_sign_in_text(&mut self, text: impl ToString) -> &mut Self {
+                self.sign_in_text = Some(text.to_string());
+                self.show_title();
+                self
+            }
+
+            /// The title while the user is in the browser. English when not
+            /// set. It has to end before the cancel button.
+            pub fn set_waiting_text(&mut self, text: impl ToString) -> &mut Self {
+                self.waiting_text = Some(text.to_string());
+                self.show_title();
+                self
+            }
+
+            /// The text of the cancel button, which is 64 points wide.
+            /// English when not set.
+            pub fn set_cancel_text(&mut self, text: impl ToString) -> &mut Self {
+                self.cancel.set_text(text.to_string());
+                self
+            }
+
+            fn show_title(&mut self) {
+                let text = if self.waiting {
+                    self.waiting_text.as_deref().unwrap_or(WAITING)
+                } else {
+                    self.sign_in_text.as_deref().unwrap_or($look.sign_in)
+                };
+                self.title.set_text(text);
             }
 
             fn start(mut self: Weak<Self>) {
@@ -117,7 +151,7 @@ macro_rules! login_button {
                 self.mark.set_hidden(waiting);
                 self.spinner.set_hidden(!waiting);
                 self.cancel.set_hidden(!waiting);
-                self.title.set_text(if waiting { WAITING } else { $look.sign_in });
+                self.show_title();
             }
 
             fn show_mark(&self) {

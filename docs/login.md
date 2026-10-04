@@ -109,6 +109,11 @@ out twice by a macro with a `Look` each. A generic view would not do, it cannot 
 UI test. The Apple button is black on a light screen and white on a dark one, and swaps
 its logo in `theme_changed`.
 
+The 3 texts of a button are English by default. An app in another language sets them
+with `set_sign_in_text`, `set_waiting_text` and `set_cancel_text`. The cancel button is
+64 points wide whatever its text, and the waiting text has to end before it.
+`Login button texts` pins both buttons with Russian texts.
+
 A login button turns its own touch on before it wires the cancel button. The touch
 view that signed up last is asked first and `Button::on_tap` is what signs a button up,
 the other way round the view takes every tap meant for cancel.

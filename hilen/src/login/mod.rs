@@ -8,6 +8,8 @@ mod client;
 #[cfg(feature = "ui-tests")]
 mod google_login_button_test;
 mod login_button;
+#[cfg(feature = "ui-tests")]
+mod login_button_texts_test;
 mod wire;
 
 pub use client::{Login, Provider};

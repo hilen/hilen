@@ -51,18 +51,6 @@ Found by labirintas at `~/dev/apps/labirintas`, whose whole interface is wood.
 - Blocks: a stick that matches the look of a game. Labirintas shows a gray stick over a
   wood interface.
 
-## Login button texts from the app
-
-Found by skaityk, whose interface is English or Russian.
-
-- Current: `GoogleLoginButton` and `AppleLoginButton` in `hilen/src/login/login_button.rs`
-  have fixed English texts, the sign in title of each `Look`, `WAITING` and the `Cancel`
-  of the cancel button. No call sets them.
-- Needed: the app sets the 3 texts of a login button, the sign in title, the waiting
-  text and the cancel text. The default stays the English text.
-- Blocks: a login button in the language of the app. Skaityk shows "Sign in with Google"
-  inside a Russian settings dialog.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
