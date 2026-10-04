@@ -49,7 +49,7 @@ the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
 see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
-`demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, and `scene`
+`demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, Windows and wasm, and `scene`
 through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
@@ -109,7 +109,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
   CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
 - [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
-  display only, no input path yet. The vendored plat, the winit fork pin, the hand made
+  display only, no key of the remote reaches the engine yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
 - [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the

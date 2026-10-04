@@ -2,8 +2,8 @@
 
 The engine builds for tvOS and renders in the Apple TV simulator. The demo menu
 draws fully, wgpu on Metal, images, fonts and cards, and the process stays alive. It is
-display only. There is no input path, so nothing can drive the UI, and it has never run
-on real hardware.
+display only. No key of the remote reaches the engine, so nothing can drive the UI, and
+it has never run on real hardware.
 
 Proven on 2026-07-30, toolchain nightly-2026-07-03, tvOS SDK 26.2, simulator runtime
 tvOS 26.2 on an Apple TV 4K device at 1080p.
@@ -98,10 +98,11 @@ into a real target.
 
 ## What still stands
 
-- **Input is the real work.** The UI is touch driven through `WindowEvent::Touch` and
-  Apple TV has no touch screen. Siri Remote events arrive through the UIKit focus
-  engine and `UIPress`, and winit forwards direct touches only. Tracked in
-  [roadmap.md](roadmap.md), and it decides what a tvOS UI test could assert.
+- **The keys of the remote.** The engine side exists, the key focus drives every view
+  with the arrow keys, Enter and Escape, see [focus.md](focus.md). But Siri Remote
+  events arrive through the UIKit focus engine and `UIPress`, and winit forwards direct
+  touches only, so no key reaches the engine. The winit fork has to forward the presses
+  as key events. Tracked in [roadmap.md](roadmap.md).
 - **No device run.** Real hardware needs signing and a durable shell first.
 - **One latent trap.** winit's `safe_area_screen_space` falls back to
   `UIApplication.statusBarFrame`, which does not exist on tvOS. It is only reached when

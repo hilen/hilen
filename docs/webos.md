@@ -114,9 +114,10 @@ and the failure screenshots come back over the inspect socket like in the browse
 A full run takes about 6 minutes. The first open of the page sometimes does not load,
 open it again.
 
-203 tests run there. The Clipboard test has to be skipped with
+203 tests ran there on 2026-10-04. The Clipboard test had to be skipped with
 `hilen_test_skip=Clipboard%20test`, the TV browser has no clipboard API and the test
-hangs.
+hung on a call that threw. The call gives an error now and the test skips itself on it.
+That was not run on the TV yet, keep the skip until it was.
 
 A recorded probe has to hold with 1 sample and with 4, see [ui-tests.md](ui-tests.md).
 The Mali also draws some soft grays up to 49 off the desktop value, over the limit of
