@@ -63,6 +63,7 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
 
 /// Moves a stepped scene on by exactly `steps` of its update and returns
 /// once the last one ran, see `SceneTest::stepped`.
+#[cfg(feature = "scene-tests")]
 pub fn step_scene(steps: u32) {
     from_main(move || SceneManager::grant_steps(steps));
     while from_main(SceneManager::steps_left) > 0 {}
@@ -188,6 +189,9 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
 
             let scene = from_main(move || {
                 let scene = SceneManager::set_scene(T::default());
+                // Only a build with scene tests has the stepped time, a game
+                // on `scene` alone keeps the fast path and must still compile.
+                #[cfg(feature = "scene-tests")]
                 SceneManager::set_stepped(T::stepped());
                 T::overlay(scene, view);
                 scene

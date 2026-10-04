@@ -24,6 +24,8 @@ mod to_collider;
 pub use level_proc::scene;
 pub use rapier3d::dynamics::CoefficientCombineRule;
 
+#[cfg(feature = "scene-tests")]
+pub use self::scene_test::step_scene;
 pub use self::{
     camera::Camera,
     collider_shape::{ColliderShape, Heightfield},
@@ -39,9 +41,7 @@ pub use self::{
     player::{Player, WalkKeys},
     scene::{QueryHit, Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates},
     scene_manager::SceneManager,
-    scene_test::{
-        MaybeSceneTest, SceneRegistrable, SceneTest, SceneTestView, register_if_scene_test, step_scene,
-    },
+    scene_test::{MaybeSceneTest, SceneRegistrable, SceneTest, SceneTestView, register_if_scene_test},
     sky::Sky,
     third_person::ThirdPerson,
     to_collider::ToCollider,
