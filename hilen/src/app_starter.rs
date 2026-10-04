@@ -145,6 +145,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
             crate::system::install_popstate_listener();
             crate::web::install_reload_shortcut_listener();
             crate::web::install_pointer_lock_listener();
+            crate::web::install_tv_back_listener();
         }
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);

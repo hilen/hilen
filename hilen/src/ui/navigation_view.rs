@@ -7,7 +7,7 @@ use crate::{
     },
     gm::Animation,
     ui::{
-        Setup, Touch, TouchStack, UIAnimation, View, ViewData, WeakView,
+        NamedKey, Setup, Touch, TouchStack, UIAnimation, UIManager, View, ViewData, WeakView,
         view::{ViewFrame, ViewSubviews},
     },
 };
@@ -51,6 +51,16 @@ impl NavigationView {
         view.place().back();
         view.set_navigation_view(self);
         view.set_frame(self.frame().with_zero_origin());
+
+        // Escape, and the Back key of a remote, leave the pushed screen.
+        // Only the screen on top answers, a modal over it takes the key
+        // first, and a push or a pop that still slides is not cut short.
+        UIManager::keymap().add(view, NamedKey::Escape, move || {
+            let on_top = TouchStack::top_layer_root().raw() == view.raw();
+            if on_top && !UIManager::text_editing() && !UIManager::touch_disabled() {
+                self.pop();
+            }
+        });
 
         let anim = UIAnimation::new(|view, x| {
             view.set_x(x);

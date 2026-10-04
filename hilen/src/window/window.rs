@@ -9,12 +9,14 @@ use anyhow::{Context, Result, bail};
 use log::error;
 use log::{info, warn};
 use plat::Platform;
+#[cfg(not_wasm)]
+use wgpu::CompositeAlphaMode;
 #[cfg(linux)]
 use wgpu::InstanceFlags;
 use wgpu::{
-    Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
-    Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
-    RequestAdapterOptions, SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
+    Adapter, Backends, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
+    InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue, RequestAdapterOptions,
+    SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
@@ -654,22 +656,25 @@ pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceCon
     let size: Size<u32> = size.into();
 
     SurfaceConfiguration {
-        usage:        if SURFACE_COPY {
+        usage:                       if SURFACE_COPY {
             TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
         } else {
             TextureUsages::RENDER_ATTACHMENT
         },
-        format:       surface_texture_format(),
-        color_space:  SurfaceColorSpace::Auto,
-        width:        size.width,
-        height:       size.height,
-        present_mode: if VSYNC.load(Ordering::Relaxed) || Platform::MOBILE {
+        format:                      surface_texture_format(),
+        color_space:                 SurfaceColorSpace::Auto,
+        width:                       size.width,
+        height:                      size.height,
+        present_mode:                if VSYNC.load(Ordering::Relaxed) || Platform::MOBILE {
             PresentMode::AutoVsync
         } else {
             PresentMode::AutoNoVsync
         },
-        alpha_mode:   CompositeAlphaMode::Auto,
-        view_formats: vec![],
+        #[cfg(wasm)]
+        alpha_mode:                  crate::window::state::web_formats::alpha_mode(),
+        #[cfg(not_wasm)]
+        alpha_mode:                  CompositeAlphaMode::Auto,
+        view_formats:                vec![],
 
         desired_maximum_frame_latency: MAX_FRAME_LATENCY.load(Ordering::Relaxed),
     }

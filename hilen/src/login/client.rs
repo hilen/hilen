@@ -15,7 +15,7 @@ use crate::{
         hreads::{now, on_main, sleep, spawn},
         netrun::rest::client,
     },
-    login::wire::{LoginUser, PollRequest, PollResponse},
+    login::wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
     store::SessionStore,
     system::open_url,
 };
@@ -49,6 +49,19 @@ impl Provider {
             Self::Apple => "apple",
         }
     }
+}
+
+/// What a device with no keyboard shows, so its user finishes the login on a
+/// phone, see `Login::start_with_code`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoginCode {
+    /// 6 letters and digits, with none that look alike.
+    pub code: String,
+    /// The page where the code is typed, `<server>/auth/code`.
+    pub page: String,
+    /// The same page with the code already in it. A `QrCodeView` of this
+    /// link takes a phone straight to the login.
+    pub link: String,
 }
 
 /// Login against the `auth` routes of a `hilen-server` backend, with Google
@@ -99,7 +112,46 @@ impl Login {
         });
     }
 
-    /// Stops waiting for a login started with `start`.
+    /// The login of a device with no keyboard and no browser of its own, a
+    /// TV. Nothing opens here. The server gives a short code, `shown` gets
+    /// it to put on the screen, and the user finishes the login on a phone,
+    /// through the QR code of `LoginCode::link` or by typing the code into
+    /// `LoginCode::page`. Then `done` gets the user, as after `start`.
+    /// `done` is not called when no code came, `shown` has the error then.
+    pub fn start_with_code(
+        provider: Provider,
+        shown: impl FnOnce(Result<LoginCode>) + Send + 'static,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+    ) {
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+
+        spawn(async move {
+            let started = async {
+                let server = server()?;
+                let verifier = new_verifier()?;
+                let code = ask_code(&server, &challenge(&verifier), provider).await?;
+                log::info!("{} login with a code started", provider.route());
+                Ok::<_, anyhow::Error>((server, verifier, code))
+            }
+            .await;
+
+            let (server, verifier, code) = match started {
+                Ok(started) => started,
+                Err(error) => {
+                    log::warn!("no login code: {error:#}");
+                    return on_main(move || shown(Err(error)));
+                }
+            };
+
+            on_main(move || shown(Ok(code)));
+
+            if let Some(result) = wait_for_login(&server, &verifier, attempt).await {
+                on_main(move || done(result));
+            }
+        });
+    }
+
+    /// Stops waiting for a login started with `start` or `start_with_code`.
     pub fn cancel() {
         ATTEMPT.fetch_add(1, Ordering::SeqCst);
     }
@@ -201,6 +253,31 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Option<Re
     }
 }
 
+async fn ask_code(server: &str, challenge: &str, provider: Provider) -> Result<LoginCode> {
+    let body = to_string(&CodeRequest {
+        challenge,
+        provider: provider.route(),
+    })?;
+    let request = CLIENT
+        .post(format!("{server}/auth/code"))
+        .header("content-type", "application/json")
+        .body(body);
+
+    match send::<CodeResponse>(request).await? {
+        Reply::Ok(response) => Ok(login_code(server, response.code)),
+        Reply::Unauthorized => bail!("the server refused to give a login code"),
+    }
+}
+
+fn login_code(server: &str, code: String) -> LoginCode {
+    let page = format!("{server}/auth/code");
+    LoginCode {
+        link: format!("{page}?code={code}"),
+        page,
+        code,
+    }
+}
+
 async fn poll(server: &str, verifier: &str) -> Result<PollResponse> {
     let body = to_string(&PollRequest { verifier })?;
     let request = CLIENT
@@ -291,7 +368,14 @@ async fn send<Out: DeserializeOwned>(request: RequestBuilder) -> Result<Reply<Ou
 mod test {
     use anyhow::Result;
 
-    use super::{challenge, new_verifier};
+    use super::{challenge, login_code, new_verifier};
+
+    #[test]
+    fn a_login_code_has_its_page_and_its_link() {
+        let code = login_code("https://app.example.com", "ABC234".to_owned());
+        assert_eq!(code.page, "https://app.example.com/auth/code");
+        assert_eq!(code.link, "https://app.example.com/auth/code?code=ABC234");
+    }
 
     #[test]
     fn verifier_is_fresh_every_time() -> Result<()> {

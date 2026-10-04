@@ -13,7 +13,7 @@ use crate::{
     window::image::{Image, ToImage},
 };
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageMode {
     #[default]
     Fill,

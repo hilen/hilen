@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use log::error;
 use ui_proc::view;
 
+#[cfg(wasm)]
+use crate::ui::View;
 use crate::{
     deps::{
         refs::{Weak, weak_from_ref},
@@ -15,10 +17,11 @@ use crate::{
 /// Unique per view, so two videos never share a frame texture.
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-/// Plays a video file or url. The decode runs on its own thread, the sound
-/// through the engine's audio and the picture lands in the inner `ImageView`,
-/// so aspect mode, corner radii and the rest work like on any image. Desktop
-/// only for now, see docs/video.md.
+/// Plays a video file or url. On desktop the decode runs on its own thread,
+/// the sound through the engine's audio and the picture lands in the inner
+/// `ImageView`, so aspect mode, corner radii and the rest work like on any
+/// image. In a browser the page plays it in a `<video>` element under the
+/// canvas and the view erases the frame over it, see docs/video.md.
 #[view]
 pub struct VideoView {
     player: Option<Player>,
@@ -56,6 +59,11 @@ impl VideoView {
         player.set_loop(this.looping);
         player.set_speed(this.speed);
         this.player = Some(player);
+        // In a browser the picture is the page under the canvas.
+        #[cfg(wasm)]
+        {
+            this.__base_view().page_hole = true;
+        }
         this.keep_frames_coming();
         this.report_state();
         self
@@ -239,6 +247,19 @@ impl VideoView {
     }
 }
 
+#[cfg(wasm)]
+impl VideoView {
+    /// The element follows the view, and goes when the view is hidden or
+    /// scrolled away.
+    fn place_element(&mut self) {
+        let frame = self.is_visible_on_screen().then(|| *self.absolute_frame());
+        let mode = self.image_view.mode;
+        if let Some(player) = self.player.as_mut() {
+            player.place(frame, mode);
+        }
+    }
+}
+
 impl Setup for VideoView {
     fn setup(mut self: Weak<Self>) {
         self.image_view.place().back();
@@ -249,6 +270,9 @@ impl Setup for VideoView {
 
 impl ViewCallbacks for VideoView {
     fn update(&mut self) {
+        #[cfg(wasm)]
+        self.place_element();
+
         if !self.is_visible_on_screen() {
             return;
         }

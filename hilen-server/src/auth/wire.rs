@@ -30,6 +30,19 @@ pub(crate) struct PollRequest {
     pub verifier: String,
 }
 
+/// A device with no keyboard asks for a short code a person types on a
+/// phone. `provider` is `google` or `apple`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CodeRequest {
+    pub challenge: String,
+    pub provider:  String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CodeResponse {
+    pub code: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum PollResponse {
@@ -40,9 +53,25 @@ pub(crate) enum PollResponse {
 #[cfg(test)]
 mod test {
     use anyhow::Result;
-    use serde_json::to_string;
+    use serde_json::{from_str, to_string};
 
-    use super::{PollResponse, UserInfo};
+    use super::{CodeRequest, CodeResponse, PollResponse, UserInfo};
+
+    #[test]
+    fn code_shapes() -> Result<()> {
+        let request: CodeRequest = from_str(r#"{"challenge":"c","provider":"google"}"#)?;
+        assert_eq!(
+            (request.challenge.as_str(), request.provider.as_str()),
+            ("c", "google")
+        );
+        assert_eq!(
+            to_string(&CodeResponse {
+                code: "ABC234".to_owned(),
+            })?,
+            r#"{"code":"ABC234"}"#
+        );
+        Ok(())
+    }
 
     #[test]
     fn response_shapes() -> Result<()> {

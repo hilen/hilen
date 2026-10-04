@@ -24,7 +24,7 @@ use crate::{
     gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
-        Cursor, Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData,
+        Cursor, Focus, Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData,
         ViewSubviews, WeakView, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
@@ -618,10 +618,14 @@ impl crate::window::WindowEvents for AppRunner {
         #[cfg(feature = "level")]
         LevelDrawer::update();
         UIDrawer::update();
+        // A hidden `VideoView` gets no update, its element is hidden here.
+        #[cfg(all(wasm, feature = "video"))]
+        crate::video::hide_unplaced();
         // After layout, so a row that replaced the dead hovered one
         // already has its frame when hover re-picks.
         #[cfg(any(desktop, wasm))]
         Hover::refresh_dead();
+        Focus::update();
     }
 
     #[cfg(any(feature = "scene", feature = "level"))]
@@ -750,7 +754,7 @@ impl crate::window::WindowEvents for AppRunner {
         }
 
         if let Key::Named(key) = event.logical_key {
-            Input::on_key(key);
+            Input::on_key(back_as_escape(key));
         }
 
         if let Some(ch) = event.logical_key.to_text() {
@@ -769,5 +773,16 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn theme_changed(&mut self, theme: OsTheme) {
         Theme::set_system(theme.into());
+    }
+}
+
+/// The Back key of a remote or of a keyboard with media keys does what
+/// Escape does on a desktop, it closes the modal or the screen on top.
+fn back_as_escape(key: winit::keyboard::NamedKey) -> winit::keyboard::NamedKey {
+    use winit::keyboard::NamedKey;
+
+    match key {
+        NamedKey::GoBack | NamedKey::BrowserBack => NamedKey::Escape,
+        key => key,
     }
 }

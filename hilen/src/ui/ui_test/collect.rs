@@ -109,6 +109,8 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
             crate::ui::Hover::unlock();
             crate::ui::Hover::clear();
         }
+        // A ring left by one test would look for a view in the next.
+        crate::ui::Focus::reset();
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {

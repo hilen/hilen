@@ -126,6 +126,7 @@ open = "5.4"
 parking_lot = "0.12"
 pollster = "0.4"
 pretty_assertions = "1.4"
+qrcode = { version = "0.14", default-features = false }
 quote = "1.0"
 rapier2d = { version = "0.33" }
 rapier3d = { version = "0.33" }
@@ -187,20 +188,30 @@ wasm-bindgen-test = "0.3"
 wasm_thread = "0.3"
 web-sys = { version = "0.3", features = [
     "AddEventListenerOptions",
+    "Blob",
+    "BlobPropertyBag",
     "Clipboard",
     "CloseEvent",
+    "CssStyleDeclaration",
     "Document",
+    "DomRect",
     "Element",
     "History",
     "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlMediaElement",
+    "HtmlVideoElement",
     "KeyboardEvent",
     "KeyboardEventInit",
     "Location",
+    "MediaError",
     "MessageEvent",
     "Navigator",
     "Node",
+    "Performance",
     "Storage",
     "Url",
+    "VideoPlaybackQuality",
     "WebSocket",
     "Window",
     "XmlHttpRequest",

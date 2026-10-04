@@ -42,11 +42,11 @@ report. `render-test` is only for the render pipelines drawn directly.
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
 with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device. `video` is video
-playback through a prebuilt static ffmpeg and kira, desktop only and proven on macOS and Windows x64, see
-[docs/video.md](docs/video.md). `inspect` is
+playback, on desktop through a prebuilt static ffmpeg and kira, proven on macOS and Windows x64, in a browser
+through a `<video>` element under the canvas, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
-`login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views and the sealed `SessionStore`,
+`login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
 see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
 `demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, and `scene`
@@ -112,8 +112,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no input path yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
-- [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: the Chromium 79
-  build flags, the start script patch, what the TV needed from the engine, the plain
+- [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the
+  ring picks the next view, tables, modals, scrolling, Back as Escape, and the calls an
+  app has. Read before touching `hilen/src/ui/focus.rs` or key handling in `input.rs`.
+- [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: `make webos`, the
+  `[webos]` table of `hilen.toml`, the Chromium 79 build flags, the start script rewrite, what the TV needed from the engine, the plain
   canvas format, no texture copy, 1 sample, lazy pictures, shared text pipelines, and
   how to read a page log and run the UI suite on the TV. Read before touching the wasm
   build for an old browser, `window/msaa.rs`, `window/image/pending.rs`, or anything
@@ -130,11 +133,12 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
   how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
-  mapping, playback speed, and what was measured. Read before touching `hilen/src/video`
-  or the archive script.
+  mapping, playback speed, what was measured, and the browser side, a `<video>` element
+  under a hole in the frame. Read before touching `hilen/src/video` or the archive script.
 - [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
-  `HILEN_RELEASE` mark, and how the button test stays away from a real browser. Read before
+  `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how
+  the button test stays away from a real browser. Read before
   touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the
   session key part of `hilen-session/build.rs`.
 - [docs/forks.md](docs/forks.md) — the 5 forked crates, what each fork branch carries

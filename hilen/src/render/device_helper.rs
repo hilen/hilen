@@ -116,6 +116,26 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         shape: PipelineShape,
+    ) -> RenderPipeline {
+        self.pipeline_blended(
+            label,
+            layout,
+            shader,
+            vertex_layout,
+            shape,
+            BlendState::ALPHA_BLENDING,
+        )
+    }
+
+    /// Like `pipeline_with`, with a blend of its own.
+    fn pipeline_blended(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
+        blend: BlendState,
     ) -> RenderPipeline;
 
     /// A pipeline that writes only the stencil. Where its fragment
@@ -190,13 +210,14 @@ impl DeviceHelper for Device {
         })
     }
 
-    fn pipeline_with(
+    fn pipeline_blended(
         &self,
         label: &str,
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         shape: PipelineShape,
+        blend: BlendState,
     ) -> RenderPipeline {
         let PipelineShape {
             depth_compare,
@@ -219,7 +240,7 @@ impl DeviceHelper for Device {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
                     format:     surface_texture_format(),
-                    blend:      BlendState::ALPHA_BLENDING.into(),
+                    blend:      blend.into(),
                     write_mask: ColorWrites::ALL,
                 }
                 .into()],

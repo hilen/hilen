@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Formatter},
-    fs::{self, remove_file},
     marker::PhantomData,
     path::{Path, PathBuf},
 };
@@ -15,33 +14,98 @@ static ROOT_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 fn set_value<T: serde::ser::Serialize>(value: T, path: &Path) {
     let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    fs::write(path, json).expect("Failed to write to file");
+    backend::write(path, &json);
 }
 
 fn get_value<T: Storable>(path: &Path) -> Option<T> {
-    if !path.exists() {
-        return None;
-    }
-
-    let json = fs::read_to_string(path).expect("Failed to read file");
+    let json = backend::read(path)?;
     serde_json::from_str(&json).expect("Failet to parse json")
 }
 
 fn get_or_init_value<T: Storable + Default>(path: &Path) -> T {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-
-    if !path.exists() {
+    let Some(json) = backend::read(path) else {
         let new = T::default();
         set_value(&new, path);
         return new;
-    }
-    let json = fs::read_to_string(path).expect("Failed to read file");
+    };
     serde_json::from_str(&json).expect("Failet to parse json")
+}
+
+#[cfg(not_wasm)]
+mod backend {
+    use std::{
+        fs::{create_dir_all, read_to_string, remove_file, write as write_file},
+        path::Path,
+    };
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        if !path.exists() {
+            return None;
+        }
+        Some(read_to_string(path).expect("Failed to read file"))
+    }
+
+    pub(super) fn write(path: &Path, json: &str) {
+        if let Some(parent) = path.parent() {
+            create_dir_all(parent).unwrap();
+        }
+        write_file(path, json).expect("Failed to write to file");
+    }
+
+    pub(super) fn remove(path: &Path) {
+        remove_file(path).expect("Failed to remove file");
+    }
+}
+
+/// A browser has no files. Every store file is one `localStorage` entry
+/// named after its path. It is per origin and survives a reload and a
+/// restart of the browser. A browser that blocks it keeps nothing, the
+/// app then runs on defaults, which is logged once per call.
+#[cfg(wasm)]
+mod backend {
+    use std::path::Path;
+
+    use web_sys::{Storage, window};
+
+    fn key(path: &Path) -> String {
+        format!("hilen-store:{}", path.display())
+    }
+
+    fn storage() -> Option<Storage> {
+        let storage = window().and_then(|window| window.local_storage().ok().flatten());
+        if storage.is_none() {
+            log::warn!("this browser gives no localStorage, nothing is stored");
+        }
+        storage
+    }
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        match storage()?.get_item(&key(path)) {
+            Ok(json) => json,
+            Err(error) => {
+                log::warn!("failed to read {} from localStorage: {error:?}", path.display());
+                None
+            }
+        }
+    }
+
+    pub(super) fn write(path: &Path, json: &str) {
+        let Some(storage) = storage() else {
+            return;
+        };
+        if let Err(error) = storage.set_item(&key(path), json) {
+            log::warn!("failed to write {} to localStorage: {error:?}", path.display());
+        }
+    }
+
+    pub(super) fn remove(path: &Path) {
+        let Some(storage) = storage() else {
+            return;
+        };
+        if let Err(error) = storage.remove_item(&key(path)) {
+            log::warn!("failed to remove {} from localStorage: {error:?}", path.display());
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -68,7 +132,7 @@ impl<T: Storable> OnDisk<T> {
     }
 
     pub fn reset(&self) {
-        remove_file(rooted(&self.path)).expect("Failed to remove file");
+        backend::remove(&rooted(&self.path));
     }
 }
 

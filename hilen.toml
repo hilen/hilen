@@ -1,2 +1,7 @@
 bundle_id = "vladas.hilen"
 project_name = "demo"
+
+# The demo on an LG TV, `make webos-dist`. The 3D scene is left out, the TV
+# is too weak for it.
+[webos]
+default_features = false

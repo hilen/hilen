@@ -1,3 +1,4 @@
+mod focus;
 mod gradient;
 mod hover;
 mod images;
@@ -31,11 +32,29 @@ pub mod ui_test;
 
 pub use ui_proc::*;
 
-pub(crate) use self::touch_layer::*;
+pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use self::{
-    gradient::*, hover::*, images::*, input::*, layout::*, modal_view::*, navigation_view::*, shadow::*,
-    style::*, text_field_constraint::*, theme::*, to_label::*, tooltip::*, touch_stack::*,
-    ui_drawer::UIDrawer, ui_event::*, ui_manager::*, view::*, views::*, with_header::*,
+    focus::{Focus, FocusDirection, ViewFocus},
+    gradient::*,
+    hover::*,
+    images::*,
+    input::*,
+    layout::*,
+    modal_view::*,
+    navigation_view::*,
+    shadow::*,
+    style::*,
+    text_field_constraint::*,
+    theme::*,
+    to_label::*,
+    tooltip::*,
+    touch_stack::*,
+    ui_drawer::UIDrawer,
+    ui_event::*,
+    ui_manager::*,
+    view::*,
+    views::*,
+    with_header::*,
 };
 pub use crate::{
     gm::{

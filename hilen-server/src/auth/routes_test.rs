@@ -193,6 +193,82 @@ async fn an_apple_login_runs_from_the_page_to_the_deleted_account() -> Result<()
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct Code {
+    code: String,
+}
+
+/// A TV asks for a code, a person types it on a phone in any case and with a
+/// dash, and the phone lands on the login page of the TV's own challenge.
+#[tokio::test]
+async fn a_short_code_leads_to_the_login_of_its_challenge() -> Result<()> {
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let challenge = "a1".repeat(32);
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"challenge":"{challenge}","provider":"google"}}"#
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let code: Code = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    assert_eq!(code.code.len(), 6);
+
+    // The page without a code is the form.
+    let response = app.clone().oneshot(request("GET", "/auth/code").body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text_of(response).await?.contains("Type the code from the screen."));
+
+    let typed = format!("{}-{}", &code.code[..3], &code.code[3..]).to_lowercase();
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("/auth/code?code={typed}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers().get(LOCATION).context("the redirect has no address")?,
+        &format!("/auth/google?challenge={challenge}")
+    );
+
+    // A code nobody was given shows the form again with the reason.
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/auth/code?code=ZZZZZZ").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text_of(response).await?.contains("This code is not known or too old."));
+
+    // Apple is not set up here, its code is refused like its page.
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"challenge":"{challenge}","provider":"apple"}}"#
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"challenge":"short","provider":"google"}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
 #[tokio::test]
 async fn the_apple_routes_are_not_there_without_the_config() -> Result<()> {
     let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");

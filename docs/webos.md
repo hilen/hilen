@@ -1,8 +1,9 @@
 # LG webOS TV
 
 An engine app runs on an LG TV as a web page, the wasm build on WebGL. The demo and the
-whole UI test suite run in the web browser of the TV. There is no `make webos` target and
-no `.ipk` yet, see [roadmap.md](roadmap.md).
+whole UI test suite run in the web browser of the TV. `make webos` builds the app for
+the TV and packs it as a hosted app, see The build. What was never tried on a TV is in
+What still stands.
 
 Proven on 2026-10-04 on an LG OLED55C11LB, webOS 6.0. Its web engine is Chromium 79, it
 names itself `Chrome/87.0.3945.79`, the build number 3945 is the Chromium 79 one. The GPU
@@ -10,26 +11,48 @@ is a Mali-G51. The engine of a TV never updates, a firmware update keeps the sam
 
 ## The build
 
+`make webos-dist` builds the dist of the app for the TV, `make webos` also packs the
+hosted app. Both are `build/web/webos.rs` and read the `[webos]` table of `hilen.toml`:
+
+```toml
+[webos]
+url = "https://myapp.example.com"   # where the TV loads the app from
+title = "My App"                    # the name on the TV, project_name when left out
+icon = "assets/icon.png"            # a square png, this path when left out
+features = "webgl"                  # cargo features of the build, this when left out
+default_features = true             # false leaves the default features out
+```
+
 Chromium 79 knows only part of the wasm features a default Rust build turns on. It has no
 multivalue, no reference types and no BigInt at the JS border. So the build drops to the
 `mvp` cpu and turns the 4 known features back on, and the standard library is rebuilt
-with the same flags:
+with the same flags. This is what the script runs in the app crate:
 
 ```bash
-cd demo
 RUSTFLAGS="--cfg tokio_unstable -Ctarget-cpu=mvp -Ctarget-feature=+mutable-globals,+sign-ext,+nontrapping-fptoint,+bulk-memory" \
 CARGO_UNSTABLE_BUILD_STD=std,panic_abort \
-trunk build --release --no-default-features --features webgl
+trunk build --release --no-sri --features webgl
 ```
 
-`RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so
-`--cfg tokio_unstable` has to be repeated. `--no-default-features` leaves the 3D `scene`
-feature of the demo out, the TV is too weak for it.
+`RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so the
+script says `--cfg tokio_unstable` again when the config has it. The demo sets
+`default_features = false`, that leaves the 3D `scene` feature out, the TV is too weak
+for it.
 
 The start script trunk writes into `index.html` uses a top level `await`, which came in
-Chrome 89. Chromium 79 stops with `Unexpected reserved word`. Until a webOS target
-exists the script is patched by hand, `const wasm = await init(...)` becomes
-`init(...).then(function (wasm) { ... })`, and the `integrity` attributes go.
+Chrome 89. Chromium 79 stops with `Unexpected reserved word`. The script rewrites
+`const wasm = await init(...)` into `init(...).then(function (wasm) { ... })` and fails
+when trunk wrote another start script. `--no-sri` leaves the `integrity` attributes out,
+their hash would not hold after the rewrite. A dist built this way also loads in every
+new browser, so a server can serve the one dist to all.
+
+The hosted app is a small `.ipk`: `appinfo.json` of type `web`, 2 icons scaled from the
+app icon, and a page that sends the TV on to `url`. The app on the TV is so always the
+one the server has. `disableBackHistoryAPI` makes the Back key reach the page. The
+packer is `ares-package` of the LG CLI, `npm install -g @webos-tools/cli`, and
+`ares-install` puts the `.ipk` on a TV in developer mode. The pack step waits on a
+RustScript fix: the interpreter writes the `type` field of `appinfo.json` as `r#type`
+and the packer refuses the file, see the open entry in the RustScript roadmap.
 
 A page opened over plain http on a LAN address works, WebGL needs no secure context.
 
@@ -99,12 +122,27 @@ A recorded probe has to hold with 1 sample and with 4, see [ui-tests.md](ui-test
 The Mali also draws some soft grays up to 49 off the desktop value, over the limit of
 45, so a probe in a blurred or translucent area can fail there alone.
 
+## What the engine does for a TV
+
+- **The remote.** Arrow keys, OK and Back drive the UI through the key focus, see
+  [focus.md](focus.md).
+- **Storage.** `OnDisk` keeps its files in `localStorage`, one entry per file, named
+  `hilen-store:<path>`, `store/on_disk.rs`. The login session was there already.
+- **Video.** `VideoView` plays in a `<video>` element under the canvas, the TV decodes
+  in hardware straight to the screen, see [video.md](video.md).
+- **Login.** A TV shows a QR code and a short code and the user logs in on a phone, see
+  [login.md](login.md).
+- **No clipboard.** `Clipboard::set_text` gives an error where the browser has no
+  clipboard API, it used to throw.
+- **A lost context.** `State::resize` and `State::render` stop once the context is
+  gone, the resize event used to draw into the dead surface.
+
 ## What still stands
 
-- No `make webos`, no `.ipk`, no fixed start script.
-- No focus model. The pointer of the Magic Remote works as a mouse, arrow keys, OK and
-  Back do nothing.
-- No browser storage for `OnDisk`.
+- None of the points above ran on a TV yet. They are proven on desktop and in Chrome
+  only: the focus tests, `Web video` in the browser lane, the login code against a
+  local server. The Back key code 461 comes from the LG documents.
+- The lost context guard has no reproduced failure behind it.
+- The pack step of `make webos` waits on the RustScript fix above.
 - The Scrolling page of the demo runs at 21 to 24 frames a second, the cause is not
   measured.
-- One path still panics after a lost context, `window/state.rs` in the frame setup.

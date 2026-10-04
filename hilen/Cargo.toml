@@ -57,7 +57,7 @@ webgl = ["wgpu/webgl"]
 # Google and Apple login against a `hilen-server` backend, the two login button
 # views and the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
 # at build time. Off by default, an app with no accounts carries none of it.
-login = ["dep:hilen-session", "dep:getrandom"]
+login = ["dep:hilen-session", "dep:getrandom", "dep:qrcode"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -114,6 +114,7 @@ ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
 gltf = { workspace = true, optional = true }
 hilen-session = { workspace = true, optional = true }
+qrcode = { workspace = true, optional = true }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -90,41 +90,52 @@ and dav1d, the whole track subtitle read. See
 Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
 tvOS app need.
 
-- Current: the engine builds for tvOS and renders in the Apple TV simulator, but the
-  UI is touch driven through `WindowEvent::Touch` and Apple TV has no touch screen.
-  The app draws and nothing can drive it.
-- Needed: a remote input path. Siri Remote events arrive through the UIKit focus
-  engine and `UIPress`, and winit's UIKit backend forwards direct touches only, so
-  the winit fork needs press and focus forwarding, and the engine needs to map that
-  onto its views, most likely a focus model over the existing key and touch events.
-- Blocks: any interactive tvOS app, and the tvOS UI test lane, since what a test can
-  assert depends on this path.
+- Current: the engine builds for tvOS and renders in the Apple TV simulator. The key
+  focus exists, see [focus.md](focus.md), arrow keys, Enter and Escape drive every
+  view. But no key reaches the engine on tvOS: Siri Remote events arrive through the
+  UIKit focus engine and `UIPress`, and winit's UIKit backend forwards direct touches
+  only.
+- Needed: press forwarding in the winit fork, as arrow, Enter and Escape key events.
+- Blocks: any interactive tvOS app, and the tvOS UI test lane.
 
-## LG webOS TV target
+## LG webOS TV, the run on a TV
 
-Found by running the demo and the UI suite in the web browser of an LG C1, see
-[webos.md](webos.md). The page works, a real app target does not exist yet.
+`make webos`, the key focus, browser storage, video in a browser and the login from a
+phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
 
-- Current: a build for the TV is a hand typed `trunk build` with the old browser flags,
-  and the start script trunk writes has to be patched by hand, its top level `await`
-  stops Chromium 79. Arrow keys, OK and Back of the remote do nothing, the UI is driven
-  by the pointer only. `OnDisk` keeps nothing in a browser. The Clipboard calls throw
-  where the browser has no clipboard API, and the Clipboard test hangs on it. One path
-  in the frame setup of `window/state.rs` still panics after a lost WebGL context.
-- Needed: a `make webos` target in the `build` submodule with the flags and a start
-  script of its own. A focus model for the remote keys, the same one the Siri Remote
-  entry above asks for. Browser storage behind `OnDisk`. A clipboard call that fails
-  cleanly. The frame setup checks the lost context first.
-- Blocks: any app on the TV that a person drives with the remote, and a TV lane of the
-  UI suite that runs with no hand work.
+- Current: proven on desktop and in Chrome only. The Back key code 461 is taken from
+  the LG documents. The guard after a lost WebGL context has no reproduced failure.
+  The pack step of `make webos` waits on a RustScript fix, see webos.md.
+- Needed: an app driven with the remote on an LG C1, a film played there in a
+  `VideoView`, a login with the code, and the UI suite on the TV with the Clipboard
+  test no longer skipped. A lost context made on purpose with `WEBGL_lose_context`
+  and a resize after it.
+- Blocks: calling the TV a supported target.
+
+## Text entry on a TV
+
+Found by flixen, whose admin screens have text fields and stay off the TV for it.
+
+- Current: a text field needs a keyboard. A TV has none, and the keyboard of the TV
+  itself opens only for an HTML input, not for a canvas.
+- Needed: an on screen keyboard view driven by the key focus, or a hidden HTML input
+  that raises the keyboard of the TV and feeds the engine text field.
+- Blocks: any screen with a text field on a TV.
+
+## Sound tracks of a video in a browser
+
+- Current: `VideoView` in a browser lists no sound tracks and plays the first one of
+  the file. `set_audio_track` logs a warning.
+- Needed: the `audioTracks` list of the video element where the browser has it. Not
+  checked: whether Chromium 79 on webOS has it for an mkv.
+- Blocks: a film whose first sound track the device cannot play, DTS on an LG C1.
 
 ## Packaged app for LG webOS
 
-Planned with the webOS TV target, which starts as a hosted app. Waits for the hosted
-kind to run on a TV.
+`make webos` packs a hosted app, a small `.ipk` whose page sends the TV to a served
+wasm dist.
 
-- Current: no webOS build exists yet. The plan is a `make webos` target that packs a
-  hosted app, a small `.ipk` whose `index.html` redirects to a served wasm dist.
+- Current: the app needs its server for its own files.
 - Needed: the same target also packs the whole dist into the `.ipk`, so the app starts
   with no server. Not verified: a packaged app loads from a local origin on the TV, and
   the engine fetches the wasm and the asset groups relative to the document base.
@@ -233,13 +244,10 @@ D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
   `desktop`. A person plays a real film on Windows, with sound, and reads
   the dropped frames off the stats line.
   iOS and Android need archives cross built per target with VideoToolbox and
-  MediaCodec, and the feature unlocked there. The browser cannot link
-  ffmpeg, it hands the stream to an HTML5 video element and imports each
-  frame with `copyExternalImageToTexture`, the one place the `VideoView`
-  backend differs. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
+  MediaCodec, and the feature unlocked there. The browser plays through a
+  video element under the canvas, see video.md. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
   through the wgpu hal, only after an A/B shows the copy costs frames.
-- Blocks: video on Linux, the Intel Mac, Windows on ARM, the phones and the
-  browser.
+- Blocks: video on Linux, the Intel Mac, Windows on ARM and the phones.
 
 ## Leftovers inside landed features
 

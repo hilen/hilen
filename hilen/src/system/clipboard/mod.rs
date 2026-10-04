@@ -36,7 +36,8 @@ pub struct Clipboard;
 
 impl Clipboard {
     /// Puts text on the system clipboard. The browser write lands
-    /// asynchronously, so there a failure is only logged.
+    /// asynchronously, so there a failure is only logged. A browser with
+    /// no clipboard API gives an error.
     pub fn set_text(text: impl ToString) -> Result<()> {
         let text = text.to_string();
 
@@ -54,8 +55,7 @@ impl Clipboard {
 
         #[cfg(wasm)]
         {
-            write_in_browser(&text);
-            Ok(())
+            write_in_browser(&text)
         }
 
         #[cfg(ios)]
@@ -152,8 +152,7 @@ impl Clipboard {
 
         #[cfg(wasm)]
         {
-            write_in_browser(text);
-            Ok(())
+            write_in_browser(text)
         }
 
         #[cfg(ios)]
@@ -252,17 +251,24 @@ fn with_clipboard<T>(action: impl FnOnce(&mut arboard::Clipboard) -> Result<T>) 
     action(guard.as_mut().expect("The clipboard was just created"))
 }
 
+/// An old browser, a TV for one, has no `navigator.clipboard` at all and a
+/// page on plain http has none either. Calling into the missing object
+/// throws, so it is checked first.
 #[cfg(wasm)]
-fn write_in_browser(text: &str) {
-    let promise = web_sys::window()
-        .expect("Failed to get browser window")
-        .navigator()
-        .clipboard()
-        .write_text(text);
+fn write_in_browser(text: &str) -> Result<()> {
+    let clipboard = web_sys::window().expect("Failed to get browser window").navigator().clipboard();
+
+    if clipboard.is_undefined() || clipboard.is_null() {
+        anyhow::bail!("This browser has no clipboard API");
+    }
+
+    let promise = clipboard.write_text(text);
 
     wasm_bindgen_futures::spawn_local(async move {
         if let Err(err) = wasm_bindgen_futures::JsFuture::from(promise).await {
             log::error!("Failed to set clipboard text: {err:?}");
         }
     });
+
+    Ok(())
 }

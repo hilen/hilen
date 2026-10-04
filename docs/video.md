@@ -1,11 +1,11 @@
 # Video playback
 
-`VideoView` plays a file or an http or https url, behind the `video` cargo feature. Desktop
-only for now and proven on macOS and on Windows x64, the other lanes are in
-[roadmap.md](roadmap.md). `demo` and `ui-test` turn it on through a target table for
-those 2 systems, so the iOS, Android
-and wasm builds carry none of it, and the feature fails to compile with a clear
-message anywhere but desktop.
+`VideoView` plays a file or an http or https url, behind the `video` cargo feature. On
+desktop ffmpeg decodes, proven on macOS and on Windows x64. In a browser the page plays
+the source in a `<video>` element, see In a browser. The other lanes are in
+[roadmap.md](roadmap.md). `demo` and `ui-test` turn the feature on through a target
+table for those systems, so the iOS and Android builds carry none of it, and the
+feature fails to compile with a clear message anywhere else.
 
 ## How it plays
 
@@ -103,6 +103,42 @@ message anywhere but desktop.
   is the old place, which would run the picture through its frames.
 - Render on demand keeps the loop awake through an empty animation while a
   video plays, the way `AnimatedImage` does, so a paused video costs nothing.
+
+## In a browser
+
+A browser cannot link ffmpeg. `video/web_player.rs` is the `Player` there, with the same
+calls, so `VideoView` is one view on both.
+
+- The picture never passes through the engine. A `<video>` element sits behind the
+  canvas, `position: fixed` with `z-index: -1`, under the frame of the view. The view
+  sets `page_hole` on itself and the drawer erases the frame there: everything queued so
+  far is flushed, then `UIHolePipeline` draws the rect shader with a blend that writes
+  zeros, color and alpha, `hole_barrier` in `ui_drawer.rs`. What comes later in the tree
+  draws over the hole as usual. This is how a TV plays 4K and HDR, it decodes in
+  hardware straight to the screen. Copying each frame into a texture was not tried.
+- The canvas needs alpha. A WebGL canvas has it by default. A WebGPU canvas is asked
+  for `CompositeAlphaMode::PreMultiplied`, `web_formats::resolve` in `window/state.rs`.
+- The page must not cover the element. With a background on `html` the one of `body` is
+  drawn over an element with a negative `z-index`. Give only `body` a background.
+- What the hole costs: the video has no opacity, no rounded corners of its own content
+  and nothing drawn under it, and a UI test cannot read its pixels.
+- The element is asked for its state once per frame, no listener is installed. A view
+  that is hidden gets no `update`, so `hide_unplaced` runs after the update pass and
+  hides every element whose view was not placed in that frame.
+- A video element sends no request headers. A `VideoSource` with headers logs a warning
+  and plays without them, the url has to carry the access.
+- The tracks inside a file are not listed, a video element hands out neither the sound
+  tracks nor the subtitle tracks of an mkv, and it plays the first sound track. The app
+  gets subtitles from its server as a file: `set_subtitle_file` loads it with the
+  headers of its source and `video/cues.rs` reads `SubRip`, `WebVTT` and ASS.
+- A browser starts a silent video with no click on the page, a sounding one only after
+  the user touched the page. Volume 0 mutes the element.
+- `VideoStats` come from `getVideoPlaybackQuality`. The decoder name is `browser`.
+- A browser build with `video` also links kira, the feature turns `audio` on.
+
+`Web video` is the test, wasm only, in the browser lane: the element sits exactly under
+the view, plays, seeks, ends, reports subtitle lines and leaves the page with a hidden
+view. The cue parser has unit tests.
 
 ## The API
 

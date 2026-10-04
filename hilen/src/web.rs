@@ -93,6 +93,25 @@ pub(crate) fn context_lost() -> bool {
     CONTEXT_LOST.load(Ordering::Relaxed)
 }
 
+/// Where the canvas sits in the page, in CSS pixels, with the CSS pixels
+/// one device pixel is. A `<video>` element is laid under a view with it.
+#[cfg(feature = "video")]
+pub(crate) fn canvas_css_origin() -> (f64, f64, f64) {
+    let ratio = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio());
+    let Some(canvas) = CANVAS.get_mut().as_ref() else {
+        return (0.0, 0.0, ratio);
+    };
+    let rect = canvas.get_bounding_client_rect();
+    (rect.left(), rect.top(), ratio)
+}
+
+/// The canvas winit made, for an element that has to sit next to it in
+/// the page.
+#[cfg(feature = "video")]
+pub(crate) fn canvas() -> Option<web_sys::HtmlCanvasElement> {
+    CANVAS.get_mut().clone()
+}
+
 /// Whether the page exposes `navigator.gpu`. Only a secure context does,
 /// https or localhost, and `WebKit` hides it in Lockdown mode.
 pub(crate) fn has_webgpu() -> bool {
@@ -135,6 +154,39 @@ pub(crate) fn install_reload_shortcut_listener() {
         .expect("Failed to install the reload shortcut listener");
 
     RELOAD_SHORTCUT_LISTENER.set(Some(listener));
+}
+
+static TV_BACK_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
+
+/// The Back key of an LG remote. It has the key code 461 and no name every
+/// webOS version agrees on, so it is read by its code here, before winit
+/// sees it, and handed on as Escape.
+const WEBOS_BACK_KEY_CODE: u32 = 461;
+
+pub(crate) fn install_tv_back_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|event: web_sys::KeyboardEvent| {
+        if event.key_code() == WEBOS_BACK_KEY_CODE {
+            event.stop_immediate_propagation();
+            event.prevent_default();
+            crate::ui::Input::on_key(crate::ui::NamedKey::Escape);
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "keydown",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the TV back key listener");
+
+    TV_BACK_LISTENER.set(Some(listener));
 }
 
 /// Sends panics to console.error and, when a driver flag is in the url, to

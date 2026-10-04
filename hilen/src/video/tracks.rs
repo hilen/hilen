@@ -1,5 +1,6 @@
 //! The sound and subtitle tracks of a source, as the app sees them.
 
+#[cfg(desktop)]
 use ffmpeg_next::{
     Stream,
     codec::{Id, context::Context},
@@ -15,7 +16,8 @@ pub struct AudioTrack {
     /// The language tag of the file, like `eng`, empty when it has none.
     pub language: String,
     pub title:    String,
-    /// The ffmpeg codec name, like `aac`.
+    /// The ffmpeg codec name, like `aac`. Empty in a browser, which does
+    /// not tell.
     pub codec:    String,
     pub channels: u16,
 }
@@ -34,10 +36,12 @@ pub struct SubtitleTrack {
     pub text:     bool,
 }
 
+#[cfg(desktop)]
 fn tag(stream: &Stream, key: &str) -> String {
     stream.metadata().get(key).unwrap_or_default().to_string()
 }
 
+#[cfg(desktop)]
 pub(crate) fn audio_tracks(input: &Input) -> Vec<AudioTrack> {
     input
         .streams()
@@ -57,6 +61,7 @@ pub(crate) fn audio_tracks(input: &Input) -> Vec<AudioTrack> {
         .collect()
 }
 
+#[cfg(desktop)]
 pub(crate) fn subtitle_tracks(input: &Input) -> Vec<SubtitleTrack> {
     input
         .streams()

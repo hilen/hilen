@@ -50,6 +50,56 @@ pub(crate) async fn prune_pending(db: &Db, minutes: i32) -> Result<(), sqlx::Err
     )
 }
 
+/// Forgets the short codes nobody typed in time.
+pub(crate) async fn prune_codes(db: &Db, minutes: i32) -> Result<(), sqlx::Error> {
+    on_db!(
+        db,
+        "DELETE FROM login_codes WHERE created_at < now() - make_interval(mins => $1)",
+        "DELETE FROM login_codes WHERE created_at < unixepoch() - $1 * 60",
+        |sql, pool| sqlx::query(sql).bind(minutes).execute(pool).await.map(|_| ())
+    )
+}
+
+/// Keeps a short code for the login of this `challenge`. False when the code
+/// is taken, the caller makes another one.
+pub(crate) async fn put_code(
+    db: &Db,
+    code: &str,
+    challenge: &str,
+    provider: &str,
+) -> Result<bool, sqlx::Error> {
+    let both = r"
+INSERT INTO login_codes (code, challenge, provider) VALUES ($1, $2, $3)
+ON CONFLICT (code) DO NOTHING";
+    let put = on_db!(db, both, both, |sql, pool| sqlx::query(sql)
+        .bind(code)
+        .bind(challenge)
+        .bind(provider)
+        .execute(pool)
+        .await
+        .map(|done| done.rows_affected()))?;
+    Ok(put > 0)
+}
+
+/// The challenge and the provider a code stands for, while it is in time.
+/// The code stays, a page that is loaded twice works twice.
+pub(crate) async fn code_target(
+    db: &Db,
+    code: &str,
+    minutes: i32,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    on_db!(
+        db,
+        r"
+SELECT challenge, provider FROM login_codes
+WHERE code = $1 AND created_at > now() - make_interval(mins => $2)",
+        r"
+SELECT challenge, provider FROM login_codes
+WHERE code = $1 AND created_at > unixepoch() - $2 * 60",
+        |sql, pool| sqlx::query_as(sql).bind(code).bind(minutes).fetch_optional(pool).await
+    )
+}
+
 /// Starts a login or starts it over. A reload of the page starts over. A
 /// challenge that already has its user is left alone, or a second person
 /// opening the same link could swap their account in under the app that is

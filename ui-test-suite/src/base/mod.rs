@@ -23,6 +23,9 @@ mod inspect_hover;
 mod inspect_keys;
 #[cfg(not_wasm)]
 mod inspect_tap_modifiers;
+mod key_focus;
+mod key_focus_modal;
+mod key_focus_table;
 mod keymap;
 mod keymap_combo;
 mod keymap_named_key;
@@ -30,6 +33,7 @@ mod layout;
 mod level_leak;
 mod modal_test;
 mod navigation;
+mod navigation_escape;
 mod on_tap_add;
 mod out_bounds_test;
 mod present;

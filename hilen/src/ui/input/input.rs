@@ -15,7 +15,7 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, LongPress, Mouse, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents,
+        Container, Cursor, Focus, LongPress, Mouse, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents,
         UIManager, ViewData, ViewFrame, check_touch,
     },
 };
@@ -56,6 +56,9 @@ impl Input {
             Cursor::release();
             return;
         }
+        if Focus::on_key(key) {
+            return;
+        }
         UIManager::keymap().check(key);
         UIEvents::keyboard_key().trigger(key);
     }
@@ -76,6 +79,7 @@ impl Input {
 
         // Before any view can take the touch, the held state is raw.
         Mouse::on_touch(&touch);
+        Focus::pointer_used(&touch);
 
         if UIManager::touch_disabled() && touch.is_began() {
             return false;

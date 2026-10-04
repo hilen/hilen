@@ -12,8 +12,8 @@ use crate::{
         flat::{CornerRadii, Rect},
     },
     ui::{
-        CursorIcon, DynamicColor, Gradient, NavigationView, Shadow, TooltipContent, Touch, UIEvent, View,
-        WeakView, layout::Placer,
+        CursorIcon, DynamicColor, FocusData, Gradient, NavigationView, Shadow, TooltipContent, Touch,
+        UIEvent, View, WeakView, layout::Placer,
     },
 };
 
@@ -133,6 +133,15 @@ pub struct ViewBase {
     pub(crate) hover_cursor: Option<CursorIcon>,
 
     pub tag: usize,
+
+    /// The frame is erased inside this view, so a browser shows the page
+    /// behind the canvas there. Set by a `VideoView` that plays in a
+    /// `<video>` element, read only in a browser.
+    pub(crate) page_hole: bool,
+
+    /// What the key focus keeps for this view, see `ui/focus.rs`.
+    #[educe(Debug(ignore))]
+    pub(crate) focus: FocusData,
 }
 
 impl ViewBase {

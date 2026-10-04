@@ -117,7 +117,7 @@ impl Image {
     /// A blank image whose texture is also a render target, for a video frame
     /// converted on the GPU or a scene drawn into a picture. Keyed like any
     /// managed image, so the same key gives the same image back.
-    #[cfg(any(feature = "video", feature = "scene"))]
+    #[cfg(any(all(feature = "video", desktop), feature = "scene"))]
     pub(crate) fn render_target(name: &str, size: Size<u32>) -> Weak<Image> {
         Image::store_with_name::<Infallible>(name, || {
             Ok(Self::from_texture(&Texture::render_target(size, name), None))
@@ -138,7 +138,7 @@ impl Image {
         &self.bind.bind
     }
 
-    #[cfg(any(feature = "scene", feature = "video"))]
+    #[cfg(any(feature = "scene", all(feature = "video", desktop)))]
     pub(crate) fn view(&self) -> &TextureView {
         &self.bind.view
     }

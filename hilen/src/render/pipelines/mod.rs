@@ -59,6 +59,9 @@ pub(crate) type TexturedSpriteBoxPipeline = RectPipeline<
 >;
 
 pub type UIRectPipeline = RectPipeline<{ PipelineType::Color }, "ui_rect", UI_CODE, RectView, UIRectInstance>;
+/// The rect shader with a blend that erases, see `PipelineType::Hole`.
+#[cfg(wasm)]
+pub type UIHolePipeline = RectPipeline<{ PipelineType::Hole }, "ui_hole", UI_CODE, RectView, UIRectInstance>;
 
 pub type UIImageRectPipeline =
     RectPipeline<{ PipelineType::Image }, "ui_image_rect", UI_IMAGE_CODE, RectView, UIImageInstance>;

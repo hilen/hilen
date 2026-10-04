@@ -126,7 +126,7 @@ impl<
         });
 
         let pipeline = if TYPE.image() {
-            device.pipeline_with(
+            device.pipeline_blended(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
@@ -136,9 +136,10 @@ impl<
                     topology: PrimitiveTopology::TriangleStrip,
                     samples,
                 },
+                TYPE.blend(),
             )
         } else {
-            device.pipeline_with(
+            device.pipeline_blended(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
@@ -148,6 +149,7 @@ impl<
                     topology: PrimitiveTopology::TriangleStrip,
                     samples,
                 },
+                TYPE.blend(),
             )
         };
 

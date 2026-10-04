@@ -97,16 +97,34 @@ fn plain_format(formats: &[TextureFormat]) -> TextureFormat {
 pub(crate) mod web_formats {
     use std::sync::OnceLock;
 
-    use wgpu::TextureFormat;
+    use wgpu::{CompositeAlphaMode, TextureFormat};
 
     static PRESENT: OnceLock<TextureFormat> = OnceLock::new();
+    static ALPHA: OnceLock<CompositeAlphaMode> = OnceLock::new();
 
     /// The first capability entry is the browser's preferred canvas
     /// format. Called during window creation, before anything that
     /// needs the format exists.
     pub(crate) fn resolve(surface: &wgpu::Surface, adapter: &wgpu::Adapter) {
-        let format = super::plain_format(&surface.get_capabilities(adapter).formats);
+        let capabilities = surface.get_capabilities(adapter);
+        let format = super::plain_format(&capabilities.formats);
         PRESENT.get_or_init(|| format);
+
+        // A WebGPU canvas is opaque unless asked, a pixel the frame left
+        // with no alpha would then be black. With premultiplied alpha the
+        // page shows there, which is how a `<video>` element under the
+        // canvas is seen, see `PipelineType::Hole`. A WebGL canvas has
+        // alpha by itself and lists only the opaque mode.
+        let alpha = if capabilities.alpha_modes.contains(&CompositeAlphaMode::PreMultiplied) {
+            CompositeAlphaMode::PreMultiplied
+        } else {
+            CompositeAlphaMode::Auto
+        };
+        ALPHA.get_or_init(|| alpha);
+    }
+
+    pub(crate) fn alpha_mode() -> CompositeAlphaMode {
+        ALPHA.get().copied().unwrap_or(CompositeAlphaMode::Auto)
     }
 
     pub(crate) fn present_format() -> TextureFormat {
@@ -172,6 +190,13 @@ impl Default for State {
 
 impl State {
     pub(crate) fn resize() {
+        // A resize after the browser took the context configures a dead
+        // surface, and wgpu panics on it.
+        #[cfg(wasm)]
+        if crate::web::context_lost() {
+            return;
+        }
+
         let new_size = Window::render_size();
 
         if new_size.width == 0.0 || new_size.height == 0.0 {
@@ -304,6 +329,12 @@ impl State {
     pub(crate) fn render(&mut self) {
         #[cfg(desktop)]
         if Window::is_resizing() {
+            return;
+        }
+
+        // The resize event draws too, not only the redraw request.
+        #[cfg(wasm)]
+        if crate::web::context_lost() {
             return;
         }
 

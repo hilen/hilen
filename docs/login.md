@@ -21,6 +21,22 @@ same moment. The browser history only ever holds the hash.
 - A row nobody finished is dropped after 10 minutes, the client gives up after the same time.
 - Sessions keep only the SHA-256 of the token. All times are the database clock.
 
+## A device with no keyboard
+
+A TV cannot open a browser for its user. `Login::start_with_code` posts the challenge
+to `POST /auth/code` and gets a short code, 6 letters and digits with none that look
+alike. The app shows it, as text and as a `QrCodeView` of `<server>/auth/code?code=`.
+The user opens that page on a phone, `GET /auth/code` is a form for the code, and with
+a known code the server sends the phone on to `/auth/google?challenge=` of the TV. From
+there the flow is the one above, the TV polls with its verifier.
+
+- Codes live in `login_codes`, the third migration, for 10 minutes like a pending
+  login. A code is not used up, a page loaded twice works twice.
+- A person who guesses a code in time logs their own account into the waiting device,
+  the same risk as a second person with the login link.
+- `QrCodeView` draws 1 texture pixel per module with the nearest filter, black on white
+  whatever the theme. `Qr code view test` pins it, the pixels have a unit test.
+
 ## Apple
 
 Apple is optional. `AuthConfig::from_env` turns it on when `APPLE_SERVICE_ID` is set, then

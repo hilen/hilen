@@ -29,6 +29,8 @@ static GRADIENT_DRAWER: MainLock<UIGradientPipeline> = MainLock::new();
 pub(super) static IMAGE_RECT_DRAWER: MainLock<UIImageRectPipeline> = MainLock::new();
 static SHADOW_DRAWER: MainLock<UIShadowPipeline> = MainLock::new();
 static SCRIM_DRAWER: MainLock<UIRectPipeline> = MainLock::new();
+#[cfg(wasm)]
+static HOLE_DRAWER: MainLock<crate::render::UIHolePipeline> = MainLock::new();
 static BLUR_DRAWER: MainLock<UIBlurPipeline> = MainLock::new();
 static BACKDROP_DRAWER: MainLock<UIBackdropPipeline> = MainLock::new();
 static PATH_DRAWER: MainLock<UIPathPipeline> = MainLock::new();
@@ -220,6 +222,37 @@ impl UIDrawer {
         );
     }
 
+    /// Erases the frame inside the view, down to zero alpha, so the page
+    /// behind the canvas shows there. A `VideoView` in a browser plays in
+    /// a `<video>` element under the canvas. Everything queued so far is
+    /// behind the view and is drawn first, then the hole cuts through it.
+    /// What comes later is in front and draws over the hole as usual.
+    #[cfg(wasm)]
+    fn hole_barrier(render_frame: &mut RenderFrame, view: &dyn View, frame: &Rect, ctx: &mut DrawContext) {
+        use crate::gm::color::BLACK;
+
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+
+        let hole = HOLE_DRAWER.get_mut();
+        hole.add(UIRectInstance::new(
+            *frame,
+            BLACK,
+            CLEAR,
+            0.0,
+            view.corner_radii(),
+            view.z_position(),
+            ctx.scale,
+        ));
+        hole.draw(
+            render_frame.pass(),
+            RectView {
+                resolution: ctx.resolution,
+                _padding:   0,
+            },
+        );
+    }
+
     fn update_view(view: &mut dyn View, parent_opacity: f32) {
         if view.is_hidden() {
             return;
@@ -288,6 +321,9 @@ impl UIDrawer {
             Self::blur_barrier(render_frame, blur, &frame, ctx);
         } else if view.as_any().downcast_ref::<ScrimView>().is_some() {
             Self::scrim_barrier(render_frame, view, &frame, ctx);
+        } else if view.__base_view().page_hole {
+            #[cfg(wasm)]
+            Self::hole_barrier(render_frame, view, &frame, ctx);
         } else {
             // Rects flush before text and write depth, so text queued
             // behind a translucent rect would fail the depth test and
