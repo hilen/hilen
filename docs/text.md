@@ -7,7 +7,9 @@ added while making the skaityk port pixel identical to its WebKit original.
 
 `draw_label` in `ui_drawer.rs` builds a `Section` per label and queues it on the
 label's `Font`. Each `Font` owns a `wgpu_text::TextBrush` for rasterization and a
-`rustybuzz::Face` for shaping. Glyphs are positioned by `ShapedLayout`
+`rustybuzz::Face` for shaping. A brush owns only its glyph atlas and vertex buffer, the
+shader module and the pipelines are built once in the `wgpu_text` fork and shared by
+every brush, so a font costs no pipeline build of its own. Glyphs are positioned by `ShapedLayout`
 (`hilen/src/window/text/shaped_layout.rs`), a custom `GlyphPositioner` that shapes
 every line with rustybuzz and hands pre-positioned glyphs to glyph_brush.
 
@@ -23,7 +25,9 @@ all texture writes of a frame run before the render pass, so an earlier batch
 would draw unrelated glyph fragments. The `wgpu_text` fork prevents it: when a
 write of a later batch lands on a glyph an earlier batch of the frame still draws,
 the writes go into a copy of the atlas, the earlier draw keeps the old one, and
-the next frame starts with an atlas of double size. `Clipped text batches` and
+the next frame starts with an atlas of double size. The copy is written from the
+pixels the fork keeps in memory, not copied on the GPU, a texture to texture copy
+made an LG TV drop its WebGL context, see [webos.md](webos.md). `Clipped text batches` and
 `Text corruption` pin it. The engine used to queue every visible label once before
 drawing to keep the atlas stable, that preload pass is gone.
 
