@@ -119,7 +119,10 @@ impl UIDrawer {
         };
 
         Pipelines::rect().draw(pass, rect_view);
-        IMAGE_RECT_DRAWER.get_mut().draw(pass, rect_view);
+        let images = IMAGE_RECT_DRAWER.get_mut();
+        // A bigger z is farther from the viewer.
+        images.sort_back_to_front(|instance| instance.z_position);
+        images.draw(pass, rect_view);
         GRADIENT_DRAWER.get_mut().draw(pass, rect_view);
 
         let path_drawer = PATH_DRAWER.get_mut();
@@ -496,7 +499,11 @@ impl UIDrawer {
                         ctx.scale,
                     )
                     .with_opacity(opacity),
-                    ImageKey { image, raster },
+                    ImageKey {
+                        image,
+                        raster,
+                        depth: None,
+                    },
                 );
             }
         } else if let Some(label) = view.as_any().downcast_ref::<Label>()
@@ -553,7 +560,11 @@ impl UIDrawer {
                     scale,
                 )
                 .with_opacity(opacity),
-                ImageKey { image, raster },
+                ImageKey {
+                    image,
+                    raster,
+                    depth: None,
+                },
             );
         }
     }

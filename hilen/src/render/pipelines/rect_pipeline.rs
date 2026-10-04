@@ -1,4 +1,3 @@
-#[cfg(feature = "level")]
 use std::collections::HashMap;
 
 use bytemuck::Pod;
@@ -32,11 +31,20 @@ use crate::{
 pub struct ImageKey {
     pub image:  Weak<Image>,
     pub raster: Option<(u32, u32)>,
+    /// Set for an image that views at different depths share and that has
+    /// soft edges, like the glow of a text. Each depth is then a batch of
+    /// its own, so the batches can be drawn farthest first. The bits of the
+    /// z position.
+    pub depth:  Option<u32>,
 }
 
 impl From<Weak<Image>> for ImageKey {
     fn from(image: Weak<Image>) -> Self {
-        Self { image, raster: None }
+        Self {
+            image,
+            raster: None,
+            depth: None,
+        }
     }
 }
 
@@ -74,7 +82,8 @@ pub struct RectPipeline<
 
     // Managed images live for the whole process, see docs/refs.md, so an
     // image key cannot die. Svg raster keys come and go with the sizes
-    // drawn and are dropped with their rasters.
+    // drawn and are dropped with their rasters. Depth keys come and go
+    // with the views and are dropped the same way.
     instances: IndexMap<ImageKey, VecBuffer<Instance>>,
 }
 
@@ -174,8 +183,9 @@ impl<
     /// each. The batches otherwise go in the order their images were first
     /// drawn in the process, and a soft cutout edge drawn before the batch
     /// behind it blends with the clear color, then hides that batch there
-    /// by depth, a halo that depends on which image loaded first.
-    #[cfg(feature = "level")]
+    /// by depth, a halo that depends on which image loaded first. The
+    /// interface has the same need, a text glow whose image is older than
+    /// the picture behind it would draw first.
     pub(crate) fn sort_back_to_front(&mut self, depth: impl Fn(&Instance) -> f32) {
         let farthest: HashMap<ImageKey, f32> = self
             .instances
@@ -223,8 +233,9 @@ impl<
         // After the loads, a key added this frame has its frame stamped
         // only by load and would otherwise be dropped before it draws.
         let frame = Window::render_frame();
-        self.instances
-            .retain(|key, instances| key.raster.is_none() || instances.frame() + RASTER_KEEP_FRAMES >= frame);
+        self.instances.retain(|key, instances| {
+            (key.raster.is_none() && key.depth.is_none()) || instances.frame() + RASTER_KEEP_FRAMES >= frame
+        });
     }
 }
 

@@ -18,7 +18,7 @@ use crate::{
         color::{CLEAR, Color},
         flat::{CornerRadii, Point, Rect, Size},
     },
-    render::data::UIImageInstance,
+    render::{ImageKey, data::UIImageInstance},
     ui::{
         Label, UIManager, ViewFrame,
         label_drawer::{LAYER_STEP, Under, under_layers},
@@ -220,6 +220,7 @@ impl UIDrawer {
             };
 
             let forward: f32 = index.lossy_convert();
+            let depth = z - forward * LAYER_STEP;
             let rect: Rect = (
                 (origin.x + effect.left + offset.x.round()) / scale,
                 (origin.y + effect.top + offset.y.round()) / scale,
@@ -234,13 +235,19 @@ impl UIDrawer {
                     CLEAR,
                     0.0,
                     CornerRadii::default(),
-                    z - forward * LAYER_STEP,
+                    depth,
                     false,
                     false,
                     scale,
                 )
                 .with_opacity(opacity),
-                effect.image,
+                // Labels with the same text share the image. A batch of its
+                // own per depth keeps each copy over what lies behind it.
+                ImageKey {
+                    image:  effect.image,
+                    raster: None,
+                    depth:  Some(depth.to_bits()),
+                },
             );
         }
     }

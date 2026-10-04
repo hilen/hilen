@@ -18,6 +18,15 @@ jobs:
     name: Code Quality
     runs-on: [self-hosted, tc]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -39,6 +48,15 @@ jobs:
     name: Wasm
     runs-on: [self-hosted, tc]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -60,6 +78,15 @@ jobs:
     name: UI Tests
     runs-on: [self-hosted, tc]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -82,6 +109,15 @@ jobs:
       matrix:
         browser: [chrome, firefox]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -118,6 +154,15 @@ jobs:
     name: iOS UI Tests
     runs-on: [self-hosted, mac1]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -147,6 +192,15 @@ jobs:
           ]
     runs-on: [self-hosted, "${{ matrix.target.runner }}"]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
@@ -183,6 +237,15 @@ jobs:
           ]
     runs-on: [self-hosted, tc]
     steps:
+      # A docker build leaves root owned files in the workspace, and the next
+      # checkout on the same machine cannot remove them.
+      - name: Take back the workspace
+        if: runner.os == 'Linux'
+        run: |
+          if [ -d "${{ runner.workspace }}" ]; then
+            docker run --rm -v "${{ runner.workspace }}":/ws alpine chown -R $(id -u):$(id -g) /ws
+          fi
+
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}

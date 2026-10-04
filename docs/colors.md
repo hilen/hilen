@@ -17,7 +17,8 @@ UI frame, is the upgrade if a scene ever needs it.
   usable in a `pub const`. `with_alpha` matches CSS `rgba()`.
 - Render targets are plain Unorm, `Bgra8Unorm` on desktop, `Rgba8Unorm` on
   android, the browser's preferred canvas format on wasm. Never an sRGB
-  format. Fixed function blending then operates on the encoded bytes, which
+  format. WebGL prefers `Rgba8UnormSrgb`, so `plain_format` in `window/state.rs`
+  takes its plain twin there. Fixed function blending then operates on the encoded bytes, which
   is exactly the CSS compositing and gradient math.
 - Image textures are also plain Unorm. Their bytes are already encoded and
   sampling must return them unchanged.

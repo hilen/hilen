@@ -9,6 +9,7 @@ mod font_zoo;
 mod glyph_fallback;
 mod label;
 mod label_color_runs;
+mod label_effect_over_new_image;
 mod label_ellipsize;
 mod label_ellipsize_head;
 mod label_fit_text;

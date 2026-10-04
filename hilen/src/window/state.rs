@@ -1,9 +1,6 @@
 use std::{
     cell::RefCell,
-    sync::{
-        OnceLock,
-        mpsc::{Receiver, Sender, channel},
-    },
+    sync::mpsc::{Receiver, Sender, channel},
 };
 
 #[cfg(feature = "bench")]
@@ -22,7 +19,8 @@ use crate::{
     },
     window::{
         Font, RenderFrame, Screenshot, Window, app_handler::AppHandler, frame_counter::FrameCounter,
-        image::Texture, screen::Screen, surface::Surface, window::surface_config_with_size,
+        image::Texture, msaa::msaa_sample_count, screen::Screen, surface::Surface,
+        window::surface_config_with_size,
     },
 };
 
@@ -75,23 +73,20 @@ pub fn surface_texture_format() -> TextureFormat {
     }
 }
 
-/// Samples per pixel of the frame's render pass. 4 anti-aliases the
-/// triangulated geometry the SDF pipelines cannot smooth, vector paths,
-/// polygons and sprite cutouts. Every pipeline drawing into the pass
-/// and the pass attachments must agree on this count. `HILEN_MSAA=1`
-/// switches multisampling off, the A/B lever for benchmarks.
-pub fn msaa_sample_count() -> u32 {
-    static COUNT: OnceLock<u32> = OnceLock::new();
-    *COUNT.get_or_init(|| {
-        let count = std::env::var("HILEN_MSAA").map_or(4, |value| {
-            value.parse().unwrap_or_else(|_| panic!("Invalid HILEN_MSAA value: {value}"))
-        });
-        assert!(
-            matches!(count, 1 | 2 | 4),
-            "HILEN_MSAA must be 1, 2 or 4, got {count}"
-        );
-        count
-    })
+/// The preferred format of a surface, the first of its list, as a plain
+/// Unorm one. WebGL lists `Rgba8UnormSrgb` first. A frame drawn into that
+/// gets the sRGB curve applied to bytes that are encoded already, see
+/// `docs/colors.md`, and `#597c95` came out as `#9fb9c9` on every WebGL
+/// page.
+#[cfg(any(target_arch = "wasm32", test))]
+fn plain_format(formats: &[TextureFormat]) -> TextureFormat {
+    let preferred = formats[0];
+    let plain = preferred.remove_srgb_suffix();
+    if formats.contains(&plain) {
+        plain
+    } else {
+        preferred
+    }
 }
 
 /// The canvas format has to be what the browser prefers. Both allowed
@@ -110,7 +105,7 @@ pub(crate) mod web_formats {
     /// format. Called during window creation, before anything that
     /// needs the format exists.
     pub(crate) fn resolve(surface: &wgpu::Surface, adapter: &wgpu::Adapter) {
-        let format = surface.get_capabilities(adapter).formats[0];
+        let format = super::plain_format(&surface.get_capabilities(adapter).formats);
         PRESENT.get_or_init(|| format);
     }
 
@@ -784,5 +779,37 @@ impl State {
         let size: Size<u32> = Size::new(texture.size().width, texture.size().height);
 
         (buffer, size)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use wgpu::TextureFormat;
+
+    use super::plain_format;
+
+    /// What a WebGL2 surface lists, the sRGB format first.
+    #[test]
+    fn an_srgb_first_choice_becomes_its_plain_twin() {
+        let formats = [
+            TextureFormat::Rgba8UnormSrgb,
+            TextureFormat::Rgba8Unorm,
+            TextureFormat::Rgba16Float,
+        ];
+        assert_eq!(plain_format(&formats), TextureFormat::Rgba8Unorm);
+    }
+
+    #[test]
+    fn a_plain_first_choice_is_kept() {
+        let formats = [TextureFormat::Bgra8Unorm, TextureFormat::Rgba8Unorm];
+        assert_eq!(plain_format(&formats), TextureFormat::Bgra8Unorm);
+    }
+
+    #[test]
+    fn an_srgb_choice_without_a_plain_twin_is_kept() {
+        assert_eq!(
+            plain_format(&[TextureFormat::Rgba8UnormSrgb]),
+            TextureFormat::Rgba8UnormSrgb
+        );
     }
 }

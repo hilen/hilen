@@ -14,6 +14,7 @@ use reqwest::{
     StatusCode,
     header::{ETAG, IF_NONE_MATCH},
 };
+use web_time::Instant;
 
 use crate::deps::{
     hreads::on_main,
@@ -203,9 +204,17 @@ pub trait DataManager<T: Managed> {
             return existing.weak();
         }
 
-        let new = Own::new(T::load_path(&Self::full_path(&name)));
+        // The pending bytes stay until the entry is stored. Two threads
+        // asking at once then both decode the real file, and neither
+        // falls through to a path that a browser does not have.
+        let new = Own::new(match T::pending_data(&name) {
+            Some(data) => T::load_data(&data, &name),
+            None => T::load_path(&Self::full_path(&name)),
+        });
 
-        insert_or_existing(Self::storage_mut(), name, new)
+        let stored = insert_or_existing(Self::storage_mut(), name.clone(), new);
+        T::pending_loaded(&name);
+        stored
     }
 
     fn load(data: &[u8], name: impl ToString) -> Weak<T> {
@@ -280,8 +289,20 @@ pub trait DataManager<T: Managed> {
             name:      name.clone(),
         };
 
+        let started = Instant::now();
         let data = source.await?;
+        let fetched = started.elapsed();
 
-        Ok(Self::load(&data, &name))
+        let load_started = Instant::now();
+        let loaded = Self::load(&data, &name);
+
+        log::debug!(
+            "Asset {name}: {} bytes fetched in {} ms, loaded in {} ms",
+            data.len(),
+            fetched.as_millis(),
+            load_started.elapsed().as_millis()
+        );
+
+        Ok(loaded)
     }
 }

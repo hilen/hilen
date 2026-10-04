@@ -1,9 +1,12 @@
+#[cfg(feature = "scene")]
+use hilen::level::LevelManager;
 use hilen::{
-    level::LevelManager,
     refs::Own,
     ui::{Setup, UIManager, View},
 };
 
+#[cfg(feature = "scene")]
+use crate::interface::scenes::Scene3D;
 #[cfg(macos)]
 use crate::interface::video_page::VideoPage;
 use crate::interface::{
@@ -11,7 +14,7 @@ use crate::interface::{
     landing::Landing,
     noise_view::NoiseView,
     root_layout_view::RootLayoutView,
-    scenes::{EffectsScene, Scene3D, ScrollTables, TextFonts, WidgetGallery},
+    scenes::{EffectsScene, ScrollTables, TextFonts, WidgetGallery},
 };
 
 /// Every screen the sidebar can open. In place pages render inside the
@@ -26,6 +29,7 @@ pub enum Page {
     Fonts,
     Scrolling,
     Noise,
+    #[cfg(feature = "scene")]
     Scene3D,
     Layout,
     Dev,
@@ -37,15 +41,10 @@ impl Page {
     /// Every page in sidebar order. A function, so a page that exists on
     /// some platforms only can sit in the list without a second array.
     pub fn all() -> Vec<Page> {
-        let mut pages = vec![
-            Page::Landing,
-            Page::Effects,
-            Page::Noise,
-            Page::Scene3D,
-            Page::Widgets,
-            Page::Fonts,
-            Page::Scrolling,
-        ];
+        let mut pages = vec![Page::Landing, Page::Effects, Page::Noise];
+        #[cfg(feature = "scene")]
+        pages.push(Page::Scene3D);
+        pages.extend([Page::Widgets, Page::Fonts, Page::Scrolling]);
         #[cfg(macos)]
         pages.push(Page::Video);
         pages.extend([Page::Layout, Page::Dev]);
@@ -60,6 +59,7 @@ impl Page {
             Page::Fonts => "Fonts",
             Page::Scrolling => "Scrolling",
             Page::Noise => "Noise",
+            #[cfg(feature = "scene")]
             Page::Scene3D => "3D Game",
             Page::Layout => "Layout",
             Page::Dev => "Dev",
@@ -77,6 +77,7 @@ impl Page {
             Page::Fonts => "nav_fonts.svg",
             Page::Scrolling => "nav_scrolling.svg",
             Page::Noise => "nav_noise.svg",
+            #[cfg(feature = "scene")]
             Page::Scene3D => "nav_scene.svg",
             Page::Layout => "nav_layout.svg",
             Page::Dev => "nav_dev.svg",
@@ -139,6 +140,7 @@ impl Page {
             Page::Noise => {
                 UIManager::set_view(NoiseView::new());
             }
+            #[cfg(feature = "scene")]
             Page::Scene3D => {
                 LevelManager::stop_level();
                 UIManager::set_view(Scene3D::new());

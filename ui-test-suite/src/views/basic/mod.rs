@@ -38,6 +38,7 @@ mod shadow;
 mod slider;
 mod slider_horizontal;
 mod slider_sizing;
+mod stick_images;
 mod switch;
 mod switch_colors;
 mod theme_switch;

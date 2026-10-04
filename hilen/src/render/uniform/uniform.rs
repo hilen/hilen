@@ -168,7 +168,8 @@ fn gcd(a: u64, b: u64) -> u64 {
 /// The instance declaration of a UI shader, rewritten for the uniform path.
 /// `var<storage, read> instances: array<T>;` becomes a uniform array of one
 /// chunk, which is what the chunked draw binds. The storage binding gets the
-/// source back untouched.
+/// source back untouched. So does a shader with no storage at all, a level
+/// sprite shader reads its instances as vertex attributes only.
 pub(crate) fn instances_shader(source: &str, stride: u64, binding: InstanceBinding) -> Cow<'_, str> {
     const STORAGE: &str = "var<storage, read> instances: array<";
 
@@ -176,9 +177,13 @@ pub(crate) fn instances_shader(source: &str, stride: u64, binding: InstanceBindi
         return source.into();
     }
 
-    let start = source
-        .find(STORAGE)
-        .expect("a UI shader declares its instances as a storage array");
+    let Some(start) = source.find(STORAGE) else {
+        assert!(
+            !source.contains("var<storage"),
+            "a UI shader declares its instances as a storage array"
+        );
+        return source.into();
+    };
     let type_start = start + STORAGE.len();
     let type_end = type_start + source[type_start..].find(">;").expect("instance array declaration ends");
     let per_chunk = InstanceChunks::new(stride).per_chunk();
@@ -266,7 +271,25 @@ pub(crate) fn make_storage_layout(name: &str, shader: ShaderStages) -> BindGroup
 
 #[cfg(test)]
 mod test {
-    use super::InstanceChunks;
+    use super::{InstanceBinding, InstanceChunks, instances_shader};
+
+    /// A level sprite shader has no instance array, the demo died with it at
+    /// start on WebGL2.
+    #[test]
+    fn a_shader_without_storage_passes_the_uniform_path_untouched() {
+        let source = "struct SpriteInstance { @location(2) position: vec2<f32> }";
+        assert_eq!(instances_shader(source, 32, InstanceBinding::Uniform), source);
+    }
+
+    #[test]
+    #[should_panic(expected = "declares its instances as a storage array")]
+    fn a_storage_array_in_another_spelling_is_refused() {
+        instances_shader(
+            "var<storage, read> rects: array<UIRectInstance>;",
+            80,
+            InstanceBinding::Uniform,
+        );
+    }
 
     /// The WebGL2 limits, a 16 KiB binding at 256 byte offsets.
     fn webgl2(stride: u64) -> InstanceChunks {

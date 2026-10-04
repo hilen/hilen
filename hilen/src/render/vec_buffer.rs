@@ -59,7 +59,6 @@ impl<T> VecBuffer<T> {
     }
 
     /// The elements pushed since the last `load()`.
-    #[cfg(feature = "level")]
     pub(crate) fn queued(&self) -> &[T] {
         &self.data
     }

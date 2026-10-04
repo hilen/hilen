@@ -1,6 +1,8 @@
 use std::ops::Range;
 
 use hilen::{
+    Assets,
+    dispatch::{on_main, spawn},
     gm::{Animation, LossyConvert},
     refs::{Weak, manage::DataManager},
     ui::{
@@ -101,11 +103,32 @@ impl TextFonts {
             .set_border_color(BORDER)
             .set_multiline(true)
             .set_vertical_alignment(VerticalAlignment::Top);
-        label.set_font_runs([
-            (run(JAPANESE), RunStyle::font(Font::get("NotoSansJP-Regular.ttf"))),
-            (run(THAI), RunStyle::font(Font::get("NotoSansThai.ttf"))),
-            (run(KOREAN), RunStyle::font(Font::get("NotoSansKR-Regular.ttf"))),
-        ]);
+        label.set_font_runs([(run(THAI), RunStyle::font(Font::get("NotoSansThai.ttf")))]);
+
+        // The Japanese and Korean fonts are 20 MB together, so a browser
+        // downloads them when this page opens and not at every start.
+        // Their runs draw in the label font until the group is here.
+        spawn(async move {
+            if let Err(err) = Assets::load_group("cjk").await {
+                log::error!("Failed to load the cjk fonts: {err}");
+                return;
+            }
+            on_main(move || {
+                if label.is_ok() {
+                    label.set_font_runs([
+                        (
+                            run(JAPANESE),
+                            RunStyle::font(Font::get("cjk/NotoSansJP-Regular.ttf")),
+                        ),
+                        (run(THAI), RunStyle::font(Font::get("NotoSansThai.ttf"))),
+                        (
+                            run(KOREAN),
+                            RunStyle::font(Font::get("cjk/NotoSansKR-Regular.ttf")),
+                        ),
+                    ]);
+                }
+            });
+        });
         self.scroll.set_content_height(WRAPPING_TOP + WRAPPING_HEIGHT + 20.0);
 
         let scroll = self.scroll;

@@ -251,8 +251,17 @@ not a substitute for the required `--human` user review.
 suite. It saves a clean frame, no probe markers, at every `check_colors` and every
 `checkpoint`, as `<dir>/<test>-<NN>-<label>.png` with `NN` counting up per test, so the
 files sort in run order and an agent sees every verified state from one run. A check
-saves before it asserts, so a failing check still leaves its frame. `checkpoint` is the
-way to name a state a test wants on disk that no check pins.
+saves before it asserts, so a failing check still leaves its frame. In a shots run a
+failing check does not end the test: every wrong point of the check goes into one
+failure and the test goes on, so the later states are saved too and the report lists
+all the points at once. `checkpoint` is the way to name a state a test wants on disk
+that no check pins.
+
+A probe has to hold with 4 samples and with 1. A browser on WebGL draws with 1 sample,
+see [webos.md](webos.md), and there a pixel on the edge of a path, a thin stroke or a
+rect on a fractional row is fully the shape or fully the background. Run a test with
+`HILEN_MSAA=1` to check it, and with `--shots` under both counts to see every point
+that differs.
 
 For profiling, pass `--fps-report` to print a report at the end of the run: frames, duration
 and average fps per test. Per-test fps varies a lot between runs — macOS sometimes paces frames

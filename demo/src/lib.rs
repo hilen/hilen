@@ -7,6 +7,7 @@ mod app;
 mod interface;
 mod levels;
 mod no_physics;
+#[cfg(feature = "scene")]
 mod scenes;
 
 // The library build is what iOS and ui-test link. Exposing the app entry

@@ -30,6 +30,7 @@ use crate::{
     window::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
+        msaa::set_backend,
         screen::Screen,
         state::{State, surface_texture_format},
         surface::Surface,
@@ -344,6 +345,7 @@ impl Window {
         let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
 
         let info = adapter.get_info();
+        set_backend(info.backend);
 
         info!("Backend: {}", info.backend);
 
@@ -426,6 +428,7 @@ impl Window {
             .context("Could not get a GPU adapter")?;
 
         let info = adapter.get_info();
+        set_backend(info.backend);
 
         info!("Backend: {} (headless)", info.backend);
 

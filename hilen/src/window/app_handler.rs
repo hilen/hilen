@@ -361,6 +361,11 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                     event_loop.exit();
                 }
 
+                #[cfg(wasm)]
+                if crate::web::context_lost() {
+                    return;
+                }
+
                 Self::window().state.update();
 
                 Self::window().state.render();

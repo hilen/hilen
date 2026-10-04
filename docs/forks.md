@@ -54,7 +54,7 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 9 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+release with 11 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
 limit, since the gradient commit. The examples do not build there, they still import
 `wgpu_text` and the crate is renamed. 3 commits are the upstream candidates, in the
 order they go upstream:
@@ -79,7 +79,17 @@ order they go upstream:
   [Blatko1/wgpu-text#17](https://github.com/Blatko1/wgpu-text/issues/17). See
   [text.md](text.md).
 
-The last 2 went upstream together, 1 commit on the branch `multi-draw` on top of
+2 more commits came from the LG TV, see [webos.md](webos.md):
+
+- The glyph cache forks from memory. The cache keeps its pixels, one byte a texel, and
+  writes the forked texture from them. The texture to texture copy it replaced made the
+  TV drop its WebGL context.
+- Brushes share one set of text pipelines. `shared.rs` builds the shader module, both
+  pipelines and the bind group layout once per device, target format, depth state,
+  sample count and stem darkening, kept per thread. A brush per font used to build its
+  own, about 1.2 seconds each on the TV.
+
+The last 2 of the upstream candidates went upstream together, 1 commit on the branch `multi-draw` on top of
 upstream v30.0.1, sent as
 [Blatko1/wgpu-text#48](https://github.com/Blatko1/wgpu-text/pull/48) on 2026-10-02.
 That commit has shorter comments than the 2 on `master`, the code does the same.

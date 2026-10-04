@@ -16,6 +16,53 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A text outline or soft shadow shows a wrong picture after a screen is made again
+
+Found by labirintas at `~/dev/apps/labirintas`, on hilen `53341065`.
+
+- Current: a label with `set_text_outline` or with `set_text_shadow` plus
+  `set_text_shadow_blur` draws its effect from an image kept in `EFFECTS` in
+  `hilen/src/ui/label_effect.rs`. `drop_stale_text_effects` frees that image 120 frames
+  after its last draw. When the same screen is made again later, some labels draw their
+  effect with a wrong picture, a piece of another texture or a dark ghost of the text.
+  To see it in labirintas: open Settings, tap the other look, go back to the menu. The
+  glow of "Reset progress", "Custom" and "Settings" is broken, other labels are fine. A
+  fresh start draws all of them right.
+- A guess, not proven: the new image is made by `Image::from_raw_data` under the same
+  name `text effect {key}` as the freed one, and the managed store hands back the freed
+  entry.
+- Needed: an effect image that was freed is made again clean, so the effect of a label
+  never depends on what was on screen before. A UI test that shows a label with an
+  outline, hides it for more than 120 frames, loads other images, shows it again and
+  checks the pixels.
+- Blocks: the text glow and outline in labirintas, where every text has one.
+
+## Stick pictures from the app
+
+Found by labirintas at `~/dev/apps/labirintas`, whose whole interface is wood.
+
+- Current: `StickView` in `hilen/src/ui/views/controls/stick_view.rs` sets its 2
+  pictures in `setup`, `UIImages::joystick()` for the ring and `UIImages::handle()` for
+  the knob. The `background` and `direction_stick` fields are private and no call
+  changes their pictures.
+- Needed: the app sets the picture of the ring and the picture of the knob, like
+  `Switch::set_track_images` and `set_knob_images` do for a switch. The default stays the
+  gray pictures.
+- Blocks: a stick that matches the look of a game. Labirintas shows a gray stick over a
+  wood interface.
+
+## Login button texts from the app
+
+Found by skaityk, whose interface is English or Russian.
+
+- Current: `GoogleLoginButton` and `AppleLoginButton` in `hilen/src/login/login_button.rs`
+  have fixed English texts, the sign in title of each `Look`, `WAITING` and the `Cancel`
+  of the cancel button. No call sets them.
+- Needed: the app sets the 3 texts of a login button, the sign in title, the waiting
+  text and the cancel text. The default stays the English text.
+- Blocks: a login button in the language of the app. Skaityk shows "Sign in with Google"
+  inside a Russian settings dialog.
+
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
@@ -65,6 +112,36 @@ tvOS app need.
 - Blocks: any interactive tvOS app, and the tvOS UI test lane, since what a test can
   assert depends on this path.
 
+## LG webOS TV target
+
+Found by running the demo and the UI suite in the web browser of an LG C1, see
+[webos.md](webos.md). The page works, a real app target does not exist yet.
+
+- Current: a build for the TV is a hand typed `trunk build` with the old browser flags,
+  and the start script trunk writes has to be patched by hand, its top level `await`
+  stops Chromium 79. Arrow keys, OK and Back of the remote do nothing, the UI is driven
+  by the pointer only. `OnDisk` keeps nothing in a browser. The Clipboard calls throw
+  where the browser has no clipboard API, and the Clipboard test hangs on it. One path
+  in the frame setup of `window/state.rs` still panics after a lost WebGL context.
+- Needed: a `make webos` target in the `build` submodule with the flags and a start
+  script of its own. A focus model for the remote keys, the same one the Siri Remote
+  entry above asks for. Browser storage behind `OnDisk`. A clipboard call that fails
+  cleanly. The frame setup checks the lost context first.
+- Blocks: any app on the TV that a person drives with the remote, and a TV lane of the
+  UI suite that runs with no hand work.
+
+## Packaged app for LG webOS
+
+Planned with the webOS TV target, which starts as a hosted app. Waits for the hosted
+kind to run on a TV.
+
+- Current: no webOS build exists yet. The plan is a `make webos` target that packs a
+  hosted app, a small `.ipk` whose `index.html` redirects to a served wasm dist.
+- Needed: the same target also packs the whole dist into the `.ipk`, so the app starts
+  with no server. Not verified: a packaged app loads from a local origin on the TV, and
+  the engine fetches the wasm and the asset groups relative to the document base.
+- Blocks: a webOS app that works with no network and no server.
+
 ## 3D scene, remaining deliveries
 
 The `scene` module landed with primitives, physics, the Filament mobile PBR
@@ -90,15 +167,12 @@ read their instances from a uniform array on WebGL2, `InstanceBinding` in
 - Current: `MeshPipeline` binds the instances, the joint matrices and the lights
   as read only storage buffers with no uniform fallback, and WebGL2 has none. On
   the forced uniform path, `HILEN_UNIFORM_INSTANCES=1`, the first scene frame
-  fails in `create_bind_group` for `mesh_lights_bind`. The demo never gets that
-  far: the sprite pipelines of `level` go through `instances_shader`, whose
-  rewrite expects a storage instance array that `sprite.wgsl` does not declare,
-  so the demo panics at startup with `a UI shader declares its instances as a
-  storage array`. The web lane runs the scene tests on WebGPU alone, so
-  nothing pins either.
-- Needed: `instances_shader` leaves a source without the declaration untouched,
-  pinned by a level test on the forced uniform path. Then the scene follows the
-  UI: the lights become a fixed uniform array, the opaque batches draw chunk by
+  fails in `create_bind_group` for `mesh_lights_bind`. The web lane runs the scene
+  tests on WebGPU alone, so nothing pins it. The sprite pipelines of `level` no
+  longer panic there, `instances_shader` leaves a source with no storage untouched,
+  but no lane runs the level tests on the uniform path.
+- Needed: `level-test` on `HILEN_UNIFORM_INSTANCES=1` in `make ci`. The scene follows
+  the UI: the lights become a fixed uniform array, the opaque batches draw chunk by
   chunk through `InstanceChunks` with the `index` attribute chunk relative, and
   the joints bind a uniform window per batch, 256 matrices, split when the
   skinned nodes overflow it, shared with the shadow pass. Check first that naga's

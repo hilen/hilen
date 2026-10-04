@@ -1591,6 +1591,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.3",
  "hilen",
+ "log",
  "parking_lot",
  "plat",
  "scene-test-suite",
@@ -3198,7 +3199,7 @@ dependencies = [
 [[package]]
 name = "hilen-wgpu-text"
 version = "30.0.1"
-source = "git+https://github.com/VladasZ/wgpu-text?rev=24c05738add6307a08829b3836ec230a6439fb9e#24c05738add6307a08829b3836ec230a6439fb9e"
+source = "git+https://github.com/VladasZ/wgpu-text?rev=0950fd1d9f2c942335deb3d1ca8db2a89c1b406c#0950fd1d9f2c942335deb3d1ca8db2a89c1b406c"
 dependencies = [
  "bytemuck",
  "glyph_brush",

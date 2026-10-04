@@ -49,6 +49,7 @@ impl App for DemoApp {
         // `ctor`s that nothing calls by name, so without this the linker
         // drops them and the device quietly runs a fraction of the suite.
         ui_test_suite::keep_linked();
+        #[cfg(feature = "scene")]
         scene_test_suite::keep_linked();
     }
 

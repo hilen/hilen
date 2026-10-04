@@ -54,9 +54,9 @@ struct ScriptWrap {
 impl Setup for ScriptWrap {
     fn setup(self: Weak<Self>) {
         for (label, text, font) in [
-            (self.japanese, JAPANESE, "NotoSansJP-Regular.ttf"),
+            (self.japanese, JAPANESE, "cjk/NotoSansJP-Regular.ttf"),
             (self.thai, THAI, "NotoSansThai.ttf"),
-            (self.korean, KOREAN, "NotoSansKR-Regular.ttf"),
+            (self.korean, KOREAN, "cjk/NotoSansKR-Regular.ttf"),
         ] {
             label
                 .set_text(text)
@@ -80,10 +80,13 @@ impl Setup for ScriptWrap {
         self.mixed.set_font_runs([
             (
                 part(JAPANESE),
-                RunStyle::font(Font::get("NotoSansJP-Regular.ttf")),
+                RunStyle::font(Font::get("cjk/NotoSansJP-Regular.ttf")),
             ),
             (part(THAI), RunStyle::font(Font::get("NotoSansThai.ttf"))),
-            (part(KOREAN), RunStyle::font(Font::get("NotoSansKR-Regular.ttf"))),
+            (
+                part(KOREAN),
+                RunStyle::font(Font::get("cjk/NotoSansKR-Regular.ttf")),
+            ),
         ]);
         self.resize(WIDTHS[0]);
     }

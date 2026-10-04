@@ -24,7 +24,14 @@ fn generate_asset_manifest() {
 
     let mut entries = Vec::new();
 
+    // Models are only for the 3D scenes, a build without them ships none.
+    let scene = env::var("CARGO_FEATURE_SCENE").is_ok();
+
     for kind in ["images", "fonts", "sounds", "models"] {
+        if kind == "models" && !scene {
+            continue;
+        }
+
         let root = assets.join(kind);
         let mut files = Vec::new();
         collect(&root, &mut files);

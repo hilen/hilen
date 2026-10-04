@@ -3,6 +3,8 @@ mod disk_cache;
 mod gif;
 mod image;
 mod image_bind;
+#[cfg(wasm)]
+pub(crate) mod pending;
 mod remote;
 mod svg;
 mod texture;

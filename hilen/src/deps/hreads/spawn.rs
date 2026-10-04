@@ -1,4 +1,11 @@
-#[cfg(not_wasm)]
+#[cfg(any(
+    not_wasm,
+    all(
+        wasm,
+        not(target_feature = "atomics"),
+        any(feature = "ui-tests", feature = "inspect")
+    )
+))]
 use log::error;
 
 #[cfg(wasm)]
@@ -37,9 +44,27 @@ where O: Send + 'static {
 /// isolation headers, and the worker starts only when the main thread
 /// yields to the browser. Native code uses `std::thread::spawn` directly,
 /// and only the browser test suite and inspector spawn workers.
-#[cfg(all(wasm, any(feature = "ui-tests", feature = "inspect")))]
+#[cfg(all(
+    wasm,
+    target_feature = "atomics",
+    any(feature = "ui-tests", feature = "inspect")
+))]
 pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
     wasm_thread::spawn(work);
+}
+
+/// The build without atomics has no workers. It must not link
+/// `wasm_thread` either, its atomic instructions make an old browser
+/// refuse the whole module, Chromium 79 says "Atomic opcodes used without
+/// shared memory".
+#[cfg(all(
+    wasm,
+    not(target_feature = "atomics"),
+    any(feature = "ui-tests", feature = "inspect")
+))]
+pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
+    drop(work);
+    error!("A worker thread needs the atomics wasm build, the work was dropped");
 }
 
 pub fn block_on<F>(future: F)

@@ -68,7 +68,11 @@ struct AnimalDropDown {
 
 impl Setup for AnimalDropDown {
     fn setup(mut self: Weak<Self>) {
-        self.animals = vec![("Cat", "cat.png"), ("Ball", "ball.png"), ("Palm", "palm.png")];
+        self.animals = vec![
+            ("Cat", "cat.png"),
+            ("Ball", "test/ball.png"),
+            ("Palm", "test/palm.png"),
+        ];
 
         self.drop
             .set_color(BOX)

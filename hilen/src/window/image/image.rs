@@ -197,6 +197,16 @@ impl ResourceLoader for Image {
 
         from_main(move || Image::from_texture(&Texture::from_levels(levels, &name), svg))
     }
+
+    #[cfg(wasm)]
+    fn pending_data(name: &str) -> Option<Vec<u8>> {
+        crate::window::image::pending::get(name)
+    }
+
+    #[cfg(wasm)]
+    fn pending_loaded(name: &str) {
+        crate::window::image::pending::forget(name);
+    }
 }
 
 impl Image {

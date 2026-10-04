@@ -49,7 +49,8 @@ the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views and the sealed `SessionStore`,
 see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
-`demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on, and `video` on macOS.
+`demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, and `scene`
+through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
@@ -111,6 +112,12 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no input path yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
+- [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: the Chromium 79
+  build flags, the start script patch, what the TV needed from the engine, the plain
+  canvas format, no texture copy, 1 sample, lazy pictures, shared text pipelines, and
+  how to read a page log and run the UI suite on the TV. Read before touching the wasm
+  build for an old browser, `window/msaa.rs`, `window/image/pending.rs`, or anything
+  webOS.
 - [docs/level.md](docs/level.md) — the 2D `level` module: the fixed step on the real
   clock, level and screen points, the mouse, sprite flip, tint and pixel art filter,
   tile maps with their collision, step up and neighbor framing, the dug polygon

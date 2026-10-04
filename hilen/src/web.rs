@@ -1,6 +1,12 @@
 #![cfg(target_arch = "wasm32")]
 
-use std::{panic::PanicHookInfo, sync::OnceLock};
+use std::{
+    panic::PanicHookInfo,
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use crate::deps::refs::main_lock::MainLock;
 
@@ -50,7 +56,41 @@ static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
 /// it back out. The page's static content behind it, a landing text or a
 /// download link, shows again instead of a blank page.
 pub(crate) fn keep_canvas(canvas: Option<web_sys::HtmlCanvasElement>) {
+    if let Some(canvas) = &canvas {
+        install_context_lost_listener(canvas);
+    }
     CANVAS.set(canvas);
+}
+
+type ContextLostListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut()>;
+
+static CONTEXT_LOST_LISTENER: MainLock<Option<ContextLostListener>> = MainLock::new();
+static CONTEXT_LOST: AtomicBool = AtomicBool::new(false);
+
+/// A browser takes the WebGL context away when the page uses too much
+/// memory, an LG TV does it near 250 MB. Every GL call after that fails
+/// and wgpu panics on the next texture. The page stops drawing and shows
+/// its fallback content, like on any other fatal GPU error.
+fn install_context_lost_listener(canvas: &web_sys::HtmlCanvasElement) {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut()>::new(|| {
+        log::error!("Fatal: the browser took the WebGL context away, most likely the page ran out of memory");
+        CONTEXT_LOST.store(true, Ordering::Relaxed);
+        drop_canvas();
+    });
+
+    canvas
+        .add_event_listener_with_callback("webglcontextlost", listener.as_ref().unchecked_ref())
+        .expect("Failed to install the context lost listener");
+
+    CONTEXT_LOST_LISTENER.set(Some(listener));
+}
+
+/// True once the browser dropped the WebGL context. No frame may draw
+/// after that.
+pub(crate) fn context_lost() -> bool {
+    CONTEXT_LOST.load(Ordering::Relaxed)
 }
 
 /// Whether the page exposes `navigator.gpu`. Only a secure context does,
@@ -167,9 +207,9 @@ pub(crate) fn query_flag(name: &str) -> bool {
         .any(|pair| pair == name || pair.split_once('=').is_some_and(|(key, _)| key == name))
 }
 
-/// Value of `name` in the page query string. Only the browser test
-/// autorun reads parameters, the app facing flags are boolean.
-#[cfg(feature = "ui-tests")]
+/// Value of `name` in the page query string. The browser test autorun
+/// reads its parameters here, and `hilen_msaa` is the one app facing
+/// parameter, the other app facing flags are boolean.
 pub(crate) fn query_param(name: &str) -> Option<String> {
     page_search().trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
@@ -180,7 +220,6 @@ pub(crate) fn query_param(name: &str) -> Option<String> {
 /// `location.search` keeps the query percent encoded, so a spaced test
 /// name arrives as `Reload%20shortcuts%20test` and a raw compare against
 /// registered names matches nothing.
-#[cfg(feature = "ui-tests")]
 fn decode_query_value(value: &str) -> String {
     match web_sys::js_sys::decode_uri_component(value) {
         Ok(decoded) => decoded.into(),

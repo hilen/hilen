@@ -157,3 +157,75 @@ fn concurrent_load_drops_losers_on_main() {
     let storage = Res::storage();
     assert_eq!(storage.keys().filter(|key| key.starts_with("race-")).count(), 100);
 }
+
+/// The lazy path of `DataManager::get`: bytes a type already holds are
+/// loaded before any path is tried, and dropped once the entry is stored.
+mod pending {
+    use std::{
+        path::Path,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use serial_test::serial;
+
+    use crate::{
+        deps::{
+            hreads::set_current_thread_as_main,
+            refs::manage::{DataManager, ResourceLoader},
+        },
+        managed,
+    };
+
+    static FORGOTTEN: AtomicUsize = AtomicUsize::new(0);
+
+    struct Lazy {
+        data: Vec<u8>,
+    }
+
+    impl ResourceLoader for Lazy {
+        fn load_path(_path: &Path) -> Self {
+            Self { data: vec![] }
+        }
+
+        fn load_data(data: &[u8], _name: impl ToString) -> Self {
+            Self { data: data.to_vec() }
+        }
+
+        fn pending_data(name: &str) -> Option<Vec<u8>> {
+            (name == "held.png").then(|| vec![1, 2, 3])
+        }
+
+        fn pending_loaded(_name: &str) {
+            FORGOTTEN.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    managed!(crate::deps::refs, Lazy);
+
+    #[test]
+    #[serial]
+    fn get_loads_pending_bytes_before_a_path() {
+        set_current_thread_as_main();
+
+        let before = FORGOTTEN.load(Ordering::Relaxed);
+
+        assert_eq!(Lazy::get("held.png").data, vec![1, 2, 3]);
+        assert_eq!(FORGOTTEN.load(Ordering::Relaxed), before + 1);
+
+        // Served from the store now, nothing is loaded a second time.
+        assert_eq!(Lazy::get("held.png").data, vec![1, 2, 3]);
+        assert_eq!(FORGOTTEN.load(Ordering::Relaxed), before + 1);
+
+        Lazy::free_with_name("held.png");
+    }
+
+    #[test]
+    #[serial]
+    fn get_without_pending_bytes_loads_the_path() {
+        set_current_thread_as_main();
+
+        assert_eq!(Lazy::get("on_disk.png").data, Vec::<u8>::new());
+
+        Lazy::free_with_name("on_disk.png");
+    }
+}

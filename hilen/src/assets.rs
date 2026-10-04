@@ -133,7 +133,7 @@ mod web_assets {
             hreads::on_main,
             refs::manage::{DataManager, fetch_bytes},
         },
-        window::{Font, image::Image},
+        window::Font,
     };
 
     static BOOT_DONE: AtomicBool = AtomicBool::new(false);
@@ -261,8 +261,10 @@ mod web_assets {
         let url = format!("assets/{}/{}?h={}", entry.kind, entry.name, entry.hash);
 
         match entry.kind.as_str() {
+            // Only the bytes, a picture is decoded when a view first
+            // asks for it, see `window/image/pending.rs`.
             "images" => {
-                Image::download(&entry.name, &url).await?;
+                crate::window::image::pending::download(&entry.name, &url).await?;
             }
             "fonts" => {
                 Font::download(&entry.name, &url).await?;

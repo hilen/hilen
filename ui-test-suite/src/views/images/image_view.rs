@@ -17,7 +17,7 @@ impl Setup for ImageView {
         self.enable_touch();
 
         self.image_view.place().tl(100).size(280, 280);
-        self.image_view.set_image("gradient.png");
+        self.image_view.set_image("test/gradient.png");
     }
 }
 
