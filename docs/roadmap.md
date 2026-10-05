@@ -16,40 +16,42 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A text outline or soft shadow shows a wrong picture after a screen is made again
+## An inspect tap lands on a covering view
 
-Found by labirintas at `~/dev/apps/labirintas`, on hilen `53341065`.
+Found by driving labirintas at `~/dev/apps/labirintas` with `hilen-inspect`, on hilen
+`021a0786`.
 
-- Current: a label with `set_text_outline` or with `set_text_shadow` plus
-  `set_text_shadow_blur` draws its effect from an image kept in `EFFECTS` in
-  `hilen/src/ui/label_effect.rs`. `drop_stale_text_effects` frees that image 120 frames
-  after its last draw. When the same screen is made again later, some labels draw their
-  effect with a wrong picture, a piece of another texture or a dark ghost of the text.
-  To see it in labirintas: open Settings, tap the other look, go back to the menu. The
-  glow of "Reset progress", "Custom" and "Settings" is broken, other labels are fine. A
-  fresh start draws all of them right.
-- A guess, not proven: the new image is made by `Image::from_raw_data` under the same
-  name `text effect {key}` as the freed one, and the managed store hands back the freed
-  entry.
-- Needed: an effect image that was freed is made again clean, so the effect of a label
-  never depends on what was on screen before. A UI test that shows a label with an
-  outline, hides it for more than 120 frames, loads other images, shows it again and
-  checks the pixels.
-- Blocks: the text glow and outline in labirintas, where every text has one.
+- Current: `tap` in `hilen/src/inspect/inspect_service.rs` injects the touch at the
+  center of the target and only then replies. `covering_note` adds a warning when the
+  deepest view at that point is another view, "the touch may land there instead", and
+  the touch is sent anyway. In labirintas `tap boards` on the Settings screen, 1 second
+  after the screen was made, went to the "Reset progress" button under it, and the next
+  tap confirmed the dialog. Why the point of `boards` was over that button is not
+  found. `hilen-inspect build-time` there also named `hilen/src/ui/ui_drawer.rs` of
+  `~/dev/hilen` as the newest source, a file the app does not build, it pins hilen by a
+  git rev.
+- Needed: a tap whose point is covered by another view is refused with that view named,
+  the way an offscreen view is refused, and a `--force` flag sends it anyway. The cause
+  of the wrong point found and fixed. `build-time` reads the newest source of the code
+  the app was built from. A UI test for the refusal.
+- Blocks: driving an app with saved data safely, a wrong tap can delete it.
 
-## Stick pictures from the app
+## A screen's key binding fires under an open modal
 
-Found by labirintas at `~/dev/apps/labirintas`, whose whole interface is wood.
+Found by skaityk at `~/dev/apps/skaityk`, on hilen `021a0786`.
 
-- Current: `StickView` in `hilen/src/ui/views/controls/stick_view.rs` sets its 2
-  pictures in `setup`, `UIImages::joystick()` for the ring and `UIImages::handle()` for
-  the knob. The `background` and `direction_stick` fields are private and no call
-  changes their pictures.
-- Needed: the app sets the picture of the ring and the picture of the knob, like
-  `Switch::set_track_images` and `set_knob_images` do for a switch. The default stays the
-  gray pictures.
-- Blocks: a stick that matches the look of a game. Labirintas shows a gray stick over a
-  wood interface.
+- Current: `Keymap::check` in `hilen/src/ui/input/keymap/keymap.rs` runs every action
+  bound to the key whose subscriber is alive. A modal binds Escape and guards itself
+  with `TouchStack::top_layer_root()`, which is `pub(crate)`. A screen swapped in with
+  `UIManager::set_view` binds Escape as its back key, as views.md asks, and has no such
+  guard. With an `Alert` open over the skaityk reader one Escape closes the alert and
+  leaves the screen at once.
+- Needed: the keymap skips an action whose subscriber is not inside the top touch
+  layer while a modal, a menu or another layer is open, the way touches already stop at
+  that layer. No app code then. A UI test with a screen binding and an alert over it:
+  one Escape, the alert is gone and the screen stays.
+- Blocks: Escape as back on the skaityk category, reader and vocabulary screens is
+  right only while no alert is open.
 
 ## Flixen, the media player gaps
 
@@ -84,19 +86,6 @@ and dav1d, the whole track subtitle read. See
 - A group fade draws into an image of the frame size with its own depth and
   multisample target, made on first use and kept. A target of the size of
   the group would cost less memory.
-
-## Siri Remote input for tvOS
-
-Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
-tvOS app need.
-
-- Current: the engine builds for tvOS and renders in the Apple TV simulator. The key
-  focus exists, see [focus.md](focus.md), arrow keys, Enter and Escape drive every
-  view. But no key reaches the engine on tvOS: Siri Remote events arrive through the
-  UIKit focus engine and `UIPress`, and winit's UIKit backend forwards direct touches
-  only.
-- Needed: press forwarding in the winit fork, as arrow, Enter and Escape key events.
-- Blocks: any interactive tvOS app, and the tvOS UI test lane.
 
 ## LG webOS TV, the run on a TV
 
@@ -306,3 +295,16 @@ Small remainders not worth their own entry.
   holds on one GPU only. A sample mask of all ones in the SDF pipelines would
   make the alpha the only coverage, it moves every fractional edge on every
   platform, so it needs a re-record of the suite.
+
+## Siri Remote input for tvOS
+
+Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
+tvOS app need.
+
+- Current: the engine builds for tvOS and renders in the Apple TV simulator. The key
+  focus exists, see [focus.md](focus.md), arrow keys, Enter and Escape drive every
+  view. But no key reaches the engine on tvOS: Siri Remote events arrive through the
+  UIKit focus engine and `UIPress`, and winit's UIKit backend forwards direct touches
+  only.
+- Needed: press forwarding in the winit fork, as arrow, Enter and Escape key events.
+- Blocks: any interactive tvOS app, and the tvOS UI test lane.

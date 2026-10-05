@@ -13,6 +13,41 @@ fn orange(name: &str) -> Weak<Image> {
     Image::from_raw_data(pixels, name, (SIDE, SIDE).into(), 4)
 }
 
+const CHECK_1: &str = r"
+     480   44 - #000000
+     244   48 - #000000
+     516   48 - #000000
+      80   52 - #1a242b
+     136   52 - #435d70
+     204   52 - #435d70
+     400   52 - #1d2830
+      24   80 - #bcbcbc
+     320  120 - #ff8c00
+     116  136 - #cca590
+     160  148 - #d8812b
+     508  152 - #c17b45
+     380  156 - #fffeff
+     124  160 - #ece6e8
+     224  164 - #a37366
+      64  176 - #ffffff
+     352  176 - #a87461
+     448  176 - #ff8c00
+     384  184 - #9a7070
+     168  192 - #ffffff
+     532  192 - #df8324
+     120  200 - #f0e4dc
+     492  204 - #e08323
+      80  220 - #b27756
+     372  220 - #af7659
+     316  304 - #4a677b
+     344  304 - #25343e
+     368  304 - #131b20
+     444  308 - #597c95
+     180  312 - #597c95
+     260  312 - #2d3f4c
+     592  592 - #597c95
+";
+
 /// 2 picture views side by side, each with the same white text with a blue
 /// glow over it and a title that says when its picture is set. The left
 /// picture is there from the start. The right box is empty at first, so its
@@ -78,7 +113,7 @@ impl ViewTest for LabelEffectOverNewImage {
             view.note.set_text("both sides must look the same");
         });
 
-        check_colors("")?;
+        check_colors(CHECK_1)?;
         Ok(())
     }
 }
