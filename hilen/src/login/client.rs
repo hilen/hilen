@@ -1,19 +1,14 @@
-use std::sync::{
-    LazyLock,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
-use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
-use serde_json::{from_str, to_string};
 use sha2::{Digest, Sha256};
 
 use crate::{
     deps::{
         hreads::{now, on_main, sleep, spawn},
-        netrun::rest::client,
+        netrun::rest::{Call, RequestError},
     },
     login::wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
     store::SessionStore,
@@ -27,7 +22,6 @@ const GIVE_UP_SECONDS: f64 = 600.0;
 const MAX_FAILURES: u32 = 5;
 
 static SERVER: Mutex<Option<String>> = Mutex::new(None);
-static CLIENT: LazyLock<Client> = LazyLock::new(client);
 
 /// Every `start` and every `cancel` moves it on. A poll loop that sees another
 /// number than its own knows it is no longer wanted.
@@ -162,6 +156,19 @@ impl Login {
         SessionStore::load()
     }
 
+    /// Sends a request of the app with the session token as its
+    /// `Authorization: Bearer` header, to any route behind the login.
+    /// When nobody is logged in nothing is sent and the answer is
+    /// `RequestError::Unauthorized`, the same as a session the server no
+    /// longer knows, so 1 match arm sends the user back to the login.
+    /// It runs on the calling task, call it inside `spawn`.
+    pub async fn send<Out: DeserializeOwned>(call: Call) -> Result<Out, RequestError> {
+        match Self::token() {
+            Some(token) => call.bearer(token).send().await,
+            None => Err(RequestError::Unauthorized),
+        }
+    }
+
     /// Who the stored session belongs to, for the app launch. `None` when
     /// nobody is logged in, also when the server no longer knows the session,
     /// which then is forgotten here too.
@@ -254,18 +261,15 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Option<Re
 }
 
 async fn ask_code(server: &str, challenge: &str, provider: Provider) -> Result<LoginCode> {
-    let body = to_string(&CodeRequest {
+    let call = Call::post(format!("{server}/auth/code")).body(CodeRequest {
         challenge,
         provider: provider.route(),
-    })?;
-    let request = CLIENT
-        .post(format!("{server}/auth/code"))
-        .header("content-type", "application/json")
-        .body(body);
+    });
 
-    match send::<CodeResponse>(request).await? {
-        Reply::Ok(response) => Ok(login_code(server, response.code)),
-        Reply::Unauthorized => bail!("the server refused to give a login code"),
+    match call.send::<CodeResponse>().await {
+        Ok(response) => Ok(login_code(server, response.code)),
+        Err(RequestError::Unauthorized) => bail!("the server refused to give a login code"),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -279,31 +283,27 @@ fn login_code(server: &str, code: String) -> LoginCode {
 }
 
 async fn poll(server: &str, verifier: &str) -> Result<PollResponse> {
-    let body = to_string(&PollRequest { verifier })?;
-    let request = CLIENT
-        .post(format!("{server}/auth/poll"))
-        .header("content-type", "application/json")
-        .body(body);
+    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest { verifier });
 
-    match send(request).await? {
-        Reply::Ok(response) => Ok(response),
-        Reply::Unauthorized => bail!("the server refused the login poll"),
+    match call.send().await {
+        Ok(response) => Ok(response),
+        Err(RequestError::Unauthorized) => bail!("the server refused the login poll"),
+        Err(error) => Err(error.into()),
     }
 }
 
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
-    let Some(token) = SessionStore::load() else {
+    if SessionStore::load().is_none() {
         return Ok(None);
-    };
+    }
 
-    let request = CLIENT.get(format!("{}/auth/me", server()?)).bearer_auth(token);
-
-    match send(request).await? {
-        Reply::Ok(user) => Ok(Some(user)),
-        Reply::Unauthorized => {
+    match Login::send(Call::get(format!("{}/auth/me", server()?))).await {
+        Ok(user) => Ok(Some(user)),
+        Err(RequestError::Unauthorized) => {
             SessionStore::clear()?;
             Ok(None)
         }
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -313,62 +313,49 @@ async fn end_session() -> Result<()> {
     };
     SessionStore::clear()?;
 
-    let request = CLIENT.post(format!("{}/auth/logout", server()?)).bearer_auth(token);
+    let call = Call::post(format!("{}/auth/logout", server()?)).bearer(token);
 
     // An unknown session is as logged out as it gets.
-    match send::<()>(request).await? {
-        Reply::Ok(()) | Reply::Unauthorized => Ok(()),
+    match call.send::<()>().await {
+        Ok(()) | Err(RequestError::Unauthorized) => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
 async fn delete_user() -> Result<()> {
-    let Some(token) = SessionStore::load() else {
+    if SessionStore::load().is_none() {
         bail!("nobody is logged in");
-    };
-
-    let request = CLIENT.post(format!("{}/auth/delete", server()?)).bearer_auth(token);
+    }
 
     // A session the server no longer knows has no account to delete.
-    match send::<()>(request).await? {
-        Reply::Ok(()) | Reply::Unauthorized => {
+    match Login::send::<()>(Call::post(format!("{}/auth/delete", server()?))).await {
+        Ok(()) | Err(RequestError::Unauthorized) => {
             log::info!("the account is deleted");
             SessionStore::clear()
         }
+        Err(error) => Err(error.into()),
     }
-}
-
-enum Reply<Out> {
-    Ok(Out),
-    Unauthorized,
-}
-
-async fn send<Out: DeserializeOwned>(request: RequestBuilder) -> Result<Reply<Out>> {
-    let response = request.send().await?;
-    let status = response.status();
-    let body = response.text().await?;
-
-    if status == StatusCode::UNAUTHORIZED {
-        return Ok(Reply::Unauthorized);
-    }
-    if !status.is_success() {
-        bail!("[{status}] {body}");
-    }
-
-    // An empty body parses as JSON null, so a route that answers with nothing
-    // works with a `()` output.
-    let json = if body.trim().is_empty() {
-        "null"
-    } else {
-        body.as_str()
-    };
-    Ok(Reply::Ok(from_str(json)?))
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(not_wasm)]
+    use std::env::temp_dir;
+
     use anyhow::Result;
+    #[cfg(not_wasm)]
+    use serial_test::serial;
 
     use super::{challenge, login_code, new_verifier};
+    #[cfg(not_wasm)]
+    use crate::{
+        deps::netrun::{
+            rest::{Call, RequestError},
+            test_server::start_test_server,
+        },
+        login::Login,
+        store::SessionStore,
+    };
 
     #[test]
     fn a_login_code_has_its_page_and_its_link() {
@@ -392,5 +379,27 @@ mod test {
             challenge("abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    /// The session file is shared state, the same lock as the other tests
+    /// that move the storage root.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn send_adds_the_session_token_and_sends_nothing_without_one() -> Result<()> {
+        let base_url = start_test_server().await;
+        let url = format!("{base_url}/header/authorization");
+        SessionStore::set_root(temp_dir().join("hilen-login-send-test"));
+
+        SessionStore::save("token-7")?;
+        let seen: Option<String> = Login::send(Call::get(&url)).await?;
+        assert_eq!(seen.as_deref(), Some("Bearer token-7"));
+
+        // A request that went out would get a 200 with no header in it.
+        SessionStore::clear()?;
+        let logged_out = Login::send::<Option<String>>(Call::get(&url)).await;
+        assert!(matches!(logged_out, Err(RequestError::Unauthorized)));
+
+        Ok(())
     }
 }

@@ -18,7 +18,7 @@ original is the acceptance bar. Their ports drove the gaps below.
 
 ## Canvas and pinch, the proof on real input
 
-Found by lanatlas, a network map app with a canvas that pans and zooms. `CanvasView`,
+Found by Lan Atlas, a network map app with a canvas that pans and zooms. `CanvasView`,
 the scale of a subtree and the pinch event landed, see [canvas.md](canvas.md).
 
 - Current: proven by the UI tests `Canvas zoom` and `Canvas pinch` on desktop, with
@@ -30,10 +30,10 @@ the scale of a subtree and the pinch event landed, see [canvas.md](canvas.md).
   drags at the speed of the screen, not of its content. After a pinch ends with 1
   finger still down, that finger pans only after it lifts and touches again. The
   touch recorder prints finger touches and no trackpad pinch.
-- Needed: the lanatlas map on `CanvasView`, a pinch on a Mac trackpad, on a phone and
+- Needed: the Lan Atlas map on `CanvasView`, a pinch on a Mac trackpad, on a phone and
   in a browser, and the 2 tests green on `make ui-ios` and `make ui-web`. Then the
   small points above, each with its test.
-- Blocks: calling the map screen of lanatlas done on a phone and in a browser.
+- Blocks: calling the map screen of Lan Atlas done on a phone and in a browser.
 
 ## Video on iOS, the proof on a phone
 

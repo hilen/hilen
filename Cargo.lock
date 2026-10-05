@@ -2944,6 +2944,7 @@ dependencies = [
  "sys-locale",
  "sysinfo",
  "test-log",
+ "thiserror 2.0.18",
  "tiny-skia 0.12.0",
  "tokio",
  "tokio-rustls",

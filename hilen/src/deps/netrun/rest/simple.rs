@@ -1,46 +1,23 @@
-use std::collections::BTreeMap;
-
 use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::deps::netrun::rest::{Method, client::client, request::request_object};
+use crate::deps::netrun::rest::{Call, RequestError, client::shared_client};
 
-pub async fn get<T: DeserializeOwned>(url: impl ToString) -> Result<T> {
-    request_object(
-        &client(),
-        Method::Get,
-        url,
-        BTreeMap::default(),
-        "null".to_owned(),
-    )
-    .await
+pub async fn get<T: DeserializeOwned>(url: impl ToString) -> Result<T, RequestError> {
+    Call::get(url).send().await
 }
 
-pub async fn post<T: DeserializeOwned>(url: impl ToString, body: impl Serialize) -> Result<T> {
-    request_object(
-        &client(),
-        Method::Post,
-        url,
-        BTreeMap::default(),
-        serde_json::to_string(&body)?,
-    )
-    .await
+pub async fn post<T: DeserializeOwned>(url: impl ToString, body: impl Serialize) -> Result<T, RequestError> {
+    Call::post(url).body(body).send().await
 }
 
-pub async fn patch<T: DeserializeOwned>(url: impl ToString, body: impl Serialize) -> Result<T> {
-    request_object(
-        &client(),
-        Method::Patch,
-        url,
-        BTreeMap::default(),
-        serde_json::to_string(&body)?,
-    )
-    .await
+pub async fn patch<T: DeserializeOwned>(url: impl ToString, body: impl Serialize) -> Result<T, RequestError> {
+    Call::patch(url).body(body).send().await
 }
 
-pub async fn delete<T: DeserializeOwned>(url: impl ToString) -> Result<T> {
-    request_object(&client(), Method::Delete, url, BTreeMap::default(), String::new()).await
+pub async fn delete<T: DeserializeOwned>(url: impl ToString) -> Result<T, RequestError> {
+    Call::delete(url).send().await
 }
 
 pub async fn download(url: impl ToString) -> Result<Vec<u8>> {
@@ -54,7 +31,7 @@ pub async fn download_with_progress(
     mut on_progress: impl FnMut(u64, Option<u64>),
 ) -> Result<Vec<u8>> {
     let url = url.to_string();
-    let response = client().get(&url).send().await?;
+    let response = shared_client().get(&url).send().await?;
     let status = response.status();
 
     // Without this a block page or an error page downloads as if it were the

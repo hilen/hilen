@@ -98,6 +98,7 @@ rustybuzz = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sysinfo = { workspace = true }
+thiserror = { workspace = true }
 tiny-skia = { workspace = true }
 usvg = { workspace = true }
 web-time = { workspace = true }

@@ -1,7 +1,6 @@
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::collections::BTreeMap;
 
 use parking_lot::Mutex;
-use reqwest::Client;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::deps::netrun::rest::{Method, Request};
@@ -10,7 +9,6 @@ use crate::deps::netrun::rest::{Method, Request};
 pub struct RestAPI {
     base_url: &'static str,
     headers:  Mutex<BTreeMap<String, String>>,
-    client:   OnceLock<Client>,
 }
 
 impl RestAPI {
@@ -18,7 +16,6 @@ impl RestAPI {
         Self {
             base_url,
             headers: Mutex::new(BTreeMap::new()),
-            client: OnceLock::new(),
         }
     }
 }
@@ -26,10 +23,6 @@ impl RestAPI {
 impl RestAPI {
     pub fn base_url(&self) -> &str {
         self.base_url
-    }
-
-    pub(crate) fn client(&self) -> &Client {
-        self.client.get_or_init(crate::deps::netrun::rest::client::client)
     }
 
     pub fn headers(&self) -> BTreeMap<String, String> {

@@ -21,6 +21,18 @@ same moment. The browser history only ever holds the hash.
 - A row nobody finished is dropped after 10 minutes, the client gives up after the same time.
 - Sessions keep only the SHA-256 of the token. All times are the database clock.
 
+## Requests
+
+The login client sends everything through `net::Call`, the one request path of the
+engine, see `hilen/src/deps/netrun/rest/call.rs`. A 401 comes back as
+`RequestError::Unauthorized`, which is how `current_user` learns that the server
+forgot the session.
+
+`Login::send(call)` is the same path for the app's own routes behind the login. It adds
+the stored token as `Authorization: Bearer`. With no stored token it sends nothing and
+gives `Unauthorized`. It never clears the session, the URL may be another server.
+`Call` does not log a request body, the poll carries the verifier in it.
+
 ## A device with no keyboard
 
 A TV cannot open a browser for its user. `Login::start_with_code` posts the challenge

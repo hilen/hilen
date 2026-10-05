@@ -7,7 +7,7 @@
 use axum::{
     Json, Router,
     extract::Path,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,13 @@ pub(crate) async fn start_test_server() -> String {
     let app = Router::new()
         .route("/users", get(users))
         .route("/posts", post(create_post))
-        .route("/posts/{id}", patch(patch_post).delete(delete_post))
+        .route(
+            "/posts/{id}",
+            patch(patch_post).put(patch_post).delete(delete_post),
+        )
+        .route("/header/{name}", get(header))
+        .route("/status/{code}", get(status))
+        .route("/empty", post(empty))
         .route("/file", get(file));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind the test server");
@@ -104,3 +110,17 @@ async fn delete_post() -> Json<Empty> {
 async fn file() -> Vec<u8> {
     vec![0x5A; FILE_SIZE]
 }
+
+/// The value of one request header as the server got it.
+async fn header(Path(name): Path<String>, headers: HeaderMap) -> Json<Option<String>> {
+    Json(headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned))
+}
+
+async fn status(Path(code): Path<u16>) -> (StatusCode, String) {
+    let status = StatusCode::from_u16(code).expect("The test asked for a status that does not exist");
+
+    (status, format!("status {code}"))
+}
+
+/// 200 with no body at all.
+async fn empty() {}

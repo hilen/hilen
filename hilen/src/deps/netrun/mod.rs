@@ -3,7 +3,7 @@ pub mod rest;
 #[cfg(not_wasm)]
 pub mod secret;
 mod system;
-mod test_server;
+pub(crate) mod test_server;
 mod tests;
 #[cfg(not_wasm)]
 pub(crate) mod tls;
