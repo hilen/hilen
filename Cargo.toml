@@ -16,6 +16,7 @@ members = [
   "hilen-pixdiff",
   "hilen-server",
   "hilen-session",
+  "hilen-updater",
   "inspector",
   "level-test",
   "render-test",
@@ -234,6 +235,7 @@ level-proc = { version = "0.1", path = "deps/level-proc" }
 project-proc = { version = "0.1", path = "deps/project-proc" }
 hilen = { version = "0.1", path = "hilen" }
 hilen-session = { version = "0.1", path = "hilen-session" }
+hilen-updater = { version = "0.1", path = "hilen-updater" }
 hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }

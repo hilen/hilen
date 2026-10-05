@@ -1,9 +1,45 @@
 # Self update
 
-`system::Updater` in `hilen/src/system/updater.rs` updates a desktop app in
-place. Mobile goes through the stores and wasm updates by rehosting, so every
-call outside the desktop is a no-op like `system::Router`.
+The updater lives in its own crate, `hilen-updater`, with no UI dependency.
+It has no wgpu, no winit and no `hilen`, so a binary with no window, like a
+daemon, updates itself with it. `system::Updater` in
+`hilen/src/system/updater.rs` is the app layer on top of it. `hilen`
+re-exports the crate as `hilen::updater`. Mobile goes through the stores and
+wasm updates by rehosting, so every call outside the desktop is a no-op like
+`system::Router`. The crate keeps only its types there.
 
+## A binary with no window
+
+The binary gives the 3 values as plain arguments and calls the crate:
+
+```rust
+use hilen_updater::{UpdateSource, check, install, relaunch};
+
+let source = UpdateSource::new(
+    "https://get.vladas.xyz/banda/updater.json",
+    env!("CARGO_PKG_VERSION"),
+    include_str!("../assets/update-key.pub"),
+);
+if let Some(info) = check(&source).await? {
+    install(info).await?;
+    relaunch()?;
+}
+```
+
+- `UpdateSource::new(url, version, key)` trims the line break of an
+  included key. `DEFAULT_UPDATE_HOST` is the host of the default address.
+- `check`, `install` and `install_with_progress` behave as in the calls
+  below.
+- `relaunch()` starts the new binary at the same path and ends the process
+  with exit code 0. `start_new_binary()` only starts it, for a program that
+  stops itself in its own way. A daemon under a service manager can also
+  just exit after `install` and let the manager start the new file.
+- `platform_key()` returns the manifest key of this binary.
+- The crate has its own reqwest client with the same TLS setup as the
+  engine, rustls on the ring provider. It installs that provider as the
+  process default once, a second install changes nothing.
+- The release scripts sign a daemon binary like an app binary,
+  `rust build/release/sign.rs <file>` takes any file.
 ## The app side
 
 An app gives 1 thing, its public key:
@@ -74,7 +110,8 @@ permissions, so the swap stays on one filesystem.
 
 ## The calls
 
-- `Updater::check()` fetches the manifest and returns `Ok(Some(UpdateInfo))`
+- `Updater::check()` reads `App::update_source` on main, then
+  `hilen_updater::check` fetches the manifest and returns `Ok(Some(UpdateInfo))`
   only when the manifest version is newer by semver, has an entry for
   this platform, and the swap target's directory is writable. A binary the
   user cannot swap, like a deb install in `/usr/bin`, gets no offer and
@@ -85,10 +122,11 @@ permissions, so the swap stays on one filesystem.
 - `Updater::install_with_progress(info, |done, total| ..)` is the same with
   the download reported as bytes so far and the Content-Length, `None`
   when the server sent no length. `install` is this with a no-op callback.
-- `Updater::relaunch()` spawns the new binary at the same path and stops
-  this one.
+- `Updater::relaunch()` spawns the new binary at the same path through
+  `start_new_binary` and stops this one through `AppRunner`.
 
-All three run on tokio. `UpdateState` wraps them with `spawn` and `on_main`, so
+All of them run on tokio, a binary with no window calls them from its own
+runtime. `UpdateState` wraps them with `spawn` and `on_main`, so
 an app normally never calls them. An app that does wires them like any other
 fetch. The progress callback runs on the download task, post to main before
 touching a view.

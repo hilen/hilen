@@ -107,6 +107,7 @@ wgpu_text = { workspace = true }
 zeroize = { workspace = true }
 
 hilen-pixels = { workspace = true }
+hilen-updater = { workspace = true }
 plat = { workspace = true }
 reflected = { workspace = true }
 
@@ -190,15 +191,9 @@ objc2-media-player = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }
-ed25519-dalek = { workspace = true }
 ffmpeg-next = { workspace = true, optional = true }
 keepawake = { workspace = true }
 open = { workspace = true }
-self-replace = { workspace = true }
-semver = { workspace = true }
-
-[target.'cfg(unix)'.dev-dependencies]
-libc = { workspace = true }
 
 [build-dependencies]
 plat = { workspace = true }

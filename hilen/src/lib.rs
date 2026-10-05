@@ -75,6 +75,9 @@ pub mod window;
 pub use app::*;
 pub use app_starter::*;
 pub use educe;
+/// The self update calls with no UI, for a binary with no window.
+/// `system::Updater` and `system::UpdateState` sit on top of it.
+pub use hilen_updater as updater;
 
 pub use crate::ui::{launch_app, ui_test};
 
