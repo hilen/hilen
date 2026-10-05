@@ -50,7 +50,11 @@ struct DrawContext<'a> {
     /// that was current when their view was visited.
     paths:         Vec<&'a PathData>,
     debug_frames:  bool,
+    /// Pixels per point of the view being drawn, `pixel_scale` times the
+    /// scale of the subtree it sits in.
     scale:         f32,
+    /// Pixels per point of the screen.
+    pixel_scale:   f32,
     resolution:    Size,
     /// What the current pass has set, reapplied after a blur barrier
     /// reopens the pass.
@@ -90,6 +94,7 @@ impl UIDrawer {
             paths: vec![],
             debug_frames: UIManager::should_draw_debug_frames(),
             scale: UIManager::scale(),
+            pixel_scale: UIManager::scale(),
             resolution,
             scissor: display_rect,
             clip_depth: 0,
@@ -288,7 +293,12 @@ impl UIDrawer {
     }
 
     fn draw_view<'a>(render_frame: &mut RenderFrame, view: &'a dyn View, ctx: &mut DrawContext<'a>) {
-        let frame = *view.absolute_frame();
+        // In the view's own points, a scaled subtree draws through a
+        // bigger scale instead of bigger numbers, so everything given in
+        // points grows with it and stays sharp.
+        let frame = view.__base_view().draw_frame();
+        let scale = ctx.pixel_scale * view.__base_view().tree_scale;
+        ctx.scale = scale;
 
         // A view faded to nothing draws nothing, and neither does anything
         // inside it.
@@ -374,6 +384,16 @@ impl UIDrawer {
             if view.dont_hide() || view.absolute_frame().intersects(root_frame) {
                 Self::draw_view(render_frame, view.deref(), ctx);
             }
+        }
+        ctx.scale = scale;
+
+        // A flat layer: the depth inside the view goes back to the depth
+        // of the view, under the scissor and the rounded mask it clips
+        // with, so a view drawn after it is in front of all of it.
+        if clips && view.__base_view().flat_depth {
+            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            CLIP_DRAWER.get_mut().flatten(render_frame.pass(), ctx.resolution, clip_shape);
         }
 
         if rounded_clip {
@@ -572,7 +592,7 @@ impl UIDrawer {
         // An svg rasterizes whole at the scale of the view, the quads then
         // show parts of that raster.
         let raster = image.svg.as_ref().map(|svg| {
-            let natural = cut.scaled_size(*image_view.absolute_frame(), image_size) * scale;
+            let natural = cut.scaled_size(image_view.__base_view().draw_frame(), image_size) * scale;
             let size = Size::new(
                 natural.width.round().max(1.0).lossy_convert(),
                 natural.height.round().max(1.0).lossy_convert(),
@@ -582,7 +602,7 @@ impl UIDrawer {
         });
 
         let drawer = IMAGE_RECT_DRAWER.get_mut();
-        for (frame, uv) in cut.parts(*image_view.absolute_frame(), image_size, scale) {
+        for (frame, uv) in cut.parts(image_view.__base_view().draw_frame(), image_size, scale) {
             drawer.add_with_image(
                 UIImageInstance::new(
                     frame,

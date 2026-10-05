@@ -3,16 +3,17 @@ use anyhow::Result;
 use crate::{
     deps::hreads::{from_main, wait_for_next_frame},
     gm::{
-        Clock, LossyConvert,
+        Clock, LossyConvert, ToF32,
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Cursor, Keys, Setup, UIManager, View, ViewData},
+    ui::{Button, Cursor, Keys, PinchInput, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
         capture::{save_shot, shots_enabled},
         checks::{check_colors_keep_going, check_colors_structured},
         human::{checkpoint, clean_human_mode, human_mode, show_probes},
+        human_pause,
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
     window::{KeyCode, Window, request_frame},
@@ -33,6 +34,17 @@ pub fn release_key(code: KeyCode) {
 pub fn inject_mouse_motion(delta: impl Into<Point>) {
     let delta = delta.into();
     from_main(move || Cursor::add_motion(delta));
+}
+
+/// One step of a pinch on a trackpad with the cursor at `x y`. `scale`
+/// is how much the content grows, 2 doubles it and 0.5 halves it. The
+/// pinch of 2 fingers needs no helper, `inject_touches` replays it from
+/// touches with a finger id.
+pub fn inject_pinch(x: impl ToF32, y: impl ToF32, scale: impl ToF32) {
+    let center = Point::new(x.to_f32(), y.to_f32());
+    let scale = scale.to_f32();
+    from_main(move || PinchInput::step(scale, center, Point::default()));
+    human_pause();
 }
 
 #[allow(dead_code)]

@@ -1,5 +1,6 @@
 use log::warn;
 use parking_lot::Mutex;
+use winit::event::TouchPhase;
 pub use winit::{
     keyboard::{ModifiersState, NamedKey},
     window::CursorIcon,
@@ -15,13 +16,18 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, Scrollable, Setup, Tooltip, Touch, TouchStack, UIEvents,
-        UIManager, ViewData, ViewFrame, check_touch,
+        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, Tooltip, Touch,
+        TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
     },
 };
 
 const LOG_TOUCHES: bool = false;
 const DRAW_TOUCHES: bool = false;
+
+/// How much a pinch in a browser grows the content per pixel of its wheel
+/// turn, the step browsers themselves zoom a page by.
+#[cfg(wasm)]
+const BROWSER_PINCH_STEP: f32 = 0.01;
 
 static MODIFIERS: Mutex<ModifiersState> = Mutex::new(ModifiersState::empty());
 
@@ -61,6 +67,34 @@ impl Input {
         }
         UIManager::keymap().check(key);
         UIEvents::keyboard_key().trigger(key);
+    }
+
+    /// A pinch on a trackpad. `growth` is the share the content grew by
+    /// since the last event, what macOS calls the magnification. The view
+    /// under the cursor at the start keeps the pinch until it ends.
+    pub(crate) fn on_trackpad_pinch(growth: f32, phase: TouchPhase) {
+        match phase {
+            TouchPhase::Started => PinchInput::begin(UIManager::cursor_position()),
+            TouchPhase::Moved => (),
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                PinchInput::end();
+                return;
+            }
+        }
+        PinchInput::step(1.0 + growth, UIManager::cursor_position(), Point::default());
+    }
+
+    /// A turn of the wheel as the window reports it.
+    pub(crate) fn on_wheel(delta: Point) {
+        // A browser reports a pinch on a trackpad as a wheel turn with
+        // Ctrl held, it has no pinch event of its own.
+        #[cfg(wasm)]
+        if Self::modifiers().control_key() {
+            let growth = -delta.y * BROWSER_PINCH_STEP;
+            PinchInput::step(1.0 + growth, UIManager::cursor_position(), Point::default());
+            return;
+        }
+        Self::on_scroll(delta);
     }
 
     pub(crate) fn on_scroll(offset: Point) {
@@ -119,6 +153,11 @@ impl Input {
             UIManager::add_touch_mark(mark);
         }
 
+        // The 2 fingers of a pinch belong to it, no view sees them move.
+        if PinchInput::swallow(&touch) {
+            return true;
+        }
+
         Self::check_scroll_touches(touch);
 
         if touch.is_moved() {
@@ -129,10 +168,19 @@ impl Input {
             LongPress::cancel(touch.id);
         }
 
-        for view in TouchStack::touch_views() {
-            if check_touch(view, &mut touch) {
-                return true;
-            }
+        let on_screen = touch;
+        let taken = TouchStack::touch_views().any(|view| {
+            let covered = touch.is_began() && TouchStack::covered(view, touch.position);
+            !covered && check_touch(view, &mut touch)
+        });
+
+        // After the views, a pinch looks at which view took each finger.
+        if on_screen.is_began() {
+            PinchInput::finger_down(&on_screen);
+        }
+
+        if taken {
+            return true;
         }
 
         if touch.is_began() {
@@ -170,14 +218,14 @@ impl Input {
     fn check_wheel_scroll(delta: Point) {
         let cursor = UIManager::cursor_position();
 
-        let mut front: Option<(f32, Weak<dyn Scrollable>)> = None;
+        let mut front: Option<((f32, f32), Weak<dyn Scrollable>)> = None;
 
         for scroll in TouchStack::scrolls() {
             if scroll.is_null() || scroll.is_hidden_in_tree() || !scroll.absolute_frame().contains(cursor) {
                 continue;
             }
 
-            let z = scroll.z_position();
+            let z = depth_key(scroll.weak_view());
 
             if front.as_ref().is_none_or(|(front_z, _)| z <= *front_z) {
                 front = Some((z, scroll));

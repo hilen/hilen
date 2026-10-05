@@ -9,10 +9,10 @@ use crate::{
     },
     gm::{
         color::Color,
-        flat::{CornerRadii, Rect},
+        flat::{CornerRadii, Point, Rect},
     },
     ui::{
-        CursorIcon, DynamicColor, FocusData, Gradient, NavigationView, Shadow, TooltipContent, Touch,
+        CursorIcon, DynamicColor, FocusData, Gradient, NavigationView, Pinch, Shadow, TooltipContent, Touch,
         UIEvent, View, WeakView, layout::Placer,
     },
 };
@@ -76,6 +76,25 @@ pub struct ViewBase {
     pub(crate) frame:     Rect,
     #[allow(clippy::pub_underscore_fields)]
     pub __absolute_frame: Rect,
+
+    /// How much bigger this view draws its subviews, 1 by default. Only
+    /// a `CanvasView` sets it.
+    #[educe(Default = 1.0)]
+    pub(crate) content_scale: f32,
+    /// Where the zero point of the subviews sits inside this view, in its
+    /// own points.
+    pub(crate) content_shift: Point,
+    /// The scale this view is drawn at, the `content_scale` of every view
+    /// above it multiplied, set on each update. The absolute frame is in
+    /// screen points, so it is `frame` times this number.
+    #[educe(Default = 1.0)]
+    pub(crate) tree_scale:    f32,
+    /// Everything inside this view counts as one flat layer at the depth
+    /// of the view, for drawing and for input. A view drawn after it, a
+    /// button over a map, is then in front of all of it. Without this a
+    /// later sibling draws behind the subviews of an earlier one. Only
+    /// for a view that clips to its bounds.
+    pub(crate) flat_depth:    bool,
 
     #[educe(Debug(ignore))]
     pub(crate) superview: WeakView,
@@ -148,6 +167,22 @@ impl ViewBase {
     pub(crate) fn __subviews(&self) -> &[Own<dyn View>] {
         &self.subviews
     }
+
+    /// The absolute frame in the points this view lays out in. Drawn with
+    /// the screen scale times `tree_scale` it lands on the same pixels as
+    /// the absolute frame, and a radius, a border and a text size given
+    /// in points grow with the view.
+    pub(crate) fn draw_frame(&self) -> Rect {
+        if self.tree_scale.to_bits() == 1.0_f32.to_bits() {
+            return self.__absolute_frame;
+        }
+        self.__absolute_frame * (1.0 / self.tree_scale)
+    }
+
+    /// A point of the screen in the points of this view.
+    pub(crate) fn local_point(&self, screen: Point) -> Point {
+        (screen - self.__absolute_frame.origin) / self.tree_scale
+    }
 }
 
 #[derive(Default)]
@@ -176,4 +211,8 @@ pub struct ViewTouchEvents {
     /// touch screen. The touch position is in the view's own coordinates.
     /// A long press consumes the hold, so its release is not a tap.
     pub secondary:    UIEvent<Touch>,
+    /// Every step of a pinch over the view, 2 fingers on a touch screen
+    /// or a pinch on a trackpad. Only after `enable_pinch`. The frontmost
+    /// such view under the pinch gets it.
+    pub pinch:        UIEvent<Pinch>,
 }

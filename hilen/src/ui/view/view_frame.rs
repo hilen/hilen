@@ -3,8 +3,25 @@ use crate::{
         ToF32,
         flat::{Point, Rect, Size},
     },
-    ui::{UIManager, View, ViewData, ViewSubviews},
+    ui::{UIManager, View, ViewData, ViewSubviews, WeakView},
 };
+
+/// Where a view sits front to back for input, smaller is nearer: first
+/// the depth of the outermost flat layer it is inside, see
+/// `ViewBase::flat_depth`, then its own depth. A view over a canvas is
+/// nearer than everything inside the canvas, whatever their own depths.
+pub(crate) fn depth_key(view: WeakView) -> (f32, f32) {
+    let own = view.z_position();
+    let mut outer = own;
+    let mut ancestor = *view.superview();
+    while ancestor.is_ok() {
+        if ancestor.__base_view().flat_depth {
+            outer = ancestor.z_position();
+        }
+        ancestor = *ancestor.superview();
+    }
+    (outer, own)
+}
 
 pub trait ViewFrame {
     fn z_position(&self) -> f32;

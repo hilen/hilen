@@ -9,7 +9,7 @@ use crate::{
         LossyConvert,
         flat::{Rect, Size},
     },
-    ui::{CutAxis, NineSegmentImageView, Setup, ViewData, ViewFrame, ViewSubviews},
+    ui::{CutAxis, NineSegmentImageView, Setup, View, ViewData, ViewFrame, ViewSubviews},
     window::image::{Image, ToImage},
 };
 
@@ -80,8 +80,8 @@ impl ImageView {
 
     pub(crate) fn image_frame(&self) -> Rect {
         match self.mode {
-            ImageMode::Fill | ImageMode::AspectFill => *self.absolute_frame(),
-            ImageMode::AspectFit => self.absolute_frame().fit_aspect_ratio(self.image.size.into()),
+            ImageMode::Fill | ImageMode::AspectFill => self.__base_view().draw_frame(),
+            ImageMode::AspectFit => self.__base_view().draw_frame().fit_aspect_ratio(self.image.size.into()),
         }
     }
 

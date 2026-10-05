@@ -92,6 +92,9 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // the next test's player.
         crate::ui::Keys::clear();
         crate::ui::Mouse::clear();
+        // A test that failed with 2 fingers down must not leave a pinch
+        // running into the next.
+        crate::ui::PinchInput::reset();
         crate::ui::Cursor::reset();
         crate::window::reset_fullscreen();
         crate::window::reset_orientations();

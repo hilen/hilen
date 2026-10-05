@@ -117,6 +117,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   display only, no key of the remote reaches the engine yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the
   winit pin, or anything tvOS.
+- [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
+  the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
+  and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,
+  `calculate_absolute_frame`, or the depth order of hover and touches.
 - [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the
   ring picks the next view, tables, modals, scrolling, Back as Escape, and the calls an
   app has. Read before touching `hilen/src/ui/focus.rs` or key handling in `input.rs`.

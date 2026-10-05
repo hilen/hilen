@@ -16,6 +16,25 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Canvas and pinch, the proof on real input
+
+Found by lanatlas, a network map app with a canvas that pans and zooms. `CanvasView`,
+the scale of a subtree and the pinch event landed, see [canvas.md](canvas.md).
+
+- Current: proven by the UI tests `Canvas zoom` and `Canvas pinch` on desktop, with
+  injected touches only. No real trackpad and no real finger made a pinch yet. The
+  browser path, a wheel turn with Ctrl held, was never built or run, and the 2 tests
+  did not run on the iOS simulator lane or the browser lane. Windows and Linux get no
+  trackpad pinch, winit reports none there. A view that draws by itself, a
+  `VideoView`, does not scale inside a canvas. A `ScrollView` inside a zoomed canvas
+  drags at the speed of the screen, not of its content. After a pinch ends with 1
+  finger still down, that finger pans only after it lifts and touches again. The
+  touch recorder prints finger touches and no trackpad pinch.
+- Needed: the lanatlas map on `CanvasView`, a pinch on a Mac trackpad, on a phone and
+  in a browser, and the 2 tests green on `make ui-ios` and `make ui-web`. Then the
+  small points above, each with its test.
+- Blocks: calling the map screen of lanatlas done on a phone and in a browser.
+
 ## Video on iOS, the proof on a phone
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.

@@ -20,9 +20,9 @@ pub struct DrawingView {
 
 impl ViewCallbacks for DrawingView {
     fn update(&mut self) {
-        let position = self.absolute_frame().origin;
+        let position = self.__base_view().draw_frame().origin;
         let resolution = UIManager::window_resolution();
-        let scale = UIManager::scale();
+        let scale = UIManager::scale() * self.__base_view().tree_scale;
         let z_position = self.z_position();
         let opacity = self.__base_view().tree_opacity;
 

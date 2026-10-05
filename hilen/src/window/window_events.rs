@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use wgpu::CommandEncoder;
 use winit::{
-    event::{ElementState, KeyEvent, MouseButton, Touch},
+    event::{ElementState, KeyEvent, MouseButton, Touch, TouchPhase},
     window::Theme,
 };
 
@@ -31,6 +31,9 @@ pub trait WindowEvents {
         false
     }
     fn mouse_scroll(&mut self, _delta: Point) {}
+    /// A pinch on a trackpad, `growth` is the share the content grew by
+    /// since the last event.
+    fn pinch(&mut self, _growth: f32, _phase: TouchPhase) {}
     /// Raw mouse motion, not tied to a cursor position, so it keeps
     /// coming while a captured cursor sits still.
     fn mouse_motion(&mut self, _delta: Point) {}

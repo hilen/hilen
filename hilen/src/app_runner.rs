@@ -687,7 +687,11 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn mouse_scroll(&mut self, delta: Point) {
-        Input::on_scroll(delta);
+        Input::on_wheel(delta);
+    }
+
+    fn pinch(&mut self, growth: f32, phase: TouchPhase) {
+        Input::on_trackpad_pinch(growth, phase);
     }
 
     fn mouse_motion(&mut self, delta: Point) {

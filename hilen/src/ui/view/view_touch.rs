@@ -19,6 +19,8 @@ pub trait ViewTouch {
     fn enable_touch(&self) -> &Self;
     fn enable_touch_low_priority(&self) -> &Self;
     fn enable_hover(&self) -> &Self;
+    /// Makes this view take a pinch, see `touch().pinch`.
+    fn enable_pinch(&self) -> &Self;
 
     /// The mouse cursor to show while this view is hovered, for example
     /// `CursorIcon::ColResize` on a panel drag handle. Turns hover on for
@@ -55,6 +57,11 @@ impl<T: ?Sized + View> ViewTouch for T {
 
     fn enable_hover(&self) -> &Self {
         TouchStack::enable_hover(self.weak_view());
+        self
+    }
+
+    fn enable_pinch(&self) -> &Self {
+        TouchStack::enable_pinch(self.weak_view());
         self
     }
 
@@ -95,13 +102,13 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
             return false;
         }
 
-        touch.position -= view.absolute_frame().origin;
+        touch.position = base_view.local_point(touch.position);
         base_view.events.touch.secondary.trigger(*touch);
         return true;
     }
 
     if touch.is_moved() && base_view.__touch_id == touch.id {
-        touch.position -= view.absolute_frame().origin;
+        touch.position = base_view.local_point(touch.position);
         base_view.events.touch.all.trigger(*touch);
         base_view.events.touch.moved.trigger(*touch);
         return true;
@@ -114,7 +121,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     if touch.is_ended() && base_view.__touch_id == touch.id {
         let inside = view.contains_visible(touch.position);
 
-        touch.position -= view.absolute_frame().origin;
+        touch.position = base_view.local_point(touch.position);
         base_view.__touch_id = NO_TOUCH_ID;
         base_view.events.touch.all.trigger(*touch);
 
@@ -129,13 +136,10 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
     // some other view used to be eaten here, the captor kept its
     // __touch_id, and every later bare mouse move kept dragging it.
     if touch.is_began() && view.contains_visible(touch.position) {
-        touch.position -= view.absolute_frame().origin;
+        let on_screen = touch.position;
+        touch.position = base_view.local_point(on_screen);
         base_view.__touch_id = touch.id;
-        LongPress::arm(
-            weak_from_ref(view),
-            touch.id,
-            touch.position + view.absolute_frame().origin,
-        );
+        LongPress::arm(weak_from_ref(view), touch.id, on_screen);
         base_view.events.touch.began.trigger(*touch);
         UIManager::set_selected(weak_from_ref(view), true);
         base_view.events.touch.all.trigger(*touch);

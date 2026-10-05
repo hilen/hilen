@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::{
     deps::{hreads::after, refs::main_lock::MainLock},
     gm::flat::Point,
-    ui::{NO_TOUCH_ID, Tooltip, Touch, TouchStack, ViewData, ViewFrame, WeakView, input::TouchEvent},
+    ui::{NO_TOUCH_ID, Tooltip, Touch, TouchStack, ViewData, WeakView, input::TouchEvent},
     window::MouseButton,
 };
 
@@ -120,7 +120,7 @@ impl LongPress {
 
         let touch = Touch {
             id:       pending.touch_id,
-            position: pending.origin - view.absolute_frame().origin,
+            position: base.local_point(pending.origin),
             event:    TouchEvent::Began,
             button:   MouseButton::Left,
         };

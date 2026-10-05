@@ -14,7 +14,7 @@ use winit::{
 
 use crate::{
     deps::refs::main_lock::MainLock,
-    gm::flat::Point,
+    gm::{LossyConvert, flat::Point},
     system::app_activity::{self, ActivityChange},
     ui::Cursor,
     window::{Window, WindowEvents, state::State, sync_fullscreen},
@@ -300,6 +300,9 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.te_window_events.mouse_scroll(scroll_pixels(delta));
+            }
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                self.te_window_events.pinch(delta.lossy_convert(), phase);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 // A captured mouse takes Escape for itself, see `Cursor`.

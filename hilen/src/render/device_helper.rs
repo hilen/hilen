@@ -142,7 +142,9 @@ pub(crate) trait DeviceHelper {
     /// survives and the stencil already equals the reference, `op`
     /// moves the stencil one step, so a rounded clip enters by
     /// incrementing inside its shape and leaves by decrementing the
-    /// same shape. No color and no depth is written.
+    /// same shape. No color is written. With `depth_write` the shape
+    /// also writes its own depth over whatever is there, nearer or not,
+    /// which makes everything drawn inside it so far one flat layer.
     fn mask_pipeline(
         &self,
         label: &str,
@@ -150,6 +152,7 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         op: StencilOperation,
+        depth_write: bool,
     ) -> RenderPipeline;
 
     /// A pipeline for solid geometry. Back faces are culled, depth and
@@ -278,6 +281,7 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         op: StencilOperation,
+        depth_write: bool,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         let write = StencilFaceState {
@@ -319,7 +323,7 @@ impl DeviceHelper for Device {
             },
             depth_stencil:  DepthStencilState {
                 format:              Texture::DEPTH_FORMAT,
-                depth_write_enabled: Some(false),
+                depth_write_enabled: Some(depth_write),
                 depth_compare:       Some(CompareFunction::Always),
                 stencil:             StencilState {
                     front:      write,

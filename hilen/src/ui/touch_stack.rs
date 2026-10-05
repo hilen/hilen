@@ -10,7 +10,7 @@ use crate::{
     },
     gm::flat::Point,
     ui::{
-        LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView,
+        LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView, depth_key,
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
@@ -75,7 +75,24 @@ impl TouchStack {
 
         let mut front: Option<WeakView> = None;
         for view in layer.plain_hovered().iter().rev().filter(|view| under(view)) {
-            if front.is_none_or(|front| view.z_position() < front.z_position()) {
+            if front.is_none_or(|front| depth_key(*view) < depth_key(front)) {
+                front = Some(*view);
+            }
+        }
+        front
+    }
+
+    /// The view under `point` that takes a pinch, the one drawn in front
+    /// when several do, in the top layer.
+    pub(crate) fn pinch_view_at(point: Point) -> Option<WeakView> {
+        let this = Self::get();
+        let mut front: Option<WeakView> = None;
+        for view in this.stack.last().pinched() {
+            if view.is_ok()
+                && !view.is_hidden_in_tree()
+                && view.contains_visible(point)
+                && front.is_none_or(|front| depth_key(*view) < depth_key(front))
+            {
                 front = Some(*view);
             }
         }
@@ -104,6 +121,10 @@ impl TouchStack {
 
     pub(crate) fn enable_hover(view: WeakView) {
         Self::get().layer_for(view).add_hover(view);
+    }
+
+    pub(crate) fn enable_pinch(view: WeakView) {
+        Self::get().layer_for(view).add_pinch(view);
     }
 
     pub(crate) fn enable_hover_high_priority(view: WeakView) {
@@ -199,6 +220,26 @@ impl TouchStack {
     /// Tab traversal walks it so a modal cycles only its own fields.
     pub(crate) fn top_layer_root() -> WeakView {
         Self::get().stack.last().root
+    }
+
+    /// True when a began touch at `point` must not go to `view`, because
+    /// `view` is inside a flat layer and another touch view lies over that
+    /// layer there. Touch views are asked in the order they were added,
+    /// which knows nothing of a button placed over a map.
+    pub(crate) fn covered(view: WeakView, point: Point) -> bool {
+        if !view.is_ok() {
+            return false;
+        }
+        let (layer, own) = depth_key(view);
+        if layer.to_bits() == own.to_bits() {
+            return false;
+        }
+        Self::touch_views().any(|other| {
+            other.is_ok()
+                && !other.is_hidden_in_tree()
+                && other.contains_visible(point)
+                && depth_key(other).0 < layer
+        })
     }
 
     /// A scroll drag claimed the touch: views that captured it on began

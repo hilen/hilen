@@ -440,7 +440,7 @@ To test an existing widget, give it a fixture view to live in and put the impl o
 The suite does this throughout, and a fixture is usually what you want anyway, since its
 `setup` arranges the scene the widget is tested in.
 
-Test helpers: `inject_touches`, `inject_scroll`, `inject_scroll_x` (a sideways wheel), `inject_right_click`, `inject_long_press`,
+Test helpers: `inject_touches`, `inject_scroll`, `inject_scroll_x` (a sideways wheel), `inject_pinch` (a trackpad pinch, 2 fingers go through `inject_touches` with finger ids), `inject_right_click`, `inject_long_press`,
 `inject_mouse_motion` (raw motion for a captured `Cursor`, dropped while it is free),
 `wait_for_tooltip`, `check_colors` (asserts pixel colors at coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
 

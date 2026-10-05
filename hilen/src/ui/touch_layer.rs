@@ -22,6 +22,7 @@ pub(crate) struct TouchLayer {
     high_priority:   Vec<WeakView>,
     hovered:         Vec<WeakView>,
     high_hovered:    Vec<WeakView>,
+    pinched:         Vec<WeakView>,
     scrolls:         WeakVec<dyn Scrollable>,
 }
 
@@ -33,6 +34,7 @@ pub(crate) struct Extracted {
     high_priority: Vec<WeakView>,
     hovered:       Vec<WeakView>,
     high_hovered:  Vec<WeakView>,
+    pinched:       Vec<WeakView>,
     scrolls:       WeakVec<dyn Scrollable>,
 }
 
@@ -77,6 +79,13 @@ impl TouchLayer {
             return;
         }
         self.high_hovered.push(view);
+    }
+
+    pub(crate) fn add_pinch(&mut self, view: WeakView) {
+        if self.pinched.iter().any(|l| l.raw() == view.raw()) {
+            return;
+        }
+        self.pinched.push(view);
     }
 
     pub(crate) fn remove(&mut self, view: WeakView) {
@@ -131,6 +140,14 @@ impl TouchLayer {
                 true
             }
         });
+        self.pinched.retain(|v| {
+            if is_under(*v) {
+                extracted.pinched.push(*v);
+                false
+            } else {
+                true
+            }
+        });
         self.scrolls.retain(|s| {
             if s.is_ok() && is_under(s.weak_view()) {
                 extracted.scrolls.push(*s);
@@ -166,6 +183,11 @@ impl TouchLayer {
                 self.add_hover_high_priority(view);
             }
         }
+        for view in extracted.pinched {
+            if view.is_ok() {
+                self.add_pinch(view);
+            }
+        }
         for scroll in extracted.scrolls {
             if scroll.is_ok() {
                 self.add_scroll(scroll);
@@ -179,6 +201,7 @@ impl TouchLayer {
             high_priority: std::mem::take(&mut self.high_priority),
             hovered:       std::mem::take(&mut self.hovered),
             high_hovered:  std::mem::take(&mut self.high_hovered),
+            pinched:       std::mem::take(&mut self.pinched),
             scrolls:       std::mem::take(&mut self.scrolls),
         }
     }
@@ -199,6 +222,10 @@ impl TouchLayer {
         &self.high_hovered
     }
 
+    pub(crate) fn pinched(&self) -> &[WeakView] {
+        &self.pinched
+    }
+
     pub(crate) fn scrolls(&self) -> WeakVec<dyn Scrollable> {
         self.scrolls.clone()
     }
@@ -213,6 +240,7 @@ impl TouchLayer {
         self.high_priority.remove_freed();
         self.hovered.remove_freed();
         self.high_hovered.remove_freed();
+        self.pinched.remove_freed();
         self.scrolls.remove_freed();
     }
 }
@@ -225,6 +253,7 @@ impl From<WeakView> for TouchLayer {
             high_priority: vec![],
             hovered: vec![],
             high_hovered: vec![],
+            pinched: vec![],
             scrolls: vec![],
         }
     }
