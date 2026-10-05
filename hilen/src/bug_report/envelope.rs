@@ -206,13 +206,13 @@ pub(crate) fn build(dsn: &Dsn, event: &Event, attachments: &[Attachment]) -> Res
 }
 
 /// A bug report on top of `event`, which brings the id, the time and the
-/// browser. Each of the screenshot, the log and the key presses becomes an
+/// browser. Each of the attachment, the log and the key presses becomes an
 /// attachment only when the report has it.
 pub(crate) fn report(dsn: &Dsn, mut event: Event, data: BugReportData, log: &str) -> Result<Vec<u8>> {
     let BugReportData {
         email,
         description,
-        screenshot_png,
+        attachment,
         keys,
     } = data;
 
@@ -222,11 +222,11 @@ pub(crate) fn report(dsn: &Dsn, mut event: Event, data: BugReportData, log: &str
     let keys = keys.map(|keys| serde_json::to_vec_pretty(&keys)).transpose()?;
 
     let mut attachments = Vec::new();
-    if !screenshot_png.is_empty() {
+    if let Some(attachment) = &attachment {
         attachments.push(Attachment {
-            filename:     "screenshot.png",
-            content_type: "image/png",
-            bytes:        &screenshot_png,
+            filename:     &attachment.file_name,
+            content_type: &attachment.content_type,
+            bytes:        &attachment.bytes,
         });
     }
     if !log.is_empty() {
@@ -261,7 +261,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::{Attachment, Dsn, Event, User, build, report};
-    use crate::bug_report::BugReportData;
+    use crate::bug_report::{BugReportAttachment, BugReportData};
 
     const DSN: &str = "https://abc123@o42.ingest.sentry.io/7001";
 
@@ -388,8 +388,9 @@ mod tests {
         Ok(())
     }
 
-    /// Filename and payload of each attachment, in envelope order.
-    type Attachments = Vec<(String, Vec<u8>)>;
+    /// Filename, content type and payload of each attachment, in envelope
+    /// order.
+    type Attachments = Vec<(String, String, Vec<u8>)>;
 
     /// The event of a report and its attachments.
     fn parse_report(bytes: &[u8]) -> Result<(ParsedEvent, Attachments)> {
@@ -404,48 +405,88 @@ mod tests {
         while !rest.is_empty() {
             let (item, payload) = next_item(&mut rest)?;
             assert_eq!(item.ty, "attachment");
-            attachments.push((item.filename.expect("attachment filename"), payload.to_vec()));
+            attachments.push((
+                item.filename.expect("attachment filename"),
+                item.content_type.expect("attachment content type"),
+                payload.to_vec(),
+            ));
         }
 
         Ok((event, attachments))
     }
 
-    /// The browser envelope of `BugReport::send`, which never has key
-    /// presses. The screenshot is an attachment only when the app gave one.
+    /// The browser envelope of a report with the given attachment and the
+    /// log, as `BugReport::send` makes it, with no key presses.
+    fn send(attachment: Option<BugReportAttachment>, log: &str) -> Result<Vec<u8>> {
+        report(
+            &Dsn::parse(DSN)?,
+            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "info"),
+            BugReportData {
+                email: "a@b.c".to_string(),
+                description: "the button does nothing".to_string(),
+                attachment,
+                keys: None,
+            },
+            log,
+        )
+    }
+
+    fn log_item(log: &str) -> (String, String, Vec<u8>) {
+        (
+            "log.txt".to_string(),
+            "text/plain".to_string(),
+            log.as_bytes().to_vec(),
+        )
+    }
+
+    /// The screenshot is an attachment only when the app gave one.
     #[test]
     fn report_envelope_with_and_without_screenshot() -> Result<()> {
-        let dsn = Dsn::parse(DSN)?;
         let png = vec![0x89, b'P', b'N', b'G', b'\n', 0];
         let log = "line 1\nline 2\n";
 
-        let send = |screenshot_png: Vec<u8>| -> Result<Vec<u8>> {
-            report(
-                &dsn,
-                Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "info"),
-                BugReportData {
-                    email: "a@b.c".to_string(),
-                    description: "the button does nothing".to_string(),
-                    screenshot_png,
-                    keys: None,
-                },
-                log,
-            )
-        };
-
-        let (event, attachments) = parse_report(&send(png.clone())?)?;
+        let (event, attachments) =
+            parse_report(&send(Some(BugReportAttachment::screenshot(png.clone())), log)?)?;
         assert_eq!(event.message, "the button does nothing");
         assert_eq!(event.user.email, "a@b.c");
         assert_eq!(
             attachments,
             [
-                ("screenshot.png".to_string(), png),
-                ("log.txt".to_string(), log.as_bytes().to_vec()),
+                ("screenshot.png".to_string(), "image/png".to_string(), png),
+                log_item(log),
             ]
         );
 
-        let (event, attachments) = parse_report(&send(Vec::new())?)?;
+        let (event, attachments) = parse_report(&send(None, log)?)?;
         assert_eq!(event.message, "the button does nothing");
-        assert_eq!(attachments, [("log.txt".to_string(), log.as_bytes().to_vec())]);
+        assert_eq!(attachments, [log_item(log)]);
+
+        Ok(())
+    }
+
+    /// A picked JPEG keeps its own name and type in the envelope, the
+    /// browser path no longer labels every image as the PNG screenshot.
+    #[test]
+    fn report_envelope_with_a_jpeg() -> Result<()> {
+        let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, b'\n', 0];
+        let log = "line 1\n";
+
+        let (event, attachments) = parse_report(&send(
+            Some(BugReportAttachment {
+                file_name:    "IMG_0001.jpeg".to_string(),
+                content_type: "image/jpeg".to_string(),
+                bytes:        jpeg.clone(),
+            }),
+            log,
+        )?)?;
+        assert_eq!(event.message, "the button does nothing");
+        assert_eq!(
+            attachments,
+            [
+                ("IMG_0001.jpeg".to_string(), "image/jpeg".to_string(), jpeg),
+                log_item(log),
+            ]
+        );
 
         Ok(())
     }

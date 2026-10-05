@@ -1,10 +1,11 @@
 //! In-app bug reporting through Sentry. A report is a normal Sentry event
-//! carrying the reporter's description, with the screenshot, the recent
-//! log and the opted in key presses as event attachments. It rides the
-//! DSN the app already returns from `App::sentry_url`, so there is no
-//! separate endpoint and no receiving server. Native builds send through
-//! the sentry crate. It does not run on wasm, so the browser builds the
-//! envelope itself and posts it, see `web.rs`.
+//! carrying the reporter's description, with the screenshot or another
+//! image, the recent log and the opted in key presses as event
+//! attachments. It rides the DSN the app already returns from
+//! `App::sentry_url`, so there is no separate endpoint and no receiving
+//! server. Native builds send through the sentry crate. It does not run on
+//! wasm, so the browser builds the envelope itself and posts it, see
+//! `web.rs`.
 
 #[cfg(any(wasm, test))]
 mod envelope;
@@ -50,6 +51,27 @@ pub struct BugReportScreenshot {
     pub png:  Vec<u8>,
     pub rgba: Vec<u8>,
     pub size: Size<u32>,
+}
+
+/// A file a report carries next to its log, the screenshot of the engine
+/// dialog or an image the user picked with `Paths::pick_image`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BugReportAttachment {
+    pub file_name:    String,
+    /// The MIME type, like `image/jpeg`.
+    pub content_type: String,
+    pub bytes:        Vec<u8>,
+}
+
+impl BugReportAttachment {
+    /// The `png` of `BugReport::capture`, as `screenshot.png`.
+    pub fn screenshot(png: Vec<u8>) -> Self {
+        Self {
+            file_name:    "screenshot.png".to_string(),
+            content_type: "image/png".to_string(),
+            bytes:        png,
+        }
+    }
 }
 
 static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
@@ -152,18 +174,24 @@ impl BugReport {
 
     /// The second half of `open`, for an app with a report dialog of its
     /// own. Sends a Sentry event with the description as its message, the
-    /// email as its user and the recent log lines attached. The screenshot
-    /// is attached when given, pass the `png` of `capture`. A send never
-    /// attaches the recent key presses, their opt in is a checkbox of the
-    /// engine dialog only. Without a DSN it logs a warning and sends
-    /// nothing. It does not block, on native the sentry client sends from
-    /// its own thread, in the browser a task posts the event.
-    pub fn send(email: impl Into<String>, description: impl Into<String>, screenshot_png: Option<Vec<u8>>) {
+    /// email as its user and the recent log lines attached. The attachment
+    /// goes out under its own name and type when given and not empty, like
+    /// `BugReportAttachment::screenshot` with the `png` of `capture`, or a
+    /// picked image. A send never attaches the recent key presses, their
+    /// opt in is a checkbox of the engine dialog only. Without a DSN it
+    /// logs a warning and sends nothing. It does not block, on native the
+    /// sentry client sends from its own thread, in the browser a task
+    /// posts the event.
+    pub fn send(
+        email: impl Into<String>,
+        description: impl Into<String>,
+        attachment: Option<BugReportAttachment>,
+    ) {
         Self::submit(BugReportData {
-            email:          email.into(),
-            description:    description.into(),
-            screenshot_png: screenshot_png.unwrap_or_default(),
-            keys:           None,
+            email:       email.into(),
+            description: description.into(),
+            attachment:  attachment.filter(|attachment| !attachment.bytes.is_empty()),
+            keys:        None,
         });
     }
 

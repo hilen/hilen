@@ -72,6 +72,16 @@ ios-debug:
 	rm -f ./target/universal/release/libdemo.a
 	cp ./target/universal/debug/libdemo.a ./target/universal/release/libdemo.a
 
+# The one Java class of the android glue, built into the dex the engine embeds.
+# Run it after a change to hilen/android/NativeHandler.java and commit the dex.
+android-dex:
+	docker build --platform linux/amd64 -t hilen-android-dex ./build/android
+	docker run --rm --platform linux/amd64 -v "$(CURDIR)/hilen/android:/work" -w /work hilen-android-dex sh -c '\
+		javac --release 8 -Xlint:-options -d /tmp/classes NativeHandler.java && \
+		mkdir /tmp/dex && \
+		$$ANDROID_HOME/build-tools/34.0.0/d8 --min-api 26 --output /tmp/dex /tmp/classes/io/hilen/NativeHandler.class && \
+		cp /tmp/dex/classes.dex native_handler.dex'
+
 fix-lint:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
 

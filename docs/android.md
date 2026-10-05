@@ -74,3 +74,16 @@ them until they land in the template:
 - `org.gradle.vfs.watch=false` in `gradle.properties`, file watching cannot work in
   the container.
 - The `assets/` source dir wiring described above.
+
+## The picker glue is a dex
+
+Android hands an activity result, like a picked photo, to Java only, and the
+game activity of the template does not pass it on. So the engine ships one
+small Java class, `hilen/android/NativeHandler.java`, built into
+`hilen/android/native_handler.dex` and loaded at run time with
+`InMemoryDexClassLoader`, API 26 and up. It lets Rust stand in for a Java
+interface through `java.lang.reflect.Proxy`, which `Paths::pick_image` uses for
+the photo picker callback. After a change to the Java file run `make android-dex`,
+it builds in the android docker image, and commit the dex with it. A rotation
+while the picker is open recreates the activity and loses the result, the pick
+then never finishes.

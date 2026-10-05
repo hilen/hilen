@@ -7,7 +7,7 @@ use log::error;
 use ui_proc::view;
 
 use crate::{
-    bug_report::{BugReport, BugReportScreenshot, BugReportStyle, input_ring::KeyPress},
+    bug_report::{BugReport, BugReportAttachment, BugReportScreenshot, BugReportStyle, input_ring::KeyPress},
     deps::{refs::Weak, vents::OnceEvent},
     gm::{color::CLEAR, flat::Size},
     ui::{
@@ -40,10 +40,10 @@ pub(crate) struct BugReportInput {
 /// What the reporter agreed to send. Keys are present only when the opt
 /// in checkbox was on at submit time.
 pub(crate) struct BugReportData {
-    pub email:          String,
-    pub description:    String,
-    pub screenshot_png: Vec<u8>,
-    pub keys:           Option<Vec<KeyPress>>,
+    pub email:       String,
+    pub description: String,
+    pub attachment:  Option<BugReportAttachment>,
+    pub keys:        Option<Vec<KeyPress>>,
 }
 
 /// The scrollable middle of the page. Its own view because #[init]
@@ -284,11 +284,12 @@ impl Setup for BugReportView {
             let mut this = self;
             let form = self.form;
 
+            let png = take(&mut this.screenshot_png);
             let data = BugReportData {
-                email:          form.email.text().trim().to_string(),
-                description:    form.description.text().trim().to_string(),
-                screenshot_png: take(&mut this.screenshot_png),
-                keys:           form.attach_keys.on().then(|| take(&mut this.keys)),
+                email:       form.email.text().trim().to_string(),
+                description: form.description.text().trim().to_string(),
+                attachment:  (!png.is_empty()).then(|| BugReportAttachment::screenshot(png)),
+                keys:        form.attach_keys.on().then(|| take(&mut this.keys)),
             };
 
             self.hide_modal(Some(data));

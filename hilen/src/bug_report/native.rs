@@ -13,7 +13,7 @@ pub(super) fn submit(data: BugReportData) {
     let BugReportData {
         email,
         description,
-        screenshot_png,
+        attachment,
         keys,
     } = data;
 
@@ -24,11 +24,11 @@ pub(super) fn submit(data: BugReportData) {
                 ..Default::default()
             }));
 
-            if !screenshot_png.is_empty() {
+            if let Some(attachment) = attachment {
                 scope.add_attachment(Attachment {
-                    buffer:       screenshot_png,
-                    filename:     "screenshot.png".to_string(),
-                    content_type: Some("image/png".to_string()),
+                    buffer:       attachment.bytes,
+                    filename:     attachment.file_name,
+                    content_type: Some(attachment.content_type),
                     ty:           None,
                 });
             }
@@ -71,7 +71,7 @@ mod tests {
         protocol::{EnvelopeItem, Event},
     };
 
-    use crate::bug_report::{BugReport, log_ring::LogRing};
+    use crate::bug_report::{BugReport, BugReportAttachment, log_ring::LogRing};
 
     /// Keeps every envelope the client hands over instead of posting it.
     #[derive(Default)]
@@ -83,12 +83,12 @@ mod tests {
         }
     }
 
-    /// Filename and payload of each attachment, in envelope order.
-    type Attachments = Vec<(String, Vec<u8>)>;
+    /// Filename, content type and payload of an attachment.
+    type Sent = (String, Option<String>, Vec<u8>);
 
     /// Runs `send` on a hub of its own with a DSN and returns the one event
-    /// it produced and its attachments as filename and payload.
-    fn sent(send: impl FnOnce()) -> Result<(Event<'static>, Attachments)> {
+    /// it produced and its attachments in envelope order.
+    fn sent(send: impl FnOnce()) -> Result<(Event<'static>, Vec<Sent>)> {
         let transport = Arc::new(Captured::default());
         let client = Client::with_options(ClientOptions {
             dsn: Some("https://key@sentry.invalid/1".parse()?),
@@ -110,9 +110,11 @@ mod tests {
         for item in envelope.items() {
             match item {
                 EnvelopeItem::Event(item) => event = Some(item.clone()),
-                EnvelopeItem::Attachment(item) => {
-                    attachments.push((item.filename.clone(), item.buffer.clone()));
-                }
+                EnvelopeItem::Attachment(item) => attachments.push((
+                    item.filename.clone(),
+                    item.content_type.clone(),
+                    item.buffer.clone(),
+                )),
                 other => panic!("unexpected envelope item {other:?}"),
             }
         }
@@ -120,26 +122,73 @@ mod tests {
         Ok((event.expect("the envelope has no event"), attachments))
     }
 
+    fn names(attachments: &[Sent]) -> Vec<&str> {
+        attachments.iter().map(|(name, ..)| name.as_str()).collect()
+    }
+
     /// `BugReport::send` on native. The event carries the description and
     /// the email, the log is always attached, the screenshot only when
-    /// given, and key presses never.
+    /// given and not empty, and key presses never.
     #[test]
     fn send_with_and_without_screenshot() -> Result<()> {
         LogRing::push("a line for the log attachment".to_string());
         let png = vec![0x89, b'P', b'N', b'G', b'\n', 0];
 
-        let (event, attachments) =
-            sent(|| BugReport::send("a@b.c", "the button does nothing", Some(png.clone())))?;
+        let (event, attachments) = sent(|| {
+            BugReport::send(
+                "a@b.c",
+                "the button does nothing",
+                Some(BugReportAttachment::screenshot(png.clone())),
+            );
+        })?;
         assert_eq!(event.message.as_deref(), Some("the button does nothing"));
         assert_eq!(event.user.and_then(|user| user.email).as_deref(), Some("a@b.c"));
-        let names: Vec<&str> = attachments.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["screenshot.png", "log.txt"]);
-        assert_eq!(attachments[0].1, png);
+        assert_eq!(names(&attachments), ["screenshot.png", "log.txt"]);
+        assert_eq!(attachments[0].1.as_deref(), Some("image/png"));
+        assert_eq!(attachments[0].2, png);
 
         let (event, attachments) = sent(|| BugReport::send("a@b.c", "the button does nothing", None))?;
         assert_eq!(event.message.as_deref(), Some("the button does nothing"));
-        let names: Vec<&str> = attachments.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["log.txt"]);
+        assert_eq!(names(&attachments), ["log.txt"]);
+
+        let (event, attachments) = sent(|| {
+            BugReport::send(
+                "a@b.c",
+                "the button does nothing",
+                Some(BugReportAttachment::screenshot(Vec::new())),
+            );
+        })?;
+        assert_eq!(event.message.as_deref(), Some("the button does nothing"));
+        assert_eq!(names(&attachments), ["log.txt"]);
+
+        Ok(())
+    }
+
+    /// A picked JPEG goes out under its own name and type, not as the PNG
+    /// screenshot.
+    #[test]
+    fn send_with_a_picked_jpeg() -> Result<()> {
+        LogRing::push("a line for the log attachment".to_string());
+        let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, b'\n', 0];
+
+        let (event, attachments) = sent(|| {
+            BugReport::send(
+                "a@b.c",
+                "the photo in the reader is upside down",
+                Some(BugReportAttachment {
+                    file_name:    "IMG_0001.jpeg".to_string(),
+                    content_type: "image/jpeg".to_string(),
+                    bytes:        jpeg.clone(),
+                }),
+            );
+        })?;
+        assert_eq!(
+            event.message.as_deref(),
+            Some("the photo in the reader is upside down")
+        );
+        assert_eq!(names(&attachments), ["IMG_0001.jpeg", "log.txt"]);
+        assert_eq!(attachments[0].1.as_deref(), Some("image/jpeg"));
+        assert_eq!(attachments[0].2, jpeg);
 
         Ok(())
     }

@@ -2,7 +2,7 @@
 //! links, browser history and the system locale.
 
 #[cfg(android)]
-mod android_jni;
+pub(crate) mod android_jni;
 pub(crate) mod app_activity;
 mod clipboard;
 mod locale;

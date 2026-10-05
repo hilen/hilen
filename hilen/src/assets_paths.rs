@@ -40,7 +40,7 @@ impl AssetsPaths {
 
     pub(crate) fn assets(_root: &Path) -> PathBuf {
         #[cfg(android)]
-        return Default::default();
+        return PathBuf::default();
         #[cfg(not_android)]
         return _root.join("assets");
     }

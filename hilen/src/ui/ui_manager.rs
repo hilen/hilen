@@ -439,17 +439,20 @@ impl UIManager {
                     frame.origin.y,
                     frame.size.width,
                     frame.size.height,
-                )
+                );
             }
         }
     }
 
     pub(crate) fn close_keyboard() -> Option<String> {
         #[cfg(ios)]
-        unsafe {
-            let str_ptr = crate::ui::mobile::ios::hilen_ios_close_keyboard();
-            let cstr = std::ffi::CStr::from_ptr(str_ptr);
-            return cstr.to_string_lossy().into_owned().into();
+        {
+            let str_ptr = unsafe { crate::ui::mobile::ios::hilen_ios_close_keyboard() };
+            if str_ptr.is_null() {
+                return None;
+            }
+            let cstr = unsafe { std::ffi::CStr::from_ptr(str_ptr) };
+            Some(cstr.to_string_lossy().into_owned())
         }
 
         #[cfg(not(ios))]

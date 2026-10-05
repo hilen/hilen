@@ -121,7 +121,7 @@ objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSValue"] }
 objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
-objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
+objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 open = "5.4"
 parking_lot = "0.12"
 pollster = "0.4"
@@ -196,9 +196,12 @@ web-sys = { version = "0.3", features = [
     "Document",
     "DomRect",
     "Element",
+    "File",
+    "FileList",
     "History",
     "HtmlCanvasElement",
     "HtmlElement",
+    "HtmlInputElement",
     "HtmlMediaElement",
     "HtmlVideoElement",
     "KeyboardEvent",
