@@ -192,7 +192,7 @@ impl Texture {
 
     /// A blank RGBA texture a pass can draw into and the image pipeline can
     /// sample, one mip level, clamped edges.
-    #[cfg(any(all(feature = "video", desktop), feature = "scene"))]
+    #[cfg(any(all(feature = "video", ffmpeg), feature = "scene"))]
     pub(crate) fn render_target(size: Size<u32>, label: &str) -> Self {
         let device = Window::device();
 

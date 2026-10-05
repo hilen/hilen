@@ -2120,7 +2120,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=e9829a3e1051e1e9c8eaa93472018c8104546f36#e9829a3e1051e1e9c8eaa93472018c8104546f36"
+source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=7c07ab9561beb482620762c9aaed36f08fcd47a4#7c07ab9561beb482620762c9aaed36f08fcd47a4"
 dependencies = [
  "bitflags 2.13.0",
  "ffmpeg-sys-next",
@@ -2130,7 +2130,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=01362c5845276232aefb09cfa928bd6b7ff3c0d5#01362c5845276232aefb09cfa928bd6b7ff3c0d5"
+source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=30bade3b8f433d93861a1eda8e2bfaa3f43e3e84#30bade3b8f433d93861a1eda8e2bfaa3f43e3e84"
 dependencies = [
  "bindgen",
  "cc",
@@ -2911,6 +2911,7 @@ dependencies = [
  "nonempty",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+ "objc2-avf-audio",
  "objc2-foundation 0.3.2",
  "objc2-media-player",
  "objc2-ui-kit 0.3.2",
@@ -4819,6 +4820,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13a380031deed8e99db00065c45937da434ca987c034e13b87e4441f9e4090be"
 dependencies = [
+ "bitflags 2.13.0",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
 ]

@@ -9,6 +9,7 @@ mod fullscreen;
 mod icon;
 pub mod image;
 mod msaa;
+mod orientation;
 mod placement;
 mod redraw;
 mod render_frame;
@@ -40,12 +41,14 @@ pub(crate) use self::redraw::{
     frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
 };
 pub use self::{
-    app_handler::AppHandler, msaa::msaa_sample_count, placement::*, render_frame::RenderFrame, screenshot::*,
-    state::surface_texture_format, text::*, vertex_buffer::VertexBuffer, window::*, window_events::*,
+    app_handler::AppHandler, msaa::msaa_sample_count, orientation::Orientations, placement::*,
+    render_frame::RenderFrame, screenshot::*, state::surface_texture_format, text::*,
+    vertex_buffer::VertexBuffer, window::*, window_events::*,
 };
 pub(crate) use self::{
     app_handler::UserEvent,
     fullscreen::{reset_fullscreen, sync_fullscreen},
+    orientation::reset_orientations,
     redraw::request_frame,
     render_frame::PassTarget,
 };

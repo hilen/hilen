@@ -23,6 +23,7 @@ use ffmpeg_next::{
 use log::{debug, warn};
 
 use crate::{
+    audio::manager::audio_manager,
     gm::LossyConvert,
     video::{
         VideoSource,
@@ -247,6 +248,12 @@ fn run(
             None
         }
     };
+    // The first sound of the app opens the audio device, about a second on an
+    // iOS simulator. Here it costs the first video its start, on the first
+    // play it would hold the main thread for that long.
+    if info.audio.is_some() {
+        drop(audio_manager());
+    }
     if messages.send(Message::Info(Box::new(info))).is_err() {
         return Ok(());
     }

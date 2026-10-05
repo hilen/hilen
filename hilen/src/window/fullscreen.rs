@@ -15,11 +15,24 @@ struct FullscreenState {
 
 static FULLSCREEN: MainLock<FullscreenState> = MainLock::new();
 
+/// An iPhone or an iPad. Its app always fills the screen, fullscreen there
+/// means the status bar and the home indicator are out of the way.
+const PHONE_BARS: bool = Platform::IOS && !Platform::TVOS;
+
 impl Window {
     /// Enters or leaves fullscreen, without a border and on the screen the
-    /// window is on. A phone app always fills its screen, so there nothing
-    /// changes.
+    /// window is on. On an iPhone and an iPad it hides the status bar and
+    /// lets the home indicator fade, and brings them back. An Android app
+    /// and a TV app always fill their screen, so there nothing changes.
     pub fn set_fullscreen(fullscreen: bool) {
+        #[cfg(all(ios, not(tvos)))]
+        if let Some(window) = Self::winit_window() {
+            use winit::platform::ios::WindowExtIOS;
+
+            window.set_prefers_status_bar_hidden(fullscreen);
+            window.set_prefers_home_indicator_hidden(fullscreen);
+            record(fullscreen);
+        }
         if Platform::MOBILE {
             return;
         }
@@ -30,6 +43,9 @@ impl Window {
     }
 
     pub fn is_fullscreen() -> bool {
+        if PHONE_BARS {
+            return FULLSCREEN.on;
+        }
         Platform::MOBILE || FULLSCREEN.on
     }
 
@@ -41,8 +57,12 @@ impl Window {
 }
 
 /// Reads the state back from the system after the window changed its size,
-/// that is how a press of the system's own fullscreen button is seen.
+/// that is how a press of the system's own fullscreen button is seen. A
+/// phone has no such button, and its window always reports fullscreen.
 pub(crate) fn sync_fullscreen() {
+    if Platform::MOBILE {
+        return;
+    }
     if let Some(window) = Window::winit_window() {
         record(window.fullscreen().is_some());
     }

@@ -16,6 +16,27 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Video on iOS, the proof on a phone
+
+Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
+The `video` feature builds and plays on iOS now, see [video.md](video.md), and
+its UI tests pass on the simulator. No real iPhone ran it yet.
+
+- Current: proven on the iOS 16.4 simulator only, where h264 decodes in
+  software and HEVC in hardware. The audio session, `Window::set_orientations`,
+  the phone side of `Window::set_fullscreen` and `MediaSession` on iOS are
+  written and compile for a device. On Android `set_orientations` only keeps
+  its value. A film stops when the phone locks, an app has no background
+  audio mode.
+- Needed: a film played on a tethered iPhone, with hardware decode named in
+  the first frame log line, sound with the silent switch on, the screen turned
+  by a player, and play, pause and seek from the control center and from
+  headphones. `UIBackgroundModes` with `audio` in the generated `Info.plist`,
+  as a knob of `hilen.toml`, so the sound goes on behind the lock screen and
+  the lock screen shows the film. The orientation call on Android, through
+  `setRequestedOrientation`.
+- Blocks: calling flixen on an iPhone and an iPad done.
+
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
@@ -31,7 +52,7 @@ and dav1d, the whole track subtitle read. See
 - AV1 always decodes in software through dav1d, also on a Mac whose hardware
   has an AV1 decoder, ffmpeg lists dav1d first. Picking the hardware decoder
   where VideoToolbox has one needs such a Mac to prove it, an M3 or newer.
-- Now Playing and the media keys are macOS only. Windows needs the System
+- Now Playing and the media keys are macOS and iOS only. Windows needs the System
   Media Transport Controls. Raise this point only when the roadmap is read
   on Windows.
 - Linux needs MPRIS for the same. Raise this point only when the roadmap is
@@ -174,7 +195,7 @@ gate.
 
 ## Video playback, the other lanes
 
-Desktop macOS and Windows x64 landed, see [video.md](video.md): `VideoView` behind
+Desktop macOS, Windows x64 and iOS landed, see [video.md](video.md): `VideoView` behind
 the `video` feature, ffmpeg from prebuilt static archives, VideoToolbox and
 D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
 4K30 file play at full rate with sound. The rest of the platforms are open.
@@ -195,11 +216,11 @@ D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
   job, and its TLS named in the script. Then the target tables widen to
   `desktop`. A person plays a real film on Windows, with sound, and reads
   the dropped frames off the stats line.
-  iOS and Android need archives cross built per target with VideoToolbox and
-  MediaCodec, and the feature unlocked there. The browser plays through a
+  Android needs archives cross built per ABI with MediaCodec, and the feature
+  unlocked there. The browser plays through a
   video element under the canvas, see video.md. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
   through the wgpu hal, only after an A/B shows the copy costs frames.
-- Blocks: video on Linux, the Intel Mac, Windows on ARM and the phones.
+- Blocks: video on Linux, the Intel Mac, Windows on ARM and Android.
 
 ## Leftovers inside landed features
 

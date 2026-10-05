@@ -37,9 +37,9 @@ level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
-# VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop only for now,
-# see docs/video.md. Off by default.
-video = ["audio", "dep:ffmpeg-next"]
+# VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
+# browser through a video element, see docs/video.md. Off by default.
+video = ["audio", "dep:ffmpeg-next", "dep:objc2-avf-audio"]
 # 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
 # pipeline. Off by default, a GUI only app carries none of it.
 scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
@@ -178,6 +178,14 @@ objc2-media-player = { workspace = true }
 objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }
+
+# The video decode, its audio session and the lock screen controls. tvOS has
+# no ffmpeg archive.
+[target.'cfg(target_os = "ios")'.dependencies]
+block2 = { workspace = true }
+ffmpeg-next = { workspace = true, optional = true }
+objc2-avf-audio = { workspace = true, optional = true }
+objc2-media-player = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }

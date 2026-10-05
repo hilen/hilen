@@ -1,10 +1,10 @@
 //! What a video is opened from, a file path or a url with its request
 //! headers.
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod open;
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 pub(crate) use open::Interrupt;
 
 /// A file path or a url, with the request headers an http or https source is

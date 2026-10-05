@@ -1,17 +1,18 @@
 # Video playback
 
 `VideoView` plays a file or an http or https url, behind the `video` cargo feature. On
-desktop ffmpeg decodes, proven on macOS and on Windows x64. In a browser the page plays
-the source in a `<video>` element, see In a browser. The other lanes are in
-[roadmap.md](roadmap.md). `demo` and `ui-test` turn the feature on through a target
-table for those systems, so the iOS and Android builds carry none of it, and the
-feature fails to compile with a clear message anywhere else.
+desktop and on iOS ffmpeg decodes, proven on macOS, on Windows x64 and on the iOS
+simulator, see On iOS. In a browser the page plays the source in a `<video>` element,
+see In a browser. The other lanes are in [roadmap.md](roadmap.md). `demo` and `ui-test`
+turn the feature on through a target table for those systems, so the Android and tvOS
+builds carry none of it, and the feature fails to compile with a clear message anywhere
+else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
 
 ## How it plays
 
 - ffmpeg demuxes and decodes on its own thread, `hilen/src/video/decoder.rs`, a
   few frames ahead into a bounded queue. The codec context gets the platform
-  device before it opens, VideoToolbox on macOS, VAAPI on Linux, D3D11VA on
+  device before it opens, VideoToolbox on macOS and iOS, VAAPI on Linux, D3D11VA on
   Windows, and a `get_format` callback that picks the device's pixel format, so
   a codec the device supports decodes on the GPU and the rest fall back to
   software on their own. A decoded frame is copied back to system memory as
@@ -104,6 +105,27 @@ feature fails to compile with a clear message anywhere else.
 - Render on demand keeps the loop awake through an empty animation while a
   video plays, the way `AnimatedImage` does, so a paused video costs nothing.
 
+## On iOS
+
+The same player as on desktop, with 3 things a phone adds.
+
+- The audio session. With the session iOS gives an app the silent switch mutes all
+  sound. The first video that starts a sound moves the session to playback, the last
+  such video that goes puts the default back, `hilen/src/video/audio_session.rs`.
+- The first sound of an app opens the audio device, about a second on the simulator.
+  The decode thread opens it before the video reports loaded, so no play holds the
+  main thread for it. `Video slow sound` pins that.
+- The app has to link VideoToolbox, CoreMedia, CoreVideo, MediaPlayer and zlib. A
+  static library cannot ask for them, so every xcodebuild call of the build scripts
+  passes them, `build/shared/src/ios.rs`, and the `hilen-mobile` template carries
+  them too.
+
+A player turns the screen with `Window::set_orientations` and hides the status bar
+and the home indicator with `Window::set_fullscreen`. `MediaSession` reports the film
+to the control center and takes play, pause and seek from it and from headphones.
+On the simulator h264 decodes in software and HEVC in hardware. Nothing ran on a
+real iPhone yet, see [roadmap.md](roadmap.md).
+
 ## In a browser
 
 A browser cannot link ffmpeg. `video/web_player.rs` is the `Player` there, with the same
@@ -178,10 +200,11 @@ download that fails fails the build script with the reason. `FFMPEG_DIR`, when
 set, wins and is used as it is, that is how a fresh archive is tried before it
 is published, `FFMPEG_DIR=$PWD/target/ffmpeg-dist`.
 
-To build a new archive, on the host it is for:
+To build a new archive, on the host it is for, or on a Mac for iOS:
 
 ```bash
 rust build/ffmpeg.rs                      # clones FFmpeg, configures, builds, dist/ffmpeg-<v>-<triple>.tar.gz
+rust build/ffmpeg.rs aarch64-apple-ios    # cross build for an iPhone, x86_64-apple-ios for the simulator
 gh release create ffmpeg-<v>-<n> -R hilen/build dist/ffmpeg-*.tar.gz dist/ffmpeg-*.sha256
 ```
 
@@ -195,7 +218,13 @@ the archive has no https protocol. zlib is on, and the script builds dav1d,
 the software AV1 decoder, into the same prefix first, it needs `meson` and
 `ninja`. `lib/link.txt` in the archive names what has to be linked besides the
 ffmpeg libraries, one `<kind>=<name>` per line, and the sys fork links those.
-There is an archive for `aarch64-apple-darwin` and for `x86_64-pc-windows-msvc`.
+There is an archive for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`,
+`aarch64-apple-ios` and `x86_64-apple-ios`. The 2 iOS ones are cross built on a Mac
+against the iPhone SDKs for iOS 12, with the same set as the Mac archive. The
+simulator one has no assembly, it only runs the UI tests under Rosetta and the x86
+assembly would need nasm. Every target builds in a folder of its own,
+`target/ffmpeg-build-<triple>`, and a cross build installs into
+`target/ffmpeg-dist-<triple>`.
 
 The Windows archive is the one that is not built on its own host.
 `rust build/ffmpeg-win.rs` cross builds it in docker on any machine, with clang

@@ -1,7 +1,8 @@
 //! What the system knows about the media the app plays: the Now Playing
 //! panel, and the play, pause and next keys of the keyboard and of
-//! headphones. macOS only so far, everywhere else the calls do nothing and
-//! no command ever comes.
+//! headphones, and on a phone the lock screen and the control center. macOS
+//! and iOS so far, everywhere else the calls do nothing and no command ever
+//! comes.
 
 #[cfg(all(feature = "ui-tests", desktop))]
 #[path = "media_session_test.rs"]
@@ -77,24 +78,25 @@ impl MediaSession {
 }
 
 /// A command from the system arrives here, on the main thread.
-#[cfg(any(macos, all(feature = "ui-tests", desktop)))]
+#[cfg(any(macos, all(ios, not(tvos)), all(feature = "ui-tests", desktop)))]
 pub(crate) fn deliver(command: MediaCommand) {
     SESSION.commands.trigger(command);
 }
 
-#[cfg(macos)]
+#[cfg(any(macos, all(ios, not(tvos))))]
 mod platform {
     use std::ptr::NonNull;
 
     use block2::RcBlock;
     use objc2::runtime::AnyObject;
     use objc2_foundation::{NSMutableDictionary, NSNumber, NSString};
+    #[cfg(macos)]
+    use objc2_media_player::MPNowPlayingPlaybackState;
     use objc2_media_player::{
         MPChangePlaybackPositionCommandEvent, MPMediaItemPropertyAlbumTitle, MPMediaItemPropertyArtist,
         MPMediaItemPropertyPlaybackDuration, MPMediaItemPropertyTitle, MPNowPlayingInfoCenter,
-        MPNowPlayingInfoPropertyElapsedPlaybackTime, MPNowPlayingInfoPropertyPlaybackRate,
-        MPNowPlayingPlaybackState, MPRemoteCommand, MPRemoteCommandCenter, MPRemoteCommandEvent,
-        MPRemoteCommandHandlerStatus,
+        MPNowPlayingInfoPropertyElapsedPlaybackTime, MPNowPlayingInfoPropertyPlaybackRate, MPRemoteCommand,
+        MPRemoteCommandCenter, MPRemoteCommandEvent, MPRemoteCommandHandlerStatus,
     };
 
     use crate::{
@@ -146,6 +148,8 @@ mod platform {
             let center = MPNowPlayingInfoCenter::defaultCenter();
             let Some(info) = info else {
                 center.setNowPlayingInfo(None);
+                // Only macOS has a playback state, a phone reads the rate.
+                #[cfg(macos)]
                 center.setPlaybackState(MPNowPlayingPlaybackState::Stopped);
                 return;
             };
@@ -188,6 +192,7 @@ mod platform {
                 NSNumber::new_f64(rate).as_ref(),
             );
             center.setNowPlayingInfo(Some(&entries));
+            #[cfg(macos)]
             center.setPlaybackState(if playing {
                 MPNowPlayingPlaybackState::Playing
             } else {
@@ -197,7 +202,7 @@ mod platform {
     }
 }
 
-#[cfg(not(macos))]
+#[cfg(not(any(macos, all(ios, not(tvos)))))]
 mod platform {
     use crate::system::media_session::NowPlaying;
 

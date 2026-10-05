@@ -14,9 +14,9 @@ use ffmpeg_next::{
     frame,
 };
 
-#[cfg(macos)]
+#[cfg(any(macos, ios))]
 const DEVICE: AVHWDeviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
-#[cfg(macos)]
+#[cfg(any(macos, ios))]
 const FORMAT: AVPixelFormat = AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX;
 
 #[cfg(linux)]

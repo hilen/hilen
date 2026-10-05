@@ -84,7 +84,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
-ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "e9829a3e1051e1e9c8eaa93472018c8104546f36", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
+ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "7c07ab9561beb482620762c9aaed36f08fcd47a4", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
 # the 0.23 that usvg pulls, one copy in the tree
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
@@ -117,6 +117,7 @@ nonempty = "0.12"
 # The debug check of every message signature took over half of a debug frame in Metal.
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPasteboard", "NSResponder"] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSValue"] }

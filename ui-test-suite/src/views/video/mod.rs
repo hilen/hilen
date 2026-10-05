@@ -1,20 +1,20 @@
-// The desktop tests pin decoded frames, ffmpeg tracks and the sound
+// The ffmpeg tests pin decoded frames, ffmpeg tracks and the sound
 // clock, none of which a browser has.
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod av1;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod hdr;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod playback;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod slow_sound;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod speed;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod stalled_seek;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod stream;
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 mod tracks;
 /// A browser plays a video in a `<video>` element under the canvas, which
 /// exists nowhere else.

@@ -1,6 +1,6 @@
 //! The sound and subtitle tracks of a source, as the app sees them.
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 use ffmpeg_next::{
     Stream,
     codec::{Id, context::Context},
@@ -36,12 +36,12 @@ pub struct SubtitleTrack {
     pub text:     bool,
 }
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 fn tag(stream: &Stream, key: &str) -> String {
     stream.metadata().get(key).unwrap_or_default().to_string()
 }
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 pub(crate) fn audio_tracks(input: &Input) -> Vec<AudioTrack> {
     input
         .streams()
@@ -61,7 +61,7 @@ pub(crate) fn audio_tracks(input: &Input) -> Vec<AudioTrack> {
         .collect()
 }
 
-#[cfg(desktop)]
+#[cfg(ffmpeg)]
 pub(crate) fn subtitle_tracks(input: &Input) -> Vec<SubtitleTrack> {
     input
         .streams()

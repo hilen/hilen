@@ -51,8 +51,8 @@ plat = { workspace = true }
 [lints]
 workspace = true
 
-# Video is on macOS, Windows and in the browser so far, see docs/video.md.
+# Video is on macOS, Windows, iOS and in the browser so far, see docs/video.md.
 # The page and its UI tests follow the feature.
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_arch = "wasm32"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "ios", target_arch = "wasm32"))'.dependencies]
 hilen = { workspace = true, features = ["video"] }
 ui-test-suite = { workspace = true, features = ["video"] }

@@ -30,6 +30,7 @@ use crate::{
     video::{
         PlayerEvent, VideoSource, VideoState, VideoStats,
         audio::{AudioDecoder, SPEEDS},
+        audio_session::PlaybackSession,
         count_to_f64,
         decoder::{self, Command, MediaInfo, Message, Tracks, VideoFrame},
         nv12::Nv12Target,
@@ -137,6 +138,9 @@ pub(crate) struct Player {
     audio:       Option<AudioDecoder>,
     track:       Option<TrackHandle>,
     sound:       Option<StreamingSoundHandle<FfmpegError>>,
+    /// Held from the first sound on, so a phone plays it past its silent
+    /// switch.
+    session:     Option<PlaybackSession>,
     target:      Option<Nv12Target>,
     pending:     VecDeque<VideoFrame>,
     generation:  u32,
@@ -190,6 +194,7 @@ impl Player {
             audio: None,
             track: None,
             sound: None,
+            session: None,
             target: None,
             pending: VecDeque::new(),
             generation: 0,
@@ -606,6 +611,7 @@ impl Player {
         if self.looping {
             data = data.loop_region(..);
         }
+        self.session.get_or_insert_with(PlaybackSession::acquire);
         match track.play(data) {
             Ok(sound) => self.sound = Some(sound),
             Err(err) => error!("video {}: no sound, {err:?}", self.source.location()),

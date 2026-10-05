@@ -15,6 +15,7 @@ use hilen::{
         TextField, UIManager, VideoView, ViewCallbacks, ViewData, WHITE, view,
     },
     video::VideoState,
+    window::Orientations,
 };
 
 use crate::interface::{
@@ -104,7 +105,16 @@ impl Setup for VideoPage {
             .set_text_color(TEXT_DIM)
             .set_corner_radius(10);
         self.full.place().l(362).b(148).size(110, 36);
-        self.full.on_tap(move || Window::set_fullscreen(!Window::is_fullscreen()));
+        // A film on a phone takes the whole screen on its side.
+        self.full.on_tap(move || {
+            let full = !Window::is_fullscreen();
+            Window::set_fullscreen(full);
+            Window::set_orientations(if full {
+                Orientations::Landscape
+            } else {
+                Orientations::Any
+            });
+        });
 
         // A path or url typed in, the way a media client hands over a stream.
         self.path.set_placeholder("Path or url");
