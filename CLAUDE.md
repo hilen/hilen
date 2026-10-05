@@ -29,6 +29,11 @@ the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
 route behind a Bearer token, since a stack with a public host has only one port
 to share. It never
 links the `hilen` UI crate, a backend and a client only share the wire.
+Its own queries use the plain `query` functions of sqlx, because the login code runs
+the same query on both databases through `Db` and a checked macro can check against
+only 1. A backend built on it has 1 database and writes its queries with the checked
+macros, `query!`, `query_as!` and `query_scalar!`, with the saved answers in a `.sqlx`
+folder in git.
 
 The UI tests are their own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
