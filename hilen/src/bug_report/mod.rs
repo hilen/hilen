@@ -35,10 +35,22 @@ pub(crate) use crate::bug_report::{
 };
 use crate::{
     bug_report::log_ring::LogRing,
+    deps::hreads::on_main,
     gm::flat::Size,
     ui::{Alert, ModalView},
     window::Screenshot,
 };
+
+/// A screenshot of the app for a bug report, from `BugReport::capture`.
+/// `png` is what goes to Sentry. `rgba` and `size` are the same pixels
+/// for a thumbnail, `Image::from_raw_data(rgba, name, size, 4)`. All of
+/// it is empty when the capture failed.
+#[derive(Debug, Clone, Default)]
+pub struct BugReportScreenshot {
+    pub png:  Vec<u8>,
+    pub rgba: Vec<u8>,
+    pub size: Size<u32>,
+}
 
 static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
 
@@ -105,8 +117,7 @@ impl BugReport {
     /// desktop `Ctrl/Cmd+Shift+R` calls this, on a touch platform and in
     /// the browser the app calls it from its own affordance.
     pub fn open() {
-        if !Self::enabled() {
-            warn!("Bug reporting is disabled, the app returns no Sentry DSN");
+        if Self::disabled() {
             return;
         }
 
@@ -116,26 +127,69 @@ impl BugReport {
 
         let keys = InputRing::snapshot();
 
+        Self::capture(move |screenshot| Self::show(screenshot, keys));
+    }
+
+    /// The first half of `open`, for an app with a report dialog of its
+    /// own. Takes a screenshot of the app as it is now, so call it before
+    /// the dialog shows. `done` runs on the main thread. A failed capture
+    /// logs an error and hands an empty screenshot. It works without a
+    /// DSN too, check `enabled` before offering a report.
+    pub fn capture(done: impl FnOnce(BugReportScreenshot) + Send + 'static) {
         // The screenshot waits for a rendered frame, which the main
         // thread itself drives, so the capture must not block it.
         #[cfg(not_wasm)]
-        std::thread::spawn(move || Self::show(crate::AppRunner::take_screenshot(), keys));
+        std::thread::spawn(move || {
+            let screenshot = Self::encode_or_empty(crate::AppRunner::take_screenshot());
+            on_main(move || done(screenshot));
+        });
         #[cfg(wasm)]
-        crate::deps::hreads::spawn(async move { Self::show(web::screenshot().await, keys) });
+        crate::deps::hreads::spawn(async move {
+            let screenshot = Self::encode_or_empty(web::screenshot().await);
+            on_main(move || done(screenshot));
+        });
     }
 
-    fn show(shot: Result<Screenshot>, keys: Vec<input_ring::KeyPress>) {
-        let (screenshot_png, screenshot_rgba, screenshot_size) =
-            shot.and_then(Self::encode).unwrap_or_else(|err| {
-                error!("Bug report screenshot failed: {err}");
-                (Vec::new(), Vec::new(), Size::default())
-            });
+    /// The second half of `open`, for an app with a report dialog of its
+    /// own. Sends a Sentry event with the description as its message, the
+    /// email as its user and the recent log lines attached. The screenshot
+    /// is attached when given, pass the `png` of `capture`. A send never
+    /// attaches the recent key presses, their opt in is a checkbox of the
+    /// engine dialog only. Without a DSN it logs a warning and sends
+    /// nothing. It does not block, on native the sentry client sends from
+    /// its own thread, in the browser a task posts the event.
+    pub fn send(email: impl Into<String>, description: impl Into<String>, screenshot_png: Option<Vec<u8>>) {
+        Self::submit(BugReportData {
+            email:          email.into(),
+            description:    description.into(),
+            screenshot_png: screenshot_png.unwrap_or_default(),
+            keys:           None,
+        });
+    }
 
+    fn disabled() -> bool {
+        let disabled = !Self::enabled();
+        if disabled {
+            warn!("Bug reporting is disabled, the app returns no Sentry DSN");
+        }
+        disabled
+    }
+
+    fn submit(data: BugReportData) {
+        if Self::disabled() {
+            return;
+        }
+
+        #[cfg(not_wasm)]
+        native::submit(data);
+        #[cfg(wasm)]
+        web::submit(data);
+    }
+
+    fn show(screenshot: BugReportScreenshot, keys: Vec<input_ring::KeyPress>) {
         BugReportView::show_modally_with_input(
             BugReportInput {
-                screenshot_png,
-                screenshot_rgba,
-                screenshot_size,
+                screenshot,
                 log_bytes: LogRing::dump().len(),
                 keys,
             },
@@ -143,33 +197,39 @@ impl BugReport {
                 DIALOG_OPEN.store(false, Ordering::Release);
 
                 if let Some(data) = data {
-                    #[cfg(not_wasm)]
-                    native::submit(data);
-                    #[cfg(wasm)]
-                    web::submit(data);
+                    Self::submit(data);
                     Alert::show("Bug report sent. Thank you!");
                 }
             },
         );
     }
 
-    /// The PNG goes to Sentry, the raw RGBA feeds the thumbnail texture
-    /// in the dialog.
-    fn encode(shot: Screenshot) -> Result<(Vec<u8>, Vec<u8>, Size<u32>)> {
-        let mut bytes = Vec::with_capacity(shot.data.len() * 4);
+    fn encode_or_empty(shot: Result<Screenshot>) -> BugReportScreenshot {
+        shot.and_then(Self::encode).unwrap_or_else(|err| {
+            error!("Bug report screenshot failed: {err}");
+            BugReportScreenshot::default()
+        })
+    }
+
+    fn encode(shot: Screenshot) -> Result<BugReportScreenshot> {
+        let mut rgba = Vec::with_capacity(shot.data.len() * 4);
         for color in &shot.data {
-            bytes.extend_from_slice(&[color.r, color.g, color.b, 255]);
+            rgba.extend_from_slice(&[color.r, color.g, color.b, 255]);
         }
 
         let mut png = Vec::new();
         PngEncoder::new(&mut png).write_image(
-            &bytes,
+            &rgba,
             shot.size.width,
             shot.size.height,
             ExtendedColorType::Rgba8,
         )?;
 
-        Ok((png, bytes, shot.size))
+        Ok(BugReportScreenshot {
+            png,
+            rgba,
+            size: shot.size,
+        })
     }
 
     pub(crate) fn push_log_line(line: String) {

@@ -7,7 +7,7 @@ use log::error;
 use ui_proc::view;
 
 use crate::{
-    bug_report::{BugReport, BugReportStyle, input_ring::KeyPress},
+    bug_report::{BugReport, BugReportScreenshot, BugReportStyle, input_ring::KeyPress},
     deps::{refs::Weak, vents::OnceEvent},
     gm::{color::CLEAR, flat::Size},
     ui::{
@@ -32,11 +32,9 @@ static SHOT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// and the key ring is frozen at the same moment, presses inside the
 /// dialog do not mutate it.
 pub(crate) struct BugReportInput {
-    pub screenshot_png:  Vec<u8>,
-    pub screenshot_rgba: Vec<u8>,
-    pub screenshot_size: Size<u32>,
-    pub log_bytes:       usize,
-    pub keys:            Vec<KeyPress>,
+    pub screenshot: BugReportScreenshot,
+    pub log_bytes:  usize,
+    pub keys:       Vec<KeyPress>,
 }
 
 /// What the reporter agreed to send. Keys are present only when the opt
@@ -328,14 +326,15 @@ impl ModalView<BugReportInput, Option<BugReportData>> for BugReportView {
     fn setup_input(self: Weak<Self>, input: BugReportInput) {
         let mut this = self;
 
-        this.screenshot_png = input.screenshot_png;
+        let BugReportScreenshot { png, rgba, size } = input.screenshot;
+        this.screenshot_png = png;
         this.keys = input.keys;
 
-        if input.screenshot_rgba.is_empty() {
+        if rgba.is_empty() {
             self.form.shot_caption.set_text("No screenshot, capture failed");
         } else {
             let name = format!("bug-report-shot-{}", SHOT_COUNTER.fetch_add(1, Ordering::Relaxed));
-            let image = Image::from_raw_data(input.screenshot_rgba, name, input.screenshot_size, 4);
+            let image = Image::from_raw_data(rgba, name, size, 4);
             let mut shot = self.form.screenshot;
             shot.set_image(image);
             shot.mode = ImageMode::AspectFit;

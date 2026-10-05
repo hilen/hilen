@@ -4,13 +4,12 @@ use anyhow::Result;
 use parking_lot::Mutex;
 
 use crate::{
-    self as hilen,
+    self as hilen, BugReportScreenshot,
     bug_report::{BugReportData, BugReportInput, BugReportView, KeyPress},
     deps::{
         hreads::{from_main, wait_for_next_frame},
         refs::Weak,
     },
-    gm::flat::Size,
     ui::{ModalView, ViewTest, view},
     ui_test::{check_colors, inject_touches},
 };
@@ -163,11 +162,9 @@ type SharedResult = Arc<Mutex<Option<Option<BugReportData>>>>;
 fn open_dialog() -> (Weak<BugReportView>, SharedResult) {
     from_main(|| {
         let input = BugReportInput {
-            screenshot_png:  Vec::new(),
-            screenshot_rgba: Vec::new(),
-            screenshot_size: Size::default(),
-            log_bytes:       120,
-            keys:            vec![
+            screenshot: BugReportScreenshot::default(),
+            log_bytes:  120,
+            keys:       vec![
                 KeyPress {
                     code:  "KeyS".to_string(),
                     mods:  vec!["Meta".to_string()],

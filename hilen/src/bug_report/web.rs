@@ -15,9 +15,7 @@ use web_sys::js_sys::{Math, Uint8Array};
 use crate::{
     bug_report::{
         BugReportData,
-        envelope::{
-            self, Attachment, BrowserContext, Contexts, Dsn, Event, Exception, Exceptions, Mechanism, User,
-        },
+        envelope::{self, BrowserContext, Contexts, Dsn, Event, Exception, Exceptions, Mechanism},
         log_ring::LogRing,
     },
     deps::{
@@ -84,47 +82,12 @@ pub(super) fn submit(data: BugReportData) {
 }
 
 fn report_envelope(dsn: &Dsn, data: BugReportData) -> Result<Vec<u8>> {
-    let BugReportData {
-        email,
-        description,
-        screenshot_png,
-        keys,
-    } = data;
-
     let mut event = Event::new(event_id(), now(), "info");
-    event.message = Some(description);
-    event.user = Some(User { email });
     event.contexts = user_agent().map(|name| Contexts {
         browser: BrowserContext { name },
     });
 
-    let log = LogRing::dump();
-    let keys = keys.map(|keys| serde_json::to_vec_pretty(&keys)).transpose()?;
-
-    let mut attachments = Vec::new();
-    if !screenshot_png.is_empty() {
-        attachments.push(Attachment {
-            filename:     "screenshot.png",
-            content_type: "image/png",
-            bytes:        &screenshot_png,
-        });
-    }
-    if !log.is_empty() {
-        attachments.push(Attachment {
-            filename:     "log.txt",
-            content_type: "text/plain",
-            bytes:        log.as_bytes(),
-        });
-    }
-    if let Some(keys) = &keys {
-        attachments.push(Attachment {
-            filename:     "key_presses.json",
-            content_type: "application/json",
-            bytes:        keys,
-        });
-    }
-
-    envelope::build(dsn, &event, &attachments)
+    envelope::report(dsn, event, data, &LogRing::dump())
 }
 
 async fn post(url: &str, envelope: Vec<u8>) -> Result<()> {

@@ -4,13 +4,13 @@ use anyhow::{Result, ensure};
 use parking_lot::Mutex;
 
 use crate::{
-    self as hilen, BugReport, BugReportStyle,
+    self as hilen, BugReport, BugReportScreenshot, BugReportStyle,
     bug_report::{BugReportData, BugReportInput, BugReportView},
     deps::{
         hreads::{from_main, wait_for_next_frame},
         refs::Weak,
     },
-    gm::{color::Color, flat::Size},
+    gm::color::Color,
     ui::{ModalView, UIColor, ViewFrame, ViewTest, view},
     ui_test::{check_colors, inject_touches},
 };
@@ -118,11 +118,9 @@ impl ViewTest for BugReportStyled {
             EMBER.apply_globally();
             BugReport::set_email("player@example.com");
             let dialog = BugReportView::prepare_modally_with_input(BugReportInput {
-                screenshot_png:  Vec::new(),
-                screenshot_rgba: Vec::new(),
-                screenshot_size: Size::default(),
-                log_bytes:       120,
-                keys:            Vec::new(),
+                screenshot: BugReportScreenshot::default(),
+                log_bytes:  120,
+                keys:       Vec::new(),
             });
             dialog.modal_event().val(move |data| *stored.lock() = Some(data));
             dialog

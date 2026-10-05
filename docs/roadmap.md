@@ -16,30 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A bug report dialog of the app's own
-
-Found by skaityk at `~/dev/apps/skaityk`. It wants a "Report a bug" row in its
-settings that opens a dialog in the app's own look, for signed in users with the
-email from the account, while the screenshot, the log and the Sentry send stay
-with the engine.
-
-- Current: `BugReport::open()` in `hilen/src/bug_report/mod.rs` is the only way
-  in. It takes the screenshot, freezes the key ring and shows the engine's own
-  `BugReportView`, which is `pub(crate)` like `BugReportData` and
-  `BugReportInput`. The send, `native::submit` and `web::submit`, is
-  `pub(super)`. An app can set the animation, the email and the colors of that
-  dialog, nothing else.
-- Needed: the 2 halves of `open` as public calls, so an app can put its own
-  dialog between them. `BugReport::capture(done)` takes the screenshot the way
-  `open` does, off the main thread, and hands the PNG plus the raw RGBA and its
-  size to `done` on the main thread, so the dialog can show a thumbnail.
-  `BugReport::send(email, description, screenshot_png: Option<Vec<u8>>)` sends
-  the event with the log ring attached, like `submit` does, on native and in
-  the browser. The engine dialog runs on the same 2 calls. The envelope of a
-  send with and without the screenshot gets a unit test next to the ones in
-  `envelope.rs`.
-- Blocks: the "Report a bug" row of skaityk, see `docs/reports.md` there.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.

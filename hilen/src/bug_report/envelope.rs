@@ -9,6 +9,8 @@ use anyhow::{Result, anyhow, bail};
 use reqwest::Url;
 use serde::Serialize;
 
+use crate::bug_report::BugReportData;
+
 /// What the engine needs from a DSN, parsed once when the app hands it over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Dsn {
@@ -203,6 +205,48 @@ pub(crate) fn build(dsn: &Dsn, event: &Event, attachments: &[Attachment]) -> Res
     Ok(out)
 }
 
+/// A bug report on top of `event`, which brings the id, the time and the
+/// browser. Each of the screenshot, the log and the key presses becomes an
+/// attachment only when the report has it.
+pub(crate) fn report(dsn: &Dsn, mut event: Event, data: BugReportData, log: &str) -> Result<Vec<u8>> {
+    let BugReportData {
+        email,
+        description,
+        screenshot_png,
+        keys,
+    } = data;
+
+    event.message = Some(description);
+    event.user = Some(User { email });
+
+    let keys = keys.map(|keys| serde_json::to_vec_pretty(&keys)).transpose()?;
+
+    let mut attachments = Vec::new();
+    if !screenshot_png.is_empty() {
+        attachments.push(Attachment {
+            filename:     "screenshot.png",
+            content_type: "image/png",
+            bytes:        &screenshot_png,
+        });
+    }
+    if !log.is_empty() {
+        attachments.push(Attachment {
+            filename:     "log.txt",
+            content_type: "text/plain",
+            bytes:        log.as_bytes(),
+        });
+    }
+    if let Some(keys) = &keys {
+        attachments.push(Attachment {
+            filename:     "key_presses.json",
+            content_type: "application/json",
+            bytes:        keys,
+        });
+    }
+
+    build(dsn, &event, &attachments)
+}
+
 fn push_item(out: &mut Vec<u8>, header: &ItemHeader, payload: &[u8]) -> Result<()> {
     serde_json::to_writer(&mut *out, header)?;
     out.push(b'\n');
@@ -216,7 +260,8 @@ mod tests {
     use anyhow::Result;
     use serde::Deserialize;
 
-    use super::{Attachment, Dsn, Event, User, build};
+    use super::{Attachment, Dsn, Event, User, build, report};
+    use crate::bug_report::BugReportData;
 
     const DSN: &str = "https://abc123@o42.ingest.sentry.io/7001";
 
@@ -339,6 +384,68 @@ mod tests {
         assert_eq!(payload, b"line 1\nline 2\n");
 
         assert_eq!(rest.len(), 0);
+
+        Ok(())
+    }
+
+    /// Filename and payload of each attachment, in envelope order.
+    type Attachments = Vec<(String, Vec<u8>)>;
+
+    /// The event of a report and its attachments.
+    fn parse_report(bytes: &[u8]) -> Result<(ParsedEvent, Attachments)> {
+        let newline = bytes.iter().position(|byte| *byte == b'\n').expect("envelope header line");
+        let mut rest = &bytes[newline + 1..];
+
+        let (item, payload) = next_item(&mut rest)?;
+        assert_eq!(item.ty, "event");
+        let event: ParsedEvent = serde_json::from_slice(payload)?;
+
+        let mut attachments = Vec::new();
+        while !rest.is_empty() {
+            let (item, payload) = next_item(&mut rest)?;
+            assert_eq!(item.ty, "attachment");
+            attachments.push((item.filename.expect("attachment filename"), payload.to_vec()));
+        }
+
+        Ok((event, attachments))
+    }
+
+    /// The browser envelope of `BugReport::send`, which never has key
+    /// presses. The screenshot is an attachment only when the app gave one.
+    #[test]
+    fn report_envelope_with_and_without_screenshot() -> Result<()> {
+        let dsn = Dsn::parse(DSN)?;
+        let png = vec![0x89, b'P', b'N', b'G', b'\n', 0];
+        let log = "line 1\nline 2\n";
+
+        let send = |screenshot_png: Vec<u8>| -> Result<Vec<u8>> {
+            report(
+                &dsn,
+                Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "info"),
+                BugReportData {
+                    email: "a@b.c".to_string(),
+                    description: "the button does nothing".to_string(),
+                    screenshot_png,
+                    keys: None,
+                },
+                log,
+            )
+        };
+
+        let (event, attachments) = parse_report(&send(png.clone())?)?;
+        assert_eq!(event.message, "the button does nothing");
+        assert_eq!(event.user.email, "a@b.c");
+        assert_eq!(
+            attachments,
+            [
+                ("screenshot.png".to_string(), png),
+                ("log.txt".to_string(), log.as_bytes().to_vec()),
+            ]
+        );
+
+        let (event, attachments) = parse_report(&send(Vec::new())?)?;
+        assert_eq!(event.message, "the button does nothing");
+        assert_eq!(attachments, [("log.txt".to_string(), log.as_bytes().to_vec())]);
 
         Ok(())
     }
