@@ -4,7 +4,10 @@ use nonempty::NonEmpty;
 use parking_lot::{Mutex, MutexGuard};
 
 use crate::{
-    deps::{hreads::from_main, refs::Weak},
+    deps::{
+        hreads::from_main,
+        refs::{RawPointer, Weak},
+    },
     gm::flat::Point,
     ui::{
         LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView,
@@ -164,6 +167,34 @@ impl TouchStack {
         Self::get().stack.last().root_name().to_string()
     }
 
+    /// Whether a key binding of `subscriber` answers right now. With an
+    /// overlay open a view outside it is silent, the way touches stop at
+    /// the top layer, so the Escape of a screen does not leave it under an
+    /// open alert. A view that holds the top layer still answers, an app
+    /// shell keeps its shortcuts over a pushed screen, and so does a
+    /// subscriber that is not a view in the tree.
+    pub(crate) fn key_reaches(subscriber: RawPointer) -> bool {
+        // No stack yet means no interface, a keymap of its own in a test.
+        let Some(stack) = STACK.get() else {
+            return true;
+        };
+        let top = {
+            let stack = stack.lock();
+            if stack.stack.len() == 1 {
+                return true;
+            }
+            stack.stack.last().root
+        };
+
+        if reaches_up(top, subscriber) {
+            return true;
+        }
+        match find_view(UIManager::root_view().weak_view(), subscriber) {
+            Some(view) => reaches_up(view, top.raw()),
+            None => true,
+        }
+    }
+
     /// The root of the top layer, the subtree that owns input right now.
     /// Tab traversal walks it so a modal cycles only its own fields.
     pub(crate) fn top_layer_root() -> WeakView {
@@ -213,4 +244,23 @@ impl TouchStack {
             result
         })
     }
+}
+
+/// Whether `target` is `view` or one of the views that hold it.
+fn reaches_up(view: WeakView, target: RawPointer) -> bool {
+    let mut current = view;
+    while current.is_ok() {
+        if current.raw() == target {
+            return true;
+        }
+        current = *current.superview();
+    }
+    false
+}
+
+fn find_view(view: WeakView, target: RawPointer) -> Option<WeakView> {
+    if view.raw() == target {
+        return Some(view);
+    }
+    view.subviews().iter().find_map(|sub| find_view(sub.weak_view(), target))
 }

@@ -37,8 +37,9 @@ and text substring rungs run only with `--fuzzy`, so a short query cannot land o
 unrelated view. One match taps, several list the candidates and error. Hidden views and
 their subtrees never match a query, only an exact id reaches them, and the app refuses to
 tap a hidden view. The app also refuses a view whose center is outside the window or cut
-off by a scroll view instead of pretending the tap landed, and the reply carries a warning when another view sits over
-the tap point. `tap --near <anchor> [--type Button]` taps the view of that type nearest
+off by a scroll view instead of pretending the tap landed. It refuses a tap whose point
+another view sits over too and names that view, `tap --force` sends the touch anyway and
+the reply then carries the warning. `tap --near <anchor> [--type Button]` taps the view of that type nearest
 to the anchor's row, which reaches unnamed controls like the textless open button on a
 list card. The anchor is an exact text or a view id. Dropdowns work like a human drives
 them: tap the dropdown to open it, the reply tree already contains the open cells, then
@@ -89,9 +90,12 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   real input pipeline, exactly like a click. Refuses hidden views and views whose center
   is outside the window or cut off by a scroll view, a tap there lands nowhere while looking like a success. Replies
   with a fresh tree one frame later, so a page swap or a modal the tap triggered is
-  already in it, plus an optional `note` naming the view sitting over the tap point when
-  frame containment says the touch may land elsewhere, transparent empty overlays
-  excluded.
+  already in it. Refuses a tap point another view sits over, by frame containment,
+  transparent empty overlays excluded, a touch there once pressed a reset button. With
+  `force` the touch is sent and the reply has a `note` naming that view. A covered
+  window draws no frame and layout runs in a frame, so before every UI command the
+  service draws 1 frame for a covered window through the screenshot path. Without it a
+  screen made by the last command has every view at 0, 0.
 - `Hover { view_id, wait_ms }` — injects a cursor move at the view center, or clears
   hover as a cursor leave when `view_id` is absent. The optional `wait_ms` defaults to
   zero and waits on the inspector worker, leaving the UI free to show a tooltip.
@@ -114,7 +118,8 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `Screenshot` — returns the current frame as base64 PNG. Works headless too. An idle app renders a frame for it on demand, and an occluded or hidden window answers from the offscreen scene path, so the command never waits for the window to become visible.
 - `ListEdits` — returns every edit applied in this session.
 - `GetBuildTime` — unix seconds of when `hilen` was compiled, stamped by
-  `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source here and
+  `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source of the folder it is run
+  from, which it prints, and
   combines it with `GetStartTime`, the unix seconds when the app process started. Source
   newer than the process is definitely stale. Source older than the process but newer than
   the engine build is reported as inconclusive: it can be a current app-only rebuild or a

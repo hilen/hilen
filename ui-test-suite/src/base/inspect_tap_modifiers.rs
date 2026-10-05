@@ -49,6 +49,7 @@ fn send_tap(view_id: String, modifiers: ModifiersState, right: bool) -> Result<(
             view_id,
             modifiers,
             right,
+            force: false,
         }
         .into(),
     );

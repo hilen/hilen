@@ -16,6 +16,7 @@ mod drop_down_outside_tap;
 mod drop_down_over_button;
 mod drop_down_scroll;
 mod drop_down_style;
+mod key_binding_under_modal;
 mod modal_blur;
 mod modal_escape;
 mod modal_resize;

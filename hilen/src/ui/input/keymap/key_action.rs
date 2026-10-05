@@ -1,6 +1,6 @@
 use crate::{
     deps::{refs::Weak, vents::Event},
-    ui::{KeyCombo, KeymapKey},
+    ui::{KeyCombo, KeymapKey, touch_stack::TouchStack},
 };
 
 pub struct KeyAction {
@@ -30,7 +30,7 @@ impl KeyAction {
         if self.subscriber.is_null() {
             return false;
         }
-        if self.combo.matches(key, cmd_held, shift_held) {
+        if self.combo.matches(key, cmd_held, shift_held) && TouchStack::key_reaches(self.subscriber.raw()) {
             self.action.trigger(());
         }
         true

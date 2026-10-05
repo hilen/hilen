@@ -87,6 +87,10 @@ pub(super) enum Command {
         /// action such as a context menu
         #[arg(long)]
         right:  bool,
+        /// Send the touch although another view covers the tap point. The
+        /// app refuses such a tap otherwise and names the covering view.
+        #[arg(long)]
+        force:  bool,
     },
     /// Move the pointer to a view without pressing a button
     Hover {
@@ -235,7 +239,19 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             shift,
             alt,
             right,
-        } => tap(client, query, fuzzy, near, r#type, [cmd, shift, alt], right).await?,
+            force,
+        } => {
+            tap(
+                client,
+                query,
+                fuzzy,
+                near,
+                r#type,
+                [cmd, shift, alt],
+                [right, force],
+            )
+            .await?;
+        }
         Command::Hover {
             query,
             fuzzy,
@@ -319,7 +335,7 @@ async fn tap(
     near: Option<String>,
     near_type: Option<String>,
     [cmd, shift, alt]: [bool; 3],
-    right: bool,
+    [right, force]: [bool; 2],
 ) -> Result<()> {
     let (_, root) = get_ui(client).await?;
 
@@ -355,6 +371,7 @@ async fn tap(
             view_id: target_id,
             modifiers,
             right,
+            force,
         }
         .into(),
     )

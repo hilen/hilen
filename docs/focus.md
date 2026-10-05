@@ -30,7 +30,10 @@ Back is Escape. `back_as_escape` in `app_runner.rs` turns the `GoBack` and
 `BrowserBack` keys into Escape, and the Back key of an LG remote, key code 461, is read
 in `web.rs` before winit sees it. Escape closes a modal that has a cancel result and
 pops a pushed `NavigationView` screen. A screen an app swaps in with
-`UIManager::set_view` binds Escape itself. A key action may swap the screen, the keys
+`UIManager::set_view` binds Escape itself. While a modal, a menu or another touch layer
+is open, a key binding answers only when its view is inside the top layer or holds it,
+`TouchStack::key_reaches`, so the Escape of a screen does not leave it under an open
+alert. A binding on the root view or on something that is not a view always answers. A key action may swap the screen, the keys
 the new screen binds in its `setup` join the keymap after the press, they never see
 the press that added them. `Keymap::check` in `input/keymap/keymap.rs` keeps the key
 list unborrowed while actions run for that.

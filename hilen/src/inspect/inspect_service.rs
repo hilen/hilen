@@ -126,7 +126,10 @@ impl InspectService {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
             InspectorCommand::Quit => Self::quit(),
-            InspectorCommand::UI(ui) => Self::process_ui_command(ui),
+            InspectorCommand::UI(ui) => {
+                Self::lay_out_covered();
+                Self::process_ui_command(ui)
+            }
         }
     }
 
@@ -212,6 +215,23 @@ impl InspectService {
         Ok(png)
     }
 
+    /// A covered window draws no frame, and a frame is where layout runs, so
+    /// a screen made by the last command still has every view at the
+    /// origin. A tap there once pressed the view that sat at 0, 0. A
+    /// screenshot is the one frame a covered window draws, see
+    /// `frame_pacing`, so one is taken and dropped.
+    #[cfg(not_wasm)]
+    fn lay_out_covered() {
+        if crate::window::occluded()
+            && let Err(err) = crate::AppRunner::take_screenshot()
+        {
+            warn!("No frame for the covered window, view positions can be old: {err}");
+        }
+    }
+
+    #[cfg(wasm)]
+    fn lay_out_covered() {}
+
     fn process_ui_command(command: UIRequest) -> AppCommand {
         match command {
             UIRequest::SetScale(scale) => {
@@ -266,16 +286,13 @@ impl InspectService {
                 view_id,
                 modifiers,
                 right,
-            } => {
-                let result = from_main(move || Self::tap(&view_id, modifiers, right));
-
-                match result {
-                    // The snapshot runs a frame later, so a page swap or
-                    // modal the tap triggered is already in the tree.
-                    Ok(note) => Self::send_ui_with(note),
-                    Err(err) => AppCommand::Error(err),
-                }
-            }
+                force,
+            } => match from_main(move || Self::tap(&view_id, modifiers, right, force)) {
+                // The snapshot runs a frame later, so a page swap or modal
+                // the tap triggered is already in the tree.
+                Ok(note) => Self::send_ui_with(note),
+                Err(err) => AppCommand::Error(err),
+            },
             #[cfg(any(desktop, wasm))]
             UIRequest::Hover { view_id, wait_ms } => Self::hover(view_id, wait_ms),
             #[cfg(not(any(desktop, wasm)))]
@@ -349,10 +366,6 @@ impl InspectService {
         Ok(())
     }
 
-    /// The tap itself, on the main thread. Refuses hidden and offscreen
-    /// targets, since such a tap lands nowhere while looking like a
-    /// success to the client, and returns a covering warning when
-    /// another view sits over the tap point.
     // The touch pipeline takes physical pixels, so every point scales up.
     fn drag(from: Point, to: Point, steps: usize) {
         use crate::gm::LossyConvert;
@@ -380,7 +393,17 @@ impl InspectService {
         touch(to, TouchEvent::Ended);
     }
 
-    fn tap(view_id: &str, modifiers: ModifiersState, right: bool) -> Result<Option<String>, String> {
+    /// The tap itself, on the main thread. Refuses hidden and offscreen
+    /// targets, since such a tap lands nowhere while looking like a
+    /// success to the client. Refuses a tap point another view sits over
+    /// too, that touch once pressed a reset button, `force` sends it
+    /// anyway and the reply then carries the covering warning.
+    fn tap(
+        view_id: &str,
+        modifiers: ModifiersState,
+        right: bool,
+        force: bool,
+    ) -> Result<Option<String>, String> {
         let view = find_view(view_id)?;
 
         if view.is_hidden_in_tree() {
@@ -407,6 +430,14 @@ impl InspectService {
         }
 
         let note = covering_note(view, center);
+        if let Some(note) = &note
+            && !force
+        {
+            return Err(format!(
+                "View {} is not tapped, {note}. Pass --force to send the touch anyway.",
+                view.label()
+            ));
+        }
 
         // The touch pipeline takes physical pixels and converts to
         // points itself, so the center scales up first.
@@ -451,6 +482,7 @@ impl InspectService {
     }
 
     pub(super) fn send_ui_with(note: Option<String>) -> AppCommand {
+        Self::lay_out_covered();
         from_main(move || {
             let scale = UIManager::scale();
             let root = UIManager::root_view().view_to_inspect();
@@ -459,10 +491,10 @@ impl InspectService {
     }
 }
 
-/// A warning when the deepest visible view under the tap point is not the
-/// target or inside it, so a tap that lands on a covering view says so
-/// instead of silently doing the wrong thing. Frame containment is an
-/// approximation of the draw order, good for a warning, not a refusal.
+/// Names the deepest visible view under the tap point when it is not the
+/// target or inside it, so a tap that would land on a covering view is
+/// refused instead of silently doing the wrong thing. Frame containment is
+/// an approximation of the draw order, `force` is the way past a wrong call.
 fn covering_note(target: WeakView, point: Point) -> Option<String> {
     let top = deepest_at(UIManager::root_view(), point)?;
 
@@ -471,7 +503,7 @@ fn covering_note(target: WeakView, point: Point) -> Option<String> {
     }
 
     Some(format!(
-        "the deepest view at the tap point is {} {}, the touch may land there instead",
+        "the deepest view at the tap point is {} {}, the touch would land there instead",
         top.label(),
         weak_to_id(top),
     ))

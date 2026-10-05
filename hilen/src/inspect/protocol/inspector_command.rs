@@ -54,6 +54,9 @@ pub enum UIRequest {
         modifiers: ModifiersState,
         #[serde(default)]
         right:     bool,
+        /// Send the touch although another view covers the tap point.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        force:     bool,
     },
     /// Move the cursor to a view center, or outside the window with no view.
     /// Waits on the inspector worker so delayed tooltips can appear before

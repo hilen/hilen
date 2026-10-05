@@ -723,6 +723,7 @@ async fn build_time(client: &Client) -> Result<()> {
         return Ok(());
     };
 
+    println!("source folder:  {}", current_dir()?.display());
     println!("newest source:  {newest}  {}", path.display());
 
     match freshness(built, started, newest) {

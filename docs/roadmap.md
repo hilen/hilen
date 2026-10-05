@@ -16,43 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## An inspect tap lands on a covering view
-
-Found by driving labirintas at `~/dev/apps/labirintas` with `hilen-inspect`, on hilen
-`021a0786`.
-
-- Current: `tap` in `hilen/src/inspect/inspect_service.rs` injects the touch at the
-  center of the target and only then replies. `covering_note` adds a warning when the
-  deepest view at that point is another view, "the touch may land there instead", and
-  the touch is sent anyway. In labirintas `tap boards` on the Settings screen, 1 second
-  after the screen was made, went to the "Reset progress" button under it, and the next
-  tap confirmed the dialog. Why the point of `boards` was over that button is not
-  found. `hilen-inspect build-time` there also named `hilen/src/ui/ui_drawer.rs` of
-  `~/dev/hilen` as the newest source, a file the app does not build, it pins hilen by a
-  git rev.
-- Needed: a tap whose point is covered by another view is refused with that view named,
-  the way an offscreen view is refused, and a `--force` flag sends it anyway. The cause
-  of the wrong point found and fixed. `build-time` reads the newest source of the code
-  the app was built from. A UI test for the refusal.
-- Blocks: driving an app with saved data safely, a wrong tap can delete it.
-
-## A screen's key binding fires under an open modal
-
-Found by skaityk at `~/dev/apps/skaityk`, on hilen `021a0786`.
-
-- Current: `Keymap::check` in `hilen/src/ui/input/keymap/keymap.rs` runs every action
-  bound to the key whose subscriber is alive. A modal binds Escape and guards itself
-  with `TouchStack::top_layer_root()`, which is `pub(crate)`. A screen swapped in with
-  `UIManager::set_view` binds Escape as its back key, as views.md asks, and has no such
-  guard. With an `Alert` open over the skaityk reader one Escape closes the alert and
-  leaves the screen at once.
-- Needed: the keymap skips an action whose subscriber is not inside the top touch
-  layer while a modal, a menu or another layer is open, the way touches already stop at
-  that layer. No app code then. A UI test with a screen binding and an alert over it:
-  one Escape, the alert is gone and the screen stays.
-- Blocks: Escape as back on the skaityk category, reader and vocabulary screens is
-  right only while no alert is open.
-
 ## Flixen, the media player gaps
 
 Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
