@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, mem::take};
 
 use winit::keyboard::{ModifiersState, NamedKey};
 
@@ -27,7 +27,14 @@ impl Keymap {
         let modifiers = Input::modifiers();
         let cmd = command_held(key, modifiers);
         let shift = modifiers.shift_key();
-        self.keys.borrow_mut().retain(|a| a.check(key, cmd, shift));
+        // An action may bind keys itself, a screen it swaps in binds its
+        // own in `setup`, so the list is not borrowed while actions run.
+        // A binding added by an action joins after the run, it never
+        // sees the press that added it.
+        let mut actions = take(&mut *self.keys.borrow_mut());
+        actions.retain(|a| a.check(key, cmd, shift));
+        actions.append(&mut self.keys.borrow_mut());
+        *self.keys.borrow_mut() = actions;
     }
 }
 
@@ -45,10 +52,18 @@ fn command_held(key: KeymapKey, modifiers: ModifiersState) -> bool {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
     use winit::keyboard::{ModifiersState, NamedKey};
 
-    use super::command_held;
-    use crate::ui::KeymapKey;
+    use super::{Keymap, command_held};
+    use crate::{
+        deps::{hreads::set_current_thread_as_main, refs::Own},
+        ui::KeymapKey,
+    };
 
     #[test]
     fn a_modifier_press_does_not_hold_itself() {
@@ -74,5 +89,49 @@ mod test {
             NamedKey::Control.into(),
             ModifiersState::CONTROL | ModifiersState::SUPER
         ));
+    }
+
+    // A screen swapped in by a key action binds its own keys in `setup`,
+    // on the same keymap, while the press is still being dispatched. That
+    // used to panic with the key list borrowed twice.
+    #[test]
+    fn an_action_can_bind_a_key_while_its_press_is_checked() {
+        // A `Weak` is read on the main thread only, the test thread is it.
+        set_current_thread_as_main();
+        thread_local! {
+            static KEYMAP: Keymap = Keymap::default();
+        }
+        // Any owned value stands in for a screen, an empty type has no
+        // address for a `Weak` to point at.
+        let screen = Own::new(1_u8);
+        let next_screen = Own::new(2_u8);
+        let fired = Arc::new(AtomicUsize::new(0));
+
+        let next = next_screen.weak();
+        let count = fired.clone();
+        KEYMAP.with(|keymap| {
+            keymap.add(screen.weak(), NamedKey::Escape, move || {
+                let count = count.clone();
+                KEYMAP.with(|keymap| {
+                    keymap.add(next, NamedKey::Escape, move || {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    });
+                });
+            });
+        });
+
+        KEYMAP.with(|keymap| keymap.check(NamedKey::Escape));
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            0,
+            "a binding never sees the press that added it"
+        );
+
+        KEYMAP.with(|keymap| keymap.check(NamedKey::Escape));
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            1,
+            "the added binding fires on the next press"
+        );
     }
 }

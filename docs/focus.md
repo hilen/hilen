@@ -30,7 +30,10 @@ Back is Escape. `back_as_escape` in `app_runner.rs` turns the `GoBack` and
 `BrowserBack` keys into Escape, and the Back key of an LG remote, key code 461, is read
 in `web.rs` before winit sees it. Escape closes a modal that has a cancel result and
 pops a pushed `NavigationView` screen. A screen an app swaps in with
-`UIManager::set_view` binds Escape itself.
+`UIManager::set_view` binds Escape itself. A key action may swap the screen, the keys
+the new screen binds in its `setup` join the keymap after the press, they never see
+the press that added them. `Keymap::check` in `input/keymap/keymap.rs` keeps the key
+list unborrowed while actions run for that.
 
 The tests are `Key focus`, `Key focus table`, `Key focus modal` and `Navigation
 escape`. The scoring has unit tests in `focus.rs`. The remote of a real TV was not
