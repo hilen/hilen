@@ -108,6 +108,17 @@ impl Input {
         Hover::update(UIManager::cursor_position());
     }
 
+    /// Offers a touch to the views of the top touch layer, the front one
+    /// first, and says whether one took it. Its position is in points on
+    /// the screen. An overlay that closed itself on a press calls this to
+    /// let the same press through to what was under it.
+    pub(crate) fn offer_to_views(touch: &mut Touch) -> bool {
+        TouchStack::touch_views().any(|view| {
+            let covered = touch.is_began() && TouchStack::covered(view, touch.position);
+            !covered && check_touch(view, touch)
+        })
+    }
+
     pub(crate) fn process_touch_event(mut touch: Touch) -> bool {
         UIEvents::on_debug_touch().trigger(touch);
 
@@ -169,10 +180,7 @@ impl Input {
         }
 
         let on_screen = touch;
-        let taken = TouchStack::touch_views().any(|view| {
-            let covered = touch.is_began() && TouchStack::covered(view, touch.position);
-            !covered && check_touch(view, &mut touch)
-        });
+        let taken = Self::offer_to_views(&mut touch);
 
         // After the views, a pinch looks at which view took each finger.
         if on_screen.is_began() {

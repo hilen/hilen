@@ -8,8 +8,8 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        Container, DynamicColor, ImageView, Label, Setup, Shadow, TextAlignment, TouchStack, UIColor,
-        UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
+        Container, DynamicColor, ImageView, Input, Label, Setup, Shadow, TextAlignment, Touch, TouchStack,
+        UIColor, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
     },
     window::{
         NamedKey,
@@ -405,6 +405,17 @@ impl ContextMenu {
         TouchStack::push_layer(backdrop);
         backdrop.enable_touch();
         backdrop.touch().began.sub(Self::dismiss_open);
+        // A right press outside closes the menu and goes on to the view
+        // under it, which opens its own menu with the same press.
+        backdrop.touch().secondary.val(backdrop, move |mut touch: Touch| {
+            // The closed backdrop lives until the frame ends and its
+            // touch would move to the layer below. Out first, or the
+            // press comes back to this handler while it still runs.
+            backdrop.disable_touch();
+            Self::dismiss_open();
+            touch.position = UIManager::cursor_position();
+            Input::offer_to_views(&mut touch);
+        });
 
         backdrop.add_subview(menu);
         weak.fill(items, placement);

@@ -8,6 +8,7 @@ mod context_menu_above;
 mod context_menu_badges;
 mod context_menu_below;
 mod context_menu_icons;
+mod context_menu_reopen;
 mod dialog_style;
 mod drop_down;
 mod drop_down_cells;

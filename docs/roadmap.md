@@ -16,6 +16,42 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A file browser view, like Finder or Explorer
+
+Found by banda at `~/dev/apps/banda`. Its New session page picks the folder a session
+starts in, on another machine, from a plain list of folder names.
+
+- Current: the engine has no view that browses files. `Paths::pick_file` and
+  `Paths::pick_folder` in `hilen/src/filesystem/paths.rs` open the native dialog of
+  the system, on desktop only, and only for the disk of this machine. A grep for
+  `FileBrowser`, `file browser` and `breadcrumb` over `hilen/src` and `docs` finds
+  nothing. So banda wrote its own list in `src/ui/new_session_page.rs`: 1 column of
+  names, an "Up to" row, no path bar, no sizes or dates, no sorting, no search, no
+  keyboard, no files.
+- Needed: a `FileBrowser` view with the features a user knows from Finder and
+  Explorer, on every platform.
+  - The entries come from a data source trait the app implements: list a path, and
+    say the roots. The engine brings the source for the local disk. An app brings
+    its own for another machine, an archive or a cloud drive. A listing is async
+    and can fail, the view shows loading and the error.
+  - A path bar of crumbs, each a tap target, that turns into a text field to type
+    or paste a path. Back, forward and up, with a history.
+  - A sidebar of places: home, the roots or drives, and places the app adds, like
+    recent or pinned folders.
+  - A list view with columns for name, size, kind and date changed, a tap on a
+    header sorts. An icon grid view as the second mode. Icons by kind of file.
+  - Select with a tap, open with a double tap or Enter. Shift and Ctrl or Cmd for
+    several. The arrow keys move, typing letters jumps to a name, Backspace or
+    Cmd Up goes up.
+  - A search field that filters the open folder. A switch for hidden files.
+  - Modes: pick a folder, pick 1 file, pick several files, with a filter by
+    extension, and a bar with the picked path, Cancel and Choose. Usable as a page
+    part and through `ModalView` as a dialog.
+  - A right click menu on an entry through `ContextMenu`, with entries the app
+    gives. New folder, rename and delete when the data source says it can.
+  - Light and dark theme. UI tests for each part.
+- Blocks: the folder picker of banda's New session page.
+
 ## Google access, the proof on a phone, in a browser and with a linked account
 
 Found by lendar at `~/dev/apps/lendar`, a calendar that reads and writes Google
