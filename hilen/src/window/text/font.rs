@@ -273,17 +273,25 @@ impl Font {
             params: self.params(width, shaping),
         };
 
-        let Some(bounds) = self.brush.glyph_bounds_custom_layout(section, &layout) else {
-            return Size::default();
-        };
-
         // The glyph bounds give only the width. They start at the first
         // line with a glyph of this font and end at the last one, so
         // the height comes from the lines of the layout.
         let bound = width.unwrap_or(f32::INFINITY);
-        let height = layout.text_height(PxScale::from(px_scale), text, bound);
+        let scale = PxScale::from(px_scale);
+        let text_width = match self.brush.glyph_bounds_custom_layout(section, &layout) {
+            Some(bounds) => bounds.width(),
+            None if text.trim().is_empty() => return Size::default(),
+            // No glyph of this font: every char is drawn by the font of a
+            // run, a text that is bold as a whole. It was measured as
+            // nothing and its label got no room, so the lines give the
+            // width here.
+            None => {
+                let lines = layout.text_layout(scale, text, bound).lines;
+                lines.iter().map(|line| line.width).fold(0.0, f32::max)
+            }
+        };
 
-        let measured = Size::new(bounds.width(), height);
+        let measured = Size::new(text_width, layout.text_height(scale, text, bound));
         if let Some(key) = key {
             self.measure_cache.get_mut().insert(key, measured);
         }

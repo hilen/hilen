@@ -220,6 +220,12 @@ there, between the label background and the glyphs. A run with
 way, from the strikeout metrics of the base font, a third of the ascent when the
 font has none. `Label strikethrough` pins it. `set_text` clears the runs.
 
+The width of a measure comes from the boxes of the glyphs of the base font. A text
+that a run covers from its first char to its last has no such glyph, a list item
+that is bold as a whole. It was measured as nothing and its label got no room.
+`Font::measure` takes the width from the lines of the layout then. `Markdown bold
+item` pins it.
+
 ## Markdown
 
 `MarkdownView` draws GitHub flavored markdown as blocks, one under the other:
@@ -256,6 +262,10 @@ in `hilen/src/ui/views/complex/markdown`.
 - `MarkdownStyle` is global like `DialogStyle`: text sizes, a light and dark pair
   per color, and the 6 fonts, the bundled ones when not set. The test harness takes
   the style of the app away for a run and hands it back.
+- `heading_scales` of the style says how much bigger than `text_size` the text of a
+  heading is, 1 number per level: 1.57, 1.36, 1.14, 1.07, 1 and 1 by default. With
+  all 6 at 1 a heading is bold text of the body size, the look of a terminal.
+  `Markdown heading sizes` pins it.
 - The spacing is 3 values of the style. `block_gap` is the space between 2 blocks,
   10 by default, also inside a quote. `item_gap` is the space between 2 items of a
   list and between 2 blocks inside an item, 4 by default. `line_height` is the line

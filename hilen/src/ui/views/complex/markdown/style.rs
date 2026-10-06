@@ -16,6 +16,11 @@ pub struct MarkdownStyle {
     pub text_size:       f32,
     /// The text size of a code block.
     pub code_size:       f32,
+    /// How much bigger than `text_size` the text of a heading is, from
+    /// level 1 to level 6. All at 1 draws a heading as bold text of the
+    /// body size, the way a terminal does. The line pitch of a heading
+    /// follows its size.
+    pub heading_scales:  [f32; 6],
     /// The space between 2 blocks of a text, a paragraph and the next one.
     pub block_gap:       f32,
     /// The space between 2 items of a list, and between 2 blocks inside
@@ -87,6 +92,7 @@ impl MarkdownStyle {
     pub const DEFAULT: Self = Self {
         text_size:       14.0,
         code_size:       13.0,
+        heading_scales:  [1.57, 1.36, 1.14, 1.07, 1.0, 1.0],
         block_gap:       10.0,
         item_gap:        4.0,
         line_height:     None,
@@ -129,6 +135,12 @@ impl MarkdownStyle {
 
     pub(crate) fn fonts(&self) -> MarkdownFonts {
         self.fonts.unwrap_or_else(MarkdownFonts::bundled)
+    }
+
+    /// The text size of a heading of a level, 1 to 6.
+    pub(crate) fn heading_size(&self, level: u8) -> f32 {
+        let scale = self.heading_scales[usize::from(level.saturating_sub(1)).min(5)];
+        (self.text_size * scale).round()
     }
 
     /// The line pitch of a text of a size, none when the font sets it.

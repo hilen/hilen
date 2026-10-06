@@ -31,6 +31,8 @@ mod label_tab;
 mod label_vertical_alignment;
 mod label_wide_effect;
 mod letter_spacing;
+mod markdown_bold_item;
+mod markdown_heading_sizes;
 mod markdown_plain_height;
 mod markdown_selection;
 mod markdown_spacing;

@@ -318,6 +318,19 @@ mod tests {
     }
 
     #[test]
+    fn an_item_of_only_bold_text_keeps_it_over_its_nested_list() {
+        let blocks = parse("- **Exception.** text\n- **Docs.**\n  - deep one\n  - deep two\n");
+        let [Block::List(items)] = &blocks[..] else {
+            panic!("one list expected, got {blocks:#?}");
+        };
+        let [Block::Paragraph(text), Block::List(deep)] = &items[1].blocks[..] else {
+            panic!("a text and a list expected, got {:#?}", items[1].blocks);
+        };
+        assert_eq!(text.text, "Docs.");
+        assert_eq!(deep.len(), 2);
+    }
+
+    #[test]
     fn the_blocks_of_a_reply_come_out() {
         let text = "# Title\n\ntext\n\n- one\n- two\n  - deep\n\n1. first\n2. second\n\n- [ ] open\n- [x] done\n\n> quoted\n\n```rust\nfn main() {}\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n---\n";
         let blocks = parse(text);

@@ -23,8 +23,6 @@ use crate::{
     },
 };
 
-/// How much bigger than the body text a heading is, by its level.
-const HEADING_SCALES: [f32; 6] = [1.57, 1.36, 1.14, 1.07, 1.0, 1.0];
 const CODE_PAD: f32 = 10.0;
 const QUOTE_INDENT: f32 = 14.0;
 const QUOTE_BAR: f32 = 3.0;
@@ -195,8 +193,7 @@ impl MarkdownView {
         match block {
             Block::Paragraph(text) => self.text(style, text, style.text_size, false, column, y),
             Block::Heading { level, text } => {
-                let scale = HEADING_SCALES[usize::from(level.saturating_sub(1)).min(5)];
-                self.text(style, text, (style.text_size * scale).round(), true, column, y);
+                self.text(style, text, style.heading_size(*level), true, column, y);
             }
             Block::Code { language, text } => self.code(style, language, text, column, y),
             Block::Quote(blocks) => self.quote(style, blocks, column, y),
