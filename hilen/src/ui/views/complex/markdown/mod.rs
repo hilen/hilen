@@ -1,6 +1,6 @@
-mod highlight;
 mod model;
 mod parse;
+mod selection;
 mod style;
 mod view;
 

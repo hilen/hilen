@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::weak_from_ref,
     ui::{
-        CursorIcon, LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
+        CursorIcon, LongPress, TextSelection, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
         view::{ViewFrame, double_tap::wait_for_single_tap, view_data::ViewData},
     },
     window::MouseButton,
@@ -103,6 +103,9 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
             return false;
         }
 
+        // Before the event of the view, so a menu the view opens itself
+        // is the one that stays.
+        TextSelection::right_clicked(weak, touch.position);
         touch.position = base_view.local_point(touch.position);
         base_view.events.touch.secondary.trigger(*touch);
         return true;
@@ -155,6 +158,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         base_view.__touch_id = touch.id;
         LongPress::arm(weak_from_ref(view), touch.id, on_screen);
         base_view.events.touch.began.trigger(*touch);
+        TextSelection::pressed(weak, on_screen, touch.id);
         UIManager::set_selected(weak_from_ref(view), true);
         base_view.events.touch.all.trigger(*touch);
         return true;

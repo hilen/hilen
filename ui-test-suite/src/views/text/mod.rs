@@ -1,5 +1,7 @@
 mod clipped_text_batches;
+mod code_highlighter_lines;
 mod color_emoji;
+mod color_glyph_clip;
 /// A text field is a different thing on a phone. Typing goes through the screen
 /// keyboard, not through injected key events, so these drive a field that never
 /// receives the text and then probe for glyphs that were never drawn.
@@ -21,6 +23,7 @@ mod label_line_height;
 mod label_max_lines;
 mod label_measure;
 mod label_outline;
+mod label_selection;
 mod label_soft_shadow;
 mod label_stress;
 mod label_strikethrough;
@@ -28,6 +31,8 @@ mod label_tab;
 mod label_vertical_alignment;
 mod label_wide_effect;
 mod letter_spacing;
+mod markdown_plain_height;
+mod markdown_selection;
 mod markdown_spacing;
 mod markdown_view;
 /// Desktop only for the same reason as [`custom_text_field`].

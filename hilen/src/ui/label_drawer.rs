@@ -2,7 +2,10 @@
 //! color glyphs as images and its underlines as rects. The other half of
 //! `ui_drawer.rs`.
 
-use wgpu_text::{Section, Text, TextBuilder, glyph_brush::HorizontalAlign};
+use wgpu_text::{
+    Section, Text, TextBuilder,
+    glyph_brush::{GlyphPositioner, HorizontalAlign, SectionGeometry},
+};
 
 use crate::{
     deps::refs::Weak,
@@ -107,7 +110,9 @@ impl UIDrawer {
 
     /// The color glyphs of a label, the emoji of a color font, as images
     /// at the positions the shaper gave them. The brush skips these
-    /// glyphs, see `ShapedLayout::color_glyphs`.
+    /// glyphs, see `ShapedLayout::color_glyphs`. An image is cut at the
+    /// bounds of the section like the brush cuts a glyph, or an emoji of
+    /// a line the frame hides would show outside the label.
     pub(super) fn draw_color_glyphs(frame: &Rect, label: &Label, scale: f32, opacity: f32) {
         if !label.uses_color_font() {
             return;
@@ -125,6 +130,10 @@ impl UIDrawer {
         };
         let scale_px = label.text_size() * scale * font.em_scale();
         let z = label.z_position() - UIManager::additional_z_offset();
+        let clip = layout.bounds_rect(&SectionGeometry {
+            screen_position: position,
+            bounds,
+        });
 
         for placed in layout.color_glyphs(scale_px, text, position, bounds.0) {
             let Some(glyph) = placed.font.color_glyph(placed.id, placed.px_per_em) else {
@@ -132,15 +141,39 @@ impl UIDrawer {
             };
             // Snapped to whole pixels, a fractional origin would blur the
             // image and land on different pixels per GPU.
-            let x = (placed.x + glyph.left).round() / scale;
-            let y = (placed.baseline + glyph.top).round() / scale;
-            let size = glyph.size / scale;
-            let rect: Rect = (x, y, size.width, size.height).into();
+            let left = (placed.x + glyph.left).round();
+            let top = (placed.baseline + glyph.top).round();
+            let (width, height) = (glyph.size.width, glyph.size.height);
+
+            let min_x = left.max(clip.min.x);
+            let min_y = top.max(clip.min.y);
+            let max_x = (left + width).min(clip.max.x);
+            let max_y = (top + height).min(clip.max.y);
+            if min_x >= max_x || min_y >= max_y {
+                continue;
+            }
+
+            // The part of the image that is left, so the pixels that stay
+            // are the ones the whole image would put there.
+            let rect: Rect = (
+                min_x / scale,
+                min_y / scale,
+                (max_x - min_x) / scale,
+                (max_y - min_y) / scale,
+            )
+                .into();
+            let uv: Rect = (
+                (min_x - left) / width,
+                (min_y - top) / height,
+                (max_x - min_x) / width,
+                (max_y - min_y) / height,
+            )
+                .into();
 
             IMAGE_RECT_DRAWER.get_mut().add_with_image(
                 UIImageInstance::new(
                     rect,
-                    (0, 0, 1, 1).into(),
+                    uv,
                     CLEAR,
                     0.0,
                     CornerRadii::default(),

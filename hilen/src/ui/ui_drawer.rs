@@ -19,8 +19,8 @@ use crate::{
         data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
-        BlurView, DrawingView, ImageView, Label, ScrimView, UIManager, View, ViewData, ViewFrame, ViewLayout,
-        ViewSubviews, label_drawer::TextSections,
+        BlurView, DrawingView, ImageView, Label, ScrimView, TextSelection, UIManager, View, ViewData,
+        ViewFrame, ViewLayout, ViewSubviews, label_drawer::TextSections,
     },
     window::{RenderFrame, Window, image::Svg},
 };
@@ -72,6 +72,7 @@ pub struct UIDrawer;
 impl UIDrawer {
     pub(crate) fn update() {
         UIManager::commit_animations();
+        TextSelection::tick();
         *NEEDS_SAMPLING.get_mut() = false;
         Self::update_view(UIManager::root_view().deref_mut(), 1.0);
     }
@@ -352,6 +353,7 @@ impl UIDrawer {
             // shares its view's z and the first draw at a z wins, so a
             // shadow flushed ahead of its view would cover it.
             Self::draw_shadow(view, &frame, ctx.scale, opacity);
+            Self::draw_selection(view, &frame, ctx.scale, opacity);
             Self::draw_background(view, &frame, ctx.scale, opacity);
         }
 

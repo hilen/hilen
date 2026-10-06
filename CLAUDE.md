@@ -95,6 +95,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/text.md](docs/text.md) — the text pipeline: the bundled fonts, `MarkdownView` and its style, rustybuzz shaping, em sizing, variable
   font instances, letter spacing, line handling. Read before touching label rendering,
   fonts, or `hilen/src/window/text`.
+- [docs/text-selection.md](docs/text-selection.md) — text that selects and copies in a `Label`, a
+  `MarkdownView` and across the cells of a `TableView`: the calls, what a copy holds, positions kept
+  in the data, the hooks in the input code and how the highlight is drawn. Read before touching
+  `hilen/src/ui/text_selection`, `selection_drawer.rs` or the touch code in `view_touch.rs`.
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.

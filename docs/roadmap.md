@@ -16,6 +16,29 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Syntax colors for the code an app draws itself
+
+Found by banda at `~/dev/apps/banda`. It draws a diff, each line in its own `Label`
+in a recycling `TableView`, and wants the code in the colors of its language.
+
+- Current: `hilen/src/ui/views/complex/markdown/highlight.rs` has
+  `pub(crate) fn highlight(language, code)` and a `pub(crate) enum Token`. Only
+  `MarkdownView::code` in `view.rs` calls it, for a fenced code block, and
+  `MarkdownStyle::syntax`, also `pub(crate)`, turns a token into a color. The
+  `markdown` module exports only `MarkdownFonts`, `MarkdownStyle` and `MarkdownView`,
+  so an app can call none of it. The function takes a markdown language word like
+  `rust`, nothing maps a file name like `a.rs` or `Makefile` to a language. It parses
+  a whole text from a clean start, so 1 line of a file cannot go on from the state of
+  the line before it.
+- Needed: a public type in `hilen::ui` that an app makes for a file name or for a
+  language word, none for a language nobody knows. It gives the byte ranges of a text
+  with their colors, ready for `Label::set_color_runs`, in the colors a code block of
+  `MarkdownView` has. It keeps the parse state from one call to the next, so the lines
+  of a file can be colored 1 by 1 in order, and it can start clean again.
+  `MarkdownView` uses the same type. Unit tests for the mapping and the state, and a
+  UI test that draws lines of code in labels.
+- Blocks: syntax colors in the diff view of banda.
+
 ## A key combo with Alt, and a combo that wins over the focus ring and a text field
 
 Found by banda at `~/dev/apps/banda`. It jumps between its sessions with Cmd and an

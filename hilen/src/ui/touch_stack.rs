@@ -254,6 +254,16 @@ impl TouchStack {
         }
     }
 
+    /// A text selection claimed the touch: a scroll view that followed it
+    /// must let it go, so the finger moves the selection and not the list.
+    pub(crate) fn release_scrolls(id: usize) {
+        for scroll in Self::scrolls() {
+            if scroll.is_ok() && scroll.__base_view().__touch_id == id {
+                scroll.__base_view().__touch_id = NO_TOUCH_ID;
+            }
+        }
+    }
+
     pub(crate) fn clear_freed(&mut self) {
         self.stack.tail.retain(|a| a.root.is_ok());
 

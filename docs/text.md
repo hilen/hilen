@@ -129,6 +129,14 @@ copy the shape cache returns, so measure, wrap and drawing agree. A tab
 at the very end of a text still measures as one space, `glyph_brush`
 bounds the last glyph by its own advance. `Label tab` pins the behavior.
 
+The height of a measure counts the lines of the layout, `ShapedLayout::text_height`,
+not the boxes of the glyphs. An empty line has no glyph and so no box, and the drawer
+still gives it its place. So empty lines at the start of a text, between 2 lines and
+after the last line break all count: a text that ends with a line break is 1 line
+higher than the same text without it. The width still comes from the glyph boxes.
+`Markdown plain height` pins it with a pasted terminal output that starts with 2
+empty lines.
+
 ## Line limit, outline and shadow
 
 `set_max_lines(n)` on a multiline label cuts the text to `n` lines and ends the
@@ -218,11 +226,19 @@ in `hilen/src/ui/views/complex/markdown`.
 
 - `parse.rs` turns the events of `pulldown-cmark` into the blocks of `model.rs`. A
   text keeps no marks, only byte ranges with a style, and the ranges of its links.
-- `highlight.rs` colors a code block. `syntect` parses it with the language files of
+- `CodeHighlighter` in `ui/code_highlighter.rs` colors a code block. `syntect` parses it with the language files of
   `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
   builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix
   that fits, and `MarkdownStyle` has a color per kind, so the code follows the theme.
-  A language nobody knows gets no color.
+  A language nobody knows gets no color. It is public, `hilen::ui::CodeHighlighter`,
+  for code an app draws itself, like a diff with 1 label per line:
+  `CodeHighlighter::for_file("src/main.rs")` or `for_language("rust")`, then
+  `label.set_color_runs(code.color_runs(line))`. It keeps the parse state from one
+  call to the next, so a comment over many lines stays a comment, `reset` starts
+  clean. A diff has 2 texts, so it takes 2 highlighters: a line that stayed goes
+  into both, a line that went into the old one, a new line into the new one. It
+  reads the colors of `MarkdownStyle` when it is made, on the main thread.
+  `Code highlighter lines` pins it.
 - `view.rs` lays the blocks out with absolute frames. The view does not size itself:
   `height_for_width` lays the text out at a width and gives the height, the way a
   table asks for the height of a cell. A change of the text or its color lays out
@@ -249,9 +265,19 @@ in `hilen/src/ui/views/complex/markdown`.
   text is shown. For 1 empty line between 2 paragraphs set `block_gap` to the
   value of `line_height`.
 
+- `set_selectable(true)` makes the text selectable, one selection over all blocks,
+  see [text-selection.md](text-selection.md).
+
 Images, raw HTML, footnotes and math are shown as their text. `Markdown view test`
 pins the look, a tap on a link and the height at 2 widths. `Markdown spacing` shows
 the same text with the default style and with all 3 spacing values set.
+
+## Selectable text
+
+`Label::set_selectable(true)` lets the user select and copy the text of a label, a
+`TableView` with `set_text_selectable(true)` joins the texts of its cells into one
+selection. The selected part is drawn by `UIDrawer::draw_selection`, under the glyphs.
+All of it is in [text-selection.md](text-selection.md).
 
 ## Glyph fallback
 
@@ -300,6 +326,11 @@ runs and fallback know nothing about color, and a color font registered with
 `Font::set_fallbacks` gives every label color emoji. A color glyph carries its
 own colors, so the text color, its alpha and a text gradient do not apply to
 it. A COLR palette entry that asks for the text color paints black.
+
+A color glyph is cut at the bounds of its label like the text of the brush. The
+image and its uv rect are cut at `ShapedLayout::bounds_rect`, an image fully
+outside is not drawn. So the emoji of a line that does not fit a frame never shows
+outside of it. `Color glyph clip` pins it on all 4 edges.
 
 `Font::system_emoji` maps the platform's own emoji font from disk. Apple
 Color Emoji, an sbix font, ships with every Mac, iPhone and Apple TV and is

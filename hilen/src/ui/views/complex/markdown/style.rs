@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::color::Color,
-    ui::{DynamicColor, UIColor, views::complex::markdown::highlight::Token},
+    ui::{DynamicColor, UIColor, code_highlighter::Token},
     window::Font,
 };
 

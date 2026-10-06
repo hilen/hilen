@@ -1,3 +1,4 @@
+mod code_highlighter;
 mod focus;
 mod gradient;
 mod hover;
@@ -8,11 +9,13 @@ mod label_effect;
 mod layout;
 mod modal_view;
 mod navigation_view;
+mod selection_drawer;
 mod shadow;
 mod style;
 #[cfg(feature = "ui-tests")]
 mod tests;
 mod text_field_constraint;
+mod text_selection;
 mod theme;
 mod to_label;
 mod tooltip;
@@ -32,8 +35,8 @@ pub mod ui_test;
 
 pub use ui_proc::*;
 
-pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use self::{
+    code_highlighter::CodeHighlighter,
     focus::{Focus, FocusDirection, ViewFocus},
     gradient::*,
     hover::*,
@@ -45,6 +48,7 @@ pub use self::{
     shadow::*,
     style::*,
     text_field_constraint::*,
+    text_selection::TextSelection,
     theme::*,
     to_label::*,
     tooltip::*,
@@ -56,6 +60,7 @@ pub use self::{
     views::*,
     with_header::*,
 };
+pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use crate::{
     gm::{
         color::*,

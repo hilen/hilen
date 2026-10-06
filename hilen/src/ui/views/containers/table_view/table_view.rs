@@ -10,8 +10,8 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
-        CellRegistry, ScrollView, Setup, TableData, UIEvent, View, ViewData, ViewFrame, ViewSubviews,
-        ViewTouch, WeakView, struct_name, view,
+        CellRegistry, ScrollView, Setup, TableData, TextSelection, UIEvent, View, ViewData, ViewFrame,
+        ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
 };
 
@@ -58,6 +58,9 @@ pub struct TableView {
     /// the first layout that has one.
     pending_row: Option<usize>,
 
+    /// The text of the cells can be selected, see `set_text_selectable`.
+    pub(super) text_selectable: bool,
+
     #[init]
     pub(super) scroll: ScrollView,
 }
@@ -87,6 +90,10 @@ impl Setup for TableView {
 
         self.enable_touch_low_priority();
         self.touch().up_inside.val(weak, move |touch| {
+            // The release of a drag that selected text is no tap on a row.
+            if self.text_selectable && !TextSelection::is_empty() {
+                return;
+            }
             self.select_at(touch.position);
         });
     }
@@ -341,7 +348,7 @@ impl TableView {
     // spacing gap selects the nearest cell instead of dying on a
     // pixel gap between touch areas. Taps past the last row are
     // ignored.
-    fn select_at(mut self: Weak<Self>, pos: Point) {
+    pub(super) fn select_at(mut self: Weak<Self>, pos: Point) {
         if self.data.is_null() {
             return;
         }

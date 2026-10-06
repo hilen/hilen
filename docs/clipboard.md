@@ -65,6 +65,12 @@ So the event fires on desktop only:
 - Browser: there is no paste shortcut at all, the page cannot read the clipboard
   at once.
 
+## A copy of selected text
+
+Selectable text, see [text-selection.md](text-selection.md), copies with Cmd or Ctrl
+and C and with Copy of its right click menu. Both go through `Clipboard::set_text`,
+so they work on every platform, in a browser too.
+
 ## Tests and the clipboard of the user
 
 A headless run has no display server, so every call goes to `HeadlessStore`, 1 text or

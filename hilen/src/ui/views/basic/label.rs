@@ -71,6 +71,9 @@ pub struct Label {
     /// The text is a secret, see `set_secret`.
     secret: bool,
 
+    /// The text can be selected and copied, see `set_selectable`.
+    pub(super) selectable: bool,
+
     multiline: bool,
 
     /// The most lines a multiline label shows, 0 for no limit. See

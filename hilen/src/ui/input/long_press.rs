@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::{
     deps::{hreads::after, refs::main_lock::MainLock},
     gm::flat::Point,
-    ui::{NO_TOUCH_ID, Tooltip, Touch, TouchStack, ViewData, WeakView, input::TouchEvent},
+    ui::{NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView, input::TouchEvent},
     window::MouseButton,
 };
 
@@ -117,6 +117,11 @@ impl LongPress {
 
         // The hold is consumed. Its release must not end as a tap.
         base.__touch_id = NO_TOUCH_ID;
+
+        // A hold on selectable text selects the word under it.
+        if TextSelection::held(view, pending.origin, pending.touch_id) {
+            return;
+        }
 
         let touch = Touch {
             id:       pending.touch_id,

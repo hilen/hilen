@@ -16,8 +16,8 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, Tooltip, Touch,
-        TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
+        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextSelection, Tooltip,
+        Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
     },
 };
 
@@ -53,6 +53,7 @@ impl Input {
 
     pub(crate) fn on_char(ch: char) {
         UIManager::keymap().check(ch);
+        TextSelection::on_char(ch);
         UIEvents::keyboard_input().trigger(ch);
     }
 
@@ -140,6 +141,7 @@ impl Input {
         if touch.is_began() {
             UIEvents::touch_began().trigger(touch);
         }
+        TextSelection::on_touch(&touch);
 
         // Any press ends a tooltip, a finger or a click is an answer to it.
         if touch.is_began() {

@@ -256,7 +256,6 @@ impl Font {
             return Size::default();
         }
 
-        let line_height = shaping.line_height;
         let key = MeasureKey::of(text, size.to_f32(), width, &shaping);
         if let Some(key) = &key
             && let Some(cached) = self.measure_cache.get_mut().get(key)
@@ -278,14 +277,11 @@ impl Font {
             return Size::default();
         };
 
-        // With a custom line box the height is count boxes. The glyph
-        // bounds cover ascent to descent, one `px_scale`, so swapping
-        // that for one box turns baseline span into box count times
-        // the box.
-        let height = match line_height {
-            Some(line_height) => bounds.height() - px_scale + line_height,
-            None => bounds.height(),
-        };
+        // The glyph bounds give only the width. They start at the first
+        // line with a glyph of this font and end at the last one, so
+        // the height comes from the lines of the layout.
+        let bound = width.unwrap_or(f32::INFINITY);
+        let height = layout.text_height(PxScale::from(px_scale), text, bound);
 
         let measured = Size::new(bounds.width(), height);
         if let Some(key) = key {

@@ -12,13 +12,13 @@ use crate::{
     },
     system::open_url,
     ui::{
-        Container, DrawingView, Label, MarkdownStyle, RunStyle, Setup, TextAlignment, UIColor,
-        VerticalAlignment, ViewFrame, ViewSubviews,
+        CodeHighlighter, Container, DrawingView, Label, MarkdownStyle, RunStyle, Setup, TextAlignment,
+        TextSelection, UIColor, VerticalAlignment, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
-            highlight::highlight,
             model::{Block, Item, Link, Marker, Styled},
             parse::parse,
+            selection::marker_text,
         },
     },
 };
@@ -56,7 +56,12 @@ pub struct MarkdownView {
     /// A tap on a link only fires the event.
     keeps_links:     bool,
 
-    blocks:     Vec<Block>,
+    pub(super) blocks: Vec<Block>,
+    /// The label of every text in reading order, made by the last layout.
+    /// Kept only while the text can be selected, see `set_selectable`,
+    /// none otherwise.
+    pub(super) texts:  Option<Vec<Weak<Label>>>,
+
     text_color: Option<UIColor>,
     /// The text or its color changed since the last layout.
     stale:      bool,
@@ -130,7 +135,7 @@ impl MarkdownView {
     /// A text and its color mostly change together, so the layout waits
     /// for the next turn of the main loop and runs once for all of them.
     /// `height_for_width` does not wait.
-    fn changed(mut self: Weak<Self>) {
+    pub(super) fn changed(mut self: Weak<Self>) {
         self.stale = true;
         if self.scheduled {
             return;
@@ -153,6 +158,9 @@ impl MarkdownView {
         self.laid_width = width;
 
         self.remove_all_subviews();
+        if let Some(texts) = &mut self.texts {
+            texts.clear();
+        }
         let style = MarkdownStyle::current();
         let mut probe = self.add_view::<Label>();
         probe.set_alignment(TextAlignment::Left);
@@ -283,6 +291,10 @@ impl MarkdownView {
             let links = text.links.clone();
             label.enable_touch();
             label.touch().up_inside.val(label, move |touch| {
+                // The release of a drag that selected text is no click.
+                if self.is_selectable() && !TextSelection::is_empty() {
+                    return;
+                }
                 let Some(url) = link_at(label, &links, touch.position) else {
                     return;
                 };
@@ -296,6 +308,7 @@ impl MarkdownView {
                 }
             });
         }
+        self.note_text(label);
         label
     }
 
@@ -322,16 +335,15 @@ impl MarkdownView {
         label.set_font(style.fonts().mono);
         label.set_text(code);
         label.set_text_color(column.color);
-        label.set_color_runs(
-            highlight(language, code)
-                .into_iter()
-                .map(|(range, token)| (range, style.syntax(token))),
-        );
+        if let Some(mut highlighter) = CodeHighlighter::for_language(language) {
+            label.set_color_runs(highlighter.color_runs(code));
+        }
 
         let inner = width - CODE_PAD * 2.0;
         let height = label.size_for_width(inner).height;
         background.set_frame((x, *y, width, height + CODE_PAD * 2.0));
         label.set_frame((x + CODE_PAD, *y + CODE_PAD, inner, height));
+        self.note_text(label);
         *y += height + CODE_PAD * 2.0;
     }
 
@@ -357,11 +369,7 @@ impl MarkdownView {
         let markers: Vec<Option<Weak<Label>>> = items
             .iter()
             .map(|item| {
-                let text = match item.marker {
-                    Marker::Bullet => "•".to_string(),
-                    Marker::Number(number) => format!("{number}."),
-                    Marker::Task(_) => return None,
-                };
+                let text = marker_text(item.marker)?;
                 let label = self.add_view::<Label>();
                 label
                     .set_text_size(style.text_size)
@@ -404,6 +412,7 @@ impl MarkdownView {
             let top = *y;
             if let Some(marker) = marker {
                 marker.set_frame((column.x, top, marker_width, line_height));
+                self.note_text(marker);
             }
             if let Marker::Task(done) = item.marker {
                 // In the middle of the first line when the style sets the

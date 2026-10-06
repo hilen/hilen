@@ -15,20 +15,19 @@ use crate::{
     deps::refs::Weak,
     gm::{
         LossyConvert, ToF32,
-        color::Color,
         flat::{Point, Rect},
     },
     system::Clipboard,
     ui::{
         Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
         WeakView,
+        selection_drawer::SELECTION_COLOR,
+        text_selection::word_range,
         view::{ViewData, ViewFrame, ViewTouch},
     },
     window::{NamedKey, TextLayout},
     wipe::joined,
 };
-
-const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
 
 // The entered text, the one the caret indexes, is read through `text`,
 // which borrows it. Nothing here copies it to read it, a copy of a secure
@@ -431,22 +430,10 @@ impl TextField {
 
     /// Selects the run of letters and digits around `byte`.
     fn select_word_at(mut self: Weak<Self>, byte: usize) {
-        let text = self.text();
-        let is_word = |ch: char| ch.is_alphanumeric();
+        let word = word_range(self.text(), byte);
 
-        let start = text[..byte]
-            .char_indices()
-            .rev()
-            .take_while(|(_, ch)| is_word(*ch))
-            .last()
-            .map_or(byte, |(index, _)| index);
-        let end = text[byte..]
-            .char_indices()
-            .find(|(_, ch)| !is_word(*ch))
-            .map_or(text.len(), |(index, _)| byte + index);
-
-        self.anchor = Some(start);
-        self.caret = end;
+        self.anchor = Some(word.start);
+        self.caret = word.end;
         self.update_caret();
     }
 

@@ -5,6 +5,7 @@ mod table_data;
 mod table_view;
 #[cfg(feature = "ui-tests")]
 mod tests;
+mod text_selection;
 
 pub use cell_registry::*;
 pub use table_data::*;

@@ -17,6 +17,7 @@ mod base;
 #[cfg(not_wasm)]
 mod inspect;
 mod level;
+mod text_points;
 mod views;
 
 /// Names this crate so a linker keeps it.

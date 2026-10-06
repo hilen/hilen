@@ -539,6 +539,39 @@ impl ShapedLayout<'_> {
             .collect()
     }
 
+    /// The height the lines of `text` take at the base font's `scale`,
+    /// from the top of the first one to the bottom of the last one, the
+    /// same lines `place` draws. Every line counts. The boxes of the
+    /// glyphs do not say it: an empty line has no glyph, and a line of
+    /// emoji or of a fallback font has none of the base font, so a text
+    /// that starts with empty lines was measured too short and its last
+    /// lines were cut.
+    pub(crate) fn text_height(&self, scale: PxScale, text: &str, bound_w: f32) -> f32 {
+        let scaled = self.params.base.ab().as_scaled(scale);
+        let sources = self.sources(scale);
+        let lines = self.shape_text(text, &sources, bound_w).len();
+
+        let pitch = self.line_pitch(&scaled);
+        let first = self.first_baseline(&scaled, 0.0, lines);
+        let mut last = first;
+        for _ in 1..lines {
+            last += pitch;
+        }
+
+        // The 2 baselines go through the same steps as in `place` and the
+        // same snap as a drawn glyph. That is the height the glyph boxes
+        // gave for a text with a glyph on its first and on its last line,
+        // to the last bit, so no layout made from a measured height moves.
+        let glyphs = (snap_to_cache(last) - scaled.descent()) - (snap_to_cache(first) - scaled.ascent());
+
+        // With a custom line box the glyphs of the last line give way to
+        // one box, which makes the height the count of boxes.
+        match self.params.line_height {
+            Some(line_height) => glyphs - scale.y + line_height,
+            None => glyphs,
+        }
+    }
+
     /// Lines and caret positions of `text` at the base font's `scale`.
     pub(crate) fn text_layout(&self, scale: PxScale, text: &str, bound_w: f32) -> TextLayout {
         let base = self.params.base;
