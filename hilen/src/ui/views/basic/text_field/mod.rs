@@ -43,6 +43,15 @@ pub(super) fn mask(text: &str) -> String {
     std::iter::repeat_n(MASK, text.chars().count()).collect()
 }
 
+/// What a plain Enter does in a multiline field.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MultilineEnter {
+    #[default]
+    NewLine,
+    /// Fires `submitted` and keeps the field in edit, a chat box.
+    Submit,
+}
+
 #[view]
 pub struct TextField {
     pub(crate) constraint: Option<TextFieldConstraint>,
@@ -55,6 +64,8 @@ pub struct TextField {
     placeholding:      bool,
     is_editing:        bool,
     multiline:         bool,
+    /// What a plain Enter does in a multiline field.
+    multiline_enter:   MultilineEnter,
 
     /// The real text of a secure field, `None` for a plain one. The label
     /// only ever shows one mask character per character of it. Every
@@ -79,7 +90,8 @@ pub struct TextField {
 
     /// Enter in a single line field. It fires after `editing_ended`, with
     /// the same text, so a form confirms on it the way its button does.
-    /// A multiline field never fires it, Enter is a new line there.
+    /// A multiline field fires it only with `set_submit_on_enter`, Enter
+    /// is a new line there otherwise.
     pub submitted: Event<String>,
 
     /// All of these live inside the scroll content so a multiline field
@@ -213,6 +225,21 @@ impl TextField {
             VerticalAlignment::Center
         });
         weak_from_ref(self).update_layout();
+        self
+    }
+
+    /// The Enter of a chat box. In a multiline field a plain Enter fires
+    /// `submitted` with the text and the field stays in edit, the owner
+    /// clears it and the user types on. Shift and Enter is the new line.
+    /// A phone keyboard has no Shift, so there Return stays a new line
+    /// and a button sends. A single line field ignores this, its Enter
+    /// always submits.
+    pub fn set_submit_on_enter(&self, submit: bool) -> &Self {
+        weak_from_ref(self).multiline_enter = if submit {
+            MultilineEnter::Submit
+        } else {
+            MultilineEnter::NewLine
+        };
         self
     }
 

@@ -1,9 +1,10 @@
 //! The caret, the selection, the keys and the clipboard of a text field.
 
+use plat::Platform;
 use web_time::{Duration, Instant};
 use zeroize::Zeroizing;
 
-use super::{MASK, MULTILINE_TOP_INSET, SYSTEM_EDITS, TextField, mask};
+use super::{MASK, MULTILINE_TOP_INSET, MultilineEnter, SYSTEM_EDITS, TextField, mask};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -159,6 +160,18 @@ impl TextField {
             // text area treats Tab, so it sits above the Enter case and
             // never inserts a tab character.
             NamedKey::Tab => self.select_next_field(shift),
+            // A chat box sends on a plain Enter and stays in edit for
+            // the next message. A phone keyboard has no Shift to ask for
+            // a new line with, so there Enter stays the new line.
+            NamedKey::Enter
+                if self.multiline
+                    && self.multiline_enter == MultilineEnter::Submit
+                    && !shift
+                    && !Platform::MOBILE =>
+            {
+                let text = self.text().to_string();
+                self.submitted.trigger(text);
+            }
             NamedKey::Enter if self.multiline => self.insert("\n"),
             NamedKey::Enter => {
                 let text = if self.holds_secret() {

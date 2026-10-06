@@ -35,6 +35,9 @@ mod modal_escape_text_field;
 mod multiline_label;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
+mod multiline_submit;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
 mod multiline_text_field;
 /// The `screen_keyboard` tests type through the real keyboard of the
 /// platform, so unlike the other typing tests they run on a phone too.
