@@ -297,7 +297,7 @@ Small remainders not worth their own entry.
   starts off screen. Needs a scroll-to-view step in `select_next_field`, the way
   a multiline field already follows its caret line while typing.
 - Frame stepped time covers `Animation` and `AnimatedImage` only. `RingSpinner`,
-  the text field caret blink and double click, tooltip and long press delays still
+  the text field caret blink, tooltip and long press delays still
   read `Instant`, so they drift under stepped time and their mid flight frames
   cannot be pinned. Each is a one line move to `Clock::now_ms` plus a test.
 - Sideways scrolling pins nothing in a plain `ScrollView`, its whole content

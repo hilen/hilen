@@ -13,7 +13,7 @@ use crate::{
     },
     ui::{
         CursorIcon, DynamicColor, FocusData, Gradient, NavigationView, Pinch, Shadow, TooltipContent, Touch,
-        UIEvent, View, WeakView, layout::Placer,
+        UIEvent, View, WeakView, layout::Placer, view::DoubleTap,
     },
 };
 
@@ -106,6 +106,9 @@ pub struct ViewBase {
     #[allow(clippy::pub_underscore_fields)]
     pub __touch_id: usize,
 
+    /// The tap before, to tell a double tap.
+    pub(crate) taps: DoubleTap,
+
     #[educe(Debug(ignore))]
     pub(crate) is_selected: bool,
 
@@ -197,6 +200,17 @@ pub struct ViewTouchEvents {
     pub began:        Event<Touch>,
     pub moved:        Event<Touch>,
     pub up_inside:    UIEvent<Touch>,
+    /// The second of 2 taps that come soon after each other at one place,
+    /// a double click with a mouse. Fires after the `up_inside` of that
+    /// tap. The first tap of the pair fired its `up_inside` at once, with
+    /// no wait. The tap after a pair starts a new pair.
+    pub double_tap:   UIEvent<Touch>,
+    /// A tap that no second tap followed, for a view where 1 tap and a
+    /// double tap do 2 different things, like a video that pauses on a
+    /// click and goes fullscreen on a double click. It fires only after
+    /// the time a second tap may take, a quarter of a second. A view
+    /// with no double tap uses `up_inside`, which has no wait.
+    pub single_tap:   UIEvent<Touch>,
     /// Fires true on hover enter and false on exit. Only the topmost
     /// hover enabled view under the cursor is hovered. Desktop and the
     /// browser, since a touch screen has no pointer.

@@ -1,7 +1,6 @@
 //! The caret, the selection, the keys and the clipboard of a text field.
 
 use plat::Platform;
-use web_time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 use super::{MASK, MULTILINE_TOP_INSET, MultilineEnter, SYSTEM_EDITS, TextField, mask};
@@ -23,10 +22,6 @@ use crate::{
 };
 
 const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
-
-/// Two taps this close in time and place select the word.
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
-const DOUBLE_CLICK_DISTANCE: f32 = 6.0;
 
 // The entered text, the one the caret indexes, is read through `text`,
 // which borrows it. Nothing here copies it to read it, a copy of a secure
@@ -373,15 +368,10 @@ impl TextField {
 
     pub(super) fn on_touch_began(mut self: Weak<Self>, position: Point) {
         let byte = self.byte_at(position);
-        let now = Instant::now();
 
-        let double = self.last_tap.is_some_and(|(at, where_)| {
-            now.duration_since(at) < DOUBLE_CLICK_INTERVAL
-                && (where_ - position).length() < DOUBLE_CLICK_DISTANCE
-        });
-        self.last_tap = Some((now, position));
-
-        if double {
+        // A double click selects the word, and so does every fast click
+        // after it.
+        if self.clicks.tap_in_row(position) {
             self.select_word_at(byte);
             return;
         }

@@ -2,6 +2,7 @@ mod animated_gif;
 mod animation_drives_frames;
 mod bug_report_dialog;
 mod bug_report_style;
+mod double_tap;
 mod frame_stepped_animation;
 mod hidden_parent_touch;
 mod hidden_touch;

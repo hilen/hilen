@@ -475,7 +475,7 @@ names the lane, it never goes on with injected keys.
 
 System input lands some frames after the call, so a test waits for a state with
 `wait_until`, it never counts frames. A key is tapped by its name, so the text can hold
-only what the first 2 pages of the keyboard have. 2 taps on one point within 400 ms are a
+only what the first 2 pages of the keyboard have. 2 taps on one point within 250 ms are a
 double click on desktop and select the word, tap a second point a few pixels away.
 
 `system_request` asks what only the system knows: `keyboard 1` and `keyboard 0` wait

@@ -5,7 +5,6 @@ mod system_field;
 use std::mem::take;
 
 use ui_proc::view;
-use web_time::Instant;
 use zeroize::Zeroizing;
 
 #[cfg(all(ios, not(tvos)))]
@@ -18,12 +17,11 @@ use crate::{
     gm::{
         ToF32,
         color::{BLACK, CLEAR, GRAY, LIGHTER_GRAY, WHITE},
-        flat::Point,
     },
     ui::{
         Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
         UIManager, VerticalAlignment, ViewSubviews,
-        view::{View, ViewData, ViewFrame, ViewTouch},
+        view::{DoubleTap, View, ViewData, ViewFrame, ViewTouch},
     },
     window::Font,
 };
@@ -81,8 +79,8 @@ pub struct TextField {
     /// `None` or equal to the caret means nothing is selected.
     anchor: Option<usize>,
 
-    /// The last tap, to tell a double click.
-    last_tap: Option<(Instant, Point)>,
+    /// The click before, to tell a double click.
+    clicks: DoubleTap,
 
     pub changed: Event<String>,
 

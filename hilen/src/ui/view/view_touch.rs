@@ -4,7 +4,7 @@ use crate::{
     deps::refs::weak_from_ref,
     ui::{
         CursorIcon, LongPress, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
-        view::{ViewFrame, view_data::ViewData},
+        view::{ViewFrame, double_tap::wait_for_single_tap, view_data::ViewData},
     },
     window::MouseButton,
 };
@@ -84,6 +84,7 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         return false;
     }
 
+    let weak = view;
     let view = view.deref_mut();
     let base_view = view.__base_view();
 
@@ -120,13 +121,26 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
 
     if touch.is_ended() && base_view.__touch_id == touch.id {
         let inside = view.contains_visible(touch.position);
+        let on_screen = touch.position;
 
         touch.position = base_view.local_point(touch.position);
         base_view.__touch_id = NO_TOUCH_ID;
         base_view.events.touch.all.trigger(*touch);
 
         if inside && touch.is_ended() {
+            let first = base_view.taps.tap(on_screen);
             base_view.events.touch.up_inside.trigger(*touch);
+            // The tap may have closed the screen this view was on.
+            if weak.is_null() {
+                return true;
+            }
+            match first {
+                None => base_view.events.touch.double_tap.trigger(*touch),
+                Some(first) if base_view.events.touch.single_tap.has_subscribers() => {
+                    wait_for_single_tap(weak, first, *touch);
+                }
+                Some(_) => {}
+            }
         }
         return true;
     }
