@@ -16,6 +16,27 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Google API access for an app, with scopes and sealed tokens
+
+Found by lendar at `~/dev/apps/lendar`, a calendar that reads and writes Google
+Calendar for several Google accounts at once.
+
+- Current: the login asks Google only for `openid email profile`,
+  `hilen-server/src/auth/google.rs` line 22, and keeps no Google token, the identity
+  is made with `refresh_token: None` at line 94. So an app gets a session with its
+  own server and no access to a Google API. `SessionStore` in `hilen-session` seals
+  exactly 1 string, the session token, and `OnDiskEncrypted` is commented out in
+  `hilen/src/store/mod.rs`. lendar so carries its own sign in,
+  `src/google/auth.rs`: PKCE with a redirect to a local TCP port, which only a
+  desktop can do, a client secret baked into the binary by `build.rs`, and the
+  access and refresh tokens of every account in a plain `google-tokens.json`.
+- Needed: a login that takes extra Google scopes from the app and hands the app an
+  access token for them, refreshed when it runs out, on every platform. More than 1
+  Google account per user. A sealed store for the tokens. Whether the tokens live on
+  the server or on the device is open, decide it first.
+- Blocks: lendar on iOS, Android and in the browser, and the removal of its own
+  sign in code, its baked client secret and its plain token file.
+
 ## Canvas and pinch, the proof on real input
 
 Found by Lan Atlas, a network map app with a canvas that pans and zooms. `CanvasView`,
@@ -103,6 +124,28 @@ phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
   test no longer skipped. A lost context made on purpose with `WEBGL_lose_context`
   and a resize after it.
 - Blocks: calling the TV a supported target.
+
+## Password autofill on iOS
+
+- Current: an edited field on an iPhone is a system text field, see
+  `hilen/src/ui/views/basic/text_field/system_field.rs`. It gets the secure flag, and
+  nothing that says what the field holds. `TextField` has no call for that. iOS offers
+  a saved login only by guessing from the secure flag.
+- Needed: a content type on `TextField`, user name, password, new password, email and
+  one time code, passed to the system field as its `textContentType`. For the
+  passwords of the app's own site also an associated domain in the entitlements of
+  the mobile project. The simulator has no saved logins, so the proof needs a phone.
+- Blocks: a login form that fills itself from the iOS keychain, and a code from an
+  SMS offered over the keyboard.
+
+## A field under the screen keyboard
+
+- Current: the engine does not know where the screen keyboard is. A field in the lower
+  part of an iPhone screen is edited behind the keyboard, nothing moves the view.
+- Needed: the frame of the keyboard from the system as an engine event, and a rule
+  that keeps the edited field in view, a scroll of the nearest `ScrollView` or a
+  shift of the root view.
+- Blocks: any form longer than the top half of a phone screen.
 
 ## Text entry on a TV
 

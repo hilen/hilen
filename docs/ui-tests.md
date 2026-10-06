@@ -390,9 +390,11 @@ fixture layout, screenshot workflow or convenient reproduction is never a valid 
 
 Platform gating is allowed only when the production feature itself is compiled out or cannot
 exist on that platform. Gate such a test where the feature is gated, not with a runtime skip.
-`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. Typing goes through the
-screen keyboard on a phone rather than injected key events, so the text field tests are desktop
-only as well.
+`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. The older text field
+tests type with injected key events and probe the caret and the selection the engine draws. On
+an iPhone a system text field takes the keys and draws those, so these tests are desktop only.
+The `Screen keyboard` tests type through the real keyboard and run on a phone too, see System
+input below.
 Test counts may differ between platforms only for these feature-availability gates. Never gate a
 cross-platform rendering, layout or interaction regression merely to make the current fixture fit.
 Gate the module in its `mod.rs`, with a comment saying which feature is missing:
@@ -454,6 +456,34 @@ after `step_frames(6)`, on every platform. The runner leaves stepped mode before
 every test, so a test never has to clean it up on the failure path. `Frame stepped
 animation` and `Animated gif` are the examples. `Animation drives frames` must never
 run stepped, it proves free running animations request their own frames.
+
+## System input
+
+The screen keyboard of a phone is drawn by another process, and no event the engine sends
+to itself reaches it. A test that types on a phone uses `ui_test::system_input`: `tap`,
+`type_text`, `press_return` and `wait_until`. Where a helper outside the app is set, these
+ask it for a real tap on the screen or on a key. Everywhere else they inject, so one test
+runs on every platform.
+
+On iOS the helper is `SystemInput`, an XCUITest of the mobile project. `sim-test.rs`
+builds it, starts it next to the app and passes its address in `HILEN_SYSTEM_INPUT`. The
+test sends one line per request over a local socket, `tap x y`, `type text`, `key return`,
+and gets `ok` back when the action is done. The lane turns "Connect Hardware Keyboard" of
+the Simulator off for the run, with it on there is no screen keyboard, and puts the old
+value back at the end. A phone with no helper fails such a test with a message that
+names the lane, it never goes on with injected keys.
+
+System input lands some frames after the call, so a test waits for a state with
+`wait_until`, it never counts frames. A key is tapped by its name, so the text can hold
+only what the first 2 pages of the keyboard have. 2 taps on one point within 400 ms are a
+double click on desktop and select the word, tap a second point a few pixels away.
+
+`system_request` asks what only the system knows: `keyboard 1` and `keyboard 0` wait
+until the keyboard is up or down, `secure` counts the secure system fields, `has key a`
+says whether a key is on screen. `screen_ink` reads the box and the color of what is
+drawn in an area from a capture of the whole screen. A capture of the engine frame holds
+no system view, so this is the only way to compare the system text field with the
+engine text, which `Screen keyboard look` does.
 
 ## What a run takes from the app
 

@@ -58,10 +58,10 @@ so everything needed to recreate it is recorded here. Its durable home should be
 hilen-mobile template, which today generates iOS projects only.
 
 - `Demo/main.m` calls `hilen_start_app()`, same as iOS.
-- `Demo/hilen.h` defines the five `hilen_ios_*` symbols. They are the
-  iOS implementations as is, UIAlertController and UITextField exist on tvOS, except
-  `hilen_ios_get_icloud_storage_path` returns NULL, tvOS has no iCloud document
-  storage.
+- `Demo/hilen.h` defines the `hilen_ios_show_alert` and
+  `hilen_ios_get_icloud_storage_path` symbols. The alert is the iOS implementation as
+  is, the path returns NULL, tvOS has no iCloud document storage. The engine calls no
+  text field function on tvOS, see The system text field in [ios.md](ios.md).
 - `Demo/Info.plist` is minimal plus `UIDeviceFamily` = 3, Apple TV.
 
 No Xcode project. Build the app bundle by hand, the assets folder is copied to the

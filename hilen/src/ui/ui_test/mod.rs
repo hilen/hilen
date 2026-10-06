@@ -10,6 +10,7 @@ mod report;
 pub mod runner;
 pub mod state;
 mod suite;
+pub mod system_input;
 mod ui_test;
 /// The web driver carries its own stuck handling, and a page cannot spawn
 /// the plain watchdog thread.

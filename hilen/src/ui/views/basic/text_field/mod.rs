@@ -1,4 +1,6 @@
 mod editing;
+#[cfg(all(ios, not(tvos)))]
+mod system_field;
 
 use std::mem::take;
 
@@ -6,6 +8,8 @@ use ui_proc::view;
 use web_time::Instant;
 use zeroize::Zeroizing;
 
+#[cfg(all(ios, not(tvos)))]
+use crate::ui::view::ViewCallbacks;
 use crate::{
     deps::{
         refs::{Weak, weak_from_ref},
@@ -27,6 +31,10 @@ use crate::{
 /// Space above the first line of a multiline field, so the text does not
 /// touch the top edge the way a text area does not.
 const MULTILINE_TOP_INSET: f32 = 8.0;
+
+/// On an iPhone a system text field covers the field while it is edited and
+/// draws the text, the caret and the selection itself, see `system_field`.
+pub(super) const SYSTEM_EDITS: bool = cfg!(all(ios, not(tvos)));
 
 /// What a secure field draws for every character.
 pub(super) const MASK: char = '\u{2022}';
@@ -115,21 +123,35 @@ impl Setup for TextField {
         // and from the text inset, and the inset is a fixed count of screen
         // pixels. So both move when the frame or the UI scale changes.
         self.size_changed().sub(move || self.update_caret());
-        UIManager::on_scale_changed(self, move |_| self.update_caret());
+        UIManager::on_scale_changed(self, move |_| {
+            self.update_caret();
+            // The system field counts in pixels, so its text size and its
+            // insets are other numbers at the new scale.
+            #[cfg(all(ios, not(tvos)))]
+            if self.is_editing {
+                system_field::begin(self);
+            }
+        });
         self.update_layout();
     }
 
     fn on_selection_changed(mut self: Weak<Self>, selected: bool) {
+        // Closing the system field accepts a pending autocorrection, which
+        // reports one last change. The field takes it only while it still
+        // counts as edited.
+        #[cfg(all(ios, not(tvos)))]
+        if !selected {
+            system_field::end();
+        }
+
         self.is_editing = selected;
 
         if selected {
             UIEvents::keyboard_key().val(self, move |key| self.on_key(key));
             UIEvents::keyboard_input().val(self, move |key| self.on_char(key));
-            UIManager::open_keyboard(self.absolute_frame());
+            #[cfg(all(ios, not(tvos)))]
+            system_field::begin(self);
         } else {
-            if let Some(string) = UIManager::close_keyboard() {
-                self.replace_text(Zeroizing::new(string));
-            }
             UIEvents::keyboard_input().unsubscribe(self);
             UIEvents::keyboard_key().unsubscribe(self);
 
@@ -153,6 +175,16 @@ impl Setup for TextField {
 
         self.set_color(color);
         self.update_caret();
+        self.show_or_hide_label();
+    }
+}
+
+#[cfg(all(ios, not(tvos)))]
+impl ViewCallbacks for TextField {
+    fn update(&mut self) {
+        if self.is_editing {
+            system_field::follow(self);
+        }
     }
 }
 
@@ -311,12 +343,35 @@ impl TextField {
         this.caret = len;
         this.anchor = None;
         this.update_caret();
+        self.show_or_hide_label();
+
+        // A constraint that dropped a typed character, or a `set_text` call,
+        // changed the text under the system field.
+        #[cfg(all(ios, not(tvos)))]
+        if self.is_editing {
+            system_field::set_text(self.text());
+        }
 
         self.changed.trigger(changed_to);
         self
     }
 
-    pub(crate) fn is_editing(&self) -> bool {
+    /// The system field draws the entered text while it edits, so the
+    /// label then shows only the placeholder of an empty field.
+    fn show_or_hide_label(&self) {
+        self.label.set_hidden(SYSTEM_EDITS && self.is_editing && !self.placeholding);
+    }
+
+    /// The user changed the text in the system field.
+    #[cfg(all(ios, not(tvos)))]
+    pub(super) fn system_text_changed(&self, text: Zeroizing<String>) {
+        if self.text() != text.as_str() {
+            self.replace_text(text);
+        }
+    }
+
+    /// An editing session is open, the field has the keys.
+    pub fn is_editing(&self) -> bool {
         self.is_editing
     }
 

@@ -196,6 +196,7 @@ keepawake = { workspace = true }
 open = { workspace = true }
 
 [build-dependencies]
+cc = { workspace = true }
 plat = { workspace = true }
 
 [dev-dependencies]

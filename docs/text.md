@@ -296,5 +296,5 @@ What cannot be wiped: a `String` passed to `set_text` by value is the copy of th
 caller. Single typed characters pass through winit and the event queue as they are.
 The shaper, the glyph brush and the GPU buffers keep the glyph numbers and positions
 of drawn text until other text replaces them, and the glyph atlas keeps the picture
-of every drawn glyph. On iOS the system text field behind the keyboard keeps its own
-copy. With the `inspect` feature the inspector still gets the real text.
+of every drawn glyph. On iOS the system text field a field is edited in holds the text while it
+is edited. It is cleared when the editing ends, the memory it used is not wiped. With the `inspect` feature the inspector still gets the real text.

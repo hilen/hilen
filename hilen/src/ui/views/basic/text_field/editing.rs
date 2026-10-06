@@ -3,7 +3,7 @@
 use web_time::{Duration, Instant};
 use zeroize::Zeroizing;
 
-use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
+use super::{MASK, MULTILINE_TOP_INSET, SYSTEM_EDITS, TextField, mask};
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -466,7 +466,7 @@ impl TextField {
     pub(super) fn update_caret(mut self: Weak<Self>) {
         self.update_layout();
 
-        if !self.is_editing {
+        if !self.is_editing || SYSTEM_EDITS {
             self.caret_view.set_hidden(true);
             self.clear_selection_views();
             return;

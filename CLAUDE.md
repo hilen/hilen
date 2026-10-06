@@ -83,6 +83,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop.
   Read before touching threading, async, or dispatch code.
 - [docs/ui-tests.md](docs/ui-tests.md) — how UI tests work and how to run a single one.
+  Also `system_input`, real taps and screen keyboard keys through the XCUITest helper.
   Read before writing or debugging UI tests.
 - [docs/inspect.md](docs/inspect.md) — the remote UI inspector, its protocol and the
   off-by-default `inspect` feature gate. Read before touching `hilen/src/inspect`,
@@ -116,7 +117,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   android builds or when an APK dies at startup.
 - [docs/ios.md](docs/ios.md) — what keeps iOS 12 and the A7 working: `NSLog` output, the
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
-  CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the
+  CoreGraphics and the wgpu fork. Also the system text field an edited `TextField` becomes
+  on an iPhone, and its native file inside the engine crate. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
 - [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
   display only, no key of the remote reaches the engine yet. The vendored plat, the winit fork pin, the hand made

@@ -103,3 +103,35 @@ with explicit tail padding. Reordering one silently feeds every shader that shar
 whatever landed at the offset it expected — `ui_backdrop.wgsl` shares `UIRectInstance` with
 `ui_rect.wgsl` and broke exactly that way. The layout tests next to each instance struct
 exist to catch it.
+
+## The system text field
+
+While a `TextField` is edited, a real `UITextField` sits exactly over it and takes the
+keys, a `UITextView` for a multiline field. So the keyboard, autocorrect, text composing
+and the selection handles are the ones of iOS. The engine draws no text and no caret for
+that time, its label shows only the placeholder of an empty field. The Rust half is
+`hilen/src/ui/views/basic/text_field/system_field.rs`, the native half is
+`hilen/native/ios/hilen_text.m`.
+
+- The native file is compiled into the engine library by `hilen/build.rs` with `cc`, so
+  the 2 halves are always 1 version and the Xcode project of an app carries nothing for
+  it. `hilen.h` of the mobile template still has the 3 old `hilen_ios_*keyboard`
+  functions, only for apps on an engine from before this.
+- The build script takes the compiler from `xcrun --find clang`. The first `clang` on
+  the PATH can be the one of the Command Line Tools, older than the iOS SDK, and it
+  fails on the modules of that SDK.
+- On open the system field gets the text, the font file with its axis values, the text
+  size, the color, the alignment, the insets and the secure flag, so the switch is not
+  visible. `Screen keyboard look` measures that on a capture of the screen. A field with
+  a number constraint opens the numbers page of the keyboard.
+- Every change of the text goes to the engine at once, so `changed` and the constraints
+  work per key. Return in a single line field arrives as Enter. A change of the UI scale
+  opens the system field again with the new sizes.
+- Closing has to take the keys from the engine view too. The winit view can be a first
+  responder, it takes the keys the moment its subview lets them go, and the keyboard
+  stayed up.
+- The system field follows the engine field every frame, `ViewCallbacks::update`, so
+  it stays over a field that scrolls.
+- Apple TV has none of this, the code is behind `all(ios, not(tvos))`.
+
+Open: password autofill and a field under the keyboard, see [roadmap.md](roadmap.md).

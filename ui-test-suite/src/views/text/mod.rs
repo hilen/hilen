@@ -34,6 +34,16 @@ mod multiline_label;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod multiline_text_field;
+/// The `screen_keyboard` tests type through the real keyboard of the
+/// platform, so unlike the other typing tests they run on a phone too.
+mod screen_keyboard_input;
+/// The system text field this one compares the engine field with exists
+/// only on an iPhone, nowhere else is there a switch to hide.
+#[cfg(all(ios, not(tvos)))]
+mod screen_keyboard_look;
+mod screen_keyboard_multiline;
+mod screen_keyboard_secure;
+mod screen_keyboard_submit;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod secure_text_field;
@@ -48,8 +58,10 @@ mod tab_focus;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;
-/// Focuses a field programmatically and types nothing, so it runs
-/// everywhere like [`text_field_theme`].
+/// Probes the caret the engine draws in a focused field. On an iPhone the
+/// system text field draws the caret, outside the engine frame, and
+/// [`screen_keyboard_look`] checks there that it follows the scale.
+#[cfg(not(all(ios, not(tvos))))]
 mod text_field_caret_scale;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]

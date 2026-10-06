@@ -18,7 +18,7 @@ use crate::{
     },
     gm::{
         ToF32,
-        flat::{Point, Rect, Size},
+        flat::{Point, Size},
     },
     ui::{
         DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation, UIColor, UIEvent,
@@ -44,9 +44,6 @@ static APP_READY: AtomicBool = AtomicBool::new(true);
 /// Actions parked by `on_app_ready` while the app is not ready yet, run in
 /// order the moment it becomes ready.
 static ON_APP_READY: Mutex<Vec<Box<dyn FnOnce() + Send>>> = Mutex::new(Vec::new());
-
-#[cfg(ios)]
-static IOS_KEYBOARD_INIT: std::sync::Once = std::sync::Once::new();
 
 pub struct UIManager {
     pub(crate) root_view: Own<RootView>,
@@ -426,39 +423,6 @@ impl UIManager {
 }
 
 impl UIManager {
-    pub(crate) fn open_keyboard(#[allow(unused_variables)] frame: &Rect) {
-        #[cfg(ios)]
-        {
-            crate::ui::ui_manager::IOS_KEYBOARD_INIT.call_once(|| {
-                unsafe { crate::ui::mobile::ios::hilen_ios_init_text_field() };
-            });
-
-            unsafe {
-                crate::ui::mobile::ios::hilen_ios_open_keyboard(
-                    frame.origin.x,
-                    frame.origin.y,
-                    frame.size.width,
-                    frame.size.height,
-                );
-            }
-        }
-    }
-
-    pub(crate) fn close_keyboard() -> Option<String> {
-        #[cfg(ios)]
-        {
-            let str_ptr = unsafe { crate::ui::mobile::ios::hilen_ios_close_keyboard() };
-            if str_ptr.is_null() {
-                return None;
-            }
-            let cstr = unsafe { std::ffi::CStr::from_ptr(str_ptr) };
-            Some(cstr.to_string_lossy().into_owned())
-        }
-
-        #[cfg(not(ios))]
-        None
-    }
-
     pub fn set_view<T: View + 'static>(view: Own<T>) -> Weak<T> {
         from_main(move || {
             let weak = view.weak();

@@ -37,6 +37,9 @@ use crate::{
     },
 };
 
+/// The tag of 1 axis of a variable font, like `wght`, with its value.
+pub type FontVariation = ([u8; 4], f32);
+
 pub struct Font {
     pub name:      String,
     pub brush:     TextBrush,
@@ -44,6 +47,14 @@ pub struct Font {
     /// the brush is busy.
     ab:            FontArc,
     face:          Face<'static>,
+    /// The file the font was made from, the face picked in it and the
+    /// axis values, for a system that has to draw with the same font.
+    #[cfg(all(ios, not(tvos)))]
+    data:          &'static [u8],
+    #[cfg(all(ios, not(tvos)))]
+    index:         u32,
+    #[cfg(all(ios, not(tvos)))]
+    variations:    Vec<FontVariation>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
     /// factor converts an em size into the `PxScale` that renders it.
@@ -70,7 +81,7 @@ impl Font {
     fn new_with_variations(
         name: impl ToString,
         data: &[u8],
-        variations: &[([u8; 4], f32)],
+        variations: &[FontVariation],
         stem_darkening: f32,
     ) -> Result<Self> {
         // Managed fonts live until process exit, leaking gives the raster
@@ -85,7 +96,7 @@ impl Font {
         name: impl ToString,
         data: &'static [u8],
         index: u32,
-        variations: &[([u8; 4], f32)],
+        variations: &[FontVariation],
         stem_darkening: f32,
     ) -> Result<Self> {
         let window = Window::current();
@@ -130,6 +141,12 @@ impl Font {
             brush,
             ab: font,
             face,
+            #[cfg(all(ios, not(tvos)))]
+            data,
+            #[cfg(all(ios, not(tvos)))]
+            index,
+            #[cfg(all(ios, not(tvos)))]
+            variations: variations.to_vec(),
             em_scale,
             shape_cache: MainLock::new(),
             measure_cache: MainLock::new(),
@@ -137,6 +154,14 @@ impl Font {
             color_glyphs: MainLock::new(),
             first_batch: true,
         })
+    }
+
+    /// The file and the axis values a system text view needs to draw with
+    /// this font. `None` for a face inside a font collection, the system
+    /// would need that face picked out of the file.
+    #[cfg(all(ios, not(tvos)))]
+    pub(crate) fn system_source(&self) -> Option<(&'static [u8], &[FontVariation])> {
+        (self.index == 0).then_some((self.data, self.variations.as_slice()))
     }
 
     pub(crate) fn begin_frame(&mut self) {
@@ -395,7 +420,7 @@ impl Font {
     /// weight `(*b"wght", 600.0)`, optical size `(*b"opsz", 17.0)` or
     /// grade `(*b"GRAD", 430.0)`. Each combination is a separate managed
     /// instance, cache it under a name that includes the values.
-    pub fn with_variations(name: &str, data: &[u8], variations: &[([u8; 4], f32)]) -> Result<Weak<Font>> {
+    pub fn with_variations(name: &str, data: &[u8], variations: &[FontVariation]) -> Result<Weak<Font>> {
         Self::store_with_name(name, || Self::new_with_variations(name, data, variations, 0.0))
     }
 
@@ -406,7 +431,7 @@ impl Font {
     pub fn with_variations_darkened(
         name: &str,
         data: &[u8],
-        variations: &[([u8; 4], f32)],
+        variations: &[FontVariation],
         darkening: f32,
     ) -> Result<Weak<Font>> {
         Self::store_with_name(name, || {
