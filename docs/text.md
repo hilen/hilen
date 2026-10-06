@@ -84,6 +84,12 @@ a variable font instance with axes pinned. Each combination is its own managed
 instance, cache under a name that includes the values. Axis values apply to both
 the raster font and the shaping face. A missing axis is an error.
 
+The engine brings 4 font files: the static Roboto Regular, the default font, and the
+variable Roboto, Roboto Italic and Roboto Mono. `Font::bold()`, `Font::italic()`,
+`Font::bold_italic()`, `Font::mono()` and `Font::mono_bold()` hand out an instance of
+the 3 variable files, weight 400 or 700, made on the first call. So an app has bold,
+italic and code text with no font file of its own.
+
 ## Letter spacing
 
 `Label::set_letter_spacing(points)` adds tracking between glyphs, applied by
@@ -187,7 +193,7 @@ spacing. Theme pairs in a run re-resolve on a switch like the text color does.
 ## Font runs
 
 `Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,
-or both, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
+struck through, or any mix of the 3, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
 per run it crosses and one per gap, each with its own face and shape cache, so
 a wider run font moves the wraps and `Font::measure` follows. The line height
 and baseline stay the label font's. Every `Font` owns one brush, so the drawer
@@ -196,7 +202,42 @@ the whole text and emits only the glyphs of the font that brush draws. Kerning
 stops at a run boundary, the two sides are different fonts. An underline is
 not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
 the run from the base font's underline metrics, in the color the text has
-there, between the label background and the glyphs. `set_text` clears the runs.
+there, between the label background and the glyphs. A run with
+`RunStyle::strikethrough()` or `.struck()` gets a line through its text the same
+way, from the strikeout metrics of the base font, a third of the ascent when the
+font has none. `Label strikethrough` pins it. `set_text` clears the runs.
+
+## Markdown
+
+`MarkdownView` draws GitHub flavored markdown as blocks, one under the other:
+paragraphs, 6 heading levels, bullet, numbered and task lists with nesting, quotes,
+code blocks, tables and rules. Inside a text: bold, italic, struck, inline code and
+links. It is built from what the sections above describe, a `Label` per text with
+font runs and color runs, and plain `Container`s for the boxes and lines. The code is
+in `hilen/src/ui/views/complex/markdown`.
+
+- `parse.rs` turns the events of `pulldown-cmark` into the blocks of `model.rs`. A
+  text keeps no marks, only byte ranges with a style, and the ranges of its links.
+- `highlight.rs` colors a code block. `syntect` parses it with the language files of
+  `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
+  builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix
+  that fits, and `MarkdownStyle` has a color per kind, so the code follows the theme.
+  A language nobody knows gets no color.
+- `view.rs` lays the blocks out with absolute frames. The view does not size itself:
+  `height_for_width` lays the text out at a width and gives the height, the way a
+  table asks for the height of a cell. A change of the text or its color lays out
+  once on the next turn of the main loop, and a change of the width lays out again.
+  A code line longer than the block wraps, and a table wider than its room shrinks
+  every column by the same share.
+- A tap on a link is mapped to a byte through `Label::text_layout_for`, fires
+  `link_tapped` with the address and opens it with `open_url`. `set_opens_links(false)`
+  leaves only the event, for an app with links of its own and for a test.
+- `MarkdownStyle` is global like `DialogStyle`: text sizes, a light and dark pair
+  per color, and the 6 fonts, the bundled ones when not set. The test harness takes
+  the style of the app away for a run and hands it back.
+
+Images, raw HTML, footnotes and math are shown as their text. `Markdown view test`
+pins the look, a tap on a link and the height at 2 widths.
 
 ## Glyph fallback
 

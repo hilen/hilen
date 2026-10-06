@@ -5,7 +5,7 @@ use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_fai
 use crate::level::LevelManager;
 use crate::{
     deps::hreads::from_main,
-    ui::{DialogStyle, Label, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
+    ui::{DialogStyle, Label, MarkdownStyle, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
 };
 
 pub struct TestRunReport {
@@ -22,6 +22,7 @@ pub struct TestRunReport {
 struct AppState {
     styles:         GlobalStyles,
     dialog_style:   Option<DialogStyle>,
+    markdown_style: Option<MarkdownStyle>,
     text_size:      f32,
     scale_override: f32,
     clear_color:    UIColor,
@@ -37,6 +38,7 @@ fn prepare_harness() -> AppState {
     let state = from_main(|| AppState {
         styles:         Style::take_globals(),
         dialog_style:   DialogStyle::take_global(),
+        markdown_style: MarkdownStyle::take_global(),
         text_size:      Label::default_text_size(),
         scale_override: UIManager::scale_override(),
         clear_color:    UIManager::clear_color(),
@@ -65,6 +67,7 @@ fn restore_app(state: AppState) {
         crate::ui::Font::set_system_fallback(state.system_fonts);
         Style::restore_globals(state.styles);
         DialogStyle::restore_global(state.dialog_style.as_ref());
+        MarkdownStyle::restore_global(state.markdown_style.as_ref());
         crate::BugReportStyle::restore_global(state.bug_style.as_ref());
         UIManager::restore_scale_override(state.scale_override);
         UIManager::set_clear_color(state.clear_color);
@@ -158,6 +161,7 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
 
     from_main(Style::take_globals);
     from_main(DialogStyle::take_global);
+    from_main(MarkdownStyle::take_global);
     from_main(crate::BugReportStyle::take_global);
     Label::set_default_text_size(32);
     (entry.present)();

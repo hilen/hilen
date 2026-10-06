@@ -577,6 +577,17 @@ impl ShapedLayout<'_> {
                 )
             },
         );
+        // A font with no strikeout numbers gets the line at a third of
+        // its ascent, about the middle of a lowercase letter.
+        let strikeout =
+            base.face()
+                .strikeout_metrics()
+                .map_or((scaled.ascent() / 3.0, underline.1), |metrics| {
+                    (
+                        f32::from(metrics.position) * px_per_unit,
+                        f32::from(metrics.thickness) * px_per_unit,
+                    )
+                });
 
         TextLayout {
             lines,
@@ -584,6 +595,7 @@ impl ShapedLayout<'_> {
             descent: scaled.descent(),
             line_height: self.line_pitch(&scaled),
             underline,
+            strikeout,
         }
     }
 }

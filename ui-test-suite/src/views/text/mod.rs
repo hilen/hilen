@@ -23,10 +23,12 @@ mod label_measure;
 mod label_outline;
 mod label_soft_shadow;
 mod label_stress;
+mod label_strikethrough;
 mod label_tab;
 mod label_vertical_alignment;
 mod label_wide_effect;
 mod letter_spacing;
+mod markdown_view;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod modal_escape_text_field;

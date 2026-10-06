@@ -26,6 +26,8 @@ pub struct TextLayout {
     /// The base font's underline: how far the line sits above the
     /// baseline, negative below it, and how thick it is.
     pub(crate) underline: (f32, f32),
+    /// The base font's strikeout line, the same 2 numbers.
+    pub(crate) strikeout: (f32, f32),
 }
 
 impl TextLayout {
@@ -116,6 +118,7 @@ mod tests {
             descent:     2.0,
             line_height: 12.0,
             underline:   (0.0, 1.0),
+            strikeout:   (3.0, 1.0),
         }
     }
 

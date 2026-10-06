@@ -63,7 +63,8 @@ another through the real input pipeline, for drag driven behavior like selecting
 [--at view]` injects a wheel scroll at the window center or a view's center, `scroll-to
 <query>` scrolls the list that clips the target, or the window with none, until the
 target is inside it. `resize <w> <h>`
-resizes the window in points, desktop only. Frames in the tree are local to the parent
+resizes the window in points, desktop only. A size the OS does not give, like one
+above the screen, comes back as an error with the size the window has instead. Frames in the tree are local to the parent
 and do not include scrolling, absolute positions add `content_offset` down the tree,
 which `find`, `wait` and `scroll-to` already do.
 

@@ -290,27 +290,39 @@ impl AppRunner {
     #[cfg(desktop)]
     pub fn set_window_size(size: impl Into<Size<u32>> + Send + 'static) {
         let size = size.into();
+        if let Err(actual) = Self::request_window_size(size) {
+            panic!("Window did not resize to {size:?}, it is {actual:?}");
+        }
+    }
 
+    /// Asks the OS for a window size and waits until it is real. `Err`
+    /// holds the size the window has instead: the OS gives a window no
+    /// more than the screen has, so a size above it never comes. The
+    /// inspector answers with that instead of a panic, a wrong number
+    /// typed into a tool must not look like a crash of the app.
+    #[cfg(desktop)]
+    pub(crate) fn request_window_size(size: Size<u32>) -> Result<(), Size<u32>> {
         from_main(move || {
             Window::current().set_size(size);
         });
 
         if is_main_thread() {
-            return;
+            return Ok(());
         }
 
         // In windowed mode the OS applies the resize later. A touch injected
         // before it lands is processed against the old layout and misses
         // every view. Wait until the new size is real.
+        let mut current = size;
         for _ in 0..100 {
-            let current: Size<u32> = from_main(Window::inner_size).lossy_convert();
+            current = from_main(Window::inner_size).lossy_convert();
             if current == size {
-                return;
+                return Ok(());
             }
             wait_for_next_frame();
         }
 
-        panic!("Window did not resize to {size:?}");
+        Err(current)
     }
 
     pub fn take_screenshot() -> Result<Screenshot> {

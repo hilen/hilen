@@ -90,6 +90,7 @@ mime_guess = { workspace = true }
 noise = { workspace = true }
 nonempty = { workspace = true }
 parking_lot = { workspace = true }
+pulldown-cmark = { workspace = true }
 reqwest = { workspace = true }
 resvg = { workspace = true }
 rustc-hash = { workspace = true }
@@ -97,9 +98,11 @@ rust_decimal = { workspace = true }
 rustybuzz = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+syntect = { workspace = true }
 sysinfo = { workspace = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
+two-face = { workspace = true }
 usvg = { workspace = true }
 web-time = { workspace = true }
 wgpu = { workspace = true }

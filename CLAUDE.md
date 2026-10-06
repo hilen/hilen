@@ -92,7 +92,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
   results history in `bench/`. Read before touching the benchmark or measuring performance.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before
   proposing an optimization or a speculative fix; add new unproved ideas there, not to code.
-- [docs/text.md](docs/text.md) — the text pipeline: rustybuzz shaping, em sizing, variable
+- [docs/text.md](docs/text.md) — the text pipeline: the bundled fonts, `MarkdownView` and its style, rustybuzz shaping, em sizing, variable
   font instances, letter spacing, line handling. Read before touching label rendering,
   fonts, or `hilen/src/window/text`.
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,

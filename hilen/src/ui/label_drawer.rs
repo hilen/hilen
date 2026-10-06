@@ -284,24 +284,21 @@ impl UIDrawer {
         }
     }
 
-    /// One rect under every line piece of an underlined run, in the
-    /// color the text has there. Between the label background and its
-    /// glyphs, so a descender paints over the line like in a browser.
+    /// One rect per line piece of every underlined run and of every run
+    /// with a line through it, in the color the text has there. Between
+    /// the label background and its glyphs, so a descender paints over
+    /// an underline like in a browser. A line through the text has the
+    /// color of the glyphs it crosses, so it reads the same behind them.
     pub(super) fn draw_underlines(frame: &Rect, label: &Label, scale: f32, opacity: f32) {
         let text = label.display_text(frame.size.width);
-        let ranges = label.underline_runs(text);
-        if ranges.is_empty() {
+        let underlined = label.underline_runs(text);
+        let struck = label.strikethrough_runs(text);
+        if underlined.is_empty() && struck.is_empty() {
             return;
         }
 
         let layout = label.text_layout_for(text);
         let inset = label.text_inset();
-        // Snapped to whole screen pixels. A hairline on a fractional row
-        // gets its two partial rows blended differently by every GPU, a
-        // whole row reads the same everywhere, and a crisp line is what a
-        // browser draws too.
-        let (position, thickness) = layout.underline;
-        let thickness = (thickness * scale).round().max(1.0) / scale;
         let z = label.z_position() - UIManager::additional_z_offset() / 2.0;
 
         let top = match label.vertical_alignment {
@@ -317,26 +314,36 @@ impl UIDrawer {
             };
             let count: f32 = index.lossy_convert();
             let baseline = top + layout.ascent + count * layout.line_height;
-            let y = ((baseline - position) * scale).round() / scale;
 
-            for range in &ranges {
-                let start = range.start.max(line.start);
-                let end = range.end.min(line.end);
-                if start >= end {
-                    continue;
+            for (ranges, (position, thickness)) in
+                [(&underlined, layout.underline), (&struck, layout.strikeout)]
+            {
+                // Snapped to whole screen pixels. A hairline on a fractional
+                // row gets its two partial rows blended differently by every
+                // GPU, a whole row reads the same everywhere, and a crisp
+                // line is what a browser draws too.
+                let thickness = (thickness * scale).round().max(1.0) / scale;
+                let y = ((baseline - position) * scale).round() / scale;
+
+                for range in ranges {
+                    let start = range.start.max(line.start);
+                    let end = range.end.min(line.end);
+                    if start >= end {
+                        continue;
+                    }
+                    let x0 = layout.x_on_line(index, start);
+                    let x1 = layout.x_on_line(index, end);
+
+                    Pipelines::rect().add(UIRectInstance::new(
+                        (line_x + x0, y, x1 - x0, thickness).into(),
+                        label.color_at(start).faded(opacity),
+                        CLEAR,
+                        0.0,
+                        CornerRadii::default(),
+                        z,
+                        scale,
+                    ));
                 }
-                let x0 = layout.x_on_line(index, start);
-                let x1 = layout.x_on_line(index, end);
-
-                Pipelines::rect().add(UIRectInstance::new(
-                    (line_x + x0, y, x1 - x0, thickness).into(),
-                    label.color_at(start).faded(opacity),
-                    CLEAR,
-                    0.0,
-                    CornerRadii::default(),
-                    z,
-                    scale,
-                ));
             }
         }
     }

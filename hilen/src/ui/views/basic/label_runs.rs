@@ -11,27 +11,41 @@ use crate::{
 /// range without a font keeps the label's font.
 #[derive(Clone, Default)]
 pub struct RunStyle {
-    pub font:      Option<Weak<Font>>,
-    pub underline: bool,
+    pub font:          Option<Weak<Font>>,
+    pub underline:     bool,
+    pub strikethrough: bool,
 }
 
 impl RunStyle {
     pub fn font(font: Weak<Font>) -> Self {
         Self {
-            font:      Some(font),
-            underline: false,
+            font: Some(font),
+            ..Self::default()
         }
     }
 
     pub fn underline() -> Self {
         Self {
-            font:      None,
             underline: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn strikethrough() -> Self {
+        Self {
+            strikethrough: true,
+            ..Self::default()
         }
     }
 
     pub fn underlined(mut self) -> Self {
         self.underline = true;
+        self
+    }
+
+    /// Adds a line through the middle of the text.
+    pub fn struck(mut self) -> Self {
+        self.strikethrough = true;
         self
     }
 }
@@ -43,11 +57,11 @@ pub(crate) struct StyleRun {
 }
 
 impl Label {
-    /// Draws byte ranges of the text in their own font, underlined, or
-    /// both, the rest keeps the label's font. The line height and the
-    /// baseline stay the label font's. Shaping, wrapping and measuring
-    /// use the run fonts, so a wider font moves the line breaks. Ranges
-    /// are clamped to the text and to char boundaries, sorted, and a
+    /// Draws byte ranges of the text in their own font, underlined, struck
+    /// through, or any mix of the 3, the rest keeps the label's font. The line
+    /// height and the baseline stay the label font's. Shaping, wrapping and
+    /// measuring use the run fonts, so a wider font moves the line breaks.
+    /// Ranges are clamped to the text and to char boundaries, sorted, and a
     /// later range wins an overlap, like `set_color_runs`.
     pub fn set_font_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, RunStyle)>) -> &Self {
         let mut this = weak_from_ref(self);
@@ -134,6 +148,17 @@ impl Label {
         self.font_runs
             .iter()
             .filter(|run| run.style.underline)
+            .map(|run| Self::clamp_to(text, &run.range))
+            .filter(|range| range.start < range.end)
+            .collect()
+    }
+
+    /// The byte ranges with a line through them, clamped like
+    /// `shaping_runs`.
+    pub(crate) fn strikethrough_runs(&self, text: &str) -> Vec<Range<usize>> {
+        self.font_runs
+            .iter()
+            .filter(|run| run.style.strikethrough)
             .map(|run| Self::clamp_to(text, &run.range))
             .filter(|range| range.start < range.end)
             .collect()

@@ -454,6 +454,42 @@ impl Font {
         })
         .expect("Failed to load Roboto font")
     }
+
+    /// Roboto at weight 700. The engine brings the variable Roboto files,
+    /// upright, italic and mono, so an app has bold, italic and code text
+    /// with no font file of its own. Each one is made on its first call.
+    pub fn bold() -> Weak<Font> {
+        Self::bundled("Roboto-700", include_bytes!("fonts/Roboto.ttf"), 700.0)
+    }
+
+    pub fn italic() -> Weak<Font> {
+        Self::bundled(
+            "Roboto-Italic-400",
+            include_bytes!("fonts/Roboto-Italic.ttf"),
+            400.0,
+        )
+    }
+
+    pub fn bold_italic() -> Weak<Font> {
+        Self::bundled(
+            "Roboto-Italic-700",
+            include_bytes!("fonts/Roboto-Italic.ttf"),
+            700.0,
+        )
+    }
+
+    /// Roboto Mono, every glyph the same width, for code.
+    pub fn mono() -> Weak<Font> {
+        Self::bundled("RobotoMono-400", include_bytes!("fonts/RobotoMono.ttf"), 400.0)
+    }
+
+    pub fn mono_bold() -> Weak<Font> {
+        Self::bundled("RobotoMono-700", include_bytes!("fonts/RobotoMono.ttf"), 700.0)
+    }
+
+    fn bundled(name: &str, data: &[u8], weight: f32) -> Weak<Font> {
+        Self::with_variations(name, data, &[(*b"wght", weight)]).expect("Failed to load a bundled font")
+    }
 }
 
 managed!(Font);

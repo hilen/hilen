@@ -306,18 +306,7 @@ impl InspectService {
                 Err(err) => AppCommand::Error(err),
             },
             #[cfg(desktop)]
-            UIRequest::Resize { width, height } => {
-                use crate::gm::LossyConvert;
-
-                let size = from_main(move || {
-                    let scale = UIManager::scale();
-                    let size: (u32, u32) =
-                        ((width * scale).lossy_convert(), (height * scale).lossy_convert());
-                    size
-                });
-                crate::AppRunner::set_window_size(size);
-                Self::send_ui()
-            }
+            UIRequest::Resize { width, height } => Self::resize(width, height),
             #[cfg(not(desktop))]
             UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
             UIRequest::Hold { keys, ms } => Self::hold(keys, ms),
@@ -475,6 +464,28 @@ impl InspectService {
             }
             Err(err) => AppCommand::Error(err),
         }
+    }
+
+    /// A size the OS does not give, like one above the screen, is an
+    /// error answer with the size the window has instead.
+    #[cfg(desktop)]
+    fn resize(width: f32, height: f32) -> AppCommand {
+        use crate::gm::LossyConvert;
+
+        let (size, scale) = from_main(move || {
+            let scale = UIManager::scale();
+            let size: (u32, u32) = ((width * scale).lossy_convert(), (height * scale).lossy_convert());
+            (size, scale)
+        });
+        let Err(actual) = crate::AppRunner::request_window_size(size.into()) else {
+            return Self::send_ui();
+        };
+        let actual_width: f32 = actual.width.lossy_convert();
+        let actual_height: f32 = actual.height.lossy_convert();
+        let has = format!("{} by {}", actual_width / scale, actual_height / scale);
+        AppCommand::Error(format!(
+            "The window did not take {width} by {height} points, it is {has}. A window cannot be bigger than the screen."
+        ))
     }
 
     fn send_ui() -> AppCommand {
