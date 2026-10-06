@@ -185,6 +185,7 @@ objc2-foundation = { workspace = true }
 objc2-media-player = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+libc = { workspace = true }
 objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-ui-kit = { workspace = true }

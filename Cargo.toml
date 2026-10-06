@@ -36,7 +36,8 @@ repository = "https://github.com/hilen/hilen"
 version = "0.1.0"
 
 [workspace.metadata.cargo-machete]
-ignored = []
+# hilen names libc only to carry its pin below to every app.
+ignored = ["libc"]
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -109,7 +110,10 @@ keyring-store-apple = { package = "apple-native-keyring-store", version = "1" }
 keyring-store-linux = { package = "zbus-secret-service-keyring-store", version = "1", features = ["crypto-rust"] }
 keyring-store-windows = { package = "windows-native-keyring-store", version = "1" }
 kira = "0.12"
-libc = "0.2"
+# backtrace 0.3.76, which sentry brings in, calls 4 dyld functions that libc
+# 0.2.190 declares only for macOS, so an iOS build fails. Free the pin when
+# backtrace or libc ships a fix.
+libc = "=0.2.189"
 local-ip-address = "0.6"
 log = { version = "0.4", features = ["serde", "std"] }
 lyon = "1.0"
