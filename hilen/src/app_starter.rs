@@ -91,6 +91,13 @@ fn prepare_storage() {
         crate::store::SecretStore::set_service(name.to_string_lossy().trim_start_matches('.'));
     }
 
+    // A Mac ties the right to read a Keychain entry to the signature of the
+    // binary, and every debug build is a new binary. So a debug build would
+    // ask for the Keychain password after each rebuild. It keeps its secrets
+    // in sealed files instead.
+    #[cfg(all(feature = "google-access", debug_assertions))]
+    crate::store::SecretStore::keep_in_files();
+
     OnDisk::<()>::set_root_path(dir);
 }
 

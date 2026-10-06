@@ -16,26 +16,22 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Google API access for an app, with scopes and sealed tokens
+## Google access, the proof on a phone, in a browser and with a linked account
 
 Found by lendar at `~/dev/apps/lendar`, a calendar that reads and writes Google
-Calendar for several Google accounts at once.
+Calendar for several Google accounts at once. The feature landed, see
+[google-access.md](google-access.md).
 
-- Current: the login asks Google only for `openid email profile`,
-  `hilen-server/src/auth/google.rs` line 22, and keeps no Google token, the identity
-  is made with `refresh_token: None` at line 94. So an app gets a session with its
-  own server and no access to a Google API. `SessionStore` in `hilen-session` seals
-  exactly 1 string, the session token, and `OnDiskEncrypted` is commented out in
-  `hilen/src/store/mod.rs`. lendar so carries its own sign in,
-  `src/google/auth.rs`: PKCE with a redirect to a local TCP port, which only a
-  desktop can do, a client secret baked into the binary by `build.rs`, and the
-  access and refresh tokens of every account in a plain `google-tokens.json`.
-- Needed: a login that takes extra Google scopes from the app and hands the app an
-  access token for them, refreshed when it runs out, on every platform. More than 1
-  Google account per user. A sealed store for the tokens. Whether the tokens live on
-  the server or on the device is open, decide it first.
-- Blocks: lendar on iOS, Android and in the browser, and the removal of its own
-  sign in code, its baked client secret and its plain token file.
+- Current: proven on a Mac debug build against the live backend of lendar. The main
+  account signed in, the Drive app folder was read and the calendars synced. No
+  second account was linked against the real Google yet, the 2 device tests run
+  against a stand in for the Drive folder. The secure store ran only on a Mac, for
+  Windows, Linux and Android `hilen-session` was only compiled. Nothing ran on iOS,
+  on Android or in a browser, and no signed release build read the Keychain yet.
+- Needed: a real link of a second account and its return on a second device. The
+  sign in on an iPhone, on Android and in a browser. A signed Mac release that
+  reads the Keychain with no dialog, and a run of the store on Windows and Linux.
+- Blocks: lendar on iOS, Android and in the browser.
 
 ## Canvas and pinch, the proof on real input
 

@@ -32,6 +32,16 @@ struct State {
     /// Access tokens by subject, with the time each one is good until.
     tokens:    Option<HashMap<String, (String, f64)>>,
     drive_url: Option<String>,
+    /// The main account, read from the `SecretStore` once per run. Every
+    /// read of the store can make the system ask the user, so it must not
+    /// happen per call.
+    main:      Main,
+}
+
+enum Main {
+    NotRead,
+    SignedOut,
+    SignedIn(Stored),
 }
 
 impl State {
@@ -40,12 +50,13 @@ impl State {
             vault:     Vault::new(),
             tokens:    None,
             drive_url: None,
+            main:      Main::NotRead,
         }
     }
 }
 
 /// What the main account keeps on this device, as JSON in a `SecretStore`.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Stored {
     subject:       String,
     email:         String,
@@ -158,6 +169,7 @@ impl GoogleAccounts {
         let drive_url = STATE.lock().drive_url.clone();
         *STATE.lock() = State {
             drive_url,
+            main: Main::SignedOut,
             ..State::new()
         };
         log::info!("google accounts signed out on this device");
@@ -300,21 +312,33 @@ impl Stored {
 }
 
 fn stored_main() -> Option<Stored> {
-    let json = MAIN.load()?;
+    match &STATE.lock().main {
+        Main::NotRead => {}
+        Main::SignedOut => return None,
+        Main::SignedIn(main) => return Some(main.clone()),
+    }
+
     // A parse error would carry the token into a log.
-    from_str(&json)
-        .inspect_err(|_| log::warn!("the stored main Google account does not parse"))
-        .ok()
+    let main = MAIN.load().and_then(|json| {
+        from_str(&json)
+            .inspect_err(|_| log::warn!("the stored main Google account does not parse"))
+            .ok()
+    });
+    STATE.lock().main = main.clone().map_or(Main::SignedOut, Main::SignedIn);
+    main
 }
 
 fn save_main(account: &GoogleAccount) -> Result<()> {
-    MAIN.save(&to_string(&Stored {
+    let stored = Stored {
         subject:       account.subject.clone(),
         email:         account.email.clone(),
         name:          account.name.clone(),
         picture:       account.picture.clone(),
         refresh_token: account.refresh_token.clone(),
-    })?)
+    };
+    MAIN.save(&to_string(&stored)?)?;
+    STATE.lock().main = Main::SignedIn(stored);
+    Ok(())
 }
 
 /// A sign in comes with an access token, no renewal is needed right after.

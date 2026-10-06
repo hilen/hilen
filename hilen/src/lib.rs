@@ -69,6 +69,8 @@ pub mod login;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;
+#[cfg(any(feature = "login", feature = "google-access"))]
+mod sign_in_button;
 pub mod store;
 pub mod system;
 pub mod ui;

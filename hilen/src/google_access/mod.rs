@@ -7,14 +7,19 @@
 //! for a key only this device has. [`GoogleAccess`] is the sign in and the
 //! renewal of an access token. [`GoogleAccounts`] on top of it keeps 1 main
 //! account and its linked accounts, the same on every device of the user.
+//! [`GoogleSignInButton`] and [`GoogleLinkButton`] are the ready views.
 
 mod accounts;
 #[cfg(all(test, not_wasm))]
 mod accounts_test;
+mod button;
+#[cfg(feature = "ui-tests")]
+mod button_test;
 mod client;
 mod vault;
 mod wire;
 
 pub use accounts::{AccountInfo, GoogleAccounts};
+pub use button::{GoogleLinkButton, GoogleSignInButton};
 pub use client::{AccessToken, GoogleAccess, RenewError};
 pub use wire::{GoogleAccount, Role};

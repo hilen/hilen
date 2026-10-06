@@ -84,6 +84,9 @@ from a tap, `cancel`, `renew` and `revoke`.
   of the Google Drive of the main account. The main account needs the scope
   `https://www.googleapis.com/auth/drive.appdata` for it. A sign in with the
   main account on another device reads the file and has every account.
+- The main account is read from the `SecretStore` once per run and kept in
+  memory. A read of the Keychain can make macOS ask the user, so it must not
+  happen per call.
 - On a device the linked accounts are in memory only. `sync` reads the file,
   merges it with what the device knows and writes it back when the file was
   behind. Call it at launch when `main()` is some.
@@ -99,6 +102,17 @@ from a tap, `cancel`, `renew` and `revoke`.
   `anyhow` error.
 - No error and no `Debug` print carries a token. A parse of a body with tokens
   never goes into an error text.
+
+## The buttons
+
+`GoogleSignInButton` signs the main account in and `GoogleLinkButton` links one
+more, both in the look of the Google button guidelines, with the spinner and the
+cancel of the login buttons. Their events are `signed_in` and `linked` with all
+accounts, and `failed` with a message. The body is shared with
+`GoogleLoginButton` and `AppleLoginButton`: `sign_in_button.rs` holds the looks
+and a macro that writes the view out per button, with the fn that starts the sign
+in and the fn that cancels it. A generic view could not sit in a UI test. The UI
+test is `Google account buttons look`.
 
 ## SecretStore
 
@@ -116,8 +130,12 @@ session, with a warning in the log for the last case.
 - `SecretStore::keep_in_files()` is for tests, a test must not ask the real
   credential store. 1 ignored test does, see `secret_store.rs`.
 - Windows takes about 2500 bytes per secret.
-- A debug build on a Mac can show a Keychain dialog after a rebuild, the binary
-  changed.
+- macOS lets the program that made a Keychain entry read it with no dialog, and
+  it knows a program by its code signature. A release signed with a Developer ID
+  keeps its signature over updates and never asks. A debug build is a new
+  program after every rebuild and would ask for the Keychain password each time,
+  so the engine calls `keep_in_files()` in a debug build of an app with
+  `google-access`. A debug and a release build so do not share a sign in.
 
 ## Tests
 

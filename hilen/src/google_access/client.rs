@@ -127,7 +127,7 @@ impl GoogleAccess {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "ui-tests"))]
 impl GoogleAccess {
     pub(super) fn swap_server(server: Option<String>) -> Option<String> {
         use std::mem::replace;
