@@ -1,5 +1,3 @@
-mod colors;
-
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
 use anyhow::{Result, bail, ensure};
@@ -11,10 +9,9 @@ use hilen::{
         Model, Node, NodeTemplates, Prop, SceneCreation, SceneSetup, SceneTest, Sky, ThirdPerson, Wall, scene,
     },
     ui::Color,
-    ui_test::{check_colors, checkpoint, set_record_probe_count},
+    ui_test::checkpoint,
 };
 
-use self::colors::{BEHIND, PULLED_IN, SLID_OUT, THROUGH_WALL, ZOOMED};
 use crate::geometry::{WHITE, capsule};
 
 const TOLERANCE: f32 = 1e-3;
@@ -188,7 +185,6 @@ fn animate(mut scene: Weak<ThirdPersonCamera>, yaw: Option<f32>, distance: Optio
 
 impl SceneTest for ThirdPersonCamera {
     fn perform_test(mut scene: Weak<Self>) -> Result<()> {
-        set_record_probe_count(128);
         settle();
 
         let (camera, expected) = camera_and_unclipped(scene);
@@ -197,7 +193,6 @@ impl SceneTest for ThirdPersonCamera {
             "the camera is at {camera}, behind the player is {expected}"
         );
         checkpoint("the camera sits behind the figure, the half clear wall ahead")?;
-        check_colors(BEHIND)?;
 
         animate(scene, Some(PI), None)?;
         let (camera, unclipped) = camera_and_unclipped(scene);
@@ -210,7 +205,6 @@ impl SceneTest for ThirdPersonCamera {
             "the wall pulls the camera in front of it, it is at {camera}"
         );
         checkpoint("the figure turned half round, the wall behind it slid the camera in close")?;
-        check_colors(PULLED_IN)?;
 
         animate(scene, Some(TAU), None)?;
         let (camera, expected) = camera_and_unclipped(scene);
@@ -219,7 +213,6 @@ impl SceneTest for ThirdPersonCamera {
             "turned back, the camera slides out to {expected}"
         );
         checkpoint("the figure turned back, the camera slid out to its full distance")?;
-        check_colors(SLID_OUT)?;
 
         let wall = from_main(move || scene.wall.weak_node());
         from_main(move || {
@@ -233,7 +226,6 @@ impl SceneTest for ThirdPersonCamera {
             "skipping the wall the camera goes through it to {expected}"
         );
         checkpoint("the wall is skipped, on the same turn the camera passed through it")?;
-        check_colors(THROUGH_WALL)?;
 
         from_main(move || {
             let player = scene.player.as_mut().expect("the scene has a player");
@@ -245,7 +237,6 @@ impl SceneTest for ThirdPersonCamera {
             camera.distance(expected) < TOLERANCE,
             "zoomed in, the camera is at {camera}, not {expected}"
         );
-        checkpoint("the camera zoomed in close over the figure's shoulder")?;
-        check_colors(ZOOMED)
+        checkpoint("the camera zoomed in close over the figure's shoulder")
     }
 }

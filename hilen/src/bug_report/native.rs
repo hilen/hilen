@@ -90,11 +90,10 @@ mod tests {
     /// it produced and its attachments in envelope order.
     fn sent(send: impl FnOnce()) -> Result<(Event<'static>, Vec<Sent>)> {
         let transport = Arc::new(Captured::default());
-        let client = Client::with_options(ClientOptions {
-            dsn: Some("https://key@sentry.invalid/1".parse()?),
-            transport: Some(Arc::new(transport.clone())),
-            ..Default::default()
-        });
+        let mut options = ClientOptions::default();
+        options.dsn = Some("https://key@sentry.invalid/1".parse()?);
+        options.transport = Some(Arc::new(transport.clone()));
+        let client = Client::with_options(options);
 
         Hub::run(
             Arc::new(Hub::new(Some(Arc::new(client)), Arc::new(Scope::default()))),
@@ -119,7 +118,7 @@ mod tests {
             }
         }
 
-        Ok((event.expect("the envelope has no event"), attachments))
+        Ok((*event.expect("the envelope has no event"), attachments))
     }
 
     fn names(attachments: &[Sent]) -> Vec<&str> {

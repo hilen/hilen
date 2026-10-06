@@ -13,7 +13,7 @@ use hilen::{
         NodeTemplates, SceneCreation, SceneSetup, SceneTest, Sky, Wall, scene, step_scene,
     },
     ui::Color,
-    ui_test::{check_colors, set_record_probe_count},
+    ui_test::checkpoint,
 };
 
 use crate::geometry::{Frustum, WHITE, append, capsule};
@@ -134,8 +134,6 @@ impl SceneTest for ColliderShapes {
     }
 
     fn perform_test(scene: Weak<Self>) -> Result<()> {
-        set_record_probe_count(128);
-
         step_scene(SETTLE_FRAMES);
 
         let rests = from_main(move || {
@@ -154,140 +152,9 @@ impl SceneTest for ColliderShapes {
             );
         }
 
-        check_colors(RESTING)
+        checkpoint("every body rests on the hills, its collider drawn around it")
     }
 }
-
-const RESTING: &str = r"
-       4    4 - #d5e0ec
-     284    4 - #d5e0ec
-     568    4 - #d5e0ec
-     424   36 - #d5e0eb
-     144   56 - #d4dfeb
-     592  112 - #d3dde8
-     132  172 - #71a76f
-     364  176 - #65e89e
-     424  180 - #96ddbc
-      52  184 - #70a56e
-     212  188 - #63e79c
-     236  188 - #95daba
-     512  196 - #1be863
-     556  220 - #c3ccd5
-     580  224 - #c3ccd5
-       4  228 - #c3cbd5
-     336  228 - #8c57cd
-     592  228 - #c3cbd5
-     336  232 - #8c57cd
-     340  232 - #8c57cd
-     572  232 - #c2cad3
-     328  236 - #684095
-     348  236 - #8b52b9
-     184  240 - #6da26d
-     260  240 - #1ce863
-     332  240 - #7944a6
-     336  244 - #8248af
-     348  244 - #8c54b9
-     588  244 - #c0c8d1
-     328  248 - #6a4097
-     340  248 - #874bb5
-     328  252 - #6b4099
-     336  252 - #8248af
-     328  256 - #6b4099
-     332  256 - #7944a6
-     344  256 - #8a4cb8
-     120  260 - #36cf66
-      56  280 - #35cf66
-     396  280 - #00ff60
-     476  288 - #8a7b55
-     300  296 - #659867
-     488  296 - #b74e50
-     504  296 - #b74f51
-     184  300 - #4195ef
-     204  300 - #25cda9
-     476  300 - #8e4647
-     196  304 - #51a0f4
-     476  304 - #8e4647
-     176  308 - #468ddd
-     184  308 - #4299f0
-     468  308 - #8e4747
-     192  312 - #51a1f2
-     204  312 - #4aa0f1
-     468  312 - #8e4747
-     492  312 - #b3423c
-     212  316 - #4493dc
-     504  316 - #b3423c
-     180  320 - #3889d5
-     184  324 - #3586ce
-     192  324 - #1dc99f
-     204  324 - #378dd5
-     592  324 - #629365
-     184  328 - #3171ac
-     192  328 - #307fc2
-     196  328 - #3181c3
-     200  328 - #317ebe
-     480  328 - #b3423c
-     500  328 - #b3423c
-      12  340 - #00ff60
-     368  356 - #c07a47
-     380  364 - #eb9253
-     384  364 - #ec8f4b
-      88  368 - #00ff60
-     308  368 - #00ff60
-     360  368 - #a3673a
-     368  368 - #d37e3b
-     372  368 - #df8540
-     376  368 - #e88e4d
-     380  368 - #ed9459
-     384  368 - #ed914f
-     388  368 - #ec8d45
-     256  372 - #34cd65
-     360  372 - #a36536
-     364  372 - #be7236
-     380  372 - #ea8e4a
-     384  372 - #ec8e47
-     372  376 - #d77f39
-     360  380 - #a46434
-     364  380 - #ac662e
-     360  384 - #a36432
-     376  384 - #cf7931
-     388  384 - #dc8138
-     592  384 - #629465
-     364  388 - #af682e
-     360  392 - #a36330
-     380  392 - #d77d33
-     172  400 - #33cc64
-     356  400 - #53b44f
-     368  400 - #c0712f
-     388  404 - #db8341
-     360  408 - #a2622e
-     376  412 - #6abd49
-     512  416 - #18e461
-     372  420 - #bb6c2a
-     380  420 - #c07031
-     312  436 - #1be763
-       8  440 - #659767
-     108  440 - #34cd65
-     184  444 - #00ff60
-     444  444 - #639566
-     592  444 - #639667
-     236  476 - #35cf65
-     504  476 - #18e461
-     316  492 - #00ff60
-     164  508 - #36cf66
-     404  508 - #629365
-      80  516 - #6a9f6b
-     276  524 - #34cd64
-     592  524 - #659868
-     496  544 - #18e461
-       4  548 - #1ae763
-     336  552 - #31ca63
-     208  568 - #689c6a
-     536  580 - #32ca63
-     452  584 - #00ff60
-     372  588 - #18e461
-     116  592 - #6a9f6b
-     300  592 - #19e461
-";
 
 /// A flat sided cylinder standing on y around its middle, capped.
 fn cylinder(radius: f32, height: f32, color: U8Color) -> MeshData {

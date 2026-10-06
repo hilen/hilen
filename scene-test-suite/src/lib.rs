@@ -35,7 +35,6 @@ mod day_and_night;
 /// The same bits as on desktop in the browser, the picture fails on
 /// `SwiftShader`, see docs/roadmap.md.
 #[cfg(not_wasm)]
-mod drop_balls;
 mod fog;
 mod geometry;
 mod glow;

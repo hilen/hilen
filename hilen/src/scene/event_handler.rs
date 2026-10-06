@@ -16,7 +16,10 @@ impl Default for EventHandler {
     fn default() -> Self {
         let (contact_send, _contact) = channel();
         let (intersection_send, intersection) = channel();
-        let handler = ChannelEventCollector::new(intersection_send, contact_send);
+        // Nothing here makes a soft body. Rapier drops the events of a sender
+        // whose receiver is gone.
+        let tear_send = channel().0;
+        let handler = ChannelEventCollector::new(intersection_send, contact_send, tear_send);
         Self {
             _contact,
             intersection,

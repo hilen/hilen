@@ -297,14 +297,12 @@ gate.
   browser lane. They pass on the iOS simulator and in a real Chrome, and under
   SwiftShader, the software WebGPU the CI browser lane renders with, their
   shadow edges land a few pixels off, the depth precision of the shadow map is
-  the lead. `Colliders` and `Collider shapes` are off the browser lane too,
+  the lead. `Colliders` is off the browser lane too,
   SwiftShader draws the green collider lines in another shade, `#00ff60` where
-  a GPU blends `#1fd153`, the lines are not antialiased there. `Drop balls`
-  and `Player walk` are off the browser lane as well. Their physics lands on
-  the same bits on desktop, in Chrome and on the simulator now, see
-  [scene.md](scene.md), and both pass in a real Chrome. `Drop balls` still
-  fails its picture on SwiftShader, the cause is not looked at, and `Player
-  walk` has not finished a run there. `Mouse look` is
+  a GPU blends `#1fd153`, the lines are not antialiased there. `Collider
+  shapes` and `Player walk` are off the browser lane as well. Both no longer
+  check a picture, see [scene.md](scene.md), so the reason for their gates is
+  gone, and neither was run on SwiftShader since. `Mouse look` is
   desktop only. `Cursor::capture` does nothing on a phone, and a browser grants
   pointer lock only after a real click, which no test can inject, so the
   capture is released at once. The UI test `Cursor capture` is desktop only for
@@ -314,8 +312,8 @@ gate.
   so the page stays on `localhost`, and the Linux flags of `launchChrome`.
   `Cutout shadows` passed there on arm64, the CI runner is x86_64, so its gate
   stays until CI ran it.
-- Needed: for `Drop balls` and `Player walk`, a read of the SwiftShader failure
-  picture against the desktop one. For the shadows, a bias or a depth format that reads the same on
+- Needed: for `Collider shapes` and `Player walk`, a run on SwiftShader and then
+  their gates removed. For the shadows, a bias or a depth format that reads the same on
   SwiftShader. For the collider lines, probes off the lines or lines that cover
   the same pixels without multisampling. For the mouse, a real click from the
   driver, through the debug protocol of Chrome and its twin in Firefox, else

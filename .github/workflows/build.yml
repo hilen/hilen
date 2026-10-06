@@ -97,7 +97,7 @@ jobs:
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
       - name: Run UI tests
-        run: cargo run -p ui-test --profile=ci -- --headless
+        run: cargo run -p ui-test -- --headless
 
   # A real installed browser, headed as the driver wants, but drawing into a
   # virtual display, so a run never opens a window on anyone's desktop.

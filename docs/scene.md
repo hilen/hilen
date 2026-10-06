@@ -343,7 +343,7 @@ lanes would draw a softer shadow edge than the desktop recorded.
 `Primitives` orbits the camera around every shape, `Materials` is the
 metallic by roughness chart, `Lights` a point and a spot light, `Textures` a
 texture and a normal map, `Skybox` chrome under a sky, `Transparency` blended
-balls from both sides, `Drop balls` a physics rest, `Models` the monkey, the tree
+balls from both sides, `Models` the monkey, the tree
 and the textured cube from `assets/models` with the monkey dropped onto its
 bounds, `Shadows` a post, a ball, a floating crate and the monkey under a low sun,
 `Picking` taps landing on the nearest node and on the sky, `Player walk` a
@@ -380,7 +380,18 @@ chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
 human hold pauses the scene's time, so the probes sit on a still picture.
 `hold_key`, `release_key` and `inject_mouse_motion` drive the player from a test.
 
-A test that pins where physics ends up returns true from `SceneTest::stepped`.
+A test never checks a picture after simulated physics. Where a body comes to
+rest is the result of rapier, and a new rapier release moves it by a few
+pixels: the jump from 0.33 to 0.36 failed every recorded picture of that kind
+while the scenes were right. Such a test reads values from the scene and checks
+them with a tolerance, a body rests on the ground under it, the wall stopped
+the player, the camera sits behind the figure, and it holds at each state with
+`checkpoint(label)`, so a human run still stops there. `Collider shapes`,
+`Player walk`, `Mouse look` and `Third person camera` work this way. A test
+that only shows that bodies fall and come to rest tests rapier and not the
+engine, so there is none.
+
+A test that reads where physics ends up returns true from `SceneTest::stepped`.
 Its scene stands still from the setup on and `step_scene(n)` moves it by exactly
 `n` steps, so every lane takes the same number. Three things made a rest land
 elsewhere per lane, each found by printing the positions as raw bits on desktop,
@@ -388,7 +399,7 @@ in Chrome and on the x86_64 simulator. The free running loop takes another
 number of steps between two waits on every lane. glam's SIMD sums in another
 order on arm64, x86_64 and wasm, so `scene-tests` turns on `glam/scalar-math`
 next to rapier's `enhanced-determinism`. And `cos` and `sin` of the system
-differ in the last bit, so `Drop balls` writes its start velocities out. With
+differ in the last bit, so a test writes a start velocity out as numbers. With
 all three the player and the crate of `Player walk` end on identical bits on
 the three lanes. `parallel` in rapier was not a cause, desktop gives the same
 result with and without it.
@@ -396,7 +407,7 @@ result with and without it.
 ```bash
 cargo run -p scene-test -- --list
 cargo run -p scene-test -- --headless --test-name Primitives
-cargo run -p scene-test -- --test-name DropBalls --human
+cargo run -p scene-test -- --test-name PlayerWalk --human
 cargo run -p scene-test -- --test-name Materials --present
 ```
 

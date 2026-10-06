@@ -165,16 +165,13 @@ impl AppRunner {
     pub(crate) async fn setup_sentry(app: &dyn App) -> Option<sentry::ClientInitGuard> {
         let sentry_url = crate::config::Config::sentry_url(app).await?;
 
-        let client = sentry::init((
-            sentry_url,
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                // Apps opt into Sentry by returning a DSN. Include user context, such as IPs and
-                // HTTP headers, for richer diagnostics.
-                send_default_pii: true,
-                ..Default::default()
-            },
-        ));
+        let mut options = sentry::ClientOptions::default();
+        options.release = sentry::release_name!();
+        // Apps opt into Sentry by returning a DSN. Include user context, such
+        // as IPs and HTTP headers, for richer diagnostics.
+        options.send_default_pii = true;
+
+        let client = sentry::init((sentry_url, options));
 
         debug!("sentry ready");
 

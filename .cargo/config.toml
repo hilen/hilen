@@ -12,55 +12,11 @@ linker = "ndk/bin/i686-linux-android21-clang"
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
-rustflags = ["-Zshare-generics=off"]
+rustflags = ["-Zshare-generics=off", "-Ctarget-feature=+crt-static"]
 
 [target.aarch64-pc-windows-msvc]
 linker = "rust-lld.exe"
-rustflags = ["-Zshare-generics=off"]
-
-[profile.size]
-codegen-units = 1
-debug = false
-inherits = "release"
-lto = "fat"
-opt-level = "z"
-strip = true
-
-[profile.release-debug]
-debug = true
-inherits = "release"
-
-[profile.r2]
-inherits = "release"
-#debug = true
-lto = "fat"
-strip = true
-
-[profile.r3]
-codegen-units = 1
-debug = false
-inherits = "release"
-lto = "fat"
-opt-level = 3
-overflow-checks = false
-# panic = "abort"
-strip = true
-
-[profile.profile]
-codegen-units = 1
-debug = "full"
-inherits = "dev"
-lto = "off"
-opt-level = 0
-strip = false
-
-# to save space for github action runners
-[profile.ci]
-debug = 0
-incremental = false
-inherits = "release"
-opt-level = 1
-strip = "debuginfo"
+rustflags = ["-Zshare-generics=off", "-Ctarget-feature=+crt-static"]
 
 #[profile.dev.package."*"]
 #opt-level = 3
