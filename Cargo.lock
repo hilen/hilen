@@ -8616,6 +8616,7 @@ name = "ui-test-suite"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "hilen",
  "log",
  "parking_lot",

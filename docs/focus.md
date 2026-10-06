@@ -22,6 +22,10 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 - The focus is off while a text field is edited, while the mouse is captured, and
   while a level or a scene runs. `Focus::set_enabled(false)` turns it off for a screen
   that uses the arrows itself, a video player that seeks.
+- A view that walks its own rows with the arrows holds the keys with
+  `Focus::hold_keys`, the focus is off until `Focus::release_keys`, or until that
+  view is hidden or under another touch layer. `FileBrowser` does it after a press
+  on its list, see [file-browser.md](file-browser.md).
 - `view.set_key_focus(false)` keeps the ring off a view, a backdrop that takes
   touches. `view.set_focus_neighbor(direction, other)` names the next view by hand
   where the nearest one is wrong. `Focus::set(view)` puts the ring somewhere.

@@ -128,6 +128,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,
   `calculate_absolute_frame`, or the depth order of hover and touches.
+- [docs/file-browser.md](docs/file-browser.md) — `FileBrowser` and `FilePicker`, the
+  `FileSource` trait with `LocalFiles` and `MemoryFiles`, the pick modes, the touch
+  screen taps, the keys and the tests. Read before touching
+  `views/complex/file_browser` or `filesystem/source`, or putting a file browser into
+  an app.
 - [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the
   ring picks the next view, tables, modals, scrolling, Back as Escape, and the calls an
   app has. Read before touching `hilen/src/ui/focus.rs` or key handling in `input.rs`.

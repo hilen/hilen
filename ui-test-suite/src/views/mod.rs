@@ -1,6 +1,7 @@
 pub mod basic;
 pub mod complex;
 pub mod containers;
+pub mod file_browser;
 pub mod helpers;
 pub mod images;
 pub mod input;

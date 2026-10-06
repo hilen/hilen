@@ -10,6 +10,7 @@ video = ["hilen/video"]
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 pretty_assertions = { workspace = true }

@@ -149,6 +149,9 @@ struct State {
     pending:  Option<(FocusDirection, u8)>,
     ring:     Weak<FocusRing>,
     color:    Option<UIColor>,
+    /// A view that moves a selection of its own with the arrows and
+    /// holds the keys for it, a list of files.
+    holder:   WeakView,
     /// Where the ring was in each touch layer, by the root of the layer.
     /// A modal that closes hands the ring back to the button that opened
     /// it.
@@ -211,11 +214,32 @@ impl Focus {
         }
     }
 
+    /// Gives the arrow keys and Enter to `view` until it lets go, is
+    /// hidden or ends up under another touch layer. For a view that walks
+    /// its own rows with the arrows, the ring would fight it for them.
+    pub(crate) fn hold_keys(view: WeakView) {
+        STATE.get_mut().holder = view;
+        Self::hide();
+    }
+
+    pub(crate) fn release_keys(view: WeakView) {
+        let state = STATE.get_mut();
+        if state.holder.raw() == view.raw() {
+            state.holder = WeakView::default();
+        }
+    }
+
+    fn keys_held() -> bool {
+        let holder = STATE.get_mut().holder;
+        holder.is_ok() && !holder.is_hidden_in_tree() && in_top_layer(holder)
+    }
+
     /// A new screen or a new test starts with no ring and no memory of
     /// the old one.
     pub(crate) fn reset() {
         let state = STATE.get_mut();
         Self::hide();
+        state.holder = WeakView::default();
         state.target = None;
         state.layers.clear();
         state.rect = Rect::default();
@@ -285,7 +309,10 @@ impl Focus {
     /// the mouse, and while a level or a scene runs, those take the arrow
     /// keys themselves.
     fn active() -> bool {
-        let free = !STATE.get_mut().disabled && !UIManager::text_editing() && !Cursor::captured();
+        let free = !STATE.get_mut().disabled
+            && !UIManager::text_editing()
+            && !Cursor::captured()
+            && !Self::keys_held();
         #[cfg(feature = "level")]
         let free = free && LevelManager::no_level();
         #[cfg(feature = "scene")]
