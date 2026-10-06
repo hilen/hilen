@@ -266,6 +266,11 @@ in `hilen/src/ui/views/complex/markdown`.
   heading is, 1 number per level: 1.57, 1.36, 1.14, 1.07, 1 and 1 by default. With
   all 6 at 1 a heading is bold text of the body size, the look of a terminal.
   `Markdown heading sizes` pins it.
+- `keeps_line_breaks` of the style keeps a line break inside a paragraph as a line
+  break, the way a terminal shows a text. Markdown itself reads it as a space, and
+  that is the default. A table drawn with box chars and no code fence around it
+  stands only with it, and with a mono font. A view reads it when it gets its text.
+  `Markdown line breaks` pins it.
 - The spacing is 3 values of the style. `block_gap` is the space between 2 blocks,
   10 by default, also inside a quote. `item_gap` is the space between 2 items of a
   list and between 2 blocks inside an item, 4 by default. `line_height` is the line

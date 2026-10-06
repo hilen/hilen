@@ -17,7 +17,7 @@ use crate::{
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
             model::{Block, Item, Link, Marker, Styled},
-            parse::parse,
+            parse::parse_lines,
             selection::marker_text,
         },
     },
@@ -99,7 +99,7 @@ struct Column {
 impl MarkdownView {
     /// GitHub flavored markdown, with tables, task lists and strikethrough.
     pub fn set_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
-        self.blocks = parse(text);
+        self.blocks = parse_lines(text, MarkdownStyle::current().keeps_line_breaks);
         self.changed();
         self
     }

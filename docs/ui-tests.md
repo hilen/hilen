@@ -205,13 +205,11 @@ the view tree first — they usually show the problem immediately.
 
 Never edit test expectations (`check_colors` data, asserted values) to make a failing
 test pass. The expectations are the spec: the UI must behave exactly like before. If a
-test fails after a code change, the code is wrong. Expectations change only when the new
-look or behavior is intended and explicitly approved.
+test fails after a code change, the code is wrong. Expectations change only when the
+task changes that look or behavior on purpose.
 
-Never change existing UI tests while implementing a new feature unless the user
-explicitly allows it. Design the feature so old tests stay green: make new behavior
-opt-in instead of changing defaults. If a new mechanism genuinely invalidates an old
-assertion, stop and ask before touching it.
+Do not change an existing UI test to fit a new feature. Design the feature so old tests
+stay green: make new behavior opt-in instead of changing defaults.
 
 Temporary edits that are never committed are allowed — for example breaking one
 expectation on purpose to verify the failure machinery. Say what you are doing first,
@@ -244,8 +242,7 @@ no place to hang that condition.
 `--screenshot <path>` requires one `--test-name` and selects the headless runner by itself.
 The runner saves the final tested frame when the test does not choose a capture point. A
 test that needs an earlier exact state calls `capture_screenshot()` there; it still saves
-only when the command requested an output path. Screenshot mode is for fast agent inspection,
-not a substitute for the required `--human` user review.
+only when the command requested an output path. Screenshot mode is for fast agent inspection.
 
 `--shots <dir>` selects the headless runner too and takes any test subset or the whole
 suite. It saves a clean frame, no probe markers, at every `check_colors` and every
@@ -504,12 +501,10 @@ the harness scale of 1 is not the screen's 2.
 
 One test per file. Deliberate decision to keep files small.
 
-A new UI test is not finished when it passes. Always show it to the user for approval.
-The agent launches the `--human` run of every new or changed test itself, tells the user
-the window is up and asks them to check it, then waits for their verdict. Never hand the
-user the command to run. After the verdict, stop and wait. Do not mention, plan, or run
-`make ci`, `make smoke`, or any commit step until the user brings up committing or
-pushing.
+The author of a test is also the one who reviews its look. A new or changed test is
+finished when it passes and every picture of its `--shots` run was opened and is right:
+no view over another by mistake, no text cut, every label readable. A test is opened in
+a window, with `--human` or `--present`, only when the user asks to see it.
 
 ## Presentation mode
 
@@ -603,20 +598,16 @@ it survives the next re-record.
 `--record-colors --human` combined shows the freshly picked probes the same way normal
 human runs show existing ones, to review what gets pinned before pasting.
 
-Re-recording an existing block rewrites the spec. Approval of a code change is not
-approval to re-record, and approval to record is not approval of the recorded result.
-The gates, every one mandatory:
+Re-recording an existing block rewrites the spec, so it happens only when the task
+changes that look on purpose. The steps, every one mandatory:
 
-1. Inspect the failure screenshot and confirm the render is intentionally different.
-2. Name the test, explain why its pixels moved, ask permission to record, and wait.
-3. Record only that test with `--headless --test-name <name> --record-colors`.
-4. Paste the block over the old one and compare the two. Keep every probe inside the
-   declared canvas.
-5. Show the recorded render and probe markers with `--test-name <name> --human
-   --record-colors`.
-6. Stop and wait for explicit acceptance. Run no other test, suite, check or commit while
-   that review is pending. A passing rerun proves nothing, the expectation came from that
-   same render.
+1. Open the failure screenshot and name why the pixels moved. A reason you cannot name
+   is a bug in the change, fix the code.
+2. Record only that test with `--headless --test-name <name> --record-colors`.
+3. Paste the block over the old one and compare the two. Every probe that changed has
+   to follow from the reason of step 1. Keep every probe inside the declared canvas.
+4. Open the `--shots` pictures of the test and check the whole fixture. A passing rerun
+   proves nothing, the expectation came from that same render.
 
 A recorded block is large. Keep it in a `const` next to the test rather than inline, so
 the function stays readable and within the line limit.

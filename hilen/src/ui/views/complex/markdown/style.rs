@@ -13,53 +13,57 @@ static STYLE: MainLock<Option<MarkdownStyle>> = MainLock::new();
 #[derive(Clone, Copy)]
 pub struct MarkdownStyle {
     /// The text size of a paragraph, a list and a table.
-    pub text_size:       f32,
+    pub text_size:         f32,
     /// The text size of a code block.
-    pub code_size:       f32,
+    pub code_size:         f32,
     /// How much bigger than `text_size` the text of a heading is, from
     /// level 1 to level 6. All at 1 draws a heading as bold text of the
     /// body size, the way a terminal does. The line pitch of a heading
     /// follows its size.
-    pub heading_scales:  [f32; 6],
+    pub heading_scales:    [f32; 6],
     /// The space between 2 blocks of a text, a paragraph and the next one.
-    pub block_gap:       f32,
+    pub block_gap:         f32,
     /// The space between 2 items of a list, and between 2 blocks inside
     /// an item.
-    pub item_gap:        f32,
+    pub item_gap:          f32,
     /// The points from one line of the text to the next, the pitch of
     /// the font when not set. It is given for `text_size`: a paragraph,
     /// a list and a table cell take it as it is, a heading takes it
     /// bigger by as much as its text is bigger. A code block keeps the
     /// pitch of its font.
-    pub line_height:     Option<f32>,
+    pub line_height:       Option<f32>,
+    /// A line break inside a paragraph stays a line break, the way a
+    /// terminal shows a text. Markdown itself reads it as a space, and that
+    /// is the default. A view reads it when it gets its text.
+    pub keeps_line_breaks: bool,
     /// The text, unless the view has its own color.
-    pub text:            UIColor,
+    pub text:              UIColor,
     /// The text of a blockquote and the markers of a list.
-    pub dim_text:        UIColor,
+    pub dim_text:          UIColor,
     /// A link, and the box of a done task.
-    pub link:            UIColor,
+    pub link:              UIColor,
     /// Code inside a line of text.
-    pub inline_code:     UIColor,
+    pub inline_code:       UIColor,
     /// Behind a code block.
-    pub code_background: UIColor,
+    pub code_background:   UIColor,
     /// Behind the head row of a table.
-    pub table_head:      UIColor,
+    pub table_head:        UIColor,
     /// The lines of a table, a horizontal rule and the bar of a quote.
-    pub line:            UIColor,
-    pub comment:         UIColor,
-    pub string:          UIColor,
+    pub line:              UIColor,
+    pub comment:           UIColor,
+    pub string:            UIColor,
     /// Numbers and other constants.
-    pub number:          UIColor,
-    pub keyword:         UIColor,
-    pub function:        UIColor,
+    pub number:            UIColor,
+    pub keyword:           UIColor,
+    pub function:          UIColor,
     /// The name of a type.
-    pub type_name:       UIColor,
+    pub type_name:         UIColor,
     /// A line a diff adds.
-    pub inserted:        UIColor,
+    pub inserted:          UIColor,
     /// A line a diff removes.
-    pub deleted:         UIColor,
+    pub deleted:           UIColor,
     /// The fonts, the ones the engine brings when not set.
-    pub fonts:           Option<MarkdownFonts>,
+    pub fonts:             Option<MarkdownFonts>,
 }
 
 /// The 6 fonts a markdown text is drawn with.
@@ -90,28 +94,29 @@ impl MarkdownFonts {
 
 impl MarkdownStyle {
     pub const DEFAULT: Self = Self {
-        text_size:       14.0,
-        code_size:       13.0,
-        heading_scales:  [1.57, 1.36, 1.14, 1.07, 1.0, 1.0],
-        block_gap:       10.0,
-        item_gap:        4.0,
-        line_height:     None,
-        text:            dynamic("#1a1d24", "#eceff4"),
-        dim_text:        dynamic("#6b7280", "#9aa3b2"),
-        link:            dynamic("#2f7df6", "#3d8bff"),
-        inline_code:     dynamic("#b4491f", "#f0a070"),
-        code_background: dynamic("#eef1f5", "#0f1319"),
-        table_head:      dynamic("#eaedf1", "#212731"),
-        line:            dynamic("#dce0e6", "#2c3440"),
-        comment:         dynamic("#6b7280", "#7c8696"),
-        string:          dynamic("#2e7d32", "#98c379"),
-        number:          dynamic("#b45309", "#d19a66"),
-        keyword:         dynamic("#8250df", "#c678dd"),
-        function:        dynamic("#0969da", "#61afef"),
-        type_name:       dynamic("#0e7490", "#56b6c2"),
-        inserted:        dynamic("#16a34a", "#22c55e"),
-        deleted:         dynamic("#dc2626", "#ef4444"),
-        fonts:           None,
+        text_size:         14.0,
+        code_size:         13.0,
+        heading_scales:    [1.57, 1.36, 1.14, 1.07, 1.0, 1.0],
+        block_gap:         10.0,
+        item_gap:          4.0,
+        line_height:       None,
+        keeps_line_breaks: false,
+        text:              dynamic("#1a1d24", "#eceff4"),
+        dim_text:          dynamic("#6b7280", "#9aa3b2"),
+        link:              dynamic("#2f7df6", "#3d8bff"),
+        inline_code:       dynamic("#b4491f", "#f0a070"),
+        code_background:   dynamic("#eef1f5", "#0f1319"),
+        table_head:        dynamic("#eaedf1", "#212731"),
+        line:              dynamic("#dce0e6", "#2c3440"),
+        comment:           dynamic("#6b7280", "#7c8696"),
+        string:            dynamic("#2e7d32", "#98c379"),
+        number:            dynamic("#b45309", "#d19a66"),
+        keyword:           dynamic("#8250df", "#c678dd"),
+        function:          dynamic("#0969da", "#61afef"),
+        type_name:         dynamic("#0e7490", "#56b6c2"),
+        inserted:          dynamic("#16a34a", "#22c55e"),
+        deleted:           dynamic("#dc2626", "#ef4444"),
+        fonts:             None,
     };
 
     pub fn apply_globally(self) {

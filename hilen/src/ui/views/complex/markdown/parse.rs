@@ -6,9 +6,19 @@ use super::model::{Block, Face, Item, Link, Marker, Span, Style, Styled};
 
 /// GitHub flavored markdown as blocks, with tables, task lists and
 /// strikethrough.
+#[cfg(test)]
 pub(crate) fn parse(text: &str) -> Vec<Block> {
+    parse_lines(text, false)
+}
+
+/// Like `parse`. With `keeps_line_breaks` a line break inside a paragraph
+/// stays one, markdown itself reads it as a space.
+pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool) -> Vec<Block> {
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut builder = Builder::default();
+    let mut builder = Builder {
+        soft_break: if keeps_line_breaks { "\n" } else { " " },
+        ..Builder::default()
+    };
     for event in Parser::new_ext(text, options) {
         builder.event(event);
     }
@@ -47,17 +57,19 @@ struct Depth {
 
 #[derive(Default)]
 struct Builder {
-    root:    Vec<Block>,
-    frames:  Vec<Frame>,
+    root:       Vec<Block>,
+    frames:     Vec<Frame>,
     /// The text being collected. A tight list item has no paragraph
     /// around its text, so a text can open one by itself.
-    inline:  Option<Styled>,
-    depth:   Depth,
+    inline:     Option<Styled>,
+    depth:      Depth,
     /// Where the link being read starts in the text, and its address.
-    link:    Option<(usize, String)>,
-    heading: Option<u8>,
-    code:    Option<(String, String)>,
-    table:   Option<Table>,
+    link:       Option<(usize, String)>,
+    heading:    Option<u8>,
+    code:       Option<(String, String)>,
+    table:      Option<Table>,
+    /// What a line break inside a paragraph becomes.
+    soft_break: &'static str,
 }
 
 impl Builder {
@@ -71,7 +83,7 @@ impl Builder {
             },
             Event::Code(text) => self.text(&text, true),
             Event::Html(text) | Event::InlineHtml(text) => self.text(&text, false),
-            Event::SoftBreak => self.text(" ", false),
+            Event::SoftBreak => self.text(self.soft_break, false),
             Event::HardBreak => self.text("\n", false),
             Event::Rule => {
                 self.flush();
@@ -275,7 +287,7 @@ impl Builder {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::{parse, parse_lines};
     use crate::ui::views::complex::markdown::model::{Block, Face, Marker, Style};
 
     #[test]
@@ -328,6 +340,19 @@ mod tests {
         };
         assert_eq!(text.text, "Docs.");
         assert_eq!(deep.len(), 2);
+    }
+
+    #[test]
+    fn a_line_break_in_a_paragraph_is_a_space_or_stays() {
+        let text = "one\ntwo\n\nthree";
+        let [Block::Paragraph(joined), Block::Paragraph(_)] = &parse(text)[..] else {
+            panic!("2 paragraphs expected");
+        };
+        assert_eq!(joined.text, "one two");
+        let [Block::Paragraph(kept), Block::Paragraph(_)] = &parse_lines(text, true)[..] else {
+            panic!("2 paragraphs expected");
+        };
+        assert_eq!(kept.text, "one\ntwo");
     }
 
     #[test]
