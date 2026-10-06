@@ -11,6 +11,8 @@ pub mod image;
 mod msaa;
 mod orientation;
 mod placement;
+#[cfg(desktop)]
+pub(crate) mod placement_store;
 mod redraw;
 mod render_frame;
 mod screen;

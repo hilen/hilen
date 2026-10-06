@@ -87,6 +87,12 @@ impl Paths {
         STORAGE_PATH.lock().replace(path);
     }
 
+    /// Whether this run stores in the temp folder of the test runners.
+    #[cfg(desktop)]
+    pub(crate) fn test_storage() -> bool {
+        TEST_STORAGE.lock().is_some()
+    }
+
     /// A file dialog filtered to the extensions, the picked path or None.
     #[cfg(desktop)]
     pub async fn pick_file(title: &str, extensions: &[&str]) -> Option<PathBuf> {

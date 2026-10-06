@@ -6,6 +6,8 @@ use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString, ns_string};
 use objc2_ui_kit::{UIPasteboard, UIPasteboardOptionLocalOnly};
 use parking_lot::Mutex;
 
+use super::image::ClipboardImage;
+
 /// The change count of the general pasteboard right after the last write
 /// of this app. While the pasteboard still has that count, it holds what
 /// this app wrote.
@@ -19,6 +21,19 @@ pub(super) fn set_text(text: &str) {
     let pasteboard = UIPasteboard::generalPasteboard();
     unsafe { pasteboard.setString(Some(&NSString::from_str(text))) };
     note_own_write(&pasteboard);
+}
+
+/// The png file the system makes of the picture. A photo that is stored
+/// turned comes out the way it is stored, the png has no turn mark.
+pub(super) fn get_image() -> Result<Option<ClipboardImage>> {
+    let Some(picture) = (unsafe { UIPasteboard::generalPasteboard().image() }) else {
+        return Ok(None);
+    };
+    let png = picture
+        .png_representation()
+        .ok_or_else(|| anyhow!("The system made no png file of the picture in the clipboard"))?;
+
+    ClipboardImage::from_png(png.to_vec()).map(Some)
 }
 
 pub(super) fn get_text() -> Result<String> {

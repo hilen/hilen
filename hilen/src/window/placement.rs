@@ -24,6 +24,35 @@ pub struct WindowPlacement {
     pub monitor:   Option<String>,
 }
 
+impl WindowPlacement {
+    /// The placement the engine kept from the last run of this app,
+    /// `None` on the first start. It is the body of the default
+    /// `App::window_placement`. An app that writes that hook calls this
+    /// for the cases it leaves to the engine. Always `None` off the
+    /// desktop, in a headless run and in a test run.
+    pub fn remembered() -> Option<Self> {
+        #[cfg(desktop)]
+        {
+            super::placement_store::saved()
+        }
+        #[cfg(not(desktop))]
+        {
+            None
+        }
+    }
+
+    /// Hands this placement to the engine to keep for the next start. It
+    /// is the body of the default `App::window_placement_changed`. The
+    /// call is cheap, the file is written a moment later on another
+    /// thread, and many calls in a row end as 1 write.
+    pub fn remember(&self) {
+        #[cfg(desktop)]
+        super::placement_store::save(self);
+        #[cfg(not(desktop))]
+        log::debug!("only a desktop window is kept for the next start, got {self:?}");
+    }
+}
+
 /// One attached display in logical points.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MonitorInfo {

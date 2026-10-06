@@ -235,9 +235,23 @@ in `hilen/src/ui/views/complex/markdown`.
 - `MarkdownStyle` is global like `DialogStyle`: text sizes, a light and dark pair
   per color, and the 6 fonts, the bundled ones when not set. The test harness takes
   the style of the app away for a run and hands it back.
+- The spacing is 3 values of the style. `block_gap` is the space between 2 blocks,
+  10 by default, also inside a quote. `item_gap` is the space between 2 items of a
+  list and between 2 blocks inside an item, 4 by default. `line_height` is the line
+  pitch of the text in points, a `Label::set_line_height` box, and `None` by default,
+  the pitch of the font. It is given for `text_size`. A paragraph, a list item, a
+  quote and a table cell take it as it is, a list marker too, so it stays on the
+  first line of its item. A heading takes it times its own size over `text_size`,
+  so a pitch made for the body never squeezes the bigger text. A code block keeps
+  the pitch of its mono font, its lines are not running text and it has its own
+  size, `code_size`. The layout and `height_for_width` are 1 pass, both read the
+  same style. A view reads the style when it lays out, so set it before the first
+  text is shown. For 1 empty line between 2 paragraphs set `block_gap` to the
+  value of `line_height`.
 
 Images, raw HTML, footnotes and math are shown as their text. `Markdown view test`
-pins the look, a tap on a link and the height at 2 widths.
+pins the look, a tap on a link and the height at 2 widths. `Markdown spacing` shows
+the same text with the default style and with all 3 spacing values set.
 
 ## Glyph fallback
 
@@ -339,3 +353,9 @@ The shaper, the glyph brush and the GPU buffers keep the glyph numbers and posit
 of drawn text until other text replaces them, and the glyph atlas keeps the picture
 of every drawn glyph. On iOS the system text field a field is edited in holds the text while it
 is edited. It is cleared when the editing ends, the memory it used is not wiped. With the `inspect` feature the inspector still gets the real text.
+
+## A picture pasted into a text field
+
+A paste with a picture in the clipboard and no text fires `TextField::image_pasted` with
+the picture as a png file, on desktop. The text of the field does not change. See
+[clipboard.md](clipboard.md).

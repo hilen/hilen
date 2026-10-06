@@ -14,7 +14,7 @@ mod update_state;
 mod updater;
 
 pub use app_activity::AppActivity;
-pub use clipboard::Clipboard;
+pub use clipboard::{Clipboard, ClipboardImage};
 pub use locale::{language_code, locale};
 pub use media_session::{MediaCommand, MediaSession, NowPlaying};
 pub use open_url::open_url;

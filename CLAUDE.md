@@ -128,6 +128,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,
   `calculate_absolute_frame`, or the depth order of hover and touches.
+- [docs/clipboard.md](docs/clipboard.md) — `Clipboard`: text, a secret, and a picture as a
+  png file with `get_image`, what each platform does, why the png is made off the main
+  thread, the `image_pasted` event of `TextField`, and how a test stays away from the
+  clipboard of the user. Read before touching `hilen/src/system/clipboard` or the paste
+  of a text field.
 - [docs/file-browser.md](docs/file-browser.md) — `FileBrowser` and `FilePicker`, the
   `FileSource` trait with `LocalFiles` and `MemoryFiles`, the pick modes, the touch
   screen taps, the keys and the tests. Read before touching
@@ -213,6 +218,34 @@ Downloaded images can be kept on disk, `Image::set_download_cache_dir`.
 `set_download_cache_limit(bytes)` deletes the files used longest ago over the bound, and
 `set_download_cache_recheck_age(seconds)` asks the server about an older file again with
 its `ETag`. The code is `hilen/src/window/image/disk_cache.rs`.
+
+## Window placement
+
+Every desktop app opens where it was closed, with no code in the app: the size, the
+place, the maximized state and the display. `App::initial_size` is only the size of the
+very first start. The engine keeps a `WindowPlacement` in `window_placement.json` in the
+data folder. The code is `hilen/src/window/placement_store.rs`.
+
+The 2 hooks of `App` decide it. The default `window_placement` returns
+`WindowPlacement::remembered()` and the default `window_placement_changed` calls
+`placement.remember()`. An app that keeps the placement somewhere else writes both
+hooks, the engine then reads and writes nothing. An app that wants the same window on
+every start returns `None` from the first and leaves the second empty. An app that
+decides at run time calls the 2 `WindowPlacement` functions from its own hooks, `demo`
+does that to keep a benchmark run at one size.
+
+A resize or a move fires many times a second. `remember` only keeps the newest
+placement in memory, on the main thread. A timer thread writes it 500 ms after the
+first change of a burst, so a burst is 1 write, and a placement the file already has is
+not written again. The write goes through a second file and a rename. The last
+placement lands when the app ends: `AppHandler::exiting` writes what still waits, and
+winit calls it on every way out of the event loop, Cmd and Q on macOS included. A
+process that is killed loses at most the last 500 ms.
+
+A headless run, a run of the test runners, which store in the temp dir, and an app
+started with `HILEN_RUN_TESTS` or `HILEN_PRESENT` never open that memory, they read
+nothing and write nothing. A test run started inside a live app through the inspector
+pauses it until the app has its root view back.
 
 ## Assets folder
 

@@ -1,9 +1,16 @@
 //! The caret, the selection, the keys and the clipboard of a text field.
 
+#[cfg(not_wasm)]
+use std::thread;
+
+#[cfg(not_wasm)]
+use anyhow::Error;
 use plat::Platform;
 use zeroize::Zeroizing;
 
 use super::{MASK, MULTILINE_TOP_INSET, MultilineEnter, SYSTEM_EDITS, TextField, mask};
+#[cfg(not_wasm)]
+use crate::deps::hreads::on_main;
 use crate::{
     deps::refs::Weak,
     gm::{
@@ -139,8 +146,29 @@ impl TextField {
             // Wiped after the insert, a paste into a secure field is the
             // usual way a password gets there.
             Ok(text) => self.insert(&Zeroizing::new(text)),
-            Err(err) => log::warn!("Nothing to paste: {err}"),
+            Err(no_text) => self.paste_image(no_text),
         }
+    }
+
+    /// The clipboard holds no text. A picture in it goes to the owner
+    /// through `image_pasted`. Making its png file takes up to half a
+    /// second for a big screenshot, so it runs off the main thread and
+    /// the event fires some frames later.
+    #[cfg(not_wasm)]
+    fn paste_image(self: Weak<Self>, no_text: Error) {
+        thread::spawn(move || {
+            let image = Clipboard::get_image();
+            on_main(move || match image {
+                // The field can be gone by now.
+                Ok(Some(image)) if self.is_ok() => {
+                    log::debug!("Pasted a picture of {} by {} pixels", image.width, image.height);
+                    self.image_pasted.trigger(image);
+                }
+                Ok(Some(_)) => log::debug!("A pasted picture came after its text field was gone"),
+                Ok(None) => log::warn!("Nothing to paste: {no_text}"),
+                Err(err) => log::warn!("Failed to read a picture to paste: {err}"),
+            });
+        });
     }
 
     pub(super) fn on_key(self: Weak<Self>, key: NamedKey) {

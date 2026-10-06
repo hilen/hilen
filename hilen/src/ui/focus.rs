@@ -370,7 +370,7 @@ impl Focus {
         }
 
         if let Some(mut scroll) = scroll_of(rect) {
-            scroll.__process_wheel_scroll(step(direction));
+            scroll.__scroll_by(step(direction));
             state.pending = Some((direction, PENDING_FRAMES));
         }
 
@@ -633,7 +633,7 @@ fn reveal(rect: Rect) {
     }
 
     if delta.x != 0.0 || delta.y != 0.0 {
-        scroll.__process_wheel_scroll(delta);
+        scroll.__scroll_by(delta);
     }
 }
 

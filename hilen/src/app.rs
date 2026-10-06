@@ -33,27 +33,43 @@ pub trait App {
     fn after_launch(&self) {}
     fn make_root_view(&self) -> Own<dyn View>;
 
-    /// The size of a fresh desktop window and of the headless surface, in
-    /// physical pixels. A 2x display opens the window at half as many
-    /// points, and a display too small for it shrinks the window to fit.
-    /// The default is 1200 by 900 points on a 2x display.
+    /// The size of a desktop window on its very first start and of the
+    /// headless surface, in physical pixels. A 2x display opens the window
+    /// at half as many points, and a display too small for it shrinks the
+    /// window to fit. The default is 1200 by 900 points on a 2x display.
+    /// Every later start opens the window where `window_placement` says.
     fn initial_size(&self) -> Size {
         (2400, 1800).into()
     }
 
-    /// A saved desktop window placement to restore at launch instead of
-    /// `initial_size`. A placement whose monitor is no longer attached is
+    /// The desktop window placement to restore at launch instead of
+    /// `initial_size`: the size, the place, the maximized state and the
+    /// display. A placement whose monitor is no longer attached is
     /// centered on the primary display instead, see `resolve`.
+    ///
+    /// The default is the engine's own memory,
+    /// `WindowPlacement::remembered`, the placement the last run left in
+    /// the data folder of the app. So an app that writes neither this hook
+    /// nor `window_placement_changed` opens where it was closed. An app
+    /// that keeps the placement somewhere else writes both hooks. An app
+    /// that wants the same window on every start returns `None` here and
+    /// leaves the body of the other one empty.
     fn window_placement(&self) -> Option<WindowPlacement> {
-        None
+        WindowPlacement::remembered()
     }
 
     /// Fires on every desktop window resize and move with the fresh
-    /// placement. This is the place to save it, there is no close hook
-    /// because Cmd+Q on macOS ends the process without one.
-    /// It does not fire while the window is minimized, Windows reports a
-    /// minimized window off screen with no size.
-    fn window_placement_changed(&self, _placement: &WindowPlacement) {}
+    /// placement, many times a second during a drag. It does not fire
+    /// while the window is minimized, Windows reports a minimized window
+    /// off screen with no size.
+    ///
+    /// The default hands it to the engine's own memory,
+    /// `WindowPlacement::remember`, which writes it to disk a moment
+    /// later on another thread, and once more when the app ends. An app
+    /// that writes this hook saves by itself and the engine keeps nothing.
+    fn window_placement_changed(&self, placement: &WindowPlacement) {
+        placement.remember();
+    }
 
     /// Log targets of the app itself, usually just the crate name. The
     /// engine logger silences everything except its own crates to warnings,

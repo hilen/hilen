@@ -109,6 +109,9 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         #[cfg(not_wasm)]
         prepare_storage();
 
+        #[cfg(desktop)]
+        crate::window::placement_store::open(headless);
+
         app.before_launch();
 
         // After `before_launch`, so an app that turns the system fallback

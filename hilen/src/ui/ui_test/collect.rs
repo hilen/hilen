@@ -96,6 +96,10 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // running into the next.
         crate::ui::PinchInput::reset();
         crate::ui::Cursor::reset();
+        // A test that kept the clipboard inside the process and failed
+        // must not leave it so for a test that copies for real.
+        #[cfg(desktop)]
+        crate::system::Clipboard::set_in_process(false);
         crate::window::reset_fullscreen();
         crate::window::reset_orientations();
         // The dialog animation is global app state, a test that registers

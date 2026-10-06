@@ -256,6 +256,15 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         app_activity::update(ActivityChange::Resumed(false));
     }
 
+    /// The last call of the event loop, on every way out: the close
+    /// button, `AppRunner::stop`, and Cmd+Q on macOS, where winit sends it
+    /// from `applicationWillTerminate` and the process then ends without
+    /// a return from `run_app`.
+    #[cfg(desktop)]
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        crate::window::placement_store::flush();
+    }
+
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
             self.te_window_events.mouse_motion((delta.0, delta.1).into());

@@ -28,6 +28,7 @@ mod label_tab;
 mod label_vertical_alignment;
 mod label_wide_effect;
 mod letter_spacing;
+mod markdown_spacing;
 mod markdown_view;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
@@ -74,6 +75,10 @@ mod text_field_focus;
 /// Sets the font and text programmatically, no typing, so it runs
 /// everywhere too.
 mod text_field_font;
+/// Pastes with an injected key shortcut, which a phone and a browser do
+/// not have, and only a desktop clipboard hands over a picture.
+#[cfg(desktop)]
+mod text_field_image_paste;
 /// Enters and clears text programmatically, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_color;

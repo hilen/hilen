@@ -16,6 +16,17 @@ pub struct MarkdownStyle {
     pub text_size:       f32,
     /// The text size of a code block.
     pub code_size:       f32,
+    /// The space between 2 blocks of a text, a paragraph and the next one.
+    pub block_gap:       f32,
+    /// The space between 2 items of a list, and between 2 blocks inside
+    /// an item.
+    pub item_gap:        f32,
+    /// The points from one line of the text to the next, the pitch of
+    /// the font when not set. It is given for `text_size`: a paragraph,
+    /// a list and a table cell take it as it is, a heading takes it
+    /// bigger by as much as its text is bigger. A code block keeps the
+    /// pitch of its font.
+    pub line_height:     Option<f32>,
     /// The text, unless the view has its own color.
     pub text:            UIColor,
     /// The text of a blockquote and the markers of a list.
@@ -76,6 +87,9 @@ impl MarkdownStyle {
     pub const DEFAULT: Self = Self {
         text_size:       14.0,
         code_size:       13.0,
+        block_gap:       10.0,
+        item_gap:        4.0,
+        line_height:     None,
         text:            dynamic("#1a1d24", "#eceff4"),
         dim_text:        dynamic("#6b7280", "#9aa3b2"),
         link:            dynamic("#2f7df6", "#3d8bff"),
@@ -115,6 +129,17 @@ impl MarkdownStyle {
 
     pub(crate) fn fonts(&self) -> MarkdownFonts {
         self.fonts.unwrap_or_else(MarkdownFonts::bundled)
+    }
+
+    /// The line pitch of a text of a size, none when the font sets it.
+    pub(crate) fn line_height_for(&self, size: f32) -> Option<f32> {
+        self.line_height.map(|height| height * size / self.text_size)
+    }
+
+    /// The room 1 line of body text takes: the height of a list marker
+    /// and the least height of a list item and of a table row.
+    pub(crate) fn body_line(&self) -> f32 {
+        self.line_height.unwrap_or_else(|| (self.text_size * 1.3).ceil())
     }
 
     pub(crate) fn syntax(&self, token: Token) -> UIColor {

@@ -10,6 +10,13 @@ use crate::{
 pub(crate) trait Scrollable: View {
     fn __process_scroll_touch(&mut self, touch: Touch) -> bool;
     fn __process_wheel_scroll(&mut self, delta: Point);
+
+    /// A scroll the engine asks for itself, like the focus ring. Each
+    /// axis has to move by its own delta, so it skips the rule that
+    /// sends a plain wheel sideways in a view with no vertical range.
+    fn __scroll_by(&mut self, delta: Point) {
+        self.__process_wheel_scroll(delta);
+    }
 }
 
 pub(crate) struct TouchLayer {

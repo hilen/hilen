@@ -2,6 +2,7 @@ use hilen::{
     App, Window,
     refs::Own,
     ui::{Button, Setup, Size, View},
+    window::WindowPlacement,
 };
 #[cfg(not_wasm)]
 use hilen::{PinnedFuture, net::SecretsManager};
@@ -35,6 +36,14 @@ async fn secrets() -> anyhow::Result<&'static SecretsManager> {
             Ok(manager)
         })
         .await
+}
+
+/// A scripted benchmark run. Its numbers compare only at one window size,
+/// so it opens at `initial_size` and leaves nothing for the next start.
+fn benchmark_run() -> bool {
+    use std::env::var_os;
+
+    var_os("UI_BENCHMARK").is_some()
 }
 
 #[derive(Default)]
@@ -76,6 +85,19 @@ impl App for DemoApp {
 
     fn initial_size(&self) -> Size {
         (1500, 1200).into()
+    }
+
+    fn window_placement(&self) -> Option<WindowPlacement> {
+        if benchmark_run() {
+            return None;
+        }
+        WindowPlacement::remembered()
+    }
+
+    fn window_placement_changed(&self, placement: &WindowPlacement) {
+        if !benchmark_run() {
+            placement.remember();
+        }
     }
 
     #[cfg(not_wasm)]

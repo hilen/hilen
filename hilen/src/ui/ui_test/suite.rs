@@ -35,6 +35,9 @@ struct AppState {
 /// Tests expect scale 1 and 32 point text. Any host that runs them must match,
 /// or every layout and color check drifts.
 fn prepare_harness() -> AppState {
+    #[cfg(desktop)]
+    crate::window::placement_store::pause();
+
     let state = from_main(|| AppState {
         styles:         Style::take_globals(),
         dialog_style:   DialogStyle::take_global(),
@@ -82,6 +85,9 @@ fn restore_app(state: AppState) {
         crate::scene::SceneManager::stop_scene();
         root.add_subview_to_root(crate::app::app().make_root_view()).place().back();
     });
+
+    #[cfg(desktop)]
+    crate::window::placement_store::resume();
 }
 
 /// The UI map, then the scene map. Two maps, a view and a scene may share
@@ -158,6 +164,10 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     let Some(entry) = entry else {
         anyhow::bail!("Test not found: {name}");
     };
+
+    // The window is a test window from here on, and nothing hands it back.
+    #[cfg(desktop)]
+    crate::window::placement_store::pause();
 
     from_main(Style::take_globals);
     from_main(DialogStyle::take_global);

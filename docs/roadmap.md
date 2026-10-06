@@ -16,6 +16,41 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A key combo with Alt, and a combo that wins over the focus ring and a text field
+
+Found by banda at `~/dev/apps/banda`. It jumps between its sessions with Cmd and an
+arrow on a Mac, and has to do the same with Alt and an arrow on Windows and Linux.
+
+- Current: `KeyCombo` in `hilen/src/ui/input/keymap/key_combo.rs` has `cmd` and
+  `shift` only, and `cmd` is Cmd or Ctrl, `command_held` in `keymap.rs` takes both. No
+  binding can ask for Alt. `Input::on_key` in `hilen/src/ui/input/input.rs` hands an
+  arrow to `Focus::on_key` first, which takes it with any modifier held while the ring
+  is active, so a combo with an arrow reaches the keymap only while a text field has
+  the keys. That field then gets the same press through `keyboard_key` and also moves
+  its caret.
+- Needed: `KeyCombo::alt(key)`, and a way to bind 1 action to Cmd on a Mac and Alt
+  elsewhere. A press that matches a bound combo with a modifier goes to that binding
+  only, not to the focus ring and not to the focused text field. A plain arrow stays
+  with the ring and the field. A UI test for both.
+- Blocks: the session switch keys of banda on Windows and Linux.
+
+## An image from the clipboard on Android, in a browser and on a real phone
+
+Found by banda at `~/dev/apps/banda`. Its compose box takes a screenshot from the
+clipboard and sends it with a prompt. `Clipboard::get_image` and the `image_pasted`
+event of `TextField` landed, see [clipboard.md](clipboard.md).
+
+- Current: proven on macOS with a real screenshot in banda, and by unit tests and the
+  UI test `Text field image paste` on the store of the process. Windows and Linux use
+  the same `arboard` code and were not run, Linux only under X11. iOS reads
+  `UIPasteboard.image`, it compiles and never ran, and a paste there does not fire
+  the event, the system text field pastes by itself. Android and the browser answer
+  none.
+- Needed: a picture from the clipboard on Android, through a `ContentResolver`, and
+  in a browser, where the read answers later after a permission prompt. A paste on a
+  phone that fires `image_pasted`. A run on Windows, on Linux and on an iPhone.
+- Blocks: pictures in the prompts of banda on a phone and in a browser.
+
 ## File browser, the proof in an app and on the other lanes
 
 Found by banda at `~/dev/apps/banda`. Its New session page picks the folder a session
@@ -23,16 +58,18 @@ starts in, on another machine. `FileBrowser`, `FilePicker` and the `FileSource` 
 landed, see [file-browser.md](file-browser.md).
 
 - Current: proven by 14 UI tests on desktop, on a tree held in memory, and by unit
-  tests of `LocalFiles` on a temp folder. No app uses the view yet. The tests did not
+  tests of `LocalFiles` on a temp folder. banda uses `FilePicker` with its own source
+  for the folders of another machine, run on macOS against a Linux machine. The tests did not
   run on the iOS simulator lane or the browser lane, 3 of them type through
   `system_input`. `LocalFiles` was not run on Windows, where the roots are the drive
   letters and a hidden file is an attribute, nor on a phone. The view has no drag and
   drop, no copy and paste of files, no preview, and no style call for an app with its
   own palette. A delete on `LocalFiles` is for good, nothing goes to a trash.
-- Needed: banda's New session page on `FileBrowser` with its own source for the other
-  machine. The 14 tests green on `make ui-ios` and `make ui-web`. A run of a
-  `LocalFiles` browser on Windows.
-- Blocks: the folder picker of banda's New session page.
+- Needed: the 14 tests green on `make ui-ios` and `make ui-web`. A run of a
+  `LocalFiles` browser on Windows. A style call, so the picker takes the palette of
+  the app, the same for `ContextMenu`, whose colors are fixed in
+  `hilen/src/ui/views/controls/context_menu.rs`.
+- Blocks: a folder picker and a right click menu in the colors of banda.
 
 ## Google access, the proof on a phone, in a browser and with a linked account
 

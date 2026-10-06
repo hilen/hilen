@@ -25,10 +25,6 @@ use crate::{
 
 /// How much bigger than the body text a heading is, by its level.
 const HEADING_SCALES: [f32; 6] = [1.57, 1.36, 1.14, 1.07, 1.0, 1.0];
-/// Between 2 blocks of a text.
-const BLOCK_GAP: f32 = 10.0;
-/// Between 2 blocks inside a list item, and between 2 items.
-const ITEM_GAP: f32 = 4.0;
 const CODE_PAD: f32 = 10.0;
 const QUOTE_INDENT: f32 = 14.0;
 const QUOTE_BAR: f32 = 3.0;
@@ -166,7 +162,7 @@ impl MarkdownView {
         let column = Column {
             x: 0.0,
             width,
-            gap: BLOCK_GAP,
+            gap: style.block_gap,
             color: self.text_color.unwrap_or(style.text),
             margin,
         };
@@ -244,6 +240,9 @@ impl MarkdownView {
             .set_text_size(size)
             .set_alignment(TextAlignment::Left)
             .set_vertical_alignment(VerticalAlignment::Top);
+        if let Some(line_height) = style.line_height_for(size) {
+            label.set_line_height(line_height);
+        }
         label.set_font(if heading { fonts.bold } else { fonts.regular });
         label.set_text(&text.text);
         label.set_text_color(color);
@@ -341,7 +340,7 @@ impl MarkdownView {
         let inner = Column {
             x:      column.x + QUOTE_INDENT,
             width:  column.width - QUOTE_INDENT,
-            gap:    BLOCK_GAP,
+            gap:    style.block_gap,
             color:  style.dim_text,
             margin: column.margin,
         };
@@ -353,7 +352,7 @@ impl MarkdownView {
 
     fn list(self: Weak<Self>, style: &MarkdownStyle, items: &[Item], column: Column, y: &mut f32) {
         // One line of body text, the height of a marker.
-        let line_height = (style.text_size * 1.3).ceil();
+        let line_height = style.body_line();
         // Every marker first, the widest one sets where the texts start.
         let markers: Vec<Option<Weak<Label>>> = items
             .iter()
@@ -368,6 +367,11 @@ impl MarkdownView {
                     .set_text_size(style.text_size)
                     .set_alignment(TextAlignment::Right)
                     .set_vertical_alignment(VerticalAlignment::Top);
+                // The same line box as the text of the item, so the marker
+                // stays on the baseline of its first line.
+                if let Some(line_height) = style.line_height {
+                    label.set_line_height(line_height);
+                }
                 label.set_font(style.fonts().regular);
                 label.set_text(text);
                 label.set_text_color(style.dim_text);
@@ -389,20 +393,23 @@ impl MarkdownView {
         let inner = Column {
             x: column.x + indent,
             width: column.width - indent,
-            gap: ITEM_GAP,
+            gap: style.item_gap,
             color: column.color,
             margin,
         };
         for (index, (item, marker)) in items.iter().zip(markers).enumerate() {
             if index > 0 {
-                *y += ITEM_GAP;
+                *y += style.item_gap;
             }
             let top = *y;
             if let Some(marker) = marker {
                 marker.set_frame((column.x, top, marker_width, line_height));
             }
             if let Marker::Task(done) = item.marker {
-                self.task_box(style, done, column.x + margin, top + 1.0);
+                // In the middle of the first line when the style sets the
+                // pitch.
+                let drop = style.line_height.map_or(1.0, |height| ((height - TASK_BOX) / 2.0).round());
+                self.task_box(style, done, column.x + margin, top + drop);
             }
             self.blocks(style, &item.blocks, inner, y);
             // An item with no text still takes its line.
@@ -486,7 +493,7 @@ impl MarkdownView {
             }
         }
         let total = total.min(room);
-        let min_row = (style.text_size * 1.3).ceil();
+        let min_row = style.body_line();
 
         let top = *y;
         for (index, row) in cells.iter().enumerate() {

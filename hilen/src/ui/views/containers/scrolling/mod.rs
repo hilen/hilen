@@ -15,6 +15,8 @@ mod scroll_content;
 mod scroll_test;
 mod scroll_view;
 #[cfg(feature = "ui-tests")]
+mod sideways_wheel_test;
+#[cfg(feature = "ui-tests")]
 mod wheel_scroll_test;
 
 use scroll_content::ScrollContent;

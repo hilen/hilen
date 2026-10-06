@@ -1,25 +1,41 @@
 //! The system clipboard. One `set_text` on every platform, and `set_secret`
 //! with `clear_if_holds` for text that must not spread. Reading back exists
 //! everywhere except the browser, where reading needs an async permission
-//! prompt and no app needs it yet.
+//! prompt and no app needs it yet. A picture is read with `get_image`, see
+//! there for what each platform does.
 
 #[cfg(android)]
 mod android;
 #[cfg(desktop)]
 mod headless;
+mod image;
 #[cfg(ios)]
 mod ios;
 #[cfg(macos)]
 mod macos;
 
+#[cfg(desktop)]
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
 use anyhow::Result;
 #[cfg(desktop)]
 use anyhow::anyhow;
+#[cfg(not(desktop))]
+use anyhow::bail;
+#[cfg(desktop)]
+use arboard::{Error, ImageData};
+pub use image::ClipboardImage;
 #[cfg(desktop)]
 use parking_lot::Mutex;
 
 #[cfg(desktop)]
-use crate::{system::clipboard::headless::HeadlessStore, window::Window};
+use crate::{
+    system::clipboard::{headless::HeadlessStore, image::Pixels},
+    window::Window,
+};
 
 /// On X11 the clipboard holds data only while its owner lives, so the
 /// instance stays alive for the whole process instead of per call.
@@ -32,6 +48,16 @@ static CLIPBOARD: Mutex<Option<arboard::Clipboard>> = Mutex::new(None);
 #[cfg(desktop)]
 static HEADLESS_CLIPBOARD: Mutex<HeadlessStore> = Mutex::new(HeadlessStore::new());
 
+/// Set by `Clipboard::set_in_process`.
+#[cfg(desktop)]
+static IN_PROCESS: AtomicBool = AtomicBool::new(false);
+
+/// The clipboard calls go to the store of this process, not to the system.
+#[cfg(desktop)]
+fn in_process() -> bool {
+    Window::headless() || IN_PROCESS.load(Ordering::Relaxed)
+}
+
 pub struct Clipboard;
 
 impl Clipboard {
@@ -43,7 +69,7 @@ impl Clipboard {
 
         #[cfg(desktop)]
         {
-            if Window::headless() {
+            if in_process() {
                 HEADLESS_CLIPBOARD.lock().set(&text);
                 return Ok(());
             }
@@ -75,7 +101,7 @@ impl Clipboard {
     pub fn get_text() -> Result<String> {
         #[cfg(desktop)]
         {
-            if Window::headless() {
+            if in_process() {
                 return HEADLESS_CLIPBOARD.lock().get();
             }
             with_clipboard(|clipboard| Ok(clipboard.get_text()?))
@@ -90,6 +116,90 @@ impl Clipboard {
         {
             android::get_text()
         }
+    }
+
+    /// The picture in the clipboard as a png file, `None` when the
+    /// clipboard holds no picture.
+    ///
+    /// A big picture takes time, the system hands over raw pixels and the
+    /// engine makes the png file: 50 to 500 ms for 3000 by 2000 pixels. So
+    /// call it off the main thread and go back with `on_main`. `TextField`
+    /// does that for a paste, see its `image_pasted`.
+    ///
+    /// What each platform does:
+    ///
+    /// - macOS, Windows and Linux: the picture a screenshot or a copy in an
+    ///   image editor or a browser left. On Linux only under X11 or `XWayland`.
+    /// - iOS: the picture of the pasteboard, as the png file the system makes
+    ///   of it. iOS can ask the user to allow the paste.
+    /// - Android: always `None`. A picture is there a link to the app that
+    ///   holds it, and the engine does not read such a link yet.
+    /// - Browser: always `None`. A page reads a picture only through a call
+    ///   that answers later, after a permission prompt.
+    pub fn get_image() -> Result<Option<ClipboardImage>> {
+        #[cfg(desktop)]
+        {
+            // The lock is given back before the encoding, which is the
+            // slow part.
+            let held = if in_process() {
+                HEADLESS_CLIPBOARD.lock().picture()
+            } else {
+                system_picture()?
+            };
+            held.map(|picture| ClipboardImage::encode(&picture)).transpose()
+        }
+
+        #[cfg(ios)]
+        {
+            ios::get_image()
+        }
+
+        #[cfg(any(android, wasm))]
+        {
+            Ok(None)
+        }
+    }
+
+    /// Puts a picture on the clipboard, in the place of what was there.
+    /// Desktop only, every other platform gives an error.
+    pub fn set_image(image: &ClipboardImage) -> Result<()> {
+        #[cfg(desktop)]
+        {
+            let picture = image.decode()?;
+
+            if in_process() {
+                HEADLESS_CLIPBOARD.lock().set_picture(picture);
+                return Ok(());
+            }
+
+            let data = ImageData {
+                width:  picture.width.try_into()?,
+                height: picture.height.try_into()?,
+                bytes:  Cow::Owned(picture.rgba),
+            };
+            with_clipboard(|clipboard| Ok(clipboard.set_image(data)?))?;
+            #[cfg(macos)]
+            macos::note_own_write();
+            Ok(())
+        }
+
+        #[cfg(not(desktop))]
+        {
+            bail!(
+                "No picture of {} by {} pixels goes to the clipboard on this platform",
+                image.width,
+                image.height
+            );
+        }
+    }
+
+    /// Keeps every clipboard call inside this process, the way a headless
+    /// run does, so nothing reads or replaces what the user copied. For a
+    /// UI test that runs in a window. The test runner turns it off again
+    /// before every test.
+    #[cfg(desktop)]
+    pub fn set_in_process(in_process: bool) {
+        IN_PROCESS.store(in_process, Ordering::Relaxed);
     }
 
     /// Puts a secret on the clipboard, like a password or a recovery
@@ -118,7 +228,7 @@ impl Clipboard {
     pub fn set_secret(text: &str) -> Result<()> {
         #[cfg(desktop)]
         {
-            if Window::headless() {
+            if in_process() {
                 HEADLESS_CLIPBOARD.lock().set(text);
                 return Ok(());
             }
@@ -191,7 +301,7 @@ impl Clipboard {
 
         #[cfg(desktop)]
         {
-            if Window::headless() {
+            if in_process() {
                 return Ok(HEADLESS_CLIPBOARD.lock().clear_if_holds(text));
             }
 
@@ -202,7 +312,6 @@ impl Clipboard {
 
             #[cfg(not(macos))]
             {
-                use arboard::Error;
                 use zeroize::Zeroizing;
 
                 with_clipboard(|clipboard| {
@@ -238,6 +347,23 @@ impl Clipboard {
             android::clear_if_holds(text)
         }
     }
+}
+
+/// The picture of the system clipboard as the pixels `arboard` gives.
+#[cfg(desktop)]
+fn system_picture() -> Result<Option<Pixels>> {
+    let data = match with_clipboard(|clipboard| Ok(clipboard.get_image()))? {
+        Ok(data) => data,
+        // An empty clipboard, or one with a text or a file.
+        Err(Error::ContentNotAvailable) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+
+    Ok(Some(Pixels {
+        width:  data.width.try_into()?,
+        height: data.height.try_into()?,
+        rgba:   data.bytes.into_owned(),
+    }))
 }
 
 #[cfg(desktop)]

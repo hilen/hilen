@@ -145,6 +145,11 @@ impl ScrollView {
         (content - self.width()).max(0.0)
     }
 
+    /// The same test `on_scroll` uses to refuse a vertical scroll.
+    fn has_vertical_range(&self) -> bool {
+        self.content.content_size.height > self.content.height()
+    }
+
     fn apply_offset_x(&mut self) {
         self.content.__base_view().__content_offset_x = if self.sideways_width.is_some() {
             0.0
@@ -383,6 +388,18 @@ impl Scrollable for ScrollView {
     }
 
     fn __process_wheel_scroll(&mut self, delta: Point) {
+        // A plain mouse wheel has only the vertical delta. Over a view
+        // that can move only sideways it would do nothing, so it moves
+        // that view sideways, with no key held.
+        if delta.x == 0.0 && self.range_x() > 0.0 && !self.has_vertical_range() {
+            self.scroll_x(delta.y);
+            return;
+        }
+
+        self.__scroll_by(delta);
+    }
+
+    fn __scroll_by(&mut self, delta: Point) {
         // A mouse with no side wheel scrolls sideways with Shift held.
         // macOS turns that into a sideways delta by itself, the other
         // platforms still send it as a vertical one.

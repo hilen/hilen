@@ -18,6 +18,7 @@ use crate::{
         ToF32,
         color::{BLACK, CLEAR, GRAY, LIGHTER_GRAY, WHITE},
     },
+    system::ClipboardImage,
     ui::{
         Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
         UIManager, VerticalAlignment, ViewSubviews,
@@ -91,6 +92,13 @@ pub struct TextField {
     /// A multiline field fires it only with `set_submit_on_enter`, Enter
     /// is a new line there otherwise.
     pub submitted: Event<String>,
+
+    /// A paste that found a picture in the clipboard and no text, with
+    /// that picture as a png file. The field itself takes nothing from
+    /// it, the owner keeps the picture. It fires a moment after the keys,
+    /// the png file is made on another thread. Only the paste shortcut
+    /// of a desktop fires it, see `Clipboard::get_image` for the rest.
+    pub image_pasted: Event<ClipboardImage>,
 
     /// All of these live inside the scroll content so a multiline field
     /// scrolls its lines, the selection and the caret together. A single
