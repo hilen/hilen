@@ -269,3 +269,7 @@ inherits = "release"
 lto = "fat"
 opt-level = 3
 strip = true
+
+[profile.deploy-wasm]
+inherits = "deploy"
+strip = false
