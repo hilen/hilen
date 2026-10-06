@@ -20,14 +20,14 @@
 
 mod apple;
 mod google;
-mod identity;
-mod routes;
+pub(crate) mod identity;
+pub(crate) mod routes;
 #[cfg(test)]
 mod routes_test;
-mod session;
-mod store;
+pub(crate) mod session;
+pub(crate) mod store;
 #[cfg(test)]
-mod store_test;
+pub(crate) mod store_test;
 mod user;
 mod wire;
 

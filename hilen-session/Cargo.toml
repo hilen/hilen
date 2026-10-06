@@ -9,17 +9,47 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `DeviceKey`, the device half of a hand over a server cannot read.
+device-key = ["dep:base64", "dep:hkdf", "dep:x25519-dalek"]
+# `SecretStore` keeps its secrets in the credential store of the system, the
+# Keychain on a Mac and on iOS, the Credential Manager on Windows, the Secret
+# Service on Linux and the Keystore on Android. Without it they go into a
+# sealed file like the session.
+keychain = [
+  "dep:keyring-core",
+  "dep:keyring-store-android",
+  "dep:keyring-store-apple",
+  "dep:keyring-store-linux",
+  "dep:keyring-store-windows",
+]
+
 [dependencies]
-anyhow = { workspace = true }
-log    = { workspace = true }
-sha2   = { workspace = true }
+aes-gcm      = { workspace = true }
+anyhow       = { workspace = true }
+base64       = { workspace = true, optional = true }
+getrandom    = { workspace = true }
+hkdf         = { workspace = true, optional = true }
+log          = { workspace = true }
+sha2         = { workspace = true }
+x25519-dalek = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-aes-gcm   = { workspace = true }
-getrandom = { workspace = true }
+keyring-core = { workspace = true, optional = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring-store-apple = { workspace = true, optional = true, features = ["keychain", "protected"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring-store-windows = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring-store-linux = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+keyring-store-android = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-aes-gcm   = { workspace = true }
 base64    = { workspace = true }
 getrandom = { workspace = true, features = ["wasm_js"] }
 web-sys   = { workspace = true }

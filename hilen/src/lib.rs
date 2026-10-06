@@ -59,6 +59,8 @@ pub mod filesystem;
 pub mod game;
 pub mod generate;
 pub mod gm;
+#[cfg(feature = "google-access")]
+pub mod google_access;
 pub mod inspect;
 #[cfg(feature = "level")]
 pub mod level;

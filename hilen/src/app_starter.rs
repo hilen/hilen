@@ -83,6 +83,14 @@ fn prepare_storage() {
         log::error!("Failed to create the data folder {}: {err}", dir.display());
     }
     log::info!("Data folder: {}", dir.display());
+    // Secrets are filed under the name of the data folder, the project name
+    // on desktop. A test runner has no project name and gets the name of its
+    // temp folder.
+    #[cfg(feature = "google-access")]
+    if let Some(name) = dir.file_name() {
+        crate::store::SecretStore::set_service(name.to_string_lossy().trim_start_matches('.'));
+    }
+
     OnDisk::<()>::set_root_path(dir);
 }
 

@@ -57,7 +57,7 @@ through a `<video>` element under the canvas, see [docs/video.md](docs/video.md)
 the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
-see [docs/login.md](docs/login.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
+see [docs/login.md](docs/login.md). `google-access` is Google API access for an app that keeps its Google tokens on the device, `GoogleAccess`, `GoogleAccounts` and `SecretStore`, see [docs/google-access.md](docs/google-access.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
 `demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, Windows, iOS and wasm, and `scene`
 through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
@@ -151,6 +151,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
   mapping, playback speed, what was measured, the iOS side with its audio session, and the browser side, a `<video>` element
   under a hole in the frame. Read before touching `hilen/src/video` or the archive script.
+- [docs/google-access.md](docs/google-access.md) — Google API access with the tokens on the device:
+  the 1 Web client on the backend, the sealed hand over between `hilen::google_access` and
+  `hilen_server::google_access`, the refresh that stores nothing, `GoogleAccounts` with a main
+  account and linked accounts in the Drive app folder, and `SecretStore`. Read before touching
+  those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
 - [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how

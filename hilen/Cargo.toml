@@ -58,6 +58,10 @@ webgl = ["wgpu/webgl"]
 # views and the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
 # at build time. Off by default, an app with no accounts carries none of it.
 login = ["dep:hilen-session", "dep:getrandom", "dep:qrcode"]
+# Google API access with the tokens kept on the device, against the
+# `google_access` routes of a `hilen-server` backend, and `SecretStore`, a
+# secret in the credential store of the system. Off by default.
+google-access = ["dep:hilen-session", "hilen-session/device-key", "hilen-session/keychain", "dep:getrandom"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -142,6 +146,7 @@ webpki-roots = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 axum = { workspace = true }
+hilen-server = { workspace = true }
 rcgen = { workspace = true }
 tokio-rustls = { workspace = true }
 

@@ -37,5 +37,6 @@ tracing                     = { workspace = true }
 tracing-subscriber          = { workspace = true }
 
 [dev-dependencies]
+hilen-session  = { workspace = true, features = ["device-key"] }
 http-body-util = { workspace = true }
 tower          = { workspace = true }

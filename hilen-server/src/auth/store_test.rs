@@ -66,7 +66,7 @@ where Test: AsyncFnOnce(Db) -> Result<()> {
 }
 
 /// The same with no tables yet, for a test that migrates by itself.
-async fn on_empty_postgres<Test>(test: Test) -> Result<()>
+pub(crate) async fn on_empty_postgres<Test>(test: Test) -> Result<()>
 where Test: AsyncFnOnce(PgPool) -> Result<()> {
     let url = var(POSTGRES_URL)
         .with_context(|| format!("set {POSTGRES_URL} to a Postgres that may create databases"))?;

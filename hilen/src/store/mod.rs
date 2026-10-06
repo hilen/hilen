@@ -3,6 +3,8 @@ mod on_disk_encrypted;
 mod storable;
 
 // pub use self::on_disk_encrypted::OnDiskEncrypted;
+#[cfg(feature = "google-access")]
+pub use hilen_session::SecretStore;
 #[cfg(feature = "login")]
 pub use hilen_session::SessionStore;
 

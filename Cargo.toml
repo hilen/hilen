@@ -96,12 +96,18 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 futures-util = "0.3"
 getrandom = "0.4"
 hex = "0.4"
+hkdf = "0.13"
 image = "0.25"
 indexmap = "2.14"
 infisical = "0.0.3"
 http-body-util = "0.1"
 jni = "0.22"
 keepawake = "0.6"
+keyring-core = "1.0"
+keyring-store-android = { package = "android-native-keyring-store", version = "1" }
+keyring-store-apple = { package = "apple-native-keyring-store", version = "1" }
+keyring-store-linux = { package = "zbus-secret-service-keyring-store", version = "1", features = ["crypto-rust"] }
+keyring-store-windows = { package = "windows-native-keyring-store", version = "1" }
 kira = "0.12"
 libc = "0.2"
 local-ip-address = "0.6"
@@ -230,6 +236,7 @@ webpki-roots = "1.0"
 wgpu = { package = "hilen-wgpu", version = "30.0" }
 wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "0950fd1d9f2c942335deb3d1ca8db2a89c1b406c" }
 winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
+x25519-dalek = { version = "3.0", features = ["static_secrets"] }
 zeroize = "1.9"
 
 plat = { version = "0.10", path = "deps/plat" }
@@ -238,6 +245,7 @@ reflected = "0.30"
 level-proc = { version = "0.1", path = "deps/level-proc" }
 project-proc = { version = "0.1", path = "deps/project-proc" }
 hilen = { version = "0.1", path = "hilen" }
+hilen-server = { version = "0.1", path = "hilen-server" }
 hilen-session = { version = "0.1", path = "hilen-session" }
 hilen-updater = { version = "0.1", path = "hilen-updater" }
 hilen-pixels = { version = "0.1", path = "deps/pixels" }

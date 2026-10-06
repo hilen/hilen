@@ -345,11 +345,11 @@ async fn delete(State(state): State<AuthState>, user: User) -> Result<(), AppErr
     Ok(())
 }
 
-fn is_challenge(text: &str) -> bool {
+pub(crate) fn is_challenge(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn page(app: &str, title: &str, text: &str) -> Response {
+pub(crate) fn page(app: &str, title: &str, text: &str) -> Response {
     let (app, title, text) = (escape(app), escape(title), escape(text));
 
     Html(format!(

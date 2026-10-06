@@ -4,10 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(all(any(feature = "login", feature = "google-access"), not_wasm))]
+use hilen_session::SessionStore;
 use parking_lot::Mutex;
 
-#[cfg(all(feature = "login", not_wasm))]
-use crate::store::SessionStore;
 use crate::{filesystem::Paths, store::storable::Storable};
 
 static ROOT_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -161,7 +161,8 @@ impl<T> OnDisk<T> {
     pub fn set_root_path(path: impl AsRef<Path>) {
         *ROOT_PATH.lock() = Some(path.as_ref().to_path_buf());
         // The login session lives next to the other files, see hilen-session.
-        #[cfg(all(feature = "login", not_wasm))]
+        // A `SecretStore` with no credential store of the system does too.
+        #[cfg(all(any(feature = "login", feature = "google-access"), not_wasm))]
         SessionStore::set_root(expand_tilde(path.as_ref()));
     }
 }

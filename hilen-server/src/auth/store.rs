@@ -31,6 +31,7 @@ macro_rules! on_db {
         }
     };
 }
+pub(crate) use on_db;
 
 /// A random id, version 4, for a new user. SQLite has no default that makes
 /// one, so the server makes it for both databases.

@@ -11,7 +11,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 
-hilen = { workspace = true, features = ["inspect", "login", "ui-tests"] }
+hilen = { workspace = true, features = ["google-access", "inspect", "login", "ui-tests"] }
 demo = { workspace = true }
 ui-test-suite = { workspace = true }
 
