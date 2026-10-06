@@ -16,28 +16,21 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Syntax colors for the code an app draws itself
+## A paragraph of only bold text before a list is not drawn by MarkdownView
 
-Found by banda at `~/dev/apps/banda`. It draws a diff, each line in its own `Label`
-in a recycling `TableView`, and wants the code in the colors of its language.
+Found by banda at `~/dev/apps/banda`. Its chat draws what Claude wrote with
+`MarkdownView::set_text`, and Claude often writes a bold line as a small header right
+above a list.
 
-- Current: `hilen/src/ui/views/complex/markdown/highlight.rs` has
-  `pub(crate) fn highlight(language, code)` and a `pub(crate) enum Token`. Only
-  `MarkdownView::code` in `view.rs` calls it, for a fenced code block, and
-  `MarkdownStyle::syntax`, also `pub(crate)`, turns a token into a color. The
-  `markdown` module exports only `MarkdownFonts`, `MarkdownStyle` and `MarkdownView`,
-  so an app can call none of it. The function takes a markdown language word like
-  `rust`, nothing maps a file name like `a.rs` or `Makefile` to a language. It parses
-  a whole text from a clean start, so 1 line of a file cannot go on from the state of
-  the line before it.
-- Needed: a public type in `hilen::ui` that an app makes for a file name or for a
-  language word, none for a language nobody knows. It gives the byte ranges of a text
-  with their colors, ready for `Label::set_color_runs`, in the colors a code block of
-  `MarkdownView` has. It keeps the parse state from one call to the next, so the lines
-  of a file can be colored 1 by 1 in order, and it can start clean again.
-  `MarkdownView` uses the same type. Unit tests for the mapping and the state, and a
-  UI test that draws lines of code in labels.
-- Blocks: syntax colors in the diff view of banda.
+- Current: a text like `**Done**` on 1 line with a list on the next line, `- first`,
+  shows the list and an empty gap where the bold line should be. The text is there: a
+  selection over that place copies `Done`, so the block is parsed and laid out, and
+  only its drawing is missing. A bold word inside a longer paragraph is drawn. The
+  cause is not found yet, prove it before a fix. Seen on hilen `dc3d50d5`, and before
+  the text selection landed, so the selection did not bring it.
+- Needed: the bold paragraph is drawn like any other paragraph. A UI test with a bold
+  only paragraph right above a list, above a paragraph and at the end of a text.
+- Blocks: the small headers of an answer in the banda chat.
 
 ## A key combo with Alt, and a combo that wins over the focus ring and a text field
 

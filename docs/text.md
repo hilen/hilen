@@ -113,6 +113,11 @@ defaults to center, `Label::set_vertical_alignment` opts a label into Top,
 which the multiline `TextField` uses so a tall field starts its text at the
 top.
 
+A multiline `TextField` scrolls its lines to keep the line of the caret in view. When
+its owner makes it higher, like a chat box that grows with a pasted text, it scrolls
+back so that no room stays empty under the last line while lines are scrolled out
+above. A field that fits all its text is not scrolled. `Multiline field grows` pins it.
+
 `Label::set_line_height(points)` replaces the font's own line pitch with a
 CSS line box: baselines advance by the box, glyphs center in each box with
 half the leading above and below, and a multiline measure returns boxes

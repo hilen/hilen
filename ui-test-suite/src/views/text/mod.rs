@@ -38,6 +38,7 @@ mod markdown_view;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod modal_escape_text_field;
+mod multiline_field_grows;
 mod multiline_label;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]

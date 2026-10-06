@@ -475,6 +475,13 @@ impl TextField {
             let label_height = content.max(height - MULTILINE_TOP_INSET);
             self.label.set_frame((0.0, MULTILINE_TOP_INSET, width, label_height));
             self.scroll.set_content_height(label_height + MULTILINE_TOP_INSET);
+            // A field that got higher shows more of its lines. Without this
+            // it keeps the offset it had while it was low, with lines
+            // scrolled out above and empty room under the last one.
+            let lowest = (height - self.scroll.content_height()).min(0.0);
+            if self.scroll.get_scroll_content_offset() < lowest {
+                self.scroll.set_content_offset(lowest);
+            }
         } else {
             self.label.set_frame((0.0, 0.0, width, height));
             self.scroll.set_content_height(height);
