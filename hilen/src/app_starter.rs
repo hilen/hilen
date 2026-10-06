@@ -91,12 +91,6 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         keep_ctor_linked();
         crate::deps::hreads::set_current_thread_as_main();
 
-        // Apps build their own reqwest clients, so the process default has
-        // to be in place before `before_launch`, not only before the
-        // engine's first request.
-        #[cfg(not_wasm)]
-        crate::deps::netrun::tls::install_provider();
-
         #[cfg(not_wasm)]
         prepare_storage();
 
@@ -204,6 +198,11 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     #[cfg(not_wasm)]
     {
         let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Sentry builds a reqwest client and apps build their own in
+        // `before_launch`, so the process default has to be in place before
+        // both, not only before the engine's first request.
+        crate::deps::netrun::tls::install_provider();
 
         rt.block_on(async {
             let sentry_guard = AppRunner::setup_sentry(std::ops::Deref::deref(&app)).await;
