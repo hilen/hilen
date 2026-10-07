@@ -9,7 +9,7 @@ use crate::gm::{
     flat::{Point, Size},
 };
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Screenshot {
     pub data: Vec<U8Color>,
     pub size: Size<u32>,

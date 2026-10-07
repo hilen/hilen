@@ -11,6 +11,17 @@ pub enum AppCommand {
         height:     u32,
         png_base64: String,
     },
+    /// The answer to a record, in the order the frames were drawn.
+    Frames {
+        frames: Vec<FrameRepr>,
+        /// What the input said, like the view a hover landed on.
+        #[serde(default)]
+        note:   Option<String>,
+    },
+    /// The app is paused, with the frames drawn since the pause.
+    Paused {
+        frame: u64,
+    },
     Edits(Vec<EditEntry>),
     TestResults {
         total:    usize,
@@ -36,6 +47,17 @@ pub enum AppCommand {
     /// Unix seconds of when this app process started.
     StartTime(u64),
     UI(UIResponse),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameRepr {
+    /// The count of the frame from the input, the frame of the input is 0.
+    pub index:      u32,
+    /// Milliseconds from the input to the draw of the frame.
+    pub ms:         f32,
+    pub width:      u32,
+    pub height:     u32,
+    pub png_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

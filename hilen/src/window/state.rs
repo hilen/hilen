@@ -18,8 +18,14 @@ use crate::{
         flat::Size,
     },
     window::{
-        Font, RenderFrame, Screenshot, Window, app_handler::AppHandler, frame_counter::FrameCounter,
-        image::Texture, msaa::msaa_sample_count, screen::Screen, surface::Surface,
+        Font, RenderFrame, Screenshot, Window,
+        app_handler::AppHandler,
+        frame_control::{self, FrameReader},
+        frame_counter::FrameCounter,
+        image::Texture,
+        msaa::msaa_sample_count,
+        screen::Screen,
+        surface::Surface,
         window::surface_config_with_size,
     },
 };
@@ -326,6 +332,24 @@ impl State {
         RenderTarget::Skip
     }
 
+    /// A surface can stay occluded or missing indefinitely, and a
+    /// pending screenshot waits on the next delivered frame. Answer
+    /// it through the offscreen path instead of skipping, so
+    /// `take_screenshot` never hangs on a covered window. The frames of
+    /// a step or a record are drawn the same way.
+    #[cfg(not_wasm)]
+    fn frame_target(&self) -> RenderTarget {
+        let target = Self::acquire_render_target();
+
+        if matches!(target, RenderTarget::Skip)
+            && (self.read_display_request.borrow().is_some() || frame_control::offscreen_wanted())
+        {
+            return RenderTarget::Offscreen;
+        }
+
+        target
+    }
+
     pub(crate) fn render(&mut self) {
         #[cfg(desktop)]
         if Window::is_resizing() {
@@ -338,18 +362,10 @@ impl State {
             return;
         }
 
-        let target = Self::acquire_render_target();
-
-        // A surface can stay occluded or missing indefinitely, and a
-        // pending screenshot waits on the next delivered frame. Answer
-        // it through the offscreen path instead of skipping, so
-        // `take_screenshot` never hangs on a covered window.
         #[cfg(not_wasm)]
-        let target = if matches!(target, RenderTarget::Skip) && self.read_display_request.borrow().is_some() {
-            RenderTarget::Offscreen
-        } else {
-            target
-        };
+        let target = self.frame_target();
+        #[cfg(wasm)]
+        let target = Self::acquire_render_target();
 
         let surface_texture = match target {
             RenderTarget::Skip => return,
@@ -359,6 +375,9 @@ impl State {
         };
 
         Window::next_render_frame();
+
+        let recorder = frame_control::frame_reader();
+        let read_back = recorder.is_some() || self.read_display_request.borrow().is_some();
 
         let work_started = Instant::now();
 
@@ -390,8 +409,7 @@ impl State {
 
         // A pending read forces the scene texture path where the surface
         // cannot be copied, the readback copies the scene texture instead.
-        let needs_sampling =
-            needs_sampling || (!crate::window::SURFACE_COPY && self.read_display_request.borrow().is_some());
+        let needs_sampling = needs_sampling || (!crate::window::SURFACE_COPY && read_back);
 
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture(target_size);
@@ -448,20 +466,17 @@ impl State {
 
         let mut encoder = frame.finish();
 
-        let buffer = if self.read_display_request.borrow().is_some() {
-            // Where the surface cannot be copied the pending read forced
-            // the sampling path above, so the scene texture holds this
-            // frame. The headless offscreen texture is copyable as is.
+        // Where the surface cannot be copied the pending read forced
+        // the sampling path above, so the scene texture holds this
+        // frame. The headless offscreen texture is copyable as is.
+        let buffer = read_back.then(|| {
             let source = if crate::window::SURFACE_COPY || surface_texture.is_none() {
                 texture
             } else {
                 self.scene_texture.as_ref().expect("Scene texture ensured by pending read")
             };
-
-            Some(Self::read_screen(&mut encoder, source))
-        } else {
-            None
-        };
+            Self::read_screen(&mut encoder, source)
+        });
 
         Window::queue().submit(std::iter::once(encoder.finish()));
 
@@ -476,17 +491,24 @@ impl State {
         #[cfg(feature = "bench")]
         self.read_gpu_time().expect("failed to read gpu time");
 
-        self.deliver_pending_read(buffer);
+        self.deliver_pending_read(buffer, recorder);
     }
 
-    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, Size<u32>)>) {
-        #[cfg(not_wasm)]
-        if let Some(buffer_sender) = self.read_display_request.take() {
-            let (sender, receiver) = channel();
+    /// Hands the frame to the waiting screenshot and to a running frame
+    /// record.
+    fn deliver_pending_read(&self, buffer: Option<(wgpu::Buffer, Size<u32>)>, recorder: Option<FrameReader>) {
+        let mut readers: Vec<FrameReader> = recorder.into_iter().collect();
+        if let Some(request) = self.read_display_request.take() {
+            readers.push(Box::new(move |shot| request.send(shot).unwrap()));
+        }
 
-            let Some(buffer) = buffer else {
-                return;
-            };
+        let Some(buffer) = buffer else {
+            return;
+        };
+
+        #[cfg(not_wasm)]
+        {
+            let (sender, receiver) = channel();
 
             let buffer_slice = buffer.0.slice(..);
 
@@ -503,7 +525,7 @@ impl State {
 
             crate::deps::hreads::spawn(async move {
                 let _ = receiver.recv().unwrap();
-                Self::deliver_screenshot(buffer, &buffer_sender);
+                Self::deliver_screenshot(buffer, readers);
             });
         }
 
@@ -511,10 +533,8 @@ impl State {
         // on the main thread once the browser completes the copy, and the
         // waiting test thread receives through the request channel.
         #[cfg(wasm)]
-        if let Some(buffer_sender) = self.read_display_request.take() {
-            let Some((buffer, size)) = buffer else {
-                return;
-            };
+        {
+            let (buffer, size) = buffer;
 
             let mapped = buffer.clone();
 
@@ -524,7 +544,7 @@ impl State {
                     return;
                 }
 
-                Self::deliver_screenshot((mapped, size), &buffer_sender);
+                Self::deliver_screenshot((mapped, size), readers);
             });
         }
     }
@@ -718,12 +738,22 @@ impl State {
         }));
     }
 
-    fn deliver_screenshot(buffer: (wgpu::Buffer, Size<u32>), sender: &ReadDisplayRequest) {
+    fn deliver_screenshot(buffer: (wgpu::Buffer, Size<u32>), mut readers: Vec<FrameReader>) {
+        let shot = Self::read_buffer(buffer);
+        let Some(last) = readers.pop() else {
+            return;
+        };
+        for reader in readers {
+            reader(shot.clone());
+        }
+        last(shot);
+    }
+
+    fn read_buffer(buffer: (wgpu::Buffer, Size<u32>)) -> Screenshot {
         let (buff, size) = buffer;
 
         if size.width == 0 || size.height == 0 {
-            sender.send(Screenshot::new(vec![], size)).unwrap();
-            return;
+            return Screenshot::new(vec![], size);
         }
 
         let width = usize::try_from(size.width).unwrap();
@@ -753,11 +783,10 @@ impl State {
             }
         }
 
-        sender.send(Screenshot::new(data, size)).unwrap();
+        Screenshot::new(data, size)
     }
 
     /// A screenshot waits on the next frame, see `request_read_display`.
-    #[cfg(not_wasm)]
     pub(crate) fn screenshot_pending(&self) -> bool {
         self.read_display_request.borrow().is_some()
     }

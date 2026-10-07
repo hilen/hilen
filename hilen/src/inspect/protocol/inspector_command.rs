@@ -17,6 +17,25 @@ pub enum InspectorCommand {
     /// Closes the app the way closing its window does. Desktop only, a
     /// phone or a browser page has no such exit.
     Quit,
+    /// Saves every frame the app draws after an input, `frames` of them,
+    /// the first one is the frame that holds what the input did. With an
+    /// input, a tap, keys, a hover, a scroll or a drag, the app plays it
+    /// and records. With none the record waits up to `wait_ms` for the
+    /// next press, key or wheel turn of the user.
+    Record {
+        frames:  u32,
+        input:   Option<UIRequest>,
+        #[serde(default)]
+        wait_ms: u32,
+    },
+    /// Freezes the engine clock and the drawing until `Resume`.
+    Pause,
+    /// Draws the next frames of a paused app, each moves the clock by one
+    /// frame of 60 a second.
+    Step {
+        frames: u32,
+    },
+    Resume,
     UI(UIRequest),
 }
 

@@ -16,6 +16,22 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Frame record and frame step, the proof in banda and on the other lanes
+
+Found on 2026-10-07 in banda at `dev` commit `9439493e`. A popup opened with 3 wrong
+frames: the pills of a row sat left of the popup until their anchors settled. The
+user saw a flicker and had no way to show it or to look at it.
+
+- Current: `hilen-inspect` saves every frame after an input, `tap <query> --frames 30
+  --out <dir>` and `record`, and walks a paused app with `pause`, `step [n]` and
+  `resume`, see [inspect.md](inspect.md). The `Inspect frames` UI test passes on the
+  desktop lane, and both were driven by hand on the demo window on macOS.
+- Needed: bump the pin of banda, open the popup with `tap --frames`, and see the 3
+  wrong frames in the pictures. Run `Inspect frames` on the iOS simulator and the
+  browser lanes. Start a `record` with a real click, the test covers only the record
+  that no input starts.
+- Blocks: nothing. This entry is deleted once the popup of banda is seen in the frames.
+
 ## 17 UI tests fail on the iOS simulator
 
 Found on 2026-10-07 while the iOS lane was moved to the build machine kotik. The lane

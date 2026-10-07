@@ -4,14 +4,16 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 use hilen::{
     gm::color::Color,
-    inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest, UIResponse},
-    ui::ModifiersState,
+    inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest},
 };
 use serde_json::{json, to_string_pretty};
 
 use super::{
-    build_time, drag, find, find_matches, get_ui, hold, keys, print_edited, print_tree, quit, quoted_text,
-    resolve_near, resolve_target, run_tests, screenshot, scroll, scroll_to, send, wait,
+    build_time, drag, find, find_matches,
+    frames::{pause, record, resume, step},
+    get_ui, hold,
+    input::{RecordArgs, hover, keys, scroll, tap},
+    print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send, wait,
 };
 
 #[derive(Subcommand)]
@@ -91,20 +93,24 @@ pub(super) enum Command {
         /// app refuses such a tap otherwise and names the covering view.
         #[arg(long)]
         force:  bool,
+        #[command(flatten)]
+        record: RecordArgs,
     },
     /// Move the pointer to a view without pressing a button
     Hover {
         /// Exact id, visible text or label field name, as with tap
         #[arg(required_unless_present = "clear", conflicts_with = "clear")]
-        query: Option<String>,
+        query:  Option<String>,
         #[arg(long, requires = "query")]
-        fuzzy: bool,
+        fuzzy:  bool,
         /// Move the pointer outside the window and clear hover
         #[arg(long)]
-        clear: bool,
+        clear:  bool,
         /// Milliseconds to wait before replying; use 600 for tooltips
         #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=60_000))]
-        wait:  u32,
+        wait:   u32,
+        #[command(flatten)]
+        record: RecordArgs,
     },
     /// One line per matching view: label, text, absolute frame, status,
     /// id. Matches id, label and text by substring, case insensitive.
@@ -135,10 +141,12 @@ pub(super) enum Command {
     /// Wheel scroll at the window center, or at a view with --at.
     /// Positive dy scrolls toward the top of the content.
     Scroll {
-        dy: f32,
+        dy:     f32,
         /// Aim at this view instead of the window center
         #[arg(long)]
-        at: Option<String>,
+        at:     Option<String>,
+        #[command(flatten)]
+        record: RecordArgs,
     },
     /// Scroll the page until the view is inside the window
     ScrollTo { query: String },
@@ -160,19 +168,43 @@ pub(super) enum Command {
     Keys {
         /// Text to type, every char in order
         #[arg(required_unless_present = "key")]
-        text:  Option<String>,
+        text:   Option<String>,
         /// A named key instead of text, a winit `NamedKey` name like Enter,
         /// Escape, Tab, Backspace or `ArrowDown`
         #[arg(long, conflicts_with = "text")]
-        key:   Option<String>,
+        key:    Option<String>,
         /// Hold the command modifier, Cmd on a Mac and Ctrl elsewhere
         #[arg(long)]
-        cmd:   bool,
+        cmd:    bool,
         #[arg(long)]
-        shift: bool,
+        shift:  bool,
         #[arg(long)]
-        alt:   bool,
+        alt:    bool,
+        #[command(flatten)]
+        record: RecordArgs,
     },
+    /// Save the frames the app draws after the next click, key or wheel
+    /// turn of the user, 1 PNG each, to show a glitch by doing it once
+    Record {
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=120))]
+        frames:  u32,
+        /// Folder for the frames
+        #[arg(long)]
+        out:     PathBuf,
+        /// Seconds to wait for the input
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u32).range(1..=60))]
+        timeout: u32,
+    },
+    /// Freeze the clock and the drawing of the app. An input sent after
+    /// it shows in the next stepped frame.
+    Pause,
+    /// Draw the next frames of a paused app
+    Step {
+        #[arg(default_value_t = 1)]
+        frames: u32,
+    },
+    /// Let a paused app run again
+    Resume,
     /// Set the UI scale of the app
     SetScale { scale: f32 },
     /// Play a sound in the app, to tell which instance is which
@@ -230,6 +262,43 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             };
             println!("{}", to_string_pretty(&edits)?);
         }
+        Command::Find { query, all } => find(client, &query, all).await?,
+        Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
+        Command::Drag {
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            steps,
+        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
+        Command::ScrollTo { query } => scroll_to(client, &query).await?,
+        Command::Resize { width, height } => {
+            send(client, UIRequest::Resize { width, height }.into()).await?;
+            println!("ok");
+        }
+        Command::Hold { keys, ms } => hold(client, &keys, ms).await?,
+        Command::SetScale { scale } => {
+            send(client, UIRequest::SetScale(scale).into()).await?;
+            println!("ok");
+        }
+        input @ (Command::Tap { .. }
+        | Command::Hover { .. }
+        | Command::Scroll { .. }
+        | Command::Keys { .. }
+        | Command::Record { .. }
+        | Command::Pause
+        | Command::Step { .. }
+        | Command::Resume) => run_input(client, input).await?,
+        edit => run_edit(client, edit).await?,
+    }
+
+    Ok(())
+}
+
+/// The commands that send an input, with the frame record and the frame
+/// step, split out of `run` to keep it readable.
+async fn run_input(client: &Client, command: Command) -> Result<()> {
+    match command {
         Command::Tap {
             query,
             fuzzy,
@@ -240,15 +309,16 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             alt,
             right,
             force,
+            record,
         } => {
             tap(
                 client,
                 query,
                 fuzzy,
-                near,
-                r#type,
+                (near, r#type),
                 [cmd, shift, alt],
                 [right, force],
+                &record,
             )
             .await?;
         }
@@ -257,35 +327,22 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             fuzzy,
             clear: _,
             wait,
-        } => hover(client, query, fuzzy, wait).await?,
-        Command::Find { query, all } => find(client, &query, all).await?,
-        Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
-        Command::Drag {
-            from_x,
-            from_y,
-            to_x,
-            to_y,
-            steps,
-        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
-        Command::Scroll { dy, at } => scroll(client, dy, at).await?,
-        Command::ScrollTo { query } => scroll_to(client, &query).await?,
-        Command::Resize { width, height } => {
-            send(client, UIRequest::Resize { width, height }.into()).await?;
-            println!("ok");
-        }
-        Command::Hold { keys, ms } => hold(client, &keys, ms).await?,
+            record,
+        } => hover(client, query, fuzzy, wait, &record).await?,
+        Command::Scroll { dy, at, record } => scroll(client, dy, at, &record).await?,
         Command::Keys {
             text,
             key,
             cmd,
             shift,
             alt,
-        } => keys(client, text, key, [cmd, shift, alt]).await?,
-        Command::SetScale { scale } => {
-            send(client, UIRequest::SetScale(scale).into()).await?;
-            println!("ok");
-        }
-        edit => run_edit(client, edit).await?,
+            record,
+        } => keys(client, text, key, [cmd, shift, alt], &record).await?,
+        Command::Record { frames, out, timeout } => record(client, frames, &out, timeout).await?,
+        Command::Pause => pause(client).await?,
+        Command::Step { frames } => step(client, frames).await?,
+        Command::Resume => resume(client).await?,
+        _ => unreachable!("only the input commands reach run_input"),
     }
 
     Ok(())
@@ -325,82 +382,5 @@ async fn run_edit(client: &Client, command: Command) -> Result<()> {
         _ => unreachable!("only the edit commands reach run_edit"),
     }
 
-    Ok(())
-}
-
-async fn tap(
-    client: &Client,
-    query: Option<String>,
-    fuzzy: bool,
-    near: Option<String>,
-    near_type: Option<String>,
-    [cmd, shift, alt]: [bool; 3],
-    [right, force]: [bool; 2],
-) -> Result<()> {
-    let (_, root) = get_ui(client).await?;
-
-    let target_id = match (&query, &near) {
-        (Some(query), None) => {
-            let target = resolve_target(&root, query, fuzzy)?;
-            println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
-            target.id.clone()
-        }
-        (None, Some(near)) => {
-            let target = resolve_near(&root, near, near_type.as_deref().unwrap_or("Button"))?;
-            println!(
-                "tapping near {near}: {} {} {}",
-                target.label,
-                quoted_text(target),
-                target.id
-            );
-            target.id.clone()
-        }
-        _ => unreachable!("clap requires exactly one of query and --near"),
-    };
-
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
-
-    // The tapped view is often gone from the fresh tree, a tab swaps the
-    // page and a modal button closes the modal, so no lookup afterwards.
-    let AppCommand::UI(UIResponse::SendUI { note, .. }) = send(
-        client,
-        UIRequest::Tap {
-            view_id: target_id,
-            modifiers,
-            right,
-            force,
-        }
-        .into(),
-    )
-    .await?
-    else {
-        bail!("Unexpected response to tap");
-    };
-    println!("tapped");
-    if let Some(note) = note {
-        println!("warning: {note}");
-    }
-
-    Ok(())
-}
-
-async fn hover(client: &Client, query: Option<String>, fuzzy: bool, wait_ms: u32) -> Result<()> {
-    let view_id = if let Some(query) = query {
-        let (_, root) = get_ui(client).await?;
-        Some(resolve_target(&root, &query, fuzzy)?.id.clone())
-    } else {
-        None
-    };
-    let AppCommand::UI(UIResponse::SendUI { note, .. }) =
-        send(client, UIRequest::Hover { view_id, wait_ms }.into()).await?
-    else {
-        bail!("Unexpected response to hover");
-    };
-    if let Some(note) = note {
-        println!("{note}");
-    }
     Ok(())
 }

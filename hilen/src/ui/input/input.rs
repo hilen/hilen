@@ -19,6 +19,7 @@ use crate::{
         Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextField, TextSelection,
         Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
     },
+    window::frame_control,
 };
 
 const LOG_TOUCHES: bool = false;
@@ -52,12 +53,14 @@ impl Input {
     }
 
     pub(crate) fn on_char(ch: char) {
+        frame_control::input_arrived();
         UIManager::keymap().check(ch);
         TextSelection::on_char(ch);
         UIEvents::keyboard_input().trigger(ch);
     }
 
     pub(crate) fn on_key(key: NamedKey) {
+        frame_control::input_arrived();
         // A game's Escape gives the mouse back and nothing else sees it.
         if key == NamedKey::Escape && Cursor::captured() {
             Cursor::release();
@@ -104,6 +107,7 @@ impl Input {
     }
 
     pub(crate) fn on_scroll(offset: Point) {
+        frame_control::input_arrived();
         UIEvents::on_scroll().trigger(offset);
         Self::check_wheel_scroll(offset);
 
@@ -127,6 +131,10 @@ impl Input {
 
     pub(crate) fn process_touch_event(mut touch: Touch) -> bool {
         UIEvents::on_debug_touch().trigger(touch);
+
+        if touch.is_began() {
+            frame_control::input_arrived();
+        }
 
         // Before any view can take the touch, the held state is raw.
         Mouse::on_touch(&touch);

@@ -126,6 +126,14 @@ impl InspectService {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
             InspectorCommand::Quit => Self::quit(),
+            InspectorCommand::Record {
+                frames,
+                input,
+                wait_ms,
+            } => Self::record(frames, input, wait_ms),
+            InspectorCommand::Pause => Self::pause(),
+            InspectorCommand::Step { frames } => Self::step(frames),
+            InspectorCommand::Resume => Self::resume(),
             InspectorCommand::UI(ui) => {
                 Self::lay_out_covered();
                 Self::process_ui_command(ui)
@@ -221,7 +229,7 @@ impl InspectService {
     /// screenshot is the one frame a covered window draws, see
     /// `frame_pacing`, so one is taken and dropped.
     #[cfg(not_wasm)]
-    fn lay_out_covered() {
+    pub(super) fn lay_out_covered() {
         if crate::window::occluded()
             && let Err(err) = crate::AppRunner::take_screenshot()
         {
@@ -230,9 +238,9 @@ impl InspectService {
     }
 
     #[cfg(wasm)]
-    fn lay_out_covered() {}
+    pub(super) fn lay_out_covered() {}
 
-    fn process_ui_command(command: UIRequest) -> AppCommand {
+    pub(super) fn process_ui_command(command: UIRequest) -> AppCommand {
         match command {
             UIRequest::SetScale(scale) => {
                 from_main(move || {

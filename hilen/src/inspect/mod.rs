@@ -3,6 +3,7 @@
 pub mod protocol;
 
 mod edit_log;
+mod frames;
 mod hold;
 #[cfg(any(desktop, wasm))]
 mod hover;

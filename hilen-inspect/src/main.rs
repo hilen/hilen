@@ -1,4 +1,6 @@
 mod commands;
+mod frames;
+mod input;
 
 use std::{
     collections::HashMap,
@@ -16,10 +18,10 @@ use clap::Parser;
 use commands::{Command, run};
 use hilen::{
     inspect::protocol::{
-        AppCommand, Client, InspectorCommand, Key, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
+        AppCommand, Client, InspectorCommand, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
     },
     refs::{Own, hreads::set_current_thread_as_main},
-    ui::{ModifiersState, NamedKey},
+    ui::NamedKey,
     window::KeyCode,
 };
 use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
@@ -233,19 +235,6 @@ async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize) -
     Ok(())
 }
 
-async fn scroll(client: &Client, dy: f32, at: Option<String>) -> Result<()> {
-    let view_id = match at {
-        Some(query) => {
-            let (_, root) = get_ui(client).await?;
-            Some(resolve_target(&root, &query, false)?.id.clone())
-        }
-        None => None,
-    };
-    send(client, UIRequest::Scroll { view_id, dx: 0.0, dy }.into()).await?;
-    println!("ok");
-    Ok(())
-}
-
 /// Repeats scroll steps until the view's center is inside the area it can
 /// show in, aimed at the scroll view that clips it, or at the window
 /// center when nothing clips it. Fuzzy matching, the target is often known only
@@ -363,29 +352,6 @@ async fn screenshot(client: &Client, out: Option<PathBuf>) -> Result<()> {
     let path = out.unwrap_or_else(|| temp_dir().join("te-screenshot.png"));
     write(&path, STANDARD.decode(png_base64)?)?;
     println!("{width}x{height} saved to {}", path.display());
-    Ok(())
-}
-
-async fn keys(
-    client: &Client,
-    text: Option<String>,
-    key: Option<String>,
-    [cmd, shift, alt]: [bool; 3],
-) -> Result<()> {
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
-
-    let keys = match (text, key) {
-        (Some(text), None) => text.chars().map(Key::Char).collect(),
-        (None, Some(key)) => vec![Key::Named(parse_named_key(&key)?)],
-        _ => unreachable!("clap requires exactly one of text and --key"),
-    };
-
-    send(client, UIRequest::Keys { keys, modifiers }.into()).await?;
-    println!("ok");
-
     Ok(())
 }
 

@@ -309,7 +309,7 @@ it there and push it to `main` before the parent commit, so the parent never poi
 a commit that exists only on this machine. Never leave the submodule dirty or on a
 detached HEAD for the user to sort out.
 
-Always run `make ci` and `make smoke` before every commit. The full lanes,
+Run `make ci` and `make smoke` before a commit, and only then, never while no commit is asked. The full lanes,
 `make ui`, `make ui-ios` and `make ui-web`, are not part of the routine pre-commit check.
 Run them only when asked, or when a change reworks rendering or another
 engine-wide path where a smoke miss is likely.

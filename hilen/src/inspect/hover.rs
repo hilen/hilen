@@ -8,7 +8,7 @@ use crate::{
         weak_to_id,
     },
     ui::{Hover, Input, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
-    window::MouseButton,
+    window::{MouseButton, frame_control},
 };
 
 impl InspectService {
@@ -41,12 +41,15 @@ impl InspectService {
                 // CursorLeft clears hover without dispatching a moved event
                 // to views whose frames happen to extend outside the window.
                 UIManager::set_cursor_position(Point::new(-1.0, -1.0));
+                frame_control::input_arrived();
                 Hover::clear();
                 return Ok(());
             };
 
             // Winit cursor moves enter this same pipeline as a moved mouse
             // touch, in physical pixels, without a began or ended event.
+            // A move starts no frame record by itself, this one has to.
+            frame_control::input_arrived();
             Input::process_touch_event(Touch {
                 id:       1,
                 position: position * UIManager::scale(),

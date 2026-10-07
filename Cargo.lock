@@ -8764,8 +8764,10 @@ name = "ui-test-suite"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "chrono",
  "hilen",
+ "image",
  "log",
  "parking_lot",
  "plat",

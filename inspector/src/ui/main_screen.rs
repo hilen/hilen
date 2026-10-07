@@ -242,6 +242,8 @@ impl MainScreen {
             AppCommand::Error(err) => error!("App returned an error: {err}"),
             AppCommand::Ok
             | AppCommand::Screenshot { .. }
+            | AppCommand::Frames { .. }
+            | AppCommand::Paused { .. }
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)
             | AppCommand::StartTime(_)

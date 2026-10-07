@@ -25,7 +25,7 @@ Two clients exist:
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
-  `resize`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
+  `resize`, `record`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`, `quit`. The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
@@ -79,6 +79,53 @@ input read every frame through `Keys::held` like a walking player. `keys` presse
 releases in one frame, so `Keys::held` never sees it. A letter or digit names its key,
 anything else is a winit `KeyCode` name like `Space` or `ArrowUp`.
 
+## Frame by frame
+
+A screenshot is 1 frame, the one the app drew last, some frames after the input. A
+layout that settles over 3 frames or a flash of 1 frame is never in it. 2 things show
+every frame.
+
+A record saves every frame after an input. `tap <query> --frames 30 --out <dir>` sends
+the tap and saves the next 30 frames the app draws as `000.png` to `029.png`. `000.png`
+is the frame of the tap, the first one that holds what the tap did, and no frame is
+skipped. The printed line of each frame has its time since the tap. `hover`, `keys` and
+`scroll` take the same 2 flags. `record --frames 30 --out <dir> [--timeout 60]` sends
+no input, the next press, key or wheel turn of the user starts it, so a glitch is
+shown by doing it once. A record takes up to 120 frames and 1 runs at a time.
+
+A frame step walks a running app. `pause` freezes the engine clock and the drawing,
+`step [n]` draws the next n frames, each moves the clock by one frame of 60 a second,
+and `resume` lets the app run again. An input sent while the app is paused is taken at
+once but shows only in the next stepped frame, so `pause`, `tap`, `step`, `screenshot`,
+`step`, `screenshot` walks through an opening screen. The window title shows the frames
+stepped since the pause. A screenshot of a paused app draws what the app has again and
+runs no layout, so take it after a step, right after a tap a new view has no frame yet.
+The tree in the reply to a tap is from before the layout too. Only what reads the
+engine clock stands still, `Animation` and what is built on it. A timer of `after` and a
+level on the real clock go on.
+
+How it works:
+
+- The code is `hilen/src/window/frame_record.rs` and `frame_step.rs`, behind the
+  `inspect` feature. `frame_control.rs` is what the frame loop calls, without the
+  feature every answer is the normal run.
+- A record is armed in a main thread trip of its own and starts at the next input:
+  a press in `Input::process_touch_event`, a key, a wheel turn, or the move of an
+  inspector hover. The frame of that same loop turn is frame 0. The record counts its
+  frames itself, the count is `FrameRepr.index`.
+- While a record runs, every drawn frame is read back like a screenshot, and the record
+  asks for the next frame, so an app that went idle still fills it.
+- A covered window and a headless run draw the frames of a record and of a step
+  offscreen, like a screenshot of one. Nothing paces those frames, so a record holds
+  each one to the step of a screen, 60 a second from the input. Without that 30 frames
+  came 1 ms apart and showed the first 30 ms of an animation.
+- A paused app runs only the queued callbacks in its loop turn, so the inspector still
+  gets its answers. `Clock::enter_stepped` holds the clock, a step calls
+  `Clock::advance_frame` before the update.
+
+The `Inspect frames` UI test proves both on an animation, a card that slides and
+changes its color in every frame.
+
 ## Protocol
 
 Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
@@ -117,6 +164,13 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `SetText { view_id, text }` — sets the text of a live `Label`, `Button` or `TextField`.
 - `SetColor { view_id, color }` — sets the background color of a live view.
 - `Screenshot` — returns the current frame as base64 PNG. Works headless too. An idle app renders a frame for it on demand, and an occluded or hidden window answers from the offscreen scene path, so the command never waits for the window to become visible.
+- `Record { frames, input, wait_ms }` — arms a record, plays `input` when there is one,
+  a `Tap`, `Keys`, `Hover`, `Scroll` or `Drag`, and replies with `Frames`, every frame
+  as base64 PNG with its `index` from the input and its `ms`. With no input it waits
+  up to `wait_ms` for an input of the user and replies with an error when none came.
+- `Pause`, `Step { frames }`, `Resume` — the frame step. `Pause` and `Step` reply with
+  `Paused { frame }`, the frames drawn since the pause. `Step` on an app that is not
+  paused is an error.
 - `ListEdits` — returns every edit applied in this session.
 - `GetBuildTime` — unix seconds of when `hilen` was compiled, stamped by
   `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source of the folder it is run

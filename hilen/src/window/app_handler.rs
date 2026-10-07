@@ -1,6 +1,6 @@
-#[cfg(not_wasm)]
-use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not_wasm)]
+use std::{process::exit, thread::sleep, time::Duration};
 
 use log::{debug, error};
 use plat::Platform;
@@ -13,11 +13,11 @@ use winit::{
 };
 
 use crate::{
-    deps::refs::main_lock::MainLock,
+    deps::{hreads::invoke_dispatched, refs::main_lock::MainLock},
     gm::{LossyConvert, flat::Point},
     system::app_activity::{self, ActivityChange},
     ui::Cursor,
-    window::{Window, WindowEvents, state::State, sync_fullscreen},
+    window::{Window, WindowEvents, frame_control, state::State, sync_fullscreen},
 };
 
 static APP_HANDLER: MainLock<Option<AppHandler>> = MainLock::new();
@@ -125,12 +125,34 @@ impl AppHandler {
         handler.te_window_events.window_ready();
 
         while !handler.close.load(Ordering::Relaxed) {
-            let window = Self::window();
-
-            window.state.update();
-
-            window.state.render();
+            // A held loop has no frame to pace it.
+            if frame_control::holding() {
+                sleep(Duration::from_millis(1));
+            }
+            Self::frame();
         }
+    }
+
+    /// One turn of the frame loop. A paused app, see
+    /// `frame_control::holding`, runs only the queued callbacks and draws
+    /// again for a pending screenshot.
+    fn frame() {
+        let window = Self::window();
+
+        if frame_control::holding() {
+            invoke_dispatched();
+            if window.state.screenshot_pending() {
+                window.state.render();
+            }
+            return;
+        }
+
+        #[cfg(not_wasm)]
+        frame_control::pace();
+        frame_control::begin_frame();
+        window.state.update();
+        window.state.render();
+        frame_control::end_frame();
     }
 
     #[cfg(desktop)]
@@ -246,7 +268,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             #[cfg(not_wasm)]
             UserEvent::Wake => {
                 if crate::window::occluded() {
-                    crate::deps::hreads::invoke_dispatched();
+                    invoke_dispatched();
                 }
             }
         }
@@ -378,9 +400,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                     return;
                 }
 
-                Self::window().state.update();
-
-                Self::window().state.render();
+                Self::frame();
             }
             _ => {}
         }
@@ -408,8 +428,10 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         #[cfg(not_wasm)]
         {
             let flow = crate::window::frame_pacing(
-                crate::window::visibility(Self::window().state.screenshot_pending()),
-                crate::window::continuous_render_active(),
+                crate::window::visibility(
+                    Self::window().state.screenshot_pending() || frame_control::offscreen_wanted(),
+                ),
+                crate::window::continuous_render_active() && !frame_control::holding(),
                 crate::window::take_needs_render(),
             );
             let Some(flow) = flow else {
