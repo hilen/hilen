@@ -99,6 +99,15 @@ else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
   decoder that fails again with no pause. So the stalled sound is dropped,
   its decoder ends in silence, and a fresh one opens on a thread and plays
   from where the video is. Until then the video follows the engine clock.
+- A sound that dies opens again, `hilen/src/video/player/faults.rs`. kira
+  stores the error of a decoder, for example a read of the stream that
+  failed, and stops the sound for good. A pause and a play do not bring a
+  stopped sound back. So a sound that stops more than a second before the
+  end gets a fresh decoder on a thread, at most once every 2 seconds, and
+  plays on from where the video is. The log names the error of the decoder,
+  the place the sound stopped at, and each time it opens again.
+- Late pictures that were dropped are logged as 1 line per 5 seconds, with
+  how many that window lost, never a line per picture.
 - After a seek the position is the seek target until the sound has reached
   it. kira takes the seek on its own thread, and before that its position
   is the old place, which would run the picture through its frames.

@@ -16,6 +16,27 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The wheel delta does not tell which way the user turned the wheel
+
+Found by flixen at `~/dev/apps/flixen`. Its player turns the volume with the wheel, up
+is louder.
+
+- Current: `UIEvents::on_scroll` gives the delta the system reports, `scroll_pixels` in
+  `hilen/src/window/app_handler.rs`. On a Mac with natural scrolling on, the default,
+  that delta is already turned around, so a wheel turned up gives a negative `y`. That
+  is right for content that scrolls and wrong for a value like volume or zoom. The
+  window code of `hilen-winit` reads `scrollingDeltaY` in `scroll_wheel` of
+  `platform_impl/macos/view.rs` and never reads `isDirectionInvertedFromDevice`, so no
+  app can tell. flixen turns the sign around on every Mac, which is wrong again with
+  natural scrolling switched off.
+- Needed: the wheel event also carries the turn of the device itself, or a flag that
+  the system turned it around. On a Mac from `isDirectionInvertedFromDevice`, on the
+  other platforms from their own setting where the system reports the turned value. A
+  test for the sign with the flag on and off.
+- Blocks: the right volume direction in the flixen player on a Mac with natural
+  scrolling off, and the `cfg!(target_os = "macos")` sign turn in `wheel_volume` of
+  `crates/flixen/src/ui/player_screen.rs`, which goes away then.
+
 ## A paragraph of only bold text before a list is not drawn by MarkdownView
 
 Found by banda at `~/dev/apps/banda`. Its chat draws what Claude wrote with

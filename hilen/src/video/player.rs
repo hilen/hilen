@@ -34,7 +34,10 @@ use crate::{
         count_to_f64,
         decoder::{self, Command, MediaInfo, Message, Tracks, VideoFrame},
         nv12::Nv12Target,
-        player::stall::{SeekWatch, SoundReads},
+        player::{
+            faults::Faults,
+            stall::{SeekWatch, SoundReads},
+        },
         source::Interrupt,
         subtitles::Subtitles,
         tracks::{AudioTrack, SubtitleTrack},
@@ -42,6 +45,7 @@ use crate::{
     window::image::Image,
 };
 
+mod faults;
 mod stall;
 
 /// How long a stepped test waits for the decoder before giving up on a frame.
@@ -168,6 +172,7 @@ pub(crate) struct Player {
     reads:       Interrupt,
     sound_reads: SoundReads,
     seek_watch:  Option<SeekWatch>,
+    faults:      Faults,
 }
 
 impl Player {
@@ -215,6 +220,7 @@ impl Player {
             reads,
             sound_reads: SoundReads::default(),
             seek_watch: None,
+            faults: Faults::default(),
         }
     }
 
@@ -378,6 +384,7 @@ impl Player {
     pub(crate) fn update(&mut self) -> (Option<Weak<Image>>, Vec<PlayerEvent>) {
         let mut events = Vec::new();
         self.settle_sound_seek();
+        self.watch_faults();
         self.break_stalled_reads();
         self.take_opened_sound();
         self.receive(&mut events);
