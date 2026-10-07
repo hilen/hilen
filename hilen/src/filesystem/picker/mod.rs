@@ -7,6 +7,8 @@ mod android;
 mod desktop;
 #[cfg(all(ios, not(tvos)))]
 mod ios;
+#[cfg(hot)]
+pub(crate) use ios::stop;
 #[cfg(wasm)]
 mod web;
 

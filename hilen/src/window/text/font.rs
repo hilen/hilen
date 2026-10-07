@@ -134,6 +134,9 @@ impl Font {
                 alpha_to_coverage_enabled: false,
             })
             .with_stem_darkening(stem_darkening)
+            // The glyph cache draws on the global rayon pool, which never
+            // ends. A hot build that is stopped must leave no thread.
+            .with_multithread(!cfg!(hot))
             /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
             .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
         Ok(Self {

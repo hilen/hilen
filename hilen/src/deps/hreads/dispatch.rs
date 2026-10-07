@@ -37,6 +37,14 @@ pub fn set_dispatch_waker(waker: impl Fn() + Send + Sync + 'static) {
     *WAKER.lock() = Some(Box::new(waker));
 }
 
+/// Drops the work that still waits for the main thread, and the waker. A hot
+/// build that is stopped runs no frame again, nobody would take that work.
+#[cfg(hot)]
+pub(crate) fn stop_dispatch() {
+    CALLBACKS.lock().clear();
+    *WAKER.lock() = None;
+}
+
 fn wake_main() {
     if let Some(waker) = WAKER.lock().as_ref() {
         waker();

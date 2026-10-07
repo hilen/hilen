@@ -54,7 +54,7 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 11 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+release with 12 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
 limit, since the gradient commit. The examples do not build there, they still import
 `wgpu_text` and the crate is renamed. 3 commits are the upstream candidates, in the
 order they go upstream:
@@ -99,6 +99,10 @@ targets and hilen renders into plain Unorm since 2026-07-26, see
 [colors.md](colors.md), so it never ran. The old heads of that day are
 `pin-2026-09-19`, `pin-2026-09-19b` and `pin-2026-09-19c`.
 
+The newest commit is `BrushBuilder::with_multithread`. It passes the `multithread`
+switch of `glyph_brush` through, so a hot build keeps the glyph cache off the global
+rayon pool, see [hot-reload.md](hot-reload.md).
+
 The second color per section, the stem darkening entry point, the effect pipeline
 for outlines and soft shadows, see [text.md](text.md), and the `hilen-wgpu`
 dependency stay in the fork.
@@ -106,8 +110,17 @@ dependency stay in the fork.
 ## winit
 
 Branch `tvos-0.30` at github.com/VladasZ/winit sits on the v0.30.13 tag, the newest
-0.30 release, with 3 commits on top: tvos in the cfg aliases and target sections, the
-5 view controller selectors guarded on tvos, the rename. Upstream master is 0.31 beta,
+0.30 release, with 4 commits on top: tvos in the cfg aliases and target sections, the
+5 view controller selectors guarded on tvos, the rename, and the feature `ios-attach`.
+crates.io has it as `hilen-winit` 0.30.14.
+
+`ios-attach` lets the event loop run on a `UIApplication` that someone else started,
+and leave it again: `EventLoopExtIOSAttach::run_app_attached`, `detach` and
+`release_classes` in `winit::platform::ios`. A hot build needs it, see
+[hot-reload.md](hot-reload.md). Fork only so far, upstream 0.30 takes no features. The
+fork cannot be checked by itself, its dev dependency on itself has the old name, so the
+proof is a build of hilen with a path dependency, then `far crates-publish -p
+hilen-winit`. Upstream master is 0.31 beta,
 not a target. The same tvOS support is open upstream as
 [rust-windowing/winit#4665](https://github.com/rust-windowing/winit/pull/4665) by
 another contributor since 2026-08-10, it covers the same selectors plus CI and examples.
@@ -123,11 +136,11 @@ on top, both git dependencies pinned by rev. The `video` feature links them, see
 - `rust-ffmpeg-sys`: with no `FFMPEG_DIR` and a static link, the build script downloads
   the archive that its own `prebuilt.txt` names for the target into `OUT_DIR`, headers
   and libraries, and links that, plus what the archive's `lib/link.txt` lists, like
-  dav1d and zlib. Hilen's own convention, fork only. 4 commits on top. The first commit drops the `QTKit` framework from the macOS
+  dav1d and zlib. Hilen's own convention, fork only. 5 commits on top. The first commit drops the `QTKit` framework from the macOS
   link line, the arm64 SDK no longer ships it and every link printed an
   `ld: ignoring file` warning. Upstream candidate, not sent yet.
 - `rust-ffmpeg`: takes `ffmpeg-sys-next` from the sys fork by rev, so the tree holds
-  one copy of the bindings. Fork only. 4 commits on top.
+  one copy of the bindings. Fork only. 5 commits on top.
 
 ## Updating a fork to the newest upstream
 

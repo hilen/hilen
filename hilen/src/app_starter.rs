@@ -34,9 +34,18 @@ fn run_app(event_loop: EventLoop<UserEvent>, app: &'static mut AppHandler) {
     });
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(hot)))]
 fn run_app(event_loop: EventLoop<UserEvent>, app: &mut AppHandler) {
     event_loop.run_app(app).expect("Event loop failed");
+}
+
+/// A hot build is started by a loader that owns `UIApplicationMain`, so the
+/// event loop hooks into the running app and this returns.
+#[cfg(hot)]
+fn run_app(event_loop: EventLoop<UserEvent>, app: &'static mut AppHandler) {
+    use winit::platform::ios::EventLoopExtIOSAttach;
+
+    event_loop.run_app_attached(app);
 }
 
 #[cfg(not(target_os = "android"))]
@@ -213,7 +222,15 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         start(app, headless);
     }
 
-    #[cfg(not_wasm)]
+    #[cfg(hot)]
+    {
+        crate::deps::netrun::tls::install_provider();
+        crate::hot::enter_runtime(std::ops::Deref::deref(&app));
+
+        start(app, headless);
+    }
+
+    #[cfg(all(not_wasm, not(hot)))]
     {
         let rt = tokio::runtime::Runtime::new().unwrap();
 

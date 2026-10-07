@@ -1,14 +1,11 @@
-use std::sync::{
-    OnceLock,
-    atomic::{AtomicU32, Ordering},
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use kira::{
     AudioManager, AudioManagerSettings, Tween,
     track::{TrackBuilder, TrackHandle},
 };
 use log::error;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
 use crate::audio::sound::decibels;
 
@@ -16,43 +13,73 @@ use crate::audio::sound::decibels;
 /// next to them.
 const DEFAULT_EFFECTS_VOLUME: f32 = 0.1;
 
-/// None when the machine has no output device, like a CI runner or a
-/// desktop with nothing plugged in. Every sound is silent then.
-static AUDIO_MANAGER: OnceLock<Option<Mutex<AudioManager>>> = OnceLock::new();
+/// A part of the audio output that opens on its first use.
+enum Slot<T> {
+    NotOpened,
+    Open(T),
+    /// A machine with no output device, like a CI runner or a desktop with
+    /// nothing plugged in. Every sound is silent then.
+    Silent,
+}
+
+impl<T> Slot<T> {
+    fn open(&mut self) -> Option<&mut T> {
+        match self {
+            Self::Open(open) => Some(open),
+            Self::NotOpened | Self::Silent => None,
+        }
+    }
+}
+
+static AUDIO_MANAGER: Mutex<Slot<AudioManager>> = Mutex::new(Slot::NotOpened);
 /// Every `Sound` plays on this track.
-static EFFECTS: OnceLock<Option<Mutex<TrackHandle>>> = OnceLock::new();
+static EFFECTS: Mutex<Slot<TrackHandle>> = Mutex::new(Slot::NotOpened);
 static EFFECTS_VOLUME: AtomicU32 = AtomicU32::new(DEFAULT_EFFECTS_VOLUME.to_bits());
 
 /// Opens the device on the first call. A missing device used to panic, so
 /// the first sound on such a machine took the app down.
-pub(crate) fn audio_manager() -> Option<MutexGuard<'static, AudioManager>> {
-    AUDIO_MANAGER
-        .get_or_init(|| match AudioManager::new(AudioManagerSettings::default()) {
-            Ok(manager) => Some(Mutex::new(manager)),
+pub(crate) fn audio_manager() -> Option<MappedMutexGuard<'static, AudioManager>> {
+    let mut manager = AUDIO_MANAGER.lock();
+    if matches!(*manager, Slot::NotOpened) {
+        *manager = match AudioManager::new(AudioManagerSettings::default()) {
+            Ok(manager) => Slot::Open(manager),
             Err(err) => {
                 error!("No audio output, every sound is silent: {err}");
-                None
+                Slot::Silent
             }
-        })
-        .as_ref()
-        .map(Mutex::lock)
+        };
+    }
+    MutexGuard::try_map(manager, Slot::open).ok()
 }
 
-pub(crate) fn effects() -> Option<MutexGuard<'static, TrackHandle>> {
-    EFFECTS
-        .get_or_init(|| {
-            let track =
-                audio_manager()?.add_sub_track(TrackBuilder::new().volume(decibels(effects_volume())));
-            match track {
-                Ok(track) => Some(Mutex::new(track)),
-                Err(err) => {
-                    error!("No sound effects track, every sound is silent: {err}");
-                    None
-                }
-            }
-        })
-        .as_ref()
-        .map(Mutex::lock)
+pub(crate) fn effects() -> Option<MappedMutexGuard<'static, TrackHandle>> {
+    let mut effects = EFFECTS.lock();
+    if matches!(*effects, Slot::NotOpened) {
+        *effects = open_effects();
+    }
+    MutexGuard::try_map(effects, Slot::open).ok()
+}
+
+fn open_effects() -> Slot<TrackHandle> {
+    let Some(mut manager) = audio_manager() else {
+        return Slot::Silent;
+    };
+    match manager.add_sub_track(TrackBuilder::new().volume(decibels(effects_volume()))) {
+        Ok(track) => Slot::Open(track),
+        Err(err) => {
+            error!("No sound effects track, every sound is silent: {err}");
+            Slot::Silent
+        }
+    }
+}
+
+/// Closes the output device, which ends the audio threads. Both stay closed,
+/// a hot build that is stopped must not open them again, see
+/// `docs/hot-reload.md`.
+#[cfg(hot)]
+pub(crate) fn stop() {
+    *EFFECTS.lock() = Slot::Silent;
+    *AUDIO_MANAGER.lock() = Slot::Silent;
 }
 
 pub(crate) fn effects_volume() -> f32 {
@@ -63,8 +90,8 @@ pub(crate) fn effects_volume() -> f32 {
 /// opens on the first play.
 pub(crate) fn set_effects_volume(volume: f32) {
     EFFECTS_VOLUME.store(volume.to_bits(), Ordering::Relaxed);
-    if let Some(Some(effects)) = EFFECTS.get() {
-        effects.lock().set_volume(decibels(volume), Tween::default());
+    if let Some(effects) = EFFECTS.lock().open() {
+        effects.set_volume(decibels(volume), Tween::default());
     }
 }
 
@@ -78,7 +105,7 @@ mod test {
         assert!((decibels(DEFAULT_EFFECTS_VOLUME).0 + 20.0).abs() < 0.01);
         set_effects_volume(1.0);
         assert!((effects_volume() - 1.0).abs() < f32::EPSILON);
-        assert!(EFFECTS.get().is_none());
-        assert!(AUDIO_MANAGER.get().is_none());
+        assert!(matches!(*EFFECTS.lock(), Slot::NotOpened));
+        assert!(matches!(*AUDIO_MANAGER.lock(), Slot::NotOpened));
     }
 }

@@ -1,5 +1,7 @@
 mod paths;
 mod picker;
+#[cfg(hot)]
+pub(crate) use picker::stop as stop_picker;
 mod read;
 mod source;
 

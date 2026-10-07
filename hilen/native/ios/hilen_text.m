@@ -281,6 +281,24 @@ void hilen_ios_text_end(void) {
     hilen_area.text = @"";
 }
 
+// A hot build that is stopped stays loaded and runs no code again, see
+// docs/hot-reload.md. So nothing here may call into it any more.
+void hilen_ios_text_stop(void) {
+    hilen_ios_text_end();
+    hilen_keyboard_moved = NULL;
+    if (!hilen_bridge) return;
+
+    [NSNotificationCenter.defaultCenter removeObserver:hilen_bridge];
+    [hilen_field removeTarget:hilen_bridge action:NULL forControlEvents:UIControlEventAllEvents];
+    hilen_field.delegate = nil;
+    hilen_area.delegate = nil;
+    [hilen_field removeFromSuperview];
+    [hilen_area removeFromSuperview];
+    hilen_field = nil;
+    hilen_area = nil;
+    hilen_bridge = nil;
+}
+
 void hilen_ios_text_begin(const HilenTextEdit* edit,
                           HilenTextChanged changed,
                           HilenTextReturned returned,

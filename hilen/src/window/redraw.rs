@@ -29,6 +29,13 @@ pub(crate) fn set_wake_proxy(proxy: EventLoopProxy<UserEvent>) {
     *WAKE_PROXY.lock() = Some(proxy);
 }
 
+/// The proxy holds a source in the run loop, a hot build that is stopped
+/// gives it back.
+#[cfg(hot)]
+pub(crate) fn clear_wake_proxy() {
+    *WAKE_PROXY.lock() = None;
+}
+
 /// Ask for one more rendered frame. Safe to call from any thread. Continuous
 /// work like animations and levels calls this every frame to keep drawing, so
 /// a screen with neither goes idle and stops burning CPU.

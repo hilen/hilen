@@ -13,7 +13,7 @@ name = "hilen-pixdiff"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-image = { workspace = true }
+image = { workspace = true, features = ["rayon"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { workspace = true }

@@ -59,4 +59,8 @@ unsafe extern "C" {
     /// pixels of the window, negative when it goes away, and the seconds
     /// the move takes.
     pub fn hilen_ios_keyboard_watch(moved: extern "C" fn(c_float, c_float));
+    /// Ends an editing session and gives back everything the native file
+    /// took: the views, the delegates, the observer and the callbacks.
+    #[cfg(hot)]
+    pub fn hilen_ios_text_stop();
 }

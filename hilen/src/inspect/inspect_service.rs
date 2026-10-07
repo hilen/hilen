@@ -44,6 +44,10 @@ pub struct InspectService;
 
 static APP_STARTED: OnceLock<u64> = OnceLock::new();
 
+/// The daemon runs a thread of its own that outlives the listener task.
+#[cfg(hot)]
+static MDNS: parking_lot::Mutex<Option<ServiceDaemon>> = parking_lot::Mutex::new(None);
+
 /// A build without debug assertions starts the server only with this set to
 /// `1` at launch, so a release binary built outside the release scripts still
 /// ships with the server off.
@@ -58,6 +62,18 @@ fn listener_allowed(debug_build: bool, enable: Option<&str>) -> bool {
 impl InspectService {
     pub(crate) fn record_app_start() {
         APP_STARTED.get_or_init(current_unix_seconds);
+    }
+
+    /// Takes the app off the network and ends the mDNS thread. The listener
+    /// and its clients are tasks, they end with the runtime.
+    #[cfg(hot)]
+    pub(crate) fn stop() {
+        let Some(mdns) = MDNS.lock().take() else {
+            return;
+        };
+        if let Err(err) = mdns.shutdown() {
+            warn!("mDNS did not shut down: {err}");
+        }
     }
 
     #[cfg(not_wasm)]
@@ -92,6 +108,10 @@ impl InspectService {
             )?
             .enable_addr_auto();
             mdns.register(service)?;
+            #[cfg(hot)]
+            {
+                *MDNS.lock() = Some(mdns.clone());
+            }
 
             info!("Inspect server on port: {port}");
 

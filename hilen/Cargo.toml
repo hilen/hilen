@@ -22,6 +22,10 @@ default = ["checks"]
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
 inspect = ["dep:mdns-sd"]
+# Hot reload on iOS, see docs/hot-reload.md. The app is a dynamic library that
+# a loader app starts, the loader owns `UIApplicationMain`. It turns `inspect`
+# on, so the release guards of `inspect` keep it out of a shipped app.
+hot = ["inspect", "winit/ios-attach"]
 # Registers every `impl ViewTest` into `UI_TESTS`. The switch lives on the proc
 # macro, so off means `view` emits no ctor in any crate and a shipped app
 # carries none. One switch for the whole graph, so no crate can forget it and
@@ -133,8 +137,8 @@ memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true, optional = true }
-rapier2d = { workspace = true, optional = true, features = ["parallel"] } # simd can crash if there are too many active objects
-rapier3d = { workspace = true, optional = true, features = ["parallel"] }
+rapier2d = { workspace = true, optional = true } # simd can crash if there are too many active objects
+rapier3d = { workspace = true, optional = true }
 pollster = { workspace = true }
 rustls = { workspace = true }
 sentry = { workspace = true }
@@ -149,6 +153,16 @@ axum = { workspace = true }
 hilen-server = { workspace = true }
 rcgen = { workspace = true }
 tokio-rustls = { workspace = true }
+
+# Everything that runs on rayon. Its global pool has no shutdown, and a hot
+# build that is stopped must leave no thread, see docs/hot-reload.md. A hot
+# build is compiled with `--cfg hilen_hot`, which takes these lines out.
+[target.'cfg(not(hilen_hot))'.dependencies]
+image = { workspace = true, features = ["rayon"] }
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(hilen_hot)))'.dependencies]
+rapier2d = { workspace = true, optional = true, features = ["parallel"] }
+rapier3d = { workspace = true, optional = true, features = ["parallel"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { workspace = true }

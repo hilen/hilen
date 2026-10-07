@@ -2193,7 +2193,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=7c07ab9561beb482620762c9aaed36f08fcd47a4#7c07ab9561beb482620762c9aaed36f08fcd47a4"
+source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=166cc089dc7086883ab7a56c5ca0e842eb62622e#166cc089dc7086883ab7a56c5ca0e842eb62622e"
 dependencies = [
  "bitflags 2.13.2",
  "ffmpeg-sys-next",
@@ -2203,7 +2203,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=30bade3b8f433d93861a1eda8e2bfaa3f43e3e84#30bade3b8f433d93861a1eda8e2bfaa3f43e3e84"
+source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=35a17d8774a11a18c012c96e279eb832477490df#35a17d8774a11a18c012c96e279eb832477490df"
 dependencies = [
  "bindgen",
  "cc",
@@ -3338,7 +3338,7 @@ dependencies = [
 [[package]]
 name = "hilen-wgpu-text"
 version = "30.0.1"
-source = "git+https://github.com/VladasZ/wgpu-text?rev=0950fd1d9f2c942335deb3d1ca8db2a89c1b406c#0950fd1d9f2c942335deb3d1ca8db2a89c1b406c"
+source = "git+https://github.com/VladasZ/wgpu-text?rev=ecb57d0c673a9a0a3055a8053ce3b665e9eefea6#ecb57d0c673a9a0a3055a8053ce3b665e9eefea6"
 dependencies = [
  "bytemuck",
  "glyph_brush",
@@ -3348,9 +3348,9 @@ dependencies = [
 
 [[package]]
 name = "hilen-winit"
-version = "0.30.13"
+version = "0.30.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38df050baf687b6b526f751b21bf4eb3871a9ef32e3852942f38f6f0b72b87e3"
+checksum = "caffe4daad27aa4f56cafbb18c5f4fb45ff8e3f1d643cf10993f3a390687e7c3"
 dependencies = [
  "ahash",
  "android-activity",
@@ -3426,6 +3426,14 @@ dependencies = [
  "cfg-if",
  "libc",
  "windows-link",
+]
+
+[[package]]
+name = "hot-test"
+version = "0.1.0"
+dependencies = [
+ "hilen",
+ "log",
 ]
 
 [[package]]

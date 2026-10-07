@@ -1,0 +1,17 @@
+[package]
+edition.workspace = true
+name = "hot-test"
+version.workspace = true
+
+[features]
+# The same app after a saved change. The lane builds the library a second
+# time with it.
+second = []
+
+[dependencies]
+log = { workspace = true }
+
+hilen = { workspace = true }
+
+[lints]
+workspace = true

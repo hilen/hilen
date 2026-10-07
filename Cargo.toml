@@ -17,6 +17,7 @@ members = [
   "hilen-server",
   "hilen-session",
   "hilen-updater",
+  "hot-test",
   "inspector",
   "level-test",
   "render-test",
@@ -87,7 +88,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
-ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "7c07ab9561beb482620762c9aaed36f08fcd47a4", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
+ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "166cc089dc7086883ab7a56c5ca0e842eb62622e", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
 # the 0.23 that usvg pulls, one copy in the tree
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
@@ -98,7 +99,7 @@ futures-util = "0.3"
 getrandom = "0.4"
 hex = "0.4"
 hkdf = "0.13"
-image = { version = "0.25", default-features = false, features = ["default-formats", "gif", "png", "rayon"] }
+image = { version = "0.25", default-features = false, features = ["default-formats", "gif", "png"] }
 indexmap = "2.14"
 infisical = "0.0.3"
 http-body-util = "0.1"
@@ -238,7 +239,7 @@ web-sys = { version = "0.3", features = [
 web-time = "1.1"
 webpki-roots = "1.0"
 wgpu = { package = "hilen-wgpu", version = "30.0" }
-wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "0950fd1d9f2c942335deb3d1ca8db2a89c1b406c" }
+wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "ecb57d0c673a9a0a3055a8053ce3b665e9eefea6" }
 winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
 x25519-dalek = { version = "3.0", features = ["static_secrets"] }
 zeroize = "1.9"

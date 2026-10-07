@@ -38,6 +38,8 @@ mod config;
 mod dispatch_tools;
 #[cfg(feature = "level")]
 mod game_drawer;
+#[cfg(hot)]
+mod hot;
 #[cfg(target_os = "ios")]
 mod ios_log;
 #[cfg(not_wasm)]

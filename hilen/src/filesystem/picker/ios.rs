@@ -32,6 +32,13 @@ type Answer = Sender<Option<PickedFile>>;
 /// the next pick replaces it.
 static DELEGATE: MainLock<Option<Retained<PickerDelegate>>> = MainLock::new();
 
+/// Lets go of the delegate, so its class can be deleted when a hot build
+/// stops.
+#[cfg(hot)]
+pub(crate) fn stop() {
+    *DELEGATE.get_mut() = None;
+}
+
 pub(super) async fn pick() -> Option<PickedFile> {
     let (answer, answered) = channel();
 

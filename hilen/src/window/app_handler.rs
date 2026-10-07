@@ -178,6 +178,22 @@ impl AppHandler {
         crate::window::request_frame();
     }
 
+    /// Lets go of the window, with its surface, and of the event loop, for a
+    /// hot build that is stopped. The window goes first, winit asks for that.
+    /// The handler itself goes last, winit calls it once more on its way out.
+    #[cfg(hot)]
+    pub(crate) fn stop() {
+        let handler = APP_HANDLER.get_mut();
+
+        if let Some(handler) = handler.as_mut() {
+            handler.state = AppHandlerState::Init(None);
+        }
+        crate::window::redraw::clear_wake_proxy();
+        winit::platform::ios::detach();
+
+        *handler = None;
+    }
+
     pub fn current() -> &'static mut Self {
         APP_HANDLER
             .get_mut()

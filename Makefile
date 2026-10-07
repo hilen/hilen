@@ -32,6 +32,13 @@ ui-ios-human:
 ui-ios-present:
 	rust ./build/ios/sim-test.rs --present
 
+# Hot reload in the iOS simulator: 2 builds of the `hot-test` app swapped in
+# one process, see docs/hot-reload.md.
+# `hot-test` is also the folder of the app the lane builds.
+.PHONY: hot-test
+hot-test:
+	rust ./build/ios/hot-test.rs
+
 ui-web-present:
 	bun build/web/drive.ts --browser $(BROWSER) --present --only "$(HILEN_TEST_ONLY)"
 

@@ -213,7 +213,7 @@ To build a new archive, on the host it is for, or on a Mac for iOS:
 
 ```bash
 rust build/ffmpeg.rs                      # clones FFmpeg, configures, builds, dist/ffmpeg-<v>-<triple>.tar.gz
-rust build/ffmpeg.rs aarch64-apple-ios    # cross build for an iPhone, x86_64-apple-ios for the simulator
+rust build/ffmpeg.rs aarch64-apple-ios    # cross build for an iPhone, x86_64-apple-ios for the simulator, aarch64-apple-ios-sim for the arm64 one
 gh release create ffmpeg-<v>-<n> -R hilen/build dist/ffmpeg-*.tar.gz dist/ffmpeg-*.sha256
 ```
 
@@ -228,10 +228,12 @@ the software AV1 decoder, into the same prefix first, it needs `meson` and
 `ninja`. `lib/link.txt` in the archive names what has to be linked besides the
 ffmpeg libraries, one `<kind>=<name>` per line, and the sys fork links those.
 There is an archive for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`,
-`aarch64-apple-ios` and `x86_64-apple-ios`. The 2 iOS ones are cross built on a Mac
-against the iPhone SDKs for iOS 12, with the same set as the Mac archive. The
-simulator one has no assembly, it only runs the UI tests under Rosetta and the x86
-assembly would need nasm. Every target builds in a folder of its own,
+`aarch64-apple-ios`, `x86_64-apple-ios` and `aarch64-apple-ios-sim`. The iOS ones are
+cross built on a Mac against the iPhone SDKs, with the same set as the Mac archive, the
+first 2 for iOS 12. The x86 simulator one has no assembly, it only runs the UI tests
+under Rosetta and the x86 assembly would need nasm. The arm64 simulator one is for a hot
+build, see [hot-reload.md](hot-reload.md), for iOS 14, no arm64 simulator is older. The
+build needs `meson` and `ninja` for dav1d. Every target builds in a folder of its own,
 `target/ffmpeg-build-<triple>`, and a cross build installs into
 `target/ffmpeg-dist-<triple>`.
 

@@ -12,6 +12,22 @@ fn main() {
     rerun_rules();
     refuse_inspect_in_release();
     compile_ios_text_field();
+    hot_cfg();
+}
+
+/// `cfg(hot)` is an iOS build with the `hot` feature, see `docs/hot-reload.md`.
+fn hot_cfg() {
+    println!("cargo:rustc-check-cfg=cfg(hot)");
+    if var("CARGO_CFG_TARGET_OS").as_deref() != Ok("ios") || var("CARGO_FEATURE_HOT").is_err() {
+        return;
+    }
+    // The flag takes rayon out of the dependencies, see `hilen/Cargo.toml`.
+    // A hot build with rayon would leave its threads behind on every reload.
+    assert!(
+        var("CARGO_CFG_HILEN_HOT").is_ok(),
+        "the `hot` feature needs the compiler flag `--cfg hilen_hot`, build a hot library with `make hot`"
+    );
+    println!("cargo:rustc-cfg=hot");
 }
 
 /// The system text field of an iPhone is Objective-C, see
@@ -36,12 +52,20 @@ fn compile_ios_text_field() {
     cc::Build::new()
         .compiler(clang.trim())
         .file("native/ios/hilen_text.m")
+        .files(hot_shell_file())
         // The file hands objects between C and Objective-C with ARC casts.
         .flag("-fobjc-arc")
         // With modules the object file names the frameworks it needs, and
         // the link of the app picks them up from there.
         .flag("-fmodules")
         .compile("hilen_text");
+}
+
+/// A hot build is a dynamic library with no Xcode shell under it, so the
+/// functions the engine takes from the shell header come from this file. A
+/// normal build must not have it, the shell would define them a second time.
+fn hot_shell_file() -> Option<&'static str> {
+    var("CARGO_FEATURE_HOT").is_ok().then_some("native/ios/hilen_shell.m")
 }
 
 /// One rerun line turns off the default rerun on any package file, which the

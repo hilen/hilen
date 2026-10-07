@@ -68,6 +68,14 @@ impl MediaSession {
         &SESSION.commands
     }
 
+    /// Gives the media keys and the Now Playing panel back to the system.
+    #[cfg(hot)]
+    pub(crate) fn stop() {
+        if SESSION.registered {
+            platform::stop();
+        }
+    }
+
     fn register() {
         if SESSION.registered {
             return;
@@ -85,10 +93,10 @@ pub(crate) fn deliver(command: MediaCommand) {
 
 #[cfg(any(macos, all(ios, not(tvos))))]
 mod platform {
-    use std::ptr::NonNull;
+    use std::{cell::RefCell, ptr::NonNull};
 
     use block2::RcBlock;
-    use objc2::runtime::AnyObject;
+    use objc2::{Message, rc::Retained, runtime::AnyObject};
     use objc2_foundation::{NSMutableDictionary, NSNumber, NSString};
     #[cfg(macos)]
     use objc2_media_player::MPNowPlayingPlaybackState;
@@ -104,6 +112,13 @@ mod platform {
         system::media_session::{MediaCommand, NowPlaying, deliver},
     };
 
+    thread_local! {
+        /// Each command with what it gave back for its handler, the only
+        /// way to take that handler off again.
+        static HANDLERS: RefCell<Vec<(Retained<MPRemoteCommand>, Retained<AnyObject>)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
     /// Hooks one system command up to `deliver`. The system calls the handler
     /// on a queue of its own choice, so the command hops to the main thread.
     fn handle(
@@ -117,10 +132,26 @@ mod platform {
         });
         // SAFETY: the block takes the event the system hands it and returns a
         // status, the signature the method wants. The system keeps the block.
-        unsafe {
+        let target = unsafe {
             command.setEnabled(true);
-            command.addTargetWithHandler(&handler);
-        }
+            command.addTargetWithHandler(&handler)
+        };
+        HANDLERS.with_borrow_mut(|handlers| handlers.push((command.retain(), target)));
+    }
+
+    /// Takes the handlers off the commands again and the app out of the Now
+    /// Playing panel. The command center is shared by the process, and a hot
+    /// build that is stopped must not be called through it, see
+    /// `docs/hot-reload.md`.
+    #[cfg(hot)]
+    pub(super) fn stop() {
+        HANDLERS.with_borrow_mut(|handlers| {
+            for (command, target) in handlers.drain(..) {
+                // SAFETY: the target is the one this command gave out.
+                unsafe { command.removeTarget(Some(&target)) };
+            }
+        });
+        set_now_playing(None);
     }
 
     pub(super) fn register() {

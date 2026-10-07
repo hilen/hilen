@@ -54,7 +54,7 @@ levels, the no physics game scene, rapier and the sprite, polygon and background
 with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device. `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
 through a `<video>` element under the canvas, see [docs/video.md](docs/video.md). `inspect` is
-the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
+the remote inspector. `hot` is hot reload in the iOS simulator, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
 see [docs/login.md](docs/login.md). `google-access` is Google API access for an app that keeps its Google tokens on the device, `GoogleAccess`, `GoogleAccounts` and `SecretStore`, see [docs/google-access.md](docs/google-access.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
@@ -181,6 +181,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the button test stays away from a real browser. Read before
   touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the
   session key part of `hilen-session/build.rs`.
+- [docs/hot-reload.md](docs/hot-reload.md) — hot reload in the iOS simulator: `make hot`,
+  the loader app and the app as 1 dynamic library, the stop of a generation, why a hot
+  build has no rayon, the winit attach, the Objective-C classes, and the `make hot-test`
+  lane. Read before touching `hilen/src/hot.rs`, `hot_loader.m`, the `hot-test` crate, or
+  anything a hot build has to give back at its stop.
 - [docs/forks.md](docs/forks.md) — the 5 forked crates, what each fork branch carries
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
@@ -284,6 +289,8 @@ make smoke                                                                   # c
 make ui-ios                                                                  # iOS simulator suite only
 make ui-ios-human                                                            # the same lane held for a human, a tap on the phone screen advances, HILEN_TEST_ONLY narrows it
 make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
+make hot                                                                     # hot reload of the app in the iOS simulator, a saved file reloads it
+make hot-test                                                                # the hot reload lane, 2 builds of hot-test swapped in one process
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator
 make ci                                                                      # typos, formatting, lints, unused dependencies
