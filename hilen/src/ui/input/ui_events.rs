@@ -1,7 +1,7 @@
 use crate::{
     deps::{refs::main_lock::MainLock, vents::Event},
     gm::{flat::Point, volume::GyroData},
-    ui::{Theme, Touch, UIEvent},
+    ui::{ScreenKeyboardMove, Theme, Touch, UIEvent},
     window::NamedKey,
 };
 
@@ -9,15 +9,16 @@ static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
 
 #[derive(Default)]
 pub struct UIEvents {
-    on_touch:       Event<Touch>,
-    touch_began:    UIEvent<Touch>,
-    on_scroll:      UIEvent<Point>,
-    on_debug_touch: Event<Touch>,
-    size_changed:   UIEvent<()>,
-    theme_changed:  UIEvent<Theme>,
-    gyro:           UIEvent<GyroData>,
-    keyboard_input: UIEvent<char>,
-    keyboard_key:   UIEvent<NamedKey>,
+    on_touch:        Event<Touch>,
+    touch_began:     UIEvent<Touch>,
+    on_scroll:       UIEvent<Point>,
+    on_debug_touch:  Event<Touch>,
+    size_changed:    UIEvent<()>,
+    theme_changed:   UIEvent<Theme>,
+    gyro:            UIEvent<GyroData>,
+    keyboard_input:  UIEvent<char>,
+    keyboard_key:    UIEvent<NamedKey>,
+    screen_keyboard: UIEvent<ScreenKeyboardMove>,
 }
 
 impl UIEvents {
@@ -62,6 +63,13 @@ impl UIEvents {
     /// Every pressed named key, arrows, enter and the like.
     pub fn keyboard_key() -> &'static UIEvent<NamedKey> {
         &UI_EVENTS.keyboard_key
+    }
+
+    /// The screen keyboard of a phone comes up, goes away or changes its
+    /// height. Fires when the move starts, with where it ends, see
+    /// `ScreenKeyboard` for the edge part way.
+    pub fn screen_keyboard() -> &'static UIEvent<ScreenKeyboardMove> {
+        &UI_EVENTS.screen_keyboard
     }
 
     pub fn gyro() -> &'static UIEvent<GyroData> {

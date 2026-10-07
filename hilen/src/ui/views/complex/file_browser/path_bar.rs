@@ -112,7 +112,7 @@ impl PathBar {
         self.show_crumbs(false);
         self.field.set_hidden(false);
         self.field.set_text(&self.text);
-        self.field.focus();
+        self.field.focus_with_keyboard();
     }
 
     fn end_edit(mut self: Weak<Self>) {

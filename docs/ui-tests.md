@@ -477,6 +477,11 @@ System input lands some frames after the call, so a test waits for a state with
 only what the first 2 pages of the keyboard have. 2 taps on one point within 250 ms are a
 double click on desktop and select the word, tap a second point a few pixels away.
 
+`screen_keyboard(up, top)` waits until the screen keyboard stands still, up or away.
+A phone moves the real one. Everywhere else the engine is told about a stand in with
+its top edge at `top`, so a test of what the keyboard moves runs on every platform,
+see [screen-keyboard.md](screen-keyboard.md).
+
 `system_request` asks what only the system knows: `keyboard 1` and `keyboard 0` wait
 until the keyboard is up or down, `secure` counts the secure system fields, `has key a`
 says whether a key is on screen. `screen_ink` reads the box and the color of what is

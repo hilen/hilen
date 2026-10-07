@@ -195,6 +195,11 @@ impl UIManager {
         selected.is_ok() && selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
     }
 
+    /// The view that has the keys, a null view when none has.
+    pub(crate) fn selected_view() -> WeakView {
+        *Self::get().selected_view.lock()
+    }
+
     pub(crate) fn set_selected(mut view: WeakView, selected: bool) {
         let this = Self::get();
 

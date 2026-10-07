@@ -134,4 +134,7 @@ that time, its label shows only the placeholder of an empty field. The Rust half
   it stays over a field that scrolls.
 - Apple TV has none of this, the code is behind `all(ios, not(tvos))`.
 
-Open: password autofill and a field under the keyboard, see [roadmap.md](roadmap.md).
+The native file also tells the engine where the keyboard is, and the engine keeps the
+edited field in view, see [screen-keyboard.md](screen-keyboard.md).
+
+Open: password autofill, see [roadmap.md](roadmap.md).

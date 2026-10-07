@@ -185,6 +185,14 @@ impl ScrollView {
         self.content.content_size.height
     }
 
+    /// Moves the content up by at most `distance`, as far as it can
+    /// scroll, and returns how far it went.
+    pub(crate) fn scroll_up_by(&mut self, distance: f32) -> f32 {
+        let before = self.content.content_offset();
+        self.on_scroll(-distance);
+        before - self.content.content_offset()
+    }
+
     pub fn get_scroll_content_offset(&self) -> f32 {
         self.content.content_offset()
     }

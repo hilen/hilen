@@ -20,8 +20,8 @@ use crate::{
     },
     system::ClipboardImage,
     ui::{
-        Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
-        UIManager, VerticalAlignment, ViewSubviews,
+        Container, Label, ScreenKeyboard, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel,
+        UIColor, UIEvents, UIManager, VerticalAlignment, ViewSubviews,
         view::{DoubleTap, View, ViewData, ViewFrame, ViewTouch},
     },
     window::Font,
@@ -410,7 +410,21 @@ impl TextField {
 
     /// Programmatic focus, the same editing session a tap starts. The
     /// caret lands at the end of the entered text.
+    ///
+    /// On a device with a screen keyboard this does nothing. A focus set
+    /// by code, at the start of a screen or on a switch of a chat, would
+    /// bring the keyboard up over the screen with no word from the user.
+    /// There only a tap on the field opens it, or `focus_with_keyboard`.
     pub fn focus(&self) {
+        if ScreenKeyboard::on_this_device() {
+            return;
+        }
+        self.focus_with_keyboard();
+    }
+
+    /// `focus` that also brings the screen keyboard of a phone up, for a
+    /// screen the user opened to type, a search page or a rename prompt.
+    pub fn focus_with_keyboard(&self) {
         weak_from_ref(self).caret = self.text().len();
         weak_from_ref(self).anchor = None;
         UIManager::set_selected(self.weak_view(), true);

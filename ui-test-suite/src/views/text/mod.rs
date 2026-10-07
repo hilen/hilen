@@ -9,6 +9,8 @@ mod color_glyph_clip;
 mod custom_text_field;
 mod font_zoo;
 mod glyph_fallback;
+/// Not a test, the screen keyboard tests draw the keyboard with it.
+mod keyboard_marker;
 mod label;
 mod label_color_runs;
 mod label_effect_made_again;
@@ -51,13 +53,16 @@ mod multiline_submit;
 mod multiline_text_field;
 /// The `screen_keyboard` tests type through the real keyboard of the
 /// platform, so unlike the other typing tests they run on a phone too.
+mod screen_keyboard_compose;
 mod screen_keyboard_input;
 /// The system text field this one compares the engine field with exists
 /// only on an iPhone, nowhere else is there a switch to hide.
 #[cfg(all(ios, not(tvos)))]
 mod screen_keyboard_look;
 mod screen_keyboard_multiline;
+mod screen_keyboard_scroll;
 mod screen_keyboard_secure;
+mod screen_keyboard_shift;
 mod screen_keyboard_submit;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
@@ -81,6 +86,9 @@ mod text_field_caret_scale;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;
+/// Types nothing, and what a focus by code does differs per platform, which
+/// is what it checks, so it runs everywhere.
+mod text_field_focus_by_code;
 /// Sets the font and text programmatically, no typing, so it runs
 /// everywhere too.
 mod text_field_font;

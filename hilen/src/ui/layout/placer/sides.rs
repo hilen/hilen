@@ -18,6 +18,14 @@ impl Placer {
         self
     }
 
+    /// Like `b`, and on top of the screen keyboard of a phone while that
+    /// covers the bottom of the superview. A compose box rides on the
+    /// keyboard this way, and a list anchored above it gets shorter.
+    pub fn b_keyboard(&self, offset: impl ToF32) -> &Self {
+        self.rules().push(LayoutRule::above_keyboard(offset));
+        self
+    }
+
     pub fn l(&self, offset: impl ToF32) -> &Self {
         self.rules().push(LayoutRule::make(Anchor::Left, offset.to_f32()));
         self

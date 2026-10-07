@@ -18,7 +18,7 @@ use web_time::Instant;
 use crate::{
     deps::hreads::{from_main, wait_for_next_frame},
     gm::ToF32,
-    ui::{NamedKey, UIManager},
+    ui::{NamedKey, ScreenKeyboard, UIManager},
     ui_test::{inject_keys, inject_named_key, inject_touches},
 };
 
@@ -75,6 +75,29 @@ pub fn press_return() -> Result<()> {
     require_injected_input()?;
     inject_named_key(NamedKey::Enter);
     Ok(())
+}
+
+/// How long the stand in for a screen keyboard takes to move, the time of
+/// the real one.
+const KEYBOARD_SECONDS: f32 = 0.25;
+
+/// Waits for the screen keyboard to stand still, up or away. Call it after
+/// the tap that opens or closes it. A phone moves the real keyboard. Where
+/// there is none the engine is told about one with its top edge at `top`,
+/// in the points of the test canvas, so the same test runs everywhere. The
+/// real keyboard has its own height, read the edge with
+/// `ScreenKeyboard::top`.
+pub fn screen_keyboard(up: bool, top: impl ToF32) -> Result<()> {
+    let top = top.to_f32();
+    if system_input() {
+        helper::request(if up { "keyboard 1" } else { "keyboard 0" })?;
+    } else {
+        require_injected_input()?;
+        from_main(move || ScreenKeyboard::moves_to(up.then_some(top), KEYBOARD_SECONDS));
+    }
+    wait_until("the screen keyboard stands still", move || {
+        !ScreenKeyboard::is_moving() && ScreenKeyboard::top().is_some() == up
+    })
 }
 
 /// One request to the helper, for a check only the system can answer, like

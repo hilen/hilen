@@ -9,7 +9,7 @@ use crate::{
         flat::{Rect, Size},
     },
     ui::{
-        Label, View, ViewSubviews, WeakView,
+        Label, ScreenKeyboard, View, ViewSubviews, WeakView,
         layout::{
             Anchor, Tiling,
             layout_rule::{LayoutRule, Placement},
@@ -75,6 +75,10 @@ impl Placer {
             Placement::Between { a, b } => between_2_layout(frame, *a, *b),
             Placement::BetweenSuper { side, view } => {
                 self.between_super_layout(frame, *side, *view);
+            }
+            Placement::AboveKeyboard { offset } => {
+                let covered = ScreenKeyboard::cover(self.view.superview().deref());
+                self.simple_layout(frame, Anchor::Bot, *offset + covered);
             }
             Placement::Tiling(tiling) => self.tiling_layout(frame, tiling),
         }

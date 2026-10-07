@@ -64,7 +64,7 @@ impl ModalView<NameRequest, Option<String>> for NamePrompt {
         self.title.set_text(request.title);
         self.confirm.set_text(request.confirm);
         self.field.set_text(request.name);
-        self.field.focus();
+        self.field.focus_with_keyboard();
     }
 }
 

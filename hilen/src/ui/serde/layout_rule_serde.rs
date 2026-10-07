@@ -34,6 +34,9 @@ enum PlacementRepr {
         side: Anchor,
         view: WeakRepr,
     },
+    AboveKeyboard {
+        offset: f32,
+    },
     Tiling(Tiling),
 }
 
@@ -72,6 +75,7 @@ impl From<&LayoutRule> for LayoutRuleRepr {
                 side: *side,
                 view: (*view).into(),
             },
+            Placement::AboveKeyboard { offset } => PlacementRepr::AboveKeyboard { offset: *offset },
             Placement::Tiling(tiling) => PlacementRepr::Tiling(tiling.clone()),
         };
 
@@ -108,6 +112,7 @@ impl From<LayoutRuleRepr> for LayoutRule {
                 side,
                 view: WeakView::from(view),
             },
+            PlacementRepr::AboveKeyboard { offset } => Placement::AboveKeyboard { offset },
             PlacementRepr::Tiling(tiling) => Placement::Tiling(tiling),
         };
 

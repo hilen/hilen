@@ -9,6 +9,7 @@ mod label_effect;
 mod layout;
 mod modal_view;
 mod navigation_view;
+mod screen_keyboard;
 mod selection_drawer;
 mod shadow;
 mod style;
@@ -45,6 +46,7 @@ pub use self::{
     layout::*,
     modal_view::*,
     navigation_view::*,
+    screen_keyboard::{ScreenKeyboard, ScreenKeyboardMove},
     shadow::*,
     style::*,
     text_field_constraint::*,

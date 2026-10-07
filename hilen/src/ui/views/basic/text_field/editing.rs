@@ -284,7 +284,7 @@ impl TextField {
 
         // Selecting the already selected field is a no-op in
         // `set_selected`, so a lone field keeps its editing session.
-        fields[next].focus();
+        fields[next].focus_with_keyboard();
     }
 
     /// Puts the caret at `byte`. With `extend` the anchor stays where the

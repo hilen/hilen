@@ -61,6 +61,9 @@ typedef struct {
 
 typedef void (*HilenTextChanged)(const char* text);
 typedef void (*HilenTextEvent)(void);
+// The top edge the keyboard moves to, in the pixels of the engine view, and
+// the seconds the move takes. A negative top means it goes away.
+typedef void (*HilenKeyboardMoved)(float top, float duration);
 
 // A UITextField draws its text from the very edge, an engine field leaves a
 // gap there.
@@ -91,6 +94,7 @@ static BOOL hilen_ending = NO;
 static HilenTextChanged hilen_changed = NULL;
 static HilenTextEvent hilen_returned = NULL;
 static HilenTextEvent hilen_ended = NULL;
+static HilenKeyboardMoved hilen_keyboard_moved = NULL;
 
 @implementation HilenTextBridge
 
@@ -115,6 +119,22 @@ static HilenTextEvent hilen_ended = NULL;
 
 - (void)textViewDidEndEditing:(UITextView*)area {
     if (!hilen_ending && hilen_ended) hilen_ended();
+}
+
+// Fires for a keyboard that comes up, goes away or changes its height, the
+// bar of word guesses that opens is such a change.
+- (void)keyboardMoves:(NSNotification*)note {
+    if (!hilen_keyboard_moved) return;
+
+    UIView* host = UIApplication.sharedApplication.keyWindow.rootViewController.view;
+    CGRect onScreen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect frame = [host convertRect:onScreen fromView:nil];
+    double duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+
+    CGFloat top = CGRectGetMinY(frame);
+    BOOL up = CGRectGetHeight(frame) > 0 && top < CGRectGetHeight(host.bounds);
+
+    hilen_keyboard_moved(up ? top * host.contentScaleFactor : -1, duration);
 }
 
 @end
@@ -149,6 +169,17 @@ static void hilen_text_setup(void) {
 
     [hilen_text_host() addSubview:hilen_field];
     [hilen_text_host() addSubview:hilen_area];
+
+    [NSNotificationCenter.defaultCenter addObserver:hilen_bridge
+                                           selector:@selector(keyboardMoves:)
+                                               name:UIKeyboardWillChangeFrameNotification
+                                             object:nil];
+}
+
+// The engine wants to know where the keyboard is. Set once, for good.
+void hilen_ios_keyboard_watch(HilenKeyboardMoved moved) {
+    hilen_keyboard_moved = moved;
+    hilen_text_setup();
 }
 
 // The engine font at `size`. Made from the same file the engine draws with, a

@@ -10,6 +10,7 @@
 use std::{
     ffi::{CStr, c_char},
     ptr::null,
+    sync::Once,
 };
 
 use parking_lot::Mutex;
@@ -19,9 +20,10 @@ use super::{MULTILINE_TOP_INSET, TextField};
 use crate::{
     deps::refs::Weak,
     ui::{
-        Input, NamedKey, TextAlignment, Theme, UIManager,
+        Input, NamedKey, ScreenKeyboard, TextAlignment, Theme, UIManager,
         mobile::ios::{
-            TextEdit, hilen_ios_text_begin, hilen_ios_text_end, hilen_ios_text_move, hilen_ios_text_set,
+            TextEdit, hilen_ios_keyboard_watch, hilen_ios_text_begin, hilen_ios_text_end,
+            hilen_ios_text_move, hilen_ios_text_set,
         },
         view::ViewFrame,
     },
@@ -56,6 +58,12 @@ fn pixel_frame(field: &TextField) -> [f32; 4] {
 }
 
 pub(super) fn begin(field: Weak<TextField>) {
+    // Only this field brings the keyboard up, so nothing is missed before
+    // the first one.
+    static WATCH: Once = Once::new();
+    // SAFETY: `keyboard_moved` is a plain function that lives for good.
+    WATCH.call_once(|| unsafe { hilen_ios_keyboard_watch(keyboard_moved) });
+
     *EDITED.lock() = field;
 
     let scale = UIManager::scale();
@@ -145,6 +153,12 @@ extern "C" fn changed(text: *const c_char) {
 
 extern "C" fn returned() {
     Input::on_key(NamedKey::Enter);
+}
+
+/// The system moves the keyboard, see `ScreenKeyboard`.
+extern "C" fn keyboard_moved(top: f32, duration: f32) {
+    let top = (top >= 0.0).then(|| top / UIManager::scale());
+    ScreenKeyboard::moves_to(top, duration);
 }
 
 /// The system ended the editing by itself.

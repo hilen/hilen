@@ -16,6 +16,24 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Screen keyboard, the proof in banda and on Android
+
+Found by banda at `~/dev/apps/banda`, whose compose box sits at the bottom of the
+screen. The keyboard frame, the field that stays in view, `b_keyboard` and the focus
+by code that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.md).
+
+- Current: proven by 4 UI tests on desktop, with a stand in for the keyboard, and on
+  the iOS simulator lane with the real one. No real iPhone ran it. banda still has its
+  old pin, its chat was not opened on a phone. The move runs on an ease curve close to
+  the one of iOS, not measured against the real keyboard. Android opens no screen
+  keyboard at all, a tap on a `TextField` there brings nothing up, so there is
+  nothing to follow yet.
+- Needed: the pin of banda moved, its compose box placed with `b_keyboard`, and the
+  chat tried on an iPhone, with the 3 `compose.focus()` calls of
+  `src/ui/session_page/mod.rs` left as they are. A screen keyboard on Android, opened
+  by an edited field, with its frame passed to `ScreenKeyboard::moves_to`.
+- Blocks: calling the chat of banda done on a phone, and every text field on Android.
+
 ## The wheel delta does not tell which way the user turned the wheel
 
 Found by flixen at `~/dev/apps/flixen`. Its player turns the volume with the wheel, up
@@ -225,15 +243,6 @@ phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
   the mobile project. The simulator has no saved logins, so the proof needs a phone.
 - Blocks: a login form that fills itself from the iOS keychain, and a code from an
   SMS offered over the keyboard.
-
-## A field under the screen keyboard
-
-- Current: the engine does not know where the screen keyboard is. A field in the lower
-  part of an iPhone screen is edited behind the keyboard, nothing moves the view.
-- Needed: the frame of the keyboard from the system as an engine event, and a rule
-  that keeps the edited field in view, a scroll of the nearest `ScrollView` or a
-  shift of the root view.
-- Blocks: any form longer than the top half of a phone screen.
 
 ## Text entry on a TV
 

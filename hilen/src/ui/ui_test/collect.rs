@@ -95,6 +95,9 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // A test that failed with 2 fingers down must not leave a pinch
         // running into the next.
         crate::ui::PinchInput::reset();
+        // A test that failed with the keyboard up must not leave the
+        // screen moved for the next.
+        crate::ui::ScreenKeyboard::reset();
         crate::ui::Cursor::reset();
         // A test that kept the clipboard inside the process and failed
         // must not leave it so for a test that copies for real.

@@ -24,6 +24,10 @@ pub struct RootView {
 
     test_canvas: Option<Size>,
 
+    /// How far the screen keyboard moved the app views up, see
+    /// `ScreenKeyboard`.
+    keyboard_shift: f32,
+
     background: Weak<ImageView>,
     screen:     Weak<Container>,
 }
@@ -102,7 +106,7 @@ impl RootView {
 
             self.set_size(width, height);
             self.screen.set_size(width, height);
-            self.screen.set_position((0, 0));
+            self.screen.set_position((0, -self.keyboard_shift));
 
             return;
         }
@@ -123,11 +127,18 @@ impl RootView {
             inner_size.height * (1.0 / scale),
         );
 
-        if Platform::IOS {
-            self.screen.set_position(inner_pos * (1.0 / scale));
+        let position = if Platform::IOS {
+            inner_pos * (1.0 / scale)
         } else {
-            self.screen.set_position((0, 0));
-        }
+            Point::default()
+        };
+        self.screen.set_position((position.x, position.y - self.keyboard_shift));
+    }
+
+    /// The background stays, only the app views move.
+    pub(crate) fn set_keyboard_shift(mut self: Weak<Self>, shift: f32) {
+        self.keyboard_shift = shift;
+        self.rescale_root(crate::ui::UIManager::scale());
     }
 
     pub(crate) fn rescale_root(self: Weak<Self>, scale: f32) {

@@ -124,6 +124,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   CoreGraphics and the wgpu fork. Also the system text field an edited `TextField` becomes
   on an iPhone, and its native file inside the engine crate. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
+- [docs/screen-keyboard.md](docs/screen-keyboard.md) — the screen keyboard of a phone: the
+  edited field that stays in view, `b_keyboard` for a view that rides on the keyboard,
+  `ScreenKeyboard`, why `TextField::focus` does nothing on a phone, and the several
+  moves iOS reports for 1. Read before touching `hilen/src/ui/screen_keyboard.rs`, the
+  keyboard hook in `hilen_text.m` or `TextField::focus`.
 - [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
   display only, no key of the remote reaches the engine yet. The vendored plat, the winit fork pin, the hand made
   simulator shell and how to run it. Read before touching platform cfg aliases, the

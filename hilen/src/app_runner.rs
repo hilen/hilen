@@ -24,8 +24,8 @@ use crate::{
     gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
-        Cursor, Focus, Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData,
-        ViewSubviews, WeakView, ui_test::human_pause,
+        Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
+        ViewData, ViewSubviews, WeakView, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
 };
@@ -626,6 +626,7 @@ impl crate::window::WindowEvents for AppRunner {
         SceneDrawer::update();
         #[cfg(feature = "level")]
         LevelDrawer::update();
+        ScreenKeyboard::update();
         UIDrawer::update();
         // A hidden `VideoView` gets no update, its element is hidden here.
         #[cfg(all(wasm, feature = "video"))]
