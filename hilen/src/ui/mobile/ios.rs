@@ -49,7 +49,7 @@ unsafe extern "C" {
     pub fn hilen_ios_text_begin(
         edit: *const TextEdit,
         changed: extern "C" fn(*const c_char),
-        returned: extern "C" fn(),
+        returned: extern "C" fn() -> bool,
         ended: extern "C" fn(),
     );
     pub fn hilen_ios_text_set(text: *const c_char);

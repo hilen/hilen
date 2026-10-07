@@ -410,3 +410,44 @@ is edited. It is cleared when the editing ends, the memory it used is not wiped.
 A paste with a picture in the clipboard and no text fires `TextField::image_pasted` with
 the picture as a png file, on desktop. The text of the field does not change. See
 [clipboard.md](clipboard.md).
+
+## Keys the owner of a text field takes
+
+A list of completions over a field needs the arrows, Tab, Enter and Escape for itself
+while it is open, and the field must stay in edit. `TextField::take_keys(keys)` names
+the keys and the event `key_taken` gets every press of one of them:
+
+```rust
+self.field.key_taken.val(move |key| self.list_key(key));
+
+self.field.take_keys([
+    NamedKey::ArrowUp,
+    NamedKey::ArrowDown,
+    NamedKey::Tab,
+    NamedKey::Enter,
+    NamedKey::Escape,
+]);
+self.field.release_keys();
+```
+
+A taken press goes to `key_taken` and nowhere else. The field does not move its caret,
+add a line, submit, end the editing or select the next field, in a single line field
+and in a multiline one. A held modifier changes nothing, Shift and a taken Enter is
+taken too. Every other key works as before, and so do all keys after `release_keys`.
+The keys count only while the field is edited, and a new `take_keys` call replaces the
+keys of the call before.
+
+`Input::on_key` asks `TextField::offer_key` before the keymap and before the
+`keyboard_key` event, so a taken Escape does not run the Escape binding of the screen
+either. The code is `hilen/src/ui/views/basic/text_field/taken_keys.rs`.
+
+On an iPhone the system text field has the keys and only Return reaches the engine, so
+only `NamedKey::Enter` can be taken there. A `UITextView` adds its new line by itself,
+so it asks the engine first, `textView:shouldChangeTextInRange:replacementText:` in
+`hilen_text.m`, and adds no line when the owner took the key. The arrows, Tab and
+Escape of a hardware keyboard connected to an iPhone or iPad stay with the system
+field, the engine never sees them.
+
+`Text field taken keys` pins all 5 keys on a chat box and on a single line field with
+injected keys, on desktop. `Screen keyboard taken return` pins Return through the
+keyboard the platform really has, on a phone too.

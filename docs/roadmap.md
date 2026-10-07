@@ -16,6 +16,31 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Keys the owner of an edited text field takes for itself
+
+Found by banda at `~/dev/apps/banda`. Its compose box shows a list of slash commands
+above the field while the text starts with `/`. Up and Down have to move the marked
+row, Tab and Enter have to fill the marked command in, Escape has to close the list,
+and the field has to stay in edit through all of it.
+
+- Current: `Input::on_key` in `hilen/src/ui/input/input.rs` calls
+  `UIManager::keymap().check(key)` and then always
+  `UIEvents::keyboard_key().trigger(key)`. The edited `TextField` handles that event in
+  `on_key` of `hilen/src/ui/views/basic/text_field/editing.rs`: Tab selects the next
+  field, Enter submits or adds a line, Escape ends the edit with
+  `UIManager::unselect_view`, an up or down arrow moves the caret. A keymap binding
+  for 1 of these keys runs too, but nothing can stop the field from acting on the
+  same press. `TextField` has the events `changed`, `editing_ended`, `submitted` and
+  `image_pasted`, none for a key.
+- Needed: a way for the owner of a field to take named keys while the field is
+  edited, switched on and off at run time, like a list of keys with 1 callback. A
+  press of a taken key goes to the owner only. The field does not move its caret,
+  does not submit, does not lose the edit and does not jump to the next field. A key
+  that is not taken works as now. It must work for a single line and a multiline
+  field, on every platform with a keyboard.
+- Blocks: the keyboard side of the command list in banda, and any completion list,
+  mention list or search drop down that opens under a field that is being typed in.
+
 ## Screen keyboard, the proof in banda and on Android
 
 Found by banda at `~/dev/apps/banda`, whose compose box sits at the bottom of the

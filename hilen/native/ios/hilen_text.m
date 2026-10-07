@@ -61,6 +61,9 @@ typedef struct {
 
 typedef void (*HilenTextChanged)(const char* text);
 typedef void (*HilenTextEvent)(void);
+// Return was pressed. The answer says whether the engine got the key. A text
+// area adds its new line only when it did not.
+typedef bool (*HilenTextReturned)(void);
 // The top edge the keyboard moves to, in the pixels of the engine view, and
 // the seconds the move takes. A negative top means it goes away.
 typedef void (*HilenKeyboardMoved)(float top, float duration);
@@ -92,7 +95,7 @@ static UIView* hilen_edited = nil;
 static BOOL hilen_ending = NO;
 
 static HilenTextChanged hilen_changed = NULL;
-static HilenTextEvent hilen_returned = NULL;
+static HilenTextReturned hilen_returned = NULL;
 static HilenTextEvent hilen_ended = NULL;
 static HilenKeyboardMoved hilen_keyboard_moved = NULL;
 
@@ -109,6 +112,15 @@ static HilenKeyboardMoved hilen_keyboard_moved = NULL;
 - (BOOL)textFieldShouldReturn:(UITextField*)field {
     if (hilen_returned) hilen_returned();
     return NO;
+}
+
+// A text area has no Return of its own, the key comes as a new line to add.
+// The owner of the engine field can take that key for itself.
+- (BOOL)textView:(UITextView*)area
+    shouldChangeTextInRange:(NSRange)range
+            replacementText:(NSString*)text {
+    if ([text isEqualToString:@"\n"] && hilen_returned && hilen_returned()) return NO;
+    return YES;
 }
 
 // The system can end the editing with no word from the engine, the hide key
@@ -271,7 +283,7 @@ void hilen_ios_text_end(void) {
 
 void hilen_ios_text_begin(const HilenTextEdit* edit,
                           HilenTextChanged changed,
-                          HilenTextEvent returned,
+                          HilenTextReturned returned,
                           HilenTextEvent ended) {
     hilen_text_setup();
     hilen_ios_text_end();

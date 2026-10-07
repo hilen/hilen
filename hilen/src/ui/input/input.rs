@@ -16,8 +16,8 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextSelection, Tooltip,
-        Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
+        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextField, TextSelection,
+        Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
     },
 };
 
@@ -64,6 +64,11 @@ impl Input {
             return;
         }
         if Focus::on_key(key) {
+            return;
+        }
+        // Before the keymap, a key the owner of the edited field took
+        // must not also run a binding of the screen, like its Escape.
+        if TextField::offer_key(key) {
             return;
         }
         UIManager::keymap().check(key);

@@ -1,6 +1,7 @@
 mod editing;
 #[cfg(all(ios, not(tvos)))]
 mod system_field;
+mod taken_keys;
 
 use std::mem::take;
 
@@ -24,7 +25,7 @@ use crate::{
         UIColor, UIEvents, UIManager, VerticalAlignment, ViewSubviews,
         view::{DoubleTap, View, ViewData, ViewFrame, ViewTouch},
     },
-    window::Font,
+    window::{Font, NamedKey},
 };
 
 /// Space above the first line of a multiline field, so the text does not
@@ -99,6 +100,13 @@ pub struct TextField {
     /// the png file is made on another thread. Only the paste shortcut
     /// of a desktop fires it, see `Clipboard::get_image` for the rest.
     pub image_pasted: Event<ClipboardImage>,
+
+    /// A press of a key named with `take_keys`, while the field is
+    /// edited. The field itself does nothing with that press.
+    pub key_taken: Event<NamedKey>,
+
+    /// The keys of `take_keys`.
+    taken_keys: Vec<NamedKey>,
 
     /// All of these live inside the scroll content so a multiline field
     /// scrolls its lines, the selection and the caret together. A single

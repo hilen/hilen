@@ -151,8 +151,16 @@ extern "C" fn changed(text: *const c_char) {
     field.system_text_changed(Zeroizing::new(text.to_string_lossy().into_owned()));
 }
 
-extern "C" fn returned() {
+/// Return in the system field. A text area adds its new line itself, so
+/// the engine gets the key only when the owner of the field takes it. The
+/// answer says whether the engine got the key, the system adds no line then.
+extern "C" fn returned() -> bool {
+    let field = *EDITED.lock();
+    if field.is_ok() && field.multiline && !field.takes_key(NamedKey::Enter) {
+        return false;
+    }
     Input::on_key(NamedKey::Enter);
+    true
 }
 
 /// The system moves the keyboard, see `ScreenKeyboard`.

@@ -42,6 +42,11 @@ the new screen binds in its `setup` join the keymap after the press, they never 
 the press that added them. `Keymap::check` in `input/keymap/keymap.rs` keeps the key
 list unborrowed while actions run for that.
 
+An edited `TextField` gets a named key before the keymap does when its owner took that
+key with `take_keys`, and then nothing else sees the press, no binding and no
+`keyboard_key` subscriber. `Input::on_key` asks `TextField::offer_key` for that, see
+Keys the owner of a text field takes in [text.md](text.md).
+
 The tests are `Key focus`, `Key focus table`, `Key focus modal` and `Navigation
 escape`. The scoring has unit tests in `focus.rs`. The remote of a real TV was not
 tried yet, see [roadmap.md](roadmap.md).

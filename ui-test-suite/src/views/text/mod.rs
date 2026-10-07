@@ -64,6 +64,7 @@ mod screen_keyboard_scroll;
 mod screen_keyboard_secure;
 mod screen_keyboard_shift;
 mod screen_keyboard_submit;
+mod screen_keyboard_taken_return;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod secure_text_field;
@@ -105,6 +106,11 @@ mod text_field_placeholder_text;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_submit;
+/// Desktop only for the same reason as [`custom_text_field`]. The Return
+/// key, the only one of these a phone has, is in
+/// [`screen_keyboard_taken_return`].
+#[cfg(desktop)]
+mod text_field_taken_keys;
 /// Sets colors and switches themes without typing, so unlike the other
 /// text field tests it runs everywhere.
 mod text_field_theme;

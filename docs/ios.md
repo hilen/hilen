@@ -137,7 +137,10 @@ that time, its label shows only the placeholder of an empty field. The Rust half
   visible. `Screen keyboard look` measures that on a capture of the screen. A field with
   a number constraint opens the numbers page of the keyboard.
 - Every change of the text goes to the engine at once, so `changed` and the constraints
-  work per key. Return in a single line field arrives as Enter. A change of the UI scale
+  work per key. Return in a single line field arrives as Enter. Return in a multiline
+  field is a new line the system adds itself, the engine gets it as Enter only when the
+  owner of the field took that key with `take_keys`, and the system adds no line then.
+  A change of the UI scale
   opens the system field again with the new sizes.
 - Closing has to take the keys from the engine view too. The winit view can be a first
   responder, it takes the keys the moment its subview lets them go, and the keyboard
