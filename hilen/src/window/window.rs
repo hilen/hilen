@@ -117,7 +117,22 @@ impl Window {
     /// query reads it, see `Screen::Windowed`.
     pub(crate) fn record_inner_size(&mut self, size: PhysicalSize<u32>) {
         match &mut self.screen {
-            Screen::Windowed { size: recorded, .. } => *recorded = Size::new(size.width, size.height),
+            Screen::Windowed {
+                size: recorded,
+                winit_window,
+                ..
+            } => {
+                // A `Resized` event of iOS carries the whole screen. The
+                // inner size there is the safe area, which only the window
+                // tells. With the size of the event the app views ended
+                // below the screen by the height of the status bar.
+                let size = if Platform::IOS {
+                    winit_window.inner_size()
+                } else {
+                    size
+                };
+                *recorded = Size::new(size.width, size.height);
+            }
             #[cfg(not_wasm)]
             Screen::Headless { .. } => {}
         }

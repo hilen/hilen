@@ -16,30 +16,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## On iOS the app views are as tall as the whole screen and start below the status bar
-
-Found by banda at `~/dev/apps/banda` on the iPhone 14 simulator, iOS 16.4, with the
-engine at `da1b9180`. Its compose box sits at the bottom of the page and is almost
-fully below the screen, only its top edge shows above the home bar.
-
-- Current: `resize_root` in `hilen/src/ui/views/root_view.rs` gives the container of
-  the app views the size `inner_size` and the place `inner_pos`. On the simulator
-  `hilen-inspect tree` shows `Root view [0, 0] 390x844` and under it
-  `Container [0, 47] 390x844`: the place has the 47 points of the status bar, the size
-  is still the whole screen. So the bottom 47 points of every page are off the screen,
-  and the 34 points of the home bar are not left free either. A view placed with `b(12)`
-  ends at 875 on a screen of 844. `hilen-inspect tap` refuses the compose field with
-  `center (177, 853) is outside the 390x844 window`.
-- Needed: the container of the app views is the safe area of the screen, its place and
-  its size both, so its bottom ends above the home bar. Find first where the wrong
-  height comes from, the size the window code reports at the start or a later change
-  of the safe area that never reaches `resize_root`. The same after a turn of the
-  phone. A UI test on the simulator lane with a view at `b(0)` whose bottom edge is
-  on the screen.
-- Blocks: the chat of banda on a phone, its compose box cannot be tapped. It also
-  holds up the proof of the screen keyboard entry below, the field to tap is off the
-  screen.
-
 ## Screen keyboard, the proof in banda and on Android
 
 Found by banda at `~/dev/apps/banda`, whose compose box sits at the bottom of the
@@ -47,13 +23,17 @@ screen. The keyboard frame, the field that stays in view, `b_keyboard` and the f
 by code that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.md).
 
 - Current: proven by 4 UI tests on desktop, with a stand in for the keyboard, and on
-  the iOS simulator lane with the real one. No real iPhone ran it. banda still has its
-  old pin, its chat was not opened on a phone. The move runs on an ease curve close to
-  the one of iOS, not measured against the real keyboard. Android opens no screen
-  keyboard at all, a tap on a `TextField` there brings nothing up, so there is
-  nothing to follow yet.
-- Needed: the pin of banda moved, its compose box placed with `b_keyboard`, and the
-  chat tried on an iPhone, with the 3 `compose.focus()` calls of
+  the iOS simulator lane with the real one. banda has the pin `da1b9180` and its
+  compose box is placed with `b_keyboard`. Its chat was tried on the iPhone 14
+  simulator, iOS 16.4, with the engine that makes the app views the safe area: the
+  compose box sits above the home bar, a tap on its field opens the keyboard, and the
+  box rides on the keyboard with its 16 points of gap while the list above gets
+  shorter. No real iPhone ran it, and the pin of banda is still older than the safe
+  area fix. The move runs on an ease curve close to the one of iOS, not measured
+  against the real keyboard. Android opens no screen keyboard at all, a tap on a
+  `TextField` there brings nothing up, so there is nothing to follow yet.
+- Needed: the pin of banda moved to an engine with the safe area fix, and the chat
+  tried on a real iPhone, with the 3 `compose.focus()` calls of
   `src/ui/session_page/mod.rs` left as they are. A screen keyboard on Android, opened
   by an edited field, with its frame passed to `ScreenKeyboard::moves_to`.
 - Blocks: calling the chat of banda done on a phone, and every text field on Android.

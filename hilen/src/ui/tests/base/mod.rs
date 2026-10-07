@@ -1,5 +1,6 @@
 mod animated_gif;
 mod animation_drives_frames;
+mod app_views_fit_screen;
 mod bug_report_dialog;
 mod bug_report_style;
 mod double_tap;

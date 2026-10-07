@@ -104,6 +104,18 @@ whatever landed at the offset it expected — `ui_backdrop.wgsl` shares `UIRectI
 `ui_rect.wgsl` and broke exactly that way. The layout tests next to each instance struct
 exist to catch it.
 
+## The app views are the safe area
+
+The container of the app views in `RootView` has the place and the size of the safe
+area of the screen, below the status bar and above the home bar. The root view itself
+and its background cover the whole screen. A view at `b(0)` so ends above the home
+bar, with no code in the app.
+
+Both numbers come from the window, never from the `Resized` event: on iOS that event
+carries the whole screen. `record_inner_size` in `hilen/src/window/window.rs` asks the
+window for its inner size there. The UI test `App views fit screen` checks it at the
+start, after a turn of the phone and in fullscreen, where the status bar is gone.
+
 ## The system text field
 
 While a `TextField` is edited, a real `UITextField` sits exactly over it and takes the
