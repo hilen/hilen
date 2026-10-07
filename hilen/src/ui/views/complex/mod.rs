@@ -17,7 +17,7 @@ pub use drawing_view::DrawingView;
 pub use file_browser::{
     FileBrowser, FileBrowserControl, FileBrowserMode, FilePick, FilePicker, FileSort, SortKey,
 };
-pub use markdown::{MarkdownFonts, MarkdownStyle, MarkdownView};
+pub use markdown::{MarkdownFonts, MarkdownListMarkers, MarkdownStyle, MarkdownView};
 pub use number_view::*;
 pub use point_view::PointView;
 pub use question::Question;

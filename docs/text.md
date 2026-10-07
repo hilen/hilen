@@ -284,6 +284,15 @@ in `hilen/src/ui/views/complex/markdown`.
   same style. A view reads the style when it lays out, so set it before the first
   text is shown. For 1 empty line between 2 paragraphs set `block_gap` to the
   value of `line_height`.
+- `list_markers` of the style says how the markers of a list stand, the bullets,
+  the numbers and the boxes of tasks. `MarkdownListMarkers::Column` is the default:
+  every marker takes the width of the widest one of its list and stands at the right
+  edge of it, so the texts of all items start in 1 column. `MarkdownListMarkers::Inline`
+  is the look of a terminal: every marker starts at the left edge of its list, and the
+  text of an item starts 1 space of the body font after its own marker, so the text of
+  item 10 starts 1 char to the right of the text of item 9. A second line of an item
+  starts where its first line starts, and a list inside an item starts where the text
+  of that item starts. `Markdown inline markers` pins it.
 
 - `set_selectable(true)` makes the text selectable, one selection over all blocks,
   see [text-selection.md](text-selection.md).

@@ -35,6 +35,7 @@ mod label_wide_effect;
 mod letter_spacing;
 mod markdown_bold_item;
 mod markdown_heading_sizes;
+mod markdown_inline_markers;
 mod markdown_line_breaks;
 mod markdown_plain_height;
 mod markdown_selection;

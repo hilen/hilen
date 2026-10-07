@@ -12,8 +12,8 @@ use crate::{
     },
     system::open_url,
     ui::{
-        CodeHighlighter, Container, DrawingView, Label, MarkdownStyle, RunStyle, Setup, TextAlignment,
-        TextSelection, UIColor, VerticalAlignment, ViewFrame, ViewSubviews,
+        CodeHighlighter, Container, DrawingView, Label, MarkdownListMarkers, MarkdownStyle, RunStyle, Setup,
+        TextAlignment, TextSelection, UIColor, VerticalAlignment, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
             model::{Block, Item, Link, Marker, Styled},
@@ -94,6 +94,8 @@ struct Column {
     /// Everything that is not a text is moved in by it, so a code block
     /// or a table starts where the text above it starts.
     margin: f32,
+    /// The width of 1 space of the body text.
+    space:  f32,
 }
 
 impl MarkdownView {
@@ -163,6 +165,11 @@ impl MarkdownView {
         let mut probe = self.add_view::<Label>();
         probe.set_alignment(TextAlignment::Left);
         let margin = probe.text_inset();
+        // A space at the end of a text measures as nothing, so the space
+        // is taken from between 2 letters.
+        probe.set_text_size(style.text_size).set_font(style.fonts().regular);
+        let apart = probe.set_text("x x").size_for_width(UNBOUND).width;
+        let space = apart - probe.set_text("xx").size_for_width(UNBOUND).width;
         probe.remove_from_superview();
 
         let column = Column {
@@ -171,6 +178,7 @@ impl MarkdownView {
             gap: style.block_gap,
             color: self.text_color.unwrap_or(style.text),
             margin,
+            space,
         };
         let mut y = 0.0;
         // The list is taken out for the walk, the views are made on `self`.
@@ -352,6 +360,7 @@ impl MarkdownView {
             gap:    style.block_gap,
             color:  style.dim_text,
             margin: column.margin,
+            space:  column.space,
         };
         self.blocks(style, blocks, inner, y);
         let bar = self.add_view::<Container>();
@@ -362,7 +371,9 @@ impl MarkdownView {
     fn list(self: Weak<Self>, style: &MarkdownStyle, items: &[Item], column: Column, y: &mut f32) {
         // One line of body text, the height of a marker.
         let line_height = style.body_line();
-        // Every marker first, the widest one sets where the texts start.
+        let inline = style.list_markers == MarkdownListMarkers::Inline;
+        // Every marker first, in a column the widest one sets where the
+        // texts start.
         let markers: Vec<Option<Weak<Label>>> = items
             .iter()
             .map(|item| {
@@ -370,7 +381,11 @@ impl MarkdownView {
                 let label = self.add_view::<Label>();
                 label
                     .set_text_size(style.text_size)
-                    .set_alignment(TextAlignment::Right)
+                    .set_alignment(if inline {
+                        TextAlignment::Left
+                    } else {
+                        TextAlignment::Right
+                    })
                     .set_vertical_alignment(VerticalAlignment::Top);
                 // The same line box as the text of the item, so the marker
                 // stays on the baseline of its first line.
@@ -383,30 +398,40 @@ impl MarkdownView {
                 Some(label)
             })
             .collect();
-        // A marker starts where a text of this column starts, and the text
-        // of an item starts `MARKER_GAP` after the widest marker. The
+        // In a column a marker starts where a text of this column starts,
+        // and the text of an item starts `MARKER_GAP` after the widest
+        // marker. The
         // measured width of a label has 1 margin in it, the frame gets 2,
         // so a right aligned marker keeps the left one free.
         let margin = column.margin;
-        let marker_width = markers
+        let widest = markers
             .iter()
             .flatten()
             .map(|label| label.size_for_width(UNBOUND).width.ceil() + margin)
             .fold(TASK_BOX + margin * 2.0, f32::max);
-        let indent = marker_width - margin * 2.0 + MARKER_GAP;
 
-        let inner = Column {
-            x: column.x + indent,
-            width: column.width - indent,
-            gap: style.item_gap,
-            color: column.color,
-            margin,
-        };
         for (index, (item, marker)) in items.iter().zip(markers).enumerate() {
             if index > 0 {
                 *y += style.item_gap;
             }
             let top = *y;
+            let (marker_width, indent) = if inline {
+                // The text of the item starts 1 space after the ink of its
+                // own marker. The measured width has the margin in it that
+                // the label of the item adds again.
+                let measured = marker.map_or(TASK_BOX + margin, |label| label.size_for_width(UNBOUND).width);
+                (measured.ceil() + margin, measured - margin + column.space)
+            } else {
+                (widest, widest - margin * 2.0 + MARKER_GAP)
+            };
+            let inner = Column {
+                x: column.x + indent,
+                width: column.width - indent,
+                gap: style.item_gap,
+                color: column.color,
+                margin,
+                space: column.space,
+            };
             if let Some(marker) = marker {
                 marker.set_frame((column.x, top, marker_width, line_height));
                 self.note_text(marker);

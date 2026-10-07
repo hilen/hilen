@@ -26,6 +26,8 @@ pub struct MarkdownStyle {
     /// The space between 2 items of a list, and between 2 blocks inside
     /// an item.
     pub item_gap:          f32,
+    /// How the markers of a list stand, in 1 column by default.
+    pub list_markers:      MarkdownListMarkers,
     /// The points from one line of the text to the next, the pitch of
     /// the font when not set. It is given for `text_size`: a paragraph,
     /// a list and a table cell take it as it is, a heading takes it
@@ -66,6 +68,22 @@ pub struct MarkdownStyle {
     pub fonts:             Option<MarkdownFonts>,
 }
 
+/// How the markers of a list stand, the bullets, the numbers and the
+/// boxes of tasks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownListMarkers {
+    /// Every marker takes the width of the widest one of its list and
+    /// stands at the right edge of it. The texts of all items start in 1
+    /// column.
+    #[default]
+    Column,
+    /// Every marker starts at the left edge of its list, and the text of
+    /// an item starts 1 space of the font after its own marker, the way a
+    /// terminal shows a list. The text of item 10 starts 1 char to the
+    /// right of the text of item 9.
+    Inline,
+}
+
 /// The 6 fonts a markdown text is drawn with.
 #[derive(Clone, Copy)]
 pub struct MarkdownFonts {
@@ -99,6 +117,7 @@ impl MarkdownStyle {
         heading_scales:    [1.57, 1.36, 1.14, 1.07, 1.0, 1.0],
         block_gap:         10.0,
         item_gap:          4.0,
+        list_markers:      MarkdownListMarkers::Column,
         line_height:       None,
         keeps_line_breaks: false,
         text:              dynamic("#1a1d24", "#eceff4"),
