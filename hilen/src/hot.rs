@@ -2,11 +2,16 @@
 //! app owns the process. It loads this library, starts it, and stops it when
 //! a newer build is there.
 
+mod heap;
+
 use std::{
     cell::RefCell,
     ffi::{CStr, c_int},
-    ptr::from_ref,
-    sync::atomic::{AtomicBool, Ordering},
+    fs::File,
+    io::{Result as IoResult, Write},
+    path::Path,
+    ptr::{from_ref, null_mut},
+    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
 
 use log::info;
@@ -35,6 +40,36 @@ use crate::{
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 static SENTRY: Mutex<Option<ClientInitGuard>> = Mutex::new(None);
 static CLASSES_DELETED: AtomicBool = AtomicBool::new(false);
+/// The handle the context of the main thread borrows. It is freed at the
+/// stop, a handle that lives on keeps the kqueue of the runtime open.
+static HANDLE: AtomicPtr<Handle> = AtomicPtr::new(null_mut());
+/// The log file of this build. The logger is never dropped, so the file is
+/// kept here, where the stop can close it.
+static LOG_FILE: Mutex<Option<File>> = Mutex::new(None);
+
+/// Writes to the log file until the stop closes it.
+struct LogFile;
+
+impl Write for LogFile {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        match LOG_FILE.lock().as_mut() {
+            Some(file) => file.write(buf),
+            None => Ok(buf.len()),
+        }
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        match LOG_FILE.lock().as_mut() {
+            Some(file) => file.flush(),
+            None => Ok(()),
+        }
+    }
+}
+
+pub(crate) fn log_file(path: &Path) -> IoResult<Box<dyn Write + Send>> {
+    *LOG_FILE.lock() = Some(fern::log_file(path)?);
+    Ok(Box::new(LogFile))
+}
 
 thread_local! {
     static CONTEXT: RefCell<Option<EnterGuard<'static>>> = const { RefCell::new(None) };
@@ -49,7 +84,10 @@ pub(crate) fn enter_runtime(app: &dyn App) {
     *SENTRY.lock() = runtime.block_on(AppRunner::setup_sentry(app));
 
     // The guard borrows the handle, and the guard lives in a thread local.
-    let handle: &'static Handle = Box::leak(Box::new(runtime.handle().clone()));
+    let handle = Box::into_raw(Box::new(runtime.handle().clone()));
+    HANDLE.store(handle, Ordering::Relaxed);
+    // SAFETY: the box is freed in `hilen_stop`, after the guard.
+    let handle: &'static Handle = unsafe { &*handle };
     CONTEXT.with_borrow_mut(|context| *context = Some(handle.enter()));
 
     *RUNTIME.lock() = Some(runtime);
@@ -88,9 +126,18 @@ pub extern "C" fn hilen_stop() {
 
     SENTRY.lock().take();
     CONTEXT.with_borrow_mut(Option::take);
+    let handle = HANDLE.swap(null_mut(), Ordering::Relaxed);
+    if !handle.is_null() {
+        // SAFETY: made by `Box::into_raw` in `enter_runtime`, and the guard
+        // that borrowed it is gone.
+        drop(unsafe { Box::from_raw(handle) });
+    }
     if let Some(runtime) = RUNTIME.lock().take() {
         runtime.shutdown_background();
     }
+
+    info!("Hot build stopped");
+    LOG_FILE.lock().take();
 }
 
 /// The classes objc2 made at run time for this build, besides the 3 of winit.

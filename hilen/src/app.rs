@@ -130,6 +130,13 @@ unsafe extern "C" {
     pub(crate) fn hilen_create_app() -> Box<dyn App>;
 }
 
+// One loader runs several apps in a hot build, so the data folder has the
+// name of the project there, see `Paths::storage`.
+#[cfg(hot)]
+unsafe extern "Rust" {
+    pub(crate) safe fn hilen_project_name() -> &'static str;
+}
+
 #[cfg(not(ios))]
 #[unsafe(no_mangle)]
 #[linkage = "weak"]

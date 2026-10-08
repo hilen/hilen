@@ -57,6 +57,17 @@ impl AppRunner {
         *CURSOR_POSITION
     }
 
+    #[cfg(all(not_wasm, not(hot)))]
+    fn log_file_output(path: &std::path::Path) -> std::io::Result<fern::Output> {
+        Ok(fern::log_file(path)?.into())
+    }
+
+    /// A hot build closes its log file at its stop, see `hot.rs`.
+    #[cfg(hot)]
+    fn log_file_output(path: &std::path::Path) -> std::io::Result<fern::Output> {
+        Ok(crate::hot::log_file(path)?.into())
+    }
+
     #[cfg(not_wasm)]
     pub(crate) fn setup_log(app_targets: &'static [&'static str], log_files_kept: usize) {
         use chrono::Local;
@@ -94,7 +105,7 @@ impl AppRunner {
         // The file gets a timestamp per line, the console stays as it is so
         // the lines tests grep for keep their shape.
         let file = match crate::log_file::create(log_files_kept)
-            .and_then(|path| Ok((fern::log_file(&path)?, path)))
+            .and_then(|path| Ok((Self::log_file_output(&path)?, path)))
         {
             Ok((file, path)) => Some((
                 Dispatch::new()

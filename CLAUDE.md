@@ -182,7 +182,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the
   session key part of `hilen-session/build.rs`.
 - [docs/hot-reload.md](docs/hot-reload.md) — hot reload in the iOS simulator: `make hot`,
-  the loader app and the app as 1 dynamic library, the stop of a generation, why a hot
+  the loader app and the app as 1 dynamic library, `make swap` for several apps in 1
+  loader, the own heap of a build, what a stop leaves, the stop of a generation, why a hot
   build has no rayon, the winit attach, the Objective-C classes, and the `make hot-test`
   lane. Read before touching `hilen/src/hot.rs`, `hot_loader.m`, the `hot-test` crate, or
   anything a hot build has to give back at its stop.
@@ -291,6 +292,7 @@ make ui-ios-human                                                            # t
 make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
 make hot                                                                     # hot reload of the app in the iOS simulator, a saved file reloads it
 make hot-test                                                                # the hot reload lane, 2 builds of hot-test swapped in one process
+make swap args="start demo ../apps/skaityk"                                  # 1 loader in the iOS simulator for several apps, then args="to skaityk", "status", "stop"
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator
 make ci                                                                      # typos, formatting, lints, unused dependencies

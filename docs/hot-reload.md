@@ -7,6 +7,7 @@ stays 1 static library linked into the Xcode shell.
 ```bash
 make hot        # in an app folder: build, start in the simulator, watch the sources
 make hot-test   # in hilen: the lane that proves the swap
+make swap args="start demo ../apps/skaityk"   # 1 loader for several apps, see below
 ```
 
 Proven on 2026-10-07 in the simulator of an Apple Silicon Mac, on iOS 16.4. A
@@ -38,10 +39,15 @@ Every start is fresh, the app opens on its first screen again.
 
 - The loader, `hilen/native/ios/hot_loader.m` and `hot_loader.plist`. It owns
   `UIApplicationMain` and has no window and no event code. `HILEN_HOT_DIR` names
-  a folder with the libraries and a file `current` that holds the name of the
-  newest one. The loader watches the folder, a watch on the file would not
-  follow a file that replaced it. It loads the new library before it stops the
-  old one, so a broken build leaves the old one running.
+  a folder with the libraries and a file `current`. Its first line is the name
+  of the library to run. A second line, when it is there, is the repo of that
+  app, the loader sets it as `HILEN_HOT_ROOT` and the engine takes the `assets`
+  from there and not from the loader app. The loader watches the folder, a
+  watch on the file would not follow a file that replaced it. It loads the new
+  library before it stops the old one, so a broken build leaves the old one
+  running. It writes the name of the library it started into the file
+  `started`. At its start it raises its limit of open files, see "What a stop
+  leaves".
 - The library is the app crate as a `cdylib`, built with
   `cargo rustc --crate-type cdylib`, so `Cargo.toml` of an app needs nothing.
 - The `hot` feature of `hilen`. It turns `inspect` on, so the release guards of
@@ -57,6 +63,67 @@ Every start is fresh, the app opens on its first screen again.
 - The scripts, `build/ios/hot.rs`, `build/ios/hot-test.rs` and
   `build/shared/src/hot.rs`. The builds run through `far` when it is installed,
   the simulator is the one of the Mac the script runs on.
+
+## Several apps in 1 loader
+
+`make swap` runs 1 loader that swaps between different apps in 1 process.
+Nothing swaps by itself, every command returns, so a person and an agent use
+it the same way. The state between the commands is in
+`target/hot/swap/state.json`.
+
+```bash
+make swap args="start demo ../apps/skaityk ../apps/lendar"   # build all, start the first
+make swap args="to skaityk"                                  # build it again and swap to it
+make swap args="status"                                      # the app on the screen, threads, memory, open files
+make swap args="stop"
+```
+
+A folder is the folder of the app crate, a name is its cargo package. Run from
+the hilen repo, an app of another repo is built with the engine of this
+folder, through a cargo patch on the command line, so every side of a swap
+carries the same engine and an engine change needs no push. The lock file of
+the app is put back after the build.
+
+What 1 loader for several apps needs from the engine, both only in a hot
+build: the data folder is `.<project_name>` and not `.<exe name>`, the exe is
+the loader for all of them, and the assets come from `HILEN_HOT_ROOT`.
+
+Proven on 2026-10-08 with `demo`, `skaityk` and `lendar`: 124 swaps in a row
+in 1 process, about 55 ms from the stop of one app to the start of the next.
+
+The build of an app outside the hilen repo does not run through `make swap`
+yet. `PathBuf::push` does nothing in RustScript, see the roadmap of
+rustscript, so the path to the engine comes out empty. Until that is fixed
+such a library is built with the same cargo line by hand.
+
+## The heap of a build
+
+A stopped build is never unloaded, so nothing runs the drop of what its
+statics and caches still hold. That was about 10 MB per swap. In a hot build
+every Rust allocation comes from a heap of its own, a malloc zone,
+`hilen/src/hot/heap.rs`. The loader calls `hilen_free_heap` for a stopped
+library at a later swap, not before 5 seconds after its stop, when its last
+threads have ended.
+
+The price: memory of a stopped build that anything still reads is a crash,
+where it was a silent leftover before. So a hole in the stop shows now.
+
+## What a stop leaves
+
+Measured over swaps between 3 apps, 2026-10-08:
+
+- About 3 MB of real memory per swap, 104 MB at swap 1 and 435 MB at swap 100.
+  Nearly all of it is the constants of the library that the system patched
+  at the load. Before the own heap it was about 11 MB per swap.
+- 2 open files per swap, 1 pair of sockets. tokio makes it for its signal
+  handling as soon as a runtime has IO, and keeps it in a private static. The
+  usual limit of 256 open files ended the process at swap 31, so the loader
+  raises its limit.
+- About 390 file mappings per swap, the system fonts. They cost address space
+  and no real memory.
+- The log file and the kqueues of the runtime are given back. The runtime
+  handle of the main thread is freed at the stop, a handle that lives on keeps
+  the kqueue open.
 
 ## The stop
 
@@ -140,6 +207,9 @@ part of `make smoke`.
   old code.
 - Assets are copied into the loader app, a changed asset needs a new
   `make hot`.
-- Each reload leaves the image, its plain memory and 8 open files behind, the
-  font files of the system fallback among them.
+- What each reload leaves is in "What a stop leaves". A real iPhone would end
+  the app long before a Mac does.
+- `hilen` asks for `hilen-winit` 0.30, and the `hot` feature needs 0.30.14. An
+  app with an older lock file fails the hot build with a feature error until
+  `cargo update hilen-winit`.
 - The watch looks at the app repo only, not at a path dependency outside it.

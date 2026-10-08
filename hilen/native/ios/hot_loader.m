@@ -3,18 +3,26 @@
 // `UIApplicationMain`. The whole program is a dynamic library. The loader
 // starts it, and swaps it for a newer one while the app keeps running.
 //
-// `HILEN_HOT_DIR` is a folder with the libraries and a file `current` that
-// holds the file name of the newest one.
+// `HILEN_HOT_DIR` is a folder with the libraries and a file `current`. Its
+// first line is the file name of the library to run. A second line, when it
+// is there, is the folder that holds the `assets` of that app, the engine
+// reads it from `HILEN_HOT_ROOT`. The loader writes the name of the library
+// it started into the file `started`.
 
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
+#import <sys/resource.h>
 
 typedef int (*StartFn)(void);
 typedef void (*StopFn)(void);
 typedef int (*StoppedFn)(void);
+typedef void (*FreeHeapFn)(void);
 
 static const double kStopPollSeconds = 0.05;
 static const int kStopPollTries = 100;
+// A stopped library still has threads that end, and the system still lets go
+// of its last objects. Its heap is freed only after this long.
+static const double kHeapGraceSeconds = 5;
 
 @interface HilenLoader : UIResponder <UIApplicationDelegate>
 @end
@@ -24,6 +32,9 @@ static const int kStopPollTries = 100;
     NSString* _name;
     void* _library;
     BOOL _reloading;
+    // The stopped libraries whose heap is not freed yet, each with the time
+    // of its stop.
+    NSMutableArray<NSArray*>* _stopped;
     dispatch_source_t _watch;
 }
 
@@ -34,19 +45,28 @@ static const int kStopPollTries = 100;
         return YES;
     }
 
-    NSString* name = [self newestName];
-    void* library = [self load:name];
+    NSArray<NSString*>* newest = [self newest];
+    void* library = [self load:newest[0]];
     if (library != NULL) {
-        [self start:library name:name];
+        [self start:library name:newest[0] root:newest[1]];
     }
     [self watch];
     return YES;
 }
 
-- (NSString*)newestName {
+// The name of the library to run and the folder of its assets, each empty
+// when the file does not have it.
+- (NSArray<NSString*>*)newest {
     NSString* pointer = [_dir stringByAppendingPathComponent:@"current"];
     NSString* text = [NSString stringWithContentsOfFile:pointer encoding:NSUTF8StringEncoding error:nil];
-    return [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray<NSString*>* lines = [NSMutableArray array];
+    for (NSString* line in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+        [lines addObject:[line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]];
+    }
+    while (lines.count < 2) {
+        [lines addObject:@""];
+    }
+    return lines;
 }
 
 - (void*)load:(NSString*)name {
@@ -68,11 +88,22 @@ static const int kStopPollTries = 100;
     return library;
 }
 
-- (void)start:(void*)library name:(NSString*)name {
+- (void)start:(void*)library name:(NSString*)name root:(NSString*)root {
     NSLog(@"hilen loader: starting %@", name);
     _library = library;
     _name = name;
+    if (root.length > 0) {
+        setenv("HILEN_HOT_ROOT", root.fileSystemRepresentation, 1);
+    } else {
+        unsetenv("HILEN_HOT_ROOT");
+    }
     ((StartFn)dlsym(library, "hilen_start_app"))();
+
+    NSError* error = nil;
+    NSString* started = [_dir stringByAppendingPathComponent:@"started"];
+    if (![name writeToFile:started atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+        NSLog(@"hilen loader: %@ is not written: %@", started, error);
+    }
 }
 
 // A watch on the file would not follow a file that replaced it, so the
@@ -95,7 +126,8 @@ static const int kStopPollTries = 100;
     if (_reloading) {
         return;
     }
-    NSString* name = [self newestName];
+    NSArray<NSString*>* newest = [self newest];
+    NSString* name = newest[0];
     if (name.length == 0 || [name isEqualToString:_name]) {
         return;
     }
@@ -112,12 +144,36 @@ static const int kStopPollTries = 100;
         NSLog(@"hilen loader: stopping %@", _name);
         ((StopFn)dlsym(_library, "hilen_stop"))();
     }
-    [self startWhenStopped:library name:name tries:kStopPollTries];
+    [self startWhenStopped:library name:name root:newest[1] tries:kStopPollTries];
 }
 
-- (void)startWhenStopped:(void*)library name:(NSString*)name tries:(int)tries {
+// Every Rust allocation of a stopped library is in a heap of its own, see
+// `hot/heap.rs` of the engine. A library that is never unloaded would keep
+// all of it. The heap is freed at a later swap and not at the stop itself.
+- (void)freeOldHeaps {
+    if (_stopped == nil) {
+        _stopped = [NSMutableArray array];
+    }
+    while (_stopped.count > 0) {
+        NSArray* oldest = _stopped[0];
+        if (-[oldest[1] timeIntervalSinceNow] < kHeapGraceSeconds) {
+            return;
+        }
+        FreeHeapFn freeHeap = (FreeHeapFn)dlsym([oldest[0] pointerValue], "hilen_free_heap");
+        if (freeHeap != NULL) {
+            freeHeap();
+        }
+        [_stopped removeObjectAtIndex:0];
+    }
+}
+
+- (void)startWhenStopped:(void*)library name:(NSString*)name root:(NSString*)root tries:(int)tries {
     if (_library == NULL || ((StoppedFn)dlsym(_library, "hilen_stopped"))()) {
-        [self start:library name:name];
+        [self freeOldHeaps];
+        if (_library != NULL) {
+            [_stopped addObject:@[ [NSValue valueWithPointer:_library], NSDate.date ]];
+        }
+        [self start:library name:name root:root];
         _reloading = NO;
         // A build that came in meanwhile.
         [self reload];
@@ -130,12 +186,30 @@ static const int kStopPollTries = 100;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kStopPollSeconds * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-                       [self startWhenStopped:library name:name tries:tries - 1];
+                       [self startWhenStopped:library name:name root:root tries:tries - 1];
                    });
 }
 
 @end
 
+// A stopped library cannot give back every file it opened, some belong to
+// statics of its dependencies. The usual limit of 256 open files would end
+// the process after a few dozen swaps.
+static void raiseFileLimit(void) {
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        return;
+    }
+    rlim_t wanted = limit.rlim_max < OPEN_MAX ? limit.rlim_max : OPEN_MAX;
+    if (limit.rlim_cur < wanted) {
+        limit.rlim_cur = wanted;
+        if (setrlimit(RLIMIT_NOFILE, &limit) != 0) {
+            NSLog(@"hilen loader: the open file limit stays at %llu", limit.rlim_cur);
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
+    raiseFileLimit();
     return UIApplicationMain(argc, argv, nil, @"HilenLoader");
 }

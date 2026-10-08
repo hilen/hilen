@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use parking_lot::Mutex;
 use plat::Platform;
 
-#[cfg(desktop)]
+#[cfg(any(desktop, hot))]
 use crate::app::hilen_project_name;
 
 static STORAGE_PATH: Mutex<Option<String>> = Mutex::new(None);
@@ -55,9 +55,15 @@ impl Paths {
         {
             PathBuf::default()
         }
-        #[cfg(mobile)]
+        #[cfg(all(mobile, not(hot)))]
         {
             format!("{}/.{}", Self::home().display(), Self::executable_name()).into()
+        }
+        // One loader runs several apps in a hot build, and the exe is the
+        // loader for all of them.
+        #[cfg(hot)]
+        {
+            format!("{}/.{}", Self::home().display(), hilen_project_name()).into()
         }
         #[cfg(desktop)]
         {
