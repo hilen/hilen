@@ -46,7 +46,32 @@ pub enum AppCommand {
     BuildTime(u64),
     /// Unix seconds of when this app process started.
     StartTime(u64),
+    /// The library a hot build runs, none for the one packed in the loader.
+    Hot {
+        library: Option<String>,
+    },
+    HotFiles(Vec<HotFileRepr>),
     UI(UIResponse),
+}
+
+/// A file a hot build already has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotFileRepr {
+    /// The path below the listed folder, with `/` between its parts.
+    pub path: String,
+    pub len:  u64,
+    /// `file_hash` of its bytes.
+    pub hash: u64,
+}
+
+/// The hash both sides of a hot send compare a file by, FNV-1a.
+pub fn file_hash(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

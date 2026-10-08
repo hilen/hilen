@@ -9,8 +9,10 @@ use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 #[cfg(not_wasm)]
 use log::{info, warn};
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, not(ios)))]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
+#[cfg(ios)]
+use objc2_foundation::NSBundle;
 #[cfg(not_wasm)]
 use tokio::net::TcpListener;
 
@@ -18,11 +20,14 @@ use tokio::net::TcpListener;
 use crate::deps::hreads::log_spawn;
 #[cfg(any(wasm, feature = "audio"))]
 use crate::deps::hreads::on_main;
+#[cfg(ios)]
+use crate::inspect::bonjour;
+#[cfg(hot)]
+use crate::inspect::hot_swap;
+#[cfg(all(not_wasm, not(ios)))]
+use crate::inspect::protocol::SERVICE_TYPE;
 #[cfg(not_wasm)]
-use crate::inspect::{
-    MARKER,
-    protocol::{SERVICE_TYPE, serve},
-};
+use crate::inspect::{MARKER, protocol::serve};
 #[cfg(feature = "audio")]
 use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
@@ -44,19 +49,35 @@ pub struct InspectService;
 
 static APP_STARTED: OnceLock<u64> = OnceLock::new();
 
-/// The daemon runs a thread of its own that outlives the listener task.
-#[cfg(hot)]
-static MDNS: parking_lot::Mutex<Option<ServiceDaemon>> = parking_lot::Mutex::new(None);
-
 /// A build without debug assertions starts the server only with this set to
 /// `1` at launch, so a release binary built outside the release scripts still
 /// ships with the server off.
 #[cfg(not_wasm)]
 const ENABLE_ENV: &str = "HILEN_INSPECT";
 
+/// The 1 app that runs the server in every build, the engine's own demo.
+/// It ships only through `TestFlight`, to be inspected on a phone, and an
+/// app that is hot loaded into it runs under this id too. No other app may
+/// be added here, a shipped app must never carry a server that is on.
 #[cfg(not_wasm)]
-fn listener_allowed(debug_build: bool, enable: Option<&str>) -> bool {
-    debug_build || enable == Some("1")
+const ALWAYS_ON_BUNDLE_ID: &str = "vladas.test-engine";
+
+#[cfg(not_wasm)]
+fn listener_allowed(debug_build: bool, enable: Option<&str>, bundle_id: Option<&str>) -> bool {
+    debug_build || enable == Some("1") || bundle_id == Some(ALWAYS_ON_BUNDLE_ID)
+}
+
+/// The bundle id of the running app, only an iOS app is asked.
+#[cfg(not_wasm)]
+fn bundle_id() -> Option<String> {
+    #[cfg(ios)]
+    {
+        NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string())
+    }
+    #[cfg(not(ios))]
+    {
+        None
+    }
 }
 
 impl InspectService {
@@ -64,16 +85,11 @@ impl InspectService {
         APP_STARTED.get_or_init(current_unix_seconds);
     }
 
-    /// Takes the app off the network and ends the mDNS thread. The listener
-    /// and its clients are tasks, they end with the runtime.
+    /// Takes the app off the network. The listener and its clients are
+    /// tasks, they end with the runtime.
     #[cfg(hot)]
     pub(crate) fn stop() {
-        let Some(mdns) = MDNS.lock().take() else {
-            return;
-        };
-        if let Err(err) = mdns.shutdown() {
-            warn!("mDNS did not shut down: {err}");
-        }
+        bonjour::stop();
     }
 
     #[cfg(not_wasm)]
@@ -81,7 +97,11 @@ impl InspectService {
         black_box(MARKER);
 
         let debug_build = cfg!(debug_assertions);
-        if !listener_allowed(debug_build, var(ENABLE_ENV).ok().as_deref()) {
+        if !listener_allowed(
+            debug_build,
+            var(ENABLE_ENV).ok().as_deref(),
+            bundle_id().as_deref(),
+        ) {
             info!("Inspect server is off in a release build, set {ENABLE_ENV}=1 to start it");
             return;
         }
@@ -97,26 +117,34 @@ impl InspectService {
 
             let app_id = UIManager::app_instance_id();
 
+            // An iPhone lets only its own Bonjour service announce.
+            #[cfg(ios)]
+            bonjour::announce(app_id, port)?;
+            // The daemon lives to the end of this task, like the listener.
+            #[cfg(not(ios))]
             let mdns = ServiceDaemon::new()?;
-            let service = ServiceInfo::new(
-                SERVICE_TYPE,
-                app_id,
-                &format!("{app_id}.local."),
-                "",
-                port,
-                &[("app_id", app_id)][..],
-            )?
-            .enable_addr_auto();
-            mdns.register(service)?;
-            #[cfg(hot)]
-            {
-                *MDNS.lock() = Some(mdns.clone());
-            }
+            #[cfg(not(ios))]
+            mdns.register(
+                ServiceInfo::new(
+                    SERVICE_TYPE,
+                    app_id,
+                    &format!("{app_id}.local."),
+                    "",
+                    port,
+                    &[("app_id", app_id)][..],
+                )?
+                .enable_addr_auto(),
+            )?;
 
             info!("Inspect server on port: {port}");
 
             serve(listener, Self::process_command).await
         });
+    }
+
+    #[cfg(hot)]
+    fn hot(result: Result<AppCommand>) -> AppCommand {
+        result.unwrap_or_else(|err| AppCommand::Error(format!("{err:#}")))
     }
 
     pub fn process_command(command: InspectorCommand) -> AppCommand {
@@ -154,6 +182,25 @@ impl InspectService {
             InspectorCommand::Pause => Self::pause(),
             InspectorCommand::Step { frames } => Self::step(frames),
             InspectorCommand::Resume => Self::resume(),
+            #[cfg(hot)]
+            InspectorCommand::HotInfo => Self::hot(hot_swap::info()),
+            #[cfg(hot)]
+            InspectorCommand::HotFiles { root } => Self::hot(hot_swap::files(&root)),
+            #[cfg(hot)]
+            InspectorCommand::HotChunk {
+                file,
+                offset,
+                data_base64,
+            } => Self::hot(hot_swap::chunk(&file, offset, &data_base64)),
+            #[cfg(hot)]
+            InspectorCommand::HotSwap { library, root } => {
+                Self::hot(hot_swap::swap(&library, root.as_deref()))
+            }
+            #[cfg(not(hot))]
+            InspectorCommand::HotInfo
+            | InspectorCommand::HotFiles { .. }
+            | InspectorCommand::HotChunk { .. }
+            | InspectorCommand::HotSwap { .. } => AppCommand::Error("This app is not a hot build".into()),
             InspectorCommand::UI(ui) => {
                 Self::lay_out_covered();
                 Self::process_ui_command(ui)
@@ -652,15 +699,22 @@ mod test {
 
     #[test]
     fn debug_build_always_listens() {
-        assert!(listener_allowed(true, None));
+        assert!(listener_allowed(true, None, None));
+    }
+
+    #[test]
+    fn release_build_of_the_demo_always_listens() {
+        assert!(listener_allowed(false, None, Some("vladas.test-engine")));
+        assert!(!listener_allowed(false, None, Some("vladas.test-engine.hot")));
+        assert!(!listener_allowed(false, None, Some("vladas.skaityk")));
     }
 
     #[test]
     fn release_build_listens_only_when_asked() {
-        assert!(!listener_allowed(false, None));
-        assert!(!listener_allowed(false, Some("")));
-        assert!(!listener_allowed(false, Some("0")));
-        assert!(!listener_allowed(false, Some("true")));
-        assert!(listener_allowed(false, Some("1")));
+        assert!(!listener_allowed(false, None, None));
+        assert!(!listener_allowed(false, Some(""), None));
+        assert!(!listener_allowed(false, Some("0"), None));
+        assert!(!listener_allowed(false, Some("true"), None));
+        assert!(listener_allowed(false, Some("1"), None));
     }
 }

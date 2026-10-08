@@ -16,6 +16,26 @@ With the feature on, the app starts an inspect server at launch, a release build
 as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
 fixed ports, any number of apps per machine.
 
+On iOS the Bonjour service of the system announces, `hilen/src/inspect/bonjour.rs`,
+not the `mdns-sd` crate. A real iPhone lets an app send multicast packets of its
+own only with an entitlement Apple gives on request, so the crate stays silent
+there with no error. The system announces for an app whose `Info.plist` has
+`NSLocalNetworkUsageDescription` and names `_hilen-inspect._tcp` in
+`NSBonjourServices`. `build/ios/build-project.rs` writes both keys when the built
+library carries the server, and `hot_loader.plist` has them.
+
+On a Mac the clients find apps through the system too,
+`hilen/src/inspect/protocol/bonjour_browse.rs`. The `mdns-sd` crate shares the
+mDNS port with the system there and often hears no answer, in a 12 second test
+it got none while the system had every app. `discover` in
+`protocol/discovery.rs` is the one search, Linux and Windows keep `mdns-sd`. A
+phone on a cable answers with the address of the cable too, an address of the
+real network wins.
+
+`Client::connect` starts from the address this machine has in the network of the
+app. A VPN can hold a route for the whole local network and take the packets
+for a phone, a socket bound to the own address of that network goes out there.
+
 Two clients exist:
 
 - `inspector` — the GUI. Browses mDNS continuously, lists running apps in a dropdown,
@@ -26,7 +46,8 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`. The last discovery is cached in the temp dir, so repeat calls
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, and `hot-status` and `hot-send`
+  for the loader on a phone, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
@@ -254,7 +275,10 @@ the only gate. Now four independent checks stand in the way, so one mistake is n
   `HILEN_INSPECT=1` is set at launch, and then logs a warning. A release binary built by hand,
   outside the scripts, starts with the server off. Lanes that build release with the feature,
   `make uui` and `make bench`, do not use the listener. An app whose `make run` is a release
-  build sets the variable there, like kukareker.
+  build sets the variable there, like kukareker. 1 app is the exception: an iOS
+  app with the bundle id `vladas.test-engine`, the engine's own demo, starts the
+  listener in every build, `ALWAYS_ON_BUNDLE_ID`. It ships only through
+  TestFlight, to be inspected on a phone. No other id may be added.
 - **File scan.** Every build with the module carries the `MARKER` bytes of
   `hilen/src/inspect/mod.rs`, the start functions keep them alive. `build/shared/src/inspect.rs`
   searches the built binary for them, and the release scripts stop before anything is signed,

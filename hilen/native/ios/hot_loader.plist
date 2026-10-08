@@ -22,6 +22,12 @@
     <string>13.0</string>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>The developer tools find this app on the local network and send it new code.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_hilen-inspect._tcp</string>
+    </array>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIDeviceFamily</key>

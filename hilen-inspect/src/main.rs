@@ -1,12 +1,13 @@
 mod commands;
 mod frames;
+mod hot;
 mod input;
 
 use std::{
     collections::HashMap,
     env::{current_dir, temp_dir},
     fs::{read_dir, read_to_string, write},
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::exit,
     time::{Duration, UNIX_EPOCH},
@@ -18,15 +19,14 @@ use clap::Parser;
 use commands::{Command, run};
 use hilen::{
     inspect::protocol::{
-        AppCommand, Client, InspectorCommand, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
+        AppCommand, Client, InspectorCommand, UIRequest, UIResponse, discover, ui::ViewRepr,
     },
     refs::{Own, hreads::set_current_thread_as_main},
     ui::NamedKey,
     window::KeyCode,
 };
-use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
 use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::time::{Instant, timeout};
 
 const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
 
@@ -59,6 +59,19 @@ async fn main() -> Result<()> {
             println!("{id} at {addr}");
         }
         return Ok(());
+    }
+
+    // A hot loader is found by what it answers, not by the cached address.
+    match cli.command {
+        Command::HotStatus => return hot::status(cli.app).await,
+        Command::HotSend {
+            library,
+            name,
+            assets,
+        } => {
+            return hot::send_app(cli.app, &library, assets.as_deref(), &name).await;
+        }
+        _ => {}
     }
 
     let client = connect(cli.app).await?;
@@ -622,51 +635,6 @@ fn cached_addr(app: Option<&str>) -> Option<SocketAddr> {
 fn save_cache(apps: &HashMap<String, SocketAddr>) -> Result<()> {
     write(cache_path(), to_string(apps)?)?;
     Ok(())
-}
-
-/// Browses mDNS until the deadline. Cuts the wait short when something is
-/// found: waits a little longer after the first hit to catch the others,
-/// then returns.
-async fn discover() -> Result<HashMap<String, SocketAddr>> {
-    let mdns = ServiceDaemon::new()?;
-    let events = mdns.browse(SERVICE_TYPE)?;
-
-    let mut apps = HashMap::new();
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let mut cutoff = deadline;
-
-    loop {
-        let until = deadline.min(cutoff);
-
-        let Ok(Ok(event)) = timeout_at(until, events.recv_async()).await else {
-            break;
-        };
-
-        let ServiceEvent::ServiceResolved(service) = event else {
-            continue;
-        };
-
-        let Some(app_id) = service.txt_properties.get_property_val_str("app_id") else {
-            continue;
-        };
-
-        let ip = service
-            .addresses
-            .iter()
-            .map(ScopedIp::to_ip_addr)
-            .find(IpAddr::is_ipv4)
-            .or_else(|| service.addresses.iter().next().map(ScopedIp::to_ip_addr));
-
-        let Some(ip) = ip else {
-            continue;
-        };
-
-        apps.insert(app_id.to_string(), SocketAddr::new(ip, service.port));
-        cutoff = Instant::now() + Duration::from_millis(500);
-    }
-
-    Ok(apps)
 }
 
 /// An iOS build relinks the app bundle every time while happily reusing a

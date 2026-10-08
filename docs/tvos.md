@@ -88,7 +88,7 @@ xcrun simctl create te-AppleTV-26.2 \
   com.apple.CoreSimulator.SimRuntime.tvOS-26-2
 xcrun simctl boot <udid> && xcrun simctl bootstatus <udid>
 xcrun simctl install <udid> mobile/tvOS/build/Demo.app
-xcrun simctl launch <udid> vladas.hilen
+xcrun simctl launch <udid> vladas.test-engine
 xcrun simctl io <udid> screenshot <path>.png
 ```
 

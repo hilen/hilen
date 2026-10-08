@@ -1,4 +1,4 @@
-bundle_id = "vladas.hilen"
+bundle_id = "vladas.test-engine"
 project_name = "demo"
 
 # The demo on an LG TV, `make webos-dist`. The 3D scene is left out, the TV

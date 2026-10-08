@@ -1,5 +1,6 @@
 mod alert;
 mod alert_dark;
+mod alert_long_text;
 mod alert_over_modal;
 mod backdrop_blur;
 mod buttons_on_table;

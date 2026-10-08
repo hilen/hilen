@@ -2,9 +2,13 @@
 
 pub mod protocol;
 
+#[cfg(any(ios, test))]
+mod bonjour;
 mod edit_log;
 mod frames;
 mod hold;
+#[cfg(hot)]
+mod hot_swap;
 #[cfg(any(desktop, wasm))]
 mod hover;
 mod inspect_service;

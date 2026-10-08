@@ -1,11 +1,15 @@
-use std::io::ErrorKind;
+use std::{
+    io::ErrorKind,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+};
 
 use anyhow::{Result, bail};
+use if_addrs::{IfAddr, get_if_addrs};
 use log::debug;
 use serde_json::{from_slice, to_vec};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream, ToSocketAddrs},
+    net::{TcpListener, TcpSocket, TcpStream},
     spawn,
     sync::Mutex,
 };
@@ -24,9 +28,22 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn connect(addr: impl ToSocketAddrs) -> Result<Self> {
+    pub async fn connect(addr: SocketAddr) -> Result<Self> {
+        let IpAddr::V4(target) = addr.ip() else {
+            return Ok(Self {
+                stream: Mutex::new(TcpStream::connect(addr).await?),
+            });
+        };
+
+        let socket = TcpSocket::new_v4()?;
+        // A VPN can hold a route for the whole local network and take the
+        // packets for an app on a phone. A socket that starts from the
+        // address this machine has in that network goes out there.
+        if let Some(own) = own_address_near(target, &local_networks()?) {
+            socket.bind(SocketAddr::new(own.into(), 0))?;
+        }
         Ok(Self {
-            stream: Mutex::new(TcpStream::connect(addr).await?),
+            stream: Mutex::new(socket.connect(addr).await?),
         })
     }
 
@@ -50,6 +67,30 @@ impl Client {
             Err(err) => Err(err.into()),
         }
     }
+}
+
+/// The address and the mask of every network this machine is in.
+fn local_networks() -> Result<Vec<(Ipv4Addr, Ipv4Addr)>> {
+    let mut networks = vec![];
+    for interface in get_if_addrs()? {
+        if let IfAddr::V4(v4) = interface.addr {
+            networks.push((v4.ip, v4.netmask));
+        }
+    }
+    Ok(networks)
+}
+
+/// The address of this machine in the network that `target` is in. None for
+/// an app on this machine and for a target behind a router.
+fn own_address_near(target: Ipv4Addr, networks: &[(Ipv4Addr, Ipv4Addr)]) -> Option<Ipv4Addr> {
+    if target.is_loopback() {
+        return None;
+    }
+    let target = target.to_bits();
+    networks
+        .iter()
+        .find(|(own, mask)| !own.is_loopback() && own.to_bits() & mask.to_bits() == target & mask.to_bits())
+        .map(|(own, _)| *own)
 }
 
 pub(crate) async fn serve(listener: TcpListener, handler: fn(InspectorCommand) -> AppCommand) -> Result<()> {
@@ -98,7 +139,27 @@ async fn read_frame(stream: &mut (impl AsyncRead + Unpin), max_len: u32) -> Resu
 
 #[cfg(test)]
 mod test {
-    use super::{MAX_REQUEST_LEN, read_frame};
+    use std::net::Ipv4Addr;
+
+    use super::{MAX_REQUEST_LEN, own_address_near, read_frame};
+
+    #[test]
+    fn a_connect_starts_from_the_address_in_the_network_of_the_app() {
+        let networks = [
+            (Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0)),
+            (Ipv4Addr::new(10, 12, 251, 217), Ipv4Addr::new(255, 255, 255, 128)),
+            (Ipv4Addr::new(192, 168, 0, 11), Ipv4Addr::new(255, 255, 255, 0)),
+        ];
+
+        let phone = Ipv4Addr::new(192, 168, 0, 208);
+        assert_eq!(
+            own_address_near(phone, &networks),
+            Some(Ipv4Addr::new(192, 168, 0, 11))
+        );
+        // An app on this machine, and one behind a router.
+        assert_eq!(own_address_near(Ipv4Addr::LOCALHOST, &networks), None);
+        assert_eq!(own_address_near(Ipv4Addr::new(8, 8, 8, 8), &networks), None);
+    }
 
     #[tokio::test]
     async fn oversized_request_is_refused_before_reading() {

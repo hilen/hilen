@@ -7,14 +7,20 @@ use crate::{
         color::{BLACK, CLEAR},
         flat::Size,
     },
-    ui::{Button, Container, DialogStyle, Label, ModalView, Setup, UIColor, View, view::ViewData},
+    ui::{
+        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, UIColor, UIManager, View,
+        ViewFrame, ViewSubviews, view::ViewData,
+    },
 };
 
 pub(super) const ALERT_WIDTH: f32 = 270.0;
 pub(super) const PADDING: f32 = 20.0;
 pub(super) const BUTTON_HEIGHT: f32 = 44.0;
 pub(super) const MIN_TEXT_HEIGHT: f32 = 22.0;
+/// A longer text scrolls inside the dialog.
 const MAX_TEXT_HEIGHT: f32 = 400.0;
+/// What stays free above and below the dialog in a low window.
+const WINDOW_MARGIN: f32 = 40.0;
 
 #[allow(clippy::type_complexity)]
 static LABEL_SETUP: Mutex<Option<Box<dyn FnOnce(Weak<Label>) + Send>>> = Mutex::new(None);
@@ -22,8 +28,10 @@ static LABEL_SETUP: Mutex<Option<Box<dyn FnOnce(Weak<Label>) + Send>>> = Mutex::
 #[view]
 pub struct Alert {
     event:     OnceEvent,
+    /// Inside `scroll`, so a text of any length can be read.
+    label:     Weak<Label>,
     #[init]
-    label:     Label,
+    scroll:    ScrollView,
     separator: Container,
     ok_button: Button,
 }
@@ -44,15 +52,18 @@ impl Alert {
 }
 
 impl Setup for Alert {
-    fn setup(self: Weak<Self>) {
+    fn setup(mut self: Weak<Self>) {
         let style = DialogStyle::current();
         self.set_corner_radius(14);
         self.set_color(style.background);
 
+        self.scroll.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
+
+        self.label = self.scroll.add_view::<Label>();
         self.label.set_text_size(15);
         self.label.set_text_color(style.text);
         self.label.set_multiline(true);
-        self.label.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
+        self.label.place().lrt(0).h(MIN_TEXT_HEIGHT);
 
         self.separator.set_color(style.separator);
         self.separator.place().lr(0).b(BUTTON_HEIGHT).h(1);
@@ -89,24 +100,24 @@ impl ModalView<String> for Alert {
 
     fn setup_input(self: Weak<Self>, message: String) {
         self.label.set_text(message);
-        fit_to_text(&*self, &self.label);
+        fit_to_text(&*self, self.scroll, self.label);
     }
 }
 
 /// `modal_size` cannot see the text, so the dialog resizes to it here,
-/// the way an iOS alert grows with its content.
-pub(super) fn fit_to_text(dialog: &dyn View, label: &Label) {
-    let text_height = label
-        .size_for_width(ALERT_WIDTH - PADDING * 2.0)
-        .height
-        .clamp(MIN_TEXT_HEIGHT, MAX_TEXT_HEIGHT);
+/// the way an iOS alert grows with its content. A text higher than its
+/// room scrolls inside the dialog, so no part of a message is lost.
+pub(super) fn fit_to_text(dialog: &dyn View, mut scroll: Weak<ScrollView>, label: Weak<Label>) {
+    let text_height = label.size_for_width(ALERT_WIDTH - PADDING * 2.0).height.max(MIN_TEXT_HEIGHT);
 
-    label.place().clear().lrt(PADDING).h(text_height);
-    dialog
-        .place()
-        .clear()
-        .size(ALERT_WIDTH, PADDING + text_height + PADDING + BUTTON_HEIGHT)
-        .center();
+    let chrome = PADDING * 2.0 + BUTTON_HEIGHT;
+    let window = UIManager::root_view().height() - WINDOW_MARGIN * 2.0 - chrome;
+    let shown = text_height.min(MAX_TEXT_HEIGHT.min(window).max(MIN_TEXT_HEIGHT));
+
+    label.place().clear().lrt(0).h(text_height);
+    scroll.place().clear().lrt(PADDING).h(shown);
+    scroll.set_content_height(text_height);
+    dialog.place().clear().size(ALERT_WIDTH, shown + chrome).center();
 }
 
 pub struct DummyAlert;

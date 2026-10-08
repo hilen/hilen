@@ -36,6 +36,28 @@ pub enum InspectorCommand {
         frames: u32,
     },
     Resume,
+    /// Asks a hot build which library runs, see `docs/hot-reload.md`. Every
+    /// other build answers with an error.
+    HotInfo,
+    /// Lists the files a hot build has under `root`, a folder below its hot
+    /// folder, so only the changed assets of an app are sent.
+    HotFiles {
+        root: String,
+    },
+    /// A piece of a file for the hot folder, a library or an asset. The
+    /// piece at offset 0 starts the file again.
+    HotChunk {
+        /// The path below the hot folder.
+        file:        String,
+        offset:      u64,
+        data_base64: String,
+    },
+    /// Makes the loader swap to a library that was sent. `root` is the
+    /// folder below the hot folder that holds the `assets` of the app.
+    HotSwap {
+        library: String,
+        root:    Option<String>,
+    },
     UI(UIRequest),
 }
 

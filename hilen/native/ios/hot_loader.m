@@ -8,6 +8,11 @@
 // is there, is the folder that holds the `assets` of that app, the engine
 // reads it from `HILEN_HOT_ROOT`. The loader writes the name of the library
 // it started into the file `started`.
+//
+// On a phone nothing sets `HILEN_HOT_DIR`, the folder is `hot` in the data
+// of the loader, and the app that runs fills it over the network. The loader
+// app can carry a library of its own, `Frameworks/default.dylib`, which runs
+// when nothing was sent yet or the sent library does not start.
 
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
@@ -23,6 +28,11 @@ static const int kStopPollTries = 100;
 // A stopped library still has threads that end, and the system still lets go
 // of its last objects. Its heap is freed only after this long.
 static const double kHeapGraceSeconds = 5;
+// The name the packed library goes by, in `started` too.
+static NSString* const kDefaultName = @"default";
+// This file is there while a sent library starts. A start that ends the
+// process leaves it, and the next launch then runs the packed library.
+static NSString* const kStartingFile = @"starting";
 
 @interface HilenLoader : UIResponder <UIApplicationDelegate>
 @end
@@ -40,18 +50,54 @@ static const double kHeapGraceSeconds = 5;
 
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)options {
     _dir = NSProcessInfo.processInfo.environment[@"HILEN_HOT_DIR"];
-    if (_dir == nil) {
-        NSLog(@"hilen loader: HILEN_HOT_DIR is not set");
+    if (_dir == nil && ![self useOwnDir]) {
         return YES;
     }
 
     NSArray<NSString*>* newest = [self newest];
-    void* library = [self load:newest[0]];
+    NSString* name = newest[0];
+    NSString* root = newest[1];
+    if ([self lastStartFailed]) {
+        NSLog(@"hilen loader: %@ ended the process at its start, it is not started again", name);
+        name = @"";
+    }
+    void* library = name.length > 0 ? [self load:name] : NULL;
+    if (library == NULL) {
+        name = kDefaultName;
+        root = @"";
+        library = [self load:name];
+    }
     if (library != NULL) {
-        [self start:library name:newest[0] root:newest[1]];
+        [self start:library name:name root:root];
     }
     [self watch];
     return YES;
+}
+
+// The hot folder of a phone, in the data of the loader. The engine reads the
+// same variable to know where a sent library goes.
+- (BOOL)useOwnDir {
+    NSString* support =
+        NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+    _dir = [support stringByAppendingPathComponent:@"hot"];
+    NSError* error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:_dir
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:&error]) {
+        NSLog(@"hilen loader: no hot folder at %@: %@", _dir, error);
+        return NO;
+    }
+    setenv("HILEN_HOT_DIR", _dir.fileSystemRepresentation, 1);
+    return YES;
+}
+
+- (NSString*)startingFile {
+    return [_dir stringByAppendingPathComponent:kStartingFile];
+}
+
+- (BOOL)lastStartFailed {
+    return [NSFileManager.defaultManager fileExistsAtPath:[self startingFile]];
 }
 
 // The name of the library to run and the folder of its assets, each empty
@@ -75,6 +121,12 @@ static const double kHeapGraceSeconds = 5;
         return NULL;
     }
     NSString* path = [_dir stringByAppendingPathComponent:name];
+    if ([name isEqualToString:kDefaultName]) {
+        path = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"default.dylib"];
+        if (![NSFileManager.defaultManager fileExistsAtPath:path]) {
+            return NULL;
+        }
+    }
     void* library = dlopen(path.UTF8String, RTLD_NOW | RTLD_LOCAL);
     if (library == NULL) {
         NSLog(@"hilen loader: %s", dlerror());
@@ -97,7 +149,14 @@ static const double kHeapGraceSeconds = 5;
     } else {
         unsetenv("HILEN_HOT_ROOT");
     }
+    BOOL sent = ![name isEqualToString:kDefaultName];
+    if (sent) {
+        [NSData.data writeToFile:[self startingFile] atomically:YES];
+    }
     ((StartFn)dlsym(library, "hilen_start_app"))();
+    if (sent) {
+        [NSFileManager.defaultManager removeItemAtPath:[self startingFile] error:nil];
+    }
 
     NSError* error = nil;
     NSString* started = [_dir stringByAppendingPathComponent:@"started"];

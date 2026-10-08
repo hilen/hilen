@@ -247,6 +247,8 @@ impl MainScreen {
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)
             | AppCommand::StartTime(_)
+            | AppCommand::Hot { .. }
+            | AppCommand::HotFiles(_)
             | AppCommand::TestResults { .. }
             | AppCommand::FailureScreenshot { .. }
             | AppCommand::Log { .. } => {}

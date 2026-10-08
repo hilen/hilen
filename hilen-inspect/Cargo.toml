@@ -18,7 +18,6 @@ serde_json = { workspace = true }
 hilen = { workspace = true, features = ["inspect"] }
 tokio = { workspace = true }
 
-mdns-sd = { workspace = true }
 
 [lints]
 workspace = true

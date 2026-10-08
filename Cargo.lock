@@ -2999,6 +2999,7 @@ dependencies = [
  "hilen-wgpu",
  "hilen-wgpu-text",
  "hilen-winit",
+ "if-addrs",
  "image",
  "indexmap",
  "infisical",
@@ -3078,7 +3079,6 @@ dependencies = [
  "base64 0.23.1",
  "clap",
  "hilen",
- "mdns-sd",
  "serde_json",
  "tokio",
 ]

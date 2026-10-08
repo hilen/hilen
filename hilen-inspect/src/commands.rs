@@ -20,6 +20,19 @@ use super::{
 pub(super) enum Command {
     /// List running apps discovered on the local network
     Apps,
+    /// Print which library the hot loader on the network runs
+    HotStatus,
+    /// Send a library and the assets of an app to the hot loader on the
+    /// network and wait until the loader runs it
+    HotSend {
+        /// The app as 1 dynamic library, signed for the phone
+        library: PathBuf,
+        /// The name of the app, its assets go into a folder of that name
+        name:    String,
+        /// The `assets` folder of the app
+        #[arg(long)]
+        assets:  Option<PathBuf>,
+    },
     /// Print a compact overview of the view tree: label, frame, id per line
     Tree,
     /// Print full JSON of every view whose label contains the query, or with
@@ -228,7 +241,7 @@ pub(super) enum Command {
 
 pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
     match command {
-        Command::Apps => unreachable!(),
+        Command::Apps | Command::HotStatus | Command::HotSend { .. } => unreachable!(),
         Command::Ui => {
             let (scale, root) = get_ui(client).await?;
             println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);

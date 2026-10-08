@@ -21,7 +21,7 @@ checks = []
 default = ["checks"]
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
-inspect = ["dep:mdns-sd"]
+inspect = ["dep:if-addrs", "dep:mdns-sd"]
 # Hot reload on iOS, see docs/hot-reload.md. The app is a dynamic library that
 # a loader app starts, the loader owns `UIApplicationMain`. It turns `inspect`
 # on, so the release guards of `inspect` keep it out of a shipped app.
@@ -135,6 +135,7 @@ sha2 = { workspace = true }
 fontdb = { workspace = true }
 memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
+if-addrs = { workspace = true, optional = true }
 infisical = { workspace = true }
 mdns-sd = { workspace = true, optional = true }
 rapier2d = { workspace = true, optional = true } # simd can crash if there are too many active objects

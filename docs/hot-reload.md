@@ -2,17 +2,20 @@
 
 A saved file shows in the running app in the iOS simulator, with no install and
 no restart of the process. Engine changes too. It is a dev mode, a release app
-stays 1 static library linked into the Xcode shell.
+stays 1 static library linked into the Xcode shell. On a real iPhone a loader
+app swaps between apps the same way, on a command, see "A real iPhone".
 
 ```bash
 make hot        # in an app folder: build, start in the simulator, watch the sources
 make hot-test   # in hilen: the lane that proves the swap
 make swap args="start demo ../apps/skaityk"   # 1 loader for several apps, see below
+make swap args="phone install"                # the loader on a real iPhone, see below
 ```
 
 Proven on 2026-10-07 in the simulator of an Apple Silicon Mac, on iOS 16.4. A
 change in `demo` is on the screen about 5 seconds after the save, of which the
-build is about 1 second for an app change. Not run on a real phone, see below.
+build is about 1 second for an app change. Proven on 2026-10-08 on an iPhone 16
+Pro Max with iOS 27.0, a swap between `demo` and `skaityk` in 1 process.
 
 ## How it works
 
@@ -93,6 +96,88 @@ tool: 124 swaps in a row in 1 process, about 55 ms from the stop of one app to t
 
 `make swap` needs rustscript 0.6.56 or newer. In an older one `PathBuf::push`
 did nothing, and the path to the engine came out empty.
+
+## A real iPhone
+
+1 loader app on the phone shows the demo and swaps to any hilen app that a Mac
+sends it over the local network. Run from the hilen repo:
+
+```bash
+make swap args="phone install"            # build the loader with the app of this repo inside, install, start
+make swap args="phone ../apps/skaityk"    # build the app, sign it, send it, swap the phone to it
+make swap args="phone status"             # the library the loader runs
+```
+
+### What iOS allows
+
+The load test of 2026-10-08, 1 tiny library written into the data folder of the
+app and loaded with `dlopen`, on iOS 27.0:
+
+| library signed with | development build | TestFlight build |
+| --- | --- | --- |
+| nothing | missing code signature | missing code signature |
+| an ad hoc signature | code signature invalid | code signature invalid |
+| the development certificate | loaded | file system sandbox blocked mmap() |
+
+So a TestFlight or App Store build can never hot swap. Its sandbox lets it map
+code only from the system and from its own bundle, whoever signed the file, and
+Apple says the same for a library with a distribution signature, see
+[the forum thread](https://developer.apple.com/forums/thread/711730). A
+development build loads a library from its data folder when the library has the
+signature of the same development certificate. Apple calls that a looser rule
+for development and gives no promise for it.
+
+### How it works
+
+- The loader is a development build with the bundle id of `hilen.toml`,
+  `vladas.test-engine`, so it takes the place of the TestFlight demo on the
+  phone. `build_device_loader` in `build/shared/src/hot.rs` builds it with
+  `clang`, with no Xcode project. It takes the development profile Xcode once
+  made for that id, puts it into the app and signs with the development
+  certificate of the Mac. With no such profile, build the app for a phone in
+  Xcode once.
+- On a phone nothing sets `HILEN_HOT_DIR`. The loader uses the folder `hot` in
+  its own Application Support folder and sets the variable itself.
+- The loader app carries the app of the repo as `Frameworks/default.dylib`. It
+  runs when nothing was sent yet, and when a sent library does not start. A
+  library that ends the process at its start leaves the file `starting`, the
+  next launch sees it and runs the packed one.
+- A phone cannot read the Mac. The app that runs takes the next library and
+  the assets of its app over the inspect connection, `hilen/src/inspect/hot_swap.rs`,
+  and writes them into the hot folder. Then it writes `current`, and the
+  loader swaps as in the simulator. The commands are `HotInfo`, `HotFiles`,
+  `HotChunk` and `HotSwap`, a file goes in pieces of 8 MB. An asset whose
+  length and hash are there already is not sent again. Only the library that
+  runs and the next one stay on the phone.
+- `hilen-inspect hot-send <library> <name> --assets <folder>` is the sender, and
+  `hilen-inspect hot-status` asks what runs. The loader is found by what it
+  answers: the only app on the network that knows `HotInfo`, or `--app <id>`.
+  A swap starts a new build with a new id and port, so the sender waits until
+  a hot build at the address of the phone names the new library.
+- No check of our own guards the send. iOS refuses every library that is not
+  signed with the development certificate, that is the guard.
+- The hot compiler flag goes where the app keeps its own. Cargo ignores
+  `build.rustflags` when the repo has `rustflags` for the target, as `skaityk`
+  has for `aarch64-apple-ios`, so `hot_flag` reads `.cargo/config.toml` of the
+  app and picks the key.
+
+### Measured
+
+A swap from `demo` to `skaityk` and back in the process 54243: the stop of an
+app took 3 to 5 ms, the next app had its UI about 150 ms after the stop began.
+`make swap args="phone demo"` with nothing to compile took 31 seconds, nearly
+all of it the send of the 145 MB library and 264 asset files over Wi-Fi.
+
+### Limits
+
+- The install ends with its development profile, 1 year, and only runs on
+  phones registered in the developer account.
+- TestFlight offers its own build of the same bundle id as an update, which
+  removes the loader. Turn automatic updates off for it in the TestFlight app.
+- The first install goes through `devicectl`, by cable or over Wi-Fi once the
+  phone is paired. The phone has to be unlocked for the start.
+- Not run yet: many swaps in a row and what each leaves in the memory of a
+  phone, a repeat send of the same app, and the start guard.
 
 ## The heap of a build
 
@@ -193,18 +278,19 @@ part of `make smoke`.
 
 ## Open
 
-- A real iPhone. An app loads a library from its bundle. From the data folder
-  there is one report of a development build that loaded on iOS 17 with Xcode
-  attached and failed on iOS 18 with `code signature invalid`, see
+- `make hot`, the watch of a saved file, is simulator only. A phone swaps on a
+  command, see "A real iPhone". One report says a development build failed to
+  load from its data folder on iOS 18, see
   [the Apple forum thread](https://developer.apple.com/forums/thread/773210),
-  and Apple says code outside the bundle is not supported. The loader and the
-  scripts are simulator only until a load test on a phone says more.
+  on iOS 27.0 it loads.
+- The send to a phone is slow for a big library, the file goes as it is, with
+  its symbols and not packed.
 - Video and the open image picker during a reload never ran. The stop of the
   media commands is written and not proven, it needs a played video.
 - A thread the app started itself cannot be ended from outside, it runs on in
   old code.
-- Assets are copied into the loader app, a changed asset needs a new
-  `make hot`.
+- In the simulator assets are copied into the loader app, a changed asset
+  needs a new `make hot`. A send to a phone brings the changed assets along.
 - What each reload leaves is in "What a stop leaves". A real iPhone would end
   the app long before a Mac does.
 - `hilen` asks for `hilen-winit` 0.30, and the `hot` feature needs 0.30.14. An

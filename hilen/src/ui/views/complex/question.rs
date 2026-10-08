@@ -14,7 +14,7 @@ use crate::{
     },
     ui::{
         Anchor::Width,
-        Button, Container, DialogStyle, Label, ModalView, Setup, UIColor,
+        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, UIColor, ViewSubviews,
         view::ViewData,
         views::complex::alert::{ALERT_WIDTH, BUTTON_HEIGHT, MIN_TEXT_HEIGHT, PADDING, fit_to_text},
     },
@@ -29,8 +29,10 @@ pub struct Question {
     destructive: bool,
 
     event:            OnceEvent<bool>,
+    /// Inside `scroll`, so a question of any length can be read.
+    label:            Weak<Label>,
     #[init]
-    label:            Label,
+    scroll:           ScrollView,
     separator:        Container,
     button_separator: Container,
     ok_button:        Button,
@@ -94,7 +96,7 @@ impl Question {
 
     fn show(self) -> Weak<Self> {
         let view = Self::show_modally(self);
-        fit_to_text(&*view, &view.label);
+        fit_to_text(&*view, view.scroll, view.label);
         view
     }
 
@@ -121,16 +123,19 @@ impl IntoFuture for Question {
 }
 
 impl Setup for Question {
-    fn setup(self: Weak<Self>) {
+    fn setup(mut self: Weak<Self>) {
         let style = DialogStyle::current();
         self.set_corner_radius(14);
         self.set_color(style.background);
 
+        self.scroll.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
+
+        self.label = self.scroll.add_view::<Label>();
         self.label.set_text_size(17);
         self.label.set_text_color(style.text);
         self.label.set_multiline(true);
         self.label.set_text(self.question.clone());
-        self.label.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
+        self.label.place().lrt(0).h(MIN_TEXT_HEIGHT);
 
         self.separator.set_color(style.separator);
         self.separator.place().lr(0).b(BUTTON_HEIGHT).h(1);
