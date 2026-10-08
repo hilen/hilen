@@ -141,7 +141,10 @@ that time, its label shows only the placeholder of an empty field. The Rust half
   field is a new line the system adds itself, the engine gets it as Enter only when the
   owner of the field took that key with `take_keys`, and the system adds no line then.
   A change of the UI scale
-  opens the system field again with the new sizes.
+  opens the system field again with the new sizes. The keyboard leaves for about 30 ms
+  then, so `UIManager::set_scale` says nothing when the scale is the one it has. iOS
+  lays the engine view out again when a text area gets its first letter or loses its
+  last one, and that resize sets the same scale. `Screen keyboard first letter` checks it.
 - A key of the screen keyboard is no event of the engine window, so the callbacks of
   the system field, `changed`, `returned` and `ended`, each ask for a frame themselves.
   Without that the screen keeps the last frame: the hint of an empty field stays under

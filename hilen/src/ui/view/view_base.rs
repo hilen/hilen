@@ -112,6 +112,9 @@ pub struct ViewBase {
     #[educe(Debug(ignore))]
     pub(crate) is_selected: bool,
 
+    /// See `ViewTouch::set_keeps_selection`.
+    pub(crate) keeps_selection: bool,
+
     #[educe(Debug(ignore))]
     pub(crate) is_hovered: bool,
 

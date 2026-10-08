@@ -16,6 +16,27 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A touch on a button ends the editing of a text field
+
+Found on 2026-10-09 in banda, `~/dev/apps/banda`, on an iPhone 16 Pro Max.
+
+- Current: every touch that begins on a view selects that view, and a touch no view
+  takes unselects, `check_touch` in `hilen/src/ui/view/view_touch.rs`,
+  `UIManager::set_selected(weak_from_ref(view), true)` and `UIManager::unselect_view()`.
+  So a tap on a send button next to an edited `TextField` ends the editing and the
+  screen keyboard closes before the message is sent. The log of the phone shows it:
+  `on_selection_changed(false)` from `check_touch`, then `screen keyboard moves to None`
+  40 ms later, then the send. A view has no way to say that a touch on it leaves the
+  selection where it is. `TextField::focus()` cannot put the keyboard back, it does
+  nothing on a device with a screen keyboard, and `focus_with_keyboard()` after the
+  tap would close the keyboard and open it again.
+- Needed: a view can be marked so that a touch on it does not change the selected
+  view, like a button in a web page that prevents the default of its mouse down. The
+  edited field stays edited and the keyboard stays up, the tap still fires. A UI test
+  on the real keyboard: a field is edited, a tap on such a button, the field is still
+  edited and the keyboard reported no move.
+- Blocks: the send button of banda on a phone, the keyboard closes at every message.
+
 ## Video pictures, pieces and export, Windows and iOS
 
 Found on 2026-10-08 while building kutreel, a video editor at `~/dev/apps/kutreel`.

@@ -28,6 +28,14 @@ pub trait ViewTouch {
     /// else this is inert.
     fn set_hover_cursor(&self, icon: CursorIcon) -> &Self;
 
+    /// On, a touch that begins on this view leaves the selected view as it
+    /// is, like a button of a web page that prevents the default of its
+    /// mouse down. A text field in edit keeps its caret, its keys and the
+    /// screen keyboard of a phone, and this view still gets every touch
+    /// event. For a send button next to a compose box. It counts only for
+    /// the view that takes the touch, not for the views inside it.
+    fn set_keeps_selection(&self, on: bool) -> &Self;
+
     fn disable_touch(&self);
     fn touch(&self) -> &ViewTouchEvents;
 }
@@ -70,6 +78,11 @@ impl<T: ?Sized + View> ViewTouch for T {
         self.enable_hover()
     }
 
+    fn set_keeps_selection(&self, on: bool) -> &Self {
+        self.__base_view().keeps_selection = on;
+        self
+    }
+
     fn disable_touch(&self) {
         TouchStack::disable_for(self.weak_view());
     }
@@ -79,7 +92,28 @@ impl<T: ?Sized + View> ViewTouch for T {
     }
 }
 
-pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
+/// The view that takes this press carries `set_keeps_selection`. Asked
+/// before the press goes to the views: they are asked one by one, and each
+/// one that is not under the press drops the selection before the one that
+/// takes it is reached.
+pub(crate) fn press_keeps_selection(touch: &Touch) -> bool {
+    if !touch.is_began() || touch.button == MouseButton::Right {
+        return false;
+    }
+    let point = touch.position;
+    TouchStack::touch_views()
+        .find(|view| {
+            view.is_ok()
+                && !view.is_hidden_in_tree()
+                && view.contains_visible(point)
+                && !TouchStack::covered(*view, point)
+        })
+        .is_some_and(|view| view.__base_view().keeps_selection)
+}
+
+/// `keeps_selection` is the answer of `press_keeps_selection` for this
+/// touch.
+pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch, keeps_selection: bool) -> bool {
     if view.is_null() {
         return false;
     }
@@ -159,12 +193,14 @@ pub(crate) fn check_touch(mut view: WeakView, touch: &mut Touch) -> bool {
         LongPress::arm(weak_from_ref(view), touch.id, on_screen);
         base_view.events.touch.began.trigger(*touch);
         TextSelection::pressed(weak, on_screen, touch.id);
-        UIManager::set_selected(weak_from_ref(view), true);
+        if !keeps_selection {
+            UIManager::set_selected(weak_from_ref(view), true);
+        }
         base_view.events.touch.all.trigger(*touch);
         return true;
     }
 
-    if touch.is_began() {
+    if touch.is_began() && !keeps_selection {
         UIManager::unselect_view();
     }
 

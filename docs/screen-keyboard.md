@@ -24,6 +24,28 @@ Android opens none, see [roadmap.md](roadmap.md).
   with no word from the user. A tap opens it there. `focus_with_keyboard()` opens it
   everywhere, for a screen the user opened to type, the rename prompt of the file
   browser uses it. `ScreenKeyboard::on_this_device()` tells which kind of device this is.
+- A tap on any other view ends the editing and the keyboard leaves, since a touch
+  selects the view it begins on. `view.set_keeps_selection(true)` takes a view out of
+  that rule, see below. A send button next to a compose box carries it.
+
+## The selected view
+
+The engine has 1 selected view, the one that has the keys. `check_touch` in
+`hilen/src/ui/view/view_touch.rs` selects the view a touch begins on, and a touch no
+view takes selects none. A `TextField` is edited while it is the selected view, so
+both end its editing, and on a phone the keyboard leaves about 40 ms later.
+
+`set_keeps_selection(true)` of `ViewTouch` marks a view, a `Button` or any other one.
+A touch that begins on it leaves the selected view as it is, like a button of a web
+page that prevents the default of its mouse down. The view still gets every touch
+event, `began`, `up_inside` and the tap of a button. It is never the selected view
+itself by a touch. On a desktop the field keeps its caret and its keys the same way.
+The mark counts for the view that takes the touch, not for the views inside it. A
+touch beside the view still ends the editing. The touch views are asked one by one,
+and each one that is not under the press unselects before the one that takes it is
+reached. So `press_keeps_selection` finds the view that takes a press before the
+press goes to the views, and `check_touch` gets the answer. The text selection of a `Label` is
+another thing and does not follow the mark.
 
 ## How it works
 
@@ -47,7 +69,13 @@ Android opens none, see [roadmap.md](roadmap.md).
 ## Tests
 
 `Screen keyboard shift`, `Screen keyboard scroll` and `Screen keyboard compose` cover
-the 3 cases, `Text field focus by code` the focus. They run everywhere:
+the 3 cases, `Text field focus by code` the focus. `Screen keyboard first letter` types
+and erases a letter in a `b_keyboard` box and sends the resize an iPhone sends then, the
+keyboard and the box must stay, see the system text field in [ios.md](ios.md).
+`Screen keyboard kept by tap` taps a button and a plain view with
+`set_keeps_selection` next to an edited text area, the field stays edited and the
+keyboard reports no move, then a button without the mark ends the editing. They run
+everywhere:
 `system_input::screen_keyboard(up, top)` waits for the real keyboard on a phone and
 tells the engine about a stand in with its top edge at `top` everywhere else.
 `KeyboardMarker` of the test suite draws that stand in. The real keyboard of the lane

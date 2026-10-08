@@ -18,6 +18,7 @@ use crate::{
     ui::{
         Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextField, TextSelection,
         Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
+        press_keeps_selection,
     },
     window::frame_control,
 };
@@ -123,9 +124,10 @@ impl Input {
     /// the screen. An overlay that closed itself on a press calls this to
     /// let the same press through to what was under it.
     pub(crate) fn offer_to_views(touch: &mut Touch) -> bool {
+        let keeps_selection = press_keeps_selection(touch);
         TouchStack::touch_views().any(|view| {
             let covered = touch.is_began() && TouchStack::covered(view, touch.position);
-            !covered && check_touch(view, touch)
+            !covered && check_touch(view, touch, keeps_selection)
         })
     }
 

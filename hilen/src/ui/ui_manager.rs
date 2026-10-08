@@ -128,8 +128,13 @@ impl UIManager {
 
             let scale = if manual_scale == 0.0 { scale } else { manual_scale };
 
-            sf.scale.store(scale.to_bits(), Ordering::Relaxed);
-            sf.scale_changed.trigger(scale);
+            // A resize to the same size sets the scale it already has. An
+            // edited text field opens its system field again at a scale
+            // change, and on an iPhone the keyboard leaves for that time.
+            let old = sf.scale.swap(scale.to_bits(), Ordering::Relaxed);
+            if old != scale.to_bits() {
+                sf.scale_changed.trigger(scale);
+            }
         });
     }
 
