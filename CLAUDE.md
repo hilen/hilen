@@ -53,7 +53,7 @@ Optional engine parts sit behind cargo features, all off by default. `level` is 
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
 with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device. `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
-through a `<video>` element under the canvas, see [docs/video.md](docs/video.md). `inspect` is
+through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, a list of pieces played as 1 video and the export to an mp4 file, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `hot` is hot reload in the iOS simulator and on a real iPhone, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,

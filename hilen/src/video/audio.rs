@@ -3,6 +3,8 @@
 //! thread pulls pictures, and kira's playback position is the clock the
 //! picture follows.
 
+pub(crate) mod pieces;
+
 use std::mem::take;
 
 use ffmpeg_next::{

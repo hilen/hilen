@@ -16,6 +16,24 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Video pictures, pieces and export, Windows and iOS
+
+Found on 2026-10-08 while building kutreel, a video editor at `~/dev/apps/kutreel`.
+
+- Current: `VideoFrames`, `VideoView::set_pieces` and `VideoExport` landed, see
+  [video.md](video.md). Their unit tests and UI tests pass on macOS only. The Windows
+  ffmpeg archive of release `ffmpeg-9.0-4` has no h264 encoder, so an export fails on
+  Windows. `build/ffmpeg-win/build.sh` now turns Media Foundation on, `h264_mf` and
+  `aac_mf`, but no archive built that way is published. Nothing of the 3 ran on iOS.
+  The pictures and the export do not tone map an HDR source, the export cuts 10 bit
+  to 8 bit.
+- Needed: prove that a Windows build links the new archive, publish it per
+  [video.md](video.md) and pin it. On a real Windows machine run
+  `cargo test -p hilen --features video --lib -- video::` and the video UI tests, and
+  play an exported file in another player. Run the same tests on the iOS simulator.
+  Tone map an HDR source in the pictures and in the export, the way the view does.
+- Blocks: the export of kutreel on Windows.
+
 ## A key binding with Alt
 
 Found on 2026-10-08 in banda, `~/dev/apps/banda`, at `dev` commit `7d3dbd66`.

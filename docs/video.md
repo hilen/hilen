@@ -238,6 +238,60 @@ pitch kept. A broken file reports through `on_error` and the log, never a
 panic. The demo has a Video page with a file picker, a path field, a progress
 slider and the stats line.
 
+## Pictures, pieces and export
+
+3 things an editor needs, on the systems ffmpeg decodes on. A browser has none
+of them. All 3 read a file through `Reader`, `hilen/src/video/decoder/reader.rs`:
+one file, picture by picture, no queue and no clock, a seek exact to the frame
+by the rule a seek of the player has.
+
+- Pictures with no view, `hilen/src/video/frames.rs`. `VideoFrames::load(source,
+  times, max_size, each)` reads on a thread of its own and reports on the main
+  thread: `Info` with the length, the size, the frame rate and whether there is
+  sound, then a `Frame` with an `Image` per place in the order of time, then
+  `Finished`, or `Failed`. With no times it gives only the `Info`. The handle
+  it returns has `cancel`. 1 open decoder serves the whole batch, a place a
+  little ahead is reached by decoding on. An image stays in memory under the
+  name of its source, its place and the size asked for, so asking again decodes
+  nothing. `VideoFrames::open`, `info`, `picture` and `pictures` are the same
+  work as blocking calls with RGBA pixels, for a thread of the app. The colors
+  are computed with the numbers of `nv12.wgsl`. HDR is not tone mapped there.
+- A list of pieces as 1 video. `VideoView::set_pieces([VideoPiece::new(source,
+  start, end), ..])` plays the pieces one after another, `seek_to`, `position`
+  and `duration` count along the whole list. The frame at `end` is not part of
+  a piece. The list travels inside a `VideoSource`, `source/pieces.rs`, so the
+  player is the same. Its decode thread is `decoder/pieces.rs`: it gives every
+  frame its time in the list, and it opens the next piece and decodes up to its
+  first frame while the queue is full. A piece that goes on in the same file
+  up to a second ahead is read on with no seek. The sound is 1 kira decoder
+  over all pieces, `audio/pieces.rs`, at 48000 Hz, so a cut has no gap. A piece
+  with no sound track is silence, a list with no sound track at all has no
+  sound and follows the engine clock. `set_pieces` on a view that plays a list
+  keeps the position and the picture, the state does not go through loading.
+- Export, `hilen/src/video/export.rs`. `VideoExport::start(pieces, path,
+  VideoExportSettings::new(width, height, frame_rate), each)` writes an mp4
+  with h264 and AAC on a thread of its own and reports `Progress`, then
+  `Finished`, `Cancelled` or `Failed` on the main thread. The handle has
+  `progress` and `cancel`. A file that is not complete is deleted. It reads the
+  list with the code of the player, so the file holds the frames and the
+  samples of the preview. The file has its own frame rate, every frame of it
+  takes the newest picture that is due. A piece of another shape is fitted in
+  with black around it. The matrix and the range of the first picture are
+  written into the file, the samples are not converted, and HDR is not tone
+  mapped. The encoder is the first of `h264_videotoolbox`, `h264_mf`,
+  `libx264` and `libopenh264` that the archive has and that opens. The macOS
+  archive has `h264_videotoolbox`. The published Windows archive, revision 4,
+  has no h264 encoder, so an export fails there until an archive built with
+  `--enable-mediafoundation` is published, `build/ffmpeg-win/build.sh` has the
+  flag.
+
+The tests: the unit tests next to each file, on the fixtures `ramp.mp4`, 60
+gray frames that get lighter with a sound that rises in a line, so a frame and
+a sample tell their place, and `ramp_silent.mp4`, the same with no sound. The
+UI tests `Video thumbnails`, `Video pieces`, which pins the frame on each side
+of a cut under stepped time, `Video pieces sound` in real time and `Video
+export to file`.
+
 ## The prebuilt ffmpeg
 
 The bindings are `ffmpeg-next` with its `static` feature, from the hilen forks of

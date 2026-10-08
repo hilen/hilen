@@ -6,9 +6,18 @@ use std::time::Duration;
 
 #[cfg(ffmpeg)]
 mod open;
+#[cfg(ffmpeg)]
+mod pieces;
+
+#[cfg(ffmpeg)]
+use std::sync::Arc;
 
 #[cfg(ffmpeg)]
 pub(crate) use open::{Interrupt, byte_position, transport_error};
+#[cfg(ffmpeg)]
+pub(crate) use pieces::PieceList;
+#[cfg(ffmpeg)]
+pub use pieces::VideoPiece;
 
 /// A file path or a url, with the request headers an http or https source is
 /// asked with. A path or a url alone converts into one, so `set_source` takes
@@ -20,6 +29,10 @@ pub struct VideoSource {
     /// Set by a test that cannot wait for the real limit.
     #[cfg(ffmpeg)]
     reconnect_limit: Option<Duration>,
+    /// The pieces of a source that is a list of pieces, `location` is then
+    /// only a text for the log.
+    #[cfg(ffmpeg)]
+    pieces:          Option<Arc<PieceList>>,
 }
 
 impl VideoSource {
@@ -29,6 +42,8 @@ impl VideoSource {
             headers:                        Vec::new(),
             #[cfg(ffmpeg)]
             reconnect_limit:                None,
+            #[cfg(ffmpeg)]
+            pieces:                         None,
         }
     }
 

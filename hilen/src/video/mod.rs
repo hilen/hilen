@@ -13,6 +13,10 @@ mod cues;
 #[cfg(ffmpeg)]
 mod decoder;
 #[cfg(ffmpeg)]
+mod export;
+#[cfg(ffmpeg)]
+mod frames;
+#[cfg(ffmpeg)]
 mod hw;
 #[cfg(ffmpeg)]
 mod nv12;
@@ -32,9 +36,15 @@ mod web_player;
 use std::sync::Once;
 
 #[cfg(ffmpeg)]
+pub use export::{VideoExport, VideoExportEvent, VideoExportSettings};
+#[cfg(ffmpeg)]
+pub use frames::{VideoFrames, VideoFramesEvent, VideoFramesLoad, VideoInfo, VideoPicture};
+#[cfg(ffmpeg)]
 use log::error;
 #[cfg(ffmpeg)]
 pub(crate) use player::Player;
+#[cfg(ffmpeg)]
+pub use source::VideoPiece;
 pub use source::VideoSource;
 pub(crate) use state::PlayerEvent;
 pub use state::{VideoState, VideoStats};

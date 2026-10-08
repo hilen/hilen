@@ -13,6 +13,8 @@ use crate::{
     ui::{ImageMode, ImageView, Setup, UIAnimation, ViewCallbacks, ViewData, ViewFrame},
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
+#[cfg(ffmpeg)]
+use crate::{video::VideoPiece, window::image::NoImage};
 
 /// Unique per view, so two videos never share a frame texture.
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -64,6 +66,46 @@ impl VideoView {
         {
             this.__base_view().page_hole = true;
         }
+        this.keep_frames_coming();
+        this.report_state();
+        self
+    }
+
+    /// Plays a list of pieces as 1 video with 1 position and 1 length. Each
+    /// piece is a source with the seconds of it that play. The step from a
+    /// piece to the next loses no frame and has no gap in the sound, also
+    /// when both are parts of 1 file. `seek_to`, `position` and `duration`
+    /// count along the whole list. A piece with no sound track is silent.
+    ///
+    /// On a view that already plays a list the new list takes its place:
+    /// the position stays, cut to the new length, and a list that played
+    /// plays on. That is the call after a trim or a reorder. A list with no
+    /// pieces empties the view.
+    #[cfg(ffmpeg)]
+    pub fn set_pieces(&self, pieces: impl IntoIterator<Item = VideoPiece>) -> &Self {
+        let mut this = weak_from_ref(self);
+        let source = VideoSource::from_pieces(pieces);
+        if source.piece_list().is_none_or(|list| list.pieces().is_empty()) {
+            this.player = None;
+            this.image_view.set_image(NoImage);
+            this.report_state();
+            return self;
+        }
+        let was = this.player.as_ref().filter(|player| player.plays_pieces());
+        let playing = was.is_some_and(Player::is_playing);
+        let mut player = if let Some(was) = was {
+            was.replaced_by(source)
+        } else {
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            Player::open(source, format!("video-{id}"))
+        };
+        player.set_volume(this.volume);
+        player.set_loop(this.looping);
+        player.set_speed(this.speed);
+        if playing {
+            player.play();
+        }
+        this.player = Some(player);
         this.keep_frames_coming();
         this.report_state();
         self

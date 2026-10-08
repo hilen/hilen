@@ -1,6 +1,8 @@
 //! One playing video: the decode thread's queue, the sound, the clock and
 //! the frame on screen. `VideoView` owns one and asks it once per frame.
 
+mod pieces;
+
 use std::{
     collections::VecDeque,
     sync::{
@@ -16,7 +18,7 @@ use kira::{
     Decibels, Tween,
     sound::{
         PlaybackPosition, PlaybackState, Region,
-        streaming::{StreamingSoundData, StreamingSoundHandle},
+        streaming::{Decoder, StreamingSoundData, StreamingSoundHandle},
     },
     track::{TrackBuilder, TrackHandle},
 };
@@ -590,11 +592,21 @@ impl Player {
             }
             return;
         }
+        if self.plays_pieces() {
+            if let Some(sound) = self.pieces_sound() {
+                self.play_sound(sound);
+            }
+            return;
+        }
         let Some(audio) = self.audio.take() else {
             return;
         };
         self.sound_reads.playing = Some(audio.reads());
+        self.play_sound(audio);
+    }
 
+    /// Plays a sound decoder on a track of its own, from where the video is.
+    fn play_sound(&mut self, audio: impl Decoder<Error = FfmpegError> + 'static) {
         let Some(mut manager) = audio_manager() else {
             error!("video {}: no sound, no audio output", self.source.location());
             return;
@@ -631,6 +643,7 @@ impl Player {
         if self.audio.is_none() && self.sound_reads.opening.is_none() && self.audio_track.is_some() {
             self.open_sound_on_thread();
         }
+        self.restart_pieces_sound();
     }
 
     fn drop_sound(&mut self) {
@@ -698,6 +711,7 @@ impl Player {
         self.drop_sound();
         self.base = position;
         self.started_ms = Clock::now_ms();
+        self.restart_pieces_sound();
         if self.audio_track.is_none() {
             return;
         }

@@ -3,6 +3,9 @@
 //! over NV12 planes ready for `write_texture`. A seek bumps the generation, so
 //! frames decoded before it are told apart from the ones after and dropped.
 
+pub(crate) mod pieces;
+pub(crate) mod reader;
+
 use std::{
     sync::{
         Arc,
@@ -275,6 +278,9 @@ fn run(
     reads: &Interrupt,
     sound: bool,
 ) -> Result<(), Error> {
+    if let Some(list) = source.piece_list() {
+        return pieces::run(list, commands, messages, counter, reads);
+    }
     let (mut decoding, mut info) = open(source, reads)?;
     if sound {
         info.audio = match AudioDecoder::open(source, reads.fresh(), None, 1.0) {

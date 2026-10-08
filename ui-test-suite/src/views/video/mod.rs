@@ -3,7 +3,15 @@
 #[cfg(ffmpeg)]
 mod av1;
 #[cfg(ffmpeg)]
+mod export;
+#[cfg(ffmpeg)]
+mod frames;
+#[cfg(ffmpeg)]
 mod hdr;
+#[cfg(ffmpeg)]
+mod pieces;
+#[cfg(ffmpeg)]
+mod pieces_sound;
 #[cfg(ffmpeg)]
 mod playback;
 #[cfg(ffmpeg)]
