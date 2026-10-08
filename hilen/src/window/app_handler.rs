@@ -16,9 +16,18 @@ use crate::{
     deps::{hreads::invoke_dispatched, refs::main_lock::MainLock},
     gm::{LossyConvert, flat::Point},
     system::app_activity::{self, ActivityChange},
-    ui::Cursor,
+    ui::{Cursor, UIManager},
     window::{Window, WindowEvents, frame_control, state::State, sync_fullscreen},
 };
+
+/// Runs the queued callbacks in a turn of the loop that draws no frame, in
+/// a paused app or behind another window. A frame frees the removed views
+/// before its callbacks, so this does too. Without it a removed view lived
+/// until the next frame, and a timer of a removed page still found its page.
+fn run_queued() {
+    UIManager::free_deleted_views();
+    invoke_dispatched();
+}
 
 static APP_HANDLER: MainLock<Option<AppHandler>> = MainLock::new();
 
@@ -140,7 +149,7 @@ impl AppHandler {
         let window = Self::window();
 
         if frame_control::holding() {
-            invoke_dispatched();
+            run_queued();
             if window.state.screenshot_pending() {
                 window.state.render();
             }
@@ -284,7 +293,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             #[cfg(not_wasm)]
             UserEvent::Wake => {
                 if crate::window::occluded() {
-                    invoke_dispatched();
+                    run_queued();
                 }
             }
         }

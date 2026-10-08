@@ -46,6 +46,7 @@ mod quad_diagonal;
 /// them and the engine installs nothing.
 #[cfg(wasm)]
 mod reload_shortcuts;
+mod removed_while_paused;
 mod rest_request;
 mod root_view;
 /// Browser history is the production behavior, everywhere else the

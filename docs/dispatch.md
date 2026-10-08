@@ -70,7 +70,11 @@ first frame back, and the event that uncovers the window requests that frame. Tw
 keep working while covered: a pending screenshot still gets its one frame, drawn offscreen,
 so `check_colors` and `hilen-inspect screenshot` never hang on a minimized window, and the
 wake event drains the dispatch queue itself, since a frame is where queued callbacks normally
-run and a background thread in `from_main` must not wait until the window shows. The
+run and a background thread in `from_main` must not wait until the window shows. That
+drain frees the removed views first, the way a frame does, and so does the drain of a
+paused app. Else a view removed behind another window stays alive until the window
+shows, and a timer of a removed page still finds its page. The UI test `Removed while
+paused` covers it. The
 pacing table is a pure function with unit tests next to it. A browser throttles its own
 frame callbacks for a hidden tab, so wasm is not part of this.
 
