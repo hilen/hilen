@@ -16,6 +16,24 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A key binding with Alt
+
+Found on 2026-10-08 in banda, `~/dev/apps/banda`, at `dev` commit `7d3dbd66`.
+
+- Current: a `KeyCombo` has only `cmd` and `shift`, `hilen/src/ui/input/keymap/key_combo.rs`.
+  `Keymap::check` in `keymap.rs` reads the Control, the Super and the Shift key of
+  `Input::modifiers()` and never Alt, so a binding cannot ask for Alt, and Alt held
+  changes nothing for a plain binding. `KeyCombo::cmd('n')` is Cmd+N on a Mac and
+  Ctrl+N on Windows and Linux. An app that wants Cmd+N on a Mac and Alt+N on the other
+  systems cannot bind the second one.
+- Needed: a combo with Alt, like `KeyCombo::alt('n')` and one with Alt and Shift. It
+  fires only while Alt is held, and a plain binding and a command binding of the same
+  key do not fire then. On a Mac Option changes the char that arrives, Option+N is a
+  dead key, so the match there goes by the key and not by the char. The `keys --alt`
+  call of `hilen-inspect` must reach such a binding. A unit test next to the ones in
+  `keymap.rs`, and a UI test that presses the key with and without Alt.
+- Blocks: Alt+N for a new session in banda on Windows and Linux.
+
 ## Labels over a video are hidden by its picture
 
 Found on 2026-10-08 in flixen, `~/dev/apps/flixen`, at `dev` commit `5a81ed41`.
