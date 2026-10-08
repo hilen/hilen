@@ -70,6 +70,14 @@ pub async fn migrate(db: impl Into<Db>) -> Result<()> {
     .context("the hilen auth migrations failed")
 }
 
+/// The user of a session token, `None` for a token that is unknown or ended.
+/// The same check the [`User`] extractor does with the bearer header. It is
+/// for a route that gets the token another way, like a websocket, which
+/// cannot carry the header and sends the token in its first frame.
+pub async fn user_of_token(db: &Db, token: &str) -> Result<Option<User>, sqlx::Error> {
+    session::user_of(db, token).await
+}
+
 /// One Google client of the type "Web application" per app. Its allowed
 /// redirect address is [`AuthConfig::redirect_uri`]. Apple is optional, see
 /// [`AppleConfig`].

@@ -40,6 +40,12 @@ pub struct TableView {
     /// Cell indices the data marks sticky, rebuilt on a full layout.
     pub(super) sticky_rows: Vec<usize>,
 
+    /// How many cells the row offsets and the sticky rows were built for.
+    /// None before the first full layout and for a table with no cells.
+    /// `reload_cell` and `load_new_cells` change a part of that layout
+    /// only when it fits the data, else they reload everything.
+    pub(super) laid_cells: Option<usize>,
+
     /// The sticky rows currently on screen: index, y in the table's own
     /// coordinates and height. Taps check them before the row geometry.
     pub(super) pinned: Vec<(usize, f32, f32)>,
@@ -400,7 +406,7 @@ impl TableView {
         self.row_offsets = row_offsets(heights, self.cell_spacing);
     }
 
-    fn layout_cells(&mut self, mode: LayoutMode) {
+    pub(super) fn layout_cells(&mut self, mode: LayoutMode) {
         if self.height() <= 0.0 {
             return;
         }
@@ -426,6 +432,7 @@ impl TableView {
             } else {
                 Vec::new()
             };
+            self.laid_cells = Some(number_of_cells);
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);

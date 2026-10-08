@@ -4,7 +4,7 @@ use log::{info, warn};
 use ui_proc::view;
 
 use crate::{
-    deps::{hreads::on_main, refs::Weak, vents::Event},
+    deps::{refs::Weak, vents::Event},
     gm::{
         LossyConvert,
         color::WHITE,
@@ -13,7 +13,7 @@ use crate::{
     system::open_url,
     ui::{
         CodeHighlighter, Container, DrawingView, Label, MarkdownListMarkers, MarkdownStyle, RunStyle, Setup,
-        TextAlignment, TextSelection, UIColor, VerticalAlignment, ViewFrame, ViewSubviews,
+        TextAlignment, TextSelection, UIColor, VerticalAlignment, ViewCallbacks, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
             model::{Block, Item, Link, Marker, Styled},
@@ -21,6 +21,7 @@ use crate::{
             selection::marker_text,
         },
     },
+    window::request_frame,
 };
 
 const CODE_PAD: f32 = 10.0;
@@ -63,22 +64,31 @@ pub struct MarkdownView {
     text_color: Option<UIColor>,
     /// The text or its color changed since the last layout.
     stale:      bool,
-    /// A layout is already asked for on the next turn of the main loop.
-    scheduled:  bool,
     laid_width: f32,
     height:     f32,
+    layouts:    usize,
 }
 
 impl Setup for MarkdownView {
     fn setup(self: Weak<Self>) {
-        // The event fires inside the layout pass, the views are made after it.
         self.size_changed().sub(move || {
-            on_main(move || {
-                if self.is_ok() {
-                    self.lay_out_if_needed(self.width());
-                }
-            });
+            if self.is_ok() {
+                self.lay_out_if_needed(self.width());
+            }
         });
+    }
+}
+
+impl ViewCallbacks for MarkdownView {
+    /// The layout a change of the text or its color waits for. It runs in
+    /// the update pass of the frame, before the frame is drawn, so no frame
+    /// shows the old text. A hidden view gets no update and lays out when
+    /// it is shown or measured.
+    fn update(&mut self) {
+        if self.stale {
+            let width = self.width();
+            self.weak().lay_out_if_needed(width);
+        }
     }
 }
 
@@ -121,7 +131,11 @@ impl MarkdownView {
 
     /// The color of the plain text, the one of `MarkdownStyle` when not set.
     pub fn set_text_color(mut self: Weak<Self>, color: impl Into<UIColor>) -> Weak<Self> {
-        self.text_color = Some(color.into());
+        let color = Some(color.into());
+        if self.text_color == color {
+            return self;
+        }
+        self.text_color = color;
         self.changed();
         self
     }
@@ -132,21 +146,20 @@ impl MarkdownView {
         self.height
     }
 
-    /// A text and its color mostly change together, so the layout waits
-    /// for the next turn of the main loop and runs once for all of them.
-    /// `height_for_width` does not wait.
+    /// How many times this view laid its text out since it was made. A
+    /// layout makes every label again, so this is the number to watch when
+    /// a list of texts is slow.
+    pub fn layout_count(&self) -> usize {
+        self.layouts
+    }
+
+    /// A text and its color mostly change together, so nothing is laid out
+    /// here. The layout runs once for all of them in `update`, or before
+    /// that in `height_for_width`, which does not wait.
     pub(super) fn changed(mut self: Weak<Self>) {
         self.stale = true;
-        if self.scheduled {
-            return;
-        }
-        self.scheduled = true;
-        on_main(move || {
-            if self.is_ok() {
-                self.scheduled = false;
-                self.lay_out_if_needed(self.width());
-            }
-        });
+        // A change made after the update pass of this frame needs 1 more.
+        request_frame();
     }
 
     fn lay_out_if_needed(mut self: Weak<Self>, width: f32) {
@@ -156,6 +169,7 @@ impl MarkdownView {
         }
         self.stale = false;
         self.laid_width = width;
+        self.layouts += 1;
 
         self.remove_all_subviews();
         if let Some(texts) = &mut self.texts {

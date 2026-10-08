@@ -175,6 +175,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `hilen_server::google_access`, the refresh that stores nothing, `GoogleAccounts` with a main
   account and linked accounts in the Drive app folder, and `SecretStore`. Read before touching
   those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
+- [docs/table.md](docs/table.md) — `TableView` inside: what a layout keeps, the 3 layout
+  modes, `reload_cell` and `load_new_cells`. Read before touching
+  `views/containers/table_view`.
 - [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how

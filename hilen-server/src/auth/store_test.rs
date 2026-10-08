@@ -37,7 +37,7 @@ use crate::{
         identity::{Identity, Provider},
         migrate,
         session::{self, hash, new_token},
-        store,
+        store, user_of_token,
     },
     build_sqlite,
 };
@@ -297,6 +297,23 @@ async fn a_new_user_with_no_name_is_named_by_the_email(db: Db) -> Result<()> {
     Ok(())
 }
 
+async fn a_token_alone_finds_its_user(db: Db) -> Result<()> {
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
+    let token = session::create(&db, user_id).await?;
+
+    let user = user_of_token(&db, &token).await?.expect("a live token has its user");
+    assert_eq!(
+        (user.id, user.email.as_str(), user.name.as_str()),
+        (user_id, "ana@example.com", "Ana")
+    );
+    assert_eq!(user_of_token(&db, "not a token").await?, None);
+    assert_eq!(user_of_token(&db, "").await?, None);
+
+    session::delete(&db, &token).await?;
+    assert_eq!(user_of_token(&db, &token).await?, None, "a logout ends the token");
+    Ok(())
+}
+
 async fn a_deleted_user_leaves_nothing(db: Db) -> Result<()> {
     let user_id = store::login_user(&db, &identity("Ana")).await?;
     store::login_user(&db, &apple_identity("ana@example.com", None, "refresh-1")).await?;
@@ -390,6 +407,11 @@ async fn sqlite_another_email_is_another_user() -> Result<()> {
 #[tokio::test]
 async fn sqlite_a_new_user_with_no_name_is_named_by_the_email() -> Result<()> {
     a_new_user_with_no_name_is_named_by_the_email(sqlite().await?.1).await
+}
+
+#[tokio::test]
+async fn sqlite_a_token_alone_finds_its_user() -> Result<()> {
+    a_token_alone_finds_its_user(sqlite().await?.1).await
 }
 
 #[tokio::test]
@@ -508,6 +530,12 @@ async fn postgres_another_email_is_another_user() -> Result<()> {
 #[ignore = "needs a Postgres, see the top of this file"]
 async fn postgres_a_new_user_with_no_name_is_named_by_the_email() -> Result<()> {
     on_postgres(a_new_user_with_no_name_is_named_by_the_email).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_token_alone_finds_its_user() -> Result<()> {
+    on_postgres(a_token_alone_finds_its_user).await
 }
 
 #[tokio::test]

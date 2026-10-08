@@ -1,4 +1,5 @@
 mod cell_registry;
+mod cell_reload;
 pub(crate) mod layout;
 mod rows;
 mod table_data;

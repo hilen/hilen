@@ -70,19 +70,11 @@ impl TableView {
             .filter(|view| !self.header_views.iter().any(|h| h.raw() == view.weak().raw()))
             .map(Own::weak)
             .collect();
-        let recycled: Vec<WeakView> = cells
-            .into_iter()
-            .map(|mut cell| {
-                self.lower_recycled(cell);
-                cell.set_hidden(true);
-                cell.as_cell().cell_removed();
-                cell
-            })
-            .collect();
-        self.registry.load_old_cells(recycled);
+        self.recycle(cells);
         self.row_offsets.clear();
         self.sticky_rows.clear();
         self.pinned.clear();
+        self.laid_cells = None;
         let width = self.width();
         self.scroll.set_content_height(self.header_height + self.footer_height);
         self.scroll.set_content_width(width);
@@ -160,16 +152,7 @@ impl TableView {
             }
         }
 
-        let recycled: Vec<WeakView> = to_recycle
-            .into_iter()
-            .map(|mut cell| {
-                self.lower_recycled(cell);
-                cell.set_hidden(true);
-                cell.as_cell().cell_removed();
-                cell
-            })
-            .collect();
-        self.registry.load_old_cells(recycled);
+        self.recycle(to_recycle);
 
         if matches!(mode, LayoutMode::Resize) {
             for view in weak_table.scroll.content.subviews() {
@@ -308,6 +291,21 @@ impl TableView {
         for view in lowered {
             lower_z(view, sticky_raise());
         }
+    }
+
+    /// Takes cells off the screen and hands them to the registry, for the
+    /// next row that asks for a cell of their kind.
+    pub(super) fn recycle(&mut self, cells: Vec<WeakView>) {
+        let recycled: Vec<WeakView> = cells
+            .into_iter()
+            .map(|mut cell| {
+                self.lower_recycled(cell);
+                cell.set_hidden(true);
+                cell.as_cell().cell_removed();
+                cell
+            })
+            .collect();
+        self.registry.load_old_cells(recycled);
     }
 
     /// A cell leaving for the registry drops its pinned raise first, so
