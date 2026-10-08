@@ -35,6 +35,7 @@ fn get_or_init_value<T: Storable + Default>(path: &Path) -> T {
 mod backend {
     use std::{
         fs::{create_dir_all, read_to_string, remove_file, write as write_file},
+        io::ErrorKind,
         path::Path,
     };
 
@@ -52,8 +53,13 @@ mod backend {
         write_file(path, json).expect("Failed to write to file");
     }
 
+    /// A store that was never written, or was reset before, has no file.
     pub(super) fn remove(path: &Path) {
-        remove_file(path).expect("Failed to remove file");
+        if let Err(error) = remove_file(path)
+            && error.kind() != ErrorKind::NotFound
+        {
+            log::warn!("failed to remove {}: {error}", path.display());
+        }
     }
 }
 
@@ -221,6 +227,10 @@ mod test {
         check_sync(&STORED_STRUCT);
 
         STORED.set(10);
+        STORED.reset();
+        assert_eq!(STORED.get(), None);
+        // The second reset finds no file. It panicked, and an app that
+        // reset a store at its start died there.
         STORED.reset();
         assert_eq!(STORED.get(), None);
 
