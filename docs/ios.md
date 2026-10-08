@@ -142,6 +142,11 @@ that time, its label shows only the placeholder of an empty field. The Rust half
   owner of the field took that key with `take_keys`, and the system adds no line then.
   A change of the UI scale
   opens the system field again with the new sizes.
+- A key of the screen keyboard is no event of the engine window, so the callbacks of
+  the system field, `changed`, `returned` and `ended`, each ask for a frame themselves.
+  Without that the screen keeps the last frame: the hint of an empty field stays under
+  the typed text, and a view that follows `changed` does not move. `Screen keyboard
+  typed frames` types letter by letter and checks that each one brings a frame.
 - Closing has to take the keys from the engine view too. The winit view can be a first
   responder, it takes the keys the moment its subview lets them go, and the keyboard
   stayed up.

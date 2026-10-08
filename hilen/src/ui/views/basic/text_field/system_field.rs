@@ -27,6 +27,7 @@ use crate::{
         },
         view::ViewFrame,
     },
+    window::request_frame,
 };
 
 /// The field the system field stands in for now. The callbacks of the system
@@ -149,6 +150,9 @@ extern "C" fn changed(text: *const c_char) {
     // this call.
     let text = unsafe { CStr::from_ptr(text) };
     field.system_text_changed(Zeroizing::new(text.to_string_lossy().into_owned()));
+    // A key of the screen keyboard is no event of the engine window, so
+    // nothing else wakes the loop to draw what follows the text.
+    request_frame();
 }
 
 /// Return in the system field. A text area adds its new line itself, so
@@ -160,6 +164,7 @@ extern "C" fn returned() -> bool {
         return false;
     }
     Input::on_key(NamedKey::Enter);
+    request_frame();
     true
 }
 
@@ -172,4 +177,5 @@ extern "C" fn keyboard_moved(top: f32, duration: f32) {
 /// The system ended the editing by itself.
 extern "C" fn ended() {
     UIManager::unselect_view();
+    request_frame();
 }

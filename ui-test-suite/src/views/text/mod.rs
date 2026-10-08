@@ -67,6 +67,10 @@ mod screen_keyboard_secure;
 mod screen_keyboard_shift;
 mod screen_keyboard_submit;
 mod screen_keyboard_taken_return;
+/// The system text field whose changes must bring a frame exists only on
+/// an iPhone, everywhere else a typed key is an event of the engine window.
+#[cfg(all(ios, not(tvos)))]
+mod screen_keyboard_typed_frames;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod secure_text_field;
