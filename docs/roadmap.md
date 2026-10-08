@@ -16,6 +16,83 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A table keeps a scroll place that is set before its first layout
+
+Found on 2026-10-08 in banda at `dev` commit `fcd1bda8`. A chat page is made new on
+every switch and puts the reader back where they were. The chat stood at its top for
+a frame and then jumped.
+
+- Current: `layout_cells` in `views/containers/table_view/table_view.rs` returns
+  while the table has no height, and a view gets its size only in the layout of the
+  frame after it was added. So `reload_data` on a new table lays out no row, the
+  content has no height, and `set_content_offset` and `scroll_to_bottom` cut the
+  place to 0. Banda gives its table the old size by hand before the reload,
+  `restore` in `src/ui/session_page/rows.rs`.
+- Needed: a table with no size yet keeps a scroll place that was asked for, an offset
+  or the end, and goes there in the first layout it has a size in, before that frame
+  is drawn. `scroll_to_row` already does this, its doc says "a table with no size yet
+  scrolls once it gets one".
+- Blocks: banda can drop the size it sets by hand.
+
+## Work that runs after this turn of the main loop
+
+Found on 2026-10-08 while the markdown view was made to lay out once.
+
+- Current: `on_main` in `deps/hreads/dispatch.rs` runs its closure at once when it is
+  already on the main thread. `after(0.0)` goes through a tokio task, so when it runs
+  against the next frame is not fixed. The markdown view now lays out in its own
+  `update`, since nothing else waits for the end of the turn.
+- Needed: a call that runs a closure on the main thread after the code of this turn
+  and before the next frame is drawn. A view that gets several changes in a row can
+  then do its work once, also a view that is hidden and gets no `update`.
+- Blocks: nothing. Banda uses `after(0.0)` in several places where it means this.
+
+## The login poll waits 2 seconds
+
+Found on 2026-10-08 in the investigation of delays in banda.
+
+- Current: `wait_for_login` in `hilen/src/login/client.rs` asks the server every
+  `POLL_SECONDS`, 2 seconds. A fresh login shows in the app up to 2 seconds after the
+  browser finished it.
+- Needed: a shorter wait at the start that grows, or a long poll on the server side,
+  so the app moves on within a few 100 ms of the login.
+- Blocks: nothing, it happens once per device.
+
+## The browser websocket does not say why it failed to open
+
+Found on 2026-10-08 in banda.
+
+- Current: the native client reports a failed upgrade with its HTTP status, like
+  `HTTP error: 404 Not Found`. The browser client in `deps/netrun/ws/web.rs` gives
+  only `WebSocket failed`, a browser hides the status of a failed handshake.
+- Needed: a way for an app to tell a server that has no such route from a lost link
+  on every platform, like a plain request to the same path first, or a field on
+  `WsEvent::Error` that says when the status is not known.
+- Blocks: banda in the browser asks an old backend for its socket every 15 seconds
+  and not every 60, it cannot tell the 2 cases apart.
+
+## The Postgres twin of the token login test never runs
+
+Found on 2026-10-08 with `user_of_token`.
+
+- Current: `a_token_alone` in `hilen-server/src/auth/store_test.rs` passes on SQLite.
+  Its Postgres twin is ignored, it needs a server.
+- Needed: a lane that starts a Postgres and runs the ignored tests of `hilen-server`,
+  like `sqlx.sh test` of a backend does.
+- Blocks: nothing. The Postgres path of the login is proven only by the apps on it.
+
+## A warning in every build of every app
+
+Seen on 2026-10-08 with the nightly toolchain of the workspace.
+
+- Current: `#![feature(generic_const_exprs)]` in `hilen/src/lib.rs` line 9 makes the
+  compiler print "is not supported with the next-generation trait solver" for the
+  `hilen` crate in every build, also in the build of an app. An app cannot reach a
+  build with 0 warnings.
+- Needed: the engine builds with no warning, by dropping the feature or by what the
+  compiler note asks for.
+- Blocks: nothing.
+
 ## Frame record and frame step, the proof in banda and on the other lanes
 
 Found on 2026-10-07 in banda at `dev` commit `9439493e`. A popup opened with 3 wrong
