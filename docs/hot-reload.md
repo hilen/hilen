@@ -88,13 +88,11 @@ What 1 loader for several apps needs from the engine, both only in a hot
 build: the data folder is `.<project_name>` and not `.<exe name>`, the exe is
 the loader for all of them, and the assets come from `HILEN_HOT_ROOT`.
 
-Proven on 2026-10-08 with `demo`, `skaityk` and `lendar`: 124 swaps in a row
-in 1 process, about 55 ms from the stop of one app to the start of the next.
+Proven on 2026-10-08 with `demo`, `skaityk` and `lendar`, all 3 built by the
+tool: 124 swaps in a row in 1 process, about 55 ms from the stop of one app to the start of the next.
 
-The build of an app outside the hilen repo does not run through `make swap`
-yet. `PathBuf::push` does nothing in RustScript, see the roadmap of
-rustscript, so the path to the engine comes out empty. Until that is fixed
-such a library is built with the same cargo line by hand.
+`make swap` needs rustscript 0.6.56 or newer. In an older one `PathBuf::push`
+did nothing, and the path to the engine came out empty.
 
 ## The heap of a build
 
