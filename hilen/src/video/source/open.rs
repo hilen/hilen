@@ -17,6 +17,10 @@ use ffmpeg_next::{
 
 use crate::video::VideoSource;
 
+/// How long a network stream that broke is opened again and again before
+/// the video fails.
+const RECONNECT_LIMIT: Duration = Duration::from_secs(30);
+
 /// Read times count from here, in milliseconds. 0 means not in a read.
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -34,6 +38,8 @@ pub(crate) struct Interrupt {
     broken:        Arc<AtomicBool>,
     /// When the demuxer went into the read it is in, 0 outside a read.
     reading_since: Arc<AtomicU64>,
+    /// The time after which every read gives up, 0 for none.
+    give_up_at:    Arc<AtomicU64>,
 }
 
 /// Marks a read of a demuxer, from `Interrupt::reading` until it drops.
@@ -51,6 +57,7 @@ impl Interrupt {
             stop:          Arc::clone(stop),
             broken:        Arc::default(),
             reading_since: Arc::default(),
+            give_up_at:    Arc::default(),
         }
     }
 
@@ -78,6 +85,26 @@ impl Interrupt {
         self.broken.store(false, Ordering::Relaxed);
     }
 
+    /// Every read and every open ends with an error once this much time has
+    /// passed. A connect to a server that does not answer waits for as long
+    /// as the system lets it, far past the limit of a reconnect.
+    pub(crate) fn give_up_in(&self, time: Duration) {
+        let time = u64::try_from(time.as_millis()).unwrap_or(u64::MAX);
+        self.give_up_at.store(now_ms().saturating_add(time), Ordering::Relaxed);
+    }
+
+    /// Reads wait for as long as they need again.
+    pub(crate) fn never_give_up(&self) {
+        self.give_up_at.store(0, Ordering::Relaxed);
+    }
+
+    fn gave_up(&self) -> bool {
+        match self.give_up_at.load(Ordering::Relaxed) {
+            0 => false,
+            at => now_ms() >= at,
+        }
+    }
+
     /// Call it right before a read and drop it right after.
     pub(crate) fn reading(&self) -> Reading {
         self.reading_since.store(now_ms(), Ordering::Relaxed);
@@ -102,9 +129,9 @@ impl VideoSource {
         crate::video::init();
 
         let interrupt = interrupt.clone();
-        let interrupt = move || interrupt.stopped() || interrupt.is_broken();
+        let interrupt = move || interrupt.stopped() || interrupt.is_broken() || interrupt.gave_up();
         if self.headers.is_empty() {
-            return format::input_with_interrupt(&self.location, interrupt);
+            return format::input_with_interrupt(&self.location, interrupt).map(fresh);
         }
 
         let mut lines = String::new();
@@ -116,7 +143,71 @@ impl VideoSource {
         }
         let mut options = Dictionary::new();
         options.set("headers", &lines);
-        format::input_with_interrupt_and_dictionary(&self.location, interrupt, options)
+        format::input_with_interrupt_and_dictionary(&self.location, interrupt, options).map(fresh)
+    }
+}
+
+impl VideoSource {
+    /// Read over the network, where a connection can break and be made
+    /// again. A path or a `file:` url is not.
+    pub(crate) fn is_network(&self) -> bool {
+        self.location.contains("://") && !self.location.starts_with("file:")
+    }
+
+    pub(crate) fn reconnect_limit(&self) -> Duration {
+        self.reconnect_limit.unwrap_or(RECONNECT_LIMIT)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_reconnect_limit(mut self, limit: Duration) -> Self {
+        self.reconnect_limit = Some(limit);
+        self
+    }
+}
+
+/// An input that just opened, with no error of its connection on record.
+/// The record is never cleared by ffmpeg, and a demuxer can open fine after
+/// a read that failed, like one for an index it can do without. Such an old
+/// error must not look like a cut later.
+fn fresh(mut input: Input) -> Input {
+    // SAFETY: the context of an open input is valid, `pb` is checked
+    // before it is used, and `error` is a plain field.
+    unsafe {
+        let io = (*input.as_mut_ptr()).pb;
+        if !io.is_null() {
+            (*io).error = 0;
+        }
+    }
+    input
+}
+
+/// The error that broke the connection of a demuxer since it opened, none
+/// while it is fine. A reader asks after every packet, a packet that came
+/// through is no proof: the matroska demuxer answers a read that failed by
+/// going back to the start of the block it was in, which makes a new
+/// connection, and by skipping to the next cluster. It reports nothing and
+/// the packets in between are lost. Other demuxers report the failed read
+/// as the end of the file.
+pub(crate) fn transport_error(input: &Input) -> Option<Error> {
+    // SAFETY: the context of an open input is valid, and `pb` is checked
+    // before it is read.
+    let code = unsafe {
+        let io = (*input.as_ptr()).pb;
+        if io.is_null() {
+            return None;
+        }
+        (*io).error
+    };
+    (code < 0).then(|| Error::from(code))
+}
+
+/// The byte of the source the demuxer has read up to, for a log line. After
+/// a cut the demuxer hid it lies past the cut, at most a cluster.
+pub(crate) fn byte_position(input: &Input) -> i64 {
+    // SAFETY: as in `transport_error`.
+    unsafe {
+        let io = (*input.as_ptr()).pb;
+        if io.is_null() { 0 } else { (*io).pos }
     }
 }
 

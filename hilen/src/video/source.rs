@@ -2,25 +2,33 @@
 //! headers.
 
 #[cfg(ffmpeg)]
+use std::time::Duration;
+
+#[cfg(ffmpeg)]
 mod open;
 
 #[cfg(ffmpeg)]
-pub(crate) use open::Interrupt;
+pub(crate) use open::{Interrupt, byte_position, transport_error};
 
 /// A file path or a url, with the request headers an http or https source is
 /// asked with. A path or a url alone converts into one, so `set_source` takes
 /// a plain string too.
 #[derive(Clone, Default)]
 pub struct VideoSource {
-    location: String,
-    headers:  Vec<(String, String)>,
+    location:        String,
+    headers:         Vec<(String, String)>,
+    /// Set by a test that cannot wait for the real limit.
+    #[cfg(ffmpeg)]
+    reconnect_limit: Option<Duration>,
 }
 
 impl VideoSource {
     pub fn new(location: impl AsRef<str>) -> Self {
         Self {
-            location: location.as_ref().to_string(),
-            headers:  Vec::new(),
+            location:                       location.as_ref().to_string(),
+            headers:                        Vec::new(),
+            #[cfg(ffmpeg)]
+            reconnect_limit:                None,
         }
     }
 

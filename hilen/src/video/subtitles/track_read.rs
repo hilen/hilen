@@ -3,6 +3,11 @@
 //! keyframe: a line that began long before the target is already in hand,
 //! also one that lies under a shorter line.
 
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use ffmpeg_next::{
     Error, Packet,
     ffi::{
@@ -12,17 +17,20 @@ use ffmpeg_next::{
     format::context::Input,
     media,
 };
-use log::debug;
+use log::{debug, error, info, warn};
 
 use crate::{
     gm::LossyConvert,
     video::{
         VideoSource,
         decoder::first_timestamp,
-        source::Interrupt,
+        source::{Interrupt, byte_position, transport_error},
         subtitles::{Cue, CueDecoder},
     },
 };
+
+/// The wait before a track whose stream broke is opened again.
+const AGAIN_AFTER: Duration = Duration::from_secs(1);
 
 /// `whence` of `avio_seek` that moves nothing and reports the position.
 const SEEK_CUR: i32 = 1;
@@ -57,16 +65,88 @@ struct TrackRead<'a> {
     start:      f64,
     time_bases: Vec<f64>,
     reads:      &'a Interrupt,
+    source:     &'a VideoSource,
+    /// Seconds of the stream the last packet read sits at.
+    at:         f64,
+}
+
+/// How far the read of a track got, so a read that opens the source again
+/// after a cut goes on where it stood and hands no line over twice.
+#[derive(Default)]
+struct Progress {
+    /// Groups of the index that are done.
+    groups:  usize,
+    /// Packets of the track taken, of the group in work with an index, of
+    /// the whole source without one.
+    packets: usize,
+    /// Every packet of the track taken so far, to tell that a read got
+    /// further since the last cut.
+    total:   usize,
+}
+
+/// A cut the read has not got past yet: when it began and how far the read
+/// was.
+struct Cut {
+    since: Instant,
+    total: usize,
 }
 
 /// Reads every line of subtitle stream `index` and hands each to `line`,
 /// which answers false when nobody wants them any more. `Error::Exit` when
-/// the read was broken or given up.
+/// the read was broken or given up. A network stream that breaks is opened
+/// again and the read goes on after the last packet it took, until it got
+/// no further for the reconnect limit of the source.
 pub(crate) fn read_track(
     source: &VideoSource,
     reads: &Interrupt,
     index: usize,
     line: &mut impl FnMut(Cue) -> bool,
+) -> Result<How, Error> {
+    let mut progress = Progress::default();
+    let mut cut: Option<Cut> = None;
+    loop {
+        let err = match read_on(source, reads, index, line, &mut progress) {
+            Err(err) if err != Error::Exit && source.is_network() => err,
+            done => return done,
+        };
+        let since = match &cut {
+            Some(cut) if cut.total == progress.total => cut.since,
+            _ => Instant::now(),
+        };
+        if since.elapsed() >= source.reconnect_limit() {
+            error!(
+                "video {}: gave up on the subtitle stream of track {index} after {:.1} s, {err}",
+                source.location(),
+                since.elapsed().as_secs_f64()
+            );
+            return Err(err);
+        }
+        cut = Some(Cut {
+            since,
+            total: progress.total,
+        });
+        let until = Instant::now() + AGAIN_AFTER;
+        while Instant::now() < until {
+            if reads.stopped() || reads.is_broken() {
+                return Err(Error::Exit);
+            }
+            sleep(Duration::from_millis(20));
+        }
+        info!(
+            "video {}: the subtitle stream of track {index} opens again, {} packets of it are read",
+            source.location(),
+            progress.total
+        );
+    }
+}
+
+/// One open of the source and the read from where `progress` stands.
+fn read_on(
+    source: &VideoSource,
+    reads: &Interrupt,
+    index: usize,
+    line: &mut impl FnMut(Cue) -> bool,
+    progress: &mut Progress,
 ) -> Result<How, Error> {
     let mut read = TrackRead::open(source, reads, index)?;
     let name = read.input.format().name().to_string();
@@ -82,18 +162,18 @@ pub(crate) fn read_track(
             ))
     );
     if let Some(entries) = entries {
-        read.walk(&entries, line)?;
+        read.walk(&entries, line, progress)?;
         return Ok(How::Index);
     }
     // The look at the index moved the demuxer, and with no index nothing
     // brings it back to the start for sure. A fresh one stands there.
     drop(read);
-    TrackRead::open(source, reads, index)?.through(line)?;
+    TrackRead::open(source, reads, index)?.through(line, progress)?;
     Ok(How::Through)
 }
 
 impl<'a> TrackRead<'a> {
-    fn open(source: &VideoSource, reads: &'a Interrupt, index: usize) -> Result<Self, Error> {
+    fn open(source: &'a VideoSource, reads: &'a Interrupt, index: usize) -> Result<Self, Error> {
         let input = source.open(reads)?;
         let start = input
             .streams()
@@ -107,6 +187,8 @@ impl<'a> TrackRead<'a> {
             start,
             time_bases,
             reads,
+            source,
+            at: 0.0,
         })
     }
 
@@ -207,12 +289,34 @@ impl<'a> TrackRead<'a> {
             let _reading = self.reads.reading();
             packet.read(&mut self.input)
         };
-        match read {
-            Ok(()) => Ok(Some(packet)),
-            Err(_) if self.reads.is_broken() || self.reads.stopped() => Err(Error::Exit),
-            Err(Error::Eof) => Ok(None),
-            Err(err) => Err(err),
+        if self.reads.is_broken() || self.reads.stopped() {
+            return Err(Error::Exit);
         }
+        // A packet that came is no proof, see `transport_error`.
+        let cut = transport_error(&self.input);
+        match (read, cut) {
+            (Ok(()), None) => {
+                if let Some(at) = self.seconds(&packet) {
+                    self.at = at;
+                }
+                Ok(Some(packet))
+            }
+            (Err(Error::Eof), None) => Ok(None),
+            (Err(err), None) | (_, Some(err)) => Err(self.cut_by(err)),
+        }
+    }
+
+    /// The log line of a read or a seek that failed, with the place the
+    /// read stood at.
+    fn cut_by(&self, err: Error) -> Error {
+        warn!(
+            "video {}: the subtitle stream of track {} broke at {:.2} s, seen at byte {}, {err}",
+            self.source.location(),
+            self.decoder.stream(),
+            self.at,
+            byte_position(&self.input)
+        );
+        err
     }
 
     fn seconds(&self, packet: &Packet) -> Option<f64> {
@@ -238,17 +342,29 @@ impl<'a> TrackRead<'a> {
 
     /// From line to line through the index. Lines whose reads start at the
     /// same place in the file, a cluster of matroska, share one seek.
-    fn walk(&mut self, entries: &[Entry], line: &mut impl FnMut(Cue) -> bool) -> Result<(), Error> {
+    fn walk(
+        &mut self,
+        entries: &[Entry],
+        line: &mut impl FnMut(Cue) -> bool,
+        progress: &mut Progress,
+    ) -> Result<(), Error> {
         let index = self.decoder.stream();
         let time_base = self.time_bases.get(index).copied().ok_or(Error::StreamNotFound)?;
-        for group in entries.chunk_by(|a, b| a.pos == b.pos) {
+        // A read that opened the source again leaves out the groups that
+        // are done.
+        for group in entries.chunk_by(|a, b| a.pos == b.pos).skip(progress.groups) {
             let (Some(first), Some(last)) = (group.first(), group.last()) else {
+                progress.groups += 1;
                 continue;
             };
-            self.seek(first.ticks)?;
+            if let Err(err) = self.seek(first.ticks) {
+                return Err(if err == Error::Exit { err } else { self.cut_by(err) });
+            }
             let last_ticks: f64 = last.ticks.lossy_convert();
             let until = last_ticks * time_base - self.start + PAST_GROUP;
             let mut left = group.len();
+            // And the packets of this group it took before the cut.
+            let mut known = progress.packets;
             while left > 0 {
                 let Some(packet) = self.next_packet()? else {
                     break;
@@ -265,15 +381,23 @@ impl<'a> TrackRead<'a> {
                     _ => {}
                 }
                 left -= 1;
+                if known > 0 {
+                    known -= 1;
+                    continue;
+                }
+                progress.packets += 1;
+                progress.total += 1;
                 self.decode(&packet, line)?;
             }
+            progress.groups += 1;
+            progress.packets = 0;
         }
         Ok(())
     }
 
     /// The whole source once, every other stream thrown away by the
     /// demuxer.
-    fn through(&mut self, line: &mut impl FnMut(Cue) -> bool) -> Result<(), Error> {
+    fn through(&mut self, line: &mut impl FnMut(Cue) -> bool, progress: &mut Progress) -> Result<(), Error> {
         let index = self.decoder.stream();
         let context = self.context();
         // SAFETY: the stream array of the open demuxer has `nb_streams`
@@ -284,10 +408,20 @@ impl<'a> TrackRead<'a> {
                 (**(*context).streams.add(at)).discard = AVDiscard::AVDISCARD_ALL;
             }
         }
+        // The packets a read before a cut took come by again, they are
+        // not handed over twice.
+        let mut known = progress.packets;
         while let Some(packet) = self.next_packet()? {
-            if packet.stream() == index {
-                self.decode(&packet, line)?;
+            if packet.stream() != index {
+                continue;
             }
+            if known > 0 {
+                known -= 1;
+                continue;
+            }
+            progress.packets += 1;
+            progress.total += 1;
+            self.decode(&packet, line)?;
         }
         Ok(())
     }
@@ -295,7 +429,14 @@ impl<'a> TrackRead<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, atomic::AtomicBool};
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread::{scope, sleep},
+        time::{Duration, Instant},
+    };
 
     use crate::video::{
         source::Interrupt,
@@ -304,6 +445,7 @@ mod test {
             track_read::{How, read_track},
         },
         test_fixture,
+        test_server::{Cut, Mode, Server},
     };
 
     fn lines(fixture: &str, index: usize) -> (How, Vec<(f64, f64, String)>) {
@@ -372,5 +514,50 @@ mod test {
         );
         assert!(read.is_err(), "the read went on");
         assert_eq!(seen, 1);
+    }
+
+    /// The server closes the connection of the read through `no_index.mkv`
+    /// in the middle of the picture block at 18.0 seconds, bytes 5606 to
+    /// 5641. The line at 18 seconds lies after it in the same cluster. The
+    /// matroska demuxer skips to the next cluster on its own and reports
+    /// nothing, so that line was lost with no word in the log. Now the read
+    /// sees the cut, opens the source again and hands over every line once.
+    #[test]
+    fn a_cut_read_through_opens_again_and_gives_every_line() {
+        // The first open only looks for an index, the second one reads.
+        let cut = Cut {
+            at:   5630,
+            hold: Some(5620),
+            skip: 1,
+        };
+        let server = Server::start("no_index.mkv", Mode::Cut, cut);
+        let stop = Arc::new(AtomicBool::new(false));
+        let reads = Interrupt::new(&stop);
+        let mut cues = Vec::new();
+
+        let how = scope(|scope| {
+            scope.spawn(|| {
+                // The read waits in the held answer.
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while reads.read_time() < Duration::from_millis(200) && Instant::now() < deadline {
+                    sleep(Duration::from_millis(5));
+                }
+                server.set(Mode::Whole);
+                server.release();
+            });
+            read_track(&server.source(), &reads, 1, &mut |cue: Cue| {
+                cues.push((cue.start, cue.end, cue.text));
+                true
+            })
+        })
+        .expect("the track reads over the cut");
+
+        assert_eq!(how, How::Through);
+        assert_eq!(cues, overlap());
+        assert_eq!(
+            server.cuts.load(Ordering::Relaxed),
+            2,
+            "the open for the index and the read that was cut"
+        );
     }
 }

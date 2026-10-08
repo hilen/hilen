@@ -58,6 +58,12 @@ impl DropWindow {
 }
 
 impl Player {
+    /// A sound that died got a fresh decoder at least once.
+    #[cfg(test)]
+    pub(super) fn sound_opened_again(&self) -> bool {
+        self.faults.revived_ms.is_some()
+    }
+
     pub(super) fn watch_faults(&mut self) {
         self.mend_sound();
         self.log_dropped();
@@ -73,15 +79,27 @@ impl Player {
             self.faults.sound_stopped = false;
             return;
         };
+        // kira calls a decoder that failed again with no pause until it
+        // stops the sound. A line per error here gives kira the time to
+        // fail again, a cut stream wrote 70 of them.
+        let mut failed = None;
         while let Some(err) = sound.pop_error() {
+            failed = Some(err);
+        }
+        let erred = failed.is_some();
+        if let Some(err) = failed {
             error!(
                 "video {}: the sound decoder failed at {position:.1} s, {err}",
                 self.source.location()
             );
         }
         let stopped = sound.state() == PlaybackState::Stopped;
-        let died = stopped && position + EARLY_STOP < duration;
-        if died && !self.faults.sound_stopped {
+        // A decoder that failed is replaced at once. kira plays what it
+        // has decoded and stops only then, and until it stops the sound is
+        // still the clock, so the place the fresh decoder starts at is
+        // exact.
+        let died = (stopped || erred) && position + EARLY_STOP < duration;
+        if died && stopped && !self.faults.sound_stopped {
             warn!(
                 "video {}: the sound stopped at {position:.1} of {duration:.1} s, the picture plays on without it",
                 self.source.location()

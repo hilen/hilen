@@ -13,10 +13,14 @@ use ffmpeg_next::{
     util::error::EAGAIN,
 };
 use kira::{Frame, sound::streaming::Decoder};
+use log::warn;
 
 use crate::{
     gm::LossyConvert,
-    video::{VideoSource, count_to_f64, source::Interrupt},
+    video::{
+        VideoSource, count_to_f64,
+        source::{Interrupt, byte_position, transport_error},
+    },
 };
 
 /// Frames of silence handed out past the end. kira walks chunk by chunk to
@@ -51,6 +55,13 @@ pub(crate) struct AudioDecoder {
     /// The sample of that first seek, until the first `decode` runs it on
     /// kira's decode thread.
     first:     Option<usize>,
+    /// The path or url, for log lines.
+    location:  String,
+    /// Seconds of the stream the last packet read sits at.
+    at:        f64,
+    /// The error that broke the connection, the decoder is of no use after
+    /// it.
+    cut:       Option<Error>,
 }
 
 /// A graph that plays stereo floats at `speed` with the pitch kept, ffmpeg's
@@ -140,6 +151,9 @@ impl AudioDecoder {
             reads,
             asked: false,
             first: None,
+            location: source.location().to_string(),
+            at: 0.0,
+            cut: None,
         }))
     }
 
@@ -155,6 +169,9 @@ impl AudioDecoder {
 
     /// The next packet of the sound stream, None at the end.
     fn next_packet(&mut self) -> Result<Option<Packet>, Error> {
+        if let Some(err) = self.cut {
+            return Err(err);
+        }
         loop {
             let mut packet = Packet::empty();
             let read = {
@@ -163,7 +180,21 @@ impl AudioDecoder {
             };
             match read {
                 Ok(()) => {
+                    // A packet came, and still the connection may have
+                    // broken on the way to it, see `transport_error`.
+                    if let Some(err) = transport_error(&self.input) {
+                        // The player broke this read itself and dropped
+                        // the sound, see below.
+                        if self.reads.is_broken() {
+                            return Ok(None);
+                        }
+                        return Err(self.cut_by(err));
+                    }
                     if packet.stream() == self.stream {
+                        if let Some(pts) = packet.pts() {
+                            let ticks: f64 = pts.lossy_convert();
+                            self.at = ticks * self.time_base;
+                        }
                         return Ok(Some(packet));
                     }
                 }
@@ -171,10 +202,31 @@ impl AudioDecoder {
                 // here in silence. An error would be worse, kira calls a
                 // decoder that fails again and again with no pause.
                 Err(_) if self.reads.is_broken() => return Ok(None),
-                Err(Error::Eof) => return Ok(None),
-                Err(err) => return Err(err),
+                Err(Error::Eof) => {
+                    return match transport_error(&self.input) {
+                        Some(err) => Err(self.cut_by(err)),
+                        None => Ok(None),
+                    };
+                }
+                Err(err) => return Err(self.cut_by(err)),
             }
         }
+    }
+
+    /// The connection of the sound broke. The decoder fails from here on,
+    /// also when the demuxer reads on: packets are lost by then, and kira
+    /// counts samples, so the sound after the gap would play too early for
+    /// the rest of the film. kira stops the sound on the error and the
+    /// player opens a fresh decoder at the place the video is at.
+    fn cut_by(&mut self, err: Error) -> Error {
+        warn!(
+            "video {}: the sound stream broke at {:.2} s, seen at byte {}, {err}",
+            self.location,
+            self.at,
+            byte_position(&self.input)
+        );
+        self.cut = Some(err);
+        err
     }
 
     /// Every frame the decoder has ready, resampled into `out`. Returns the
@@ -329,6 +381,9 @@ impl AudioDecoder {
     }
 
     fn seek_now(&mut self, index: usize) -> Result<usize, Error> {
+        if let Some(err) = self.cut {
+            return Err(err);
+        }
         // kira counts samples of the sound it hears, the stream is `speed`
         // times that far along.
         let seconds = count_to_f64(u64::try_from(index).expect("a sample index fits u64"))
@@ -347,7 +402,7 @@ impl AudioDecoder {
                 self.pending.clear();
                 return Ok(self.frames);
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(self.cut_by(err)),
         }
         self.decoder.flush();
         self.eof = false;
@@ -377,11 +432,21 @@ impl AudioDecoder {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, atomic::AtomicBool};
+    use std::{
+        sync::{Arc, atomic::AtomicBool},
+        thread::{scope, sleep},
+        time::Duration,
+    };
 
     use kira::sound::streaming::Decoder;
 
-    use crate::video::{audio::AudioDecoder, count_to_f64, source::Interrupt, test_fixture};
+    use crate::video::{
+        audio::AudioDecoder,
+        count_to_f64,
+        source::Interrupt,
+        test_fixture,
+        test_server::{Cut, Mode, Server},
+    };
 
     /// The tone of a track in Hz from the sign changes of its sound, and how
     /// many seconds of sound the track gives, at a playback speed.
@@ -484,5 +549,58 @@ mod test {
             (tone(None) - 440.0).abs() < 20.0,
             "no choice plays the first track"
         );
+    }
+
+    /// The server closes the connection in the middle of a block, after the
+    /// decoder has read the first part of that block. The matroska demuxer
+    /// then asks the server again on its own, skips to the next cluster and
+    /// reports nothing. The decoder used to play on with half a second of
+    /// sound missing, and kira counts samples, so from then on the sound
+    /// was that much ahead of the picture. Now the decoder fails, and the
+    /// player opens a fresh one at the place the video is at.
+    #[test]
+    fn a_cut_the_demuxer_hides_fails_the_decoder() {
+        // The block of the picture at 2.5 seconds, bytes 61490 to 62083.
+        let cut = Cut {
+            at:   61890,
+            hold: Some(61690),
+            skip: 0,
+        };
+        let server = Server::start("stalled.mkv", Mode::Cut, cut);
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut decoder = AudioDecoder::open(&server.source(), Interrupt::new(&stop), None, 1.0)
+            .expect("the source opens")
+            .expect("the fixture has sound");
+        let reads = decoder.reads();
+
+        let mut samples = 0;
+        let failed = scope(|scope| {
+            scope.spawn(|| {
+                while reads.read_time() < Duration::from_millis(200) {
+                    sleep(Duration::from_millis(5));
+                }
+                server.set(Mode::Whole);
+                server.release();
+            });
+            loop {
+                match decoder.decode() {
+                    Ok(chunk) => samples += chunk.len(),
+                    Err(err) => break Some(err),
+                }
+                if decoder.eof {
+                    break None;
+                }
+            }
+        });
+
+        // An error at the end of the file is too late, the error of the
+        // connection also comes out there, after the sound of the last
+        // second played with the gap before it.
+        let seconds = count_to_f64(samples as u64) / f64::from(decoder.sample_rate());
+        assert!(
+            failed.is_some() && seconds < 2.7,
+            "the cut at 2.5 s was hidden: the decoder gave {seconds:.2} s of sound, then {failed:?}"
+        );
+        assert!(decoder.decode().is_err(), "a cut decoder stays failed");
     }
 }

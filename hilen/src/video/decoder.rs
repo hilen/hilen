@@ -29,11 +29,15 @@ use crate::{
         VideoSource,
         audio::AudioDecoder,
         count_to_f64, hw,
-        source::Interrupt,
+        source::{Interrupt, transport_error},
         subtitles::{Cue, CueDecoder},
         tracks::{AudioTrack, SubtitleTrack, audio_tracks, subtitle_tracks},
     },
 };
+
+mod reconnect;
+
+use reconnect::mended;
 
 /// Frames decoded ahead of the picture. Small on purpose, a 4K frame is 12 MB.
 pub(crate) const QUEUE: usize = 3;
@@ -113,18 +117,48 @@ pub(crate) enum Command {
     Stop,
 }
 
+/// Why a round of the decode loop stopped.
+enum Halt {
+    /// A seek broke a read that waited on the network.
+    Seek,
+    /// A read or a seek of the source failed. A network stream is opened
+    /// again after it.
+    Source(Error),
+    /// The decoder failed, a fresh connection would not help.
+    Decoder(Error),
+}
+
+impl From<Error> for Halt {
+    fn from(err: Error) -> Self {
+        Self::Decoder(err)
+    }
+}
+
+/// What a round of the decode loop did.
+enum Round {
+    /// A packet or the end of the stream was read.
+    Read,
+    /// Only a command was taken.
+    Command,
+    /// The player is gone.
+    Gone,
+}
+
 /// `reads` ends a read of the picture demuxer that waits on the network.
+/// With `sound` the thread also opens the sound decoder and hands it over,
+/// a thread that starts again after a failure leaves that to the player.
 pub(crate) fn spawn(
     source: VideoSource,
     commands: Receiver<Command>,
     messages: SyncSender<Message>,
     decoded: Arc<AtomicU64>,
     reads: Interrupt,
+    sound: bool,
 ) {
     Builder::new()
         .name("hilen-video".into())
         .spawn(move || {
-            if let Err(err) = run(&source, &commands, &messages, &decoded, &reads)
+            if let Err(err) = run(&source, &commands, &messages, &decoded, &reads, sound)
                 && messages.send(Message::Error(err.to_string())).is_err()
             {
                 // The player is gone, nobody is left to show the error.
@@ -239,15 +273,18 @@ fn run(
     messages: &SyncSender<Message>,
     counter: &AtomicU64,
     reads: &Interrupt,
+    sound: bool,
 ) -> Result<(), Error> {
     let (mut decoding, mut info) = open(source, reads)?;
-    info.audio = match AudioDecoder::open(source, reads.fresh(), None, 1.0) {
-        Ok(audio) => audio,
-        Err(err) => {
-            warn!("video {}: no sound, {err}", source.location());
-            None
-        }
-    };
+    if sound {
+        info.audio = match AudioDecoder::open(source, reads.fresh(), None, 1.0) {
+            Ok(audio) => audio,
+            Err(err) => {
+                warn!("video {}: no sound, {err}", source.location());
+                None
+            }
+        };
+    }
     // The first sound of the app opens the audio device, about a second on an
     // iOS simulator. Here it costs the first video its start, on the first
     // play it would hold the main thread for that long.
@@ -258,26 +295,50 @@ fn run(
         return Ok(());
     }
     let mut eof = false;
+    // A break of the stream, from the read that failed until a packet
+    // comes through again.
+    let mut fault = None;
 
     loop {
-        match decoding.step(commands, messages, counter, &mut eof, reads) {
-            Ok(true) => {}
-            Ok(false) => return Ok(()),
+        let halt = match decoding.step(commands, messages, counter, &mut eof, reads) {
+            Ok(Round::Read) => {
+                mended(&mut fault, source, decoding.at);
+                continue;
+            }
+            Ok(Round::Command) => continue,
+            Ok(Round::Gone) => return Ok(()),
+            Err(halt) => halt,
+        };
+        if reads.stopped() {
+            return Ok(());
+        }
+        let error = match halt {
+            Halt::Decoder(err) => return Err(err),
             // A seek broke a read that waited on the network. The
             // connection of that read is of no use, the source opens again.
-            Err(Error::Exit) if !reads.stopped() => {
-                decoding.reopen(source, reads)?;
-                eof = false;
-            }
-            Err(err) => return Err(err),
+            Halt::Seek => match decoding.reopen(source, reads) {
+                Ok(()) => {
+                    eof = false;
+                    continue;
+                }
+                Err(_) if reads.stopped() => return Ok(()),
+                Err(err) => err,
+            },
+            Halt::Source(err) => err,
+        };
+        // A file that fails to read fails the same way the next time.
+        if !source.is_network() {
+            return Err(error);
         }
+        if !decoding.reconnect(source, reads, &mut fault, error)? {
+            return Ok(());
+        }
+        eof = false;
     }
 }
 
 impl Decoding {
     /// One round of the decode loop: the queued commands, then one packet.
-    /// False once the player is gone. `Error::Exit` when a seek broke a
-    /// read, whatever error the demuxer made of it.
     fn step(
         &mut self,
         commands: &Receiver<Command>,
@@ -285,11 +346,11 @@ impl Decoding {
         counter: &AtomicU64,
         eof: &mut bool,
         reads: &Interrupt,
-    ) -> Result<bool, Error> {
+    ) -> Result<Round, Halt> {
         // Every queued command, the latest seek wins.
         loop {
             match commands.try_recv() {
-                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(false),
+                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(Round::Gone),
                 Ok(command) => self.apply(command, eof, reads)?,
                 Err(TryRecvError::Empty) => break,
             }
@@ -303,10 +364,10 @@ impl Decoding {
         if *eof {
             // Nothing to decode until a seek, so block instead of spinning.
             match commands.recv() {
-                Ok(Command::Stop) | Err(RecvError) => return Ok(false),
+                Ok(Command::Stop) | Err(RecvError) => return Ok(Round::Gone),
                 Ok(command) => self.apply(command, eof, reads)?,
             }
-            return Ok(true);
+            return Ok(Round::Command);
         }
 
         let mut packet = Packet::empty();
@@ -316,27 +377,41 @@ impl Decoding {
         };
         match read {
             Ok(()) => {
+                // A packet came, and still the connection may have broken
+                // on the way to it, with the packets up to this one lost.
+                if let Some(err) = transport_error(&self.input) {
+                    // A read a seek broke leaves its error on record too.
+                    return Err(if reads.is_broken() {
+                        Halt::Seek
+                    } else {
+                        Halt::Source(err)
+                    });
+                }
                 if packet.stream() != self.stream {
                     if let Some(cue) = self.cue(&packet)
                         && messages.send(Message::Cue(cue)).is_err()
                     {
-                        return Ok(false);
+                        return Ok(Round::Gone);
                     }
-                    return Ok(true);
+                    return Ok(Round::Read);
                 }
                 self.decoder.send_packet(&packet)?;
             }
             // Some demuxers report a broken read as the end of the file.
-            Err(_) if reads.is_broken() => return Err(Error::Exit),
+            Err(_) if reads.is_broken() => return Err(Halt::Seek),
             Err(Error::Eof) => {
+                // And some report a stream that was cut that way too.
+                if let Some(err) = transport_error(&self.input) {
+                    return Err(Halt::Source(err));
+                }
                 self.decoder.send_eof()?;
                 *eof = true;
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(Halt::Source(err)),
         }
 
         if !self.receive(messages, counter)? {
-            return Ok(false);
+            return Ok(Round::Gone);
         }
         if *eof
             && messages
@@ -345,9 +420,9 @@ impl Decoding {
                 })
                 .is_err()
         {
-            return Ok(false);
+            return Ok(Round::Gone);
         }
-        Ok(true)
+        Ok(Round::Read)
     }
 
     /// Opens the source again after a broken read, with the generation, the
@@ -391,7 +466,7 @@ impl Decoding {
 
     /// A seek or a subtitle choice. A stop never comes here, the loop ends on
     /// it.
-    fn apply(&mut self, command: Command, eof: &mut bool, reads: &Interrupt) -> Result<(), Error> {
+    fn apply(&mut self, command: Command, eof: &mut bool, reads: &Interrupt) -> Result<(), Halt> {
         match command {
             Command::Seek { generation, seconds } => {
                 // Before the seek runs, so a break in the middle of it
@@ -422,7 +497,7 @@ impl Decoding {
         }
     }
 
-    fn seek(&mut self, generation: u32, seconds: f64, reads: &Interrupt) -> Result<(), Error> {
+    fn seek(&mut self, generation: u32, seconds: f64, reads: &Interrupt) -> Result<(), Halt> {
         self.generation = generation;
         let target = seconds.max(0.0);
         self.at = target;
@@ -433,8 +508,8 @@ impl Decoding {
         };
         match sought {
             Ok(()) => {}
-            Err(_) if reads.is_broken() => return Err(Error::Exit),
-            Err(err) => return Err(err),
+            Err(_) if reads.is_broken() => return Err(Halt::Seek),
+            Err(err) => return Err(Halt::Source(err)),
         }
         self.decoder.flush();
         self.skip_until = Some(target);

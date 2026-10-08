@@ -82,6 +82,8 @@ impl VideoView {
         }
     }
 
+    /// Plays from where the video is. On a failed video it opens the source
+    /// again first and goes on from the position it failed at.
     pub fn play(&self) -> &Self {
         let mut this = weak_from_ref(self);
         if let Some(player) = this.player.as_mut() {

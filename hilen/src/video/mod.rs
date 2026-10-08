@@ -22,6 +22,8 @@ mod source;
 mod state;
 #[cfg(ffmpeg)]
 mod subtitles;
+#[cfg(all(test, ffmpeg))]
+mod test_server;
 mod tracks;
 #[cfg(wasm)]
 mod web_player;

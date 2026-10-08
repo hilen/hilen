@@ -33,11 +33,14 @@ pub enum VideoState {
     Paused,
     Playing,
     /// Playing, but the stream has not delivered the next frame. The clock
-    /// and the sound are held until it does.
+    /// and the sound are held until it does. A network stream that broke is
+    /// opened again in this state.
     Buffering,
     /// Playback reached the end.
     Finished,
-    /// The source could not be opened or decoded, `on_error` has the reason.
+    /// The source could not be opened or decoded, or a stream that broke
+    /// did not come back in time. `on_error` has the reason. `play` opens
+    /// the source again and goes on from the same position.
     Failed,
 }
 

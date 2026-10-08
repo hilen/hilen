@@ -106,6 +106,44 @@ else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
   end gets a fresh decoder on a thread, at most once every 2 seconds, and
   plays on from where the video is. The log names the error of the decoder,
   the place the sound stopped at, and each time it opens again.
+- A network stream that breaks opens again,
+  `hilen/src/video/decoder/reconnect.rs`. A server closes a connection
+  nobody reads from, nginx after 60 seconds, so a long pause ends with a read
+  that fails, or with an end of the file before its last byte. The picture
+  thread then opens the source again and decodes on from the place it stood
+  at. The first try runs at once, the next ones after 0.25 seconds, doubling
+  up to 2. The player gets no frames in that time, so the state is
+  `Buffering`. After 30 seconds without a packet it gives up, and the video
+  is `Failed` with the last error. A path or a `file:` url fails at once.
+  The log has a warning with the url, the seconds, the byte and the error
+  when the stream breaks, a line for every try and an error when it gives
+  up. The http options of ffmpeg, `reconnect` and the others, are left off:
+  ffmpeg would write its tries only to stderr, and 2 layers of tries would
+  add up their times.
+- A cut can hide. The matroska demuxer answers a read that failed in the
+  middle of a block by going back to the start of that block. That place is
+  often out of its buffer, so ffmpeg asks the server again on a new
+  connection, and the demuxer skips to the next cluster and reports nothing.
+  The packets up to that cluster are lost. For the sound that is worse than
+  a gap: kira counts samples, so all the sound after it plays too early. The
+  connection keeps its error on record though, and `transport_error` in
+  `source/open.rs` reads it. `VideoSource::open` clears the record, and every
+  reader asks after every packet. A reader that finds an error throws its
+  demuxer away, whatever it still reads.
+- Each reader has its own connection and its own way back, and logs a cut
+  with its name, the seconds and the byte it had read to. The picture opens
+  again as above. The sound decoder fails for good, the player opens a fresh
+  one at once, at the position the old sound still gives, and it starts on
+  the exact sample. The read of a whole subtitle track opens again after a
+  second and goes on after the last packet it took, until it got no further
+  for 30 seconds. The read back of a seek and a subtitle file only report
+  the error.
+- A video that failed plays again, `hilen/src/video/player/restart.rs`. The
+  decode thread ends when it gives up. `play` on a failed video starts a new
+  one at the position the video stood at, with the tracks and the speed it
+  had, and a fresh sound. The state is `Buffering` until frames come, or
+  `Loading` when none was ever shown. A source that fails again makes the
+  video `Failed` again, with a new `on_error`.
 - Late pictures that were dropped are logged as 1 line per 5 seconds, with
   how many that window lost, never a line per picture.
 - After a seek the position is the seek target until the sound has reached
@@ -156,6 +194,10 @@ calls, so `VideoView` is one view on both.
 - The element is asked for its state once per frame, no listener is installed. A view
   that is hidden gets no `update`, so `hide_unplaced` runs after the update pass and
   hides every element whose view was not placed in that frame.
+- A stream that breaks is opened again by the browser, not by the engine. An element
+  that reports an error keeps it for good, so `play` on a failed video calls `load` on
+  the element, which starts at 0, and sets the old position once the length is known.
+  No test covers this yet.
 - A video element sends no request headers. A `VideoSource` with headers logs a warning
   and plays without them, the url has to carry the access.
 - The tracks inside a file are not listed, a video element hands out neither the sound
@@ -179,6 +221,8 @@ view. The cue parser has unit tests.
 events `on_finish`, `on_error` and `on_state`. `VideoState` is `Empty`,
 `Loading`, `Paused`, `Playing`, `Buffering`, `Finished` or `Failed`, and
 `on_state` fires on every change. `is_playing` stays true while buffering.
+`play` on a `Failed` video opens the source again and goes on from the
+position it failed at, on desktop, on iOS and in a browser.
 A `VideoSource` carries request headers for an http or https source,
 `VideoSource::new(url).header("Authorization", token)`, so a session token
 stays out of the url. The picture and the sound demuxer both send them. The
@@ -288,6 +332,21 @@ playing, finished, and the position held while buffering. The unit test
 at 2.5 seconds, and seeks back while both demuxers wait. It pins that the
 video plays again from the target. With the index at the end the first seek
 of the sound reads the end of the file through the stall.
+
+The unit tests in `player/restart.rs` play the same `stalled.mkv` from a
+server that promises the whole file and closes the connection at 2.5
+seconds, with no window, so the frames are not uploaded. They pin that a
+stream cut once plays on to the end and is never `Failed`, that a server
+that stays dead gives `Buffering` and then `Failed` after the limit, 1.5
+seconds in the test, and that `play` after that fails again while the server
+is dead and plays on from the same position once it is back. The server is
+`video/test_server.rs`. It can also hold an answer in the middle of a block
+and close it a little later, which is the cut the demuxer hides. 3 tests use
+that: the player is paused, both connections are cut, and all 120 pictures
+still come once and the sound gets a fresh decoder. The sound decoder alone
+fails at the cut, it used to give 3.53 of 4 seconds and no error before the
+end. The read through `no_index.mkv` gives all 3 lines, it used to lose the
+one in the cluster of the cut.
 
 `Video slow sound` plays `slow_sound.mkv` from a server that can stop
 answering, and measures how long the first play after a seek, a speed

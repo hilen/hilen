@@ -6,7 +6,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel, sync_channel},
+        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError},
     },
     time::Duration,
 };
@@ -32,10 +32,11 @@ use crate::{
         audio::{AudioDecoder, SPEEDS},
         audio_session::PlaybackSession,
         count_to_f64,
-        decoder::{self, Command, MediaInfo, Message, Tracks, VideoFrame},
+        decoder::{self, Command, Message, Tracks, VideoFrame},
         nv12::Nv12Target,
         player::{
             faults::Faults,
+            restart::start_decoder,
             stall::{SeekWatch, SoundReads},
         },
         source::Interrupt,
@@ -46,6 +47,7 @@ use crate::{
 };
 
 mod faults;
+mod restart;
 mod stall;
 
 /// How long a stepped test waits for the decoder before giving up on a frame.
@@ -132,6 +134,15 @@ struct Info {
     tracks:     Tracks,
 }
 
+/// Where the frames of a player go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Upload {
+    Gpu,
+    /// Nowhere, a unit test has no window to take them.
+    #[cfg(test)]
+    Off,
+}
+
 pub(crate) struct Player {
     source:      VideoSource,
     key:         String,
@@ -146,6 +157,9 @@ pub(crate) struct Player {
     /// switch.
     session:     Option<PlaybackSession>,
     target:      Option<Nv12Target>,
+    /// The frames go up to the GPU. A unit test turns it off, it has no
+    /// window to take them.
+    upload:      Upload,
     pending:     VecDeque<VideoFrame>,
     generation:  u32,
     queue:       Queue,
@@ -177,18 +191,10 @@ pub(crate) struct Player {
 
 impl Player {
     pub(crate) fn open(source: VideoSource, key: String) -> Self {
-        let (commands, command_receiver) = channel();
-        let (message_sender, messages) = sync_channel(decoder::QUEUE);
         let decoded = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let reads = Interrupt::new(&stop);
-        decoder::spawn(
-            source.clone(),
-            command_receiver,
-            message_sender,
-            Arc::clone(&decoded),
-            reads.clone(),
-        );
+        let (commands, messages) = start_decoder(&source, &decoded, &reads, true);
 
         Self {
             source,
@@ -201,6 +207,7 @@ impl Player {
             sound: None,
             session: None,
             target: None,
+            upload: Upload::Gpu,
             pending: VecDeque::new(),
             generation: 0,
             queue: Queue::default(),
@@ -283,7 +290,16 @@ impl Player {
     }
 
     pub(crate) fn play(&mut self) {
-        if self.playing || self.failed {
+        if self.playing {
+            return;
+        }
+        if self.failed {
+            self.restart();
+            self.playing = true;
+            self.started_ms = Clock::now_ms();
+            // No frame is in hand, playback holds until the source has
+            // opened again and sent some.
+            self.flow.buffering = self.queue.shown;
             return;
         }
         if self.queue.eof && self.pending.is_empty() && self.position() >= self.duration() {
@@ -413,30 +429,7 @@ impl Player {
 
     fn handle(&mut self, message: Message, events: &mut Vec<PlayerEvent>) {
         match message {
-            Message::Info(info) => {
-                let MediaInfo {
-                    duration,
-                    width,
-                    height,
-                    frame_rate,
-                    decoder,
-                    audio,
-                    tracks,
-                } = *info;
-                self.audio_track = audio.as_ref().map(AudioDecoder::stream);
-                self.audio = audio;
-                // The decode thread opened the sound at its own speed.
-                if (self.speed - 1.0).abs() > f64::EPSILON {
-                    self.reopen_sound();
-                }
-                self.info = Some(Info {
-                    duration,
-                    frame_rate,
-                    decoder,
-                    tracks,
-                });
-                self.target = Some(Nv12Target::new(&self.key, Size::new(width, height), false));
-            }
+            Message::Info(info) => self.take_info(*info),
             Message::Frame(frame) => {
                 if frame.generation == self.generation {
                     self.pending.push_back(frame);
@@ -452,11 +445,7 @@ impl Player {
                     self.queue.eof = true;
                 }
             }
-            Message::Error(message) => {
-                self.failed = true;
-                self.playing = false;
-                events.push(PlayerEvent::Error(message));
-            }
+            Message::Error(message) => self.fail(message, events),
         }
     }
 
@@ -539,13 +528,7 @@ impl Player {
             self.counters.dropped += 1;
         }
         let frame = self.pending.pop_front()?;
-
-        if self.target.as_ref().is_none_or(|target| !target.fits(&frame)) {
-            let size = Size::new(frame.width, frame.height);
-            self.target = Some(Nv12Target::new(&self.key, size, frame.ten_bit));
-        }
-        let target = self.target.as_ref()?;
-        target.show(&frame);
+        let image = (self.upload == Upload::Gpu).then(|| self.show(&frame));
 
         if !self.queue.shown {
             info!(
@@ -562,7 +545,20 @@ impl Player {
         self.queue.shown = true;
         self.queue.seek_pending = false;
         self.flow.due = frame.pts + interval;
-        Some(target.image())
+        image
+    }
+
+    /// Uploads the frame and returns the image it lands in.
+    fn show(&mut self, frame: &VideoFrame) -> Weak<Image> {
+        let size = Size::new(frame.width, frame.height);
+        let target = match self.target.take() {
+            Some(target) if target.fits(frame) => target,
+            _ => Nv12Target::new(&self.key, size, frame.ten_bit),
+        };
+        target.show(frame);
+        let image = target.image();
+        self.target = Some(target);
+        image
     }
 
     fn finish(&mut self, events: &mut Vec<PlayerEvent>) {

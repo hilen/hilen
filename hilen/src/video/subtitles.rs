@@ -25,7 +25,12 @@ use log::{debug, warn};
 
 use crate::{
     gm::{Clock, LossyConvert},
-    video::{VideoSource, decoder::first_timestamp, source::Interrupt, subtitles::track_read::read_track},
+    video::{
+        VideoSource,
+        decoder::first_timestamp,
+        source::{Interrupt, transport_error},
+        subtitles::track_read::read_track,
+    },
 };
 
 /// Seconds before a seek target the read back starts at. Lines that
@@ -167,7 +172,13 @@ fn read_file(source: &VideoSource, stop: &Arc<AtomicBool>) -> Result<Vec<Cue>, E
     let mut cues = Vec::new();
     loop {
         let mut packet = Packet::empty();
-        match packet.read(&mut input) {
+        let read = packet.read(&mut input);
+        // A file that was cut is not shown with lines missing, see
+        // `transport_error`.
+        if let Some(err) = transport_error(&input) {
+            return Err(err);
+        }
+        match read {
             Ok(()) => {
                 if packet.stream() == index
                     && let Some(cue) = decoder.decode(&packet, 0.0, 0)?
@@ -202,7 +213,13 @@ impl ReadBack {
         let mut first = true;
         loop {
             let mut packet = Packet::empty();
-            match packet.read(&mut self.input) {
+            let read = packet.read(&mut self.input);
+            // A stream that was cut gives no sure answer, see
+            // `transport_error`. The read of the whole track has the line.
+            if let Some(err) = transport_error(&self.input) {
+                return Err(err);
+            }
+            match read {
                 Ok(()) => {}
                 Err(Error::Eof) => return Ok(()),
                 Err(err) => return Err(err),
@@ -490,6 +507,12 @@ impl Subtitles {
         }
         self.dirty = true;
         self.read_back(source, stop, target);
+    }
+
+    /// The subtitle stream of the source that is chosen, none for a file
+    /// from outside or no subtitles.
+    pub(crate) fn track(&self) -> Option<usize> {
+        self.track
     }
 
     /// The player has to keep updating until the text on screen is settled.

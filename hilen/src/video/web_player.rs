@@ -30,7 +30,10 @@ use crate::{
     window::image::Image,
 };
 
-/// `HTMLMediaElement.readyState`: the frame at the position is there.
+/// `HTMLMediaElement.readyState`: the length and the size are known, a seek
+/// works from here on.
+const HAVE_METADATA: u16 = 1;
+/// The frame at the position is there.
 const HAVE_CURRENT_DATA: u16 = 2;
 /// And enough after it to play on.
 const HAVE_FUTURE_DATA: u16 = 3;
@@ -101,6 +104,8 @@ pub(crate) struct Player {
     location: String,
 
     wants_play: bool,
+    /// The place a source that loads again after a failure goes back to.
+    resume_at:  Option<f64>,
     looping:    bool,
     stage:      Stage,
 
@@ -177,6 +182,7 @@ impl Player {
             element: holder,
             location: source.location().to_string(),
             wants_play: false,
+            resume_at: None,
             looping: false,
             stage: Stage::Loading,
             landed: Arc::default(),
@@ -238,10 +244,13 @@ impl Player {
     }
 
     pub(crate) fn position(&self) -> f64 {
-        self.element().current_time()
+        self.resume_at.unwrap_or_else(|| self.element().current_time())
     }
 
     pub(crate) fn play(&mut self) {
+        if self.stage == Stage::Failed {
+            self.load_again();
+        }
         self.wants_play = true;
         self.leave_the_end();
 
@@ -274,6 +283,22 @@ impl Player {
         }
     }
 
+    /// A play after a failure. The element keeps its error for good, only a
+    /// new load of the same source clears it. The load starts at 0, so the
+    /// place the video stood at is kept and set again in `update`.
+    fn load_again(&mut self) {
+        // A load that failed again left the element at 0, the place is
+        // still the one from before it.
+        let at = self.position();
+        info!(
+            "video: {} loads again after a failure, from {at:.1} s",
+            self.location
+        );
+        self.element().load();
+        self.stage = Stage::Loading;
+        self.resume_at = Some(at);
+    }
+
     /// A play or a seek after the end makes the end reportable again.
     fn leave_the_end(&mut self) {
         if self.stage == Stage::Finished {
@@ -283,7 +308,13 @@ impl Player {
 
     pub(crate) fn seek_to(&mut self, seconds: f64) {
         self.leave_the_end();
-        self.element().set_current_time(seconds.max(0.0));
+        let seconds = seconds.max(0.0);
+        // The element loads again, the seek waits for it like the old place.
+        if self.resume_at.is_some() {
+            self.resume_at = Some(seconds);
+            return;
+        }
+        self.element().set_current_time(seconds);
     }
 
     pub(crate) fn set_volume(&mut self, volume: f32) {
@@ -489,6 +520,15 @@ impl Player {
                 self.location,
                 media_error(error.code(), &error.message())
             )));
+        }
+
+        // After a play that loaded a failed source again the element starts
+        // at 0. It takes the old place once it knows the length.
+        if let Some(at) = self.resume_at
+            && element.ready_state() >= HAVE_METADATA
+        {
+            element.set_current_time(at);
+            self.resume_at = None;
         }
 
         if self.stage == Stage::Loading && element.ready_state() >= HAVE_CURRENT_DATA {
