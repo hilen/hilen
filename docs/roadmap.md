@@ -19,19 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A ready made view for logs
-
-Found on 2026-10-09 in the beekeeper web UI, `beekeeper/web` of the `beekeeper` repo.
-
-- Current: the engine has `LogView`, see [log-view.md](log-view.md), with its UI
-  tests. Beekeeper still has its own `ui/log_pane.rs`, its own cell and its own ANSI
-  parser in `ansi.rs`: a line longer than the pane is cut at the right edge, the text
-  cannot be selected, and rows have 1 fixed height.
-- Needed: beekeeper moves its log pane to `LogView` and drops its own cell and
-  parser. Then this entry goes.
-- Blocks: the log tab of a beekeeper deployment, where a long error line cannot be
-  read to its end.
-
 ## A touch on a button ends the editing of a text field
 
 Found on 2026-10-09 in banda, `~/dev/apps/banda`, on an iPhone 16 Pro Max.
