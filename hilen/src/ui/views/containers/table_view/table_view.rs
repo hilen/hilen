@@ -334,6 +334,20 @@ impl TableView {
         (index < number_of_cells).then_some(index)
     }
 
+    /// Where the row of cell `index` starts in the content, the header
+    /// included. Add `content_offset()` for its place in the table. None
+    /// for a table with no layout yet and for an index past the end.
+    pub fn row_top(&self, index: usize) -> Option<f32> {
+        if self.data.is_null() {
+            return None;
+        }
+        let number_of_cells = self.data.number_of_cells();
+        if index >= number_of_cells || self.laid_cells != Some(number_of_cells) {
+            return None;
+        }
+        Some(self.rows(number_of_cells).top(index / self.columns) + self.header_height)
+    }
+
     /// The cells on screen right now, each with the index of the row it
     /// currently shows. The views recycle, so hold the pairs only for
     /// the current frame.

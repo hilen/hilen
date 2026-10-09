@@ -29,6 +29,11 @@ impl UIImages {
         tint_svg(include_bytes!("images/x.svg"), "x.svg", tint)
     }
 
+    /// The Lucide arrow down, drawn in `tint`.
+    pub(crate) fn arrow_down(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/arrow_down.svg"), "arrow_down.svg", tint)
+    }
+
     pub fn down() -> Weak<Image> {
         Image::from_file_data(include_bytes!("images/down.png"), "down.png")
     }

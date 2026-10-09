@@ -12,8 +12,8 @@ use crate::{
         flat::{Point, Size},
     },
     ui::{
-        Container, DynamicColor, Input, NO_TOUCH_ID, Scrollable, Setup, Touch, TouchStack, UIAnimation,
-        UIEvent, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
+        Container, DynamicColor, Input, NO_TOUCH_ID, Scrollable, Setup, TextSelection, Touch, TouchStack,
+        UIAnimation, UIEvent, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
         views::containers::scrolling::ScrollContent,
     },
 };
@@ -21,6 +21,9 @@ use crate::{
 const BAR_WIDTH: f32 = 4.0;
 const BAR_INSET: f32 = 2.0;
 const BAR_MIN_LENGTH: f32 = 20.0;
+/// How wide the area is that grabs a bar. The bar itself is too thin to
+/// hit with a pointer.
+const GRIP_WIDTH: f32 = 14.0;
 // Translucent black over light content, translucent white over dark,
 // a black thumb disappears on a dark theme.
 const BAR_COLOR: DynamicColor =
@@ -29,6 +32,23 @@ const BAR_COLOR: DynamicColor =
 /// A captured touch becomes a drag only after moving this far. Until then
 /// taps on views inside the scroll work; after, the drag claims the touch.
 const DRAG_SLOP: f32 = 10.0;
+
+/// A grabbed bar follows the pointer only after it moved this far, so a
+/// click on a bar is still a click on what is under it.
+const BAR_SLOP: f32 = 3.0;
+
+/// A press that began on a bar. Once it moves, the bar follows it and
+/// the content moves by as much as the bar stands for.
+#[derive(Debug, Clone, Copy)]
+struct BarGrab {
+    touch:    usize,
+    sideways: bool,
+    /// Where the press began on the screen.
+    began:    Point,
+    /// How far from the start of the bar the press began, along the bar.
+    at:       f32,
+    dragging: bool,
+}
 
 /// Which content dimensions the app pinned through the `set_content`
 /// calls. Automatic content sizing skips a pinned axis.
@@ -51,6 +71,8 @@ pub struct ScrollView {
     drag_sideways:      bool,
     manual_content:     ManualContent,
     drag_disabled:      bool,
+    /// The press that began on a bar, see `BarGrab`.
+    bar_grab:           Option<BarGrab>,
     /// The sideways offset: 0 at the left edge, negative right of it.
     offset_x:           f32,
     /// Set by a host that moves its own views sideways, the table. The
@@ -235,13 +257,68 @@ impl ScrollView {
             return;
         }
 
-        let track = height - BAR_INSET * 2.0;
-        let length = (track * height / content).max(BAR_MIN_LENGTH).min(track);
+        let (track, length) = Self::bar_track(height, content, 0.0);
         let offset = -self.content.__base_view().__content_offset;
         let y = BAR_INSET + (track - length) * offset / (content - height);
 
         self.bar.set_hidden(false);
         self.bar.set_frame((self.width() - BAR_WIDTH - BAR_INSET, y, BAR_WIDTH, length));
+    }
+
+    /// The room a bar moves in and its length, for a view `side` long
+    /// that shows this much of `content`. `corner` is kept free at the
+    /// end of the track.
+    fn bar_track(side: f32, content: f32, corner: f32) -> (f32, f32) {
+        let track = side - BAR_INSET * 2.0 - corner;
+        let length = (track * side / content).max(BAR_MIN_LENGTH).min(track);
+        (track, length)
+    }
+
+    /// The room the sideways bar leaves for the vertical one.
+    fn bar_corner(&self) -> f32 {
+        if self.bar.is_hidden() {
+            0.0
+        } else {
+            BAR_WIDTH + BAR_INSET
+        }
+    }
+
+    /// Moves the content so the vertical bar starts at `top`, in the
+    /// points of this view.
+    fn drag_bar(&mut self, top: f32) {
+        let height = self.height();
+        let content = self.content.content_size.height;
+        if content <= height {
+            return;
+        }
+        let (track, length) = Self::bar_track(height, content, 0.0);
+        let travel = track - length;
+        if travel <= 0.0 {
+            return;
+        }
+
+        let target = -(top - BAR_INSET) / travel * (content - height);
+        let current = self.content.__base_view().__content_offset;
+        self.inertia = 0.0;
+        self.on_scroll(target - current);
+    }
+
+    /// The same for the sideways bar, which starts at `left`.
+    fn drag_bar_x(&mut self, left: f32) {
+        let width = self.width();
+        let range = self.range_x();
+        if range <= 0.0 {
+            return;
+        }
+        let (track, length) = Self::bar_track(width, width + range, self.bar_corner());
+        let travel = track - length;
+        if travel <= 0.0 {
+            return;
+        }
+
+        let target = -(left - BAR_INSET) / travel * range;
+        self.inertia_x = 0.0;
+        self.scroll_x(target - self.offset_x);
     }
 }
 
@@ -257,13 +334,7 @@ impl ScrollView {
 
         // Stops short of the vertical bar, so the two never cross in the
         // corner.
-        let corner = if self.bar.is_hidden() {
-            0.0
-        } else {
-            BAR_WIDTH + BAR_INSET
-        };
-        let track = width - BAR_INSET * 2.0 - corner;
-        let length = (track * width / (width + range)).max(BAR_MIN_LENGTH).min(track);
+        let (track, length) = Self::bar_track(width, width + range, self.bar_corner());
         let x = BAR_INSET + (track - length) * -self.offset_x / range;
 
         self.bar_x.set_hidden(false);
@@ -312,6 +383,10 @@ impl ViewSubviews for ScrollView {
 
 impl Scrollable for ScrollView {
     fn __process_scroll_touch(&mut self, touch: Touch) -> bool {
+        if self.process_bar_touch(&touch) {
+            return true;
+        }
+
         if touch.is_ended() {
             // Only the finger this scroll was following ends its drag. A
             // different finger lifting elsewhere must not clear this scroll's
@@ -422,6 +497,90 @@ impl Scrollable for ScrollView {
 }
 
 impl ScrollView {
+    /// The bar under a point of the screen and how far from the start
+    /// of that bar the point is, along the bar. A bar is too thin to hit
+    /// with a pointer, so the area is `GRIP_WIDTH` wide.
+    fn bar_at(&self, point: Point) -> Option<(bool, f32)> {
+        let local = point - self.absolute_frame().origin;
+
+        if !self.bar.is_hidden() {
+            let bar = self.bar.frame();
+            if local.x >= self.width() - GRIP_WIDTH
+                && local.x <= self.width()
+                && local.y >= bar.y()
+                && local.y <= bar.max_y()
+            {
+                return Some((false, local.y - bar.y()));
+            }
+        }
+        if !self.bar_x.is_hidden() {
+            let bar = self.bar_x.frame();
+            if local.y >= self.height() - GRIP_WIDTH
+                && local.y <= self.height()
+                && local.x >= bar.x()
+                && local.x <= bar.max_x()
+            {
+                return Some((true, local.x - bar.x()));
+            }
+        }
+        None
+    }
+
+    /// A touch that grabs or drags a bar. True when the touch belongs to
+    /// a bar, the content then does not take it for a drag of its own.
+    fn process_bar_touch(&mut self, touch: &Touch) -> bool {
+        if touch.is_began() {
+            if self.bar_grab.is_some() || self.is_hidden_in_tree() {
+                return false;
+            }
+            let Some((sideways, at)) = self.bar_at(touch.position) else {
+                return false;
+            };
+            self.bar_grab = Some(BarGrab {
+                touch: touch.id,
+                sideways,
+                began: touch.position,
+                at,
+                dragging: false,
+            });
+            return true;
+        }
+
+        let Some(mut grab) = self.bar_grab.filter(|grab| grab.touch == touch.id) else {
+            return false;
+        };
+        if touch.is_ended() {
+            self.bar_grab = None;
+            return true;
+        }
+
+        if !grab.dragging {
+            let moved = touch.position - grab.began;
+            let travel = if grab.sideways {
+                moved.x.abs()
+            } else {
+                moved.y.abs()
+            };
+            if travel < BAR_SLOP {
+                return true;
+            }
+            grab.dragging = true;
+            self.bar_grab = Some(grab);
+            // The views under the bar lose the press, and a text
+            // selection that began with it does not go on.
+            TouchStack::cancel_touch(touch.id);
+            TextSelection::drop_drag(touch.id);
+        }
+
+        let local = touch.position - self.absolute_frame().origin;
+        if grab.sideways {
+            self.drag_bar_x(local.x - grab.at);
+        } else {
+            self.drag_bar(local.y - grab.at);
+        }
+        true
+    }
+
     /// A finger drags it or the fling after a drag still moves it. The
     /// fling decays by a fixed factor per frame, so it ends at the same
     /// offset on any frame rate, only sooner or later. A test that taps

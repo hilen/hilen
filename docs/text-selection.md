@@ -94,6 +94,13 @@ order, the labels are noted in `note_text`.
 `TextField` keeps its own caret and selection. It shares the selection color and the
 word rule, `word_range`.
 
+2 selectable labels of 1 cell are joined by a line break in a copy. A label can ask
+for another join with its `selection_lead`, the text label of a `LogView` row asks
+for 1 space after its prefix.
+
+A press that turns into a drag of a scroll bar stops the selection it began,
+`TextSelection::drop_drag`.
+
 ## Limits
 
 - No selection over a plain `ScrollView` or `Container`, only a table, a markdown view

@@ -13,6 +13,7 @@ use crate::{
     },
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
+        text_selection::Lead,
         view::{ViewData, ViewSubviews},
         views::basic::{
             label_runs::StyleRun,
@@ -73,6 +74,10 @@ pub struct Label {
 
     /// The text can be selected and copied, see `set_selectable`.
     pub(super) selectable: bool,
+
+    /// What stands between this text and the selectable text before it
+    /// in a copy of the cell they are in, a line break when not set.
+    pub(crate) selection_lead: Lead,
 
     multiline: bool,
 

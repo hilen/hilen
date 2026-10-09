@@ -3,7 +3,10 @@
 use std::ops::Deref;
 
 use super::layout::LayoutMode;
-use crate::ui::{TableView, WeakView};
+use crate::{
+    gm::LossyConvert,
+    ui::{TableView, TextSelection, ViewData, WeakView},
+};
 
 impl TableView {
     /// The cell `index` changed, its content, its height or both. The
@@ -94,5 +97,59 @@ impl TableView {
 
         self.laid_cells = Some(number_of_cells);
         self.layout_cells(LayoutMode::Scroll);
+    }
+
+    /// The first `count` cells left the data. The table asks no
+    /// `cell_height` and sets up no cell that stays on screen: the rows
+    /// that are left keep their heights and their cells, and stay at the
+    /// same place on the screen, the scroll offset moves by the height
+    /// that is gone. A text selection stays on its text.
+    ///
+    /// The cells after them must be the ones of the last reload. A table
+    /// whose count does not fit, a table with sticky rows, and a count
+    /// that is not whole rows reload everything here.
+    pub fn drop_first_cells(&mut self, count: usize) {
+        if count == 0 || self.data.is_null() {
+            return;
+        }
+        TextSelection::rows_dropped(self, count);
+
+        let number_of_cells = self.data.number_of_cells();
+        let fits = number_of_cells > 0
+            && !self.sticky_enabled
+            && count.is_multiple_of(self.columns)
+            && self.laid_cells == Some(number_of_cells + count);
+        if !fits {
+            self.reload_data();
+            return;
+        }
+
+        let rows = count / self.columns;
+        let removed = if self.variable_heights {
+            let removed = self.row_offsets[rows];
+            self.row_offsets.drain(..rows);
+            for offset in &mut self.row_offsets {
+                *offset -= removed;
+            }
+            removed
+        } else {
+            let rows: f32 = rows.lossy_convert();
+            rows * (self.data.cell_height(0) + self.cell_spacing)
+        };
+
+        let mut gone = Vec::new();
+        for (index, mut cell) in self.visible_cells() {
+            if index < count {
+                gone.push(cell);
+            } else {
+                cell.set_tag(index - count);
+            }
+        }
+        self.recycle(gone);
+
+        let offset = self.scroll.get_scroll_content_offset();
+        self.scroll.set_content_offset((offset + removed).min(0.0));
+        self.laid_cells = Some(number_of_cells);
+        self.layout_cells(LayoutMode::Resize);
     }
 }

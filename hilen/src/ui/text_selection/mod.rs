@@ -561,6 +561,45 @@ impl TextSelection {
         }
     }
 
+    /// The press `touch` now drags something else, a scroll bar. A
+    /// selection that began with it keeps what it has and stops moving.
+    pub(crate) fn drop_drag(touch: usize) {
+        *TAP.get_mut() = None;
+        if let Some(state) = state()
+            && state.drag.as_ref().is_some_and(|drag| drag.touch == touch)
+        {
+            state.drag = None;
+        }
+    }
+
+    /// The first `count` rows left the data of `table`. A selection in
+    /// that table moves with its text, an end on a row that is gone goes
+    /// to the start of the first row.
+    pub(crate) fn rows_dropped(table: &TableView, count: usize) {
+        let Some(state) = state() else {
+            return;
+        };
+        let Scope::Table(scope) = state.scope else {
+            return;
+        };
+        if scope.addr() != weak_from_ref(table).addr() {
+            return;
+        }
+
+        let moved = |at: Position| {
+            if at == Position::END {
+                at
+            } else if at.row < count {
+                Position::default()
+            } else {
+                Position::new(at.row - count, at.piece, at.byte)
+            }
+        };
+        state.anchor = (moved(state.anchor.0), moved(state.anchor.1));
+        state.range = (moved(state.range.0), moved(state.range.1));
+        changed();
+    }
+
     /// The selected part of `label`, none when no selection touches it.
     pub(crate) fn highlight(label: &Label) -> Option<Highlight> {
         let state = state_ref()?;

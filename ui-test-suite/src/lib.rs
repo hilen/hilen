@@ -17,6 +17,7 @@ mod base;
 #[cfg(not_wasm)]
 mod inspect;
 mod level;
+mod log_probe;
 mod text_points;
 mod views;
 

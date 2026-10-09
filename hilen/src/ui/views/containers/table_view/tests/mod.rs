@@ -1,4 +1,5 @@
 mod drag_scrolling;
+mod drop_first_cells;
 mod emptied;
 mod footer;
 mod infinite_scroll;

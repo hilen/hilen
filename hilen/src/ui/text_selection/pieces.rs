@@ -54,7 +54,7 @@ fn collect_texts(view: WeakView, found: &mut Vec<(String, Lead)>) {
     }
     if let Some(label) = view.downcast_view::<Label>() {
         if label.is_selectable() {
-            found.push((label.text().to_string(), Lead::Line));
+            found.push((label.text().to_string(), label.selection_lead));
         }
         return;
     }
