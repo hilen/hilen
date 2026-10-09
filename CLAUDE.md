@@ -51,7 +51,7 @@ report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device. `video` is video
+with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
 through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, a list of pieces played as 1 video and the export to an mp4 file, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `hot` is hot reload in the iOS simulator and on a real iPhone, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
@@ -170,6 +170,13 @@ Do not read these upfront. Read the matching file only when the task touches tha
   how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
   mapping, playback speed, what was measured, the iOS side with its audio session, and the browser side, a `<video>` element
   under a hole in the frame. Read before touching `hilen/src/video` or the archive script.
+- [docs/sound-clock.md](docs/sound-clock.md): `SoundClock` of the `audio` feature, a sound that starts
+  on an exact sample, the time in seconds and beats, the tempo, what the time means against the
+  speaker, and why it is not a kira clock. Read before touching `hilen/src/audio/clock.rs` or
+  `clock_sound.rs`, or playing a rhythm from an app.
+- [docs/midi.md](docs/midi.md): the `midi` feature, `Midi`, `MidiInput` and `MidiMessage`, the time
+  of a message and how it meets a `SoundClock`, the platforms midir covers, and the fake device of
+  the tests. Read before touching `hilen/src/midi` or reading a MIDI device from an app.
 - [docs/google-access.md](docs/google-access.md) — Google API access with the tokens on the device:
   the 1 Web client on the backend, the sealed hand over between `hilen::google_access` and
   `hilen_server::google_access`, the refresh that stores nothing, `GoogleAccounts` with a main

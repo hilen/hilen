@@ -40,6 +40,8 @@ level = ["dep:geo", "dep:level-proc", "dep:rapier2d"]
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
+# MIDI input devices through midir, see docs/midi.md. Off by default.
+midi = ["dep:midir"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
@@ -94,6 +96,7 @@ kira = { workspace = true, optional = true }
 log = { workspace = true }
 local-ip-address = { workspace = true }
 lyon = { workspace = true }
+midir = { workspace = true, optional = true }
 mime_guess = { workspace = true }
 noise = { workspace = true }
 nonempty = { workspace = true }

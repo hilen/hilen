@@ -19,6 +19,34 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Sound clock and MIDI input, the proof on real devices
+
+Found on 2026-10-09 when `SoundClock` and the `midi` feature landed, see
+[sound-clock.md](sound-clock.md) and [midi.md](midi.md). The driver is blast,
+`~/dev/apps/blast`, a drum practice app.
+
+- Current: both are proven by unit tests only, on macOS and on Linux. The clock tests
+  play the audio thread by hand and the MIDI tests use a fake device. No sound of a
+  clock went through a real output device, and no real MIDI device was opened, on any
+  platform. The engine compiles for iOS and for the browser with both features on.
+  A build for Windows and for Android with the `midi` feature was never made. The
+  test `a_message_of_a_core_midi_source_arrives` in `hilen/src/midi/midi_test.rs`
+  sends through a virtual CoreMIDI source. It is ignored, and it never passed: on the
+  build machine kotik midir gives `InitError` when it makes its CoreMIDI client. The
+  clock gives the time the audio thread is at. A speaker is later than that by the
+  delay of the output device, and the engine does not know that delay. In a browser
+  the time of a MIDI message is taken on the main thread, so a busy frame makes it
+  late.
+- Needed: play a pattern of 16th notes at 280 BPM on a `SoundClock` on a Mac, an iPad
+  and an iPhone and hear that it is even. Open a real MIDI device on each of them,
+  plug it in and pull it out, and compare the time of a hit with the clock. Run the
+  ignored CoreMIDI test on a Mac with a login session. Build with `midi` for Windows
+  and Android and try a device there, and in a browser with Web MIDI. Decide whether
+  the clock should know the delay of the output device, and whether a MIDI message
+  should take its time from the system where the system gives one, like the packet
+  time of CoreMIDI and the event time of Web MIDI.
+- Blocks: nothing in the engine. blast finds out on its first run with a drum module.
+
 ## A tinted icon asked for before its download stays the placeholder for good
 
 Found on 2026-10-09 in the beekeeper web UI, `beekeeper/web` of the `beekeeper` repo,

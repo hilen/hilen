@@ -70,6 +70,23 @@ impl Sound {
         }
     }
 
+    pub(super) fn at_volume(&self, volume: f32) -> StaticSoundData {
+        self.data.volume(decibels(volume))
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_frames(sample_rate: u32, frames: Vec<kira::Frame>) -> Self {
+        Self {
+            path: "test".into(),
+            data: StaticSoundData {
+                sample_rate,
+                frames: frames.into(),
+                settings: kira::sound::static_sound::StaticSoundSettings::default(),
+                slice: None,
+            },
+        }
+    }
+
     fn start(&self, data: StaticSoundData) -> Option<StaticSoundHandle> {
         match effects()?.play(data) {
             Ok(handle) => Some(handle),

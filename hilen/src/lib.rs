@@ -44,6 +44,7 @@ mod hot;
 mod ios_log;
 #[cfg(not_wasm)]
 mod log_file;
+mod monotonic;
 #[cfg(any(desktop, target_os = "android"))]
 mod panic_log;
 mod pipelines;
@@ -68,6 +69,8 @@ pub mod inspect;
 pub mod level;
 #[cfg(feature = "login")]
 pub mod login;
+#[cfg(feature = "midi")]
+pub mod midi;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;
@@ -105,6 +108,8 @@ pub mod reflected {
 
 pub mod time {
     pub use web_time::*;
+
+    pub use crate::monotonic::monotonic_seconds;
 }
 
 pub use app_runner::AppRunner;
