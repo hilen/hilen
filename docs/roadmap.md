@@ -19,6 +19,31 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A tinted icon asked for before its download stays the placeholder for good
+
+Found on 2026-10-09 in the beekeeper web UI, `beekeeper/web` of the `beekeeper` repo,
+in a browser.
+
+- Current: in a browser `Tinted::to_image` in
+  `hilen/src/window/image/tinted_image.rs` finds no bytes for an SVG whose asset group
+  is not downloaded yet. It then makes the default picture and stores it under the
+  real name of the icon and tint, `Image::from_file_data(DEFAULT_IMAGE_DATA,
+  &tinted_name(..))`. Every later call finds that name with `Image::weak_with_name`
+  and returns the default picture, also after the download. So 1 early call breaks
+  that icon in that color until the page is loaded again. On desktop the file is read
+  from disk at once, so it never shows there. The beekeeper shell painted its tab
+  icons in `setup`, before `Assets::await_boot`, and 3 of 4 tabs showed the default
+  picture on the public page.
+- Needed: an icon asked for too early shows the right picture once its group is
+  there. The default picture is not stored under the real name, or the stored entry
+  is dropped when the group lands, and a view that got the default picture is drawn
+  again then. The same for a plain `Image::get` of a file that is not there yet. A
+  test that asks for a tinted icon before its bytes are stored, stores them, asks
+  again and gets the real picture.
+- Blocks: nothing now. Beekeeper waits for the boot group before it paints an icon,
+  the guard is `icons_ready` in `ui/shell.rs`. Any other app that sets an icon in the
+  `setup` of its root view has the same broken icons in a browser.
+
 ## A touch on a button ends the editing of a text field
 
 Found on 2026-10-09 in banda, `~/dev/apps/banda`, on an iPhone 16 Pro Max.
