@@ -230,7 +230,8 @@ All data of an app lives in `~/.config/<project_name>` on desktop. The name is t
 `project_name` of the `hilen.toml` above the app crate, `hilen::register_app!(MyApp)`
 reads it at build time and an app without that line stops at start. The engine creates
 the folder and sets it as the `OnDisk` root before `before_launch`. `Paths::storage()`
-returns it. On iOS and Android the folder is `.<exe name>` inside the documents dir
+returns it. `HILEN_DATA_DIR=<folder>` in the env moves it for 1 run of a desktop app, for a
+check on a copy of the data, a test run ignores it. On iOS and Android the folder is `.<exe name>` inside the documents dir
 and inside the private files dir, made and set as the root the same way. A backend
 gets the same folder from `hilen_server::data_dir!()`, so a Docker build of a backend
 has to copy `hilen.toml` in. The test runners start the engine's own app, which has no

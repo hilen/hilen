@@ -668,10 +668,10 @@ async fn build_time(client: &Client) -> Result<()> {
                 "App is stale. Source changed {minutes} minutes after this app started. Rebuild and reinstall before testing anything against it."
             );
         }
-        Freshness::EngineOlder { seconds } => {
+        Freshness::BuiltBeforeSource { seconds } => {
             let minutes = seconds / 60;
             bail!(
-                "Cannot prove the app is current. Source is {minutes} minutes newer than the engine build, but predates this app launch. This can be a current app-only rebuild or a stale reused Rust library. Verify app-only evidence before testing against it."
+                "App is stale. The newest source is {minutes} minutes newer than the code this app runs, and the app was started after it. The last build did not take that file in, or an old binary was started. Rebuild and start the new binary. Two cases are not stale: the file named above is not part of this app, then a build compiles nothing, and an app on a hilen pin from before the app stamp, there the stamp is the one of the engine and a rebuild of only the app shows this too."
             );
         }
     }
@@ -683,7 +683,7 @@ async fn build_time(client: &Client) -> Result<()> {
 enum Freshness {
     Current,
     ChangedSinceStart { seconds: u64 },
-    EngineOlder { seconds: u64 },
+    BuiltBeforeSource { seconds: u64 },
 }
 
 fn freshness(built: u64, started: u64, newest: u64) -> Freshness {
@@ -693,7 +693,7 @@ fn freshness(built: u64, started: u64, newest: u64) -> Freshness {
         };
     }
     if newest > built {
-        return Freshness::EngineOlder {
+        return Freshness::BuiltBeforeSource {
             seconds: newest - built,
         };
     }
@@ -816,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn current_when_engine_was_built_after_source() {
+    fn current_when_the_app_code_was_built_after_source() {
         assert_eq!(freshness(200, 300, 100), Freshness::Current);
     }
 
@@ -828,9 +828,13 @@ mod tests {
         );
     }
 
+    // The binary was started after the edit, but its code is from before it.
     #[test]
-    fn ambiguous_when_app_started_after_source_but_engine_is_older() {
-        assert_eq!(freshness(100, 300, 220), Freshness::EngineOlder { seconds: 120 });
+    fn stale_when_the_app_code_was_built_before_source() {
+        assert_eq!(
+            freshness(100, 300, 220),
+            Freshness::BuiltBeforeSource { seconds: 120 }
+        );
     }
 
     #[test]

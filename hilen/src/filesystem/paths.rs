@@ -1,5 +1,5 @@
 #[cfg(desktop)]
-use std::env::temp_dir;
+use std::env::{temp_dir, var_os};
 use std::path::PathBuf;
 
 use parking_lot::Mutex;
@@ -13,6 +13,25 @@ static STORAGE_PATH: Mutex<Option<String>> = Mutex::new(None);
 /// A test run stores here and never in the data folder of a real app.
 #[cfg(desktop)]
 static TEST_STORAGE: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Points the data folder of a desktop app at another folder for 1 run. A
+/// check of a running app sets it to a copy of the data, so a tap that
+/// deletes or syncs something never reaches the real folder or the real
+/// account. Only the data folder moves, the log folder stays.
+#[cfg(desktop)]
+pub const DATA_DIR_VAR: &str = "HILEN_DATA_DIR";
+
+// A test run wins over the env, it must never store in a folder a person
+// named. An empty value is no value.
+#[cfg(desktop)]
+fn desktop_storage(
+    test: Option<PathBuf>,
+    asked: Option<PathBuf>,
+    default: impl FnOnce() -> PathBuf,
+) -> PathBuf {
+    test.or_else(|| asked.filter(|path| !path.as_os_str().is_empty()))
+        .unwrap_or_else(default)
+}
 
 pub struct Paths;
 
@@ -68,7 +87,8 @@ impl Paths {
         #[cfg(desktop)]
         {
             let test = TEST_STORAGE.lock().clone();
-            test.unwrap_or_else(|| Self::config().join(hilen_project_name()))
+            let asked = var_os(DATA_DIR_VAR).map(PathBuf::from);
+            desktop_storage(test, asked, || Self::config().join(hilen_project_name()))
         }
     }
 
@@ -136,5 +156,34 @@ impl Paths {
         // The API is async on every platform, here the answer is immediate.
         #[cfg(any(mobile, wasm))]
         std::future::ready(None).await
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::desktop_storage;
+
+    fn folder(test: Option<&str>, asked: Option<&str>) -> PathBuf {
+        desktop_storage(test.map(PathBuf::from), asked.map(PathBuf::from), || {
+            PathBuf::from("/home/.config/app")
+        })
+    }
+
+    #[test]
+    fn the_env_moves_the_data_folder() {
+        assert_eq!(folder(None, None), PathBuf::from("/home/.config/app"));
+        assert_eq!(folder(None, Some("/tmp/copy")), PathBuf::from("/tmp/copy"));
+        assert_eq!(folder(None, Some("")), PathBuf::from("/home/.config/app"));
+    }
+
+    // A test run must never store in a folder a person named.
+    #[test]
+    fn a_test_run_wins_over_the_env() {
+        assert_eq!(
+            folder(Some("/tmp/test"), Some("/tmp/copy")),
+            PathBuf::from("/tmp/test")
+        );
     }
 }

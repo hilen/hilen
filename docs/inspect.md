@@ -193,23 +193,28 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   `Paused { frame }`, the frames drawn since the pause. `Step` on an app that is not
   paused is an error.
 - `ListEdits` — returns every edit applied in this session.
-- `GetBuildTime` — unix seconds of when `hilen` was compiled, stamped by
-  `hilen/build.rs`. `hilen-inspect build-time` compares it to the newest source of the folder it is run
-  from, which it prints, and
-  combines it with `GetStartTime`, the unix seconds when the app process started. Source
-  newer than the process is definitely stale. Source older than the process but newer than
-  the engine build is reported as inconclusive: it can be a current app-only rebuild or a
-  stale reused Rust library. The stamp has to live in the Rust code: an iOS
-  build relinks the `.app` every time while reusing a stale `libdemo.a`, so the
-  bundle's own timestamp, md5 and install all report fresh while old code runs.
+- `GetBuildTime` — unix seconds of when the code of the app was compiled, the answer of
+  `hilen_app_build_time` in `hilen/src/app.rs`. `hilen-inspect build-time` compares it to
+  the newest source of the folder it is run from, which it prints, and combines it with
+  `GetStartTime`, the unix seconds when the app process started. Source newer than the
+  process is stale. Source older than the process but newer than the stamp is stale too:
+  the binary was started after the edit and its code is from before it. The stamp has to
+  live in the Rust code: an iOS build relinks the `.app` every time while reusing a stale
+  `libdemo.a`, so the bundle's own timestamp, md5 and install all report fresh while old
+  code runs.
 
-  It stamps **`hilen`**, not the app, so it answers "when was the engine compiled",
-  not "is this app current". Change only `ui-test-suite` or `demo` and cargo rightly
-  leaves `hilen` alone, so a correctly rebuilt app reports stale. That is a false
-  positive, and it has already happened. Treat a stale verdict as a reason to check, not as
-  proof: something that only the new code produces, a test count or an `nm` symbol, settles
-  it. A fresh verdict is still worth having, it catches the case that matters, a `.a` that
-  never rebuilt.
+  The stamp is made by `register_app!`, which calls the proc macro `build_time!()` of
+  `project-proc` in the final crate of the app. Cargo compiles that crate again after any
+  change below it, the engine included, so the number moves with every real build of the
+  app. Before this the stamp came from `hilen/build.rs` alone and answered "when was the
+  engine compiled". Change only `ui-test-suite` or `demo` and cargo rightly left `hilen`
+  alone, so a correctly rebuilt app reported stale. An app with no `register_app!` still
+  answers with that engine stamp, through the weak `hilen_app_build_time` of the engine.
+
+  2 things can still make a current app read as stale. A source file in the folder that
+  is not part of the app, like a backend crate in the same repo, is newer and a build
+  compiles nothing. And the stamp is the clock of the machine that compiles, so a build
+  on another machine whose clock is behind looks older than a local edit.
 - `GetStartTime` — unix seconds of when the current process started, recorded before the
   app runner launches. Used with `GetBuildTime` to distinguish a source edit made after
   launch from an app-only source edit already present when the process started.

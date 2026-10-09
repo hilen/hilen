@@ -28,9 +28,8 @@ use crate::inspect::hot_swap;
 use crate::inspect::protocol::SERVICE_TYPE;
 #[cfg(not_wasm)]
 use crate::inspect::{MARKER, protocol::serve};
-#[cfg(feature = "audio")]
-use crate::{audio::Sound, deps::refs::manage::DataManager};
 use crate::{
+    app::hilen_app_build_time,
     deps::hreads::from_main,
     gm::flat::Point,
     inspect::{
@@ -44,6 +43,8 @@ use crate::{
     },
     window::{MouseButton, Screenshot},
 };
+#[cfg(feature = "audio")]
+use crate::{audio::Sound, deps::refs::manage::DataManager};
 
 pub struct InspectService;
 
@@ -166,10 +167,8 @@ impl InspectService {
             InspectorCommand::ListEdits => AppCommand::Edits(edit_log::all()),
             InspectorCommand::RunTests => Self::run_tests(),
             // Compiled in, so it reports when this running code was built, not
-            // when the bundle around it was linked. See `hilen/build.rs`.
-            InspectorCommand::GetBuildTime => AppCommand::BuildTime(
-                env!("HILEN_BUILD_TIME").parse().expect("HILEN_BUILD_TIME is not a number"),
-            ),
+            // when the bundle around it was linked. See `hilen_app_build_time`.
+            InspectorCommand::GetBuildTime => AppCommand::BuildTime(hilen_app_build_time()),
             InspectorCommand::GetStartTime => {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }

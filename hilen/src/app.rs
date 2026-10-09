@@ -146,6 +146,26 @@ pub extern "C" fn hilen_create_app() -> Box<dyn App> {
     panic!("you need to use hilen::register_app!(YourApp) macro")
 }
 
+/// When the code of the app was last compiled, in unix seconds, what
+/// `hilen-inspect build-time` reads. `register_app!` stamps the final crate
+/// of the app, and cargo compiles that crate again after any change below
+/// it, the engine included. The stamp of the engine alone is older than a
+/// rebuild of only the app, so it called a current app stale. An app with no
+/// `register_app!` links this one and answers with the stamp of the engine.
+#[cfg(not(ios))]
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub extern "Rust" fn hilen_app_build_time() -> u64 {
+    env!("HILEN_BUILD_TIME").parse().expect("HILEN_BUILD_TIME is not a number")
+}
+
+// An iOS app is a static library and always has `register_app!`, like
+// `hilen_create_app` above.
+#[cfg(ios)]
+unsafe extern "Rust" {
+    pub(crate) safe fn hilen_app_build_time() -> u64;
+}
+
 /// The `project_name` of the app's `hilen.toml`, the name of its data
 /// folder. `register_app!` puts the real one into the final crate, this
 /// one is linked when an app has no `register_app!`.
@@ -206,6 +226,11 @@ macro_rules! register_app {
         #[unsafe(no_mangle)]
         pub extern "Rust" fn hilen_app_version() -> &'static str {
             env!("CARGO_PKG_VERSION")
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "Rust" fn hilen_app_build_time() -> u64 {
+            hilen::build_time!()
         }
 
         #[unsafe(no_mangle)]

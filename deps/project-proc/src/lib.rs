@@ -12,6 +12,7 @@ use std::{
     env::var,
     fs::read_to_string,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow, ensure};
@@ -52,6 +53,20 @@ pub fn project_name(input: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+/// The moment the crate that calls it is compiled, in unix seconds, as a
+/// `u64` number. `register_app!` calls it in the final crate of an app.
+/// Cargo compiles that crate again after any change below it, so the number
+/// is the time the code of the app was last built. A build script can not
+/// give this, an app has none that the engine could write.
+#[proc_macro]
+pub fn build_time(input: TokenStream) -> TokenStream {
+    if !input.is_empty() {
+        return quote! { compile_error!("build_time!() takes no arguments") }.into();
+    }
+    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    quote! { #seconds }.into()
 }
 
 /// The files of the app's `assets` folder as a list of name and bytes, for
