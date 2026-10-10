@@ -19,6 +19,8 @@ mod frames;
 #[cfg(ffmpeg)]
 mod hw;
 #[cfg(ffmpeg)]
+mod levels;
+#[cfg(ffmpeg)]
 mod nv12;
 #[cfg(ffmpeg)]
 mod player;
@@ -39,6 +41,8 @@ use std::sync::Once;
 pub use export::{VideoExport, VideoExportEvent, VideoExportSettings};
 #[cfg(ffmpeg)]
 pub use frames::{VideoFrames, VideoFramesEvent, VideoFramesLoad, VideoInfo, VideoPicture};
+#[cfg(ffmpeg)]
+pub use levels::{VideoLevels, VideoLevelsEvent, VideoLevelsLoad};
 #[cfg(ffmpeg)]
 use log::error;
 #[cfg(ffmpeg)]

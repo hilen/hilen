@@ -247,12 +247,12 @@ pitch kept. A broken file reports through `on_error` and the log, never a
 panic. The demo has a Video page with a file picker, a path field, a progress
 slider and the stats line.
 
-## Pictures, pieces and export
+## Pictures, levels, pieces and export
 
-3 things an editor needs, on the systems ffmpeg decodes on. A browser has none
-of them. All 3 read a file through `Reader`, `hilen/src/video/decoder/reader.rs`:
-one file, picture by picture, no queue and no clock, a seek exact to the frame
-by the rule a seek of the player has.
+4 things an editor needs, on the systems ffmpeg decodes on. A browser has none
+of them. The pictures, the pieces and the export read a file through `Reader`,
+`hilen/src/video/decoder/reader.rs`: one file, picture by picture, no queue
+and no clock, a seek exact to the frame by the rule a seek of the player has.
 
 - Pictures with no view, `hilen/src/video/frames.rs`. `VideoFrames::load(source,
   times, max_size, each)` reads on a thread of its own and reports on the main
@@ -265,6 +265,18 @@ by the rule a seek of the player has.
   nothing. `VideoFrames::open`, `info`, `picture` and `pictures` are the same
   work as blocking calls with RGBA pixels, for a thread of the app. The colors
   are computed with the numbers of `nv12.wgsl`. HDR is not tone mapped there.
+- Sound levels for a waveform, `hilen/src/video/levels.rs`.
+  `VideoLevels::load(source, start, end, count, each)` cuts the part of a file
+  from `start` up to `end` into `count` equal steps, reads on a thread of its
+  own and reports once on the main thread: `Loaded` with a level per step, or
+  `Failed`. A level is the loudest sample of the step in both channels, from 0
+  for silence to 1 for full scale, on a plain scale, not in decibels. A file
+  with no sound track gives zeros, and so does a part past the end of the
+  sound. The handle has `cancel`. `VideoLevels::read` is the same work as a
+  blocking call. With a `count` of 1 it gives the peak of the part, what a
+  normalize needs. It decodes the sound of the whole part through `FileSound`
+  of `audio/pieces.rs`, so the levels are those of the samples a list of
+  pieces plays.
 - A list of pieces as 1 video. `VideoView::set_pieces([VideoPiece::new(source,
   start, end), ..])` plays the pieces one after another, `seek_to`, `position`
   and `duration` count along the whole list. The frame at `end` is not part of
@@ -277,6 +289,14 @@ by the rule a seek of the player has.
   with no sound track is silence, a list with no sound track at all has no
   sound and follows the engine clock. `set_pieces` on a view that plays a list
   keeps the position and the picture, the state does not go through loading.
+  A piece has a volume, `VideoPiece::new(..).with_gain(2.0)`: its sound is
+  multiplied by the gain, 1 is the sound of the source, and a sample that goes
+  past full scale is cut flat. The gain is applied where the list is read, in
+  `audio/pieces.rs`, so the preview and the export have it. The gains live in
+  the `PieceList` as atomics. A `set_pieces` with the same pieces and only
+  other gains hands them to the list that plays and makes no new player, so a
+  volume slider can call it on every step of a drag. The new volume is heard
+  after the sound kira already holds.
 - Export, `hilen/src/video/export.rs`. `VideoExport::start(pieces, path,
   VideoExportSettings::new(width, height, frame_rate), each)` writes an mp4
   with h264 and AAC on a thread of its own and reports `Progress`, then
@@ -297,6 +317,7 @@ by the rule a seek of the player has.
 The tests: the unit tests next to each file, on the fixtures `ramp.mp4`, 60
 gray frames that get lighter with a sound that rises in a line, so a frame and
 a sample tell their place, and `ramp_silent.mp4`, the same with no sound. The
+levels and the gain of a piece are checked against the samples of that ramp. The
 UI tests `Video thumbnails`, `Video pieces`, which pins the frame on each side
 of a cut under stepped time, `Video pieces sound` in real time and `Video
 export to file`.

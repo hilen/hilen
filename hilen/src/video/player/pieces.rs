@@ -14,6 +14,16 @@ impl Player {
         self.source.piece_list().is_some()
     }
 
+    /// Takes the gains of another list when it has the same pieces with
+    /// only other gains, and says whether it did. The list plays on with
+    /// the new volume, nothing is opened again.
+    pub(crate) fn takes_gains_of(&self, source: &VideoSource) -> bool {
+        match (self.source.piece_list(), source.piece_list()) {
+            (Some(mine), Some(theirs)) => mine.take_gains(theirs),
+            _ => false,
+        }
+    }
+
     /// A player of another list in place of this one, for a list that
     /// changed after a trim or a reorder. It stands at the same position.
     /// The picture of this player stays on screen until the new one has its

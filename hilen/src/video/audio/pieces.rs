@@ -45,7 +45,7 @@ const GAP: usize = 48_000;
 /// cut started with that much silence, 44 ms in the `tracks.mkv` fixture.
 const SEEK_BEFORE: f64 = 0.25;
 
-fn samples(seconds: f64) -> usize {
+pub(crate) fn samples(seconds: f64) -> usize {
     (seconds.max(0.0) * f64::from(RATE)).round().lossy_convert()
 }
 
@@ -54,7 +54,7 @@ fn seconds(samples: usize) -> f64 {
 }
 
 /// The sound track of one file, decoded to stereo floats at `RATE`.
-struct FileSound {
+pub(crate) struct FileSound {
     source:    VideoSource,
     input:     Input,
     stream:    usize,
@@ -71,7 +71,7 @@ struct FileSound {
 
 impl FileSound {
     /// None when the file has no sound track.
-    fn open(source: &VideoSource, reads: &Interrupt) -> Result<Option<Self>, Error> {
+    pub(crate) fn open(source: &VideoSource, reads: &Interrupt) -> Result<Option<Self>, Error> {
         let input = source.open(reads)?;
         let Some(stream) = input.streams().best(media::Type::Audio) else {
             return Ok(None);
@@ -97,7 +97,7 @@ impl FileSound {
 
     /// The next `read` starts at this sample of the file. The demuxer lands
     /// on the packet before it and the sound up to the sample is dropped.
-    fn seek(&mut self, sample: usize) -> Result<(), Error> {
+    pub(crate) fn seek(&mut self, sample: usize) -> Result<(), Error> {
         let before = (seconds(sample) - SEEK_BEFORE).max(0.0);
         let micros: i64 = (before * 1_000_000.0).round().lossy_convert();
         {
@@ -146,7 +146,7 @@ impl FileSound {
     /// At most `most` frames from where the file stands. Past the end of
     /// its sound the file gives silence, a piece can be longer than the
     /// sound of its file.
-    fn read(&mut self, most: usize) -> Result<Vec<Frame>, Error> {
+    pub(crate) fn read(&mut self, most: usize) -> Result<Vec<Frame>, Error> {
         while self.pending.is_empty() && !self.eof {
             self.decode_more()?;
         }
@@ -270,6 +270,18 @@ fn sound_frame(frames: &[Frame]) -> frame::Audio {
     sound
 }
 
+/// The sound of a piece at its gain. What goes past full scale is cut flat.
+/// A gain of 1 leaves every sample as the file has it.
+fn amplify(frames: &mut [Frame], gain: f32) {
+    if (gain - 1.0).abs() < f32::EPSILON {
+        return;
+    }
+    for frame in frames {
+        frame.left = (frame.left * gain).clamp(-1.0, 1.0);
+        frame.right = (frame.right * gain).clamp(-1.0, 1.0);
+    }
+}
+
 /// The file that is open, for the piece that is read.
 struct Open {
     piece: usize,
@@ -336,11 +348,12 @@ impl PiecesSound {
         let place = samples(self.list.pieces()[piece].start) + self.at - self.starts[piece];
         self.open_at(piece, place)?;
 
-        let frames = match self.open.as_mut().and_then(|open| open.file.as_mut()) {
+        let mut frames = match self.open.as_mut().and_then(|open| open.file.as_mut()) {
             Some(file) => file.read(left)?,
             // The file has no sound track.
             None => vec![Frame::ZERO; left.min(SILENCE)],
         };
+        amplify(&mut frames, self.list.gain(piece));
         self.at += frames.len();
         Ok(frames)
     }
@@ -496,6 +509,76 @@ mod test {
         assert_eq!(frames.len(), 24_000);
         assert_ramp(&frames[..12_000], 12_000, "the first piece");
         assert_ramp(&frames[12_000..], 48_000, "the second piece");
+    }
+
+    /// Every piece plays at its own gain, and the next piece is not touched
+    /// by the gain of the one before it.
+    #[test]
+    fn a_piece_plays_at_its_gain() {
+        let mut sound = sound(
+            [
+                ramp(1.0, 1.25).with_gain(2.0),
+                ramp(1.0, 1.25).with_gain(0.5),
+                ramp(1.0, 1.25),
+            ],
+            1.0,
+        );
+        let frames = all(&mut sound);
+        assert_eq!(frames.len(), 36_000);
+        for (index, frame) in frames.iter().enumerate() {
+            let gain = [2.0, 0.5, 1.0][index / 12_000];
+            let expected = ramp_at(48_000 + index % 12_000) * gain;
+            assert!(
+                (frame.left - expected).abs() < 0.000_02 && (frame.right - expected).abs() < 0.000_02,
+                "sample {index} is {}, not {expected}",
+                frame.left
+            );
+        }
+    }
+
+    /// The end of the fixture is 0.8 loud. At a gain of 2 the part over half
+    /// of full scale is cut flat at full scale, on both sides of zero.
+    #[test]
+    fn a_gain_past_full_scale_is_cut_flat() {
+        let mut sound = sound(
+            [ramp(0.0, 0.25).with_gain(2.0), ramp(1.5, 2.0).with_gain(2.0)],
+            1.0,
+        );
+        let frames = all(&mut sound);
+        assert!(frames.iter().all(|frame| frame.left.abs() <= 1.0 && frame.right.abs() <= 1.0));
+        // The first piece goes from -0.8 to -0.6, all of it is past -1.
+        assert!(
+            frames[..12_000]
+                .iter()
+                .all(|frame| frame.left.to_bits() == (-1.0_f32).to_bits())
+        );
+        // The second goes from 0.4 to 0.8. It reaches 0.5, full scale at
+        // this gain, after an eighth of a second, 6000 samples.
+        assert!((frames[12_000].left - 0.8).abs() < 0.001);
+        assert!(frames[12_000 + 5_900].left < 1.0);
+        assert!(
+            frames[12_000 + 6_100..]
+                .iter()
+                .all(|frame| frame.left.to_bits() == 1.0_f32.to_bits())
+        );
+    }
+
+    /// A gain that changes while the list is read is in the very next read.
+    #[test]
+    fn a_new_gain_is_heard_in_the_next_read() {
+        let mut sound = sound([ramp(1.0, 2.0)], 1.0);
+        let before = sound.read_list().expect("the fixture decodes");
+        assert_ramp(&before, 48_000, "before the change");
+
+        let louder = VideoSource::from_pieces([ramp(1.0, 2.0).with_gain(0.5)]);
+        assert!(sound.list.take_gains(louder.piece_list().expect("a list of pieces")));
+        let after = sound.read_list().expect("the fixture decodes");
+        let expected = ramp_at(48_000 + before.len()) * 0.5;
+        assert!(
+            (after[0].left - expected).abs() < 0.000_02,
+            "{} is not {expected}",
+            after[0].left
+        );
     }
 
     /// A piece that goes on where the one before it ended, the cut of a

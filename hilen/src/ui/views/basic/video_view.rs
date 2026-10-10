@@ -89,6 +89,9 @@ impl VideoView {
             return self;
         }
         let was = this.player.as_ref().filter(|player| player.plays_pieces());
+        if was.is_some_and(|was| was.takes_gains_of(&source)) {
+            return self;
+        }
         let playing = was.is_some_and(Player::is_playing);
         let mut player = if let Some(was) = was {
             was.replaced_by(source)

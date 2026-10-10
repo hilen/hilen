@@ -2,7 +2,10 @@
 //! seconds of it that play. The list travels inside a `VideoSource`, so the
 //! player, its decode thread and its sound get it the way they get a file.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicU32, Ordering},
+};
 
 use crate::video::VideoSource;
 
@@ -15,6 +18,10 @@ pub struct VideoPiece {
     pub source: VideoSource,
     pub start:  f64,
     pub end:    f64,
+    /// What the sound of the piece is multiplied by. 1 is the sound of the
+    /// source, 2 is twice as loud, 0 is silence. A sample that goes past
+    /// full scale is cut flat. The picture is not changed.
+    pub gain:   f32,
 }
 
 impl VideoPiece {
@@ -23,7 +30,15 @@ impl VideoPiece {
             source: source.into(),
             start,
             end,
+            gain: 1.0,
         }
+    }
+
+    /// The same piece with its sound multiplied by `gain`.
+    #[must_use]
+    pub fn with_gain(mut self, gain: f32) -> Self {
+        self.gain = gain;
+        self
     }
 
     /// Seconds the piece plays for.
@@ -38,6 +53,9 @@ pub(crate) struct PieceList {
     /// Seconds of the list every piece starts at, and the whole length as
     /// one more entry.
     starts:    Vec<f64>,
+    /// The gain of every piece as the bits of an `f32`. The sound thread
+    /// reads them while the main thread writes, see `take_gains`.
+    gains:     Vec<AtomicU32>,
     /// At least 1 piece has a sound track. The decode thread finds out.
     has_sound: OnceLock<bool>,
 }
@@ -57,11 +75,42 @@ impl PieceList {
         for piece in &pieces {
             starts.push(starts[starts.len() - 1] + piece.duration());
         }
+        let gains = pieces
+            .iter()
+            .map(|piece| AtomicU32::new(piece.gain.max(0.0).to_bits()))
+            .collect();
         Self {
             pieces,
             starts,
+            gains,
             has_sound: OnceLock::new(),
         }
+    }
+
+    /// What the sound of a piece is multiplied by now.
+    pub(crate) fn gain(&self, index: usize) -> f32 {
+        self.gains
+            .get(index)
+            .map_or(1.0, |gain| f32::from_bits(gain.load(Ordering::Relaxed)))
+    }
+
+    /// Takes the gains of `other` when it has the same pieces with only
+    /// other gains, and says whether it did. The sound that is read after
+    /// this call has the new gains, so a volume that changes while a list
+    /// plays needs no new player.
+    pub(crate) fn take_gains(&self, other: &Self) -> bool {
+        let same_cut = |(mine, theirs): (&VideoPiece, &VideoPiece)| {
+            mine.source.same_as(&theirs.source)
+                && mine.start.to_bits() == theirs.start.to_bits()
+                && mine.end.to_bits() == theirs.end.to_bits()
+        };
+        if self.pieces.len() != other.pieces.len() || !self.pieces.iter().zip(&other.pieces).all(same_cut) {
+            return false;
+        }
+        for (mine, theirs) in self.gains.iter().zip(&other.gains) {
+            mine.store(theirs.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
+        true
     }
 
     pub(crate) fn pieces(&self) -> &[VideoPiece] {
@@ -147,6 +196,28 @@ mod test {
         assert!((list.duration() - 2.5).abs() < 1e-9);
         assert!((list.start_of(1) - 2.0).abs() < 1e-9);
         assert!((list.start_of(7) - 2.5).abs() < 1e-9);
+    }
+
+    /// A list with the same cuts hands over its gains, a list with another
+    /// cut does not, that one needs a new player.
+    #[test]
+    fn only_the_same_pieces_hand_over_their_gains() {
+        let piece = |start: f64, gain: f32| VideoPiece::new("a.mp4", start, 3.0).with_gain(gain);
+        let list = PieceList::new([piece(1.0, 1.0), piece(2.0, 0.5)]);
+        assert!((list.gain(1) - 0.5).abs() < f32::EPSILON);
+
+        assert!(list.take_gains(&PieceList::new([piece(1.0, 4.0), piece(2.0, 0.5)])));
+        assert!((list.gain(0) - 4.0).abs() < f32::EPSILON);
+        assert!((list.gain(1) - 0.5).abs() < f32::EPSILON);
+
+        assert!(!list.take_gains(&PieceList::new([piece(1.5, 8.0), piece(2.0, 8.0)])));
+        assert!(!list.take_gains(&PieceList::new([piece(1.0, 8.0)])));
+        let other_file = VideoPiece::new("b.mp4", 2.0, 3.0).with_gain(8.0);
+        assert!(!list.take_gains(&PieceList::new([piece(1.0, 8.0), other_file])));
+        assert!(
+            (list.gain(0) - 4.0).abs() < f32::EPSILON,
+            "a list that is refused changes nothing"
+        );
     }
 
     #[test]
