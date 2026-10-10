@@ -12,9 +12,12 @@ in the `local` repo for the pattern.
 
 With the feature on, the app starts an inspect server at launch, a release build only with
 `HILEN_INSPECT=1`, see [Release builds](#release-builds)
-(`hilen/src/inspect/`): a TCP listener on an OS-assigned port, advertised over mDNS
-as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config, no
-fixed ports, any number of apps per machine.
+(`hilen/src/inspect/`): a TCP listener, advertised over mDNS
+as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config,
+any number of apps per machine. The first app on a device takes the port 7435,
+`FIXED_PORT` in `protocol/mod.rs`, every other app takes a free port of the system. So
+a tool that can not search the network still finds 1 app by the address of the device,
+see `--addr` below.
 
 On iOS the Bonjour service of the system announces, `hilen/src/inspect/bonjour.rs`,
 not the `mdns-sd` crate. A real iPhone lets an app send multicast packets of its
@@ -49,6 +52,10 @@ Two clients exist:
   `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, and `hot-status` and `hot-send`
   for the loader on a phone, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
+  `--addr <host>` or the variable `HILEN_INSPECT_ADDR` names the device, a name or an ip,
+  with a port or with none for 7435. The tool then makes no search and uses no cache,
+  for every command. That is the way to an app a search does not reach, like one on a
+  phone over Tailscale, a VPN carries no mDNS. The code is `hilen-inspect/src/reach.rs`.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
 `hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact

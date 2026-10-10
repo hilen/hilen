@@ -19,6 +19,27 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The file picker is not proven on any screen
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-10. It wants an upload button for files
+on the phone.
+
+- Current: `Paths::pick_file_bytes(title, extensions)` in
+  `hilen/src/filesystem/picker` lets the user pick 1 file of any kind and gives a
+  `PickedFile` with its bytes, see "The pickers" in [ios.md](ios.md) and "The picker
+  glue is a dex" in [android.md](android.md). The code compiles with no warning for
+  macOS, the iPhone, a hot build, the Apple TV simulator, a browser and Android. Unit
+  tests cover the extensions, the `accept` of a browser and the MIME types of Android.
+  Nobody opened the dialog on any platform, no app calls it yet.
+- Needed: a pick on a real iPhone, with and without extensions, and a cancel by the
+  button and by a swipe down. It has to show that `UTType` is found by name on iOS 14
+  and later, that the copy is read with no security scope, and that a swipe down
+  answers. The same pick on iOS 12 or 13. A pick on an Android phone with 0, 1 and 2
+  extensions, and a look at which files are greyed out. A pick in the rfd dialog on
+  macOS, Windows and Linux, and in a browser. The image picker shares the changed
+  Android and browser code, so 1 image pick on Android and in a browser too.
+- Blocks: the file upload of banda on a phone.
+
 ## tvOS, hot reload and hot swap
 
 Asked for on 2026-10-10, the driver is flixen, `~/dev/apps/flixen`, a player on an

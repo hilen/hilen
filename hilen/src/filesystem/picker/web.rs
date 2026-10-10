@@ -9,18 +9,20 @@ use web_sys::{
 
 use crate::filesystem::picker::PickedFile;
 
-pub(super) async fn pick() -> Option<PickedFile> {
-    match chosen_file().await {
+/// `accept` is the filter of the chooser, like `image/*` or `.pdf,.txt`.
+/// An empty one lets every file through.
+pub(super) async fn pick(accept: &str) -> Option<PickedFile> {
+    match chosen_file(accept).await {
         Ok(Some(file)) => match read(&file).await {
             Ok(picked) => Some(picked),
             Err(err) => {
-                error!("picked image {} failed to read: {err}", file.name());
+                error!("picked file {} failed to read: {err}", file.name());
                 None
             }
         },
         Ok(None) => None,
         Err(err) => {
-            error!("image picker failed: {err}");
+            error!("file chooser failed: {err}");
             None
         }
     }
@@ -30,7 +32,7 @@ pub(super) async fn pick() -> Option<PickedFile> {
 /// opens the chooser too. A browser older than the `cancel` event, Chrome
 /// 113 and Safari 16.4, never answers a cancel, so the future then stays
 /// pending.
-async fn chosen_file() -> Result<Option<File>> {
+async fn chosen_file(accept: &str) -> Result<Option<File>> {
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| anyhow!("no document"))?;
@@ -41,7 +43,9 @@ async fn chosen_file() -> Result<Option<File>> {
         .dyn_into()
         .map_err(|err| anyhow!("the file input is not an input: {err:?}"))?;
     input.set_type("file");
-    input.set_accept("image/*");
+    if !accept.is_empty() {
+        input.set_accept(accept);
+    }
 
     // A cancel rejects, so the await tells the two answers apart.
     let answered = Promise::new(&mut |resolve, reject| {

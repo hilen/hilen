@@ -9,7 +9,7 @@ use hilen::{
     Platform,
     audio::Sound,
     dispatch::{after, spawn},
-    filesystem::Paths,
+    filesystem::{Paths, PickedFile},
     level::LevelManager,
     net::{System, local_ip},
     refs::{Weak, manage::DataManager},
@@ -148,6 +148,21 @@ impl MenuView {
         Self::button(ui, "Pick folder", || {
             spawn(async {
                 Alert::show(format!("{:?}", Paths::pick_folder().await));
+            });
+        });
+        Self::button(ui, "Pick file", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_file_bytes("File", &[]).await));
+            });
+        });
+        Self::button(ui, "Pick pdf or txt", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_file_bytes("File", &["pdf", "txt"]).await));
+            });
+        });
+        Self::button(ui, "Pick image", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_image("Image").await));
             });
         });
         Self::button(ui, "Scroll test", || {
@@ -299,4 +314,12 @@ fn write_cloud_data() {
     file.write_all(number.to_string().as_bytes()).unwrap();
 
     Alert::show(format!("{}", path.display()));
+}
+
+/// What a picker gave, for the alert of its button.
+fn picked_text(picked: Option<PickedFile>) -> String {
+    picked.map_or_else(
+        || "Nothing picked".to_string(),
+        |file| format!("{}\n{}\n{} bytes", file.name, file.content_type, file.bytes.len()),
+    )
 }

@@ -161,3 +161,23 @@ The native file also tells the engine where the keyboard is, and the engine keep
 edited field in view, see [screen-keyboard.md](screen-keyboard.md).
 
 Open: password autofill, see [roadmap.md](roadmap.md).
+
+## The pickers
+
+`Paths::pick_image` opens `UIImagePickerController` and `Paths::pick_file_bytes` opens
+`UIDocumentPickerViewController`, the Files browser. Both are in
+`hilen/src/filesystem/picker`, present on the view controller of winit and answer
+through a delegate that objc2 makes at run time.
+
+- The Files browser hands over a copy of the file in the temp folder of the app. So
+  the read needs no security scope and no permission. The copy is deleted after the
+  read.
+- From iOS 14 the picker is made with `initForOpeningContentTypes:asCopy:` and the
+  extensions become `UTType` objects. The class is looked up by name at run time,
+  the binding of it would link `UniformTypeIdentifiers`, which iOS 12 and 13 do not
+  have.
+- iOS 12 and 13 get `initWithDocumentTypes:inMode:` in the import mode with
+  `public.item`, so they show every file and ignore the extensions.
+- Both initializers are sent with `msg_send!`. The typed one of objc2 for the old
+  call is marked deprecated and would be a warning.
+- Apple TV has no picker, both calls answer `None` there.

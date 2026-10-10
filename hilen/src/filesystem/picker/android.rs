@@ -1,5 +1,6 @@
-//! The photo picker of Android 13 and later, `ACTION_GET_CONTENT` before
-//! it. Only Java gets an activity result, so the launch goes through the
+//! The photo picker of Android 13 and later for an image,
+//! `ACTION_GET_CONTENT` before it and for a file of any kind. Only Java
+//! gets an activity result, so the launch goes through the
 //! `ActivityResultRegistry` of the activity with a callback that
 //! `java.lang.reflect.Proxy` makes over `io.hilen.NativeHandler`, the one
 //! Java class of the engine, in `hilen/android`.
@@ -28,12 +29,33 @@ const PICK_IMAGES_API: i32 = 33;
 /// `Activity.RESULT_OK`.
 const RESULT_OK: i32 = -1;
 
-const REGISTRY_KEY: &str = "hilen.pick_image";
+const GET_CONTENT: &str = "android.intent.action.GET_CONTENT";
+const ANY_TYPE: &str = "*/*";
+
+const REGISTRY_KEY: &str = "hilen.pick";
 
 /// Read in chunks, a content stream has no length to ask for.
 const CHUNK: usize = 64 * 1024;
 
 type Uri = Global<JObject<'static>>;
+
+/// What the chooser offers.
+#[derive(Clone, Copy)]
+pub(super) enum Kind<'a> {
+    Image,
+    /// The MIME types a file may have, none for every file.
+    File(&'a [String]),
+}
+
+impl Kind<'_> {
+    /// The name of a pick whose provider tells none.
+    fn fallback_name(self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::File(_) => "file",
+        }
+    }
+}
 
 /// The loaded `NativeHandler` class, its native method registered.
 static HANDLER: Mutex<Option<Global<JClass<'static>>>> = Mutex::new(None);
@@ -53,29 +75,34 @@ const CALL: NativeMethod = native_method! {
     abi_check = UnsafeNever,
 };
 
-pub(super) async fn pick(title: &str) -> Option<PickedFile> {
+pub(super) async fn pick(title: &str, kind: Kind<'_>) -> Option<PickedFile> {
     let (answer, answered) = channel();
     *ANSWER.lock() = Some(answer);
 
     if let Err(err) =
-        with_activity(|env, activity| start(env, activity, title).inspect_err(|_| clear_exception(env)))
+        with_activity(|env, activity| start(env, activity, title, kind).inspect_err(|_| clear_exception(env)))
     {
-        error!("image picker failed to open: {err}");
+        error!("picker failed to open: {err}");
         ANSWER.lock().take();
         return None;
     }
 
     let uri = answered.await.ok().flatten()?;
 
-    with_activity(|env, activity| read(env, activity, &uri).inspect_err(|_| clear_exception(env)))
-        .inspect_err(|err| error!("picked image failed to read: {err}"))
-        .ok()
+    with_activity(|env, activity| {
+        read(env, activity, &uri, kind.fallback_name()).inspect_err(|_| clear_exception(env))
+    })
+    .inspect_err(|err| error!("picked file failed to read: {err}"))
+    .ok()
 }
 
 /// Builds the intent here and launches it on the UI thread, where the
 /// registry and `startActivityForResult` belong.
-fn start(env: &mut Env, activity: &JObject, title: &str) -> Result<()> {
-    let intent = intent(env, title)?;
+fn start(env: &mut Env, activity: &JObject, title: &str, kind: Kind<'_>) -> Result<()> {
+    let intent = match kind {
+        Kind::Image => image_intent(env, title)?,
+        Kind::File(types) => file_intent(env, title, types)?,
+    };
     *INTENT.lock() = Some(env.new_global_ref(&intent)?);
 
     let runnable = proxy(env, activity, "java.lang.Runnable")?;
@@ -89,7 +116,7 @@ fn start(env: &mut Env, activity: &JObject, title: &str) -> Result<()> {
     Ok(())
 }
 
-fn intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>> {
+fn image_intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>> {
     let api = env
         .get_static_field(
             jni_str!("android/os/Build$VERSION"),
@@ -98,11 +125,51 @@ fn intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>>
         )?
         .i()?;
 
-    let action = if api >= PICK_IMAGES_API {
-        PICK_IMAGES
-    } else {
-        "android.intent.action.GET_CONTENT"
+    if api >= PICK_IMAGES_API {
+        return typed_intent(env, PICK_IMAGES, "image/*");
+    }
+
+    let intent = typed_intent(env, GET_CONTENT, "image/*")?;
+    chooser(env, &intent, title)
+}
+
+/// `ACTION_GET_CONTENT` filters by 1 type. More types go into
+/// `EXTRA_MIME_TYPES` under the type of every file.
+fn file_intent<'local>(env: &mut Env<'local>, title: &str, types: &[String]) -> Result<JObject<'local>> {
+    let intent = match types {
+        [one] => typed_intent(env, GET_CONTENT, one)?,
+        _ => {
+            let intent = typed_intent(env, GET_CONTENT, ANY_TYPE)?;
+            if !types.is_empty() {
+                put_mime_types(env, &intent, types)?;
+            }
+            intent
+        }
     };
+
+    chooser(env, &intent, title)
+}
+
+fn put_mime_types(env: &mut Env, intent: &JObject, types: &[String]) -> Result<()> {
+    let null = JObject::null();
+    let array = env.new_object_array(i32::try_from(types.len())?, jni_str!("java/lang/String"), &null)?;
+    for (index, mime) in types.iter().enumerate() {
+        let mime = env.new_string(mime)?;
+        array.set_element(env, index, &mime)?;
+    }
+
+    let key = env.new_string("android.intent.extra.MIME_TYPES")?;
+    env.call_method(
+        intent,
+        jni_str!("putExtra"),
+        jni_sig!("(Ljava/lang/String;[Ljava/lang/String;)Landroid/content/Intent;"),
+        &[JValue::Object(&key), JValue::Object(&array)],
+    )?;
+
+    Ok(())
+}
+
+fn typed_intent<'local>(env: &mut Env<'local>, action: &str, mime: &str) -> Result<JObject<'local>> {
     let action = env.new_string(action)?;
     let intent = env.new_object(
         jni_str!("android/content/Intent"),
@@ -110,21 +177,22 @@ fn intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>>
         &[JValue::Object(&action)],
     )?;
 
-    let images = env.new_string("image/*")?;
+    let mime = env.new_string(mime)?;
     env.call_method(
         &intent,
         jni_str!("setType"),
         jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
-        &[JValue::Object(&images)],
+        &[JValue::Object(&mime)],
     )?;
 
-    if api >= PICK_IMAGES_API {
-        return Ok(intent);
-    }
+    Ok(intent)
+}
 
+/// The chooser of the apps that can open a file of the intent.
+fn chooser<'local>(env: &mut Env<'local>, intent: &JObject, title: &str) -> Result<JObject<'local>> {
     let openable = env.new_string("android.intent.category.OPENABLE")?;
     env.call_method(
-        &intent,
+        intent,
         jni_str!("addCategory"),
         jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
         &[JValue::Object(&openable)],
@@ -136,7 +204,7 @@ fn intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>>
             jni_str!("android/content/Intent"),
             jni_str!("createChooser"),
             jni_sig!("(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;"),
-            &[JValue::Object(&intent), JValue::Object(&title)],
+            &[JValue::Object(intent), JValue::Object(&title)],
         )?
         .l()?)
 }
@@ -160,7 +228,7 @@ fn call<'local>(
 
     if let Err(err) = done {
         clear_exception(env);
-        error!("image picker {method} failed: {err}");
+        error!("picker {method} failed: {err}");
         // Nothing comes after a failed step, the waiting pick ends with None.
         ANSWER.lock().take();
     }
@@ -246,13 +314,13 @@ fn answer(env: &mut Env, args: &JObjectArray) -> Result<()> {
     if let Some(answer) = ANSWER.lock().take()
         && answer.send(uri).is_err()
     {
-        warn!("image picked after the caller stopped waiting");
+        warn!("file picked after the caller stopped waiting");
     }
 
     Ok(())
 }
 
-fn read(env: &mut Env, activity: &JObject, uri: &Uri) -> Result<PickedFile> {
+fn read(env: &mut Env, activity: &JObject, uri: &Uri, fallback_name: &str) -> Result<PickedFile> {
     let resolver = env
         .call_method(
             activity,
@@ -272,7 +340,7 @@ fn read(env: &mut Env, activity: &JObject, uri: &Uri) -> Result<PickedFile> {
         .l()?;
     let content_type = optional_string(env, content_type)?;
 
-    let name = display_name(env, &resolver, uri)?.unwrap_or_else(|| "image".to_string());
+    let name = display_name(env, &resolver, uri)?.unwrap_or_else(|| fallback_name.to_string());
 
     let stream = env
         .call_method(

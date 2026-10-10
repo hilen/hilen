@@ -117,12 +117,12 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `window/wsl/` or when an app shows nothing under WSL.
 - [docs/android.md](docs/android.md) — the docker build and the emulator lane, the
   Vulkan-only backend, APK asset loading, the register requirement in the shell crate,
-  and the generated-project fixes the template still misses. Read before touching
-  android builds or when an APK dies at startup.
+  the generated-project fixes the template still misses, and the picker glue with its
+  dex. Read before touching android builds or when an APK dies at startup.
 - [docs/ios.md](docs/ios.md) — what keeps iOS 12 and the A7 working: `NSLog` output, the
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
   CoreGraphics and the wgpu fork. Also the system text field an edited `TextField` becomes
-  on an iPhone, and its native file inside the engine crate. Read before touching anything iOS, the `wgpu` pin, the
+  on an iPhone, and its native file inside the engine crate, and the image and file pickers. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
 - [docs/screen-keyboard.md](docs/screen-keyboard.md) — the screen keyboard of a phone: the
   edited field that stays in view, `b_keyboard` for a view that rides on the keyboard,

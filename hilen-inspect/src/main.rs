@@ -2,12 +2,11 @@ mod commands;
 mod frames;
 mod hot;
 mod input;
+mod reach;
 
 use std::{
-    collections::HashMap,
     env::{current_dir, temp_dir},
-    fs::{read_dir, read_to_string, write},
-    net::SocketAddr,
+    fs::{read_dir, write},
     path::{Path, PathBuf},
     process::exit,
     time::{Duration, UNIX_EPOCH},
@@ -18,17 +17,14 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
 use commands::{Command, run};
 use hilen::{
-    inspect::protocol::{
-        AppCommand, Client, InspectorCommand, UIRequest, UIResponse, discover, ui::ViewRepr,
-    },
+    inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest, UIResponse, ui::ViewRepr},
     refs::{Own, hreads::set_current_thread_as_main},
     ui::NamedKey,
     window::KeyCode,
 };
-use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
+use reach::{NO_APPS, apps, connect, given, save_cache};
+use serde_json::{Value, from_value, json, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout};
-
-const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
 
 #[derive(Parser)]
 #[command(name = "hilen-inspect", about = "Inspect and edit UI of running hilen apps")]
@@ -36,6 +32,13 @@ struct Cli {
     /// App id from `apps`. Needed only when several apps run.
     #[arg(long, global = true)]
     app: Option<String>,
+
+    /// The address of the device the app runs on, a name or an ip with or
+    /// without a port. For an app the search can not find, like one on a
+    /// phone that is reached over Tailscale. `HILEN_INSPECT_ADDR` gives it
+    /// too.
+    #[arg(long, global = true)]
+    addr: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -48,10 +51,13 @@ async fn main() -> Result<()> {
     set_current_thread_as_main();
 
     let cli = Cli::parse();
+    let addr = given(cli.addr).await?;
 
     if let Command::Apps = cli.command {
-        let apps = discover().await?;
-        save_cache(&apps)?;
+        let apps = apps(addr).await?;
+        if addr.is_none() {
+            save_cache(&apps)?;
+        }
         if apps.is_empty() {
             bail!(NO_APPS);
         }
@@ -63,18 +69,18 @@ async fn main() -> Result<()> {
 
     // A hot loader is found by what it answers, not by the cached address.
     match cli.command {
-        Command::HotStatus => return hot::status(cli.app).await,
+        Command::HotStatus => return hot::status(cli.app, addr).await,
         Command::HotSend {
             library,
             name,
             assets,
         } => {
-            return hot::send_app(cli.app, &library, assets.as_deref(), &name).await;
+            return hot::send_app(cli.app, addr, &library, assets.as_deref(), &name).await;
         }
         _ => {}
     }
 
-    let client = connect(cli.app).await?;
+    let client = connect(cli.app, addr).await?;
     run(&client, cli.command).await
 }
 
@@ -596,47 +602,6 @@ fn view_json(view: &ViewRepr) -> Result<Value> {
     Ok(value)
 }
 
-/// Tries the address cached by the last discovery first and falls back to a
-/// fresh mDNS browse, so repeat calls skip the discovery wait.
-async fn connect(app: Option<String>) -> Result<Client> {
-    if let Some(addr) = cached_addr(app.as_deref())
-        && let Ok(Ok(client)) = timeout(Duration::from_secs(1), Client::connect(addr)).await
-    {
-        return Ok(client);
-    }
-
-    let apps = discover().await?;
-    save_cache(&apps)?;
-    let addr = resolve(&apps, app)?;
-
-    Client::connect(addr).await
-}
-
-fn cache_path() -> PathBuf {
-    temp_dir().join("hilen-inspect-apps.json")
-}
-
-fn cached_addr(app: Option<&str>) -> Option<SocketAddr> {
-    let cache: HashMap<String, SocketAddr> = from_str(&read_to_string(cache_path()).ok()?).ok()?;
-    match app {
-        Some(id) => cache.get(id).copied(),
-        // A single cached app can be trusted without a browse. With several,
-        // discover every time, correctness over speed.
-        None => {
-            if cache.len() == 1 {
-                cache.values().next().copied()
-            } else {
-                None
-            }
-        }
-    }
-}
-
-fn save_cache(apps: &HashMap<String, SocketAddr>) -> Result<()> {
-    write(cache_path(), to_string(apps)?)?;
-    Ok(())
-}
-
 /// An iOS build relinks the app bundle every time while happily reusing a
 /// stale `libdemo.a`, so a fresh looking bundle can run code from an hour
 /// ago. The only honest answer comes from the running app itself, and the only
@@ -746,23 +711,6 @@ fn newest_source(dir: &Path) -> Result<Option<(u64, PathBuf)>> {
     }
 
     Ok(newest)
-}
-
-fn resolve(apps: &HashMap<String, SocketAddr>, app: Option<String>) -> Result<SocketAddr> {
-    let ids = || apps.keys().cloned().collect::<Vec<_>>().join(", ");
-
-    if let Some(id) = app {
-        return match apps.get(&id) {
-            Some(addr) => Ok(*addr),
-            None => bail!("App {id} not found. Running apps: {}", ids()),
-        };
-    }
-
-    match apps.len() {
-        0 => bail!(NO_APPS),
-        1 => Ok(*apps.values().next().unwrap()),
-        _ => bail!("Multiple apps running, pass --app. Running apps: {}", ids()),
-    }
 }
 
 #[cfg(test)]

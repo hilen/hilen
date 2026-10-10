@@ -68,7 +68,7 @@ fn present(answer: Answer) -> Result<()> {
 }
 
 /// The controller winit made for the window, the engine has no other.
-fn root_view_controller() -> Result<Retained<UIViewController>> {
+pub(super) fn root_view_controller() -> Result<Retained<UIViewController>> {
     let window = Window::winit_window().ok_or_else(|| anyhow!("no window"))?;
     let handle = window.window_handle()?;
 

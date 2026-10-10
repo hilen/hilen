@@ -142,7 +142,11 @@ pub extern "C" fn hilen_stop() {
 }
 
 /// The classes objc2 made at run time for this build, besides the 3 of winit.
-const CLASSES: [&CStr; 2] = [c"RawWindowMetalLayer", c"HilenImagePickerDelegate"];
+const CLASSES: [&CStr; 3] = [
+    c"RawWindowMetalLayer",
+    c"HilenImagePickerDelegate",
+    c"HilenDocumentPickerDelegate",
+];
 
 /// 1 when the Objective-C classes of this build are deleted, so the next
 /// build can register the same names. `UIKit` holds a hidden window a moment
@@ -157,7 +161,7 @@ pub extern "C" fn hilen_stopped() -> c_int {
     }
 
     // The layer of the surface is a sublayer of the winit view, so it is
-    // gone when that view is. The picker delegate went in `hilen_stop`.
+    // gone when that view is. The picker delegates went in `hilen_stop`.
     for class in CLASSES.iter().filter_map(|name| AnyClass::get(name)) {
         // SAFETY: the class was made at run time and has no object left.
         unsafe { objc_disposeClassPair(from_ref(class).cast_mut().cast()) };

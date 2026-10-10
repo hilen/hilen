@@ -77,13 +77,21 @@ them until they land in the template:
 
 ## The picker glue is a dex
 
-Android hands an activity result, like a picked photo, to Java only, and the
+Android hands an activity result, like a picked photo or file, to Java only, and the
 game activity of the template does not pass it on. So the engine ships one
 small Java class, `hilen/android/NativeHandler.java`, built into
 `hilen/android/native_handler.dex` and loaded at run time with
 `InMemoryDexClassLoader`, API 26 and up. It lets Rust stand in for a Java
-interface through `java.lang.reflect.Proxy`, which `Paths::pick_image` uses for
-the photo picker callback. After a change to the Java file run `make android-dex`,
-it builds in the android docker image, and commit the dex with it. A rotation
-while the picker is open recreates the activity and loses the result, the pick
-then never finishes.
+interface through `java.lang.reflect.Proxy`, which `Paths::pick_image` and
+`Paths::pick_file_bytes` use for the result callback. After a change to the Java
+file run `make android-dex`, it builds in the android docker image, and commit the
+dex with it. A rotation while the picker is open recreates the activity and loses
+the result, the pick then never finishes.
+
+Both calls share `hilen/src/filesystem/picker/android.rs`, so 1 pick waits at a
+time, a second one ends the first with `None`. An image goes to the photo picker of
+Android 13 and later. A file goes to `ACTION_GET_CONTENT` with the type `*/*`. Its
+extensions become MIME types by `mime_guess`: 1 type is the type of the intent,
+more go into `EXTRA_MIME_TYPES`. When 1 extension has no known type there is no
+filter at all, a file of that kind would be greyed out otherwise. A provider that
+gives a file another type than `mime_guess` does still greys it out.

@@ -12,10 +12,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use hilen::inspect::protocol::{AppCommand, Client, HotFileRepr, InspectorCommand, discover, file_hash};
+use hilen::inspect::protocol::{AppCommand, Client, HotFileRepr, InspectorCommand, file_hash};
 use tokio::time::{Instant, sleep, timeout};
 
-use super::send;
+use super::{reach::apps, send};
 
 /// A request may be 64 MB, a piece stays well below it as base64.
 const PIECE: usize = 8 * 1024 * 1024;
@@ -56,23 +56,28 @@ async fn loaders(apps: HashMap<String, SocketAddr>) -> Vec<Loader> {
     found
 }
 
-/// The hot build to talk to: the app with the id `app`, or the only hot
-/// build on the network.
-async fn loader(app: Option<String>) -> Result<Loader> {
-    let mut found = loaders(discover().await?).await;
-    if let Some(app) = app {
+/// The hot build to talk to: the one at the address `addr`, the app with
+/// the id `app`, or the only hot build on the network.
+async fn loader(app: Option<String>, addr: Option<SocketAddr>) -> Result<Loader> {
+    let mut found = loaders(apps(addr).await?).await;
+    if addr.is_none()
+        && let Some(app) = app
+    {
         found.retain(|loader| loader.id == app);
     }
     let ids: Vec<String> = found.iter().map(|loader| format!("{} at {}", loader.id, loader.addr)).collect();
-    match found.len() {
-        0 => bail!("No hot build found on the network. Start the loader app on the phone."),
-        1 => Ok(found.remove(0)),
+    match (found.len(), addr) {
+        (0, Some(addr)) => {
+            bail!("No hot build answers at {addr}. Start the loader app on the phone and keep it in front.")
+        }
+        (0, None) => bail!("No hot build found on the network. Start the loader app on the phone."),
+        (1, _) => Ok(found.remove(0)),
         _ => bail!("Several hot builds run, pass --app. Found: {}", ids.join(", ")),
     }
 }
 
-pub(super) async fn status(app: Option<String>) -> Result<()> {
-    let loader = loader(app).await?;
+pub(super) async fn status(app: Option<String>, addr: Option<SocketAddr>) -> Result<()> {
+    let loader = loader(app, addr).await?;
     println!("loader   {} at {}", loader.id, loader.addr);
     println!(
         "library  {}",
@@ -85,11 +90,12 @@ pub(super) async fn status(app: Option<String>) -> Result<()> {
 /// and waits until the loader runs the library.
 pub(super) async fn send_app(
     app: Option<String>,
+    addr: Option<SocketAddr>,
     library: &Path,
     assets: Option<&Path>,
     name: &str,
 ) -> Result<()> {
-    let loader = loader(app).await?;
+    let loader = loader(app, addr).await?;
     println!("loader {} at {}", loader.id, loader.addr);
 
     let root = match assets {
@@ -116,7 +122,7 @@ pub(super) async fn send_app(
     )
     .await?;
 
-    wait_for(loader.addr, &sent_name).await
+    wait_for(loader.addr, addr, &sent_name).await
 }
 
 async fn send_assets(client: &Client, assets: &Path, root: &str) -> Result<()> {
@@ -197,15 +203,17 @@ fn walk(root: &Path, folder: &Path, files: &mut Vec<(String, PathBuf)>) -> Resul
     Ok(())
 }
 
-/// The swap starts a new build, with a new id and a new port. Waits until a
-/// hot build at the address of the phone runs `library`.
-async fn wait_for(phone: SocketAddr, library: &str) -> Result<()> {
+/// The swap starts a new build, with a new id. Waits until a hot build at
+/// the address of the phone runs `library`. A search finds the new build on
+/// whatever port it took. With a given address, `given`, there is no
+/// search, the new build is asked at the same port again.
+async fn wait_for(phone: SocketAddr, given: Option<SocketAddr>, library: &str) -> Result<()> {
     let deadline = Instant::now() + SWAP_WAIT;
     while Instant::now() < deadline {
         sleep(POLL).await;
-        let mut apps = discover().await?;
-        apps.retain(|_, addr| addr.ip() == phone.ip());
-        for loader in loaders(apps).await {
+        let mut found = apps(given).await?;
+        found.retain(|_, addr| addr.ip() == phone.ip());
+        for loader in loaders(found).await {
             if loader.library.as_deref() == Some(library) {
                 println!("swapped, {} at {} runs {library}", loader.id, loader.addr);
                 return Ok(());

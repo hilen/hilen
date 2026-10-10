@@ -152,6 +152,14 @@ for development and gives no promise for it.
   `HotChunk` and `HotSwap`, a file goes in pieces of 8 MB. An asset whose
   length and hash are there already is not sent again. Only the library that
   runs and the next one stay on the phone.
+- A phone that is not on the network of the Mac is reached by its address, over a
+  VPN like Tailscale: `HILEN_INSPECT_ADDR=<phone> make swap args="phone ../apps/skaityk"`.
+  The loader takes the fixed inspect port, see [inspect.md](inspect.md), and takes it
+  again after a swap, a hot build asks for it for 1 second. The sender then asks the
+  same address until it names the new library. The loader has to be in front on an
+  unlocked phone, and it has to be a build from 2026-10-10 or later. The install of
+  the loader still needs a cable or the Wi-Fi of the Mac. Proven between 2 Macs by
+  address. Not proven: a real phone over Tailscale.
 - `hilen-inspect hot-send <library> <name> --assets <folder>` is the sender, and
   `hilen-inspect hot-status` asks what runs. The loader is found by what it
   answers: the only app on the network that knows `HotInfo`, or `--app <id>`.
@@ -324,8 +332,10 @@ names.
 
 - A class made at run time is deleted at the stop with
   `objc_disposeClassPair`, and the next generation registers the name again.
-  That covers the 3 of winit, `RawWindowMetalLayer` of raw-window-metal and
-  `HilenImagePickerDelegate`. objc2 makes its classes that way.
+  That covers the 3 of winit, `RawWindowMetalLayer` of raw-window-metal,
+  `HilenImagePickerDelegate` and `HilenDocumentPickerDelegate`. objc2 makes its
+  classes that way. A new `define_class!` in the engine has to join `CLASSES` in
+  `hot.rs`.
 - A delete does not check for live objects, and UIKit holds a hidden window a
   moment longer. So winit keeps a weak reference to each window, view and view
   controller, and deletes only when all are gone. In the proof that took 0.1

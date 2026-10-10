@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 #[cfg(not_wasm)]
-use std::{env::var, hint::black_box};
+use std::{env::var, hint::black_box, io::ErrorKind, time::Duration};
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -8,13 +8,13 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 #[cfg(not_wasm)]
-use log::{info, warn};
+use log::{debug, info, warn};
 #[cfg(all(not_wasm, not(ios)))]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 #[cfg(ios)]
 use objc2_foundation::NSBundle;
 #[cfg(not_wasm)]
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, time::sleep};
 
 #[cfg(not_wasm)]
 use crate::deps::hreads::log_spawn;
@@ -27,7 +27,10 @@ use crate::inspect::hot_swap;
 #[cfg(all(not_wasm, not(ios)))]
 use crate::inspect::protocol::SERVICE_TYPE;
 #[cfg(not_wasm)]
-use crate::inspect::{MARKER, protocol::serve};
+use crate::inspect::{
+    MARKER,
+    protocol::{FIXED_PORT, serve},
+};
 use crate::{
     app::hilen_app_build_time,
     deps::hreads::from_main,
@@ -49,6 +52,35 @@ use crate::{audio::Sound, deps::refs::manage::DataManager};
 pub struct InspectService;
 
 static APP_STARTED: OnceLock<u64> = OnceLock::new();
+
+/// How many times a start asks for the fixed port. A hot build starts right
+/// after the stop of the build before it, whose listener may need a moment
+/// to let the port go, and a tool on a VPN finds the new build only there.
+#[cfg(all(not_wasm, hot))]
+const PORT_TRIES: u32 = 10;
+#[cfg(all(not_wasm, not(hot)))]
+const PORT_TRIES: u32 = 1;
+#[cfg(not_wasm)]
+const PORT_WAIT: Duration = Duration::from_millis(100);
+
+/// The listener of the server, on `port` when it is free and on a free
+/// port of the system when another app has it.
+#[cfg(not_wasm)]
+async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
+    for attempt in 1..=tries {
+        match TcpListener::bind(("0.0.0.0", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(err) if err.kind() == ErrorKind::AddrInUse => {
+                if attempt < tries {
+                    sleep(PORT_WAIT).await;
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    debug!("Inspect port {port} is taken by another app, a free one is used");
+    Ok(TcpListener::bind("0.0.0.0:0").await?)
+}
 
 /// A build without debug assertions starts the server only with this set to
 /// `1` at launch, so a release binary built outside the release scripts still
@@ -113,7 +145,7 @@ impl InspectService {
         }
 
         log_spawn(async {
-            let listener = TcpListener::bind("0.0.0.0:0").await?;
+            let listener = bind(FIXED_PORT, PORT_TRIES).await?;
             let port = listener.local_addr()?.port();
 
             let app_id = UIManager::app_instance_id();
@@ -695,7 +727,26 @@ pub(super) fn find_view(id: &str) -> Result<WeakView, String> {
 
 #[cfg(all(test, not_wasm))]
 mod test {
-    use super::listener_allowed;
+    use anyhow::Result;
+    use tokio::{net::TcpListener, runtime::Builder};
+
+    use super::{bind, listener_allowed};
+
+    #[test]
+    fn the_first_app_gets_the_port_and_the_next_one_a_free_port() -> Result<()> {
+        Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let first = TcpListener::bind("0.0.0.0:0").await?;
+            let port = first.local_addr()?.port();
+
+            let second = bind(port, 2).await?;
+            assert_ne!(second.local_addr()?.port(), port);
+
+            drop(first);
+            let third = bind(port, 1).await?;
+            assert_eq!(third.local_addr()?.port(), port);
+            Ok(())
+        })
+    }
 
     #[test]
     fn debug_build_always_listens() {
