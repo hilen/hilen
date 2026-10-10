@@ -6,6 +6,7 @@
 
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::Path,
     http::{HeaderMap, StatusCode},
     routing::{get, patch, post},
@@ -59,6 +60,7 @@ pub(crate) async fn start_test_server() -> String {
         .route("/header/{name}", get(header))
         .route("/status/{code}", get(status))
         .route("/empty", post(empty))
+        .route("/bytes", post(bytes))
         .route("/file", get(file));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind the test server");
@@ -124,3 +126,15 @@ async fn status(Path(code): Path<u16>) -> (StatusCode, String) {
 
 /// 200 with no body at all.
 async fn empty() {}
+
+/// How many bytes the body had, their sum, and the content type it came
+/// with.
+async fn bytes(headers: HeaderMap, body: Bytes) -> Json<(usize, u64, Option<String>)> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let sum = body.iter().map(|byte| u64::from(*byte)).sum();
+
+    Json((body.len(), sum, content_type))
+}

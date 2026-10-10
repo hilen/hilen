@@ -50,15 +50,21 @@ impl RequestError {
     }
 }
 
-/// One request to a full URL made at run time, with headers and a JSON
-/// body, on the client of the engine. Every other request of `net::rest`
-/// and of the login goes through it.
+/// What a request carries.
+enum Body {
+    Json(Result<String, JsonError>),
+    Bytes(Vec<u8>),
+}
+
+/// One request to a full URL made at run time, with headers and a body,
+/// JSON or plain bytes, on the client of the engine. Every other request
+/// of `net::rest` and of the login goes through it.
 #[must_use = "a call does nothing until it is sent"]
 pub struct Call {
     method:  Method,
     url:     String,
     headers: BTreeMap<String, String>,
-    body:    Option<Result<String, JsonError>>,
+    body:    Option<Body>,
 }
 
 impl Call {
@@ -112,7 +118,15 @@ impl Call {
     /// names another content type. A body that cannot be written fails the
     /// send.
     pub fn body(mut self, body: impl Serialize) -> Self {
-        self.body = Some(to_string(&body));
+        self.body = Some(Body::Json(to_string(&body)));
+        self
+    }
+
+    /// A body of plain bytes, like a file. They go out as they are, as
+    /// `application/octet-stream` unless a header names another content
+    /// type.
+    pub fn bytes(mut self, bytes: Vec<u8>) -> Self {
+        self.body = Some(Body::Bytes(bytes));
         self
     }
 
@@ -125,7 +139,13 @@ impl Call {
             headers,
             body,
         } = self;
-        let body = body.transpose().map_err(RequestError::Body)?;
+        let body = match body {
+            Some(Body::Json(json)) => {
+                Some(("application/json", json.map_err(RequestError::Body)?.into_bytes()))
+            }
+            Some(Body::Bytes(bytes)) => Some(("application/octet-stream", bytes)),
+            None => None,
+        };
         let started = now();
 
         let client = shared_client();
@@ -141,9 +161,9 @@ impl Call {
         for (key, value) in headers {
             request = request.header(key, value);
         }
-        if let Some(body) = body {
+        if let Some((content_type, body)) = body {
             if !has_content_type {
-                request = request.header("content-type", "application/json");
+                request = request.header("content-type", content_type);
             }
             request = request.body(body);
         }
@@ -247,6 +267,32 @@ mod tests {
 
         assert_eq!(post.id, 5);
         assert_eq!(post.title, "renamed");
+
+        Ok(())
+    }
+
+    /// Bytes that are no text, they must arrive as they were sent.
+    #[tokio::test]
+    async fn bytes_reach_the_server_as_they_are() -> Result<()> {
+        let base_url = start_test_server().await;
+        let bytes: Vec<u8> = (0..=255).chain([0, 255, 0x89, b'\n']).collect();
+        let sum = bytes.iter().map(|byte| u64::from(*byte)).sum::<u64>();
+
+        let seen: (usize, u64, Option<String>) =
+            Call::post(format!("{base_url}/bytes")).bytes(bytes.clone()).send().await?;
+
+        assert_eq!(
+            seen,
+            (bytes.len(), sum, Some("application/octet-stream".to_string()))
+        );
+
+        let seen: (usize, u64, Option<String>) = Call::post(format!("{base_url}/bytes"))
+            .header("content-type", "image/png")
+            .bytes(bytes.clone())
+            .send()
+            .await?;
+
+        assert_eq!(seen.2.as_deref(), Some("image/png"));
 
         Ok(())
     }
