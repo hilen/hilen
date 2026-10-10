@@ -113,7 +113,11 @@ Branch `tvos-0.30` at github.com/VladasZ/winit sits on the v0.30.13 tag, the new
 0.30 release, with 5 commits on top: tvos in the cfg aliases and target sections, the
 5 view controller selectors guarded on tvos, the rename, the feature `ios-attach`, and
 the presses of the remote of an Apple TV sent as key events, see [tvos.md](tvos.md).
-crates.io has it as `hilen-winit` 0.30.15.
+crates.io has it as `hilen-winit` 0.30.15. The root `Cargo.toml` asks for that full
+version, not for `0.30`. An app that pins hilen by rev keeps the version of its own
+lock file while it fits the requirement, so with `0.30` an app stayed on a fork with no
+remote presses after a rev bump. Raise the requirement with every new fork version the
+engine needs.
 
 `ios-attach` lets the event loop run on a `UIApplication` that someone else started,
 and leave it again: `EventLoopExtIOSAttach::run_app_attached`, `detach` and

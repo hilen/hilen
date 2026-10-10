@@ -19,20 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## An app keeps the old winit fork after a rev bump
-
-Found by flixen on 2026-10-10.
-
-- Current: the workspace `Cargo.toml` asks for `hilen-winit` with `version = "0.30"`.
-  The lock file of an app that pins hilen by rev keeps the version it already has.
-  flixen stayed on 0.30.13 after the bump to `9fd2f8b`, so the Siri Remote did
-  nothing there until `cargo update -p hilen-winit` moved it to 0.30.15.
-- Needed: the full version in the requirement, `version = "0.30.15"`, and the same
-  each time the engine starts to need a newer fork. The hilen skill names it in the
-  rev bump step.
-- Blocks: nothing after the update, but every app that bumps the rev can hit it and
-  nothing tells why the remote is dead.
-
 ## tvOS, the run on an Apple TV
 
 Found by the tvOS display bring-up and by flixen, `~/dev/apps/flixen`, a player on an
