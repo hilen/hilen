@@ -158,8 +158,10 @@ for development and gives no promise for it.
   again after a swap, a hot build asks for it for 1 second. The sender then asks the
   same address until it names the new library. The loader has to be in front on an
   unlocked phone, and it has to be a build from 2026-10-10 or later. The install of
-  the loader still needs a cable or the Wi-Fi of the Mac. Proven between 2 Macs by
-  address. Not proven: a real phone over Tailscale.
+  the loader still needs a cable or the Wi-Fi of the Mac. Proven on 2026-10-10 on an
+  iPhone 16 Pro Max by its Tailscale name, several swaps in a row, each on the fixed
+  port again. The phone was on the Wi-Fi of the Mac then, so Tailscale sent the data
+  straight. Not proven: a phone on a mobile network.
 - `hilen-inspect hot-send <library> <name> --assets <folder>` is the sender, and
   `hilen-inspect hot-status` asks what runs. The loader is found by what it
   answers: the only app on the network that knows `HotInfo`, or `--app <id>`.

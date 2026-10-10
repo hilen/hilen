@@ -19,7 +19,7 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## The file picker is not proven on any screen
+## The file picker is proven only on an iPhone
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-10. It wants an upload button for files
 on the phone.
@@ -30,15 +30,15 @@ on the phone.
   glue is a dex" in [android.md](android.md). The code compiles with no warning for
   macOS, the iPhone, a hot build, the Apple TV simulator, a browser and Android. Unit
   tests cover the extensions, the `accept` of a browser and the MIME types of Android.
-  Nobody opened the dialog on any platform, no app calls it yet.
-- Needed: a pick on a real iPhone, with and without extensions, and a cancel by the
-  button and by a swipe down. It has to show that `UTType` is found by name on iOS 14
-  and later, that the copy is read with no security scope, and that a swipe down
-  answers. The same pick on iOS 12 or 13. A pick on an Android phone with 0, 1 and 2
+  On 2026-10-10 the 3 buttons of the Dev page of the demo, a file of any kind, a pdf
+  or txt file and an image, were tried by hand on an iPhone 16 Pro Max and worked.
+  banda calls it on iOS since that day.
+- Needed: on an iPhone a cancel by the button and by a swipe down, nobody said how
+  those went. The same pick on iOS 12 or 13. A pick on an Android phone with 0, 1 and 2
   extensions, and a look at which files are greyed out. A pick in the rfd dialog on
   macOS, Windows and Linux, and in a browser. The image picker shares the changed
   Android and browser code, so 1 image pick on Android and in a browser too.
-- Blocks: the file upload of banda on a phone.
+- Blocks: nothing today. banda shows its upload button only on iOS.
 
 ## tvOS, hot reload and hot swap
 
