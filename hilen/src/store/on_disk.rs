@@ -31,7 +31,7 @@ fn get_or_init_value<T: Storable + Default>(path: &Path) -> T {
     serde_json::from_str(&json).expect("Failet to parse json")
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, not(tvos)))]
 mod backend {
     use std::{
         fs::{create_dir_all, read_to_string, remove_file, write as write_file},
@@ -60,6 +60,52 @@ mod backend {
         {
             log::warn!("failed to remove {}: {error}", path.display());
         }
+    }
+}
+
+/// tvOS gives an app no folder that keeps its files, the system may empty
+/// the caches folder while the app does not run. The user defaults of the
+/// app stay, so every store file is 1 entry there, named after its path
+/// under the root. tvOS ends an app whose defaults pass 1 MB, a store is
+/// for settings, not for data.
+#[cfg(tvos)]
+mod backend {
+    use std::path::Path;
+
+    use objc2::rc::Retained;
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    /// A store this big is logged, the whole of the defaults has 1 MB.
+    const BIG: usize = 100 * 1024;
+
+    // The root holds the folder of the app, which the system may rename
+    // with an update, so the key has only the part below it.
+    fn key(path: &Path) -> Retained<NSString> {
+        let root = super::ROOT_PATH.lock().clone().map(super::expand_tilde);
+        let below = root.and_then(|root| path.strip_prefix(root).ok().map(Path::to_owned));
+        let name = below.unwrap_or_else(|| path.to_owned());
+        NSString::from_str(&format!("hilen-store:{}", name.display()))
+    }
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        let text = NSUserDefaults::standardUserDefaults().stringForKey(&key(path))?;
+        Some(text.to_string())
+    }
+
+    pub(super) fn write(path: &Path, json: &str) {
+        if json.len() > BIG {
+            log::warn!(
+                "{} is {} bytes, the user defaults of tvOS hold 1 MB in all",
+                path.display(),
+                json.len()
+            );
+        }
+        let text = NSString::from_str(json);
+        unsafe { NSUserDefaults::standardUserDefaults().setObject_forKey(Some(&text), &key(path)) };
+    }
+
+    pub(super) fn remove(path: &Path) {
+        NSUserDefaults::standardUserDefaults().removeObjectForKey(&key(path));
     }
 }
 

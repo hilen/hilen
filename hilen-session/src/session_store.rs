@@ -54,7 +54,7 @@ pub(crate) fn open(sealed: &[u8]) -> Result<String> {
     Ok(String::from_utf8(decrypt(sealed, &session_key())?)?)
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, not(tvos)))]
 pub(crate) mod platform {
     use std::{
         fs::{create_dir_all, read as read_file, remove_file, write as write_file},
@@ -99,6 +99,40 @@ pub(crate) mod platform {
             }
             _ => Ok(()),
         }
+    }
+}
+
+/// tvOS gives an app no folder that keeps its files, the system may empty
+/// the caches folder while the app does not run. The user defaults of the
+/// app stay, so every sealed file is 1 entry there, named after the file.
+#[cfg(tvos)]
+pub(crate) mod platform {
+    use std::path::Path;
+
+    use anyhow::Result;
+    use objc2::rc::Retained;
+    use objc2_foundation::{NSData, NSString, NSUserDefaults};
+
+    pub(super) fn set_root(_path: &Path) {}
+
+    fn key(file: &str) -> Retained<NSString> {
+        NSString::from_str(&format!("hilen-{file}"))
+    }
+
+    pub(crate) fn read(file: &str) -> Result<Option<Vec<u8>>> {
+        let data = NSUserDefaults::standardUserDefaults().dataForKey(&key(file));
+        Ok(data.map(|data| data.to_vec()))
+    }
+
+    pub(crate) fn write(file: &str, sealed: &[u8]) -> Result<()> {
+        let data = NSData::with_bytes(sealed);
+        unsafe { NSUserDefaults::standardUserDefaults().setObject_forKey(Some(&data), &key(file)) };
+        Ok(())
+    }
+
+    pub(crate) fn remove(file: &str) -> Result<()> {
+        NSUserDefaults::standardUserDefaults().removeObjectForKey(&key(file));
+        Ok(())
     }
 }
 

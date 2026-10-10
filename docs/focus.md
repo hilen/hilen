@@ -4,8 +4,12 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 `hilen/src/ui/focus.rs`. An app writes nothing for it.
 
 - An arrow key moves a ring to the nearest view in that direction. Enter taps the view
-  under the ring, with a began and an ended touch at its middle, so every view that
-  takes a tap works.
+  under the ring, with a began touch at its middle when the key goes down and the ended
+  one when it comes up, so every view that takes a tap works.
+- Enter held for half a second is a long press, like a held finger. It fires
+  `secondary` on the view under the ring, on a table with the position of the cell, and
+  its release is no tap. The repeats of a held key are ignored. `Input::on_key_up`
+  carries the release, and `hilen-inspect hold Enter --ms 800` takes the same path.
 - The views that can hold the ring are the touch views of the top touch layer. A
   `TableView` takes the taps of its cells itself, so each visible cell is a place of
   its own, known by its index, the cell views recycle.
@@ -47,6 +51,10 @@ key with `take_keys`, and then nothing else sees the press, no binding and no
 `keyboard_key` subscriber. `Input::on_key` asks `TextField::offer_key` for that, see
 Keys the owner of a text field takes in [text.md](text.md).
 
-The tests are `Key focus`, `Key focus table`, `Key focus modal` and `Navigation
-escape`. The scoring has unit tests in `focus.rs`. The remote of a real TV was not
-tried yet, see [roadmap.md](roadmap.md).
+The ring is one of the app views, its frame is counted from where they start, below
+the status bar of a phone, the test is `Focus ring place`.
+
+The tests are `Key focus`, `Key focus table`, `Key focus modal`, `Key focus long
+press` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
+of an Apple TV drives it in the simulator, see [tvos.md](tvos.md). The remote of a
+real TV was not tried yet, see [roadmap.md](roadmap.md).

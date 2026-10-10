@@ -37,7 +37,9 @@ pub struct Paths;
 
 impl Paths {
     pub(crate) fn home() -> PathBuf {
-        if Platform::IOS {
+        if Platform::TVOS {
+            Self::tvos_home()
+        } else if Platform::IOS {
             dirs::document_dir()
         } else if Platform::ANDROID {
             Self::android_home()
@@ -45,6 +47,13 @@ impl Paths {
             dirs::home_dir()
         }
         .expect("Failed to get home directory")
+    }
+
+    /// tvOS gives an app no documents folder, and `dirs` knows no folder
+    /// there at all. The caches folder is the only one an app may write to,
+    /// and the system may empty it while the app does not run.
+    fn tvos_home() -> Option<PathBuf> {
+        std::env::home_dir().map(|home| home.join("Library/Caches"))
     }
 
     /// The path the shell crate set, else the private files folder the

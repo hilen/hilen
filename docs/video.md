@@ -1,11 +1,11 @@
 # Video playback
 
 `VideoView` plays a file or an http or https url, behind the `video` cargo feature. On
-desktop and on iOS ffmpeg decodes, proven on macOS, on Windows x64 and on the iOS
-simulator, see On iOS. In a browser the page plays the source in a `<video>` element,
+desktop, on iOS and on tvOS ffmpeg decodes, proven on macOS, on Windows x64 and on the
+iOS and the Apple TV simulator, see On iOS. In a browser the page plays the source in a `<video>` element,
 see In a browser. The other lanes are in [roadmap.md](roadmap.md). `demo` and `ui-test`
-turn the feature on through a target table for those systems, so the Android and tvOS
-builds carry none of it, and the feature fails to compile with a clear message anywhere
+turn the feature on through a target table for those systems, so the Android
+build carries none of it, and the feature fails to compile with a clear message anywhere
 else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
 
 ## How it plays
@@ -326,7 +326,9 @@ the software AV1 decoder, into the same prefix first, it needs `meson` and
 `ninja`. `lib/link.txt` in the archive names what has to be linked besides the
 ffmpeg libraries, one `<kind>=<name>` per line, and the sys fork links those.
 There is an archive for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`,
-`aarch64-apple-ios`, `x86_64-apple-ios` and `aarch64-apple-ios-sim`. The iOS ones are
+`aarch64-apple-ios`, `x86_64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-tvos`
+and `aarch64-apple-tvos-sim`. The 2 tvOS ones are built the same way against the Apple
+TV SDKs, for tvOS 15. The iOS ones are
 cross built on a Mac against the iPhone SDKs, with the same set as the Mac archive, the
 first 2 for iOS 12. The x86 simulator one has no assembly, it only runs the UI tests
 under Rosetta and the x86 assembly would need nasm. The arm64 simulator one is for a hot

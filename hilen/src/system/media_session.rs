@@ -1,7 +1,8 @@
 //! What the system knows about the media the app plays: the Now Playing
 //! panel, and the play, pause and next keys of the keyboard and of
-//! headphones, and on a phone the lock screen and the control center. macOS
-//! and iOS so far, everywhere else the calls do nothing and no command ever
+//! headphones, and on a phone the lock screen and the control center. On an
+//! Apple TV also the play and pause button of the remote. macOS, iOS and
+//! tvOS so far, everywhere else the calls do nothing and no command ever
 //! comes.
 
 #[cfg(all(feature = "ui-tests", desktop))]
@@ -86,12 +87,13 @@ impl MediaSession {
 }
 
 /// A command from the system arrives here, on the main thread.
-#[cfg(any(macos, all(ios, not(tvos)), all(feature = "ui-tests", desktop)))]
+#[cfg(any(macos, ios, all(feature = "ui-tests", desktop)))]
 pub(crate) fn deliver(command: MediaCommand) {
+    log::debug!("media command: {command:?}");
     SESSION.commands.trigger(command);
 }
 
-#[cfg(any(macos, all(ios, not(tvos))))]
+#[cfg(any(macos, ios))]
 mod platform {
     use std::{cell::RefCell, ptr::NonNull};
 
@@ -233,7 +235,7 @@ mod platform {
     }
 }
 
-#[cfg(not(any(macos, all(ios, not(tvos)))))]
+#[cfg(not(any(macos, ios)))]
 mod platform {
     use crate::system::media_session::NowPlaying;
 

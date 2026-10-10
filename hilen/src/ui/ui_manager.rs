@@ -18,7 +18,7 @@ use crate::{
     },
     gm::{
         ToF32,
-        flat::{Point, Size},
+        flat::{Point, Rect, Size},
     },
     ui::{
         DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation, UIColor, UIEvent,
@@ -316,6 +316,15 @@ impl UIManager {
     /// setting multiplies it.
     pub fn display_scale() -> f32 {
         Window::screen_scale()
+    }
+
+    /// The part of the app views that is always seen, in their points. On
+    /// an Apple TV the app views cover the whole screen and a TV may cut
+    /// its edges, so an app keeps its controls and its text inside this
+    /// rect and lets a background or a video go to the edges. Everywhere
+    /// else it is the whole of the app views.
+    pub fn safe_area() -> Rect {
+        Self::root_view_static().safe_area()
     }
 
     pub fn root_view() -> Weak<RootView> {

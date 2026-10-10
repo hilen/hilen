@@ -19,6 +19,55 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A held Enter as a long press, the proof in flixen
+
+Found by flixen on 2026-10-10. A long OK press on a film poster flips its watched
+mark, a remote has no other way to it.
+
+- Current: Enter held on the key focus is a long press, see [focus.md](focus.md). The
+  UI test `Key focus long press` passes on desktop. It was not tried in flixen, and
+  not with a real remote.
+- Needed: bump the pin of flixen and hold Enter on a poster under the ring, with
+  `hilen-inspect hold Enter --ms 800` and with the remote in the Apple TV simulator.
+- Blocks: nothing. This entry is deleted once the watched mark flips in flixen.
+
+## tvOS, the upload and the run on an Apple TV
+
+Found by the tvOS display bring-up and by flixen, `~/dev/apps/flixen`, a player on an
+Apple TV. The remote, the safe area, stored settings, the media command of the remote
+and video landed on 2026-10-10 and run in the Apple TV simulator, see
+[tvos.md](tvos.md).
+
+- Current: the engine never ran on a real Apple TV. `make fly` archives the demo for
+  tvOS, signs it for the store and exports the ipa. The upload was refused, the demo
+  app has no tvOS platform in App Store Connect, and `make fly` never ran as 1
+  command for both systems. The demo cannot be driven on a TV: its home screen runs a
+  level, the key focus is off while a level runs, and its views do not keep inside
+  `UIManager::safe_area()`. The hilen skill has no tvOS chapter. There is no tvOS
+  lane of the UI suite, single tests run by hand with `HILEN_TEST_ONLY`. `Key focus
+  long press` did not run there.
+- Needed: the tvOS platform on the demo app and 1 upload through `make fly`. A demo
+  that the remote drives and that fits the safe area. The demo on a real Apple TV,
+  with its remote, and a film played there with sound. Check 4K and HDR output, the
+  frame rate, hardware decode named in the first frame log line, and the latent
+  `statusBarFrame` trap of [tvos.md](tvos.md). A tvOS lane for the UI tests, like
+  `build/ios/sim-test.rs`. A tvOS chapter in the hilen skill.
+- Blocks: a tvOS release of any app.
+
+## tvOS, the session, the Keychain and the Now Playing panel
+
+Found by flixen on 2026-10-10.
+
+- Current: on tvOS the sealed session of `SessionStore` is an entry of the user
+  defaults, and the `keychain` feature of `hilen-session` builds with the protected
+  store of iOS, see Stored data in [tvos.md](tvos.md). Both compile and never ran.
+  `MediaSession` builds and links on tvOS. Its panel was never seen, no test played
+  something long enough, and no command of a phone or of Siri was sent.
+- Needed: a login on tvOS that is still there after a restart, in an app with the
+  `login` feature. A secret saved and read through the Keychain there. A film that
+  shows in the Now Playing panel of tvOS, paused from the panel.
+- Blocks: a login and the system playback controls of a tvOS app.
+
 ## Sound clock and MIDI input, the proof on real devices
 
 Found on 2026-10-09 when `SoundClock` and the `midi` feature landed, see
@@ -723,16 +772,3 @@ Small remainders not worth their own entry.
   holds on one GPU only. A sample mask of all ones in the SDF pipelines would
   make the alpha the only coverage, it moves every fractional edge on every
   platform, so it needs a re-record of the suite.
-
-## Siri Remote input for tvOS
-
-Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
-tvOS app need.
-
-- Current: the engine builds for tvOS and renders in the Apple TV simulator. The key
-  focus exists, see [focus.md](focus.md), arrow keys, Enter and Escape drive every
-  view. But no key reaches the engine on tvOS: Siri Remote events arrive through the
-  UIKit focus engine and `UIPress`, and winit's UIKit backend forwards direct touches
-  only.
-- Needed: press forwarding in the winit fork, as arrow, Enter and Escape key events.
-- Blocks: any interactive tvOS app, and the tvOS UI test lane.

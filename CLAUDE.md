@@ -129,10 +129,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `ScreenKeyboard`, why `TextField::focus` does nothing on a phone, and the several
   moves iOS reports for 1. Read before touching `hilen/src/ui/screen_keyboard.rs`, the
   keyboard hook in `hilen_text.m` or `TextField::focus`.
-- [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
-  display only, no key of the remote reaches the engine yet. The vendored plat, the winit fork pin, the hand made
-  simulator shell and how to run it. Read before touching platform cfg aliases, the
-  winit pin, or anything tvOS.
+- [docs/tvos.md](docs/tvos.md) — tvOS in the Apple TV simulator: `make tvos` and the
+  project from the template, the remote as key events, the safe area an app asks for,
+  stored data in the user defaults, video, and the upload. Never run on a real Apple
+  TV. Read before touching platform cfg aliases, the winit pin, or anything tvOS.
 - [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,

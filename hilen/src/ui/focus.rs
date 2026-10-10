@@ -156,6 +156,8 @@ struct State {
     /// A modal that closes hands the ring back to the button that opened
     /// it.
     layers:   Vec<(WeakView, Target)>,
+    /// Where the touch of a held Enter began, none while Enter is up.
+    held:     Option<Point>,
 }
 
 static STATE: MainLock<State> = MainLock::new();
@@ -194,6 +196,14 @@ impl Focus {
         state.shown = true;
         state.pending = None;
         Self::place_ring();
+    }
+
+    /// Where the ring is drawn on the screen and how far it stands off its
+    /// view, none while no ring shows.
+    #[cfg(feature = "ui-tests")]
+    pub(crate) fn ring_frame() -> Option<(Rect, f32)> {
+        let ring = STATE.get_mut().ring;
+        (ring.is_ok() && !ring.is_hidden()).then(|| (*ring.absolute_frame(), RING_WIDTH + RING_GAP))
     }
 
     /// The view under the ring, a null view while no ring shows.
@@ -266,10 +276,25 @@ impl Focus {
         }
 
         if key == NamedKey::Enter {
-            return Self::tap();
+            return Self::press();
         }
 
         false
+    }
+
+    /// Enter up ends the touch Enter down began. So Enter held for
+    /// `LongPress::DURATION` is a long press and fires `secondary` on the
+    /// view under the ring, and its release is then no tap, the same as a
+    /// held finger.
+    pub(crate) fn on_key_up(key: NamedKey) -> bool {
+        if key != NamedKey::Enter {
+            return false;
+        }
+        let Some(position) = STATE.get_mut().held.take() else {
+            return false;
+        };
+        Self::touch(TouchEvent::Ended, position);
+        true
     }
 
     /// After layout each frame. The ring follows its view, a move that
@@ -377,27 +402,33 @@ impl Focus {
         true
     }
 
-    fn tap() -> bool {
+    fn press() -> bool {
         let state = STATE.get_mut();
         if !state.shown {
             return false;
+        }
+        // A key that is held repeats, and every repeat would tap again.
+        if state.held.is_some() {
+            return true;
         }
         let Some(view) = state.target.and_then(Target::view) else {
             return false;
         };
 
         let position = view.absolute_frame().center() * UIManager::scale();
-
-        for event in [TouchEvent::Began, TouchEvent::Ended] {
-            Input::process_touch_event(Touch {
-                id: FOCUS_TOUCH_ID,
-                position,
-                event,
-                button: MouseButton::Left,
-            });
-        }
+        state.held = Some(position);
+        Self::touch(TouchEvent::Began, position);
 
         true
+    }
+
+    fn touch(event: TouchEvent, position: Point) {
+        Input::process_touch_event(Touch {
+            id: FOCUS_TOUCH_ID,
+            position,
+            event,
+            button: MouseButton::Left,
+        });
     }
 
     fn place_ring() {
@@ -432,14 +463,18 @@ impl Focus {
             state.layers.push((root, target));
         }
 
+        // The ring is one of the app views, and those start below the
+        // status bar of a phone and move up with its keyboard. Its frame
+        // is counted from where they start, not from the screen.
+        let origin = UIManager::root_view_static().app_views_origin();
         let grow = RING_WIDTH + RING_GAP;
         let ring = state.ring;
         ring.set_hidden(false);
         ring.set_border_color(state.color.unwrap_or(UIColor::Plain(RING_COLOR)));
         ring.set_corner_radii(view.corner_radii());
         ring.set_frame((
-            rect.x() - grow,
-            rect.y() - grow,
+            rect.x() - origin.x - grow,
+            rect.y() - origin.y - grow,
             rect.width() + grow * 2.0,
             rect.height() + grow * 2.0,
         ));

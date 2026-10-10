@@ -234,7 +234,24 @@ pub fn inject_key(key: char) {
 }
 
 pub fn inject_named_key(key: NamedKey) {
+    from_main(move || {
+        Input::on_key(key);
+        Input::on_key_up(key);
+    });
+    human_pause_key();
+}
+
+/// Holds a named key down for `seconds` and lets go, with `repeats` more
+/// presses in between, what a keyboard sends for a key that is held.
+pub fn inject_held_key(key: NamedKey, seconds: f32, repeats: usize) {
     from_main(move || Input::on_key(key));
+    for _ in 0..repeats {
+        wait_for_next_frame();
+        from_main(move || Input::on_key(key));
+    }
+    sleep(Duration::from_secs_f32(seconds));
+    wait_for_next_frame();
+    from_main(move || Input::on_key_up(key));
     human_pause_key();
 }
 

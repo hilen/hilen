@@ -755,6 +755,9 @@ impl crate::window::WindowEvents for AppRunner {
         }
 
         if !event.state.is_pressed() {
+            if let Key::Named(key) = event.logical_key {
+                Input::on_key_up(back_as_escape(key));
+            }
             return;
         }
 
@@ -776,6 +779,15 @@ impl crate::window::WindowEvents for AppRunner {
                     crate::bug_report::BugReport::open();
                 }
             }
+        }
+
+        // The play and pause button of the remote of an Apple TV comes as a
+        // key. On a Mac the system takes that key and sends a media command,
+        // so an app reads it the same way on both.
+        #[cfg(tvos)]
+        if event.logical_key == Key::Named(winit::keyboard::NamedKey::MediaPlayPause) {
+            crate::system::deliver_media_command(crate::system::MediaCommand::Toggle);
+            return;
         }
 
         if let Key::Named(key) = event.logical_key {

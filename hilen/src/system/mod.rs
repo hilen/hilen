@@ -16,6 +16,8 @@ mod updater;
 pub use app_activity::AppActivity;
 pub use clipboard::{Clipboard, ClipboardImage};
 pub use locale::{language_code, locale};
+#[cfg(tvos)]
+pub(crate) use media_session::deliver as deliver_media_command;
 pub use media_session::{MediaCommand, MediaSession, NowPlaying};
 pub use open_url::open_url;
 pub use router::Router;

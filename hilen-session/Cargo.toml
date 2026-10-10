@@ -37,8 +37,13 @@ x25519-dalek = { workspace = true, optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 keyring-core = { workspace = true, optional = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
 keyring-store-apple = { workspace = true, optional = true, features = ["keychain", "protected"] }
+
+# The sealed files of tvOS are entries of the user defaults.
+[target.'cfg(target_os = "tvos")'.dependencies]
+objc2            = { workspace = true }
+objc2-foundation = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring-store-windows = { workspace = true, optional = true }

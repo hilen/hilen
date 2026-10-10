@@ -110,7 +110,7 @@ mod keychain {
         let store = keyring_store_apple::keychain::Store::new()?;
         // The protected store wants an app with a bundle id, which an iOS app
         // always is and a bare `cargo run` binary on a Mac is not.
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
         let store = keyring_store_apple::protected::Store::new()?;
         #[cfg(target_os = "windows")]
         let store = keyring_store_windows::Store::new()?;

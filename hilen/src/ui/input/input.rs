@@ -79,6 +79,11 @@ impl Input {
         UIEvents::keyboard_key().trigger(key);
     }
 
+    /// The release of a key. Only the key focus reads it, for a held Enter.
+    pub(crate) fn on_key_up(key: NamedKey) {
+        Focus::on_key_up(key);
+    }
+
     /// A pinch on a trackpad. `growth` is the share the content grew by
     /// since the last event, what macOS calls the magnification. The view
     /// under the cursor at the start keeps the pinch until it ends.

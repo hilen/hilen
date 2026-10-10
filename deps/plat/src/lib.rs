@@ -56,7 +56,7 @@ pub fn platforms() {
         apple:   { any(target_os = "macos", target_os = "ios", target_os = "tvos") },
 
         // where a video is decoded by ffmpeg, the targets with a prebuilt archive
-        ffmpeg:  { any(target_os = "macos", target_os = "linux", target_os = "windows", target_os = "ios") }
+        ffmpeg:  { any(target_os = "macos", target_os = "linux", target_os = "windows", target_os = "ios", target_os = "tvos") }
     }
 }
 

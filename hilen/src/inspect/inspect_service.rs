@@ -402,6 +402,7 @@ impl InspectService {
                                 if let Some(text) = key.to_text() {
                                     Input::on_char(text.chars().last().expect("Key text is empty"));
                                 }
+                                Input::on_key_up(key);
                             }
                         }
                     }

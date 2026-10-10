@@ -27,6 +27,7 @@ mod inspect_tap_covered;
 #[cfg(not_wasm)]
 mod inspect_tap_modifiers;
 mod key_focus;
+mod key_focus_long_press;
 mod key_focus_modal;
 mod key_focus_table;
 mod keymap;

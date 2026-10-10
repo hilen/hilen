@@ -4,6 +4,7 @@ mod app_views_fit_screen;
 mod bug_report_dialog;
 mod bug_report_style;
 mod double_tap;
+mod focus_ring_place;
 mod frame_stepped_animation;
 mod hidden_parent_touch;
 mod hidden_touch;

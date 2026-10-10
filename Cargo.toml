@@ -88,7 +88,7 @@ event-listener = "5.4"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
-ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "166cc089dc7086883ab7a56c5ca0e842eb62622e", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
+ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "44662c2bae78610b6f12dd14418cefc329e387dc", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
 # the 0.23 that usvg pulls, one copy in the tree
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
@@ -135,7 +135,7 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPa
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSValue"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
 objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 open = "5.4"

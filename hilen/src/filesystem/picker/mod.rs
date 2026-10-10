@@ -65,7 +65,7 @@ impl Paths {
         let picked = ios::pick().await;
         // tvOS has no photo library an app can open.
         #[cfg(tvos)]
-        let picked = std::future::ready(None).await;
+        let picked = std::future::ready(None::<PickedFile>).await;
         #[cfg(android)]
         let picked = android::pick(title).await;
         #[cfg(wasm)]

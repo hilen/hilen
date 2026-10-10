@@ -55,7 +55,7 @@ pub mod audio;
 #[cfg(feature = "video")]
 pub mod video;
 #[cfg(all(feature = "video", not(any(ffmpeg, wasm))))]
-compile_error!("the video feature is for desktop, iOS and the browser for now, see docs/video.md");
+compile_error!("the video feature is for desktop, iOS, tvOS and the browser for now, see docs/video.md");
 pub mod bug_report;
 pub mod filesystem;
 #[cfg(feature = "level")]

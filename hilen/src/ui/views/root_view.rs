@@ -5,7 +5,7 @@ use crate::{
     deps::refs::{Own, Weak},
     gm::{
         color::CLEAR,
-        flat::{Point, Size},
+        flat::{Point, Rect, Size},
     },
     ui::{
         Container, ImageMode, ImageView, UIColor, View, ViewData, ViewFrame, ViewSubviews, WeakView,
@@ -122,17 +122,45 @@ impl RootView {
             render_size.height * (1.0 / scale),
         );
 
-        self.screen.set_size(
-            inner_size.width * (1.0 / scale),
-            inner_size.height * (1.0 / scale),
-        );
-
-        let position = if Platform::IOS {
-            inner_pos * (1.0 / scale)
+        // A TV may cut the edges of its picture, and tvOS reports the part
+        // that is always seen as the safe area. An app there still draws to
+        // the edges, a video and a background, and keeps only its controls
+        // inside, see `safe_area`.
+        let (size, position) = if Platform::TVOS {
+            (render_size, Point::default())
+        } else if Platform::IOS {
+            (inner_size, inner_pos * (1.0 / scale))
         } else {
-            Point::default()
+            (inner_size, Point::default())
         };
+
+        self.screen.set_size(size.width * (1.0 / scale), size.height * (1.0 / scale));
         self.screen.set_position((position.x, position.y - self.keyboard_shift));
+    }
+
+    /// The part of the app views that no screen cuts and no system bar
+    /// covers, in the points of the app views. On a TV it is smaller than
+    /// the app views. Everywhere else the app views are that part already,
+    /// so it is all of them.
+    pub(crate) fn safe_area(&self) -> Rect {
+        if Platform::TVOS && self.test_canvas.is_none() {
+            let scale = 1.0 / crate::ui::UIManager::scale();
+            return (
+                self.inner_pos.x * scale,
+                self.inner_pos.y * scale,
+                self.inner_size.width * scale,
+                self.inner_size.height * scale,
+            )
+                .into();
+        }
+        let size = self.screen.size();
+        (0.0, 0.0, size.width, size.height).into()
+    }
+
+    /// Where the app views start on the screen. A view added to them is
+    /// placed against this point, not against the screen.
+    pub(crate) fn app_views_origin(&self) -> Point {
+        self.screen.absolute_frame().origin
     }
 
     /// The background stays, only the app views move.
