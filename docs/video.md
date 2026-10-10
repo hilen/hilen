@@ -152,6 +152,15 @@ else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
 - Render on demand keeps the loop awake through an empty animation while a
   video plays, the way `AnimatedImage` does, so a paused video costs nothing.
 
+## Views over the picture
+
+The picture is drawn by a child of the `VideoView`. A child is nearer than a later
+sibling of its parent, so a plain `Label` an app put over the video was hidden wherever
+the picture was. The `VideoView` is a flat layer for that, `ViewBase::flat_depth`, see
+[canvas.md](canvas.md): it clips, and after its subtree is drawn it writes its own
+depth over its frame. So every view an app adds after the video covers the picture, a
+title, a subtitle line, a button. The test is `Video label over`.
+
 ## On iOS
 
 The same player as on desktop, with 3 things a phone adds.

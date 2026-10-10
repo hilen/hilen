@@ -9,6 +9,8 @@ mod frames;
 #[cfg(ffmpeg)]
 mod hdr;
 #[cfg(ffmpeg)]
+mod label_over;
+#[cfg(ffmpeg)]
 mod pieces;
 #[cfg(ffmpeg)]
 mod pieces_sound;

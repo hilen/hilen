@@ -3,14 +3,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use log::error;
 use ui_proc::view;
 
-#[cfg(wasm)]
-use crate::ui::View;
 use crate::{
     deps::{
         refs::{Weak, weak_from_ref},
         vents::Event,
     },
-    ui::{ImageMode, ImageView, Setup, UIAnimation, ViewCallbacks, ViewData, ViewFrame},
+    ui::{ImageMode, ImageView, Setup, UIAnimation, View, ViewCallbacks, ViewData, ViewFrame},
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 #[cfg(ffmpeg)]
@@ -305,7 +303,18 @@ impl VideoView {
 }
 
 impl Setup for VideoView {
+    // A flat layer needs a view that clips, and the picture never leaves
+    // the view.
+    fn clips_to_bounds(&self) -> bool {
+        true
+    }
+
     fn setup(mut self: Weak<Self>) {
+        // The picture is drawn by a child, and a child is nearer than a
+        // later sibling of its parent. As a flat layer the video counts as
+        // 1 view at its own depth, so a title or a subtitle line an app
+        // puts over it after the video covers the picture.
+        self.__base_view().flat_depth = true;
         self.image_view.place().back();
         self.volume = 1.0;
         self.speed = 1.0;

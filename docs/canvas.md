@@ -42,8 +42,8 @@ A later sibling draws behind the subviews of an earlier one, the depth of a subv
 nearer than the depth of its parent's sibling. For a map with controls over it that is
 wrong, the map would draw over the controls.
 
-A view with `ViewBase::flat_depth` counts as one flat layer at its own depth. Only
-`CanvasView` sets it, and it needs a view that clips.
+A view with `ViewBase::flat_depth` counts as one flat layer at its own depth.
+`CanvasView` and `VideoView` set it, and it needs a view that clips.
 
 - Drawing: after the subtree is drawn, `UIClipPipeline::flatten` writes the depth of the
   view over its clip shape, with no color. A view drawn later is nearer than that depth

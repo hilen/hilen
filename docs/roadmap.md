@@ -19,24 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A label with a text outline is not drawn on tvOS
-
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-10 in the Apple TV simulator, tvOS
-26.2 at 1080p, on hilen `9fd2f8b`. The cause is not narrowed, the outline is a guess
-from the difference between 2 labels of 1 screen.
-
-- Current: the title of the flixen player is a `Label` over a `VideoView`, with
-  `set_text_size(18)`, `set_alignment(Left)`, `set_ellipsize(true)` and
-  `set_text_outline(BLACK, 1)`, see `crates/flixen/src/ui/player_screen.rs`. On
-  desktop it draws, also at UI scale 3. On tvOS with
-  `UIManager::override_scale(1.5)` nothing of it shows. The time label of the same
-  screen has no outline and draws there.
-- Needed: first the proof, a label with `set_text_outline` in the Apple TV simulator,
-  with and without the scale override and with and without a video under it. Then
-  the fix and a UI test that runs there.
-- Blocks: the title of a film in flixen on an Apple TV, and most likely subtitles,
-  `VideoView` draws them as outlined text.
-
 ## An app keeps the old winit fork after a rev bump
 
 Found by flixen on 2026-10-10.
