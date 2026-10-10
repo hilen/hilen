@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Once};
 
 use anyhow::Result;
 use log::debug;
+use plat::Platform;
 use winit::{
     event::{KeyEvent, TouchPhase},
     keyboard::Key,
@@ -45,6 +46,9 @@ const FIRST_TOUCH_ID: usize = 2;
 pub struct AppRunner {
     pub cursor_position: Point,
     touch_ids:           HashMap<u64, usize>,
+    /// Where the finger on the touch surface of an Apple TV remote was at
+    /// its last event, see `remote_surface`.
+    remote_finger:       Option<Point>,
     next_touch_id:       usize,
 }
 
@@ -212,7 +216,29 @@ impl AppRunner {
         Self {
             cursor_position: Point::default(),
             touch_ids:       HashMap::new(),
+            remote_finger:   None,
             next_touch_id:   FIRST_TOUCH_ID,
+        }
+    }
+
+    /// An Apple TV has no touch screen. A finger on the touch surface of its
+    /// remote arrives as a touch that starts in the middle of the screen.
+    /// Taken as a touch it pressed the view there and hid the focus ring. So
+    /// only its move is used, it scrolls the list in the middle of the
+    /// screen like a wheel does. A press of the surface arrives as a key.
+    fn remote_surface(&mut self, touch: &winit::event::Touch) {
+        let position: Point = (touch.location.x, touch.location.y).into();
+        match touch.phase {
+            TouchPhase::Started => {
+                UIManager::set_cursor_position(position * (1.0 / UIManager::scale()));
+                self.remote_finger = Some(position);
+            }
+            TouchPhase::Moved => {
+                if let Some(last) = self.remote_finger.replace(position) {
+                    Input::on_scroll(position - last);
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => self.remote_finger = None,
         }
     }
 
@@ -735,6 +761,11 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn touch_event(&mut self, touch: winit::event::Touch) -> bool {
+        if Platform::TVOS {
+            self.remote_surface(&touch);
+            return true;
+        }
+
         let event = match touch.phase {
             TouchPhase::Started => TouchEvent::Began,
             TouchPhase::Moved => TouchEvent::Moved,

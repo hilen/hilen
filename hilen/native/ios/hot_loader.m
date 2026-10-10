@@ -75,10 +75,16 @@ static NSString* const kStartingFile = @"starting";
 }
 
 // The hot folder of a phone, in the data of the loader. The engine reads the
-// same variable to know where a sent library goes.
+// same variable to know where a sent library goes. An Apple TV lets an app
+// write only into its caches folder, which the system may empty while the
+// app does not run. The packed library runs then.
 - (BOOL)useOwnDir {
-    NSString* support =
-        NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+#if TARGET_OS_TV
+    NSSearchPathDirectory place = NSCachesDirectory;
+#else
+    NSSearchPathDirectory place = NSApplicationSupportDirectory;
+#endif
+    NSString* support = NSSearchPathForDirectoriesInDomains(place, NSUserDomainMask, YES).firstObject;
     _dir = [support stringByAppendingPathComponent:@"hot"];
     NSError* error = nil;
     if (![NSFileManager.defaultManager createDirectoryAtPath:_dir

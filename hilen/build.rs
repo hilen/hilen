@@ -11,14 +11,28 @@ fn main() {
     stamp_build_time();
     rerun_rules();
     refuse_inspect_in_release();
-    compile_ios_text_field();
+    compile_native();
+    compile_tvos_dispatch();
     hot_cfg();
 }
 
-/// `cfg(hot)` is an iOS build with the `hot` feature, see `docs/hot-reload.md`.
+/// See `native/tvos/dispatch_stub.c`.
+fn compile_tvos_dispatch() {
+    let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if os == "tvos" && is_hot(&os) {
+        cc::Build::new().file("native/tvos/dispatch_stub.c").compile("dispatch");
+    }
+}
+
+/// A hot build is one for an iPhone or an Apple TV with the `hot` feature,
+/// see `docs/hot-reload.md`.
+fn is_hot(os: &str) -> bool {
+    matches!(os, "ios" | "tvos") && var("CARGO_FEATURE_HOT").is_ok()
+}
+
 fn hot_cfg() {
     println!("cargo:rustc-check-cfg=cfg(hot)");
-    if var("CARGO_CFG_TARGET_OS").as_deref() != Ok("ios") || var("CARGO_FEATURE_HOT").is_err() {
+    if !is_hot(&var("CARGO_CFG_TARGET_OS").unwrap_or_default()) {
         return;
     }
     // The flag takes rayon out of the dependencies, see `hilen/Cargo.toml`.
@@ -33,9 +47,12 @@ fn hot_cfg() {
 /// The system text field of an iPhone is Objective-C, see
 /// `native/ios/hilen_text.m`. It is compiled into this library, so an app
 /// needs nothing for it in its Xcode project. The Apple TV shell has no
-/// system text field.
-fn compile_ios_text_field() {
-    if var("CARGO_CFG_TARGET_OS").as_deref() != Ok("ios") {
+/// system text field, a build for it compiles only the file of a hot build.
+fn compile_native() {
+    let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let text_field = (os == "ios").then_some("native/ios/hilen_text.m");
+    let files: Vec<_> = text_field.into_iter().chain(hot_shell_file(&os)).collect();
+    if files.is_empty() {
         return;
     }
 
@@ -51,8 +68,7 @@ fn compile_ios_text_field() {
 
     cc::Build::new()
         .compiler(clang.trim())
-        .file("native/ios/hilen_text.m")
-        .files(hot_shell_file())
+        .files(files)
         // The file hands objects between C and Objective-C with ARC casts.
         .flag("-fobjc-arc")
         // With modules the object file names the frameworks it needs, and
@@ -64,8 +80,8 @@ fn compile_ios_text_field() {
 /// A hot build is a dynamic library with no Xcode shell under it, so the
 /// functions the engine takes from the shell header come from this file. A
 /// normal build must not have it, the shell would define them a second time.
-fn hot_shell_file() -> Option<&'static str> {
-    var("CARGO_FEATURE_HOT").is_ok().then_some("native/ios/hilen_shell.m")
+fn hot_shell_file(os: &str) -> Option<&'static str> {
+    is_hot(os).then_some("native/ios/hilen_shell.m")
 }
 
 /// One rerun line turns off the default rerun on any package file, which the

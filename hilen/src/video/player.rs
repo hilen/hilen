@@ -611,7 +611,15 @@ impl Player {
             error!("video {}: no sound, no audio output", self.source.location());
             return;
         };
-        let track = manager.add_sub_track(TrackBuilder::new().volume(Decibels(decibels(self.volume))));
+        // Without this the track goes at once when its handle drops, with a
+        // sound that still fades out. Such a sound never reaches its
+        // stopped state, and the thread that decodes for it waits on that
+        // state for good, 1 thread left by every closed video.
+        let track = manager.add_sub_track(
+            TrackBuilder::new()
+                .volume(Decibels(decibels(self.volume)))
+                .persist_until_sounds_finish(true),
+        );
         drop(manager);
         let mut track = match track {
             Ok(track) => track,

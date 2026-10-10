@@ -19,6 +19,24 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## tvOS, hot reload and hot swap
+
+Asked for on 2026-10-10, the driver is flixen, `~/dev/apps/flixen`, a player on an
+Apple TV. Its TV screens can only be tried with a full build and a TestFlight upload.
+
+- Current: hot reload and hot swap work in the Apple TV simulator and on a real Apple
+  TV, see "An Apple TV" in [hot-reload.md](hot-reload.md). 3 fixes that the real TV
+  showed have no test: the touch surface of the remote, the `Pause` command that
+  means play, and the sound decode thread a closed video left behind, see
+  [tvos.md](tvos.md). A simulator cannot make the first 2.
+- Needed: a swap on the TV after a played video, 2 times with more than 5 seconds in
+  between, it crashed before the fix. A test for the decode thread, the count of
+  threads before and after a closed video. The cause of the first swap after an
+  install that did not start. Many swaps in a row on the TV and what each leaves. A
+  glide after a swipe on the remote, and its speed checked by a person. `make hot
+  args="tv"` run from the folder of an app that pins hilen.
+- Blocks: trust in a swap on a TV after a video.
+
 ## The even frame time is not proven on a real screen
 
 Found by blast, `~/dev/apps/blast`, a drum practice app, on 2026-10-10.

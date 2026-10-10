@@ -28,14 +28,12 @@ use crate::level::LevelManager;
 #[cfg(feature = "scene")]
 use crate::scene::SceneManager;
 use crate::{
-    App, AppRunner,
-    deps::hreads::stop_dispatch,
-    filesystem::stop_picker,
-    inspect::InspectService,
-    system::MediaSession,
-    ui::{UIManager, mobile::ios::hilen_ios_text_stop},
-    window::AppHandler,
+    App, AppRunner, deps::hreads::stop_dispatch, inspect::InspectService, system::MediaSession,
+    ui::UIManager, window::AppHandler,
 };
+// The Apple TV shell has no system text field and no image picker.
+#[cfg(not(tvos))]
+use crate::{filesystem::stop_picker, ui::mobile::ios::hilen_ios_text_stop};
 
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 static SENTRY: Mutex<Option<ClientInitGuard>> = Mutex::new(None);
@@ -116,9 +114,12 @@ pub extern "C" fn hilen_stop() {
     stop_audio();
 
     MediaSession::stop();
-    // SAFETY: the main thread, and the function takes no argument.
-    unsafe { hilen_ios_text_stop() };
-    stop_picker();
+    #[cfg(not(tvos))]
+    {
+        // SAFETY: the main thread, and the function takes no argument.
+        unsafe { hilen_ios_text_stop() };
+        stop_picker();
+    }
     InspectService::stop();
     stop_dispatch();
 

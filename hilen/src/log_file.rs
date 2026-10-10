@@ -12,6 +12,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 use chrono::Local;
 
+use crate::filesystem::Paths;
+
 static CURRENT: OnceLock<PathBuf> = OnceLock::new();
 
 /// The log file of this launch, `None` before logging is set up or when
@@ -62,6 +64,11 @@ pub fn log_dir(app: &str) -> Result<PathBuf> {
     if cfg!(windows) {
         let local = dirs::data_local_dir().context("no local app data dir")?;
         return Ok(local.join(app).join("logs"));
+    }
+    // A real Apple TV lets an app write only into its caches folder, the
+    // simulator allows more.
+    if cfg!(target_os = "tvos") {
+        return Ok(Paths::home().join("Logs").join(app));
     }
     let state = dirs::state_dir().or_else(dirs::data_local_dir).context("no state dir")?;
     Ok(state.join(app).join("logs"))

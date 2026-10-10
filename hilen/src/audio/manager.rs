@@ -1,4 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(hot)]
+use std::{thread::sleep, time::Duration};
 
 use kira::{
     AudioManager, AudioManagerSettings, Tween,
@@ -14,6 +16,11 @@ use crate::audio::sound::decibels;
 /// Sound effects start 20 dB down. A video track plays at its own volume
 /// next to them.
 const DEFAULT_EFFECTS_VOLUME: f32 = 0.1;
+
+/// The fade of a stopped sound is 10 ms, and the audio thread sees the stop
+/// at its next buffer.
+#[cfg(hot)]
+const SOUND_STOP_TIME: Duration = Duration::from_millis(100);
 
 /// A part of the audio output that opens on its first use.
 enum Slot<T> {
@@ -81,8 +88,16 @@ fn open_effects() -> Slot<TrackHandle> {
 #[cfg(hot)]
 pub(crate) fn stop() {
     stop_clock_feed();
+    let mut manager = AUDIO_MANAGER.lock();
+    // The sound of a video that was open until now only got its stop. It
+    // reaches its stopped state on the audio thread after a short fade, and
+    // its decode thread ends on that state. A device closed before that
+    // leaves the thread running in a build whose memory is freed later.
+    if manager.open().is_some() {
+        sleep(SOUND_STOP_TIME);
+    }
     *EFFECTS.lock() = Slot::Silent;
-    *AUDIO_MANAGER.lock() = Slot::Silent;
+    *manager = Slot::Silent;
 }
 
 pub(crate) fn effects_volume() -> f32 {

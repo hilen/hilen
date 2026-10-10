@@ -40,6 +40,9 @@ struct Session {
     commands:   UIEvent<MediaCommand>,
     /// The handlers of the system's commands are in place.
     registered: bool,
+    /// What the app said last in `set_playback`.
+    #[cfg(ios)]
+    playing:    bool,
 }
 
 static SESSION: MainLock<Session> = MainLock::new();
@@ -61,6 +64,10 @@ impl MediaSession {
     /// and after a seek, the system counts on by itself in between.
     pub fn set_playback(playing: bool, position: f64) {
         Self::register();
+        #[cfg(ios)]
+        {
+            SESSION.get_mut().playing = playing;
+        }
         platform::set_playback(playing, position);
     }
 
@@ -90,6 +97,18 @@ impl MediaSession {
 #[cfg(any(macos, ios, all(feature = "ui-tests", desktop)))]
 pub(crate) fn deliver(command: MediaCommand) {
     log::debug!("media command: {command:?}");
+    // A phone and an Apple TV pick between the play and the pause command
+    // by whether sound comes out of the app, not by the rate the app
+    // reports. The sound output of the engine runs on while a video is
+    // paused, so the button of a remote says pause on every press. A pause
+    // for an app that is paused already is that button asking to play.
+    #[cfg(ios)]
+    let command = if command == MediaCommand::Pause && !SESSION.playing {
+        log::debug!("media command: the app is paused, the pause plays");
+        MediaCommand::Play
+    } else {
+        command
+    };
     SESSION.commands.trigger(command);
 }
 

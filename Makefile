@@ -35,9 +35,17 @@ ui-ios-present:
 # Hot reload in the iOS simulator: 2 builds of the `hot-test` app swapped in
 # one process, see docs/hot-reload.md.
 # `hot-test` is also the folder of the app the lane builds.
+# `make hot-test args="tv"` runs the lane in the Apple TV simulator.
 .PHONY: hot-test
 hot-test:
-	rust ./build/ios/hot-test.rs
+	rust ./build/ios/hot-test.rs $(args)
+
+# Tells if a development build on the paired iPhone may load a library from
+# its data folder, `make load-test args="tv"` asks the paired Apple TV. See
+# "What iOS allows" in docs/hot-reload.md.
+.PHONY: load-test
+load-test:
+	rust ./build/ios/load-test.rs $(args)
 
 ui-web-present:
 	bun build/web/drive.ts --browser $(BROWSER) --present --only "$(HILEN_TEST_ONLY)"

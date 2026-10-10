@@ -1,7 +1,9 @@
 # tvOS
 
 The engine runs in the Apple TV simulator: it draws, the remote drives the UI, video
-plays, and settings stay over a restart. It has never run on a real Apple TV.
+plays, and settings stay over a restart. On a real Apple TV it ran as a hot build only,
+on 2026-10-10 on an Apple TV 4K of the 3rd generation with tvOS 26.3, see "An Apple TV"
+in [hot-reload.md](hot-reload.md). A build from TestFlight was never opened there.
 
 Proven on 2026-10-10, toolchain nightly-2026-10-01, tvOS SDK 26.2, simulator runtime
 tvOS 26.2 on an Apple TV 4K at 1080p.
@@ -78,6 +80,18 @@ Play/Pause does not reach the keymap. `key_event` in `app_runner.rs` sends it as
 `MediaCommand::Toggle` through `MediaSession::on_command`, the way a Mac sends the
 media key of a keyboard, so an app reads it the same on both.
 
+On a real TV with something in the Now Playing info the button does not come as a
+press. tvOS sends the command `Pause` on every press, also for a paused video. It picks
+between play and pause by whether sound comes out of the app, and the sound output of
+the engine runs on while a video is paused. So `deliver` in `media_session.rs` turns a
+`Pause` for an app that said it is paused into `Play`, on a phone too.
+
+A finger on the touch surface of the remote arrives as a touch that starts in the
+middle of the screen. The simulator sends no such touch. Taken as a touch it pressed
+the view in the middle and hid the focus ring. `remote_surface` in `app_runner.rs`
+uses only its move, as a scroll of the list in the middle of the screen, like a wheel.
+There is no glide after the finger lifts.
+
 The key focus is off while a level or a scene runs that takes the keys, see
 [focus.md](focus.md). A level that is only the backdrop of a screen answers false in
 `takes_keys`, like the home level of the demo, or the remote cannot leave that screen.
@@ -99,7 +113,8 @@ tvOS gives an app no folder that keeps its files. It has a caches folder the sys
 may empty while the app does not run, and the user defaults.
 
 - `Paths::storage` is a folder in `Library/Caches`. Only what can be made again
-  belongs there, the log and downloaded pictures.
+  belongs there, downloaded pictures. The log files are in `Library/Caches/Logs`. A
+  real TV refuses the folder every other system uses for them, the simulator does not.
 - An `OnDisk` value is 1 entry of the user defaults, `hilen-store:<path under the
   root>`. A value stayed over 2 restarts and a wiped caches folder. tvOS ends an app
   whose defaults pass 1 MB, a store of over 100 KB is logged.
@@ -115,7 +130,7 @@ video UI tests pass in the simulator, with h264 decoded in software there.
 
 ## What still stands
 
-- **No device run.** See [roadmap.md](roadmap.md).
+- **No device run of a normal build.** See [roadmap.md](roadmap.md).
 - **One latent trap.** winit's `safe_area_screen_space` falls back to
   `UIApplication.statusBarFrame`, which does not exist on tvOS. It is only reached when
   the OS reports below iOS 11, so tvOS stays clear, but it is a trap if that version

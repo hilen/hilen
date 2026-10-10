@@ -7,7 +7,7 @@ mod android;
 mod desktop;
 #[cfg(all(ios, not(tvos)))]
 mod ios;
-#[cfg(hot)]
+#[cfg(all(hot, not(tvos)))]
 pub(crate) use ios::stop;
 #[cfg(wasm)]
 mod web;
@@ -26,6 +26,8 @@ pub struct PickedFile {
     pub bytes:        Vec<u8>,
 }
 
+// tvOS has no picker, nothing makes a picked file there.
+#[cfg(not(tvos))]
 impl PickedFile {
     /// A platform that gives no type has one guessed from the name.
     pub(crate) fn new(name: String, content_type: Option<String>, bytes: Vec<u8>) -> Self {
@@ -41,6 +43,7 @@ impl PickedFile {
     }
 }
 
+#[cfg(not(tvos))]
 fn content_type_of(name: &str) -> String {
     mime_guess::from_path(name)
         .first_raw()

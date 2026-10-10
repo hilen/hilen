@@ -1,15 +1,18 @@
-# Hot reload on iOS
+# Hot reload on iOS and tvOS
 
 A saved file shows in the running app in the iOS simulator, with no install and
 no restart of the process. Engine changes too. It is a dev mode, a release app
 stays 1 static library linked into the Xcode shell. On a real iPhone a loader
-app swaps between apps the same way, on a command, see "A real iPhone".
+app swaps between apps the same way, on a command, see "A real iPhone". The
+Apple TV simulator and a real Apple TV have the same, see "An Apple TV".
 
 ```bash
 make hot        # in an app folder: build, start in the simulator, watch the sources
 make hot-test   # in hilen: the lane that proves the swap
 make swap args="start demo ../apps/skaityk"   # 1 loader for several apps, see below
 make swap args="phone install"                # the loader on a real iPhone, see below
+make hot args="tv"                            # the same in the Apple TV simulator
+make swap args="tv device install"            # the loader on a real Apple TV, see below
 ```
 
 Proven on 2026-10-07 in the simulator of an Apple Silicon Mac, on iOS 16.4. A
@@ -179,6 +182,77 @@ all of it the send of the 145 MB library and 264 asset files over Wi-Fi.
 - Not run yet: many swaps in a row and what each leaves in the memory of a
   phone, a repeat send of the same app, and the start guard.
 
+## An Apple TV
+
+The word `tv` in front asks for an Apple TV. Everything else is the same code
+as for a phone.
+
+```bash
+make hot args="tv"                            # in an app folder, the watch of saved files
+make hot-test args="tv"                       # in hilen: the lane, in the Apple TV simulator
+make swap args="tv start demo ../apps/flixen/crates/flixen"
+make swap args="tv to flixen"
+make swap args="tv status"
+make swap args="tv stop"
+make swap args="tv device install"            # a real Apple TV: build the loader, install, start
+make swap args="tv device ../apps/flixen/crates/flixen"   # build, sign, send, swap
+make swap args="tv device status"
+make load-test args="tv"                      # the load test on the paired Apple TV
+```
+
+Proven on 2026-10-10. In the simulator of tvOS 26.2: the lane with 6 swaps in
+1 process, a swap between `demo` and flixen, and a reload 6.1 seconds after a
+saved file. On an Apple TV 4K of the 3rd generation with tvOS 26.3: the load
+test, the install of the loader, and swaps between `demo` and flixen in 1
+process, about 55 ms from the stop of one app to the start of the next.
+
+What differs from a phone:
+
+- tvOS has no prebuilt standard library, so the library is built with
+  `-Z build-std=std,panic_abort`. `cfg(hot)` is on for tvOS too.
+- The crate `dispatch` 0.2 asks the linker for a library `dispatch` on every
+  system but macOS and iOS, and tvOS has none. A normal tvOS build is a static
+  library and links nothing. A hot library failed with `library 'dispatch' not
+  found`. `hilen/native/tvos/dispatch_stub.c` is that library with nothing in
+  it, `hilen/build.rs` compiles it for a tvOS hot build only.
+- The loader has its own `Info.plist`, `hot_loader_tvos.plist`, with the device
+  family of a TV.
+- Everything of a tvOS hot build is under `target/hot/tv`, so both simulators
+  run at the same time.
+- The simulator is the first booted Apple TV, else the first one at 1080p. The
+  lists of `simctl` are split by their `-- tvOS` lines, a name tells nothing.
+- A TV has no system text field and no image picker, the stop skips both.
+
+### A real Apple TV
+
+The load test of 2026-10-10 on tvOS 26.3 gave the same answers as on a phone:
+no signature and an ad hoc signature are refused, a library signed with the
+development certificate loads. `make load-test` is that test as a script now,
+`build/ios/load-test.rs` with the app `hilen/native/ios/load_test.m`.
+
+- Pair the TV once. On the TV open Settings, Remotes and Devices, Remote App
+  and Devices, and leave it open. On the Mac run `xcrun devicectl manage pair
+  --device "<name of the TV>"` in a terminal and type the code the TV shows.
+  The code belongs to that run of the command.
+- The development profile for tvOS is made by 1 build of `mobile/tvOS` for the
+  TV: `xcodebuild -project Demo.xcodeproj -scheme Demo -destination
+  'platform=tvOS,id=<udid>' -allowProvisioningUpdates
+  -allowProvisioningDeviceRegistration build`. It registers the TV in the
+  developer account. An app has a profile for each system under the same id,
+  `development_profile` picks by the system.
+- tvOS lets an app write only into its caches folder, so the hot folder is
+  `Library/Caches/hot`. The system may empty it while the app does not run, the
+  loader then runs the packed library.
+- `devicectl device process launch --console` shows the lines of the loader
+  and of the app. When that command ends on the Mac, the app on the TV ends.
+- The crash report of the loader comes off the TV with `devicectl device copy
+  from --domain-type systemCrashLogs`, and the log file of the app with
+  `--domain-type appDataContainer` from `Library/Caches/Logs`.
+
+Not explained: the first swap after the install, from the packed `demo` to
+flixen, did not start in 90 seconds. The old app had stopped and the process
+lived. No console was attached. Every later swap worked.
+
 ## The heap of a build
 
 A stopped build is never unloaded, so nothing runs the drop of what its
@@ -211,7 +285,7 @@ Measured over swaps between 3 apps, 2026-10-08:
 ## The stop
 
 `hilen_stop` gives back, in this order: the level and the scene, every view,
-the audio manager with the feed timer of the sound clocks, the media command handlers, the system text field with its
+the audio manager, after 100 ms for the sound of an open video to stop, with the feed timer of the sound clocks, the media command handlers, the system text field with its
 observer and callbacks, the picker delegate, the mDNS thread, the queued main
 thread work, the window with its surface, the event loop, Sentry and the tokio
 runtime. `hilen_stopped` then answers 1 once the Objective-C classes are
@@ -286,8 +360,13 @@ part of `make smoke`.
 - The send to a phone is slow for a big library, the file goes as it is, with
   its symbols and not packed.
 - The stop of the feed timer of a sound clock was never compiled in a hot build.
-- Video and the open image picker during a reload never ran. The stop of the
-  media commands is written and not proven, it needs a played video.
+- A swap after a played video crashed on a real Apple TV on 2026-10-10. Every
+  closed video left its sound decode thread of kira running, and the thread
+  read the memory of its build after a later swap freed it. The sound track of
+  a video now stays until its sound has stopped, `persist_until_sounds_finish`
+  in `video/player.rs`, and the stop waits for a video that is still open. The
+  swap after a played video was not run again after the fix. The open image
+  picker during a reload never ran.
 - A thread the app started itself cannot be ended from outside, it runs on in
   old code.
 - In the simulator assets are copied into the loader app, a changed asset
