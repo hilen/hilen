@@ -178,23 +178,6 @@ Found on 2026-10-08 in banda, `~/dev/apps/banda`, at `dev` commit `7d3dbd66`.
   `keymap.rs`, and a UI test that presses the key with and without Alt.
 - Blocks: Alt+N for a new session in banda on Windows and Linux.
 
-## Labels over a video are hidden by its picture
-
-Found on 2026-10-08 in flixen, `~/dev/apps/flixen`, at `dev` commit `5a81ed41`.
-
-- Current: `VideoView` draws its picture in a child view, `image_view` in
-  `hilen/src/ui/views/basic/video_view.rs`. A child of an earlier view draws over a
-  later sibling that has no children, so a plain `Label` an app puts over the video is
-  hidden wherever the picture is. In flixen the title and the subtitle line vanish when
-  the picture fills the window, in fullscreen or in a 16 by 9 window. A `Button` and a
-  view with children still show. The `views.md` chapter of the hilen skill tells an app
-  to show subtitles in a `Label` over the video, which cannot work today.
-- Needed: every later sibling of a `VideoView` draws over its picture, with no depth
-  call in the app. Either the picture is drawn at the depth of the `VideoView` itself,
-  or the view keeps its child behind its later siblings. A UI test with a label and a
-  label with an outline over a playing video, with the picture over the whole window.
-- Blocks: the title and the subtitles of flixen in fullscreen.
-
 ## A table keeps a scroll place that is set before its first layout
 
 Found on 2026-10-08 in banda at `dev` commit `fcd1bda8`. A chat page is made new on
