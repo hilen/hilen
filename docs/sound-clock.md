@@ -18,8 +18,8 @@ clock.play_at_beat(&kick, 4.0, 1.0);
 clock.play_at_beat(&snare, 4.5, 0.8);
 clock.play_at_seconds(&click, 10.0, 0.5);
 
-// The place of the play line on screen.
-let beat = clock.beats();
+// The place of the play line on screen, for the frame that is drawn.
+let beat = clock.beats_at(hilen::time::frame_seconds());
 
 clock.set_bpm(140.0);
 clock.stop();
@@ -45,8 +45,34 @@ clock.stop();
   it is off for a time before the last tempo change.
 
 Queue a little ahead, not a whole song. A queued sound is a small object on the
-audio thread, and 256 of them fit before that thread has to ask for memory. A good
-loop queues everything that starts in the next half second on every frame.
+audio thread, and 256 of them fit before that thread has to ask for memory.
+
+Queue from a feed, not from `update`. The engine draws frames on demand and holds every
+frame of a covered window, so a queue filled in `update` runs dry. `set_feed(feed)`
+sets a call that the engine makes on the main thread every 0.1 seconds while the clock
+runs, the first time right after `start`. A timer makes the calls, not a frame. A feed
+that queues every sound of the next half second in each call never runs dry. It gets
+the clock, to read `beats` and to queue. The first call comes a few ms after the
+start, so queue a sound of beat 0 before `start`. A stopped or dropped clock gets no
+calls, and with no running clock there is no timer. On native the timer is 1 thread
+named `sound clock feed`, in a browser a task on the main thread. The code is
+`hilen/src/audio/clock_feed.rs`.
+
+```rust
+clock.set_feed(move |clock| {
+    let until = clock.beats() + clock.bpm() / 120.0;
+    while next_beat < until {
+        clock.play_at_beat(&kick, next_beat, 1.0);
+        next_beat += 1.0;
+    }
+});
+```
+
+A hit whose time already passed starts at once. After a stall several of them sound
+together, so a feed should skip what the clock is already past.
+
+A play line reads `beats_at(time::frame_seconds())`, not `beats()`, see "The time of a
+frame" in [dispatch.md](dispatch.md).
 
 Every clock sound plays on the effects track, so `Sound::set_volume` scales it like
 every other `Sound`. That volume starts at 0.1.

@@ -122,7 +122,7 @@ once but shows only in the next stepped frame, so `pause`, `tap`, `step`, `scree
 stepped since the pause. A screenshot of a paused app draws what the app has again and
 runs no layout, so take it after a step, right after a tap a new view has no frame yet.
 The tree in the reply to a tap is from before the layout too. Only what reads the
-engine clock stands still, `Animation` and what is built on it. A timer of `after` and a
+engine clock stands still, `Animation`, `time::frame_seconds` and what is built on them. A timer of `after` and a
 level on the real clock go on.
 
 How it works:

@@ -19,6 +19,37 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The even frame time is not proven on a real screen
+
+Found by blast, `~/dev/apps/blast`, a drum practice app, on 2026-10-10.
+
+- Current: `time::frame_seconds` gives 1 even time per frame and `Animation` runs on
+  it, see "The time of a frame" in [dispatch.md](dispatch.md). The follower behind it
+  is proven by unit tests with made up frame times. On a real display it is not.
+  Blast moves a play line by `SoundClock::beats_at(frame_seconds())`, an even line
+  moves 12.6 pixels in every frame. 3 recordings with `hilen-inspect hover --frames
+  120` on a 60 Hz display gave steps of 1 to 55, 3 to 18 and 3 to 38 pixels, with up
+  to 73 ms between 2 frames. The window was in the background and the machine was
+  busy. 1 recording before the change gave 8 to 18 pixels and 9 to 24 ms. It is not
+  known if the frames came that unevenly from the load, from the background window or
+  from the change itself.
+- Needed: a measurement that tells the pacing of the frames from the time a view
+  reads. The same app under the same load, with the window in front, with and without
+  the frame time. Then a fix of what it shows. Nothing ran in a browser, on Windows,
+  Linux, iOS or Android.
+- Blocks: the play line of blast, which stutters at times.
+
+## The feed of a sound clock is not proven behind a covered window
+
+Found by blast, `~/dev/apps/blast`, on 2026-10-10.
+
+- Current: `SoundClock::set_feed` is called on a timer with no frame, proven by unit
+  tests. Blast plays with a still mouse and no late hit. A window that is fully
+  covered or minimized was never tried in a real app.
+- Needed: play in blast, cover the window fully, then minimize it, listen, and read
+  the log for `skipped` lines.
+- Blocks: nothing until it fails.
+
 ## tvOS, the run on an Apple TV
 
 Found by the tvOS display bring-up and by flixen, `~/dev/apps/flixen`, a player on an

@@ -9,7 +9,7 @@ use crate::{
         vents::Event,
     },
     gm::{Clock, LossyConvert},
-    ui::{ImageMode, ImageView, Setup, UIAnimation, ViewCallbacks, ViewData, ViewFrame},
+    ui::{ImageMode, ImageView, Setup, View, ViewCallbacks, ViewData, ViewFrame},
     window::image::{Image, decode_gif},
 };
 
@@ -38,8 +38,6 @@ pub struct AnimatedImage {
     /// Zero means loop forever.
     loop_count: u32,
     loops_done: u32,
-
-    keeping_alive: bool,
 
     /// Fires when a finite loop count is reached and playback stops on the last
     /// frame. An infinite gif never fires it.
@@ -141,23 +139,16 @@ impl AnimatedImage {
         self.current
     }
 
-    /// Render on demand sleeps the loop unless continuous work is live. A
-    /// playing gif is that work, so an empty animation runs while it plays and
-    /// shows on screen, and ends when it stops, hides or dies.
+    /// Render on demand sleeps the loop unless something asks for frames. A
+    /// playing gif asks while it plays and shows on screen, and stops when
+    /// it stops, hides or dies.
     fn keep_frames_coming(mut self: Weak<Self>) {
-        if self.keeping_alive || !self.playing {
+        if self.__base_view().keeps_frames || !self.playing {
             return;
         }
-        self.keeping_alive = true;
-        let anim = UIAnimation::new(|_, _| {})
-            .finish_condition(move || self.is_null() || !self.is_visible_on_screen() || !self.playing);
-        anim.on_finish.sub(move || {
-            if self.is_ok() {
-                self.keeping_alive = false;
-                self.last_ms = None;
-            }
-        });
-        self.add_animation(anim);
+        // The time the gif stood must not count as one huge step.
+        self.last_ms = None;
+        self.keep_frames_while(move || self.is_visible_on_screen() && self.playing);
     }
 
     /// Move the current frame on by the time passed since the last update.

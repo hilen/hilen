@@ -33,8 +33,6 @@ pub struct Spinner {
 
     circles: Vec<Weak<Container>>,
     event:   OnceEvent,
-
-    keeping_alive: bool,
 }
 
 impl Spinner {
@@ -66,24 +64,16 @@ impl Setup for Spinner {
 }
 
 impl Spinner {
-    /// Render on demand sleeps the loop unless continuous work is live. The
-    /// dots move off the wall clock in `update`, so without this the spinner
-    /// only turned when input events asked for frames. An empty animation is
-    /// that work, it runs while the spinner is on screen and ends on its own
-    /// when it hides, scrolls out or dies, the same way `RingSpinner` does.
-    fn keep_frames_coming(mut self: Weak<Self>) {
-        if self.keeping_alive {
+    /// Render on demand sleeps the loop unless something asks for frames.
+    /// The dots move off the wall clock in `update`, so without this the
+    /// spinner only turned when input events asked for frames. It asks
+    /// while it is on screen and stops on its own when it hides, scrolls
+    /// out or dies, the same way `RingSpinner` does.
+    fn keep_frames_coming(self: Weak<Self>) {
+        if self.__base_view().keeps_frames {
             return;
         }
-        self.keeping_alive = true;
-        let anim = UIAnimation::new(|_, _| {})
-            .finish_condition(move || self.is_null() || !self.is_visible_on_screen());
-        anim.on_finish.sub(move || {
-            if self.is_ok() {
-                self.keeping_alive = false;
-            }
-        });
-        self.add_animation(anim);
+        self.keep_frames_while(move || self.is_visible_on_screen());
     }
 }
 

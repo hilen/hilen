@@ -36,6 +36,7 @@ mod app;
 mod app_starter;
 mod config;
 mod dispatch_tools;
+mod frame_time;
 #[cfg(feature = "level")]
 mod game_drawer;
 #[cfg(hot)]
@@ -109,7 +110,7 @@ pub mod reflected {
 pub mod time {
     pub use web_time::*;
 
-    pub use crate::monotonic::monotonic_seconds;
+    pub use crate::{frame_time::frame_seconds, monotonic::monotonic_seconds};
 }
 
 pub use app_runner::AppRunner;

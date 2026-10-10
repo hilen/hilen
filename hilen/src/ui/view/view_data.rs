@@ -94,6 +94,23 @@ pub trait ViewData {
 
     fn add_animation(&self, anim: UIAnimation);
 
+    /// Draws a frame on every screen refresh while `wanted` returns true,
+    /// so `update` of every view runs on each of them. The engine draws
+    /// only when something asks for a frame, and a view that moves a thing
+    /// by the clock in `update` stands still without this.
+    ///
+    /// `wanted` is asked once a frame. When it returns false, or the view
+    /// is gone, the frames end and the loop sleeps again. A view has 1
+    /// condition, a new call replaces it, so a call on every `update` is
+    /// fine. A hidden view still counts, add `is_visible_on_screen()` to
+    /// the condition to let the loop sleep then. A window that is fully
+    /// covered or minimized draws no frame, with this call too.
+    ///
+    /// ```ignore
+    /// self.keep_frames_while(move || self.playing);
+    /// ```
+    fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static);
+
     fn weak(&self) -> Weak<Self>;
 }
 
@@ -340,6 +357,41 @@ impl<T: ?Sized + View> ViewData for T {
     fn add_animation(&self, mut anim: UIAnimation) {
         anim.view = self.weak_view();
         UIManager::add_animation(anim);
+    }
+
+    fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static) {
+        let view = self.weak_view();
+        let base = self.__base_view();
+        base.frames_wanted = Some(Box::new(wanted));
+        if base.keeps_frames {
+            return;
+        }
+        base.keeps_frames = true;
+
+        // The loop draws on every refresh while an animation is live, see
+        // `continuous_render_active`. This one changes nothing.
+        let anim = UIAnimation::new(|_, _| {}).finish_condition(move || {
+            // Taken out for the call, the condition may set a new one.
+            let Some(mut wanted) = view.__base_view().frames_wanted.take() else {
+                return true;
+            };
+            if !wanted() {
+                return true;
+            }
+            let base = view.__base_view();
+            if base.frames_wanted.is_none() {
+                base.frames_wanted = Some(wanted);
+            }
+            false
+        });
+        anim.on_finish.sub(move || {
+            if view.is_ok() {
+                let base = view.__base_view();
+                base.keeps_frames = false;
+                base.frames_wanted = None;
+            }
+        });
+        self.add_animation(anim);
     }
 
     fn weak(&self) -> Weak<Self> {

@@ -8,7 +8,7 @@ use crate::{
         refs::{Weak, weak_from_ref},
         vents::Event,
     },
-    ui::{ImageMode, ImageView, Setup, UIAnimation, View, ViewCallbacks, ViewData, ViewFrame},
+    ui::{ImageMode, ImageView, Setup, View, ViewCallbacks, ViewData, ViewFrame},
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 #[cfg(ffmpeg)]
@@ -30,8 +30,7 @@ pub struct VideoView {
     volume:  f32,
     speed:   f64,
 
-    keeping_alive: bool,
-    state:         VideoState,
+    state: VideoState,
 
     /// Fires once when playback reaches the end and the video does not loop.
     pub on_finish:   Event<()>,
@@ -267,25 +266,16 @@ impl VideoView {
         weak_from_ref(self).player.as_mut().map_or_default(Player::stats)
     }
 
-    /// Render on demand sleeps the loop unless continuous work is live. A
-    /// playing video is that work, so an empty animation runs while frames are
-    /// wanted and ends when the video pauses, hides or dies.
-    fn keep_frames_coming(mut self: Weak<Self>) {
-        if self.keeping_alive {
+    /// Render on demand sleeps the loop unless something asks for frames. A
+    /// playing video asks while frames are wanted and stops when it pauses,
+    /// hides or dies.
+    fn keep_frames_coming(self: Weak<Self>) {
+        if self.__base_view().keeps_frames {
             return;
         }
-        self.keeping_alive = true;
-        let anim = UIAnimation::new(|_, _| {}).finish_condition(move || {
-            self.is_null()
-                || !self.is_visible_on_screen()
-                || !self.player.as_ref().is_some_and(Player::needs_frames)
+        self.keep_frames_while(move || {
+            self.is_visible_on_screen() && self.player.as_ref().is_some_and(Player::needs_frames)
         });
-        anim.on_finish.sub(move || {
-            if self.is_ok() {
-                self.keeping_alive = false;
-            }
-        });
-        self.add_animation(anim);
     }
 }
 

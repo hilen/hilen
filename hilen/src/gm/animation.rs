@@ -1,14 +1,24 @@
-use crate::gm::{Clock, LossyConvert, ToF32};
+use crate::{
+    frame_time::frame_seconds,
+    gm::{LossyConvert, ToF32},
+};
 
 const SEC: f32 = 1_000.0;
+
+/// The time of the frame that is drawn, in milliseconds. Every animation of
+/// 1 frame reads the same value, and it goes on in even steps from frame to
+/// frame, which the moment of the call does not.
+fn frame_ms() -> f64 {
+    frame_seconds() * 1000.0
+}
 
 #[derive(Default, Debug)]
 pub struct Animation {
     start:    f32,
     span:     f32,
     duration: f32,
-    /// Engine clock milliseconds at creation, wall clock in a normal run and
-    /// virtual time in a stepped test. All time math measures against it.
+    /// `frame_ms` at creation, virtual time in a stepped test. All time math
+    /// measures against it.
     stamp:    f64,
 }
 
@@ -22,7 +32,7 @@ impl Animation {
             start,
             span,
             duration: duration.to_f32() * SEC,
-            stamp: Clock::now_ms(),
+            stamp: frame_ms(),
         }
     }
 
@@ -32,7 +42,7 @@ impl Animation {
     }
 
     pub(crate) fn finished(&self) -> bool {
-        self.finished_at(Clock::now_ms())
+        self.finished_at(frame_ms())
     }
 
     pub(crate) fn active(&self) -> bool {
@@ -40,17 +50,20 @@ impl Animation {
     }
 
     pub fn value(&self) -> f32 {
-        self.value_at(Clock::now_ms())
+        self.value_at(frame_ms())
     }
 
     fn finished_at(&self, now: f64) -> bool {
         now >= self.stamp + f64::from(self.duration)
     }
 
-    /// The sampled value at a given clock time. `value` reads the engine clock,
+    /// The sampled value at a given clock time. `value` reads the frame time,
     /// a test can pass an explicit time to check the curve without a real wait.
     fn value_at(&self, now: f64) -> f32 {
-        let delta: f32 = (now - self.stamp).lossy_convert();
+        // An animation made in a touch handler is stamped with the real
+        // time, and the evened out time of its first frame can be a few
+        // milliseconds before that.
+        let delta: f32 = (now - self.stamp).max(0.0).lossy_convert();
         let passed: u64 = (delta / self.duration).lossy_convert();
         let even = passed.is_multiple_of(2);
         let passed: f32 = passed.lossy_convert();

@@ -10,7 +10,7 @@ use crate::{
         color::{Color, GRAY},
         flat::{LineCap, StrokeStyle, VectorPath},
     },
-    ui::{DrawingView, Setup, UIAnimation, UIColor, ViewCallbacks, ViewData, ViewFrame},
+    ui::{DrawingView, Setup, UIColor, View, ViewCallbacks, ViewData, ViewFrame},
 };
 
 /// An indeterminate progress ring. A circle stroke with a quarter gap that
@@ -18,15 +18,14 @@ use crate::{
 /// The ring fills the view's frame, so size it like any view.
 #[view]
 pub struct RingSpinner {
-    ring_color:    UIColor,
-    color:         Color,
-    line_width:    f32,
+    ring_color: UIColor,
+    color:      Color,
+    line_width: f32,
     /// Turns per second.
-    speed:         f32,
+    speed:      f32,
     /// Position of the gap, in turns.
-    angle:         f32,
-    last_tick:     Option<Instant>,
-    keeping_alive: bool,
+    angle:      f32,
+    last_tick:  Option<Instant>,
 
     #[init]
     drawing: DrawingView,
@@ -83,23 +82,16 @@ impl RingSpinner {
         );
     }
 
-    /// Render on demand sleeps the loop unless continuous work is live. A
-    /// live animation is that work, so an empty one runs while the ring is
-    /// on screen and ends on its own when it hides, scrolls out or dies.
+    /// Render on demand sleeps the loop unless something asks for frames.
+    /// The ring asks while it is on screen and stops on its own when it
+    /// hides, scrolls out or dies.
     fn keep_frames_coming(mut self: Weak<Self>) {
-        if self.keeping_alive {
+        if self.__base_view().keeps_frames {
             return;
         }
-        self.keeping_alive = true;
-        let anim = UIAnimation::new(|_, _| {})
-            .finish_condition(move || self.is_null() || !self.is_visible_on_screen());
-        anim.on_finish.sub(move || {
-            if self.is_ok() {
-                self.keeping_alive = false;
-                self.last_tick = None;
-            }
-        });
-        self.add_animation(anim);
+        // The time the ring was away must not count as one huge step.
+        self.last_tick = None;
+        self.keep_frames_while(move || self.is_visible_on_screen());
     }
 }
 

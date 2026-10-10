@@ -111,6 +111,46 @@ showed up part way through a full suite run and never on its own, so the iOS lan
 that one. Note that any `from_main` between starting an animation and waiting for it wakes the
 loop and hides exactly this class of bug.
 
+### A view that needs every frame
+
+A view that moves a thing by a clock in `update` needs a frame on every screen refresh,
+and nothing asks for one. `keep_frames_while(condition)` on a view does: while the
+condition returns true the loop draws on every refresh, and it sleeps again when the
+condition ends or the view is gone. A view has 1 condition, a new call replaces it. It
+is an empty `UIAnimation` with a finish condition, so it works wherever animations do.
+`Spinner`, `RingSpinner`, `AnimatedImage` and `VideoView` use it. A covered window
+still draws nothing. The UI test is `Keep frames while`.
+
+```rust
+self.keep_frames_while(move || self.player.is_some());
+```
+
+### The time of a frame
+
+`time::frame_seconds()` is the time of the frame that is drawn, in the seconds of
+`monotonic_seconds`. `update` runs a few ms early or late in each frame, so a thing
+placed by the moment the code runs moves in uneven steps. The frame time goes on by
+the refresh period of the screen and takes a tenth of each new difference to the real
+time. Every read in 1 frame gives the same value. `Animation` runs on it.
+
+- The period is measured from the frames, never read from the system: the slope of a
+  line through the last 16 frame times. A browser gives the frame time itself, from
+  `document.timeline.currentTime`.
+- A dropped frame moves the time by the whole 2 or 3 periods.
+- A gap of 0.1 seconds or more is a hold, like a covered window or a loop that slept.
+  The time is then the real time at once.
+- It is never more than 8 ms from the real time the frame began at, and it never goes
+  back.
+- Frames with no rhythm get the real time.
+- In frame stepped time it moves by exactly 1 step per stepped frame.
+- It is the time the frame began, not the time the screen shows it.
+
+The code is `hilen/src/frame_time/`, the follower is `follower.rs` with unit tests on
+made up frame times. The UI test `Even frame time` proves that 2 views read the same
+value in a frame and that a stepped frame moves it by 1 step. A headless run has no
+screen refresh, so even steps on a real display are not proven by a test, see
+[roadmap.md](roadmap.md).
+
 ### Known issue: windowed screenshots starve
 
 A screenshot, the path behind `check_colors` in UI tests, waits for one rendered frame driven by

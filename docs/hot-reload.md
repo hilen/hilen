@@ -211,7 +211,7 @@ Measured over swaps between 3 apps, 2026-10-08:
 ## The stop
 
 `hilen_stop` gives back, in this order: the level and the scene, every view,
-the audio manager, the media command handlers, the system text field with its
+the audio manager with the feed timer of the sound clocks, the media command handlers, the system text field with its
 observer and callbacks, the picker delegate, the mDNS thread, the queued main
 thread work, the window with its surface, the event loop, Sentry and the tokio
 runtime. `hilen_stopped` then answers 1 once the Objective-C classes are
@@ -285,6 +285,7 @@ part of `make smoke`.
   on iOS 27.0 it loads.
 - The send to a phone is slow for a big library, the file goes as it is, with
   its symbols and not packed.
+- The stop of the feed timer of a sound clock was never compiled in a hot build.
 - Video and the open image picker during a reload never ran. The stop of the
   media commands is written and not proven, it needs a played video.
 - A thread the app started itself cannot be ended from outside, it runs on in

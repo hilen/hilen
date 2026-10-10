@@ -14,6 +14,7 @@ use winit::{
 
 use crate::{
     deps::{hreads::invoke_dispatched, refs::main_lock::MainLock},
+    frame_time,
     gm::{LossyConvert, flat::Point},
     system::app_activity::{self, ActivityChange},
     ui::{Cursor, UIManager},
@@ -159,8 +160,10 @@ impl AppHandler {
         #[cfg(not_wasm)]
         frame_control::pace();
         frame_control::begin_frame();
+        frame_time::begin_frame();
         window.state.update();
         window.state.render();
+        frame_time::end_frame();
         frame_control::end_frame();
     }
 

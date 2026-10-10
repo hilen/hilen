@@ -17,7 +17,7 @@ const SAMPLE_RATE: u32 = 48_000;
 const DT: f64 = 1.0 / 48_000.0;
 
 /// What a device would have played, with the callbacks on time.
-struct Output {
+pub(super) struct Output {
     sound:   ClockSound,
     info:    Info<'static>,
     samples: Vec<f32>,
@@ -25,7 +25,7 @@ struct Output {
 }
 
 impl Output {
-    fn new(sound: ClockSound) -> Self {
+    pub(super) fn new(sound: ClockSound) -> Self {
         Self {
             sound,
             info: MockInfoBuilder::new().build(),
@@ -48,21 +48,21 @@ impl Output {
         self.now += f64::from(u32::try_from(frames).unwrap()) * DT;
     }
 
-    fn render(&mut self, callbacks: usize, frames: usize, buffer: usize) {
+    pub(super) fn render(&mut self, callbacks: usize, frames: usize, buffer: usize) {
         for _ in 0..callbacks {
             self.callback(frames, buffer, 0.0);
         }
     }
 
     /// The samples a sound starts on: not silent after a silent one.
-    fn starts(&self) -> Vec<usize> {
+    pub(super) fn starts(&self) -> Vec<usize> {
         (0..self.samples.len())
             .filter(|&at| self.samples[at] != 0.0 && (at == 0 || self.samples[at - 1] == 0.0))
             .collect()
     }
 }
 
-fn click() -> Sound {
+pub(super) fn click() -> Sound {
     Sound::from_frames(SAMPLE_RATE, vec![Frame::from_mono(1.0); 8])
 }
 

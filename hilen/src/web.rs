@@ -12,6 +12,10 @@ use crate::deps::refs::main_lock::MainLock;
 
 static PANIC_BEACON_URL: OnceLock<String> = OnceLock::new();
 
+/// What to add to the time of the page, in seconds, to get
+/// `monotonic_seconds`. Both run on the same clock, so it is read once.
+static PAGE_TIME_OFFSET: OnceLock<f64> = OnceLock::new();
+
 type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>;
 
 static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
@@ -110,6 +114,26 @@ pub(crate) fn canvas_css_origin() -> (f64, f64, f64) {
 #[cfg(feature = "video")]
 pub(crate) fn canvas() -> Option<web_sys::HtmlCanvasElement> {
     CANVAS.get_mut().clone()
+}
+
+/// The time of the refresh the browser draws a frame for, in
+/// `monotonic_seconds`. It is the time a `requestAnimationFrame` callback
+/// gets, read from `document.timeline`, since winit keeps that argument
+/// to itself. None in a browser that has no `document.timeline`, like
+/// Chromium 79 of an LG TV.
+pub(crate) fn refresh_seconds() -> Option<f64> {
+    use web_sys::js_sys::Reflect;
+
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let timeline = Reflect::get(&document, &"timeline".into()).ok()?;
+    if !timeline.is_object() {
+        return None;
+    }
+    let page_ms = Reflect::get(&timeline, &"currentTime".into()).ok()?.as_f64()?;
+    let page_now = window.performance()?.now() / 1000.0;
+    let offset = PAGE_TIME_OFFSET.get_or_init(|| crate::monotonic::monotonic_seconds() - page_now);
+    Some(page_ms / 1000.0 + offset)
 }
 
 /// Whether the page exposes `navigator.gpu`. Only a secure context does,

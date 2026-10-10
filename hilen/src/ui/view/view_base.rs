@@ -167,7 +167,15 @@ pub struct ViewBase {
     /// What the key focus keeps for this view, see `ui/focus.rs`.
     #[educe(Debug(ignore))]
     pub(crate) focus: FocusData,
+
+    /// The condition of `ViewData::keep_frames_while`.
+    #[educe(Debug(ignore))]
+    pub(crate) frames_wanted: Option<FramesWanted>,
+    /// The empty animation of `ViewData::keep_frames_while` is live.
+    pub(crate) keeps_frames:  bool,
 }
+
+pub(crate) type FramesWanted = Box<dyn FnMut() -> bool + Send>;
 
 impl ViewBase {
     pub(crate) fn __subviews(&self) -> &[Own<dyn View>] {

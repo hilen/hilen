@@ -7,6 +7,8 @@ use kira::{
 use log::error;
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
+#[cfg(hot)]
+use crate::audio::clock_feed::stop as stop_clock_feed;
 use crate::audio::sound::decibels;
 
 /// Sound effects start 20 dB down. A video track plays at its own volume
@@ -78,6 +80,7 @@ fn open_effects() -> Slot<TrackHandle> {
 /// `docs/hot-reload.md`.
 #[cfg(hot)]
 pub(crate) fn stop() {
+    stop_clock_feed();
     *EFFECTS.lock() = Slot::Silent;
     *AUDIO_MANAGER.lock() = Slot::Silent;
 }

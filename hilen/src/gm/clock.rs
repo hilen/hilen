@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use chrono::Utc;
 
-use crate::gm::LossyConvert;
+use crate::{frame_time, gm::LossyConvert};
 
 /// Virtual milliseconds one rendered frame adds in stepped mode, a 60 fps
 /// timeline. Fractional on purpose, so a 0.4 s span lands on exactly 24 steps
@@ -15,10 +15,18 @@ static STEPPED: AtomicBool = AtomicBool::new(false);
 /// counter stays lock free. Only meaningful while `STEPPED` is set.
 static VIRTUAL_MS: AtomicU64 = AtomicU64::new(0);
 
-/// The one time source every animation reads. In a normal run it is the wall
-/// clock. A test can switch it to frame stepped time, where it only moves when
-/// the test asks for a frame, so an animation samples the same value on every
-/// machine and its mid-flight frames become deterministic.
+/// The frame time at the switch to stepped mode, f64 seconds as raw bits.
+static STEPPED_FROM: AtomicU64 = AtomicU64::new(0);
+
+/// Frames stepped since the switch. A count and not a sum, so frame 600 is
+/// as exact as frame 1.
+static STEPS: AtomicU32 = AtomicU32::new(0);
+
+/// The switch between real time and frame stepped time. In a normal run
+/// `now_ms` is the wall clock and an animation reads the time of its frame,
+/// `time::frame_seconds`. A test can switch both to frame stepped time, where
+/// they only move when the test asks for a frame, so an animation samples the
+/// same value on every machine and its mid-flight frames become deterministic.
 pub struct Clock;
 
 impl Clock {
@@ -39,7 +47,17 @@ impl Clock {
         if STEPPED.load(Ordering::Relaxed) {
             let now = f64::from_bits(VIRTUAL_MS.load(Ordering::Relaxed));
             VIRTUAL_MS.store((now + STEP_MS).to_bits(), Ordering::Relaxed);
+            STEPS.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// `time::frame_seconds` in stepped mode. It goes on from the frame time
+    /// at the switch, so an animation made before the switch keeps a sane
+    /// base.
+    pub(crate) fn stepped_seconds() -> f64 {
+        let from = f64::from_bits(STEPPED_FROM.load(Ordering::Relaxed));
+        let steps = f64::from(STEPS.load(Ordering::Relaxed));
+        from + steps * STEP_MS / 1000.0
     }
 
     /// Switch to frame stepped time. Opt in per test, defaults untouched. The
@@ -48,6 +66,9 @@ impl Clock {
     pub fn enter_stepped() {
         let now: f64 = Utc::now().timestamp_millis().lossy_convert();
         VIRTUAL_MS.store(now.to_bits(), Ordering::Relaxed);
+        let frame = frame_time::frame_seconds();
+        STEPPED_FROM.store(frame.to_bits(), Ordering::Relaxed);
+        STEPS.store(0, Ordering::Relaxed);
         STEPPED.store(true, Ordering::Relaxed);
     }
 
