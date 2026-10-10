@@ -32,6 +32,11 @@ pub trait LevelTest: Level + LevelRegistrable + Default {
     fn canvas() -> (u32, u32) {
         (600, 600)
     }
+
+    /// Puts views over the level once it started, in the test and in
+    /// presentation alike. `view` is the root over the whole canvas.
+    /// Nothing by default.
+    fn overlay(_: Weak<Self>, _: Weak<LevelTestView>) {}
 }
 
 /// The root a level test runs under. The level draws beneath the UI, so
@@ -61,13 +66,14 @@ impl<T: Level + LevelTest + 'static> MaybeLevelTest for T {
         Some(|| {
             let (width, height) = T::canvas();
 
-            UITest::set(LevelTestView::new(), width, height, true, get_test_name::<T>());
+            let view = UITest::set(LevelTestView::new(), width, height, true, get_test_name::<T>());
 
             // A window on a retina screen puts the level at the display
             // scale, and a level probe drifts with it like a layout does.
-            let level = from_main(|| {
+            let level = from_main(move || {
                 let level = LevelManager::set_level(T::default());
                 LevelManager::set_scale(1.0);
+                T::overlay(level, view);
                 level
             });
 
@@ -81,9 +87,12 @@ impl<T: Level + LevelTest + 'static> MaybeLevelTest for T {
 
     fn __level_present() -> Option<fn()> {
         Some(|| {
-            UITest::present_root(LevelTestView::new());
-            from_main(|| {
-                LevelManager::set_level(T::default());
+            let root = LevelTestView::new();
+            let view = root.weak();
+            UITest::present_root(root);
+            from_main(move || {
+                let level = LevelManager::set_level(T::default());
+                T::overlay(level, view);
             });
         })
     }

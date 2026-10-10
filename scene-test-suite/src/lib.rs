@@ -53,6 +53,7 @@ mod picking;
 #[cfg(not_wasm)]
 mod player_walk;
 mod primitives;
+mod scene_leaves_keys;
 mod scene_picture;
 mod scene_picture_clear;
 mod scene_queries;

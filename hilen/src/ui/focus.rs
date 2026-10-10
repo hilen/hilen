@@ -331,17 +331,17 @@ impl Focus {
     }
 
     /// Off by the app, while a text field is edited, while a game holds
-    /// the mouse, and while a level or a scene runs, those take the arrow
-    /// keys themselves.
+    /// the mouse, and while a level or a scene runs that takes the arrow
+    /// keys itself, see `LevelSetup::takes_keys`.
     fn active() -> bool {
         let free = !STATE.get_mut().disabled
             && !UIManager::text_editing()
             && !Cursor::captured()
             && !Self::keys_held();
         #[cfg(feature = "level")]
-        let free = free && LevelManager::no_level();
+        let free = free && !LevelManager::takes_keys();
         #[cfg(feature = "scene")]
-        let free = free && SceneManager::no_scene();
+        let free = free && !SceneManager::takes_keys();
         free
     }
 

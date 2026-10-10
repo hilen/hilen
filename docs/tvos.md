@@ -78,8 +78,9 @@ Play/Pause does not reach the keymap. `key_event` in `app_runner.rs` sends it as
 `MediaCommand::Toggle` through `MediaSession::on_command`, the way a Mac sends the
 media key of a keyboard, so an app reads it the same on both.
 
-The key focus is off while a level or a scene runs. A screen with a level under its
-views cannot be left with the remote.
+The key focus is off while a level or a scene runs that takes the keys, see
+[focus.md](focus.md). A level that is only the backdrop of a screen answers false in
+`takes_keys`, like the home level of the demo, or the remote cannot leave that screen.
 
 ## The safe area
 

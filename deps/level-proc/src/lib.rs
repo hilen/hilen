@@ -130,6 +130,11 @@ fn expand(stream: TokenStream, kind: &Kind) -> TokenStream {
         #test_registration
 
         impl #generics hilen::#module::#internal for #name <#type_params> {
+            fn __internal_takes_keys(&self) -> bool {
+                use hilen::#module::#setup;
+                self.takes_keys()
+            }
+
             fn __internal_setup(&self) {
                 use hilen::#module::#setup;
                 let mut object = hilen::refs::weak_from_ref(self);

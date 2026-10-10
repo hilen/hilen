@@ -2,7 +2,12 @@
 
 The 2D `level` feature: sprites, rapier physics, tile maps, dug terrain and lights
 under a camera.
-The tests are in `level-test`, see [ui-tests.md](ui-tests.md).
+The tests are in `level-test`, see [ui-tests.md](ui-tests.md). A test puts views over
+its level in `LevelTest::overlay`, which runs in the test and in presentation.
+
+A level takes the arrow keys and Enter, so the key focus is off while it runs. A level
+that only draws behind the views answers false in `LevelSetup::takes_keys`, see
+[focus.md](focus.md).
 
 ## Time
 

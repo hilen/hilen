@@ -163,6 +163,12 @@ impl SceneManager {
         SELF.scene.is_none()
     }
 
+    /// A scene runs and uses the arrow keys itself, see
+    /// `SceneSetup::takes_keys`.
+    pub(crate) fn takes_keys() -> bool {
+        SELF.scene.as_ref().is_some_and(|scene| scene.__internal_takes_keys())
+    }
+
     pub(crate) fn update_interval() -> &'static mut f32 {
         &mut SELF.get_mut().update_interval
     }

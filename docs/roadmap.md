@@ -19,39 +19,25 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A held Enter as a long press, the proof in flixen
-
-Found by flixen on 2026-10-10. A long OK press on a film poster flips its watched
-mark, a remote has no other way to it.
-
-- Current: Enter held on the key focus is a long press, see [focus.md](focus.md). The
-  UI test `Key focus long press` passes on desktop. It was not tried in flixen, and
-  not with a real remote.
-- Needed: bump the pin of flixen and hold Enter on a poster under the ring, with
-  `hilen-inspect hold Enter --ms 800` and with the remote in the Apple TV simulator.
-- Blocks: nothing. This entry is deleted once the watched mark flips in flixen.
-
-## tvOS, the upload and the run on an Apple TV
+## tvOS, the run on an Apple TV
 
 Found by the tvOS display bring-up and by flixen, `~/dev/apps/flixen`, a player on an
 Apple TV. The remote, the safe area, stored settings, the media command of the remote
 and video landed on 2026-10-10 and run in the Apple TV simulator, see
 [tvos.md](tvos.md).
 
-- Current: the engine never ran on a real Apple TV. `make fly` archives the demo for
-  tvOS, signs it for the store and exports the ipa. The upload was refused, the demo
-  app has no tvOS platform in App Store Connect, and `make fly` never ran as 1
-  command for both systems. The demo cannot be driven on a TV: its home screen runs a
-  level, the key focus is off while a level runs, and its views do not keep inside
-  `UIManager::safe_area()`. The hilen skill has no tvOS chapter. There is no tvOS
-  lane of the UI suite, single tests run by hand with `HILEN_TEST_ONLY`. `Key focus
-  long press` did not run there.
-- Needed: the tvOS platform on the demo app and 1 upload through `make fly`. A demo
-  that the remote drives and that fits the safe area. The demo on a real Apple TV,
-  with its remote, and a film played there with sound. Check 4K and HDR output, the
-  frame rate, hardware decode named in the first frame log line, and the latent
-  `statusBarFrame` trap of [tvos.md](tvos.md). A tvOS lane for the UI tests, like
-  `build/ios/sim-test.rs`. A tvOS chapter in the hilen skill.
+- Current: the engine never ran on a real Apple TV. A tvOS build of the demo is in
+  TestFlight, version 1.0 build 1, sent by `build/tvos/flight.rs`. `make fly` never
+  ran as 1 command for both systems. In the simulator the remote drives the demo and
+  its shell keeps inside `UIManager::safe_area()`. The hilen skill has no tvOS
+  chapter. There is no tvOS lane of the UI suite, single tests run by hand with
+  `HILEN_TEST_ONLY`. `Key focus long press` did not run there.
+- Needed: the demo from TestFlight on a real Apple TV, driven with its remote, and a
+  film played there with sound. Check 4K and HDR output, the frame rate, hardware
+  decode named in the first frame log line, and the latent `statusBarFrame` trap of
+  [tvos.md](tvos.md). 1 run of `make fly` that sends the iOS and the tvOS build. A
+  tvOS lane for the UI tests, like `build/ios/sim-test.rs`. A tvOS chapter in the
+  hilen skill.
 - Blocks: a tvOS release of any app.
 
 ## tvOS, the session, the Keychain and the Now Playing panel

@@ -195,6 +195,10 @@ centered sits over it, a damage number or a name over a node. Both are `None` fo
 point behind the camera, so the view can hide. A scene test puts such views over its
 scene in `SceneTest::overlay`, which runs in the test and in presentation.
 
+A scene takes the arrow keys and Enter, so the key focus is off while it runs. A scene
+that only draws behind the views answers false in `SceneSetup::takes_keys`, see
+[focus.md](focus.md).
+
 ## Player
 
 `add_player` puts a first person `Player` in a scene with physics: a capsule on

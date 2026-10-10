@@ -158,6 +158,12 @@ impl LevelManager {
         SELF.level.is_none()
     }
 
+    /// A level runs and uses the arrow keys itself, see
+    /// `LevelSetup::takes_keys`.
+    pub(crate) fn takes_keys() -> bool {
+        SELF.level.as_ref().is_some_and(|level| level.__internal_takes_keys())
+    }
+
     pub fn scale() -> f32 {
         SELF.get_mut().scale
     }

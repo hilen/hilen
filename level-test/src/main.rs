@@ -9,6 +9,7 @@
 mod blade_tunnel;
 mod cutout;
 mod grass_across_chunk_border;
+mod level_leaves_keys;
 mod level_lights;
 mod level_mouse;
 mod level_time;
