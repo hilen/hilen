@@ -49,13 +49,17 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, and `hot-status` and `hot-send`
-  for the loader on a phone, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `devices`, and `hot-status` and `hot-send`
+  for the loader on a device, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   `--addr <host>` or the variable `HILEN_INSPECT_ADDR` names the device, a name or an ip,
   with a port or with none for 7435. The tool then makes no search and uses no cache,
   for every command. That is the way to an app a search does not reach, like one on a
   phone over Tailscale, a VPN carries no mDNS. The code is `hilen-inspect/src/reach.rs`.
+  `--device <word>` reaches the app on a paired iPhone, iPad or Apple TV with no search:
+  the word is the id of the device from `hilen-inspect devices`, or a part of its name
+  or kind, like `tv` or `ipad`. It asks the device over the tunnel of Xcode, so a
+  command never lands on another device. The code is `hilen-inspect/src/device.rs`.
   The agent workflow lives in the maintainer's skill files outside this repo.
 
 `hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact

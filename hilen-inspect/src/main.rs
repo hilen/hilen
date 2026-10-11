@@ -1,4 +1,5 @@
 mod commands;
+mod device;
 mod frames;
 mod hot;
 mod input;
@@ -40,6 +41,12 @@ struct Cli {
     #[arg(long, global = true)]
     addr: Option<String>,
 
+    /// A paired iPhone, iPad or Apple TV to reach with no search: its id
+    /// from `devices`, or a part of its name or kind, like `tv` or `ipad`.
+    /// An address given with `--addr` wins.
+    #[arg(long, global = true)]
+    device: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -51,7 +58,16 @@ async fn main() -> Result<()> {
     set_current_thread_as_main();
 
     let cli = Cli::parse();
-    let addr = given(cli.addr).await?;
+    let mut addr = given(cli.addr).await?;
+
+    if let Command::Devices = cli.command {
+        return device::print(cli.device.as_deref()).await;
+    }
+    if addr.is_none()
+        && let Some(word) = &cli.device
+    {
+        addr = Some(device::reach(word).await?);
+    }
 
     if let Command::Apps = cli.command {
         let apps = apps(addr).await?;

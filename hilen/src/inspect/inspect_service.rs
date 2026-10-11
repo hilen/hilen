@@ -63,12 +63,21 @@ const PORT_TRIES: u32 = 1;
 #[cfg(not_wasm)]
 const PORT_WAIT: Duration = Duration::from_millis(100);
 
+/// The address the server listens on. Xcode reaches an iPhone, an iPad and
+/// an Apple TV over a tunnel that carries only IPv6, and `hilen-inspect
+/// --device` asks the app there. `::` takes IPv4 too on these systems. On
+/// Windows it would take IPv6 only.
+#[cfg(all(not_wasm, any(target_os = "ios", target_os = "tvos")))]
+const ANY: &str = "::";
+#[cfg(all(not_wasm, not(any(target_os = "ios", target_os = "tvos"))))]
+const ANY: &str = "0.0.0.0";
+
 /// The listener of the server, on `port` when it is free and on a free
 /// port of the system when another app has it.
 #[cfg(not_wasm)]
 async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
     for attempt in 1..=tries {
-        match TcpListener::bind(("0.0.0.0", port)).await {
+        match TcpListener::bind((ANY, port)).await {
             Ok(listener) => return Ok(listener),
             Err(err) if err.kind() == ErrorKind::AddrInUse => {
                 if attempt < tries {
@@ -79,7 +88,7 @@ async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
         }
     }
     debug!("Inspect port {port} is taken by another app, a free one is used");
-    Ok(TcpListener::bind("0.0.0.0:0").await?)
+    Ok(TcpListener::bind((ANY, 0)).await?)
 }
 
 /// A build without debug assertions starts the server only with this set to

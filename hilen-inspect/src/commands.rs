@@ -20,6 +20,9 @@ use super::{
 pub(super) enum Command {
     /// List running apps discovered on the local network
     Apps,
+    /// List the paired iPhones, iPads and Apple TVs of this Mac and the
+    /// address an app answers at on each, with `--device` only that one
+    Devices,
     /// Print which library the hot loader on the network runs
     HotStatus,
     /// Send a library and the assets of an app to the hot loader on the
@@ -241,7 +244,7 @@ pub(super) enum Command {
 
 pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
     match command {
-        Command::Apps | Command::HotStatus | Command::HotSend { .. } => unreachable!(),
+        Command::Apps | Command::Devices | Command::HotStatus | Command::HotSend { .. } => unreachable!(),
         Command::Ui => {
             let (scale, root) = get_ui(client).await?;
             println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);

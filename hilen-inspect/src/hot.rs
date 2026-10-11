@@ -68,9 +68,9 @@ async fn loader(app: Option<String>, addr: Option<SocketAddr>) -> Result<Loader>
     let ids: Vec<String> = found.iter().map(|loader| format!("{} at {}", loader.id, loader.addr)).collect();
     match (found.len(), addr) {
         (0, Some(addr)) => {
-            bail!("No hot build answers at {addr}. Start the loader app on the phone and keep it in front.")
+            bail!("No hot build answers at {addr}. Start the loader app on the device and keep it in front.")
         }
-        (0, None) => bail!("No hot build found on the network. Start the loader app on the phone."),
+        (0, None) => bail!("No hot build found on the network. Start the loader app on the device."),
         (1, _) => Ok(found.remove(0)),
         _ => bail!("Several hot builds run, pass --app. Found: {}", ids.join(", ")),
     }

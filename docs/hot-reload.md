@@ -2,15 +2,16 @@
 
 A saved file shows in the running app in the iOS simulator, with no install and
 no restart of the process. Engine changes too. It is a dev mode, a release app
-stays 1 static library linked into the Xcode shell. On a real iPhone a loader
-app swaps between apps the same way, on a command, see "A real iPhone". The
+stays 1 static library linked into the Xcode shell. On a real iPhone, iPad or
+Apple TV a loader app swaps between apps the same way, on a command, see
+"A real device". The
 Apple TV simulator and a real Apple TV have the same, see "An Apple TV".
 
 ```bash
 make hot        # in an app folder: build, start in the simulator, watch the sources
 make hot-test   # in hilen: the lane that proves the swap
 make swap args="start demo ../apps/skaityk"   # 1 loader for several apps, see below
-make swap args="phone install"                # the loader on a real iPhone, see below
+make device                                   # in an app folder: the app on a paired device, see below
 make hot args="tv"                            # the same in the Apple TV simulator
 make swap args="tv device install"            # the loader on a real Apple TV, see below
 ```
@@ -100,16 +101,55 @@ tool: 124 swaps in a row in 1 process, about 55 ms from the stop of one app to t
 `make swap` needs rustscript 0.6.56 or newer. In an older one `PathBuf::push`
 did nothing, and the path to the engine came out empty.
 
-## A real iPhone
+## A real device
 
-1 loader app on the phone shows the demo and swaps to any hilen app that a Mac
-sends it over the local network. Run from the hilen repo:
+1 loader app on a paired iPhone, iPad or Apple TV shows the demo and swaps to any
+hilen app that a Mac sends it. Run in the folder of the app:
 
 ```bash
-make swap args="phone install"            # build the loader with the app of this repo inside, install, start
-make swap args="phone ../apps/skaityk"    # build the app, sign it, send it, swap the phone to it
-make swap args="phone status"             # the library the loader runs
+make device                  # build the app, sign it, send it, swap the device to it
+make device args=status      # the library the loader on the device runs
+make device args=install     # build the loader, install it and start it, once per device
+make device args=tv          # a word in front picks the device, here the Apple TV
 ```
+
+- Nothing watches the sources. A change is on the device after the next `make device`.
+  The run of 2026-10-11 took 18 seconds for banda, a library of 69 MB, with no source
+  changed.
+- The word picks the device by its id or by a part of its name or kind, like `tv`,
+  `ipad` or `bedroom`. With no word it is the device of the last call of this app, kept
+  in `target/hot/device`, or the only paired device.
+- The system of the build, iOS or tvOS, comes from the kind of the picked device.
+- The script finds the engine repo by itself, a folder `hilen` next to a folder above
+  the app, like `~/dev/hilen` for `~/dev/apps/banda`. `HILEN_REPO` names another one.
+  The app is built with the engine of that folder, and so are the loader and the
+  inspect tool.
+- A loader that does not answer is started with `devicectl` before the send. The device
+  has to be unlocked.
+- The last lines print the inspect command for that device, `hilen-inspect --device
+  <id> tree`. `--device` takes the same word as `make device`, see
+  [inspect.md](inspect.md).
+- `make swap args="phone install"`, `phone <folder>` and `phone status` in the engine
+  repo do the same for the paired iPhone, and `tv device ...` for the paired Apple TV.
+
+### The right device
+
+Every command goes to the picked device and to no other. Before 2026-10-11 the send
+took the only hot build a search of the network found. With a loader on the Apple TV
+and none in front on the phone, a send meant for the phone went to the TV, and the TV
+did not start it.
+
+`hilen-inspect` reads the paired devices from `xcrun devicectl list devices` and asks
+the device at the address of the tunnel Xcode keeps to it, `tunnelIPAddress` in that
+list. The tunnel leads to that device only, by cable and over Wi-Fi. It carries only
+IPv6, so the inspect server of an iOS or tvOS build listens on `::`, `ANY` in
+`hilen/src/inspect/inspect_service.rs`. A loader built before that is asked by the name
+of the device on the local network. The code is `hilen-inspect/src/device.rs` and
+`build/shared/src/device.rs`.
+
+Not explained: right after the first swap over the tunnel, `--device` got no answer
+3 times in a row, about 20 seconds, and then it answered at a new tunnel address. The
+loader answered at its address on the local network all that time.
 
 ### What iOS allows
 
@@ -153,7 +193,8 @@ for development and gives no promise for it.
   length and hash are there already is not sent again. Only the library that
   runs and the next one stay on the phone.
 - A phone that is not on the network of the Mac is reached by its address, over a
-  VPN like Tailscale: `HILEN_INSPECT_ADDR=<phone> make swap args="phone ../apps/skaityk"`.
+  VPN like Tailscale: `HILEN_INSPECT_ADDR=<phone> make device`. A given address wins
+  over the picked device.
   The loader takes the fixed inspect port, see [inspect.md](inspect.md), and takes it
   again after a swap, a hot build asks for it for 1 second. The sender then asks the
   same address until it names the new library. The loader has to be in front on an
@@ -365,7 +406,7 @@ part of `make smoke`.
 ## Open
 
 - `make hot`, the watch of a saved file, is simulator only. A phone swaps on a
-  command, see "A real iPhone". One report says a development build failed to
+  command, see "A real device". One report says a development build failed to
   load from its data folder on iOS 18, see
   [the Apple forum thread](https://developer.apple.com/forums/thread/773210),
   on iOS 27.0 it loads.

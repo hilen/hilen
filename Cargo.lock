@@ -3120,6 +3120,7 @@ dependencies = [
  "base64 0.23.1",
  "clap",
  "hilen",
+ "serde",
  "serde_json",
  "tokio",
 ]
