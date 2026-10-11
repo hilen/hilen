@@ -65,6 +65,13 @@ blur pipeline draws the border over the blurred backdrop with its own alpha. The
 `Border blend` UI test checks every edge pixel stays inside the colors it can be
 mixed from.
 
+The pixel on the outer edge of a view is part view and part what is behind it.
+A flush draws its rects before its images, gradients and paths, so a rect in
+front of a queued picture used to mix its edge with the page behind the
+picture, then hide the picture there by depth, a light rim around a badge on a
+dark poster. `UIDrawer` now draws the queued pictures first when a rect comes
+that is in front of one and over it. The `Rect over picture` UI test checks it.
+
 Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
 CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
 glyphs themselves from the top of the label frame to its bottom, see

@@ -43,6 +43,7 @@ mod out_bounds_test;
 mod present;
 mod present_rich;
 mod quad_diagonal;
+mod rect_over_picture;
 /// Reload shortcuts exist only in a browser, everywhere else the OS owns
 /// them and the engine installs nothing.
 #[cfg(wasm)]

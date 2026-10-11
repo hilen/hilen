@@ -49,6 +49,9 @@ struct DrawContext<'a> {
     /// Paths collected since the last flush, drawn under the scissor
     /// that was current when their view was visited.
     paths:         Vec<&'a PathData>,
+    /// The frame in pixels and the z of every image, gradient and path
+    /// queued since the last flush.
+    pictures:      Vec<(Rect, f32)>,
     debug_frames:  bool,
     /// Pixels per point of the view being drawn, `pixel_scale` times the
     /// scale of the subtree it sits in.
@@ -65,6 +68,16 @@ struct DrawContext<'a> {
     /// How many group fades the visited view is inside, the index of the
     /// image the next group draws into.
     group_level:   usize,
+}
+
+impl DrawContext<'_> {
+    /// Whether a queued picture is behind the view and under its frame.
+    fn picture_behind(&self, view: &dyn View, frame: &Rect) -> bool {
+        let frame = *frame * self.scale;
+        self.pictures
+            .iter()
+            .any(|(picture, z)| *z > view.z_position() && picture.intersects(&frame))
+    }
 }
 
 pub struct UIDrawer;
@@ -93,6 +106,7 @@ impl UIDrawer {
             text_sections: vec![],
             nearest_text: 0.0,
             paths: vec![],
+            pictures: vec![],
             debug_frames: UIManager::should_draw_debug_frames(),
             scale: UIManager::scale(),
             pixel_scale: UIManager::scale(),
@@ -118,6 +132,11 @@ impl UIDrawer {
         if let Some(pass) = render_frame.present_pass() {
             BLUR_DRAWER.get_mut().present(pass, &scene);
         }
+    }
+
+    fn flush_queued(render_frame: &mut RenderFrame, ctx: &mut DrawContext) {
+        ctx.pictures.clear();
+        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
     }
 
     fn flush_pipelines(pass: &mut RenderPass, resolution: Size, paths: &mut Vec<&PathData>) {
@@ -161,7 +180,7 @@ impl UIDrawer {
     /// blurred, then the pass reopens and the blurred backdrop draws
     /// at the view's frame. Subviews and later views draw on top.
     fn blur_barrier(render_frame: &mut RenderFrame, view: &BlurView, frame: &Rect, ctx: &mut DrawContext) {
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         let (encoder, scene) = render_frame.split();
@@ -206,7 +225,7 @@ impl UIDrawer {
             return;
         }
 
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         let scrim = SCRIM_DRAWER.get_mut();
@@ -237,7 +256,7 @@ impl UIDrawer {
     fn hole_barrier(render_frame: &mut RenderFrame, view: &dyn View, frame: &Rect, ctx: &mut DrawContext) {
         use crate::gm::color::BLACK;
 
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         let hole = HOLE_DRAWER.get_mut();
@@ -346,10 +365,19 @@ impl UIDrawer {
                 && !ctx.text_sections.is_empty()
                 && view.z_position() < ctx.nearest_text
             {
-                Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+                Self::flush_queued(render_frame, ctx);
                 Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             }
-            // Queued after the flush above, never before it. A shadow
+            // A flush draws its rects before its images, gradients and
+            // paths. The edge pixels of a rect are part clear, so a rect
+            // in front of a queued picture would mix them with what is
+            // behind the picture, then hide the picture there by depth, a
+            // rim of the background color around a badge on a poster.
+            // The picture draws first.
+            if draws_rect(view) && ctx.picture_behind(view, &frame) {
+                Self::flush_queued(render_frame, ctx);
+            }
+            // Queued after the flushes above, never before them. A shadow
             // shares its view's z and the first draw at a z wins, so a
             // shadow flushed ahead of its view would cover it.
             Self::draw_shadow(view, &frame, ctx.scale, opacity);
@@ -358,6 +386,10 @@ impl UIDrawer {
         }
 
         Self::draw_content(view, &frame, ctx, opacity);
+
+        if is_picture(view) {
+            ctx.pictures.push((frame * ctx.scale, view.z_position()));
+        }
 
         if ctx.debug_frames {
             Self::draw_debug_frame(view, &frame, ctx.scale);
@@ -372,7 +404,7 @@ impl UIDrawer {
         let clip_shape = Self::clip_shape(view, &frame, ctx.scale);
 
         if rounded_clip {
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_queued(render_frame, ctx);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             let pass = render_frame.pass();
             CLIP_DRAWER.get_mut().enter(pass, ctx.resolution, clip_shape);
@@ -393,13 +425,13 @@ impl UIDrawer {
         // of the view, under the scissor and the rounded mask it clips
         // with, so a view drawn after it is in front of all of it.
         if clips && view.__base_view().flat_depth {
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_queued(render_frame, ctx);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             CLIP_DRAWER.get_mut().flatten(render_frame.pass(), ctx.resolution, clip_shape);
         }
 
         if rounded_clip {
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_queued(render_frame, ctx);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             let pass = render_frame.pass();
             CLIP_DRAWER.get_mut().leave(pass, ctx.resolution, clip_shape);
@@ -408,7 +440,7 @@ impl UIDrawer {
         }
 
         if clips {
-            Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+            Self::flush_queued(render_frame, ctx);
             Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
             scissor(render_frame.pass(), parent_scissor);
             ctx.scissor = parent_scissor;
@@ -424,7 +456,7 @@ impl UIDrawer {
     /// empty with a stencil of its own, so no rounded clip is entered in
     /// it yet. The scissor stays, the image has the size of the frame.
     fn enter_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>) {
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         let target = GROUP_DRAWER.get_mut().target(ctx.group_level, ctx.resolution.lossy_convert());
@@ -440,7 +472,7 @@ impl UIDrawer {
     /// The views of the group flush into its image, then the image draws
     /// once, with the opacity, into the pass the group sits in.
     fn leave_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>, clip_depth: u32, opacity: f32) {
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
 
         render_frame.pop_target();
@@ -457,7 +489,7 @@ impl UIDrawer {
     /// flushes now under the parent scissor. The subtree's text
     /// then flushes under this clip before it is restored.
     fn enter_scissor(render_frame: &mut RenderFrame, frame: &Rect, ctx: &mut DrawContext<'_>) {
-        Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
+        Self::flush_queued(render_frame, ctx);
         Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
         let mut frame = *frame * ctx.scale;
         frame.origin.clip_positive();
@@ -678,6 +710,21 @@ impl UIDrawer {
 fn is_translucent(view: &dyn View, opacity: f32) -> bool {
     let partial = |alpha: f32| alpha > 0.0 && alpha * opacity < 1.0;
     partial(view.color().a) || partial(view.border_color().a)
+}
+
+/// Whether `draw_background` queues a rect for the view.
+fn draws_rect(view: &dyn View) -> bool {
+    view.gradient().is_none() && (view.color().a > 0.0 || view.border_color().a > 0.0)
+}
+
+/// Whether the view queues something a flush draws after its rects.
+fn is_picture(view: &dyn View) -> bool {
+    view.gradient().is_some()
+        || view
+            .as_any()
+            .downcast_ref::<ImageView>()
+            .is_some_and(|image| image.image().is_ok())
+        || view.as_any().downcast_ref::<DrawingView>().is_some()
 }
 
 fn scissor(pass: &mut RenderPass, rect: Rect<u32>) {
