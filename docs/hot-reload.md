@@ -170,6 +170,25 @@ IPv6, so the inspect server of an iOS or tvOS build listens on `::`, `ANY` in
 of the device on the local network. The code is `hilen-inspect/src/device.rs` and
 `build/shared/src/device.rs`.
 
+- `hilen-inspect devices` prints 1 line per paired device: the id, the kind, the name,
+  the system with its version like `tvOS 26.3`, and the address an app answers at, `-`
+  for none. All of it comes from the list of Xcode.
+- `hot-send` with no `--device`, no `--addr` and no `--app` is refused. On 2026-10-11 a
+  send with no aim took the only loader a search found, the one on the phone, while the
+  Apple TV it was meant for slept. `hot-status` with no aim still searches, it changes
+  nothing.
+- The name on the local network is made from the name Xcode has. Xcode adds a number
+  when it saw the name before, `Bedroom-TV-1`, while the device calls itself
+  `Bedroom-TV`, so the name with the number cut off is tried too. A device with no
+  tunnel open has no `localHostnames` in the list, its name comes from
+  `potentialHostnames`.
+- A loader is not always on port 7435. One that starts while the port is still held
+  takes another port. So a device is asked at 7435 first, and then at the port of every
+  app a search finds at its addresses. The wait after a send asks all of those too.
+  Before that the wait asked only the old address again, and a swap that worked was
+  reported as `The loader did not start ... in 90 seconds` when the new build took
+  another port.
+
 ### What iOS allows
 
 The load test of 2026-10-08, 1 tiny library written into the data folder of the
@@ -207,7 +226,14 @@ for development and gives no promise for it.
 - A phone cannot read the Mac. The app that runs takes the next library and
   the assets of its app over the inspect connection, `hilen/src/inspect/hot_swap.rs`,
   and writes them into the hot folder. Then it writes `current`, and the
-  loader swaps as in the simulator. The commands are `HotInfo`, `HotFiles`,
+  loader swaps as in the simulator. The root of the app in `current` is the
+  path below the hot folder, like `apps/flixen`, and the engine joins it with
+  the hot folder of this start, `anchored` in `hilen/src/assets_paths.rs`. It
+  was a full path before 2026-10-11. The system gives the loader a new data
+  folder when it is installed again, the kept path then named a folder that
+  was gone, and every image of the app showed as the stand in picture, a blue
+  trash can. In the simulator the root is the repo of the app on the Mac, a
+  full path, and stays one. The commands are `HotInfo`, `HotFiles`,
   `HotChunk` and `HotSwap`, a file goes in pieces of 8 MB. An asset whose
   length and hash are there already is not sent again. Only the library that
   runs and the next one stay on the phone.
@@ -321,7 +347,12 @@ development certificate loads. `make load-test` is that test as a script now,
 
 Not explained: the first swap after the install, from the packed `demo` to
 flixen, did not start in 90 seconds. The old app had stopped and the process
-lived. No console was attached. Every later swap worked.
+lived. No console was attached. Every later swap worked. It came again on
+2026-10-11, on the first swap after an install, from flixen to flixen. The log
+of the new build ends after its `system fonts` line, the `Backend: metal` line
+never comes, so it stops before or in the start of the graphics. A new start
+of the loader with `devicectl device process launch --terminate-existing` ran
+the sent library at once.
 
 ## The heap of a build
 

@@ -23,6 +23,7 @@ use hilen::{
     ui::NamedKey,
     window::KeyCode,
 };
+use hot::Target;
 use reach::{NO_APPS, apps, connect, given, save_cache};
 use serde_json::{Value, from_value, json, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout};
@@ -63,6 +64,25 @@ async fn main() -> Result<()> {
     if let Command::Devices = cli.command {
         return device::print(cli.device.as_deref()).await;
     }
+
+    // A hot loader is found by what it answers on its device, at whatever
+    // port it took there, not by 1 address worked out up front.
+    if matches!(cli.command, Command::HotStatus | Command::HotSend { .. }) {
+        let target = match (addr, &cli.device) {
+            (Some(addr), _) => Target::Addr(addr),
+            (None, Some(word)) => Target::Device(device::named(word)?),
+            (None, None) => Target::Search,
+        };
+        return match cli.command {
+            Command::HotSend {
+                library,
+                name,
+                assets,
+            } => hot::send_app(cli.app, &target, &library, assets.as_deref(), &name).await,
+            _ => hot::status(cli.app, &target).await,
+        };
+    }
+
     if addr.is_none()
         && let Some(word) = &cli.device
     {
@@ -81,19 +101,6 @@ async fn main() -> Result<()> {
             println!("{id} at {addr}");
         }
         return Ok(());
-    }
-
-    // A hot loader is found by what it answers, not by the cached address.
-    match cli.command {
-        Command::HotStatus => return hot::status(cli.app, addr).await,
-        Command::HotSend {
-            library,
-            name,
-            assets,
-        } => {
-            return hot::send_app(cli.app, addr, &library, assets.as_deref(), &name).await;
-        }
-        _ => {}
     }
 
     let client = connect(cli.app, addr).await?;

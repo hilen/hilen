@@ -60,6 +60,13 @@ Two clients exist:
   the word is the id of the device from `hilen-inspect devices`, or a part of its name
   or kind, like `tv` or `ipad`. It asks the device over the tunnel of Xcode, so a
   command never lands on another device. The code is `hilen-inspect/src/device.rs`.
+  `devices` lists the paired devices with the system and its version and the address
+  an app answers at. After every connection the tool first asks the app for its start
+  time, with a limit of 5 seconds. An app that is not in front on a phone or a TV is
+  suspended: the system still takes the connection and no answer ever comes, and a
+  command with no limit of its own hung for good. The tool now ends with `The app took
+  the connection and gave no answer`. `hot-send` needs `--device`, `--addr` or `--app`,
+  see [hot-reload.md](hot-reload.md).
   The agent workflow lives in the maintainer's skill files outside this repo.
 
 `hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact

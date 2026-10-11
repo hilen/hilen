@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use hilen::inspect::protocol::{Client, FIXED_PORT, discover};
+use hilen::inspect::protocol::{Client, FIXED_PORT, InspectorCommand, discover};
 use serde_json::{from_str, to_string};
 use tokio::{net::lookup_host, time::timeout};
 
@@ -21,8 +21,10 @@ pub(super) const NO_APPS: &str = "No running apps discovered. The app must be bu
 /// Gives the address when `--addr` is not passed.
 const ADDR_ENV: &str = "HILEN_INSPECT_ADDR";
 /// The id of the app at a given address in a list of apps.
-const GIVEN: &str = "given";
+pub(super) const GIVEN: &str = "given";
 const CONNECT: Duration = Duration::from_secs(5);
+/// How long an app has for the answer that shows it runs.
+const ANSWER: Duration = Duration::from_secs(5);
 
 /// The address to reach the app at, from `--addr` or from the variable,
 /// none when neither is set. A host with no port means the fixed port the
@@ -65,10 +67,34 @@ pub(super) async fn apps(addr: Option<SocketAddr>) -> Result<HashMap<String, Soc
     }
 }
 
+/// A connection to an app that answers.
+pub(super) async fn connect(app: Option<String>, addr: Option<SocketAddr>) -> Result<Client> {
+    let client = open(app, addr).await?;
+    answers_within(&client, ANSWER).await?;
+    Ok(client)
+}
+
+/// An app that is not in front on a phone or a TV is suspended. The system
+/// still takes a connection for it, and then no answer ever comes, so a
+/// command with no limit of its own, which some need, hung for good. The
+/// app is asked 1 cheap thing first, which a running app answers at once
+/// off its main thread, also while it is paused or busy.
+async fn answers_within(client: &Client, limit: Duration) -> Result<()> {
+    match timeout(limit, client.send(InspectorCommand::GetStartTime)).await {
+        Ok(answer) => {
+            answer.context("The app took the connection and closed it")?;
+            Ok(())
+        }
+        Err(elapsed) => bail!(
+            "The app took the connection and gave no answer: {elapsed}. It is suspended, bring it to the front on an unlocked device."
+        ),
+    }
+}
+
 /// With no given address it tries the address cached by the last discovery
 /// first and falls back to a fresh mDNS browse, so repeat calls skip the
 /// discovery wait.
-pub(super) async fn connect(app: Option<String>, addr: Option<SocketAddr>) -> Result<Client> {
+async fn open(app: Option<String>, addr: Option<SocketAddr>) -> Result<Client> {
     if let Some(addr) = addr {
         return match timeout(CONNECT, Client::connect(addr)).await {
             Ok(client) => client.with_context(|| format!("No app answers at {addr}")),
@@ -135,11 +161,32 @@ fn resolve(apps: &HashMap<String, SocketAddr>, app: Option<String>) -> Result<So
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
-    use hilen::inspect::protocol::FIXED_PORT;
-    use tokio::runtime::Builder;
+    use std::time::Duration;
 
-    use super::{given, has_port};
+    use anyhow::Result;
+    use hilen::inspect::protocol::{Client, FIXED_PORT};
+    use tokio::{net::TcpListener, runtime::Builder, time::Instant};
+
+    use super::{answers_within, given, has_port};
+
+    #[test]
+    fn an_app_that_takes_the_connection_and_stays_silent_is_reported() -> Result<()> {
+        Builder::new_current_thread().enable_all().build()?.block_on(async {
+            // The system holds the port of a suspended app the same way:
+            // the connection opens and nothing reads it.
+            let silent = TcpListener::bind("127.0.0.1:0").await?;
+            let client = Client::connect(silent.local_addr()?).await?;
+
+            let asked = Instant::now();
+            let refused = answers_within(&client, Duration::from_millis(200))
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(refused.contains("suspended"), "{refused}");
+            assert!(asked.elapsed() < Duration::from_secs(2));
+            Ok(())
+        })
+    }
 
     #[test]
     fn a_host_with_no_port_gets_the_fixed_port() -> Result<()> {

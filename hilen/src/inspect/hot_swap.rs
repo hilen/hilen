@@ -106,8 +106,15 @@ pub(crate) fn swap(library: &str, root: Option<&str>) -> Result<AppCommand> {
     if !path.is_file() {
         bail!("`{library}` was not sent");
     }
+    // The root is kept as the path below the hot folder, never as a full
+    // path. The data folder of the app, which the hot folder is in, gets a
+    // new name when the loader is installed again, see `anchored` in
+    // `assets_paths.rs`.
     let pointer = match root {
-        Some(root) => format!("{library}\n{}", below(&dir, root)?.display()),
+        Some(root) => {
+            below(&dir, root)?;
+            format!("{library}\n{root}")
+        }
         None => library.to_string(),
     };
 
