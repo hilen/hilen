@@ -45,7 +45,7 @@ pub use winit::{
 pub(crate) use self::redraw::continuous_render_active;
 #[cfg(not_wasm)]
 pub(crate) use self::redraw::{
-    frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
+    Pacer, frame_drawn, frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
 };
 pub use self::{
     app_handler::AppHandler, msaa::msaa_sample_count, orientation::Orientations, placement::*,

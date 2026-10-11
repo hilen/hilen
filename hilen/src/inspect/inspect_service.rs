@@ -138,7 +138,9 @@ impl InspectService {
     pub(crate) fn start_listening() {
         black_box(MARKER);
 
-        let debug_build = cfg!(debug_assertions);
+        // A hot build is a release build and never ships, the loader takes
+        // its next library over this server.
+        let debug_build = cfg!(debug_assertions) || cfg!(hot);
         if !listener_allowed(
             debug_build,
             var(ENABLE_ENV).ok().as_deref(),

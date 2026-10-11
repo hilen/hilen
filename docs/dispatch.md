@@ -56,11 +56,32 @@ safe from any thread. Window and input events call it, and so does the dispatch 
 waits on an idle loop.
 
 Continuous work keeps the loop running by itself. While a live animation or a loaded level
-exists, `continuous_render_active` is true and `about_to_wait` sets `ControlFlow::Poll`, so the
-loop iterates and each requested frame is delivered. Once neither exists it goes back to
-`ControlFlow::Wait` and sleeps. The choice keys off the presence of the work, not a per-frame
-flag, because under `Poll` `about_to_wait` also runs on the empty iterations between draws and a
-flag would read false there.
+exists, `continuous_render_active` is true and `about_to_wait` asks for a frame on every
+iteration. Once neither exists the loop goes back to `ControlFlow::Wait` and sleeps. The choice
+keys off the presence of the work, not a per-frame flag, because `about_to_wait` also runs on
+iterations that draw nothing and a flag would read false there.
+
+What brings the loop to its next iteration is the `Pacer` of the platform, in `redraw.rs`:
+
+- `Pacer::Poll`, on desktop and Android. `about_to_wait` sets `ControlFlow::Poll`. Every
+  iteration draws a frame and the draw waits for the screen, so the loop does not spin.
+- `Pacer::FrameWake`, on iOS and tvOS. `about_to_wait` sets `ControlFlow::Wait` and the loop
+  sleeps. After every drawn frame `frame_drawn` wakes the loop once while continuous work
+  lives, the next iteration asks for the next frame, and UIKit draws it on the next screen
+  refresh.
+
+iOS must not use `Poll`. winit runs it there as a run loop timer with a period of 0.1
+microseconds, `EventLoopWaker` in `src/platform_impl/ios/app_state.rs` of the fork. A redraw
+on iOS is `setNeedsDisplay`, and UIKit draws once per screen refresh however often it is
+asked. So a polling loop went around many times between 2 frames with nothing to do. In banda
+on an iPhone 16 Pro Max the main thread took 96 percent of a core while a small mark pulsed,
+and the drawing was 3.5 percent of it. With `FrameWake` the same build on the same phone,
+measured on 2026-10-11 with `xcrun xctrace record` and the templates Activity Monitor and
+Time Profiler: the process went from 89 to 33 percent CPU at the same 60 frames a second,
+the drawing is 86 percent of the main thread, and with nothing that moves the process sits
+at 0 to 1 percent. tvOS was not measured. The unit tests next to `frame_pacing` hold both pacers.
+A desktop UI test cannot catch this: a headless run has no winit loop, and a desktop window
+runs another winit backend, where `Poll` is right.
 
 A covered window holds every frame. winit's occluded event fires when the window is
 minimized, fully covered or on another desktop, the app handler stores it, and
@@ -80,11 +101,13 @@ frame callbacks for a hidden tab, so wasm is not part of this.
 
 The two platforms order the loop differently and it matters. On desktop `about_to_wait` runs
 after the render, so it sees an animation added mid-frame and switches to `Poll` on its own. On
-iOS `about_to_wait` runs before the render, so it misses that animation, and a `request_frame`
-made while drawing, like the one from `commit_animations`, comes too late for the current
-iteration. So on iOS only, `request_frame` also wakes the loop from the main thread, and the next
-iteration re-checks the flag and keeps drawing. Doing that same wake on desktop livelocks the
-loop, so it is gated to iOS.
+iOS and tvOS `about_to_wait` runs before the render, so it misses that animation, and a
+`request_frame` made while drawing, like the one from `commit_animations`, comes too late for
+the current iteration. So there `request_frame` also wakes the loop from the main thread, and
+the next iteration re-checks the flag. The wake of `frame_drawn` covers an animation that
+starts while a frame draws and asks for no frame itself: it reads `continuous_render_active`
+after the frame. Doing a wake from the main thread on desktop livelocks the loop, so both are
+gated to iOS and tvOS.
 
 A resize draws inside its own event rather than waiting for the next frame. Reconfiguring the
 surface resizes the backing buffer and clears it, and a window drag fires resizes far faster

@@ -288,7 +288,8 @@ the only gate. Now four independent checks stand in the way, so one mistake is n
   its unit tests. `build/release/with-secrets.sh` sets the mark, and the release scripts
   `mac.rs`, `linux.rs`, `win.rs` and `docker.rs` set it again on their own.
 - **Runtime gate.** A build without debug assertions starts the listener only when
-  `HILEN_INSPECT=1` is set at launch, and then logs a warning. A release binary built by hand,
+  `HILEN_INSPECT=1` is set at launch, and then logs a warning. A hot build is a release
+  build that listens always, see "A release build" in [hot-reload.md](hot-reload.md). A release binary built by hand,
   outside the scripts, starts with the server off. Lanes that build release with the feature,
   `make uui` and `make bench`, do not use the listener. An app whose `make run` is a release
   build sets the variable there, like kukareker. 1 app is the exception: an iOS

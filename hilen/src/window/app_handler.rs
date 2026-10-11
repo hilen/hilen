@@ -167,6 +167,12 @@ impl AppHandler {
         frame_control::end_frame();
     }
 
+    /// Work that needs every frame lives, and the app is not paused.
+    #[cfg(not_wasm)]
+    fn continuous() -> bool {
+        crate::window::continuous_render_active() && !frame_control::holding()
+    }
+
     #[cfg(desktop)]
     fn placement_changed() {
         let Some(placement) = Window::placement() else {
@@ -429,6 +435,9 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 }
 
                 Self::frame();
+
+                #[cfg(not_wasm)]
+                crate::window::frame_drawn(Self::continuous());
             }
             _ => {}
         }
@@ -459,8 +468,9 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                 crate::window::visibility(
                     Self::window().state.screenshot_pending() || frame_control::offscreen_wanted(),
                 ),
-                crate::window::continuous_render_active() && !frame_control::holding(),
+                Self::continuous(),
                 crate::window::take_needs_render(),
+                crate::window::Pacer::of_platform(),
             );
             let Some(flow) = flow else {
                 event_loop.set_control_flow(ControlFlow::Wait);

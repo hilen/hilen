@@ -42,6 +42,28 @@ the OS holds, no socket, no GPU object, no native object.
 
 Every start is fresh, the app opens on its first screen again.
 
+## A release build
+
+Every hot library is a release build, in the simulator and on a device, since
+2026-10-11. `build_library` in `build/shared/src/hot.rs` passes `--release`, and the
+library is `target/<target>/release/lib<app>.dylib`.
+
+- Why: a debug build of an app draws a frame several times slower. banda as a debug
+  hot build made an iPhone hot while it drew 60 frames a second. A hot build is what
+  the user holds in the hand while an app is made, so it has to run like the app
+  that ships.
+- It is the `release` profile of cargo, not `deploy`. It has no fat LTO, so a build
+  after a change of the app stays short.
+- The cost is build time. A debug build after a change of an app took about 1 second,
+  the release build of banda takes 12 seconds, measured on 2026-10-11. The first build
+  of a repo took 74 seconds.
+- The library is smaller, banda went from 69 MB to 44 MB, so the send is shorter.
+- The inspect server is on in every hot build, also this release one, `cfg!(hot)` in
+  `start_listening` of `hilen/src/inspect/inspect_service.rs`. The loader takes its next
+  library over that server, and a hot build never ships.
+- Not measured: how much cooler a phone stays, and the time of a build in the
+  simulator with `make hot`.
+
 ## The parts
 
 - The loader, `hilen/native/ios/hot_loader.m` and `hot_loader.plist`. It owns
@@ -56,7 +78,8 @@ Every start is fresh, the app opens on its first screen again.
   `started`. At its start it raises its limit of open files, see "What a stop
   leaves".
 - The library is the app crate as a `cdylib`, built with
-  `cargo rustc --crate-type cdylib`, so `Cargo.toml` of an app needs nothing.
+  `cargo rustc --release --crate-type cdylib`, so `Cargo.toml` of an app needs nothing.
+  See "A release build" below.
 - The `hot` feature of `hilen`. It turns `inspect` on, so the release guards of
   [inspect.md](inspect.md) keep it out of a shipped app. `cfg(hot)` in the
   engine is that feature on iOS, set by `hilen/build.rs`.
@@ -114,11 +137,11 @@ make device args=tv          # a word in front picks the device, here the Apple 
 ```
 
 - Nothing watches the sources. A change is on the device after the next `make device`.
-  The run of 2026-10-11 took 18 seconds for banda, a library of 69 MB, with no source
-  changed.
+  The run of 2026-10-11 took 22 seconds for banda after a change of the app, of which
+  the build was 12 seconds. The library is 44 MB.
 - The word picks the device by its id or by a part of its name or kind, like `tv`,
   `ipad` or `bedroom`. With no word it is the device of the last call of this app, kept
-  in `target/hot/device`, or the only paired device.
+  in `target/hot/picked-device`, or the only paired device.
 - The system of the build, iOS or tvOS, comes from the kind of the picked device.
 - The script finds the engine repo by itself, a folder `hilen` next to a folder above
   the app, like `~/dev/hilen` for `~/dev/apps/banda`. `HILEN_REPO` names another one.
@@ -410,8 +433,8 @@ part of `make smoke`.
   load from its data folder on iOS 18, see
   [the Apple forum thread](https://developer.apple.com/forums/thread/773210),
   on iOS 27.0 it loads.
-- The send to a phone is slow for a big library, the file goes as it is, with
-  its symbols and not packed.
+- The send to a phone takes some seconds for a big library, the file goes as it
+  is and not packed.
 - The stop of the feed timer of a sound clock was never compiled in a hot build.
 - A swap after a played video crashed on a real Apple TV on 2026-10-10. Every
   closed video left its sound decode thread of kira running, and the thread
