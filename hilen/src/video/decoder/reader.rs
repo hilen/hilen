@@ -66,6 +66,16 @@ pub(crate) struct FileInfo {
     pub has_sound:  bool,
 }
 
+/// What 1 step of a read did.
+pub(crate) enum Step {
+    /// The read is over, with the next picture or with none at the end of
+    /// the stream.
+    Done(Option<Picture>),
+    /// A frame was skipped or a packet went in, the picture is not there
+    /// yet.
+    More,
+}
+
 pub(crate) struct Reader {
     decoding: Decoding,
     reads:    Interrupt,
@@ -135,33 +145,50 @@ impl Reader {
     /// seek to a place past the last frame the last frame comes, once.
     pub(crate) fn next(&mut self) -> Result<Option<Picture>, Error> {
         loop {
-            let mut decoded = frame::Video::empty();
-            match self.decoding.decoder.receive_frame(&mut decoded) {
-                Ok(()) => {
-                    let seconds = self.decoding.seconds(&decoded);
-                    self.decoding.sent += 1;
-                    let picture = Picture {
-                        seconds,
-                        frame: decoded,
-                    };
-                    let half = self.half_frame();
-                    if self.decoding.skip_until.is_some_and(|until| seconds + half < until) {
-                        self.skipped = Some(picture);
-                        continue;
-                    }
-                    self.decoding.skip_until = None;
-                    self.skipped = None;
-                    return Ok(Some(picture));
-                }
-                Err(Error::Other { errno: EAGAIN }) => {}
-                Err(Error::Eof) => {
-                    self.decoding.skip_until = None;
-                    return Ok(self.skipped.take());
-                }
-                Err(err) => return Err(err),
+            if let Step::Done(picture) = self.step()? {
+                return Ok(picture);
             }
-            self.feed()?;
         }
+    }
+
+    /// One step of `next`: at most 1 frame out of the decoder or 1 packet
+    /// into it. A caller that must be able to stop on the way to a far
+    /// frame runs the steps itself. A read left at `More` is still whole,
+    /// the next `next` goes on with it.
+    pub(crate) fn step(&mut self) -> Result<Step, Error> {
+        let mut decoded = frame::Video::empty();
+        match self.decoding.decoder.receive_frame(&mut decoded) {
+            Ok(()) => {
+                let seconds = self.decoding.seconds(&decoded);
+                self.decoding.sent += 1;
+                let picture = Picture {
+                    seconds,
+                    frame: decoded,
+                };
+                let half = self.half_frame();
+                if self.decoding.skip_until.is_some_and(|until| seconds + half < until) {
+                    self.skipped = Some(picture);
+                    return Ok(Step::More);
+                }
+                self.decoding.skip_until = None;
+                self.skipped = None;
+                return Ok(Step::Done(Some(picture)));
+            }
+            Err(Error::Other { errno: EAGAIN }) => {}
+            Err(Error::Eof) => {
+                self.decoding.skip_until = None;
+                return Ok(Step::Done(self.skipped.take()));
+            }
+            Err(err) => return Err(err),
+        }
+        self.feed()?;
+        Ok(Step::More)
+    }
+
+    /// Frames that came out of the decoder so far, the skipped ones too.
+    #[cfg(test)]
+    pub(crate) fn decoded(&self) -> u64 {
+        self.decoding.sent
     }
 
     /// One more packet of the picture stream into the decoder, or the end of

@@ -5,6 +5,8 @@
 use std::time::Duration;
 
 #[cfg(ffmpeg)]
+mod music;
+#[cfg(ffmpeg)]
 mod open;
 #[cfg(ffmpeg)]
 mod pieces;
@@ -12,6 +14,10 @@ mod pieces;
 #[cfg(ffmpeg)]
 use std::sync::Arc;
 
+#[cfg(ffmpeg)]
+pub(crate) use music::Music;
+#[cfg(ffmpeg)]
+pub use music::{VideoMusic, VideoPieces};
 #[cfg(ffmpeg)]
 pub(crate) use open::{Interrupt, byte_position, transport_error};
 #[cfg(ffmpeg)]

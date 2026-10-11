@@ -6,6 +6,7 @@
 //! the ffmpeg archive of the system, see `docs/video.md`.
 
 mod canvas;
+mod overlays;
 mod writer;
 
 use std::{
@@ -27,11 +28,11 @@ use crate::{
     deps::hreads::on_main,
     gm::{LossyConvert, flat::Size},
     video::{
-        VideoPiece, VideoSource,
+        VideoOverlay, VideoPieces, VideoSource,
         audio::pieces::{PiecesSound, RATE},
         count_to_f64,
         decoder::pieces::Pieces,
-        export::{canvas::Canvas, writer::Writer},
+        export::{canvas::Canvas, overlays::Overlays, writer::Writer},
         source::Interrupt,
     },
 };
@@ -48,6 +49,9 @@ pub struct VideoExportSettings {
     /// Bits per second.
     pub video_bit_rate: usize,
     pub audio_bit_rate: usize,
+    /// Pictures and texts drawn over the video, a later one over an earlier
+    /// one. With none the frames go into the file as they are.
+    pub overlays:       Vec<VideoOverlay>,
 }
 
 impl VideoExportSettings {
@@ -61,7 +65,15 @@ impl VideoExportSettings {
             frame_rate,
             video_bit_rate: (pixels * 0.1).max(200_000.0).round().lossy_convert(),
             audio_bit_rate: 192_000,
+            overlays: Vec::new(),
         }
+    }
+
+    /// The same settings with these overlays drawn over the video.
+    #[must_use]
+    pub fn with_overlays(mut self, overlays: impl IntoIterator<Item = VideoOverlay>) -> Self {
+        self.overlays = overlays.into_iter().collect();
+        self
     }
 }
 
@@ -88,9 +100,10 @@ pub struct VideoExport {
 impl VideoExport {
     /// Starts to write `pieces` into the mp4 file at `path`, on a thread of
     /// its own. `each` gets the events on the main thread. A file that is
-    /// already at `path` is replaced.
+    /// already at `path` is replaced. A `VideoPieces` with music gives a
+    /// file with that music under the pieces, like `VideoView::set_pieces`.
     pub fn start(
-        pieces: impl IntoIterator<Item = VideoPiece>,
+        pieces: impl Into<VideoPieces>,
         path: impl Into<PathBuf>,
         settings: VideoExportSettings,
         each: impl FnMut(VideoExportEvent) + Send + 'static,
@@ -227,6 +240,7 @@ fn encode(
     let mut written = 0;
     let mut writer = Writer::create(path, &settings, first.picture.color(), with_sound)?;
     let mut canvas = Canvas::new(size);
+    let mut overlays = Overlays::new(&settings.overlays, size, first.picture.color());
 
     let frames: u64 = (list.duration() * settings.frame_rate).round().max(1.0).lossy_convert();
     info!(
@@ -265,7 +279,16 @@ fn encode(
         let Some(image) = &mut shown else {
             bail!("the list has no picture for its first frame");
         };
-        writer.write_picture(image, i64::try_from(frame)?)?;
+        if overlays.shows(time) {
+            // Drawn on a copy. The picture stays clean for the next frame
+            // of the file that shows it, and the encoder may still read
+            // the frame it got before.
+            let mut drawn = image.clone();
+            overlays.draw(&mut drawn, time);
+            writer.write_picture(&mut drawn, i64::try_from(frame)?)?;
+        } else {
+            writer.write_picture(image, i64::try_from(frame)?)?;
+        }
 
         // The sound up to the end of this frame.
         if let Some(sound) = &mut sound {
@@ -302,12 +325,12 @@ mod test {
     use crate::{
         gm::LossyConvert,
         video::{
-            VideoFrames, VideoPicture, VideoPiece, VideoSource,
+            VideoFrames, VideoMusic, VideoOverlay, VideoPicture, VideoPiece, VideoPieces, VideoSource,
             audio::pieces::PiecesSound,
             decoder::reader::Reader,
             export::{VideoExportSettings, write},
             source::Interrupt,
-            test_fixture,
+            test_fixture, test_wav,
         },
     };
 
@@ -353,11 +376,7 @@ mod test {
     }
 
     /// Writes the pieces and gives the progress that was reported.
-    fn export(
-        name: &str,
-        pieces: impl IntoIterator<Item = VideoPiece>,
-        settings: &VideoExportSettings,
-    ) -> Vec<f32> {
+    fn export(name: &str, pieces: impl Into<VideoPieces>, settings: &VideoExportSettings) -> Vec<f32> {
         let mut progress = Vec::new();
         let done = write(
             &VideoSource::from_pieces(pieces),
@@ -413,6 +432,76 @@ mod test {
         count
     }
 
+    /// The left channel of the sound of a written file of this length, read
+    /// back with the code that reads a list.
+    fn sound_of(name: &str, length: f64) -> Vec<f32> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let whole = VideoSource::from_pieces([VideoPiece::new(file(name).to_string_lossy(), 0.0, length)]);
+        let list = whole.piece_list().expect("a list of pieces");
+        let mut sound = PiecesSound::new(list, 1.0, Interrupt::new(&stop)).expect("the sound is made");
+        let mut heard = Vec::new();
+        loop {
+            let chunk = sound.read_list().expect("the file decodes");
+            if chunk.is_empty() {
+                return heard;
+            }
+            heard.extend(chunk.iter().map(|frame| frame.left));
+        }
+    }
+
+    /// A list with music, written and read back. The music rises by 1 step
+    /// of 16 bits every 4 samples, so a value tells its place. Under a
+    /// piece with no sound track the file has the music at its volume,
+    /// under a piece of the ramp it has the sum of both. A list where no
+    /// file has a sound track still gives a file with the music in it.
+    #[test]
+    fn music_is_in_the_file() {
+        let steps: Vec<i16> = (0..96_000_i32)
+            .map(|index| i16::try_from(index / 4).expect("the music file is short"))
+            .collect();
+        let music = VideoMusic::new(test_wav("export", &steps));
+        let music_at = |seconds: f64| -> f32 { ((seconds * 12_000.0).floor() / 32_768.0).lossy_convert() };
+        let ramp_at = |seconds: f64| -> f32 { (-0.8 + 0.8 * seconds).lossy_convert() };
+        let blue = || VideoPiece::new(test_fixture("colors.mp4"), 2.0, 2.5);
+        let at = |heard: &[f32], seconds: f64| -> f32 {
+            let sample: usize = (seconds * 48_000.0).round().lossy_convert();
+            heard[sample]
+        };
+
+        // Half a second with no sound track, then the ramp from 1 second.
+        let list = VideoPieces::new([blue(), ramp(30, 45)]).with_music(music.clone().with_volume(0.5));
+        export("music", list, &settings(128, 72, 30.0));
+        let heard = sound_of("music", 1.0);
+        for (seconds, expected) in [
+            (0.2, 0.5 * music_at(0.2)),
+            (0.45, 0.5 * music_at(0.45)),
+            (0.6, ramp_at(1.1) + 0.5 * music_at(0.6)),
+            (0.9, ramp_at(1.4) + 0.5 * music_at(0.9)),
+        ] {
+            let value = at(&heard, seconds);
+            assert!(
+                (value - expected).abs() < 0.03,
+                "the sound at {seconds} s is {value}, not {expected}"
+            );
+        }
+
+        export(
+            "music-alone",
+            VideoPieces::new([blue()]).with_music(music),
+            &settings(128, 72, 30.0),
+        );
+        let frames = VideoFrames::open(file("music-alone").to_string_lossy()).expect("the file opens");
+        assert!(frames.info().has_sound, "the file has a sound track");
+        let heard = sound_of("music-alone", 0.5);
+        for seconds in [0.15, 0.3, 0.4] {
+            let (value, expected) = (at(&heard, seconds), music_at(seconds));
+            assert!(
+                (value - expected).abs() < 0.03,
+                "the sound at {seconds} s is {value}, not {expected}"
+            );
+        }
+    }
+
     /// 2 pieces of 1 file with a jump between them and a piece of another
     /// file in another shape, written and read back: the length, the frame
     /// count, the frame on each side of both cuts, the black around the
@@ -459,21 +548,10 @@ mod test {
 
         // The sound of the ramp fixture rises in a line from -0.8 to 0.8
         // over its 2 seconds, so a value tells the place of the file.
-        let stop = Arc::new(AtomicBool::new(false));
-        let whole = VideoSource::from_pieces([VideoPiece::new(file(name).to_string_lossy(), 0.0, length)]);
-        let list = whole.piece_list().expect("a list of pieces");
-        let mut sound = PiecesSound::new(list, 1.0, Interrupt::new(&stop)).expect("the sound is made");
-        let mut heard = Vec::new();
-        loop {
-            let chunk = sound.read_list().expect("the file decodes");
-            if chunk.is_empty() {
-                break;
-            }
-            heard.extend(chunk);
-        }
+        let heard = sound_of(name, length);
         let at = |seconds: f64| -> f32 {
             let sample: usize = (seconds * 48_000.0).round().lossy_convert();
-            heard[sample].left
+            heard[sample]
         };
         let ramp_at = |seconds: f64| -> f32 { (-0.8 + 0.8 * seconds).lossy_convert() };
         // 0.3 s into the list is 0.3 s into the first piece, which starts
@@ -490,6 +568,46 @@ mod test {
             assert!(
                 (value - expected).abs() < 0.03,
                 "the sound at {seconds} s is {value}, not {expected}"
+            );
+        }
+    }
+
+    /// A red square over the middle from 0.5 to 0.8 seconds, written and
+    /// read back: the frames inside that time are red there, the frames
+    /// before and after show the ramp, and a corner shows the ramp always.
+    #[test]
+    fn an_overlay_is_in_the_file_in_its_time() {
+        let name = "overlay";
+        let red = VideoOverlay::picture_rgba([255, 0, 0, 255].repeat(16), 4, 4)
+            .expect("a picture")
+            .with_size(0.5)
+            .with_time(0.5, 0.8);
+        let with_overlay = settings(128, 72, 30.0).with_overlays([red]);
+        export(name, [ramp(0, 30)], &with_overlay);
+        assert_eq!(count_frames(name), 30);
+
+        let mut frames = VideoFrames::open(file(name).to_string_lossy()).expect("the file opens");
+        let near = |have: [u8; 3], want: [u8; 3]| have.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 24);
+        for (frame, covered) in [
+            (3, false),
+            (14, false),
+            (15, true),
+            (20, true),
+            (23, true),
+            (24, false),
+            (29, false),
+        ] {
+            let picture = frames.picture(f64::from(frame) / 30.0, (0, 0)).expect("the file decodes");
+            let (middle, corner) = (pixel(&picture, 64, 36), pixel(&picture, 6, 6));
+            assert_eq!(
+                near(middle, [255, 0, 0]),
+                covered,
+                "frame {frame} is {middle:?} in the middle"
+            );
+            let index = ramp_index(corner);
+            assert!(
+                (index - frame).abs() <= 1,
+                "frame {frame} shows ramp {index} in its corner"
             );
         }
     }

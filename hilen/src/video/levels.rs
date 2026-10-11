@@ -174,7 +174,7 @@ fn read(source: &VideoSource, start: f64, end: f64, count: usize, reads: &Interr
 
 #[cfg(test)]
 mod test {
-    use crate::video::{levels::VideoLevels, test_fixture};
+    use crate::video::{levels::VideoLevels, test_fixture, test_wav};
 
     fn assert_levels(levels: &[f32], expected: &[f32], what: &str) {
         assert_eq!(levels.len(), expected.len(), "{what}");
@@ -222,6 +222,34 @@ mod test {
         assert_levels(&levels, &[0.0; 3], "a part with no length");
         let levels = VideoLevels::read(test_fixture("ramp.mp4"), 0.0, 2.0, 0).expect("nothing is read");
         assert_levels(&levels, &[], "no steps");
+    }
+
+    /// A sound file with no picture gives its levels like a video file,
+    /// for the waveform of the music of a list. The wav file is made here,
+    /// a quarter of full scale and then a half. The others are 1 second of
+    /// a tone at half of full scale, the 2 lossy ones come back a little
+    /// off.
+    #[test]
+    fn a_sound_file_with_no_picture_gives_its_levels() {
+        let mut steps = vec![8_192_i16; 24_000];
+        steps.resize(48_000, 16_384);
+        let wav = test_wav("levels", &steps);
+        let levels = VideoLevels::read(wav.clone(), 0.0, 1.0, 4).expect("the wav file decodes");
+        assert_levels(&levels, &[0.25, 0.25, 0.5, 0.5], "a wav file");
+        let levels = VideoLevels::read(wav, 0.25, 2.0, 7).expect("the wav file decodes");
+        assert_levels(
+            &levels,
+            &[0.25, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0],
+            "a part of it and past its end",
+        );
+
+        for name in ["tone.flac", "tone.mp3", "tone.ogg", "tone_opus.ogg"] {
+            let levels = VideoLevels::read(test_fixture(name), 0.25, 0.75, 4).expect("the fixture decodes");
+            assert_eq!(levels.len(), 4, "{name}");
+            for (step, level) in levels.iter().enumerate() {
+                assert!((level - 0.5).abs() < 0.05, "{name}: step {step} is {level}");
+            }
+        }
     }
 
     #[test]

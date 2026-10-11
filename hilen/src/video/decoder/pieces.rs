@@ -5,9 +5,12 @@
 //! time: the next piece is opened and decoded up to its first frame while
 //! the queue is full and the thread would only wait.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    mpsc::{Receiver, RecvError, SyncSender, TryRecvError, TrySendError},
+use std::{
+    mem::take,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc::{Receiver, RecvError, SyncSender, TryRecvError, TrySendError},
+    },
 };
 
 use ffmpeg_next::{Error, media};
@@ -16,7 +19,7 @@ use log::{debug, warn};
 use crate::video::{
     decoder::{
         Command, MediaInfo, Message, Tracks, VideoFrame,
-        reader::{FileInfo, Picture, Reader},
+        reader::{FileInfo, Picture, Reader, Step},
     },
     source::{Interrupt, PieceList},
 };
@@ -33,6 +36,30 @@ struct Playing {
     first:  Option<Picture>,
     /// A frame of this piece was handed out.
     shown:  bool,
+}
+
+impl Playing {
+    /// Decodes up to the frame the reader was sent to and keeps it as the
+    /// first one. `give_up` is asked after every step on the way, true ends
+    /// the work there. False when it ended that way. The piece is whole
+    /// then too, its next read goes on to the same frame.
+    fn reach(&mut self, give_up: &mut dyn FnMut() -> bool) -> Result<bool, Error> {
+        loop {
+            match self.reader.step()? {
+                Step::Done(picture) => {
+                    self.first = picture;
+                    return Ok(true);
+                }
+                Step::More if give_up() => return Ok(false),
+                Step::More => {}
+            }
+        }
+    }
+}
+
+/// The answer to `give_up` of work that always runs to its end.
+fn never() -> bool {
+    false
 }
 
 /// One picture of a list.
@@ -68,7 +95,8 @@ impl<'a> Pieces<'a> {
         let Some(first) = self.list.pieces().first() else {
             return Ok(None);
         };
-        let playing = self.open(0, first.start)?;
+        let mut playing = self.open(0, first.start)?;
+        playing.reach(&mut never)?;
         let file = playing.reader.info().clone();
         self.current = Some(playing);
 
@@ -92,25 +120,27 @@ impl<'a> Pieces<'a> {
         Ok(Some(file))
     }
 
-    /// Opens the file of a piece and decodes up to the frame at `seconds`
-    /// of that file.
+    /// Opens the file of a piece and sends its reader to the frame at
+    /// `seconds` of that file. `reach` then decodes up to that frame.
     fn open(&self, index: usize, seconds: f64) -> Result<Playing, Error> {
         let piece = &self.list.pieces()[index];
         let mut reader = Reader::open(&piece.source, self.reads)?;
         reader.seek(seconds)?;
-        let first = reader.next()?;
         Ok(Playing {
             index,
             reader,
-            first,
+            first: None,
             shown: false,
         })
     }
 
-    /// The next picture is the one at these seconds of the list.
-    pub(crate) fn seek(&mut self, seconds: f64) -> Result<(), Error> {
+    /// The next picture is the one at these seconds of the list. `give_up`
+    /// is asked after every step of the decode up to that frame, true ends
+    /// the seek there. False when it ended that way, the caller then has a
+    /// newer seek to run.
+    pub(crate) fn seek(&mut self, seconds: f64, give_up: &mut dyn FnMut() -> bool) -> Result<bool, Error> {
         let Some((index, place)) = self.list.locate(seconds) else {
-            return Ok(());
+            return Ok(true);
         };
         let open = match (self.current.take(), self.next.take()) {
             (Some(playing), next) if playing.index == index => {
@@ -120,17 +150,33 @@ impl<'a> Pieces<'a> {
             (_, Some(playing)) if playing.index == index => Some(playing),
             _ => None,
         };
-        self.current = Some(match open {
+        let mut playing = match open {
             Some(mut playing) => {
                 playing.reader.seek(place)?;
-                playing.first = playing.reader.next()?;
+                playing.first = None;
                 playing.shown = false;
                 playing
             }
             None => self.open(index, place)?,
-        });
-        debug!("video: seek to {seconds:.2} s of the list, piece {index} at {place:.2} s");
-        Ok(())
+        };
+        let reached = playing.reach(give_up)?;
+        self.current = Some(playing);
+        if reached {
+            debug!("video: seek to {seconds:.2} s of the list, piece {index} at {place:.2} s");
+        } else {
+            debug!("video: seek to {seconds:.2} s of the list given up, a newer one waits");
+        }
+        Ok(reached)
+    }
+
+    /// Frames that came out of the decoders of the open pieces so far.
+    #[cfg(test)]
+    fn decoded(&self) -> u64 {
+        [&self.current, &self.next]
+            .into_iter()
+            .flatten()
+            .map(|playing| playing.reader.decoded())
+            .sum()
     }
 
     /// The next picture of the list, none at its end.
@@ -211,13 +257,17 @@ impl<'a> Pieces<'a> {
             self.current = Some(playing);
             return Ok(());
         }
-        self.current = Some(self.open(index, piece.start)?);
+        let mut next = self.open(index, piece.start)?;
+        next.reach(&mut never)?;
+        self.current = Some(next);
         Ok(())
     }
 
     /// Opens the piece after the current one before its turn. A file that
     /// fails to open fails again at its turn, and the list fails then.
-    pub(crate) fn prepare_next(&mut self) {
+    /// `give_up` ends the decode up to the first frame of that piece, as in
+    /// `seek`. The piece is kept and decodes on at its turn.
+    pub(crate) fn prepare_next(&mut self, give_up: &mut dyn FnMut() -> bool) {
         let Some(playing) = &self.current else {
             return;
         };
@@ -228,7 +278,11 @@ impl<'a> Pieces<'a> {
         if self.next.as_ref().is_some_and(|next| next.index == index) || self.reads_on(index) {
             return;
         }
-        match self.open(index, piece.start) {
+        let opened = self.open(index, piece.start).and_then(|mut next| {
+            next.reach(give_up)?;
+            Ok(next)
+        });
+        match opened {
             Ok(next) => self.next = Some(next),
             Err(err) => warn!(
                 "video: piece {index}, {}, does not open ahead of its turn, {err}",
@@ -238,19 +292,93 @@ impl<'a> Pieces<'a> {
     }
 }
 
-/// Takes a seek, true when the command was one. The other commands mean
-/// nothing to a list, it has no subtitle tracks.
-fn seek(pieces: &mut Pieces, command: &Command, generation: &mut u32) -> Result<bool, Error> {
-    let Command::Seek {
-        generation: new,
-        seconds,
-    } = *command
-    else {
-        return Ok(false);
-    };
-    *generation = new;
-    pieces.seek(seconds)?;
-    Ok(true)
+/// The commands that wait for the decode thread of a list. Of the seeks
+/// only the newest is kept. A seek of a list decodes up to its frame, and
+/// the player drops every frame of a seek that is not its newest, so the
+/// decode of an older seek would only hold the newest one back.
+struct Waiting<'a> {
+    commands: &'a Receiver<Command>,
+    /// The generation and the seconds of the newest seek not run yet.
+    seek:     Option<(u32, f64)>,
+    /// A stop came or the player is gone.
+    stop:     bool,
+    /// Seeks that made way for a newer one since the last seek that ran.
+    dropped:  u32,
+}
+
+impl<'a> Waiting<'a> {
+    fn new(commands: &'a Receiver<Command>) -> Self {
+        Self {
+            commands,
+            seek: None,
+            stop: false,
+            dropped: 0,
+        }
+    }
+
+    fn keep(&mut self, command: Command) {
+        match command {
+            Command::Seek { generation, seconds } => {
+                if self.seek.replace((generation, seconds)).is_some() {
+                    self.dropped += 1;
+                }
+            }
+            Command::Stop => self.stop = true,
+            // A list has no subtitle tracks.
+            Command::Subtitle(_) => {}
+        }
+    }
+
+    /// Takes every command that is there and waits for none.
+    fn drain(&mut self) {
+        loop {
+            match self.commands.try_recv() {
+                Ok(command) => self.keep(command),
+                Err(TryRecvError::Disconnected) => {
+                    self.stop = true;
+                    return;
+                }
+                Err(TryRecvError::Empty) => return,
+            }
+        }
+    }
+
+    /// A seek or a stop is there, so the work in hand is of no use.
+    fn news(&mut self) -> bool {
+        self.drain();
+        self.stop || self.seek.is_some()
+    }
+
+    /// Blocks until a seek or a stop is there.
+    fn wait(&mut self) {
+        while !self.news() {
+            match self.commands.recv() {
+                Ok(command) => self.keep(command),
+                Err(RecvError) => self.stop = true,
+            }
+        }
+    }
+}
+
+/// Runs the newest seek that waits, and only that one. A seek that a newer
+/// one overtakes while it decodes is given up for it. True when the list
+/// was moved to another place.
+fn seek_newest(pieces: &mut Pieces, waiting: &mut Waiting, generation: &mut u32) -> Result<bool, Error> {
+    let mut moved = false;
+    while !waiting.stop
+        && let Some((new, seconds)) = waiting.seek.take()
+    {
+        let dropped = take(&mut waiting.dropped);
+        if dropped > 0 {
+            debug!("video: seek {new} of the list is the newest, {dropped} older ones were dropped");
+        }
+        *generation = new;
+        moved = true;
+        if !pieces.seek(seconds, &mut || waiting.news())? {
+            waiting.dropped += 1;
+        }
+    }
+    Ok(moved)
 }
 
 /// The decode thread of a list, the twin of `run` of a file.
@@ -282,21 +410,19 @@ pub(super) fn run(
     // The newest seek and whether the list was read to its end since.
     let mut generation = 0;
     let mut eof = false;
+    let mut waiting = Waiting::new(commands);
     loop {
-        // Every queued command, the latest seek wins.
-        loop {
-            match commands.try_recv() {
-                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return Ok(()),
-                Ok(command) => eof &= !seek(&mut pieces, &command, &mut generation)?,
-                Err(TryRecvError::Empty) => break,
-            }
-        }
         if eof {
             // Nothing to decode until a seek, so block instead of spinning.
-            match commands.recv() {
-                Ok(Command::Stop) | Err(RecvError) => return Ok(()),
-                Ok(command) => eof &= !seek(&mut pieces, &command, &mut generation)?,
-            }
+            waiting.wait();
+        } else {
+            waiting.drain();
+        }
+        eof &= !seek_newest(&mut pieces, &mut waiting, &mut generation)?;
+        if waiting.stop {
+            return Ok(());
+        }
+        if eof {
             continue;
         }
 
@@ -315,7 +441,7 @@ pub(super) fn run(
             // The player has frames enough. This is the time to get the
             // next piece ready, then wait for room.
             Err(TrySendError::Full(message)) => {
-                pieces.prepare_next();
+                pieces.prepare_next(&mut || waiting.news());
                 if messages.send(message).is_err() {
                     return Ok(());
                 }
@@ -337,7 +463,10 @@ mod test {
 
     use crate::video::{
         VideoPiece, VideoSource,
-        decoder::{self, Command, Message, VideoFrame},
+        decoder::{
+            self, Command, Message, VideoFrame,
+            pieces::{Pieces, Waiting, never, seek_newest},
+        },
         source::Interrupt,
         test_fixture,
     };
@@ -530,6 +659,143 @@ mod test {
         let frames = seek(3, 10);
         assert_eq!(ramp_index(&frames[0]), 41);
         assert_no_frame_missing(&frames, 10.0 / 30.0);
+    }
+
+    fn seek_to_frame(generation: u32, frame: u32) -> Command {
+        Command::Seek {
+            generation,
+            seconds: f64::from(frame) / 30.0,
+        }
+    }
+
+    /// Runs a test on the whole ramp fixture as a list of 1 piece, opened
+    /// with no thread. The number is the frames decoded by then.
+    fn with_ramp_list(test: impl FnOnce(&mut Pieces, u64)) {
+        let source = VideoSource::from_pieces([ramp(0, 60)]);
+        let list = source.piece_list().expect("a list of pieces");
+        let stop = Arc::new(AtomicBool::new(false));
+        let reads = Interrupt::new(&stop);
+        let mut pieces = Pieces::new(list, &reads);
+        pieces.start().expect("the list opens");
+        let before = pieces.decoded();
+        test(&mut pieces, before);
+    }
+
+    /// Which frame of the ramp fixture the next picture of the list is.
+    fn next_ramp_index(pieces: &mut Pieces) -> i32 {
+        let picture = pieces.next_picture().expect("the list decodes").expect("a picture");
+        ramp_index(&pieces.video_frame(&picture, 0).expect("the frame converts"))
+    }
+
+    /// 20 seeks wait at once, the drag of a slider while a slow seek ran.
+    /// Each is 22 frames or more after its keyframe. Only the newest one is
+    /// decoded, every seek used to be, 20 times the work for 1 picture.
+    #[test]
+    fn of_the_seeks_that_wait_only_the_newest_is_decoded() {
+        with_ramp_list(|pieces, before| {
+            let (commands, receiver) = channel();
+            for generation in 1..20 {
+                let frame = if generation % 2 == 0 { 55 } else { 25 };
+                commands
+                    .send(seek_to_frame(generation, frame))
+                    .expect("the queue takes commands");
+            }
+            commands.send(seek_to_frame(20, 52)).expect("the queue takes commands");
+
+            let mut waiting = Waiting::new(&receiver);
+            waiting.drain();
+            let mut generation = 0;
+            assert!(seek_newest(pieces, &mut waiting, &mut generation).expect("the list seeks"));
+            assert_eq!(generation, 20);
+
+            // The fixture has a keyframe a second, so 1 seek is 30 frames
+            // at most. The 20 of them were 517.
+            let decoded = pieces.decoded() - before;
+            assert!(decoded <= 30, "{decoded} frames were decoded for 1 picture");
+            assert_eq!(next_ramp_index(pieces), 52);
+            assert_eq!(next_ramp_index(pieces), 53);
+        });
+    }
+
+    /// A stop that waits behind seeks ends the thread with no decode.
+    #[test]
+    fn a_stop_that_waits_runs_no_seek() {
+        with_ramp_list(|pieces, before| {
+            let (commands, receiver) = channel();
+            commands.send(seek_to_frame(1, 55)).expect("the queue takes commands");
+            commands.send(Command::Stop).expect("the queue takes commands");
+
+            let mut waiting = Waiting::new(&receiver);
+            waiting.drain();
+            let mut generation = 0;
+            assert!(!seek_newest(pieces, &mut waiting, &mut generation).expect("nothing runs"));
+            assert!(waiting.stop);
+            assert_eq!(pieces.decoded(), before);
+        });
+    }
+
+    /// A seek that runs ends when a newer one comes, long before its frame.
+    /// The newer seek then lands on its exact frame. A seek that was given
+    /// up with no seek after it still leads to its own frame.
+    #[test]
+    fn a_seek_gives_up_for_a_newer_one() {
+        with_ramp_list(|pieces, before| {
+            // Frame 55 is 25 frames after its keyframe. The newer seek
+            // comes after 4 steps of the decode.
+            let mut asked = 0;
+            let mut newer_came = || {
+                asked += 1;
+                asked == 4
+            };
+            assert!(!pieces.seek(55.0 / 30.0, &mut newer_came).expect("the list seeks"));
+            let decoded = pieces.decoded() - before;
+            assert!(
+                decoded <= 4,
+                "{decoded} frames were decoded before the seek gave up"
+            );
+
+            assert!(pieces.seek(40.0 / 30.0, &mut never).expect("the list seeks"));
+            assert_eq!(next_ramp_index(pieces), 40);
+            assert_eq!(next_ramp_index(pieces), 41);
+
+            assert!(!pieces.seek(17.0 / 30.0, &mut || true).expect("the list seeks"));
+            assert_eq!(next_ramp_index(pieces), 17);
+        });
+    }
+
+    /// Many seeks sent to a running thread one right after another, the
+    /// drag of a slider. The frames of the last seek are the ones of its
+    /// place, and every frame after the first of them belongs to it.
+    #[test]
+    fn the_frames_after_many_seeks_are_those_of_the_last_one() {
+        let thread = thread([ramp(10, 20), ramp(41, 50)]);
+        thread.duration();
+        for generation in 1..40 {
+            let frame = if generation % 2 == 0 { 3 } else { 17 };
+            thread
+                .commands
+                .send(seek_to_frame(generation, frame))
+                .expect("the decode thread takes commands");
+        }
+        // 12 frames into the list is 2 frames into the second piece.
+        thread
+            .commands
+            .send(seek_to_frame(40, 12))
+            .expect("the decode thread takes commands");
+
+        let mut frames = Vec::new();
+        loop {
+            match thread.next() {
+                Message::Frame(frame) if frame.generation == 40 => frames.push(frame),
+                Message::Frame(_) => assert!(frames.is_empty(), "an old frame came after a newer one"),
+                Message::Eof { generation: 40 } => break,
+                Message::Error(err) => panic!("the list fails: {err}"),
+                _ => {}
+            }
+        }
+        let ramps: Vec<i32> = frames.iter().map(ramp_index).collect();
+        assert_eq!(ramps, (43..50).collect::<Vec<_>>());
+        assert_no_frame_missing(&frames, 12.0 / 30.0);
     }
 
     #[test]

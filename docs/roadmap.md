@@ -19,6 +19,26 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A list of pieces with other cuts makes a new player
+
+Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-11. It wants a live picture while
+an edge of a clip is trimmed, and a seek slider that does not lag.
+
+- Current: `VideoView::set_pieces` with other cuts makes a new player,
+  `Player::replaced_by` in `hilen/src/video/player/pieces.rs`. That is a new decode
+  thread that opens every file again, so a trim cannot show its edge on every step of
+  a drag. A seek into another piece also opens its file again, `Pieces::seek` in
+  `hilen/src/video/decoder/pieces.rs` keeps only the readers of the current and the
+  next piece, also when both pieces are cuts of 1 file. The decode thread of a list
+  runs only the newest seek that waits and gives up a seek for a newer one, with
+  unit tests on a small h264 file. Nobody dragged the slider of kutreel on it yet.
+- Needed: a `set_pieces` with other cuts of the same files keeps the player and its
+  open readers. A seek into another piece of the same file uses the open reader. A
+  drag of the seek slider of kutreel on its 1080p HEVC files at 60 frames per second,
+  with a look at the `video: seek` lines of its log.
+- Blocks: a live picture while an edge is trimmed in kutreel. The app waits for the
+  edge to rest for now.
+
 ## Left aligned label text has an indent that differs per screen
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-11. Its prompt mark, a `Label` of 20

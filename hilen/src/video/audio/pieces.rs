@@ -2,7 +2,10 @@
 //! from a piece to the next has no gap: the last sample of a piece and the
 //! first of the next one leave in the same stream. Every file is resampled
 //! to one rate, a piece with no sound track is silence of its length. The
-//! export reads the same stream.
+//! export reads the same stream. The music of a list is mixed in where the
+//! list is read, see `pieces/music.rs`.
+
+mod music;
 
 use std::{ptr::null, sync::Arc};
 
@@ -21,7 +24,7 @@ use crate::{
     gm::LossyConvert,
     video::{
         VideoSource,
-        audio::{SPEEDS, TAIL, drain, push_samples, tempo_graph},
+        audio::{SPEEDS, TAIL, drain, pieces::music::MusicSound, push_samples, tempo_graph},
         count_to_f64,
         source::{Interrupt, PieceList},
     },
@@ -183,6 +186,12 @@ impl FileSound {
                 let ticks: f64 = pts.lossy_convert();
                 first = Some(ticks * self.time_base);
             }
+            // A plain wav file names no layout, only a channel count. The
+            // resampler was made with the usual layout for that count, and
+            // it refuses a frame that says something else.
+            if decoded.channel_layout().is_empty() {
+                decoded.set_channel_layout(ChannelLayout::default(i32::from(decoded.channels())));
+            }
             resample(&mut self.resampler, Some(&decoded), &mut self.pending)?;
         }
         if self.eof {
@@ -298,6 +307,8 @@ pub(crate) struct PiecesSound {
     /// The sample of the list the next read gives.
     at:     usize,
     open:   Option<Open>,
+    /// The file of the music of the list, not opened for a list with none.
+    music:  MusicSound,
     /// How fast the sound plays, see `AudioDecoder`.
     speed:  f64,
     /// Changes the speed and keeps the pitch, none at speed 1.
@@ -322,6 +333,7 @@ impl PiecesSound {
             starts,
             at: 0,
             open: None,
+            music: MusicSound::default(),
             speed,
             tempo,
             closed: false,
@@ -354,6 +366,10 @@ impl PiecesSound {
             None => vec![Frame::ZERO; left.min(SILENCE)],
         };
         amplify(&mut frames, self.list.gain(piece));
+        if let Some(music) = self.list.music() {
+            let total = self.starts[self.starts.len() - 1];
+            self.music.mix(music, &mut frames, self.at, total, &self.reads)?;
+        }
         self.at += frames.len();
         Ok(frames)
     }

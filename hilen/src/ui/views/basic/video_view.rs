@@ -12,7 +12,7 @@ use crate::{
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 #[cfg(ffmpeg)]
-use crate::{video::VideoPiece, window::image::NoImage};
+use crate::{video::VideoPieces, window::image::NoImage};
 
 /// Unique per view, so two videos never share a frame texture.
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -74,12 +74,17 @@ impl VideoView {
     /// when both are parts of 1 file. `seek_to`, `position` and `duration`
     /// count along the whole list. A piece with no sound track is silent.
     ///
+    /// It takes an array or a `Vec` of pieces, or a `VideoPieces` that also
+    /// carries the music that plays under all pieces, see `VideoMusic`.
+    ///
     /// On a view that already plays a list the new list takes its place:
     /// the position stays, cut to the new length, and a list that played
-    /// plays on. That is the call after a trim or a reorder. A list with no
-    /// pieces empties the view.
+    /// plays on. That is the call after a trim or a reorder. A list with
+    /// the same pieces and the same music, with only other volumes, makes
+    /// no new player, so a volume slider can call it on every step of a
+    /// drag. A list with no pieces empties the view.
     #[cfg(ffmpeg)]
-    pub fn set_pieces(&self, pieces: impl IntoIterator<Item = VideoPiece>) -> &Self {
+    pub fn set_pieces(&self, pieces: impl Into<VideoPieces>) -> &Self {
         let mut this = weak_from_ref(self);
         let source = VideoSource::from_pieces(pieces);
         if source.piece_list().is_none_or(|list| list.pieces().is_empty()) {

@@ -276,7 +276,9 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   blocking call. With a `count` of 1 it gives the peak of the part, what a
   normalize needs. It decodes the sound of the whole part through `FileSound`
   of `audio/pieces.rs`, so the levels are those of the samples a list of
-  pieces plays.
+  pieces plays. A sound file with no picture works too: wav, flac, mp3 and ogg
+  with vorbis or opus. A mono file reads 3 decibels lower, a peak of 0.5 as
+  0.354, since that is how ffmpeg mixes mono to stereo, and it plays that way.
 - A list of pieces as 1 video. `VideoView::set_pieces([VideoPiece::new(source,
   start, end), ..])` plays the pieces one after another, `seek_to`, `position`
   and `duration` count along the whole list. The frame at `end` is not part of
@@ -297,6 +299,28 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   other gains hands them to the list that plays and makes no new player, so a
   volume slider can call it on every step of a drag. The new volume is heard
   after the sound kira already holds.
+  A seek of a list decodes up to its exact frame, so it costs far more than a
+  seek of a file. Of the seeks that wait only the newest runs, `Waiting` in
+  `decoder/pieces.rs`, and a seek that runs gives up within 1 step of the
+  decode when a newer seek or a stop comes, `Reader::step` in
+  `decoder/reader.rs`. So a slider that seeks on every move of the mouse shows
+  the newest place as fast as 1 seek takes. A seek into another piece still
+  opens its file again.
+- Music under a list. `VideoPieces::new(pieces).with_music(VideoMusic::new(
+  source).with_volume(0.5).with_start(12.0).with_fade_in(1.0).with_fade_out(
+  3.0))` goes where a list of pieces goes, into `set_pieces` and into
+  `VideoExport::start`. A plain array of pieces converts by itself. The music
+  plays from the start of the list to its end, mixed where the list is read,
+  `audio/pieces/music.rs`, so the preview and the export have it. `start` is
+  the place of the file that plays at the start of the list. The fade in
+  counts from the start of the list and the fade out back from its end. A fade
+  follows the square of its time, half way the music is at a quarter: a
+  straight line is only 6 decibels down there and is not heard as a fade. A
+  file that ends before the list is not played again. A sample past full
+  scale after the mix is cut flat. A list with music always has a sound, also
+  with no sound track in any piece, and then follows the clock of kira. A
+  `set_pieces` with only another volume of the music makes no new player,
+  another file, start or fade does.
 - Export, `hilen/src/video/export.rs`. `VideoExport::start(pieces, path,
   VideoExportSettings::new(width, height, frame_rate), each)` writes an mp4
   with h264 and AAC on a thread of its own and reports `Progress`, then
@@ -305,7 +329,18 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   list with the code of the player, so the file holds the frames and the
   samples of the preview. The file has its own frame rate, every frame of it
   takes the newest picture that is due. A piece of another shape is fitted in
-  with black around it. The matrix and the range of the first picture are
+  with black around it. `VideoExportSettings::with_overlays` draws pictures
+  and texts over the frames, `hilen/src/video/overlay.rs`: a `VideoOverlay` is
+  made with `picture(path)`, `picture_rgba` or `text(text, color)` and has a
+  middle point and a size as parts of the frame, a start and an end in seconds
+  of the list, and a fade in and out. A picture keeps its alpha. A text is
+  drawn on the thread of the export, `overlay/text.rs`, with Roboto Regular
+  and the layout numbers of a `Label`, so the file looks like a label of the
+  same size over the preview. It has no other font, no fallback fonts, no
+  wrap and no outline. `rect`, `text_size` and `opacity` give an app what its
+  preview needs to draw the same overlay. The blend is in the YUV of the
+  file, `export/overlays.rs` and `deps/pixels/src/overlay.rs`, and is wrong
+  on an HDR list. The matrix and the range of the first picture are
   written into the file, the samples are not converted, and HDR is not tone
   mapped. The encoder is the first of `h264_videotoolbox`, `h264_mf`,
   `libx264` and `libopenh264` that the archive has and that opens. The macOS
@@ -318,6 +353,12 @@ The tests: the unit tests next to each file, on the fixtures `ramp.mp4`, 60
 gray frames that get lighter with a sound that rises in a line, so a frame and
 a sample tell their place, and `ramp_silent.mp4`, the same with no sound. The
 levels and the gain of a piece are checked against the samples of that ramp. The
+music is checked against a wav file the tests write with known samples, and
+the files `tone.flac`, `tone.mp3`, `tone.ogg` and `tone_opus.ogg`, 1 second of
+a 440 Hz tone at 0.5 each, pin that every kind of sound file opens. The seek
+tests count the decoded frames: 20 seeks that wait decode 23 frames, not 517.
+The overlay tests pin the pixels inside and outside the rect, the alpha, the
+time and the fades, and read an exported file back. The
 UI tests `Video thumbnails`, `Video pieces`, which pins the frame on each side
 of a cut under stepped time, `Video pieces sound` in real time and `Video
 export to file`.

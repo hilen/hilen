@@ -123,6 +123,15 @@ impl LongPress {
             return;
         }
 
+        // Nothing of this view waits for a hold, so the touch goes on as
+        // it was. A drag that rests inside the slop, a slider or a trim
+        // handle moved by a few points, would lose every later move and
+        // its end, and the view would be stuck in the middle of the drag.
+        if !base.events.touch.secondary.has_subscribers() && base.tooltip.is_none() {
+            base.__touch_id = pending.touch_id;
+            return;
+        }
+
         let touch = Touch {
             id:       pending.touch_id,
             position: base.local_point(pending.origin),

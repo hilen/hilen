@@ -23,6 +23,8 @@ mod levels;
 #[cfg(ffmpeg)]
 mod nv12;
 #[cfg(ffmpeg)]
+mod overlay;
+#[cfg(ffmpeg)]
 mod player;
 mod source;
 mod state;
@@ -36,6 +38,8 @@ mod web_player;
 
 #[cfg(ffmpeg)]
 use std::sync::Once;
+#[cfg(all(test, ffmpeg))]
+use std::{env::temp_dir, fs::write};
 
 #[cfg(ffmpeg)]
 pub use export::{VideoExport, VideoExportEvent, VideoExportSettings};
@@ -46,10 +50,12 @@ pub use levels::{VideoLevels, VideoLevelsEvent, VideoLevelsLoad};
 #[cfg(ffmpeg)]
 use log::error;
 #[cfg(ffmpeg)]
-pub(crate) use player::Player;
+pub use overlay::VideoOverlay;
 #[cfg(ffmpeg)]
-pub use source::VideoPiece;
+pub(crate) use player::Player;
 pub use source::VideoSource;
+#[cfg(ffmpeg)]
+pub use source::{VideoMusic, VideoPiece, VideoPieces};
 pub(crate) use state::PlayerEvent;
 pub use state::{VideoState, VideoStats};
 pub use tracks::{AudioTrack, SubtitleTrack};
@@ -87,4 +93,34 @@ pub(crate) fn test_fixture(name: &str) -> VideoSource {
         "{}/../ui-test-suite/src/views/video/{name}",
         env!("CARGO_MANIFEST_DIR")
     ))
+}
+
+/// A wav file in the temp dir, made for a test: stereo, 16 bits, 48000 Hz,
+/// with `samples` in both channels. So a test knows every sample of a sound
+/// file to the bit. Every test gives its own name, tests run side by side.
+#[cfg(all(test, ffmpeg))]
+pub(crate) fn test_wav(name: &str, samples: &[i16]) -> VideoSource {
+    let data = u32::try_from(samples.len() * 4).expect("a short sound");
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend((36 + data).to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    // The size of the format part, 1 for plain samples, 2 channels.
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(1_u16.to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    // Samples and bytes a second, bytes a frame, bits a sample.
+    bytes.extend(48_000_u32.to_le_bytes());
+    bytes.extend(192_000_u32.to_le_bytes());
+    bytes.extend(4_u16.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(data.to_le_bytes());
+    for sample in samples {
+        bytes.extend(sample.to_le_bytes());
+        bytes.extend(sample.to_le_bytes());
+    }
+    let path = temp_dir().join(format!("hilen-video-test-{name}.wav"));
+    write(&path, bytes).expect("the temp dir takes a file");
+    VideoSource::new(path.to_string_lossy())
 }

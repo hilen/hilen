@@ -501,7 +501,7 @@ impl Font {
 
 managed!(Font);
 
-static DEFAULT_FONT_DATA: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+pub(crate) static DEFAULT_FONT_DATA: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
 
 impl ResourceLoader for Font {
     fn load_path(path: &std::path::Path) -> Self {

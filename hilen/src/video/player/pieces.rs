@@ -71,7 +71,9 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use crate::video::{VideoPiece, VideoSource, player::Player, test_fixture};
+    use crate::video::{
+        VideoMusic, VideoPiece, VideoPieces, VideoSource, player::Player, test_fixture, test_wav,
+    };
 
     /// A player of these pieces, once its decode thread has looked at the
     /// files.
@@ -106,6 +108,28 @@ mod test {
 
     fn test_silent_ramp() -> VideoPiece {
         VideoPiece::new(test_fixture("ramp_silent.mp4"), 0.0, 1.0)
+    }
+
+    /// A list with music has a sound at once, also when no file of its
+    /// pieces has a sound track, so the music is heard under silent
+    /// pictures. A list with only another music volume is taken by the
+    /// player that plays, a list with no music is not.
+    #[test]
+    fn a_list_with_music_has_a_sound_and_takes_a_new_volume() {
+        let music = VideoMusic::new(test_wav("player", &[8_192; 4_800]));
+        let list = |volume: f32| {
+            let music = music.clone().with_volume(volume);
+            VideoSource::from_pieces(VideoPieces::new([test_silent_ramp()]).with_music(music))
+        };
+        let player = Player::open(list(1.0), "music".to_string());
+        assert!(player.pieces_sound().is_some());
+
+        assert!(player.takes_gains_of(&list(0.5)));
+        let playing = player.source.piece_list().expect("a list of pieces");
+        let volume = playing.music().expect("the list has music").volume();
+        assert!((volume - 0.5).abs() < f32::EPSILON, "the volume is {volume}");
+
+        assert!(!player.takes_gains_of(&VideoSource::from_pieces([test_silent_ramp()])));
     }
 
     /// The player of a changed list stands where the old one stood, or at

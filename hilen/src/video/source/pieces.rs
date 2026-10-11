@@ -7,7 +7,10 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
 };
 
-use crate::video::VideoSource;
+use crate::video::{
+    VideoSource,
+    source::{Music, VideoPieces},
+};
 
 /// One piece of a list that plays as 1 video: a source and the part of it
 /// that plays, from `start` up to `end`, in seconds of that source. The
@@ -58,12 +61,16 @@ pub(crate) struct PieceList {
     gains:     Vec<AtomicU32>,
     /// At least 1 piece has a sound track. The decode thread finds out.
     has_sound: OnceLock<bool>,
+    /// The sound file that plays under all pieces.
+    music:     Option<Music>,
 }
 
 impl PieceList {
     /// A piece with no length plays nothing and is left out.
-    fn new(pieces: impl IntoIterator<Item = VideoPiece>) -> Self {
-        let pieces: Vec<VideoPiece> = pieces
+    fn new(list: impl Into<VideoPieces>) -> Self {
+        let list = list.into();
+        let pieces: Vec<VideoPiece> = list
+            .pieces
             .into_iter()
             .filter(|piece| piece.duration() > 0.0)
             .map(|piece| VideoPiece {
@@ -84,7 +91,13 @@ impl PieceList {
             starts,
             gains,
             has_sound: OnceLock::new(),
+            music: list.music.map(Music::new),
         }
+    }
+
+    /// The music under the pieces, none for a list with no music.
+    pub(crate) fn music(&self) -> Option<&Music> {
+        self.music.as_ref()
     }
 
     /// What the sound of a piece is multiplied by now.
@@ -94,21 +107,32 @@ impl PieceList {
             .map_or(1.0, |gain| f32::from_bits(gain.load(Ordering::Relaxed)))
     }
 
-    /// Takes the gains of `other` when it has the same pieces with only
-    /// other gains, and says whether it did. The sound that is read after
-    /// this call has the new gains, so a volume that changes while a list
-    /// plays needs no new player.
+    /// Takes the gains and the music volume of `other` when it has the same
+    /// pieces and the same music with only other volumes, and says whether
+    /// it did. The sound that is read after this call has the new volumes,
+    /// so a volume that changes while a list plays needs no new player.
     pub(crate) fn take_gains(&self, other: &Self) -> bool {
         let same_cut = |(mine, theirs): (&VideoPiece, &VideoPiece)| {
             mine.source.same_as(&theirs.source)
                 && mine.start.to_bits() == theirs.start.to_bits()
                 && mine.end.to_bits() == theirs.end.to_bits()
         };
-        if self.pieces.len() != other.pieces.len() || !self.pieces.iter().zip(&other.pieces).all(same_cut) {
+        let same_music = match (&self.music, &other.music) {
+            (None, None) => true,
+            (Some(mine), Some(theirs)) => mine.same_but_volume(theirs),
+            _ => false,
+        };
+        if !same_music
+            || self.pieces.len() != other.pieces.len()
+            || !self.pieces.iter().zip(&other.pieces).all(same_cut)
+        {
             return false;
         }
         for (mine, theirs) in self.gains.iter().zip(&other.gains) {
             mine.store(theirs.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
+        if let (Some(mine), Some(theirs)) = (&self.music, &other.music) {
+            mine.take_volume(theirs);
         }
         true
     }
@@ -138,8 +162,12 @@ impl PieceList {
         Some((index, self.pieces[index].start + seconds - self.starts[index]))
     }
 
-    /// None until the decode thread has looked at the files.
+    /// None until the decode thread has looked at the files. A list with
+    /// music has a sound whatever its pieces have, known at once.
     pub(crate) fn has_sound(&self) -> Option<bool> {
+        if self.music.is_some() {
+            return Some(true);
+        }
         self.has_sound.get().copied()
     }
 
@@ -150,11 +178,15 @@ impl PieceList {
 }
 
 impl VideoSource {
-    /// A source that plays these pieces one after another as 1 video.
-    pub(crate) fn from_pieces(pieces: impl IntoIterator<Item = VideoPiece>) -> Self {
+    /// A source that plays these pieces one after another as 1 video, with
+    /// the music of the list under them.
+    pub(crate) fn from_pieces(pieces: impl Into<VideoPieces>) -> Self {
         let list = PieceList::new(pieces);
+        let music = list.music.as_ref().map_or_else(String::new, |music| {
+            format!(", music {}", music.source().location())
+        });
         Self {
-            location: format!("{} pieces, {:.2} s", list.pieces.len(), list.duration()),
+            location: format!("{} pieces, {:.2} s{music}", list.pieces.len(), list.duration()),
             pieces: Some(Arc::new(list)),
             ..Self::default()
         }

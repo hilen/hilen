@@ -4,9 +4,11 @@
 //! then spent 11 seconds in its mip chain at every browser start.
 
 mod cube;
+mod overlay;
 mod spread;
 
 pub use cube::*;
+pub use overlay::*;
 pub use spread::*;
 use tiny_skia::PremultipliedColorU8;
 
