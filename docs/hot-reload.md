@@ -170,10 +170,6 @@ IPv6, so the inspect server of an iOS or tvOS build listens on `::`, `ANY` in
 of the device on the local network. The code is `hilen-inspect/src/device.rs` and
 `build/shared/src/device.rs`.
 
-Not explained: right after the first swap over the tunnel, `--device` got no answer
-3 times in a row, about 20 seconds, and then it answered at a new tunnel address. The
-loader answered at its address on the local network all that time.
-
 ### What iOS allows
 
 The load test of 2026-10-08, 1 tiny library written into the data folder of the
