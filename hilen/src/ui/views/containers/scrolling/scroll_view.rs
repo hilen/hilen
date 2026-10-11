@@ -37,6 +37,10 @@ const DRAG_SLOP: f32 = 10.0;
 /// click on a bar is still a click on what is under it.
 const BAR_SLOP: f32 = 3.0;
 
+/// How far from the end of its content a view still counts as at its end.
+/// An offset is a float and a sum of many row heights is not exact.
+const END_SLOP: f32 = 1.0;
+
 /// A press that began on a bar. Once it moves, the bar follows it and
 /// the content moves by as much as the bar stands for.
 #[derive(Debug, Clone, Copy)]
@@ -56,6 +60,18 @@ struct BarGrab {
 struct ManualContent {
     width:  bool,
     height: bool,
+}
+
+/// The end of the content and the rule that holds it.
+#[derive(Default)]
+struct End {
+    /// See `set_keeps_end`.
+    kept:  bool,
+    /// The view showed the end of its content when its offset was last
+    /// set. A new height of the view or of the content is measured
+    /// against the offset only after this was read, so it tells what
+    /// the view showed before the change.
+    shown: bool,
 }
 
 #[view]
@@ -78,6 +94,7 @@ pub struct ScrollView {
     /// Set by a host that moves its own views sideways, the table. The
     /// offset then ranges over this width and the content stays put.
     sideways_width:     Option<f32>,
+    end:                End,
     pub on_scroll:      Event<f32>,
     /// The new sideways offset after it changed.
     pub on_scroll_x:    Event<f32>,
@@ -119,15 +136,77 @@ impl ScrollView {
         if self.content.__base_view().__content_offset < self.max_offset() {
             self.content.__base_view().__content_offset = self.max_offset();
         }
+        self.note_end();
 
         self
     }
 
+    /// A view that shows the end of its content goes on showing it when
+    /// its own height or the height of its content changes, like a chat
+    /// above a compose box. The offset moves in the frame of the change,
+    /// no frame is drawn with the end out of view. A view scrolled away
+    /// from the end keeps its offset. Content that fits the view shows
+    /// its end, so a view that is filled later starts at its end. Off by
+    /// default.
+    pub fn set_keeps_end(&mut self, keeps: bool) -> &mut Self {
+        self.end.kept = keeps;
+        self.note_end();
+        self
+    }
+
+    /// The view shows the end of its content now. True also for content
+    /// that fits the view.
+    pub fn is_at_end(&self) -> bool {
+        self.content.content_offset() <= self.max_offset() + END_SLOP
+    }
+
+    fn note_end(&mut self) {
+        self.end.shown = self.is_at_end();
+    }
+
+    /// The height of the view or of its content changed. A view that
+    /// was at its end goes to the new end, any other view only stays
+    /// inside the new range.
+    fn settle_end(&mut self) {
+        let end = self.max_offset();
+        if self.end.shown || self.content.content_offset() < end {
+            self.content.__base_view().__content_offset = end;
+        }
+        self.note_end();
+    }
+
+    /// The content had the height `before`. True when `keeps_end` took
+    /// care of the offset. A call with the same height must not move a
+    /// view that is inside the slop of its end back to the end, a slow
+    /// scroll away from the end is made of steps that small.
+    fn content_resized(&mut self, before: f32) -> bool {
+        if !self.end.kept || self.content.content_size.height.to_bits() == before.to_bits() {
+            return false;
+        }
+        self.settle_end();
+        true
+    }
+
+    /// The view has a new size. Its own height is the new one here. The
+    /// height of the content view is still the one of the frame before,
+    /// so `on_scroll` would measure the end against the old height.
+    fn resized(&mut self) {
+        if !self.end.kept {
+            self.on_scroll(0.0);
+            return;
+        }
+        self.settle_end();
+        let offset = self.content.content_offset();
+        self.on_scroll.trigger(offset);
+    }
+
     pub fn set_content_size(&mut self, size: impl Into<Size>) -> &mut Self {
+        let before = self.content.content_size.height;
         self.manual_content.width = true;
         self.manual_content.height = true;
         self.content.content_size = size.into();
         self.clamp_offset_x();
+        self.content_resized(before);
         self
     }
 
@@ -191,9 +270,12 @@ impl ScrollView {
     }
 
     pub fn set_content_height(&mut self, height: impl ToF32) -> &mut Self {
+        let before = self.content.content_size.height;
         self.manual_content.height = true;
         self.content.content_size.height = height.to_f32();
-        self.clamp_offset();
+        if !self.content_resized(before) {
+            self.clamp_offset();
+        }
         self
     }
 
@@ -238,8 +320,11 @@ impl ViewCallbacks for ScrollView {
                 .filter(|view| !view.is_hidden())
                 .map(|view| view.frame().max_y())
                 .fold(0.0, f32::max);
+            let before = self.content.content_size.height;
             self.content.content_size.height = bottom;
-            self.clamp_offset();
+            if !self.content_resized(before) {
+                self.clamp_offset();
+            }
         }
 
         self.update_bar();
@@ -364,7 +449,7 @@ impl Setup for ScrollView {
         self.bar_x.bump_z_position(UIManager::subview_z_offset() * 10.0);
 
         self.size_changed().sub(move || {
-            self.on_scroll(0.0);
+            self.resized();
         });
 
         TouchStack::enable_scroll(self);
@@ -651,7 +736,9 @@ impl ScrollView {
         }
 
         *content.content_offset_mut() = content.content_offset_mut().clamp(-range, 0.0);
+        let offset = *content.content_offset_mut();
 
-        self.on_scroll.trigger(*content.content_offset_mut());
+        self.note_end();
+        self.on_scroll.trigger(offset);
     }
 }

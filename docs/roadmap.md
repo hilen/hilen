@@ -19,6 +19,31 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## An iPhone burns a whole CPU core while anything animates
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-11. The phone got hot while a small
+mark pulsed on the screen.
+
+- Current: while a live animation or a level exists, `about_to_wait` in
+  `hilen/src/window/app_handler.rs` sets `ControlFlow::Poll`. On iOS winit runs `Poll`
+  as a run loop timer that fires again at once, so the main thread never sleeps
+  between 2 frames. A time profile of banda on an iPhone 16 Pro Max, a release hot
+  build, 12 seconds with `xcrun xctrace record --template 'Time Profiler'`: the main
+  thread took 96 percent of a core. `AppHandler::frame`, the drawing of 60 frames a
+  second, was 3.5 percent. The rest was the run loop: `__CFRunLoopDoTimers` 25
+  percent, `__CFRunLoopDoObservers` 28 percent, `control_flow_end_handler` of winit 15
+  percent, `mach_msg` 16 percent. The Activity Monitor template showed 89 percent CPU
+  for the process and the thermal state `Serious`. A browser has the same trap and
+  already takes `Wait`, see the comment in `about_to_wait`.
+- Needed: on iOS and tvOS the loop sleeps between 2 frames also while an animation
+  lives. The display paces the frames, like `requestAnimationFrame` does in a browser.
+  The iOS order of `about_to_wait` before the render, see "Frames on demand" in
+  [dispatch.md](dispatch.md), must still deliver an animation that starts while a
+  frame draws. Measure again with the same 2 templates, the process should sit near
+  the cost of the drawing alone.
+- Blocks: every app with a spinner, a video or any other animation on a phone. banda
+  shows its working mark for hours.
+
 ## The file picker is proven only on an iPhone
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-10. It wants an upload button for files

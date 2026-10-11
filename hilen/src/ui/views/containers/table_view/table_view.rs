@@ -254,6 +254,24 @@ impl TableView {
         self.scroll.get_scroll_content_offset()
     }
 
+    /// A table that shows its last row goes on showing it when its own
+    /// height or the height of its rows changes, like a chat above a
+    /// compose box. A reload, new cells and a changed cell keep the end
+    /// in the same call, a new frame of the table in the same frame. A
+    /// table scrolled away from the end keeps its offset. A table that
+    /// is filled later starts at its end. Off by default, see
+    /// `ScrollView::set_keeps_end`.
+    pub fn set_keeps_end(&mut self, keeps: bool) -> &mut Self {
+        self.scroll.set_keeps_end(keeps);
+        self
+    }
+
+    /// The table shows the end of its rows now. True also for rows that
+    /// all fit the table.
+    pub fn is_at_end(&self) -> bool {
+        self.scroll.is_at_end()
+    }
+
     /// Turns sideways scrolling on. `width` is how wide a row would be
     /// with nothing cut off, the pinned parts plus the longest moving
     /// part. A wider row than the table scrolls by the difference, with

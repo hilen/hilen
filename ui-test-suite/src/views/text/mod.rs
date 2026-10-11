@@ -58,6 +58,7 @@ mod multiline_text_field;
 mod screen_keyboard_compose;
 mod screen_keyboard_first_letter;
 mod screen_keyboard_input;
+mod screen_keyboard_keeps_end;
 mod screen_keyboard_kept_by_tap;
 /// The system text field this one compares the engine field with exists
 /// only on an iPhone, nowhere else is there a switch to hide.

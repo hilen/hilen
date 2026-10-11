@@ -14,6 +14,10 @@ Android opens none, see [roadmap.md](roadmap.md).
   compose box rides on the keyboard this way, and a list anchored above it,
   `anchor(Anchor::Bot, compose, gap)`, gets shorter. A field inside such a view is in
   view already, the screen does not move for it.
+- A chat above such a box gets `set_keeps_end(true)`, a call of `ScrollView` and of
+  `TableView`. A list that shows its last row then shows it on every frame of the move,
+  while it gets shorter and while it gets taller again. A list the user scrolled up
+  keeps its offset. See Keeping the end in [table.md](table.md).
 - `ScreenKeyboard::top()` is the top edge now, part way during the move, `None` with no
   keyboard. `cover(view)` is how much of the bottom of a view it covers. `is_moving()`
   and `shift()` tell the rest. Lengths are in the points `absolute_frame` counts in.
@@ -74,7 +78,10 @@ and erases a letter in a `b_keyboard` box and sends the resize an iPhone sends t
 keyboard and the box must stay, see the system text field in [ios.md](ios.md).
 `Screen keyboard kept by tap` taps a button and a plain view with
 `set_keeps_selection` next to an edited text area, the field stays edited and the
-keyboard reports no move, then a button without the mark ends the editing. They run
+keyboard reports no move, then a button without the mark ends the editing.
+`Screen keyboard keeps end` has a table with `set_keeps_end` above a `b_keyboard` box. A
+view after the table looks at it on every frame of the move, no frame may draw it off
+its end, and a table scrolled up must keep its offset. They run
 everywhere:
 `system_input::screen_keyboard(up, top)` waits for the real keyboard on a phone and
 tells the engine about a stand in with its top edge at `top` everywhere else.

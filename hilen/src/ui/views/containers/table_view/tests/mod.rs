@@ -3,6 +3,7 @@ mod drop_first_cells;
 mod emptied;
 mod footer;
 mod infinite_scroll;
+mod keeps_end;
 mod long_table;
 mod margins;
 mod pinned_column;

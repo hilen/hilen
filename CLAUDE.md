@@ -183,8 +183,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   account and linked accounts in the Drive app folder, and `SecretStore`. Read before touching
   those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
 - [docs/table.md](docs/table.md) — `TableView` inside: what a layout keeps, the 3 layout
-  modes, `reload_cell`, `load_new_cells` and `drop_first_cells`. Read before touching
-  `views/containers/table_view`.
+  modes, `reload_cell`, `load_new_cells` and `drop_first_cells`, and `set_keeps_end` of
+  `ScrollView` and `TableView`, a view at its end that stays there. Read before touching
+  `views/containers/table_view` or the offset code of `scrolling/scroll_view.rs`.
 - [docs/log-view.md](docs/log-view.md) — `LogView`, the ready view for a log: the
   `LogData` trait, ANSI colors, the prefix column, follow the end, and why a row out of
   view gets its height from arithmetic and not from shaped text. Read before touching

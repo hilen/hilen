@@ -11,6 +11,8 @@ mod drag_cancel_test;
 #[cfg(feature = "ui-tests")]
 mod horizontal_scroll_test;
 #[cfg(feature = "ui-tests")]
+mod keeps_end_test;
+#[cfg(feature = "ui-tests")]
 mod multitouch_scroll_test;
 mod scroll_content;
 #[cfg(feature = "ui-tests")]
