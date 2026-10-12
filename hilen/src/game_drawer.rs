@@ -10,6 +10,13 @@ use crate::{
 static OBJECT_DRAWER: MainLock<TexturedSpriteBoxPipeline> = MainLock::new();
 static BACKGROUND: MainLock<BackgroundPipeline> = MainLock::new();
 
+/// Drops what is built for a sample count. Each part is made again when
+/// it is next used.
+pub(crate) fn drop_pipelines() {
+    OBJECT_DRAWER.clear();
+    BACKGROUND.clear();
+}
+
 pub struct GameDrawer;
 
 impl GameDrawer {

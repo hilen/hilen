@@ -19,6 +19,30 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A frame that changes little still costs a whole frame of fixed work
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-12. A mark of 18 points that moves
+at 60 frames per second kept the main thread busy 9.3% of the time on an M1 Pro after
+partial frames landed, and the GPU of the mac 7 points above idle with 1 sample. The
+numbers and what was done are in [damage.md](damage.md).
+
+- Current: a partial frame draws only the regions that changed. It still walks every
+  view 3 times, in `UIDrawer::update`, in `damage::find` and once per region in
+  `UIDrawer::draw_view`. It still encodes and submits a pass, and it still shows a new
+  image of the whole window, which the system then composes. With 4 samples it also
+  loads and resolves the multisampled texture of the whole window.
+- Needed, 3 parts that can land apart:
+  - Views that say what changed, so a frame of an animation that only sets colors
+    skips the update walk and the compare walk. A view is changed from anywhere, also
+    by a write to a field, so this needs a record around the animation callbacks and
+    a check mode that runs the full walk next to it.
+  - A small multisampled target for a region, resolved into a kept texture with 1
+    sample, so 4 samples cost by the size of the region and not of the window.
+  - A layer of the system for an animated view, a `CAMetalLayer` or a `CALayer` on
+    Apple systems, so a step of the animation shows no new image of the window.
+- Blocks: battery life on a phone for any app with a spinner or a progress mark on
+  the screen.
+
 ## A phone has no keys for a view that reads the keyboard itself
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-12, on hilen `9c6c911c`. Its terminal

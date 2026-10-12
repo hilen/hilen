@@ -104,6 +104,21 @@ impl ImageView {
         )
     }
 
+    /// The size an svg of this view rasterizes at, in pixels. A cut image
+    /// rasterizes whole at the scale of the view, its quads then show
+    /// parts of that raster.
+    pub(crate) fn svg_raster_size(&self, scale: f32) -> Size<u32> {
+        let Some(cut) = self.cut else {
+            return self.raster_size(scale);
+        };
+        let image_size: Size = self.image.size.into();
+        let natural = cut.scaled_size(self.__base_view().draw_frame(), image_size) * scale;
+        Size::new(
+            natural.width.round().max(1.0).lossy_convert(),
+            natural.height.round().max(1.0).lossy_convert(),
+        )
+    }
+
     /// Texture subrect in 0..1 UV space. `AspectFill` keeps the quad at the
     /// view frame and crops here instead of enlarging the quad, so corner
     /// radii apply to the visible rect and no scissor is needed.

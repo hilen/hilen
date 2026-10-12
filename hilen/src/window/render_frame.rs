@@ -48,9 +48,21 @@ impl RenderFrame {
         present_view: Option<TextureView>,
         depth_view: TextureView,
         msaa_view: Option<TextureView>,
-        clear_color: Color,
+        // The color the frame starts from. With none the frame draws over
+        // the color of the frame before, see `ui::damage`. Depth and
+        // stencil start empty in every frame.
+        clear_color: Option<Color>,
         timestamp_writes: Option<RenderPassTimestampWrites>,
     ) -> Self {
+        let color_load = clear_color.map_or(LoadOp::Load, |color| {
+            LoadOp::Clear(wgpu::Color {
+                r: f64::from(color.r),
+                g: f64::from(color.g),
+                b: f64::from(color.b),
+                a: f64::from(color.a),
+            })
+        });
+
         // The bench GPU timer measures the first pass only. The
         // benchmark never blurs, so its frame is exactly one pass.
         let pass = begin_pass(
@@ -58,12 +70,7 @@ impl RenderFrame {
             msaa_view.as_ref().unwrap_or(&scene_view),
             msaa_view.as_ref().map(|_| &scene_view),
             &depth_view,
-            LoadOp::Clear(wgpu::Color {
-                r: f64::from(clear_color.r),
-                g: f64::from(clear_color.g),
-                b: f64::from(clear_color.b),
-                a: f64::from(clear_color.a),
-            }),
+            color_load,
             true,
             timestamp_writes,
         );

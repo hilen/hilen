@@ -15,6 +15,8 @@ mod manual_z_position;
 mod offscreen_clip;
 mod outline;
 mod overlay_touch_layer;
+mod partial_frames;
+mod sample_count_switch;
 mod screen_orientation;
 mod script_wrap;
 /// Typing goes through the screen keyboard on a phone, a field takes

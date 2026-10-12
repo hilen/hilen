@@ -173,6 +173,23 @@ pub struct ViewBase {
     pub(crate) frames_wanted: Option<FramesWanted>,
     /// The empty animation of `ViewData::keep_frames_while` is live.
     pub(crate) keeps_frames:  bool,
+
+    /// Whether the view draws into the pass by itself, learned when it is
+    /// first drawn.
+    pub(crate) render_probe: RenderProbe,
+}
+
+/// A view with a `before_render` of its own draws what the engine cannot
+/// see, so a frame with one on the screen is drawn whole, see `ui::damage`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenderProbe {
+    /// Not drawn yet.
+    #[default]
+    Unknown,
+    /// Only the engine draws it.
+    Plain,
+    /// It has a `before_render` of its own.
+    Custom,
 }
 
 pub(crate) type FramesWanted = Box<dyn FnMut() -> bool + Send>;

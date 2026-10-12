@@ -212,23 +212,30 @@ pub(crate) fn draw_instances<T: Pod>(
     instances: &VecBuffer<T>,
 ) {
     let range = instances.range();
-    let bind = |offset: u64, size: u64| {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label: Some(label),
-            layout,
-            entries: &[BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: instances.buffer(),
-                    offset,
-                    size: NonZeroU64::new(size),
-                }),
-            }],
-        })
+    let bind = |pass: &mut RenderPass, offset: u64, size: u64| {
+        instances.with_bind(
+            offset,
+            size,
+            || {
+                Window::device().create_bind_group(&BindGroupDescriptor {
+                    label: Some(label),
+                    layout,
+                    entries: &[BindGroupEntry {
+                        binding:  0,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: instances.buffer(),
+                            offset,
+                            size: NonZeroU64::new(size),
+                        }),
+                    }],
+                })
+            },
+            |bind| pass.set_bind_group(group, bind, &[]),
+        );
     };
 
     if instances.binding() == InstanceBinding::Storage {
-        pass.set_bind_group(group, &bind(range.start, range.end - range.start), &[]);
+        bind(pass, range.start, range.end - range.start);
         pass.set_vertex_buffer(vertex_slot, instances.slice());
         pass.draw(vertices, 0..instances.len());
         return;
@@ -240,7 +247,7 @@ pub(crate) fn draw_instances<T: Pod>(
 
     while left > 0 {
         let count = left.min(chunks.per_chunk());
-        pass.set_bind_group(group, &bind(offset, chunks.bytes()), &[]);
+        bind(pass, offset, chunks.bytes());
         pass.set_vertex_buffer(vertex_slot, instances.buffer().slice(offset..range.end));
         pass.draw(vertices.clone(), 0..count);
         offset += chunks.bytes();

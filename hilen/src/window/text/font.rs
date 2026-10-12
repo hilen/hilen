@@ -25,6 +25,7 @@ use crate::{
     gm::{LossyConvert, ToF32, flat::Size},
     managed,
     render::depth_stencil_state,
+    ui::damage::whole_next,
     window::{
         msaa_sample_count, surface_texture_format,
         text::{
@@ -41,36 +42,38 @@ use crate::{
 pub type FontVariation = ([u8; 4], f32);
 
 pub struct Font {
-    pub name:      String,
-    pub brush:     TextBrush,
+    pub name:       String,
+    pub brush:      TextBrush,
+    /// What the brush was built with, to build it again.
+    stem_darkening: f32,
     /// The same font the brush rasterizes with, kept for measuring while
     /// the brush is busy.
-    ab:            FontArc,
-    face:          Face<'static>,
+    ab:             FontArc,
+    face:           Face<'static>,
     /// The file the font was made from, the face picked in it and the
     /// axis values, for a system that has to draw with the same font.
     #[cfg(all(ios, not(tvos)))]
-    data:          &'static [u8],
+    data:           &'static [u8],
     #[cfg(all(ios, not(tvos)))]
-    index:         u32,
+    index:          u32,
     #[cfg(all(ios, not(tvos)))]
-    variations:    Vec<FontVariation>,
+    variations:     Vec<FontVariation>,
     /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
     /// sizes everywhere else, CSS included, mean pixels per em. This
     /// factor converts an em size into the `PxScale` that renders it.
-    em_scale:      f32,
-    shape_cache:   MainLock<ShapeCache>,
-    measure_cache: MainLock<MeasureCache>,
+    em_scale:       f32,
+    shape_cache:    MainLock<ShapeCache>,
+    measure_cache:  MainLock<MeasureCache>,
     /// The font has COLR layers or PNG strikes, so some of its glyphs
     /// draw as color images. Plain fonts skip the per glyph lookup.
-    has_color:     bool,
+    has_color:      bool,
     /// Rasters by glyph and pixel size, `None` for a glyph whose color
     /// data failed to render so it is not retried every frame.
-    color_glyphs:  MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
+    color_glyphs:   MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
     /// No batch of this frame reached the brush yet. The first batch of a
     /// frame starts the brush's vertex buffer over and every later one
     /// appends, so the earlier draws of the frame keep their vertices.
-    first_batch:   bool,
+    first_batch:    bool,
 }
 
 impl Font {
@@ -99,10 +102,6 @@ impl Font {
         variations: &[FontVariation],
         stem_darkening: f32,
     ) -> Result<Self> {
-        let window = Window::current();
-
-        let render_size = Window::render_size();
-
         let mut font = FontRef::try_from_slice_and_index(data, index)?;
         let mut face = Face::from_slice(data, index)
             .ok_or_else(|| anyhow!("Failed to parse font '{}' for shaping", name.to_string()))?;
@@ -126,22 +125,11 @@ impl Font {
         let tables = face.tables();
         let has_color = tables.colr.is_some() || tables.cbdt.is_some() || tables.sbix.is_some();
 
-        let brush = BrushBuilder::using_font(font.clone())
-            .with_depth_stencil(depth_stencil_state().into())
-            .with_multisample(MultisampleState {
-                count:                     msaa_sample_count(),
-                mask:                      !0,
-                alpha_to_coverage_enabled: false,
-            })
-            .with_stem_darkening(stem_darkening)
-            // The glyph cache draws on the global rayon pool, which never
-            // ends. A hot build that is stopped must leave no thread.
-            .with_multithread(!cfg!(hot))
-            /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
-            .build(&window.device, render_size.width.lossy_convert(), render_size.height.lossy_convert(), surface_texture_format());
+        let brush = Self::make_brush(&font, stem_darkening);
         Ok(Self {
             name: name.to_string(),
             brush,
+            stem_darkening,
             ab: font,
             face,
             #[cfg(all(ios, not(tvos)))]
@@ -165,6 +153,42 @@ impl Font {
     #[cfg(all(ios, not(tvos)))]
     pub(crate) fn system_source(&self) -> Option<(&'static [u8], &[FontVariation])> {
         (self.index == 0).then_some((self.data, self.variations.as_slice()))
+    }
+
+    /// The brush that draws the glyphs of `font`, built for the sample
+    /// count and the size of the window as they are now.
+    fn make_brush(font: &FontArc, stem_darkening: f32) -> TextBrush {
+        let render_size = Window::render_size();
+
+        BrushBuilder::using_font(font.clone())
+            .with_depth_stencil(depth_stencil_state().into())
+            .with_multisample(MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            })
+            .with_stem_darkening(stem_darkening)
+            // The glyph cache draws on the global rayon pool, which never
+            // ends. A hot build that is stopped must leave no thread.
+            .with_multithread(!cfg!(hot))
+            /* .initial_cache_size((16_384, 16_384))) */ // use this to avoid resizing cache texture
+            .build(
+                &Window::current().device,
+                render_size.width.lossy_convert(),
+                render_size.height.lossy_convert(),
+                surface_texture_format(),
+            )
+    }
+
+    /// Makes the brush of every font again, for a new sample count. A
+    /// brush is a pipeline, and a pipeline is built for 1 count. The
+    /// glyph pictures of the old brushes go with them and are drawn again
+    /// when a text next needs them.
+    pub(crate) fn rebuild_brushes() {
+        for font in Self::storage_mut().values_mut() {
+            font.brush = Self::make_brush(&font.ab, font.stem_darkening);
+            font.first_batch = true;
+        }
     }
 
     pub(crate) fn begin_frame(&mut self) {
@@ -357,6 +381,10 @@ impl Font {
     }
 }
 
+/// Why the next frame is whole after a change of these fonts, see
+/// `ui::damage`. No label holds them and every label can draw with them.
+const FONTS_CHANGED: &str = "the default or the fallback fonts changed";
+
 static DEFAULT_FONT: MainLock<Option<Weak<Font>>> = MainLock::new();
 static FALLBACK_FONTS: MainLock<Vec<Weak<Font>>> = MainLock::new();
 
@@ -373,20 +401,24 @@ impl Font {
 
     pub fn set_default(font: Weak<Font>) {
         *DEFAULT_FONT.get_mut() = Some(font);
+        whole_next(FONTS_CHANGED);
     }
 
     pub fn reset_default() {
         *DEFAULT_FONT.get_mut() = None;
+        whole_next(FONTS_CHANGED);
     }
 
     /// Fonts consulted in order for chars the label's font has no glyph
     /// for. Each missing char shapes with the first fallback covering it.
     pub fn set_fallbacks(fonts: impl IntoIterator<Item = Weak<Font>>) {
         *FALLBACK_FONTS.get_mut() = fonts.into_iter().collect();
+        whole_next(FONTS_CHANGED);
     }
 
     pub fn reset_fallbacks() {
         FALLBACK_FONTS.get_mut().clear();
+        whole_next(FONTS_CHANGED);
     }
 
     /// After the registered fallbacks, a char is looked up in the fonts
@@ -395,6 +427,7 @@ impl Font {
     /// system font folders are walked once, off the main thread, from
     /// launch. Does nothing in the browser, a page cannot read them.
     pub fn set_system_fallback(enabled: bool) {
+        whole_next(FONTS_CHANGED);
         #[cfg(not_wasm)]
         system_fallback::set_enabled(enabled);
         #[cfg(wasm)]

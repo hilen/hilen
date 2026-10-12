@@ -1,3 +1,6 @@
+mod kept;
+mod targets;
+
 use std::{
     cell::RefCell,
     sync::mpsc::{Receiver, Sender, channel},
@@ -17,13 +20,13 @@ use crate::{
         color::{Color, GRAY_BLUE},
         flat::Size,
     },
+    render::upload_pending,
     window::{
         Font, RenderFrame, Screenshot, Window,
         app_handler::AppHandler,
         frame_control::{self, FrameReader},
         frame_counter::FrameCounter,
         image::Texture,
-        msaa::msaa_sample_count,
         screen::Screen,
         surface::Surface,
         window::surface_config_with_size,
@@ -159,6 +162,9 @@ pub struct State {
     msaa_texture:      Option<wgpu::Texture>,
     depth_texture:     Option<Texture>,
 
+    /// `None` when no later frame can draw over the frame before.
+    kept: Option<kept::Kept>,
+
     update_work: f32,
 
     /// CPU time of the last frame's update and render encoding, excluding the
@@ -184,6 +190,7 @@ impl Default for State {
             scene_texture:                            None,
             msaa_texture:                             None,
             depth_texture:                            None,
+            kept:                                     None,
             update_work:                              0.0,
             frame_work_time:                          0.0,
             #[cfg(feature = "bench")]
@@ -410,6 +417,7 @@ impl State {
         // A pending read forces the scene texture path where the surface
         // cannot be copied, the readback copies the scene texture instead.
         let needs_sampling = needs_sampling || (!crate::window::SURFACE_COPY && read_back);
+        let needs_sampling = needs_sampling || kept::keeps_through_scene();
 
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture(target_size);
@@ -447,18 +455,15 @@ impl State {
         #[cfg(not(feature = "bench"))]
         let timestamp_writes = None;
 
-        let msaa_view = self
-            .msaa_texture
-            .as_ref()
-            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let (kept_in, clear_color) = self.plan_frame(target_size, surface_texture.is_none(), needs_sampling);
 
         let mut frame = RenderFrame::new(
             encoder,
             scene_view,
             present_view,
             self.depth_texture.as_ref().unwrap().view.clone(),
-            msaa_view,
-            self.clear_color,
+            self.msaa_view(),
+            clear_color,
             timestamp_writes,
         );
 
@@ -478,7 +483,10 @@ impl State {
             Self::read_screen(&mut encoder, source)
         });
 
+        upload_pending();
         Window::queue().submit(std::iter::once(encoder.finish()));
+
+        self.keep_frame(target_size, kept_in);
 
         self.frame_work_time = self.update_work + work_started.elapsed().as_secs_f32();
 
@@ -632,114 +640,6 @@ impl State {
             None => self.offscreen_texture.as_ref().expect("offscreen texture ensured"),
         };
         Size::new(texture.size().width, texture.size().height)
-    }
-
-    fn ensure_depth_texture(&mut self, size: Size<u32>) {
-        let up_to_date = self.depth_texture.as_ref().is_some_and(|texture| texture.size == size);
-
-        if up_to_date {
-            return;
-        }
-
-        self.depth_texture = Some(Texture::create_depth_texture(
-            Window::device(),
-            size,
-            msaa_sample_count(),
-            "depth_texture",
-        ));
-    }
-
-    /// The multisampled color target the frame renders into before
-    /// resolving to the presentable texture. Not created when
-    /// multisampling is off, then the frame renders straight into the
-    /// resolve target.
-    fn ensure_msaa_texture(&mut self, size: Size<u32>) {
-        if msaa_sample_count() == 1 {
-            return;
-        }
-
-        let up_to_date = self.msaa_texture.as_ref().is_some_and(|texture| {
-            texture.size().width == size.width && texture.size().height == size.height
-        });
-
-        if up_to_date {
-            return;
-        }
-
-        self.msaa_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
-            label:           Some("MSAA Render Texture"),
-            size:            wgpu::Extent3d {
-                width:                 size.width,
-                height:                size.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count:    msaa_sample_count(),
-            dimension:       wgpu::TextureDimension::D2,
-            format:          surface_texture_format(),
-            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats:    &[],
-        }));
-    }
-
-    fn ensure_offscreen_texture(&mut self) {
-        let size = Window::render_size();
-        let width: u32 = size.width.lossy_convert();
-        let height: u32 = size.height.lossy_convert();
-
-        let up_to_date = self
-            .offscreen_texture
-            .as_ref()
-            .is_some_and(|texture| texture.size().width == width && texture.size().height == height);
-
-        if up_to_date {
-            return;
-        }
-
-        self.offscreen_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
-            label:           Some("Offscreen Render Texture"),
-            size:            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count:    1,
-            dimension:       wgpu::TextureDimension::D2,
-            format:          surface_texture_format(),
-            usage:           wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats:    &[],
-        }));
-    }
-
-    /// Intermediate render target for frames that sample themselves,
-    /// for example for backdrop blur. Windowed only, the headless
-    /// offscreen texture is sampleable directly.
-    fn ensure_scene_texture(&mut self, size: Size<u32>) {
-        let up_to_date = self.scene_texture.as_ref().is_some_and(|texture| {
-            texture.size().width == size.width && texture.size().height == size.height
-        });
-
-        if up_to_date {
-            return;
-        }
-
-        self.scene_texture = Some(Window::device().create_texture(&wgpu::TextureDescriptor {
-            label:           Some("Scene Render Texture"),
-            size:            wgpu::Extent3d {
-                width:                 size.width,
-                height:                size.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count:    1,
-            dimension:       wgpu::TextureDimension::D2,
-            format:          surface_texture_format(),
-            usage:           SCENE_TEXTURE_USAGE,
-            view_formats:    &[],
-        }));
     }
 
     fn deliver_screenshot(buffer: (wgpu::Buffer, Size<u32>), mut readers: Vec<FrameReader>) {

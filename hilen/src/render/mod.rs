@@ -24,6 +24,7 @@ pub(crate) use uniform::InstanceBinding;
 #[cfg(feature = "ui-tests")]
 pub(crate) use uniform::InstanceChunks;
 mod vec_buffer;
+pub(crate) use vec_buffer::upload_pending;
 mod vertex_layout;
 
 pub use self::pipelines::*;

@@ -1,9 +1,51 @@
-use std::ops::Range;
+use std::{cell::RefCell, mem::take, ops::Range};
 
 use bytemuck::{Pod, cast_slice};
-use wgpu::{Buffer, BufferDescriptor, BufferSlice};
+use rustc_hash::FxHashMap;
+use wgpu::{BindGroup, Buffer, BufferDescriptor, BufferSlice};
 
-use crate::{render::uniform::InstanceBinding, window::Window};
+use crate::{deps::refs::main_lock::MainLock, render::uniform::InstanceBinding, window::Window};
+
+/// More bind groups than this in 1 buffer are the windows of a frame that
+/// keeps changing, not ones that come again, so the list starts over.
+const KEPT_BINDS: usize = 256;
+
+/// The bytes that `load()` calls put into 1 buffer since the last
+/// `upload_pending`, sent to the GPU in 1 write.
+struct Upload {
+    buffer: Buffer,
+    offset: u64,
+    bytes:  Vec<u8>,
+}
+
+/// A frame flushes its pipelines many times, and a write of its own for
+/// every flush made a staging buffer each time, most of the cost of a
+/// flush. The writes of a frame run together at submit anyway, so they are
+/// gathered here and sent once per buffer.
+#[derive(Default)]
+struct Uploads {
+    waiting: Vec<Upload>,
+    /// Goes up at every `upload_pending`, so a `VecBuffer` can tell that
+    /// the place it wrote to last is gone.
+    round:   u64,
+    /// Emptied byte lists, kept for their memory.
+    spare:   Vec<Vec<u8>>,
+}
+
+static UPLOADS: MainLock<Uploads> = MainLock::new();
+
+/// Sends what the `load()` calls gathered. Called before every submit of
+/// commands that draw from a `VecBuffer`.
+pub(crate) fn upload_pending() {
+    let uploads = UPLOADS.get_mut();
+    uploads.round += 1;
+
+    for mut upload in take(&mut uploads.waiting) {
+        Window::queue().write_buffer(&upload.buffer, upload.offset, &upload.bytes);
+        upload.bytes.clear();
+        uploads.spare.push(upload.bytes);
+    }
+}
 
 /// CPU-side instance list backed by a persistent GPU buffer.
 ///
@@ -21,6 +63,13 @@ pub(crate) struct VecBuffer<T> {
     offset:  u64,
     frame:   u64,
     binding: InstanceBinding,
+    /// Where the last `load()` put its bytes, the round of `Uploads` and
+    /// the place in its list.
+    upload:  Option<(u64, usize)>,
+    /// The bind groups made for windows of the buffer, by offset and
+    /// size. A screen that does not change flushes the same windows in
+    /// every frame, and making a bind group costs more than finding one.
+    binds:   RefCell<FxHashMap<(u64, u64), BindGroup>>,
 }
 
 impl<T> VecBuffer<T> {
@@ -34,7 +83,25 @@ impl<T> VecBuffer<T> {
             offset: 0,
             frame: 0,
             binding,
+            upload: None,
+            binds: RefCell::default(),
         }
+    }
+
+    /// The bind group of the window `offset..offset + size` of the buffer,
+    /// made by `make` when this window was not bound before.
+    pub(crate) fn with_bind(
+        &self,
+        offset: u64,
+        size: u64,
+        make: impl FnOnce() -> BindGroup,
+        with: impl FnOnce(&BindGroup),
+    ) {
+        let mut binds = self.binds.borrow_mut();
+        if binds.len() > KEPT_BINDS {
+            binds.clear();
+        }
+        with(binds.entry((offset, size)).or_insert_with(make));
     }
 
     fn make_buffer(size: u64, binding: InstanceBinding) -> Buffer {
@@ -139,15 +206,45 @@ impl<T: Pod> VecBuffer<T> {
                 self.binding,
             );
             self.offset = 0;
+            self.upload = None;
+            self.binds.borrow_mut().clear();
         }
 
-        Window::queue().write_buffer(&self.buffer, self.offset, bytes);
+        gather(&self.buffer, self.offset, &mut self.upload, bytes);
 
         self.range = self.offset..self.offset + size;
         self.offset = self.range.end.next_multiple_of(self.binding.alignment());
         self.len = self.data.len().try_into().unwrap();
         self.data.clear();
     }
+}
+
+/// Adds `bytes` at `offset` of `buffer` to what waits for the GPU. They
+/// join the bytes of the load before, `last`, when those went into the same
+/// buffer in this round, with zeros in the gap that the alignment leaves.
+fn gather(buffer: &Buffer, offset: u64, last: &mut Option<(u64, usize)>, bytes: &[u8]) {
+    let uploads = UPLOADS.get_mut();
+
+    let joined = last.and_then(|(round, place)| {
+        let upload = uploads.waiting.get(place)?;
+        let end = upload.offset + u64::try_from(upload.bytes.len()).ok()?;
+        (round == uploads.round && upload.buffer == *buffer && end <= offset).then_some(place)
+    });
+
+    let place = joined.unwrap_or_else(|| {
+        uploads.waiting.push(Upload {
+            buffer: buffer.clone(),
+            offset,
+            bytes: uploads.spare.pop().unwrap_or_default(),
+        });
+        uploads.waiting.len() - 1
+    });
+
+    let upload = &mut uploads.waiting[place];
+    let start = usize::try_from(offset - upload.offset).expect("an instance buffer fits memory");
+    upload.bytes.resize(start, 0);
+    upload.bytes.extend_from_slice(bytes);
+    *last = Some((uploads.round, place));
 }
 
 impl<T> Default for VecBuffer<T> {

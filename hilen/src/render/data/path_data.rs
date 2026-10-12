@@ -8,6 +8,7 @@ use crate::{
         flat::{MAX_STOPS, Paint, Point, Ramp, Size},
     },
     render::{buffer_helper::BufferHelper, device_helper::DeviceHelper, uniform::make_uniform_layout},
+    ui::damage::PaintKey,
     window::Window,
 };
 
@@ -125,6 +126,16 @@ impl PathData {
 
         self.view = view;
         self.view_buffer.update(view);
+    }
+
+    /// What the path puts on the screen, see `ui::damage`. The uniform
+    /// holds its place, scale and colors, the buffers its shape.
+    pub(crate) fn feed_paint(&self, key: &mut PaintKey) {
+        key.pod(&self.view)
+            .hash(&self.visible)
+            .hash(&self.index_count)
+            .hash(&self.vertex_buffer)
+            .hash(&self.index_buffer);
     }
 
     /// A fully transparent path must not be drawn at all. Its fragments

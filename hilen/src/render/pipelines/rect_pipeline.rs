@@ -197,6 +197,11 @@ impl<
         self.instances.sort_by(|a, _, b, _| farthest[b].total_cmp(&farthest[a]));
     }
 
+    /// Whether anything was added since the last `draw`.
+    pub(crate) fn has_queued(&self) -> bool {
+        self.instances.values().any(|instances| !instances.is_empty())
+    }
+
     pub fn draw(&mut self, render_pass: &mut RenderPass, view: View) {
         if self.instances.is_empty() {
             return;
@@ -224,7 +229,7 @@ impl<
             draw_instances(
                 render_pass,
                 &self.instances_layout,
-                &format!("{NAME}_instances_bind"),
+                NAME,
                 1,
                 1,
                 TYPE.vertex_range(),

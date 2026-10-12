@@ -8,6 +8,7 @@ use winit::{
 
 use crate::{
     gm::flat::{Point, Size},
+    ui::damage::Damage,
     window::RenderFrame,
 };
 
@@ -18,6 +19,11 @@ pub trait WindowEvents {
     /// like a shadow map.
     fn prepare(&mut self, _encoder: &mut CommandEncoder) {}
     fn render(&mut self, _frame: &mut RenderFrame) {}
+    /// What the next `render` has to draw again, see `ui::damage`. Asked
+    /// once for every frame that is drawn.
+    fn damage(&mut self) -> Damage {
+        Damage::Whole("no view tree")
+    }
     /// Whether this frame must render into a texture that can be
     /// sampled mid frame, for example to blur the drawn scene.
     fn needs_sampleable_frame(&self) -> bool {

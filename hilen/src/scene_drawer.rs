@@ -28,6 +28,13 @@ static MESH: MainLock<MeshPipeline> = MainLock::new();
 static PICTURE: MainLock<PicturePipeline> = MainLock::new();
 static PICTURE_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 
+/// Drops what is built for a sample count. Each part is made again when
+/// it is next used.
+pub(crate) fn drop_pipelines() {
+    MESH.clear();
+    PICTURE_TARGETS.clear();
+}
+
 /// What a picture is drawn into before it becomes an image, kept for the
 /// next picture of the same size, so a grid of pictures makes them once.
 struct PictureTargets {
@@ -398,6 +405,7 @@ impl SceneDrawer {
         }
 
         PICTURE.get_mut().draw(&mut encoder, &targets.bind.bind, image.view());
+        crate::render::upload_pending();
         Window::queue().submit([encoder.finish()]);
         MESH.get_mut().forget_frame();
 

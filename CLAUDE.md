@@ -90,6 +90,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the `inspector` app, or the `hilen-inspect` CLI.
 - [docs/benchmark.md](docs/benchmark.md) — the UI benchmark, its consistency guard, and the
   results history in `bench/`. Read before touching the benchmark or measuring performance.
+- [docs/damage.md](docs/damage.md) — partial frames, a frame draws only the pixels that
+  changed, and `set_msaa_sample_count`, the samples per pixel an app picks while it runs.
+  Read before touching `UIDrawer`, a pipeline, the frame state, or adding anything a view
+  draws with.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before
   proposing an optimization or a speculative fix; add new unproved ideas there, not to code.
 - [docs/text.md](docs/text.md) — the text pipeline: the bundled fonts, `MarkdownView` and its style, rustybuzz shaping, em sizing, variable

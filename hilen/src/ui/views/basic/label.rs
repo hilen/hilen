@@ -1,3 +1,5 @@
+mod paint;
+
 use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;

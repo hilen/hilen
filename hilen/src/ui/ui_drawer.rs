@@ -1,3 +1,5 @@
+mod frame;
+
 use std::{
     ops::{Deref, DerefMut},
     sync::atomic::Ordering,
@@ -20,9 +22,11 @@ use crate::{
     },
     ui::{
         BlurView, DrawingView, ImageView, Label, ScrimView, TextSelection, UIManager, View, ViewData,
-        ViewFrame, ViewLayout, ViewSubviews, label_drawer::TextSections,
+        ViewFrame, ViewLayout, ViewSubviews,
+        damage::{clip_rect, paint_rect},
+        label_drawer::TextSections,
     },
-    window::{RenderFrame, Window, image::Svg},
+    window::{RenderFrame, Window},
 };
 
 static GRADIENT_DRAWER: MainLock<UIGradientPipeline> = MainLock::new();
@@ -40,6 +44,22 @@ static GROUP_DRAWER: MainLock<UIGroupPipeline> = MainLock::new();
 /// Set during update when a visible `BlurView` wants a blur, read by
 /// the window before it picks the frame's render target.
 static NEEDS_SAMPLING: MainLock<bool> = MainLock::new();
+
+/// Drops every pipeline of the drawer. Each is made again when it is next
+/// used, for the sample count of that moment.
+pub(crate) fn drop_pipelines() {
+    GRADIENT_DRAWER.clear();
+    IMAGE_RECT_DRAWER.clear();
+    SHADOW_DRAWER.clear();
+    SCRIM_DRAWER.clear();
+    #[cfg(wasm)]
+    HOLE_DRAWER.clear();
+    BLUR_DRAWER.clear();
+    BACKDROP_DRAWER.clear();
+    PATH_DRAWER.clear();
+    CLIP_DRAWER.clear();
+    GROUP_DRAWER.clear();
+}
 
 struct DrawContext<'a> {
     text_sections: TextSections<'a>,
@@ -68,9 +88,31 @@ struct DrawContext<'a> {
     /// How many group fades the visited view is inside, the index of the
     /// image the next group draws into.
     group_level:   usize,
+    /// The frame draws only a region again, see `ui::damage`. `scissor`
+    /// starts as that region, so a view outside it has no pixels to draw.
+    partial:       bool,
+    /// A label with no pixel in the region was visited since the last
+    /// flush of text. A whole frame would hold its text now, and the
+    /// flushes that depend on queued text have to come at the same views
+    /// in both, or the order of the draws and with it a pixel differs.
+    unseen_text:   bool,
 }
 
 impl DrawContext<'_> {
+    /// Whether a whole frame would hold queued text at this view.
+    fn text_pending(&self) -> bool {
+        self.unseen_text || !self.text_sections.is_empty()
+    }
+
+    /// A text at `z` is queued, or would be in a whole frame.
+    fn note_text(&mut self, z: f32) {
+        self.nearest_text = if self.text_pending() {
+            self.nearest_text.min(z)
+        } else {
+            z
+        };
+    }
+
     /// Whether a queued picture is behind the view and under its frame.
     fn picture_behind(&self, view: &dyn View, frame: &Rect) -> bool {
         let frame = *frame * self.scale;
@@ -94,52 +136,24 @@ impl UIDrawer {
         *NEEDS_SAMPLING
     }
 
-    pub fn draw(render_frame: &mut RenderFrame) {
-        let resolution = UIManager::window_resolution();
-        let display_rect: Rect<u32> = Size::<u32>::new(
-            resolution.width.lossy_convert(),
-            resolution.height.lossy_convert(),
-        )
-        .into();
-
-        let mut ctx = DrawContext {
-            text_sections: vec![],
-            nearest_text: 0.0,
-            paths: vec![],
-            pictures: vec![],
-            debug_frames: UIManager::should_draw_debug_frames(),
-            scale: UIManager::scale(),
-            pixel_scale: UIManager::scale(),
-            resolution,
-            scissor: display_rect,
-            clip_depth: 0,
-            group_level: 0,
-        };
-
-        let root = UIManager::root_view_static();
-        Self::draw_view(render_frame, root, &mut ctx);
-
-        Self::flush_pipelines(render_frame.pass(), resolution, &mut ctx.paths);
-        Svg::drop_stale_everywhere();
-        Self::drop_stale_text_effects();
-        scissor(render_frame.pass(), display_rect);
-
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
-
-        // When the frame rendered into the intermediate scene texture,
-        // copy the finished scene to the real surface.
-        let scene = render_frame.scene_view().clone();
-        if let Some(pass) = render_frame.present_pass() {
-            BLUR_DRAWER.get_mut().present(pass, &scene);
-        }
-    }
-
     fn flush_queued(render_frame: &mut RenderFrame, ctx: &mut DrawContext) {
         ctx.pictures.clear();
         Self::flush_pipelines(render_frame.pass(), ctx.resolution, &mut ctx.paths);
     }
 
     fn flush_pipelines(pass: &mut RenderPass, resolution: Size, paths: &mut Vec<&PathData>) {
+        // Most flushes of a partial frame have nothing queued, every clip
+        // outside the region asks for one. Without this each of them sets
+        // 4 pipelines and sorts the image batches for no draw.
+        if paths.is_empty()
+            && !Pipelines::rect().has_queued()
+            && !IMAGE_RECT_DRAWER.get_mut().has_queued()
+            && !GRADIENT_DRAWER.get_mut().has_queued()
+            && !SHADOW_DRAWER.get_mut().has_queued()
+        {
+            return;
+        }
+
         let rect_view = RectView {
             resolution,
             _padding: 0,
@@ -166,6 +180,11 @@ impl UIDrawer {
         SHADOW_DRAWER.get_mut().draw(pass, rect_view);
     }
 
+    fn flush_queued_text(render_frame: &mut RenderFrame, ctx: &mut DrawContext) {
+        ctx.unseen_text = false;
+        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+    }
+
     fn flush_text(pass: &mut RenderPass, text_sections: &mut TextSections) {
         for (mut font, sections) in text_sections.drain(..) {
             for (section, params) in sections {
@@ -181,7 +200,7 @@ impl UIDrawer {
     /// at the view's frame. Subviews and later views draw on top.
     fn blur_barrier(render_frame: &mut RenderFrame, view: &BlurView, frame: &Rect, ctx: &mut DrawContext) {
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+        Self::flush_queued_text(render_frame, ctx);
 
         let (encoder, scene) = render_frame.split();
         BLUR_DRAWER.get_mut().blur(
@@ -226,7 +245,7 @@ impl UIDrawer {
         }
 
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+        Self::flush_queued_text(render_frame, ctx);
 
         let scrim = SCRIM_DRAWER.get_mut();
         scrim.add(UIRectInstance::new(
@@ -257,7 +276,7 @@ impl UIDrawer {
         use crate::gm::color::BLACK;
 
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+        Self::flush_queued_text(render_frame, ctx);
 
         let hole = HOLE_DRAWER.get_mut();
         hole.add(UIRectInstance::new(
@@ -276,6 +295,35 @@ impl UIDrawer {
                 _padding:   0,
             },
         );
+    }
+
+    /// The flushes a view needs before its own rect is queued.
+    fn flush_before_rect(
+        render_frame: &mut RenderFrame,
+        view: &dyn View,
+        frame: &Rect,
+        ctx: &mut DrawContext,
+        opacity: f32,
+    ) {
+        // Rects flush before text and write depth, so text queued
+        // behind a translucent rect would fail the depth test and
+        // vanish instead of showing through. Flush it first, but
+        // only when the rect is in front of all queued text. Text
+        // writes depth over whole glyph boxes, so a rect behind it,
+        // like a text selection, would get holes around the glyphs.
+        if is_translucent(view, opacity) && ctx.text_pending() && view.z_position() < ctx.nearest_text {
+            Self::flush_queued(render_frame, ctx);
+            Self::flush_queued_text(render_frame, ctx);
+        }
+        // A flush draws its rects before its images, gradients and
+        // paths. The edge pixels of a rect are part clear, so a rect
+        // in front of a queued picture would mix them with what is
+        // behind the picture, then hide the picture there by depth, a
+        // rim of the background color around a badge on a poster.
+        // The picture draws first.
+        if draws_rect(view) && ctx.picture_behind(view, frame) {
+            Self::flush_queued(render_frame, ctx);
+        }
     }
 
     fn update_view(view: &mut dyn View, parent_opacity: f32) {
@@ -329,64 +377,67 @@ impl UIDrawer {
             return;
         }
 
+        let clips = view.__internal_clips_to_bounds();
+
+        // Nothing inside a clip that leaves no pixel of the region can be
+        // seen, and most of the tree is such a clip in a partial frame.
+        if ctx.partial && clips && clip_rect(&frame, scale, ctx.resolution, ctx.scissor).size.has_no_area() {
+            // A whole frame flushes what is queued when it enters a clip.
+            // The same flush here keeps the draws in the same order.
+            Self::flush_queued(render_frame, ctx);
+            Self::flush_queued_text(render_frame, ctx);
+            return;
+        }
+
         let grouped = group_alpha < 1.0;
         let outer_clip_depth = ctx.clip_depth;
         if grouped {
             Self::enter_group(render_frame, ctx);
         }
 
-        view.before_render(render_frame.pass());
+        // A partial frame has only views that the engine draws alone, a
+        // whole frame is where a view is asked.
+        if !ctx.partial {
+            Self::before_render(render_frame, view);
+        }
 
-        let clips = view.__internal_clips_to_bounds();
         let parent_scissor = ctx.scissor;
 
         if clips {
             Self::enter_scissor(render_frame, &frame, ctx);
         }
 
-        if let Some(blur) = view.as_any().downcast_ref::<BlurView>()
-            && blur.blur_radius() > 0.0
-        {
-            Self::draw_shadow(view, &frame, ctx.scale, opacity);
-            Self::blur_barrier(render_frame, blur, &frame, ctx);
-        } else if view.as_any().downcast_ref::<ScrimView>().is_some() {
-            Self::scrim_barrier(render_frame, view, &frame, ctx);
-        } else if view.__base_view().page_hole {
-            #[cfg(wasm)]
-            Self::hole_barrier(render_frame, view, &frame, ctx);
-        } else {
-            // Rects flush before text and write depth, so text queued
-            // behind a translucent rect would fail the depth test and
-            // vanish instead of showing through. Flush it first, but
-            // only when the rect is in front of all queued text. Text
-            // writes depth over whole glyph boxes, so a rect behind it,
-            // like a text selection, would get holes around the glyphs.
-            if is_translucent(view, opacity)
-                && !ctx.text_sections.is_empty()
-                && view.z_position() < ctx.nearest_text
-            {
-                Self::flush_queued(render_frame, ctx);
-                Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
-            }
-            // A flush draws its rects before its images, gradients and
-            // paths. The edge pixels of a rect are part clear, so a rect
-            // in front of a queued picture would mix them with what is
-            // behind the picture, then hide the picture there by depth, a
-            // rim of the background color around a badge on a poster.
-            // The picture draws first.
-            if draws_rect(view) && ctx.picture_behind(view, &frame) {
-                Self::flush_queued(render_frame, ctx);
-            }
-            // Queued after the flushes above, never before them. A shadow
-            // shares its view's z and the first draw at a z wins, so a
-            // shadow flushed ahead of its view would cover it.
-            Self::draw_shadow(view, &frame, ctx.scale, opacity);
-            Self::draw_selection(view, &frame, ctx.scale, opacity);
-            Self::draw_background_runs(view, &frame, ctx.scale, opacity);
-            Self::draw_background(view, &frame, ctx.scale, opacity);
-        }
+        // In a partial frame a view with no pixel in the region queues
+        // nothing. Its subviews are still visited, they can lie outside it.
+        let shown =
+            !ctx.partial || !paint_rect(view, &frame, scale, ctx.resolution, ctx.scissor).size.has_no_area();
 
-        Self::draw_content(view, &frame, ctx, opacity);
+        if shown {
+            if let Some(blur) = view.as_any().downcast_ref::<BlurView>()
+                && blur.blur_radius() > 0.0
+            {
+                Self::draw_shadow(view, &frame, ctx.scale, opacity);
+                Self::blur_barrier(render_frame, blur, &frame, ctx);
+            } else if view.as_any().downcast_ref::<ScrimView>().is_some() {
+                Self::scrim_barrier(render_frame, view, &frame, ctx);
+            } else if view.__base_view().page_hole {
+                #[cfg(wasm)]
+                Self::hole_barrier(render_frame, view, &frame, ctx);
+            } else {
+                Self::flush_before_rect(render_frame, view, &frame, ctx, opacity);
+                // Queued after the flushes above, never before them. A shadow
+                // shares its view's z and the first draw at a z wins, so a
+                // shadow flushed ahead of its view would cover it.
+                Self::draw_shadow(view, &frame, ctx.scale, opacity);
+                Self::draw_selection(view, &frame, ctx.scale, opacity);
+                Self::draw_background_runs(view, &frame, ctx.scale, opacity);
+                Self::draw_background(view, &frame, ctx.scale, opacity);
+            }
+
+            Self::draw_content(view, &frame, ctx, opacity);
+        } else {
+            Self::note_unseen(render_frame, view, &frame, ctx, opacity);
+        }
 
         if is_picture(view) {
             ctx.pictures.push((frame * ctx.scale, view.z_position()));
@@ -406,7 +457,7 @@ impl UIDrawer {
 
         if rounded_clip {
             Self::flush_queued(render_frame, ctx);
-            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            Self::flush_queued_text(render_frame, ctx);
             let pass = render_frame.pass();
             CLIP_DRAWER.get_mut().enter(pass, ctx.resolution, clip_shape);
             ctx.clip_depth += 1;
@@ -427,13 +478,13 @@ impl UIDrawer {
         // with, so a view drawn after it is in front of all of it.
         if clips && view.__base_view().flat_depth {
             Self::flush_queued(render_frame, ctx);
-            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            Self::flush_queued_text(render_frame, ctx);
             CLIP_DRAWER.get_mut().flatten(render_frame.pass(), ctx.resolution, clip_shape);
         }
 
         if rounded_clip {
             Self::flush_queued(render_frame, ctx);
-            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            Self::flush_queued_text(render_frame, ctx);
             let pass = render_frame.pass();
             CLIP_DRAWER.get_mut().leave(pass, ctx.resolution, clip_shape);
             ctx.clip_depth -= 1;
@@ -442,7 +493,7 @@ impl UIDrawer {
 
         if clips {
             Self::flush_queued(render_frame, ctx);
-            Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+            Self::flush_queued_text(render_frame, ctx);
             scissor(render_frame.pass(), parent_scissor);
             ctx.scissor = parent_scissor;
         }
@@ -458,7 +509,7 @@ impl UIDrawer {
     /// it yet. The scissor stays, the image has the size of the frame.
     fn enter_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>) {
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+        Self::flush_queued_text(render_frame, ctx);
 
         let target = GROUP_DRAWER.get_mut().target(ctx.group_level, ctx.resolution.lossy_convert());
         render_frame.push_target(target);
@@ -474,7 +525,7 @@ impl UIDrawer {
     /// once, with the opacity, into the pass the group sits in.
     fn leave_group(render_frame: &mut RenderFrame, ctx: &mut DrawContext<'_>, clip_depth: u32, opacity: f32) {
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
+        Self::flush_queued_text(render_frame, ctx);
 
         render_frame.pop_target();
         ctx.group_level -= 1;
@@ -491,27 +542,8 @@ impl UIDrawer {
     /// then flushes under this clip before it is restored.
     fn enter_scissor(render_frame: &mut RenderFrame, frame: &Rect, ctx: &mut DrawContext<'_>) {
         Self::flush_queued(render_frame, ctx);
-        Self::flush_text(render_frame.pass(), &mut ctx.text_sections);
-        let mut frame = *frame * ctx.scale;
-        frame.origin.clip_positive();
-
-        if frame.max_x() > ctx.resolution.width {
-            frame.size.width -= frame.max_x() - ctx.resolution.width;
-        }
-
-        if frame.max_y() > ctx.resolution.height {
-            frame.size.height -= frame.max_y() - ctx.resolution.height;
-        }
-
-        // A clip view fully past the right or bottom edge drives these
-        // subtractions negative. Converting a negative Rect to Rect<u32>
-        // panics, so clamp the clipped size to an empty rect instead.
-        // max(0.0) also turns a NaN size into 0.
-        frame.size.width = frame.size.width.max(0.0);
-        frame.size.height = frame.size.height.max(0.0);
-
-        let clip_rect: Rect<u32> = frame.lossy_convert();
-        let clip_rect = clip_rect.intersection(&ctx.scissor);
+        Self::flush_queued_text(render_frame, ctx);
+        let clip_rect = clip_rect(frame, ctx.scale, ctx.resolution, ctx.scissor);
         scissor(render_frame.pass(), clip_rect);
         ctx.scissor = clip_rect;
     }
@@ -572,7 +604,7 @@ impl UIDrawer {
                 }
 
                 let raster = image.svg.as_ref().map(|svg| {
-                    let size = image_view.raster_size(ctx.scale);
+                    let size = image_view.svg_raster_size(ctx.scale);
                     svg.touch(size, Window::render_frame());
                     (size.width, size.height)
                 });
@@ -600,12 +632,7 @@ impl UIDrawer {
         } else if let Some(label) = view.as_any().downcast_ref::<Label>()
             && !label.text.is_empty()
         {
-            let z = label.z_position() - UIManager::additional_z_offset();
-            ctx.nearest_text = if ctx.text_sections.is_empty() {
-                z
-            } else {
-                ctx.nearest_text.min(z)
-            };
+            ctx.note_text(label.z_position() - UIManager::additional_z_offset());
             Self::draw_label(frame, label, &mut ctx.text_sections, ctx.scale, opacity);
             Self::draw_text_effects(frame, label, ctx.scale, opacity);
             Self::draw_color_glyphs(frame, label, ctx.scale, opacity);
@@ -624,14 +651,8 @@ impl UIDrawer {
         let image = image_view.image();
         let image_size: Size = image.size.into();
 
-        // An svg rasterizes whole at the scale of the view, the quads then
-        // show parts of that raster.
         let raster = image.svg.as_ref().map(|svg| {
-            let natural = cut.scaled_size(image_view.__base_view().draw_frame(), image_size) * scale;
-            let size = Size::new(
-                natural.width.round().max(1.0).lossy_convert(),
-                natural.height.round().max(1.0).lossy_convert(),
-            );
+            let size = image_view.svg_raster_size(scale);
             svg.touch(size, Window::render_frame());
             (size.width, size.height)
         });

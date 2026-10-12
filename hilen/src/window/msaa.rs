@@ -1,6 +1,15 @@
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU32, Ordering},
+};
 
 use wgpu::Backend;
+
+use crate::{
+    pipelines::Pipelines,
+    ui::{damage, ui_drawer},
+    window::{AppHandler, Font, request_frame},
+};
 
 static BACKEND: OnceLock<Backend> = OnceLock::new();
 
@@ -10,31 +19,83 @@ pub(crate) fn set_backend(backend: Backend) {
     BACKEND.get_or_init(|| backend);
 }
 
+/// 0 until the first read or `set_msaa_sample_count` decides it.
+static COUNT: AtomicU32 = AtomicU32::new(0);
+
 /// Samples per pixel of the frame's render pass. 4 anti-aliases the
 /// triangulated geometry the SDF pipelines cannot smooth, vector paths,
 /// polygons and sprite cutouts. Every pipeline drawing into the pass
-/// and the pass attachments must agree on this count. `HILEN_MSAA=1`
-/// switches multisampling off, the A/B lever for benchmarks. A page has
-/// no env vars, there it is `hilen_msaa=1` in the page query.
+/// and the pass attachments must agree on this count.
+///
+/// An app picks it with `set_msaa_sample_count`. Until it does, the
+/// count is the default of the device, or `HILEN_MSAA=1`, the A/B lever
+/// for benchmarks. A page has no env vars, there it is `hilen_msaa=1` in
+/// the page query.
 pub fn msaa_sample_count() -> u32 {
-    static COUNT: OnceLock<u32> = OnceLock::new();
-    *COUNT.get_or_init(|| {
-        #[cfg(target_arch = "wasm32")]
-        let value = crate::web::query_param("hilen_msaa");
-        #[cfg(not(target_arch = "wasm32"))]
-        let value = std::env::var("HILEN_MSAA").ok();
+    let count = COUNT.load(Ordering::Relaxed);
+    if count != 0 {
+        return count;
+    }
 
-        let default = default_sample_count(BACKEND.get().copied(), cfg!(target_arch = "wasm32"));
+    #[cfg(target_arch = "wasm32")]
+    let value = crate::web::query_param("hilen_msaa");
+    #[cfg(not(target_arch = "wasm32"))]
+    let value = std::env::var("HILEN_MSAA").ok();
 
-        let count = value.map_or(default, |value| {
-            value.parse().unwrap_or_else(|_| panic!("Invalid HILEN_MSAA value: {value}"))
-        });
-        assert!(
-            matches!(count, 1 | 2 | 4),
-            "HILEN_MSAA must be 1, 2 or 4, got {count}"
-        );
-        count
-    })
+    let default = default_sample_count(BACKEND.get().copied(), cfg!(target_arch = "wasm32"));
+
+    let count = value.map_or(default, |value| {
+        value.parse().unwrap_or_else(|_| panic!("Invalid HILEN_MSAA value: {value}"))
+    });
+    assert!(
+        matches!(count, 1 | 2 | 4),
+        "HILEN_MSAA must be 1, 2 or 4, got {count}"
+    );
+    COUNT.store(count, Ordering::Relaxed);
+    count
+}
+
+/// Sets the samples per pixel, 1, 2 or 4, the smoothing of edges that a
+/// game calls MSAA. 1 is about half the GPU work of 4 for every frame.
+/// Rects, text and images look the same with 1, only vector paths,
+/// polygons and sprite cutouts get rougher edges.
+///
+/// Before the window is up this is the count everything is first built
+/// for. In a running app everything built for the old count is dropped
+/// and made again for the new one, and the next frame is drawn whole.
+/// Call it on the main thread and not from inside a draw, like a
+/// `before_render`.
+///
+/// A pipeline of an app's own, or a `ShaderLab` view, is not made again
+/// by this. It has to be built after the call.
+pub fn set_msaa_sample_count(count: u32) {
+    assert!(
+        matches!(count, 1 | 2 | 4),
+        "The sample count must be 1, 2 or 4, got {count}"
+    );
+
+    let old = COUNT.swap(count, Ordering::Relaxed);
+    // Nothing is built before the pipelines are.
+    if old == count || !Pipelines::ready() {
+        return;
+    }
+
+    log::info!("sample count goes from {old} to {count}");
+
+    Pipelines::rebuild();
+    ui_drawer::drop_pipelines();
+    #[cfg(feature = "level")]
+    {
+        crate::level_drawer::drop_pipelines();
+        crate::game_drawer::drop_pipelines();
+    }
+    #[cfg(feature = "scene")]
+    crate::scene_drawer::drop_pipelines();
+    Font::rebuild_brushes();
+    AppHandler::window().state.sample_count_changed();
+
+    damage::whole_next("the sample count changed");
+    request_frame();
 }
 
 /// A browser on WebGL gets no multisampling. That is the path of old and

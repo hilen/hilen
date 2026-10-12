@@ -1,3 +1,5 @@
+mod damage;
+
 use std::{collections::HashMap, path::PathBuf, sync::Once};
 
 use anyhow::Result;
@@ -26,7 +28,7 @@ use crate::{
     pipelines::Pipelines,
     ui::{
         Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
-        ViewData, ViewSubviews, WeakView, ui_test::human_pause,
+        ViewData, ViewSubviews, WeakView, damage::Damage, ui_test::human_pause,
     },
     window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
 };
@@ -697,6 +699,10 @@ impl crate::window::WindowEvents for AppRunner {
         #[cfg(feature = "level")]
         LevelDrawer::draw(frame.pass());
         UIDrawer::draw(frame);
+    }
+
+    fn damage(&mut self) -> Damage {
+        damage::of_frame()
     }
 
     fn needs_sampleable_frame(&self) -> bool {

@@ -75,6 +75,15 @@ static PIXEL: MainLock<PixelPipelines> = MainLock::new();
 static PIXEL_TARGET: MainLock<Option<PixelTarget>> = MainLock::new();
 static BLIT: MainLock<PixelBlitPipeline> = MainLock::new();
 
+/// Drops what is built for a sample count. Each part is made again when
+/// it is next used.
+pub(crate) fn drop_pipelines() {
+    FRAME.clear();
+    PIXEL.clear();
+    PIXEL_TARGET.clear();
+    BLIT.clear();
+}
+
 /// Where the level of one frame is drawn.
 struct Canvas {
     /// The size the view maps to, the render area or the art texture.

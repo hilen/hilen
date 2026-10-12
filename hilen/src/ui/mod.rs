@@ -1,4 +1,5 @@
 mod code_highlighter;
+pub(crate) mod damage;
 mod focus;
 mod gradient;
 mod hover;

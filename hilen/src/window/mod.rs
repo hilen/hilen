@@ -50,9 +50,17 @@ pub(crate) use self::redraw::{
     Pacer, frame_drawn, frame_pacing, occluded, set_occluded, set_wake_proxy, take_needs_render, visibility,
 };
 pub use self::{
-    app_handler::AppHandler, msaa::msaa_sample_count, orientation::Orientations, placement::*,
-    render_frame::RenderFrame, screenshot::*, state::surface_texture_format, text::*,
-    vertex_buffer::VertexBuffer, window::*, window_events::*,
+    app_handler::AppHandler,
+    msaa::{msaa_sample_count, set_msaa_sample_count},
+    orientation::Orientations,
+    placement::*,
+    render_frame::RenderFrame,
+    screenshot::*,
+    state::surface_texture_format,
+    text::*,
+    vertex_buffer::VertexBuffer,
+    window::*,
+    window_events::*,
 };
 pub(crate) use self::{
     app_handler::UserEvent,
