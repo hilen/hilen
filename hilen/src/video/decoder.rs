@@ -21,7 +21,7 @@ use ffmpeg_next::{
     frame, media,
     software::scaling,
     threading,
-    util::error::EAGAIN,
+    util::error::{EAGAIN, ECONNABORTED, ETIMEDOUT},
 };
 use log::{debug, warn};
 
@@ -32,7 +32,7 @@ use crate::{
         VideoSource,
         audio::AudioDecoder,
         count_to_f64, hw,
-        source::{Interrupt, transport_error},
+        source::{Break, Interrupt, transport_error},
         subtitles::{Cue, CueDecoder},
         tracks::{AudioTrack, SubtitleTrack, audio_tracks, subtitle_tracks},
     },
@@ -129,6 +129,19 @@ enum Halt {
     Source(Error),
     /// The decoder failed, a fresh connection would not help.
     Decoder(Error),
+}
+
+impl Halt {
+    /// The halt of a read the player broke. A read that hung and a
+    /// connection too old to trust go the way of a stream that broke, with
+    /// its tries and its limit.
+    fn broken(reads: &Interrupt) -> Self {
+        match reads.cause() {
+            Some(Break::Hung) => Self::Source(Error::Other { errno: ETIMEDOUT }),
+            Some(Break::Stale) => Self::Source(Error::Other { errno: ECONNABORTED }),
+            Some(Break::Seek) | None => Self::Seek,
+        }
+    }
 }
 
 impl From<Error> for Halt {
@@ -388,7 +401,7 @@ impl Decoding {
                 if let Some(err) = transport_error(&self.input) {
                     // A read a seek broke leaves its error on record too.
                     return Err(if reads.is_broken() {
-                        Halt::Seek
+                        Halt::broken(reads)
                     } else {
                         Halt::Source(err)
                     });
@@ -404,7 +417,7 @@ impl Decoding {
                 self.decoder.send_packet(&packet)?;
             }
             // Some demuxers report a broken read as the end of the file.
-            Err(_) if reads.is_broken() => return Err(Halt::Seek),
+            Err(_) if reads.is_broken() => return Err(Halt::broken(reads)),
             Err(Error::Eof) => {
                 // And some report a stream that was cut that way too.
                 if let Some(err) = transport_error(&self.input) {
@@ -514,7 +527,7 @@ impl Decoding {
         };
         match sought {
             Ok(()) => {}
-            Err(_) if reads.is_broken() => return Err(Halt::Seek),
+            Err(_) if reads.is_broken() => return Err(Halt::broken(reads)),
             Err(err) => return Err(Halt::Source(err)),
         }
         self.decoder.flush();

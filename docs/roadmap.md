@@ -19,6 +19,22 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A play after a long pause is not proven in flixen yet
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-12, on hilen `2f98fb71`. A video was
+paused for 9 minutes. The play after it showed the spinner for 34 seconds, the
+connection gave no byte and no error for 32 of them.
+
+- Current: a play after more than 60 seconds of pause opens fresh connections, and
+  a read that hangs for 3 seconds while the video plays is broken,
+  `hilen/src/video/player/fresh.rs`, with unit tests in
+  `hilen/src/video/player/restart.rs`. Nobody tried it in the real app.
+- Needed: flixen on a pin with this change. Pause an episode for a few minutes,
+  play, and read the log: the line `the picture and the sound open fresh
+  connections` is there and the state is not `Buffering` for longer than about a
+  second. Then delete this entry.
+- Blocks: nothing, the fix is in.
+
 ## A list of pieces with other cuts makes a new player
 
 Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-11. It wants a live picture while

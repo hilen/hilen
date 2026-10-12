@@ -404,6 +404,108 @@ mod test {
         );
     }
 
+    /// The fault of a real run behind a proxy. After a pause of 9 minutes
+    /// the connections were still open and gave no byte and no error, so
+    /// nothing opened the stream again. The player was `Buffering` for 32
+    /// seconds, until the system ended the read.
+    #[test]
+    #[serial]
+    fn a_stream_that_goes_silent_opens_again_and_plays_on() {
+        let server = Server::start("stalled.mkv", Mode::Cut, INSIDE_THE_BLOCK);
+        let mut run = loaded(server.source());
+        run.play();
+        run.until("the stream to stand still", Duration::from_secs(10), |player| {
+            player.state() == VideoState::Buffering
+        });
+        let silent = Instant::now();
+        // The held connections stay open and send nothing more. A new one
+        // gets the whole file.
+        server.set(Mode::Whole);
+
+        run.until(
+            "the picture after the silent place",
+            Duration::from_secs(15),
+            |player| {
+                player.state() == VideoState::Playing
+                    && player.flow.due > CUT_SECONDS + 0.8
+                    && player.position() > CUT_SECONDS + 0.8
+            },
+        );
+        let waited = silent.elapsed();
+        assert!(
+            waited < Duration::from_secs(8),
+            "the silent read was broken after its limit, it took {waited:?}"
+        );
+        let heard = audio_manager().is_some();
+        run.until(
+            "the sound after the silent place",
+            Duration::from_secs(10),
+            move |player| sounding(player) == heard,
+        );
+        run.until("the end", Duration::from_secs(10), |player| {
+            player.state() == VideoState::Finished
+        });
+        // Ends the threads of the server that hold the old connections.
+        server.release();
+
+        assert_eq!(run.errors, Vec::<String>::new());
+        assert!(
+            !run.states.contains(&VideoState::Failed),
+            "never failed, went through {:?}",
+            run.states
+        );
+        assert_eq!(
+            run.player.decoded.load(Ordering::Relaxed),
+            FRAMES,
+            "every picture came once, none was lost at the silent place"
+        );
+    }
+
+    /// The same silent connections, but the play comes after a long pause.
+    /// Then nothing waits for a read to hang: the play opens fresh
+    /// connections at once and the video never stands at the place where
+    /// the old ones stop.
+    #[test]
+    #[serial]
+    fn a_play_after_a_long_pause_opens_fresh_connections() {
+        let server = Server::start("stalled.mkv", Mode::Cut, INSIDE_THE_BLOCK);
+        let mut run = loaded(server.source());
+        // Every pause counts as a long one.
+        run.player.idle.limit = Duration::ZERO;
+        server.set(Mode::Whole);
+
+        let played = Instant::now();
+        run.play();
+        run.until(
+            "the picture past the place the old connections stop at",
+            Duration::from_secs(15),
+            |player| player.flow.due > CUT_SECONDS + 0.8 && player.position() > CUT_SECONDS + 0.8,
+        );
+        // With the old connections it stands at 2.5 seconds for the 3
+        // seconds a read may hang, and gets here after more than 6.
+        let took = played.elapsed();
+        assert!(
+            took < Duration::from_secs(5),
+            "it played through with no wait at the old place, it took {took:?}"
+        );
+        run.until("the end", Duration::from_secs(10), |player| {
+            player.state() == VideoState::Finished
+        });
+        server.release();
+
+        assert_eq!(run.errors, Vec::<String>::new());
+        assert!(
+            !run.states.contains(&VideoState::Failed),
+            "never failed, went through {:?}",
+            run.states
+        );
+        assert_eq!(
+            run.player.decoded.load(Ordering::Relaxed),
+            FRAMES,
+            "every picture came once"
+        );
+    }
+
     /// A server that stays dead: the player waits in `Buffering` while the
     /// stream is opened again and again, and fails once the limit is over.
     #[test]

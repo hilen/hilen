@@ -119,7 +119,7 @@ impl Player {
 
     /// Drops the sound whose decoder waits in a read and opens a fresh one.
     /// Until it is there the video follows the engine clock.
-    fn replace_stalled_sound(&mut self) {
+    pub(super) fn replace_stalled_sound(&mut self) {
         if let Some(reads) = &self.sound_reads.playing {
             // Its thread at kira ends with this, the decoder is not used
             // again.

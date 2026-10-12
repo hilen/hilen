@@ -19,7 +19,7 @@ pub(crate) use music::Music;
 #[cfg(ffmpeg)]
 pub use music::{VideoMusic, VideoPieces};
 #[cfg(ffmpeg)]
-pub(crate) use open::{Interrupt, byte_position, transport_error};
+pub(crate) use open::{Break, Interrupt, byte_position, transport_error};
 #[cfg(ffmpeg)]
 pub(crate) use pieces::PieceList;
 #[cfg(ffmpeg)]

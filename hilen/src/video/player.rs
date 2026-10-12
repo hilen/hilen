@@ -38,8 +38,10 @@ use crate::{
         nv12::Nv12Target,
         player::{
             faults::Faults,
+            fresh::Idle,
             restart::start_decoder,
             stall::{SeekWatch, SoundReads},
+            stand::{STALL, Stand, clock_stands},
         },
         source::Interrupt,
         subtitles::Subtitles,
@@ -49,15 +51,13 @@ use crate::{
 };
 
 mod faults;
+mod fresh;
 mod restart;
 mod stall;
+mod stand;
 
 /// How long a stepped test waits for the decoder before giving up on a frame.
 const STEPPED_WAIT: Duration = Duration::from_secs(5);
-
-/// Seconds the next frame may be late before playback holds for it. A slow
-/// frame or 2 drop as before, a stalled stream holds the clock.
-const STALL: f64 = 0.25;
 
 /// What reached the screen, for `VideoStats`.
 struct Counters {
@@ -102,31 +102,6 @@ struct Flow {
     finished:  bool,
     /// Where the clock stood when no frame was left, and since when.
     stand:     Option<Stand>,
-}
-
-/// A place of the clock and the time it was first seen there.
-#[derive(Clone, Copy)]
-struct Stand {
-    position: f64,
-    since_ms: f64,
-}
-
-/// True once the clock has stood at `position` for `STALL` seconds. The
-/// sound is the clock, and its own read can stall with the stream. Then
-/// the position never gets late against the next frame, it just stops.
-fn clock_stands(stand: &mut Option<Stand>, position: f64, now_ms: f64) -> bool {
-    match stand {
-        Some(stand) if (stand.position - position).abs() < f64::EPSILON => {
-            now_ms - stand.since_ms >= STALL * 1000.0
-        }
-        _ => {
-            *stand = Some(Stand {
-                position,
-                since_ms: now_ms,
-            });
-            false
-        }
-    }
 }
 
 struct Info {
@@ -189,6 +164,7 @@ pub(crate) struct Player {
     sound_reads: SoundReads,
     seek_watch:  Option<SeekWatch>,
     faults:      Faults,
+    idle:        Idle,
 }
 
 impl Player {
@@ -230,6 +206,7 @@ impl Player {
             sound_reads: SoundReads::default(),
             seek_watch: None,
             faults: Faults::default(),
+            idle: Idle::default(),
         }
     }
 
@@ -307,6 +284,7 @@ impl Player {
         if self.queue.eof && self.pending.is_empty() && self.position() >= self.duration() {
             self.seek_to(0.0);
         }
+        self.open_stale_streams();
         self.playing = true;
         self.flow.finished = false;
         self.started_ms = Clock::now_ms();
@@ -320,6 +298,7 @@ impl Player {
         self.base = self.position();
         self.playing = false;
         self.flow.buffering = false;
+        self.idle.rest();
         if let Some(sound) = &mut self.sound {
             sound.pause(Tween::default());
         }
@@ -404,6 +383,7 @@ impl Player {
         self.settle_sound_seek();
         self.watch_faults();
         self.break_stalled_reads();
+        self.break_hung_reads();
         self.take_opened_sound();
         self.receive(&mut events);
         if Clock::is_stepped() {
@@ -791,34 +771,5 @@ fn decibels(volume: f32) -> f32 {
         Decibels::SILENCE.0
     } else {
         20.0 * volume.log10()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{STALL, clock_stands};
-
-    /// The sound is the clock, and on a stalled stream its own read can run
-    /// dry before the picture is late. Playback then stood still in the
-    /// Playing state, with no way for an app to show that it waits.
-    #[test]
-    fn a_clock_that_stopped_counts_as_stalled_after_the_stall_time() {
-        let mut stand = None;
-        let stall_ms = STALL * 1000.0;
-
-        assert!(!clock_stands(&mut stand, 2.5, 1000.0));
-        assert!(!clock_stands(&mut stand, 2.5, 1000.0 + stall_ms - 1.0));
-        assert!(clock_stands(&mut stand, 2.5, 1000.0 + stall_ms));
-    }
-
-    #[test]
-    fn a_clock_that_moves_is_never_stalled() {
-        let mut stand = None;
-
-        assert!(!clock_stands(&mut stand, 2.0, 1000.0));
-        assert!(!clock_stands(&mut stand, 2.2, 2000.0));
-        assert!(!clock_stands(&mut stand, 2.4, 3000.0));
-        // It stopped only now, the time before does not count.
-        assert!(!clock_stands(&mut stand, 2.4, 3100.0));
     }
 }

@@ -5,7 +5,7 @@
 use std::{
     sync::{
         Arc, LazyLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -28,14 +28,31 @@ fn now_ms() -> u64 {
     u64::try_from(EPOCH.elapsed().as_millis()).unwrap_or(u64::MAX).max(1)
 }
 
+/// Why the player broke a read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Break {
+    /// A seek must not wait behind it.
+    Seek,
+    /// It gave no byte and no error for too long.
+    Hung,
+    /// Its connection is from before a long pause.
+    Stale,
+}
+
+const INTACT: u8 = 0;
+const SEEK: u8 = 1;
+const HUNG: u8 = 2;
+const STALE: u8 = 3;
+
 /// What ends a read of one demuxer that waits on the network. Every demuxer
 /// has its own, with the stop flag of the player shared between them.
 #[derive(Clone)]
 pub(crate) struct Interrupt {
     /// Set when the player drops.
     stop:          Arc<AtomicBool>,
-    /// Set by the player when a seek must not wait behind a stalled read.
-    broken:        Arc<AtomicBool>,
+    /// Set by the player to end the read the demuxer is in, with the reason.
+    /// `INTACT` while no read is broken.
+    broken:        Arc<AtomicU8>,
     /// When the demuxer went into the read it is in, 0 outside a read.
     reading_since: Arc<AtomicU64>,
     /// The time after which every read gives up, 0 for none.
@@ -73,16 +90,42 @@ impl Interrupt {
     /// Ends the read the demuxer is in. The read comes back with an error,
     /// which demuxer decides, some report the end of the file.
     pub(crate) fn break_read(&self) {
-        self.broken.store(true, Ordering::Relaxed);
+        self.broken.store(SEEK, Ordering::Relaxed);
+    }
+
+    /// Ends a read that gave no byte for too long. A break for a seek that
+    /// is already set stays, the seek opens the source again anyway.
+    pub(crate) fn break_hung(&self) {
+        if !self.is_broken() {
+            self.broken.store(HUNG, Ordering::Relaxed);
+        }
+    }
+
+    /// Ends the next read over the network, its connection is too old to
+    /// trust.
+    pub(crate) fn break_stale(&self) {
+        if !self.is_broken() {
+            self.broken.store(STALE, Ordering::Relaxed);
+        }
     }
 
     pub(crate) fn is_broken(&self) -> bool {
-        self.broken.load(Ordering::Relaxed)
+        self.broken.load(Ordering::Relaxed) != INTACT
+    }
+
+    /// Why the read was broken, none while it is not.
+    pub(crate) fn cause(&self) -> Option<Break> {
+        match self.broken.load(Ordering::Relaxed) {
+            SEEK => Some(Break::Seek),
+            HUNG => Some(Break::Hung),
+            STALE => Some(Break::Stale),
+            _ => None,
+        }
     }
 
     /// The demuxer thread took the break, reads go through again.
     pub(crate) fn clear(&self) {
-        self.broken.store(false, Ordering::Relaxed);
+        self.broken.store(INTACT, Ordering::Relaxed);
     }
 
     /// Every read and every open ends with an error once this much time has

@@ -120,6 +120,23 @@ else. The cfg alias `ffmpeg` of `deps/plat` names the targets ffmpeg decodes on.
   up. The http options of ffmpeg, `reconnect` and the others, are left off:
   ffmpeg would write its tries only to stderr, and 2 layers of tries would
   add up their times.
+- A connection can die with no error, `hilen/src/video/player/fresh.rs`. A
+  proxy in front of a server can keep the connection of a paused player open
+  and send nothing more on it. A read then gives no byte and no error until
+  the system ends it, 32 seconds in the run that found it. 2 rules cover it.
+  A play that comes more than 60 seconds after the player opened or was
+  paused does not trust the old connections: the picture thread opens the
+  stream again on its next read over the network, and the sound gets a fresh
+  decoder on a thread. The pictures decoded before the pause play in the
+  meantime. And while the video plays, a read that gives no byte for 3
+  seconds is broken, of the picture only in the `Buffering` state. The
+  picture then goes the way of a stream that broke, with its tries and its
+  30 seconds, and the sound gets a fresh decoder. The `Interrupt` keeps why
+  a read was broken, `Break` in `hilen/src/video/source/open.rs`: a seek
+  opens the source again and takes the seek, the other 2 reasons reach the
+  log as `Operation timed out` and `Software caused connection abort`. The
+  log has a line for the play after the pause and a warning for each read
+  that hung.
 - A cut can hide. The matroska demuxer answers a read that failed in the
   middle of a block by going back to the start of that block. That place is
   often out of its buffer, so ffmpeg asks the server again on a new
@@ -473,7 +490,10 @@ that: the player is paused, both connections are cut, and all 120 pictures
 still come once and the sound gets a fresh decoder. The sound decoder alone
 fails at the cut, it used to give 3.53 of 4 seconds and no error before the
 end. The read through `no_index.mkv` gives all 3 lines, it used to lose the
-one in the cluster of the cut.
+one in the cluster of the cut. 2 more tests hold the connections silent with
+no close: a play right away stands at the cut, breaks the reads after 3
+seconds and plays on with all 120 pictures, and a play after a pause that
+counts as long opens fresh connections and never stands there.
 
 `Video slow sound` plays `slow_sound.mkv` from a server that can stop
 answering, and measures how long the first play after a seek, a speed
