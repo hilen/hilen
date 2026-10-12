@@ -12,12 +12,18 @@ use crate::{
     window::image::Image,
 };
 
-fn start_google(done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
-    Login::start(Provider::Google, done);
+fn start_google(
+    done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+    closed: impl FnOnce() + Send + 'static,
+) {
+    Login::start_with_close(Provider::Google, done, closed);
 }
 
-fn start_apple(done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
-    Login::start(Provider::Apple, done);
+fn start_apple(
+    done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+    closed: impl FnOnce() + Send + 'static,
+) {
+    Login::start_with_close(Provider::Apple, done, closed);
 }
 
 sign_in_button!(

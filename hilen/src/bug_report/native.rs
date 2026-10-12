@@ -1,5 +1,5 @@
 use log::error;
-use sentry::protocol::Attachment;
+use sentry::{Scope, protocol::Attachment};
 
 use crate::bug_report::{BugReportData, log_ring::LogRing};
 
@@ -33,16 +33,7 @@ pub(super) fn submit(data: BugReportData) {
                 });
             }
 
-            let log = LogRing::dump();
-
-            if !log.is_empty() {
-                scope.add_attachment(Attachment {
-                    buffer:       log.into_bytes(),
-                    filename:     "log.txt".to_string(),
-                    content_type: Some("text/plain".to_string()),
-                    ty:           None,
-                });
-            }
+            attach_log(scope);
 
             if let Some(keys) = &keys {
                 match serde_json::to_vec_pretty(keys) {
@@ -60,6 +51,33 @@ pub(super) fn submit(data: BugReportData) {
     );
 }
 
+/// `BugReport::send_warning` on native. Non blocking like `submit`.
+pub(super) fn warning(message: &str, values: Vec<(String, String)>) {
+    sentry::with_scope(
+        move |scope| {
+            for (key, value) in values {
+                scope.set_extra(&key, value.into());
+            }
+
+            attach_log(scope);
+        },
+        || sentry::capture_message(message, sentry::Level::Warning),
+    );
+}
+
+fn attach_log(scope: &mut Scope) {
+    let log = LogRing::dump();
+
+    if !log.is_empty() {
+        scope.add_attachment(Attachment {
+            buffer:       log.into_bytes(),
+            filename:     "log.txt".to_string(),
+            content_type: Some("text/plain".to_string()),
+            ty:           None,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -67,7 +85,7 @@ mod tests {
     use anyhow::Result;
     use parking_lot::Mutex;
     use sentry::{
-        Client, ClientOptions, Envelope, Hub, Scope, Transport,
+        Client, ClientOptions, Envelope, Hub, Level, Scope, Transport,
         protocol::{EnvelopeItem, Event},
     };
 
@@ -161,6 +179,61 @@ mod tests {
         assert_eq!(names(&attachments), ["log.txt"]);
 
         Ok(())
+    }
+
+    /// `BugReport::send_warning` on native. The event is a warning with
+    /// the message, every pair as an extra value, no user, and the log.
+    #[test]
+    fn send_warning_with_values() -> Result<()> {
+        LogRing::push("a line for the log attachment".to_string());
+        let url = "https://example.com/story/42".to_string();
+        let sentences = 17_usize;
+
+        let (event, attachments) = sent(|| {
+            BugReport::send_warning(
+                "a story has more audio than sentences",
+                &[
+                    ("url", &url),
+                    ("sentences", &sentences),
+                    ("audio", &19_u32),
+                    ("ratio", &1.5_f32),
+                ],
+            );
+        })?;
+        assert_eq!(
+            event.message.as_deref(),
+            Some("a story has more audio than sentences")
+        );
+        assert_eq!(event.level, Level::Warning);
+        assert!(event.user.is_none());
+        let extra: Vec<(&str, Option<&str>)> =
+            event.extra.iter().map(|(key, value)| (key.as_str(), value.as_str())).collect();
+        assert_eq!(
+            extra,
+            [
+                ("audio", Some("19")),
+                ("ratio", Some("1.5")),
+                ("sentences", Some("17")),
+                ("url", Some("https://example.com/story/42")),
+            ]
+        );
+        assert_eq!(names(&attachments), ["log.txt"]);
+
+        let (event, _) = sent(|| BugReport::send_warning("no values at all", &[]))?;
+        assert_eq!(event.message.as_deref(), Some("no values at all"));
+        assert!(event.extra.is_empty());
+
+        Ok(())
+    }
+
+    /// With no DSN `send_warning` sends nothing, the hub has a transport
+    /// to catch an event only through a client, so no client means none.
+    #[test]
+    fn send_warning_without_a_dsn() {
+        Hub::run(Arc::new(Hub::new(None, Arc::new(Scope::default()))), || {
+            assert!(!BugReport::enabled());
+            BugReport::send_warning("nobody gets this", &[("value", &1)]);
+        });
     }
 
     /// A picked JPEG goes out under its own name and type, not as the PNG

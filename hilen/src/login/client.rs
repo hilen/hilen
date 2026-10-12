@@ -12,10 +12,13 @@ use crate::{
     },
     login::wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
     store::SessionStore,
-    system::open_url,
+    system::browser_sheet,
 };
 
 const POLL_SECONDS: f32 = 2.0;
+/// How often a wait between 2 polls looks for a cancel and for a closed
+/// sheet, so both end the wait at once.
+const LOOK_SECONDS: f32 = 0.1;
 /// The server drops a login nobody finished after the same time.
 const GIVE_UP_SECONDS: f64 = 600.0;
 /// A laptop that just woke up or a server restart fails a few polls in a row.
@@ -26,6 +29,19 @@ static SERVER: Mutex<Option<String>> = Mutex::new(None);
 /// Every `start` and every `cancel` moves it on. A poll loop that sees another
 /// number than its own knows it is no longer wanted.
 static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+
+/// The attempt whose browser sheet the user closed by hand. Its poll loop
+/// asks the server one more time and ends.
+static CLOSED: AtomicU64 = AtomicU64::new(0);
+
+/// How the wait for a login ended.
+enum Waited {
+    Done(Result<LoginUser>),
+    /// `Login::cancel`, or a newer attempt took over.
+    Cancelled,
+    /// The user closed the browser sheet by hand with the login not done.
+    Closed,
+}
 
 /// Who the user logs in with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,28 +96,54 @@ impl Login {
     /// Opens the login page and waits for the user to finish there. Call it
     /// straight from a tap, a browser blocks a page opened any later. A
     /// cancelled login never calls `done`.
+    ///
+    /// On an iPhone the page opens in a browser sheet over the app, and the
+    /// sheet closes by itself when the login is done. A sheet the user closes
+    /// by hand before that is a cancel.
     pub fn start(provider: Provider, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        Self::start_with_close(provider, done, || {});
+    }
+
+    /// `start` for a login button. `closed` runs when the user closed the
+    /// browser sheet by hand with the login not done, so the button can end
+    /// its waiting look. Only an iPhone has such a sheet.
+    pub(crate) fn start_with_close(
+        provider: Provider,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+        closed: impl FnOnce() + Send + 'static,
+    ) {
         let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
 
         let opened = server().and_then(|server| {
             let verifier = new_verifier()?;
             log::info!("{} login started", provider.route());
-            open_url(format!(
+            let page = format!(
                 "{server}/auth/{}?challenge={}",
                 provider.route(),
                 challenge(&verifier)
-            ))?;
-            Ok((server, verifier))
+            );
+            let sheet = browser_sheet::open(page, move || {
+                log::info!("the user closed the login sheet");
+                CLOSED.store(attempt, Ordering::SeqCst);
+            })?;
+            Ok((server, verifier, sheet))
         });
 
-        let (server, verifier) = match opened {
+        let (server, verifier, sheet) = match opened {
             Ok(opened) => opened,
             Err(error) => return done(Err(error)),
         };
 
         spawn(async move {
-            if let Some(result) = wait_for_login(&server, &verifier, attempt).await {
-                on_main(move || done(result));
+            let waited = wait_for_login(&server, &verifier, attempt).await;
+            // Does nothing when the user closed the sheet, and where a
+            // platform has none.
+            browser_sheet::close(sheet);
+
+            match waited {
+                Waited::Done(result) => on_main(move || done(result)),
+                Waited::Closed => on_main(closed),
+                Waited::Cancelled => {}
             }
         });
     }
@@ -139,7 +181,8 @@ impl Login {
 
             on_main(move || shown(Ok(code)));
 
-            if let Some(result) = wait_for_login(&server, &verifier, attempt).await {
+            // Nothing opens here, so there is no sheet to close.
+            if let Waited::Done(result) = wait_for_login(&server, &verifier, attempt).await {
                 on_main(move || done(result));
             }
         });
@@ -228,35 +271,62 @@ fn challenge(verifier: &str) -> String {
     hex::encode(Sha256::digest(verifier.as_bytes()))
 }
 
-/// `None` when the attempt was cancelled or replaced by a newer one.
-async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Option<Result<LoginUser>> {
+async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
     let give_up_at = now() + GIVE_UP_SECONDS;
     let mut failures = 0;
 
     loop {
-        sleep(POLL_SECONDS).await;
+        let closed = wait_for_next_poll(attempt).await;
 
         if ATTEMPT.load(Ordering::SeqCst) != attempt {
-            return None;
+            log::debug!("login attempt {attempt} was cancelled, the wait ends");
+            return Waited::Cancelled;
         }
         if now() > give_up_at {
-            return Some(Err(anyhow!("the login took too long, try again")));
+            return Waited::Done(Err(anyhow!("the login took too long, try again")));
         }
 
+        // A user can finish the login and close the sheet before the next
+        // poll, so a closed sheet still gets 1 poll.
         match poll(server, verifier).await {
-            Ok(PollResponse::Pending) => failures = 0,
             Ok(PollResponse::Done { token, user }) => {
                 log::info!("login done");
-                return Some(SessionStore::save(&token).map(|()| user));
+                return Waited::Done(SessionStore::save(&token).map(|()| user));
+            }
+            Ok(PollResponse::Pending) if closed => {
+                log::info!("the login sheet was closed before the login was done, the wait ends");
+                return Waited::Closed;
+            }
+            Ok(PollResponse::Pending) => failures = 0,
+            Err(error) if closed => {
+                log::warn!("the last login poll after the sheet was closed failed: {error}");
+                return Waited::Closed;
             }
             Err(error) => {
                 failures += 1;
                 log::warn!("login poll {failures} of {MAX_FAILURES} failed: {error}");
                 if failures >= MAX_FAILURES {
-                    return Some(Err(error));
+                    return Waited::Done(Err(error));
                 }
             }
         }
+    }
+}
+
+/// Sleeps until the next poll is due. It ends early for a cancel and for a
+/// sheet the user closed. The answer says whether the sheet of this attempt
+/// was closed.
+async fn wait_for_next_poll(attempt: u64) -> bool {
+    let poll_at = now() + f64::from(POLL_SECONDS);
+
+    loop {
+        if CLOSED.load(Ordering::SeqCst) == attempt {
+            return true;
+        }
+        if ATTEMPT.load(Ordering::SeqCst) != attempt || now() >= poll_at {
+            return false;
+        }
+        sleep(LOOK_SECONDS).await;
     }
 }
 
@@ -340,22 +410,132 @@ async fn delete_user() -> Result<()> {
 #[cfg(test)]
 mod test {
     #[cfg(not_wasm)]
-    use std::env::temp_dir;
+    use std::{
+        env::temp_dir,
+        sync::{
+            Arc,
+            atomic::{AtomicU32, Ordering},
+        },
+    };
 
     use anyhow::Result;
     #[cfg(not_wasm)]
+    use axum::{Json, Router, routing::post, serve};
+    #[cfg(not_wasm)]
+    use serde_json::{Value, json};
+    #[cfg(not_wasm)]
     use serial_test::serial;
+    #[cfg(not_wasm)]
+    use tokio::{net::TcpListener, spawn};
 
+    #[cfg(not_wasm)]
+    use super::{ATTEMPT, CLOSED, POLL_SECONDS, Waited, wait_for_login};
     use super::{challenge, login_code, new_verifier};
     #[cfg(not_wasm)]
     use crate::{
-        deps::netrun::{
-            rest::{Call, RequestError},
-            test_server::start_test_server,
+        deps::{
+            hreads::now,
+            netrun::{
+                rest::{Call, RequestError},
+                test_server::start_test_server,
+            },
         },
         login::Login,
         store::SessionStore,
     };
+
+    /// Stands in for `/auth/poll` of a backend. It gives every poll the same
+    /// answer and counts the polls.
+    #[cfg(not_wasm)]
+    async fn poll_server(answer: Value) -> Result<(String, Arc<AtomicU32>)> {
+        let polls = Arc::new(AtomicU32::new(0));
+        let counted = polls.clone();
+
+        let app = Router::new().route(
+            "/auth/poll",
+            post(move || async move {
+                counted.fetch_add(1, Ordering::SeqCst);
+                Json(answer)
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let origin = format!("http://{}", listener.local_addr()?);
+        spawn(async move {
+            if let Err(error) = serve(listener, app).await {
+                eprintln!("the poll server stopped: {error}");
+            }
+        });
+        Ok((origin, polls))
+    }
+
+    /// A new attempt whose browser sheet the user already closed.
+    #[cfg(not_wasm)]
+    fn closed_attempt() -> u64 {
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+        CLOSED.store(attempt, Ordering::SeqCst);
+        attempt
+    }
+
+    /// The 3 tests of the wait move the attempt number, so they share the
+    /// lock of the session file, which the second one writes.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn a_closed_sheet_ends_the_wait_after_1_more_poll() -> Result<()> {
+        let (server, polls) = poll_server(json!({ "status": "pending" })).await?;
+        let attempt = closed_attempt();
+        let started = now();
+
+        let waited = wait_for_login(&server, "verifier", attempt).await;
+
+        assert!(matches!(waited, Waited::Closed));
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+        // It did not sleep until the next poll was due.
+        assert!(now() - started < f64::from(POLL_SECONDS));
+        Ok(())
+    }
+
+    /// The user finished the login and closed the sheet before the next
+    /// poll. That is a login, not a cancel.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn a_login_done_before_the_sheet_was_closed_still_logs_in() -> Result<()> {
+        let user = json!({ "id": "1", "email": "a@b.c", "name": "A", "picture": null });
+        let (server, polls) =
+            poll_server(json!({ "status": "done", "token": "token-9", "user": user })).await?;
+        SessionStore::set_root(temp_dir().join("hilen-login-closed-sheet-test"));
+        let attempt = closed_attempt();
+
+        let Waited::Done(result) = wait_for_login(&server, "verifier", attempt).await else {
+            panic!("a finished login did not end the wait as done");
+        };
+
+        assert_eq!(result?.email, "a@b.c");
+        assert_eq!(SessionStore::load().as_deref(), Some("token-9"));
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+
+        SessionStore::clear()?;
+        Ok(())
+    }
+
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn a_cancel_ends_the_wait_with_no_poll() -> Result<()> {
+        let (server, polls) = poll_server(json!({ "status": "pending" })).await?;
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+        Login::cancel();
+        let started = now();
+
+        let waited = wait_for_login(&server, "verifier", attempt).await;
+
+        assert!(matches!(waited, Waited::Cancelled));
+        assert_eq!(polls.load(Ordering::SeqCst), 0);
+        assert!(now() - started < f64::from(POLL_SECONDS));
+        Ok(())
+    }
 
     #[test]
     fn a_login_code_has_its_page_and_its_link() {

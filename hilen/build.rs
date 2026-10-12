@@ -48,10 +48,14 @@ fn hot_cfg() {
 /// `native/ios/hilen_text.m`. It is compiled into this library, so an app
 /// needs nothing for it in its Xcode project. The Apple TV shell has no
 /// system text field, a build for it compiles only the file of a hot build.
+/// The browser sheet of the login is the same kind of file, see
+/// `native/ios/hilen_browser.m`, and an Apple TV has no such sheet either.
 fn compile_native() {
     let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let text_field = (os == "ios").then_some("native/ios/hilen_text.m");
-    let files: Vec<_> = text_field.into_iter().chain(hot_shell_file(&os)).collect();
+    let browser_sheet =
+        (os == "ios" && var("CARGO_FEATURE_LOGIN").is_ok()).then_some("native/ios/hilen_browser.m");
+    let files: Vec<_> = text_field.into_iter().chain(browser_sheet).chain(hot_shell_file(&os)).collect();
     if files.is_empty() {
         return;
     }

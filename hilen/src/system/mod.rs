@@ -4,6 +4,8 @@
 #[cfg(android)]
 pub(crate) mod android_jni;
 pub(crate) mod app_activity;
+#[cfg(feature = "login")]
+pub(crate) mod browser_sheet;
 mod clipboard;
 mod locale;
 mod media_session;

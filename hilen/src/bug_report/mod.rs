@@ -18,7 +18,10 @@ mod style;
 #[cfg(wasm)]
 mod web;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    fmt::{Display, Write},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use anyhow::Result;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
@@ -193,6 +196,41 @@ impl BugReport {
             attachment:  attachment.filter(|attachment| !attachment.bytes.is_empty()),
             keys:        None,
         });
+    }
+
+    /// A silent Sentry event of level warning, for a state of the app that
+    /// should never happen. No dialog, no email and no screenshot. The
+    /// event carries `message` as its message and every pair of `values`
+    /// as an extra value under its key, with the recent log lines
+    /// attached. Sentry groups events by the message, so keep what
+    /// changes from case to case in `values`. The message and the values
+    /// are always logged as a warning. Without a DSN nothing more happens.
+    /// It does not block and works from any thread, on native the sentry
+    /// client sends from its own thread, in the browser a task posts the
+    /// event. It does not limit how often it sends, the caller does.
+    pub fn send_warning(message: impl Into<String>, values: &[(&str, &dyn Display)]) {
+        let message = message.into();
+        let values: Vec<(String, String)> = values
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.to_string()))
+            .collect();
+
+        let mut line = format!("Warning event: {message}");
+        for (key, value) in &values {
+            if let Err(err) = write!(line, ", {key}: {value}") {
+                error!("Warning event log line failed: {err}");
+            }
+        }
+        warn!("{line}");
+
+        if Self::disabled() {
+            return;
+        }
+
+        #[cfg(not_wasm)]
+        native::warning(&message, values);
+        #[cfg(wasm)]
+        web::warning(message, values);
     }
 
     fn disabled() -> bool {

@@ -21,6 +21,29 @@ same moment. The browser history only ever holds the hash.
 - A row nobody finished is dropped after 10 minutes, the client gives up after the same time.
 - Sessions keep only the SHA-256 of the token. All times are the database clock.
 
+## The browser sheet on iOS
+
+On iOS the login page opens in an `SFSafariViewController` sheet over the app, not in
+Safari, so the user never leaves the app. The code is `hilen/src/system/browser_sheet.rs`
+with the native half in `hilen/native/ios/hilen_browser.m`. Every other platform, tvOS
+too, keeps the plain `open_url`.
+
+- The sheet closes by itself when the poll says the login is done, and when the wait
+  ends for any other reason, a cancel or the 10 minutes.
+- A user who closes the sheet by hand, with Done or a swipe, gets 1 more poll at once.
+  A login that was already done still logs in. A pending one ends the waiting state of
+  the button with no event, the same as its cancel.
+- The app stays in front under the sheet, so the poll keeps running. With Safari the
+  system could suspend the app.
+- `SFSafariViewController` was picked over `ASWebAuthenticationSession` because it
+  needs no url scheme and no change on the server. Its cost: the sheet has its own
+  cookies, so a user who is logged in to Google in Safari may type the password again.
+- Google refuses a login in a plain `WKWebView`, never move the page into one.
+- Not covered by a UI test. The sheet is a system view with no pixels in the engine,
+  and the button tests never reach the open call. A real login is checked by hand on a
+  phone.
+- `GoogleAccess::sign_in` in `hilen/src/google_access` still opens Safari on iOS.
+
 ## Requests
 
 The login client sends everything through `net::Call`, the one request path of the

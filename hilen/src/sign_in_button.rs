@@ -59,9 +59,10 @@ pub(crate) const APPLE: Look = Look {
 /// One button view per call, the same code under each. A generic view would
 /// do it too, but then the view could not sit in a UI test.
 ///
-/// `$start` is a fn that takes the callback of the sign in, `$cancel` a fn
-/// that stops waiting for it. `$done` names the event of a finished sign in
-/// and `$out` is what it carries.
+/// `$start` is a fn that takes the callback of the sign in and a callback
+/// for a browser sheet the user closed by hand, `$cancel` a fn that stops
+/// waiting for it. `$done` names the event of a finished sign in and `$out`
+/// is what it carries.
 macro_rules! sign_in_button {
     ($(#[$doc:meta])* $name:ident, $done:ident : $out:ty, $start:path, $cancel:path, $look:expr) => {
         $(#[$doc])*
@@ -127,17 +128,25 @@ macro_rules! sign_in_button {
                 }
                 self.set_waiting(true);
 
-                $start(move |result| {
-                    // The view can be long gone when the browser part ends.
-                    if self.is_null() {
-                        return;
-                    }
-                    self.set_waiting(false);
-                    match result {
-                        Ok(out) => self.$done.trigger(out),
-                        Err(error) => self.failed.trigger(error.to_string()),
-                    }
-                });
+                $start(
+                    move |result| {
+                        // The view can be long gone when the browser part ends.
+                        if self.is_null() {
+                            return;
+                        }
+                        self.set_waiting(false);
+                        match result {
+                            Ok(out) => self.$done.trigger(out),
+                            Err(error) => self.failed.trigger(error.to_string()),
+                        }
+                    },
+                    // A sheet closed by hand ends like a cancel, with no event.
+                    move || {
+                        if self.is_ok() {
+                            self.set_waiting(false);
+                        }
+                    },
+                );
             }
 
             fn stop(mut self: Weak<Self>) {

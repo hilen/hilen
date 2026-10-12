@@ -5,6 +5,8 @@
 //! the browser. So these are the few fields a report and a panic need.
 //! The format is in the Sentry developer docs, sdk/data-model/envelopes.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Result, anyhow, bail};
 use reqwest::Url;
 use serde::Serialize;
@@ -137,6 +139,9 @@ pub(crate) struct Event {
     pub exception: Option<Exceptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contexts:  Option<Contexts>,
+    /// The named values of a warning, shown on the event page.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra:     BTreeMap<String, String>,
 }
 
 impl Event {
@@ -157,6 +162,7 @@ impl Event {
             user: None,
             exception: None,
             contexts: None,
+            extra: BTreeMap::new(),
         }
     }
 }
@@ -247,6 +253,31 @@ pub(crate) fn report(dsn: &Dsn, mut event: Event, data: BugReportData, log: &str
     build(dsn, &event, &attachments)
 }
 
+/// A warning of `BugReport::send_warning` on top of `event`, which brings
+/// the id, the time, the level and the browser. The log becomes an
+/// attachment when it has lines.
+pub(crate) fn warning(
+    dsn: &Dsn,
+    mut event: Event,
+    message: String,
+    values: Vec<(String, String)>,
+    log: &str,
+) -> Result<Vec<u8>> {
+    event.message = Some(message);
+    event.extra = values.into_iter().collect();
+
+    let mut attachments = Vec::new();
+    if !log.is_empty() {
+        attachments.push(Attachment {
+            filename:     "log.txt",
+            content_type: "text/plain",
+            bytes:        log.as_bytes(),
+        });
+    }
+
+    build(dsn, &event, &attachments)
+}
+
 fn push_item(out: &mut Vec<u8>, header: &ItemHeader, payload: &[u8]) -> Result<()> {
     serde_json::to_writer(&mut *out, header)?;
     out.push(b'\n');
@@ -257,10 +288,12 @@ fn push_item(out: &mut Vec<u8>, header: &ItemHeader, payload: &[u8]) -> Result<(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use anyhow::Result;
     use serde::Deserialize;
 
-    use super::{Attachment, Dsn, Event, User, build, report};
+    use super::{Attachment, Dsn, Event, User, build, report, warning};
     use crate::bug_report::{BugReportAttachment, BugReportData};
 
     const DSN: &str = "https://abc123@o42.ingest.sentry.io/7001";
@@ -460,6 +493,78 @@ mod tests {
         let (event, attachments) = parse_report(&send(None, log)?)?;
         assert_eq!(event.message, "the button does nothing");
         assert_eq!(attachments, [log_item(log)]);
+
+        Ok(())
+    }
+
+    #[derive(Deserialize)]
+    struct ParsedWarning {
+        level:   String,
+        message: String,
+        #[serde(default)]
+        extra:   BTreeMap<String, String>,
+        user:    Option<ParsedUser>,
+    }
+
+    /// The browser envelope of `BugReport::send_warning`: level warning,
+    /// the message, every pair under `extra`, no user, and the log as the
+    /// only attachment. With no values the event has no `extra` at all.
+    #[test]
+    fn warning_envelope_with_values() -> Result<()> {
+        let dsn = Dsn::parse(DSN)?;
+        let log = "line 1\nline 2\n";
+
+        let bytes = warning(
+            &dsn,
+            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "warning"),
+            "a story has more audio than sentences".to_string(),
+            vec![
+                ("url".to_string(), "https://example.com/story/42".to_string()),
+                ("sentences".to_string(), "17".to_string()),
+                ("audio".to_string(), "19".to_string()),
+            ],
+            log,
+        )?;
+
+        let newline = bytes.iter().position(|byte| *byte == b'\n').expect("envelope header line");
+        let mut rest = &bytes[newline + 1..];
+
+        let (item, payload) = next_item(&mut rest)?;
+        assert_eq!(item.ty, "event");
+        let event: ParsedWarning = serde_json::from_slice(payload)?;
+        assert_eq!(event.level, "warning");
+        assert_eq!(event.message, "a story has more audio than sentences");
+        assert!(event.user.is_none());
+        assert_eq!(
+            event.extra.into_iter().collect::<Vec<_>>(),
+            [
+                ("audio".to_string(), "19".to_string()),
+                ("sentences".to_string(), "17".to_string()),
+                ("url".to_string(), "https://example.com/story/42".to_string()),
+            ]
+        );
+
+        let (item, payload) = next_item(&mut rest)?;
+        assert_eq!(item.ty, "attachment");
+        assert_eq!(item.filename.as_deref(), Some("log.txt"));
+        assert_eq!(payload, log.as_bytes());
+        assert_eq!(rest.len(), 0);
+
+        let bytes = warning(
+            &dsn,
+            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "warning"),
+            "no values at all".to_string(),
+            Vec::new(),
+            "",
+        )?;
+        let newline = bytes.iter().position(|byte| *byte == b'\n').expect("envelope header line");
+        let mut rest = &bytes[newline + 1..];
+        let (_, payload) = next_item(&mut rest)?;
+        assert!(!String::from_utf8_lossy(payload).contains("extra"));
+        let event: ParsedWarning = serde_json::from_slice(payload)?;
+        assert_eq!(event.message, "no values at all");
+        assert!(event.extra.is_empty());
+        assert_eq!(rest.len(), 0);
 
         Ok(())
     }

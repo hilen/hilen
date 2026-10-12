@@ -66,28 +66,53 @@ pub(super) fn submit(data: BugReportData) {
         return;
     };
 
-    let envelope = match report_envelope(dsn, data) {
+    send(
+        "Bug report",
+        dsn,
+        envelope::report(dsn, event("info"), data, &LogRing::dump()),
+    );
+}
+
+/// `BugReport::send_warning` in the browser.
+pub(super) fn warning(message: String, values: Vec<(String, String)>) {
+    let Some(dsn) = DSN.get() else {
+        error!("Warning event submitted with no Sentry DSN");
+        return;
+    };
+
+    send(
+        "Warning event",
+        dsn,
+        envelope::warning(dsn, event("warning"), message, values, &LogRing::dump()),
+    );
+}
+
+/// An event of now with a new id and the browser.
+fn event(level: &'static str) -> Event {
+    let mut event = Event::new(event_id(), now(), level);
+    event.contexts = user_agent().map(|name| Contexts {
+        browser: BrowserContext { name },
+    });
+    event
+}
+
+/// Posts the envelope from a task, so the caller never waits for the
+/// network. `what` names the event in the log lines.
+fn send(what: &'static str, dsn: &'static Dsn, envelope: Result<Vec<u8>>) {
+    let envelope = match envelope {
         Ok(envelope) => envelope,
         Err(err) => {
-            error!("Bug report envelope failed: {err}");
+            error!("{what} envelope failed: {err}");
             return;
         }
     };
 
     spawn(async move {
-        if let Err(err) = post(dsn.envelope_url(), envelope).await {
-            error!("Bug report send failed: {err}");
+        match post(dsn.envelope_url(), envelope).await {
+            Ok(()) => debug!("{what} sent to Sentry"),
+            Err(err) => error!("{what} send failed: {err}"),
         }
     });
-}
-
-fn report_envelope(dsn: &Dsn, data: BugReportData) -> Result<Vec<u8>> {
-    let mut event = Event::new(event_id(), now(), "info");
-    event.contexts = user_agent().map(|name| Contexts {
-        browser: BrowserContext { name },
-    });
-
-    envelope::report(dsn, event, data, &LogRing::dump())
 }
 
 async fn post(url: &str, envelope: Vec<u8>) -> Result<()> {
