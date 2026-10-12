@@ -25,6 +25,8 @@ use crate::{gm::LossyConvert, time::monotonic_seconds};
 const ZERO_TIME_WEIGHT: f64 = 0.1;
 /// A start time that sits on a sample is off it by a rounding error.
 const SAMPLE_SLACK: f64 = 1e-6;
+/// How long a sound with an end fades out. A sound cut on 1 sample clicks.
+const FADE_SECONDS: f64 = 0.03;
 /// More sounds than this at once make the audio thread ask for memory.
 const SOUNDS_AT_ONCE: usize = 256;
 /// The buffers of kira are shorter than this, so the audio thread never
@@ -38,10 +40,17 @@ pub(super) enum At {
 }
 
 pub(super) enum Command {
-    Start { run: u64 },
+    Start {
+        run: u64,
+    },
     Stop,
     SetBpm(f64),
-    Play { at: At, sound: Box<dyn Sound> },
+    Play {
+        at:    At,
+        sound: Box<dyn Sound>,
+        /// Where the sound fades out, None plays it to its end.
+        until: Option<At>,
+    },
 }
 
 /// Where the clock was at the start of the newest audio callback.
@@ -79,6 +88,37 @@ impl Reading {
 struct Queued {
     at:    At,
     sound: Box<dyn Sound>,
+    until: Option<At>,
+}
+
+/// A sound that started.
+struct Voice {
+    sound:  Box<dyn Sound>,
+    until:  Option<At>,
+    fading: bool,
+    gain:   f32,
+}
+
+/// The time at the first frame of a buffer.
+#[derive(Clone, Copy)]
+struct Now {
+    seconds: f64,
+    beats:   f64,
+    bpm:     f64,
+}
+
+impl Now {
+    /// The frame of this buffer that `at` falls on, None when it is after
+    /// the buffer. A time that already passed is frame 0, so a sound that
+    /// was queued too late still plays.
+    fn offset(self, at: At, frames: f64, dt: f64) -> Option<usize> {
+        let ahead = match at {
+            At::Seconds(seconds) => (seconds - self.seconds) / dt,
+            At::Beat(beat) => (beat - self.beats) / (dt * self.bpm / 60.0),
+        };
+        let frame = (ahead - SAMPLE_SLACK).ceil().max(0.0);
+        (frame < frames).then(|| frame.lossy_convert())
+    }
 }
 
 pub(super) struct ClockSound {
@@ -92,7 +132,7 @@ pub(super) struct ClockSound {
     /// callbacks.
     zero_time: Option<f64>,
     queued:    Vec<Queued>,
-    playing:   Vec<Box<dyn Sound>>,
+    playing:   Vec<Voice>,
     mix:       Vec<Frame>,
     /// The `SoundClock` is dropped.
     closed:    bool,
@@ -127,8 +167,8 @@ impl ClockSound {
                 }
             }
         }
-        for sound in &mut self.playing {
-            sound.on_start_processing();
+        for voice in &mut self.playing {
+            voice.sound.on_start_processing();
         }
         self.publish(now);
     }
@@ -140,15 +180,25 @@ impl ClockSound {
                 self.seconds = 0.0;
                 self.beats = 0.0;
                 self.zero_time = None;
+                self.fade_the_ended();
             }
             Command::Stop => {
                 self.run = 0;
                 self.seconds = 0.0;
                 self.beats = 0.0;
                 self.queued.clear();
+                self.fade_the_ended();
             }
             Command::SetBpm(bpm) => self.bpm = bpm,
-            Command::Play { at, sound } => self.queued.push(Queued { at, sound }),
+            Command::Play { at, sound, until } => self.queued.push(Queued { at, sound, until }),
+        }
+    }
+
+    /// The end of a sound is a time of the run it started in, and that run
+    /// is over.
+    fn fade_the_ended(&mut self) {
+        for voice in &mut self.playing {
+            voice.fading |= voice.until.is_some();
         }
     }
 
@@ -176,36 +226,39 @@ impl ClockSound {
         }
     }
 
-    /// Mixes `sound` into `out` from the frame `offset` on.
+    /// Mixes `voice` into `out` from the frame `start` on. From the frame
+    /// `fade_from` on it fades out.
     fn mix_in(
         mix: &mut Vec<Frame>,
-        sound: &mut dyn Sound,
+        voice: &mut Voice,
         out: &mut [Frame],
-        offset: usize,
+        start: usize,
+        fade_from: Option<usize>,
         dt: f64,
         info: &Info,
     ) {
-        let out = &mut out[offset..];
+        let out = &mut out[start..];
         if mix.len() < out.len() {
             mix.resize(out.len(), Frame::ZERO);
         }
         let mix = &mut mix[..out.len()];
-        sound.process(mix, dt, info);
-        for (out, mixed) in out.iter_mut().zip(mix) {
-            *out += *mixed;
+        voice.sound.process(mix, dt, info);
+        let step: f32 = (dt / FADE_SECONDS).lossy_convert();
+        for (frame, (out, mixed)) in (start..).zip(out.iter_mut().zip(mix)) {
+            if voice.fading || fade_from.is_some_and(|from| frame >= from) {
+                voice.fading = true;
+                voice.gain = (voice.gain - step).max(0.0);
+            }
+            *out += *mixed * voice.gain;
         }
     }
 
-    /// The frame of this buffer that `at` falls on, None when it is after
-    /// the buffer. A time that already passed is frame 0, so a sound that
-    /// was queued too late still plays.
-    fn offset(&self, at: At, frames: f64, dt: f64) -> Option<usize> {
-        let ahead = match at {
-            At::Seconds(seconds) => (seconds - self.seconds) / dt,
-            At::Beat(beat) => (beat - self.beats) / (dt * self.bpm / 60.0),
-        };
-        let frame = (ahead - SAMPLE_SLACK).ceil().max(0.0);
-        (frame < frames).then(|| frame.lossy_convert())
+    fn now(&self) -> Now {
+        Now {
+            seconds: self.seconds,
+            beats:   self.beats,
+            bpm:     self.bpm,
+        }
     }
 }
 
@@ -216,25 +269,35 @@ impl Sound for ClockSound {
 
     fn process(&mut self, out: &mut [Frame], dt: f64, info: &Info) {
         out.fill(Frame::ZERO);
-        for sound in &mut self.playing {
-            Self::mix_in(&mut self.mix, sound.as_mut(), out, 0, dt, info);
+        let frames = f64::from(u32::try_from(out.len()).unwrap_or(u32::MAX));
+        let now = self.now();
+        let running = self.run != 0;
+        for voice in &mut self.playing {
+            let fade_from = voice.until.filter(|_| running).and_then(|until| now.offset(until, frames, dt));
+            Self::mix_in(&mut self.mix, voice, out, 0, fade_from, dt, info);
         }
-        if self.run != 0 {
-            let frames = f64::from(u32::try_from(out.len()).unwrap_or(u32::MAX));
+        if running {
             let mut index = 0;
             while index < self.queued.len() {
-                let Some(offset) = self.offset(self.queued[index].at, frames, dt) else {
+                let Some(offset) = now.offset(self.queued[index].at, frames, dt) else {
                     index += 1;
                     continue;
                 };
-                let mut sound = self.queued.swap_remove(index).sound;
-                Self::mix_in(&mut self.mix, sound.as_mut(), out, offset, dt, info);
-                self.playing.push(sound);
+                let queued = self.queued.swap_remove(index);
+                let mut voice = Voice {
+                    sound:  queued.sound,
+                    until:  queued.until,
+                    fading: false,
+                    gain:   1.0,
+                };
+                let fade_from = voice.until.and_then(|until| now.offset(until, frames, dt));
+                Self::mix_in(&mut self.mix, &mut voice, out, offset, fade_from, dt, info);
+                self.playing.push(voice);
             }
             self.seconds += frames * dt;
             self.beats += frames * dt * self.bpm / 60.0;
         }
-        self.playing.retain(|sound| !sound.finished());
+        self.playing.retain(|voice| !voice.sound.finished() && voice.gain > 0.0);
     }
 
     /// The sounds that already started play to their end after the clock is

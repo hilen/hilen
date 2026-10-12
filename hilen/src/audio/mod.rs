@@ -11,7 +11,7 @@ pub(crate) mod manager;
 mod sound;
 
 pub use self::{
-    clock::SoundClock,
+    clock::{SoundClock, Tone},
     sound::{Playing, Sound},
 };
 use crate::managed;

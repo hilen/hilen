@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use kira::sound::SoundData;
+use kira::sound::{SoundData, static_sound::StaticSoundData};
 use log::error;
 use parking_lot::Mutex;
 
@@ -30,6 +30,26 @@ enum FeedSlot {
     Set(Feed),
     /// Taken out for a call that runs now.
     Lent,
+}
+
+/// How a sound queued with `play_tone_at_beat` plays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tone {
+    /// 1 as recorded and 0 silent.
+    pub volume:   f32,
+    /// The speed of the sound, which moves its pitch: 1 as recorded, 2 an
+    /// octave up, 0.5 an octave down.
+    pub rate:     f64,
+    /// The beat the sound fades out at. None plays it to its end. A stop of
+    /// the clock fades out a sound that has an end.
+    pub end_beat: Option<f64>,
+}
+
+impl Tone {
+    /// The rate that moves a sound by `semitones`, up or down.
+    pub fn rate_of(semitones: f64) -> f64 {
+        2f64.powf(semitones / 12.0)
+    }
 }
 
 /// A clock that sounds are queued on. A queued sound starts on the exact
@@ -314,16 +334,45 @@ impl SoundClock {
     /// Queues `sound` to start at `beat` at `volume`, 1 as recorded and 0
     /// silent. A beat that already passed starts at once.
     pub fn play_at_beat(&mut self, sound: &Sound, beat: f64, volume: f32) {
-        self.play(sound, At::Beat(beat), beat, volume);
+        self.play(sound, sound.at_volume(volume), At::Beat(beat), beat, None);
+    }
+
+    /// Queues `sound` to start at `beat` like `play_at_beat`, at the pitch
+    /// and with the end of `tone`. A note of an instrument is played so:
+    /// 1 recorded note gives the notes next to it, and a note ends when the
+    /// next one starts.
+    pub fn play_tone_at_beat(&mut self, sound: &Sound, beat: f64, tone: Tone) {
+        if !(tone.rate.is_finite() && tone.rate > 0.0) {
+            error!(
+                "A sound queued at the rate {} on a sound clock is dropped",
+                tone.rate
+            );
+            return;
+        }
+        if tone.end_beat.is_some_and(|end| !end.is_finite()) {
+            error!(
+                "A sound queued with the end {:?} on a sound clock is dropped",
+                tone.end_beat
+            );
+            return;
+        }
+        let data = sound.at_tone(tone.volume, tone.rate);
+        self.play(sound, data, At::Beat(beat), beat, tone.end_beat.map(At::Beat));
     }
 
     /// Queues `sound` to start at `seconds` on the clock, see
     /// `play_at_beat`. A tempo change does not move it.
     pub fn play_at_seconds(&mut self, sound: &Sound, seconds: f64, volume: f32) {
-        self.play(sound, At::Seconds(seconds), seconds, volume);
+        self.play(
+            sound,
+            sound.at_volume(volume),
+            At::Seconds(seconds),
+            seconds,
+            None,
+        );
     }
 
-    fn play(&mut self, sound: &Sound, at: At, time: f64, volume: f32) {
+    fn play(&mut self, sound: &Sound, data: StaticSoundData, at: At, time: f64, until: Option<At>) {
         if !time.is_finite() {
             error!("A sound queued at {time} on a sound clock is dropped");
             return;
@@ -332,10 +381,10 @@ impl SoundClock {
         if state.commands.is_none() {
             return;
         }
-        match sound.at_volume(volume).into_sound() {
+        match data.into_sound() {
             Ok((sound, handle)) => {
                 drop(handle);
-                state.send(Command::Play { at, sound });
+                state.send(Command::Play { at, sound, until });
             }
             Err(err) => error!("Failed to queue sound {sound:?}: {err:?}"),
         }

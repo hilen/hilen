@@ -9,7 +9,7 @@ use kira::{
 };
 
 use crate::{
-    audio::{Sound, SoundClock, clock_sound::ClockSound},
+    audio::{Sound, SoundClock, Tone, clock_sound::ClockSound},
     time::monotonic_seconds,
 };
 
@@ -66,8 +66,112 @@ pub(super) fn click() -> Sound {
     Sound::from_frames(SAMPLE_RATE, vec![Frame::from_mono(1.0); 8])
 }
 
+/// A steady sound of `frames` samples.
+fn hum(frames: usize) -> Sound {
+    Sound::from_frames(SAMPLE_RATE, vec![Frame::from_mono(1.0); frames])
+}
+
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-6
+}
+
+fn full(sample: f32) -> bool {
+    (sample - 1.0).abs() < 1e-3
+}
+
+#[test]
+fn a_tone_at_rate_2_is_half_as_long() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    let tone = Tone {
+        volume:   1.0,
+        rate:     2.0,
+        end_beat: None,
+    };
+    clock.play_tone_at_beat(&hum(4800), 0.0, tone);
+    output.render(20, 480, 128);
+    let heard = output.samples.iter().filter(|sample| **sample != 0.0).count();
+    assert!((2390..=2410).contains(&heard), "{heard} samples");
+    assert!((Tone::rate_of(12.0) - 2.0).abs() < 1e-9);
+    assert!((Tone::rate_of(-12.0) - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_tone_fades_out_from_its_end_beat_with_any_buffer_size() {
+    for (frames, buffer) in [(512, 128), (480, 128), (1024, 100), (37, 37)] {
+        let (mut clock, sound) = SoundClock::connected(120.0);
+        let mut output = Output::new(sound);
+        clock.start();
+        let tone = Tone {
+            volume:   1.0,
+            rate:     1.0,
+            end_beat: Some(0.25),
+        };
+        clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+        output.render(9600 / frames + 1, frames, buffer);
+        // A quarter of a beat at 120 is sample 6000, and the fade of 0.03
+        // seconds is 1440 samples long.
+        let at = format!("{frames} frames in buffers of {buffer}");
+        assert!(output.samples[..6000].iter().all(|sample| full(*sample)), "{at}");
+        assert!(
+            output.samples[5999..7430].windows(2).all(|pair| pair[1] < pair[0]),
+            "{at}"
+        );
+        assert!(output.samples[7450..].iter().all(|sample| *sample == 0.0), "{at}");
+    }
+}
+
+#[test]
+fn a_tone_that_ends_before_it_starts_is_not_heard() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    output.render(10, 480, 128);
+    let tone = Tone {
+        volume:   1.0,
+        rate:     1.0,
+        end_beat: Some(0.1),
+    };
+    clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+    output.render(10, 480, 128);
+    assert!(output.samples[..4800].iter().all(|sample| *sample == 0.0));
+    assert!(output.samples[4800 + 1450..].iter().all(|sample| *sample == 0.0));
+}
+
+#[test]
+fn stop_fades_out_a_tone_with_an_end() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    let tone = Tone {
+        volume:   1.0,
+        rate:     1.0,
+        end_beat: Some(100.0),
+    };
+    clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+    output.render(10, 480, 128);
+    clock.stop();
+    output.render(10, 480, 128);
+    assert!(output.samples[..4800].iter().all(|sample| full(*sample)));
+    assert!(output.samples[4800 + 1450..].iter().all(|sample| *sample == 0.0));
+}
+
+#[test]
+fn a_wrong_tone_is_not_queued() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    for (rate, end_beat) in [(0.0, None), (f64::NAN, None), (1.0, Some(f64::INFINITY))] {
+        let tone = Tone {
+            volume: 1.0,
+            rate,
+            end_beat,
+        };
+        clock.play_tone_at_beat(&click(), 0.0, tone);
+    }
+    output.render(4, 480, 128);
+    assert_eq!(output.starts(), [] as [usize; 0]);
 }
 
 #[test]

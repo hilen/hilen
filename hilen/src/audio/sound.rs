@@ -5,7 +5,7 @@ use std::{
 };
 
 use kira::{
-    Decibels, Tween,
+    Decibels, PlaybackRate, Tween,
     sound::{
         FromFileError, PlaybackState,
         static_sound::{StaticSoundData, StaticSoundHandle},
@@ -72,6 +72,10 @@ impl Sound {
 
     pub(super) fn at_volume(&self, volume: f32) -> StaticSoundData {
         self.data.volume(decibels(volume))
+    }
+
+    pub(super) fn at_tone(&self, volume: f32, rate: f64) -> StaticSoundData {
+        self.at_volume(volume).playback_rate(PlaybackRate(rate))
     }
 
     #[cfg(test)]

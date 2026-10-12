@@ -8,7 +8,7 @@ the frame rate is. A metronome or a written drum pattern needs that.
 ## The calls
 
 ```rust
-use hilen::audio::{Sound, SoundClock};
+use hilen::audio::{Sound, SoundClock, Tone};
 
 let mut clock = SoundClock::new(120.0);
 clock.start();
@@ -17,6 +17,10 @@ clock.start();
 clock.play_at_beat(&kick, 4.0, 1.0);
 clock.play_at_beat(&snare, 4.5, 0.8);
 clock.play_at_seconds(&click, 10.0, 0.5);
+
+// A note of an instrument: 2 semitones over the recorded one, cut at beat 5.
+let tone = Tone { volume: 0.8, rate: Tone::rate_of(2.0), end_beat: Some(5.0) };
+clock.play_tone_at_beat(&bass, 4.0, tone);
 
 // The place of the play line on screen, for the frame that is drawn.
 let beat = clock.beats_at(hilen::time::frame_seconds());
@@ -34,6 +38,17 @@ clock.stop();
   queue a sound. The volume is 1 as recorded and 0 silent, like `play_with_volume`.
   A time that already passed starts at once. A sound queued before `start` waits
   for it.
+- `play_tone_at_beat(sound, beat, tone)` queues a sound at another pitch and with an
+  end, the way a sampler plays a note of an instrument. A `Tone` has 3 fields.
+  `volume` is the one of `play_at_beat`. `rate` is the speed of the sound, which moves
+  its pitch: 1 as recorded, 2 an octave up, 0.5 an octave down, and
+  `Tone::rate_of(semitones)` gives the rate for a step up or down in semitones. A
+  faster sound is shorter too. `end_beat` is the beat the sound fades out from, over
+  0.03 seconds, so the cut makes no click, and `None` plays it to its end. The end
+  moves with the tempo like the start. A rate that is not over 0 and an end that is
+  no number drop the sound with an error in the log.
+- A sound with an end belongs to the run it started in. `stop()` and a new `start()`
+  fade it out at once. A sound with no end plays on, as before.
 - `seconds()` and `beats()` give the time now, 0 while stopped. They go on smoothly
   between 2 audio buffers, so a play line does not move in steps.
 - `set_bpm(bpm)` changes the tempo, also while the clock runs. The beat the clock is
@@ -101,7 +116,9 @@ callback.
 seconds and beats in samples. For each buffer it finds the sample a queued sound
 starts on and mixes the sound in from there. The queued sound is a normal kira
 static sound, so the decode, the volume and the change of sample rate are the ones
-of every `Sound`. Commands reach it through a channel, read once per device
+of every `Sound`. The rate of a tone is the playback rate of that kira sound. Its
+end is found like its start, the sample the end beat falls on, and from there
+`ClockSound` turns the sound down a little with every sample until it is silent. Commands reach it through a channel, read once per device
 callback: start, stop, tempo and play.
 
 At the start of every device callback the audio thread writes a reading: the clock
