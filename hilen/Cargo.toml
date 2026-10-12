@@ -201,6 +201,7 @@ objc2 = { workspace = true }
 objc2-app-kit = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-media-player = { workspace = true }
+wgpu-hal = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = { workspace = true }
@@ -211,6 +212,7 @@ objc2-avf-audio = { workspace = true, optional = true }
 objc2-foundation = { workspace = true }
 objc2-media-player = { workspace = true }
 objc2-ui-kit = { workspace = true }
+wgpu-hal = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 arboard = { workspace = true }

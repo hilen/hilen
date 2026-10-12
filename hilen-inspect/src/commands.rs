@@ -10,7 +10,7 @@ use serde_json::{json, to_string_pretty};
 
 use super::{
     build_time, drag, find, find_matches,
-    frames::{pause, record, resume, step},
+    frames::{kept_frames, pause, record, record_start, record_stop, resume, step},
     get_ui, hold,
     input::{RecordArgs, hover, keys, scroll, tap},
     print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send, wait,
@@ -211,6 +211,18 @@ pub(super) enum Command {
         #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u32).range(1..=60))]
         timeout: u32,
     },
+    /// Start a record of every frame the app draws. It runs until
+    /// record-stop and keeps its last 10 seconds
+    RecordStart,
+    /// Stop the running record, the app keeps its frames
+    RecordStop,
+    /// Save the frames of the last record, 1 PNG each at 1 pixel per
+    /// point, with the time of each frame and the gap to the one before
+    Frames {
+        /// Folder for the frames
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Freeze the clock and the drawing of the app. An input sent after
     /// it shows in the next stepped frame.
     Pause,
@@ -302,6 +314,9 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         | Command::Scroll { .. }
         | Command::Keys { .. }
         | Command::Record { .. }
+        | Command::RecordStart
+        | Command::RecordStop
+        | Command::Frames { .. }
         | Command::Pause
         | Command::Step { .. }
         | Command::Resume) => run_input(client, input).await?,
@@ -355,6 +370,9 @@ async fn run_input(client: &Client, command: Command) -> Result<()> {
             record,
         } => keys(client, text, key, [cmd, shift, alt], &record).await?,
         Command::Record { frames, out, timeout } => record(client, frames, &out, timeout).await?,
+        Command::RecordStart => record_start(client).await?,
+        Command::RecordStop => record_stop(client).await?,
+        Command::Frames { out } => kept_frames(client, &out).await?,
         Command::Pause => pause(client).await?,
         Command::Step { frames } => step(client, frames).await?,
         Command::Resume => resume(client).await?,

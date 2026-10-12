@@ -18,6 +18,10 @@ pub enum AppCommand {
         #[serde(default)]
         note:   Option<String>,
     },
+    /// The record from a start to a stop, with no pictures.
+    Record(RecordRepr),
+    /// Pictures of the record from a start to a stop, the oldest first.
+    KeptFrames(Vec<KeptFrameRepr>),
     /// The app is paused, with the frames drawn since the pause.
     Paused {
         frame: u64,
@@ -75,10 +79,55 @@ pub fn file_hash(data: &[u8]) -> u64 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordRepr {
+    pub running:  bool,
+    /// Frames the app drew since the start of the record.
+    pub drawn:    u32,
+    /// Frames the record took since its start. With `skipped` at 0 it is
+    /// `drawn`, less the few still on their way while the record runs.
+    pub recorded: u32,
+    /// Frames lost because the packers of the app did not answer. They
+    /// are in no list. It is 0 in a healthy app.
+    pub skipped:  u32,
+    /// Frames the app waited for its packers at, see `FrameInfoRepr`.
+    pub stalled:  u32,
+    /// The kept frames, the oldest first.
+    pub frames:   Vec<FrameInfoRepr>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameInfoRepr {
+    /// The count of the frame from the start of the record, from 0.
+    pub index:    u32,
+    /// Milliseconds from the start of the record to the draw of the frame.
+    pub ms:       f32,
+    /// Milliseconds from the start of the record to the moment the frame
+    /// reached the screen. Only Metal tells it, on a Mac and an iPhone.
+    /// It is `None` on other systems, for a frame of a covered window and
+    /// for a frame the screen dropped.
+    #[serde(default)]
+    pub shown_ms: Option<f32>,
+    pub width:    u32,
+    pub height:   u32,
+    /// The app waited for the packers of the record before this frame,
+    /// so its gap is the cost of the record and not of the app.
+    pub stalled:  bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeptFrameRepr {
+    pub info:       FrameInfoRepr,
+    /// The picture in the QOI format, RGB with no loss.
+    pub qoi_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameRepr {
-    /// The count of the frame from the input, the frame of the input is 0.
+    /// The count of the frame from the input, the frame of the input is
+    /// 0. In a record from a start to a stop it counts from the start.
     pub index:      u32,
-    /// Milliseconds from the input to the draw of the frame.
+    /// Milliseconds from the input, or from the start, to the draw of the
+    /// frame.
     pub ms:         f32,
     pub width:      u32,
     pub height:     u32,

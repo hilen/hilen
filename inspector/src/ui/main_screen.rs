@@ -2,14 +2,14 @@ use std::net::{IpAddr, SocketAddr};
 
 use anyhow::{Result, anyhow};
 use hilen::{
-    dispatch::{log_spawn, on_main},
+    dispatch::{from_main, log_spawn, on_main},
     inspect::protocol::{
         AppCommand, Client, InspectorCommand, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
     },
     refs::Weak,
     ui::{
         AlertErr,
-        Anchor::{Right, Top},
+        Anchor::{Left, Right, Top},
         Button, Setup, TextDropDown, UIEvent, UIManager, ViewData, async_link_button, view,
     },
 };
@@ -18,6 +18,7 @@ use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
 
 use crate::ui::{
     common::ValueView,
+    frames::FramesView,
     inspect::{SHRINK_SCALE, UIRepresentView, ViewInspectorView},
 };
 
@@ -25,12 +26,15 @@ pub static VIEW_SELECTED: UIEvent<Weak<ViewRepr>> = UIEvent::const_new();
 
 #[view]
 pub struct MainScreen {
+    /// The text of an app in the list, its name and its id, and where it
+    /// listens. An app on an older engine tells no name, it has its id.
     apps:           Vec<(String, SocketAddr)>,
     current_client: Option<Client>,
     selected_id:    Option<String>,
 
     #[init]
     clients: TextDropDown,
+    frames:  Button,
 
     play_sound:   Button,
     get_ui:       Button,
@@ -44,10 +48,18 @@ pub struct MainScreen {
 
 impl Setup for MainScreen {
     fn setup(self: Weak<Self>) {
-        self.clients.place().tl(10).size(200, 50);
+        self.clients.place().tl(10).size(300, 50);
         self.clients.on_changed(move |app_id| {
             self.connect_to(app_id);
         });
+
+        self.frames
+            .set_text("Frames")
+            .place()
+            .t(10)
+            .anchor(Left, self.clients, 10)
+            .size(120, 50);
+        self.frames.on_tap(move || self.frames_tapped());
 
         self.play_sound.set_text("Play Sound").place().size(280, 50).tr(10);
         async_link_button!(self.play_sound, play_sound_tapped);
@@ -110,6 +122,11 @@ impl MainScreen {
         let events = mdns.browse(SERVICE_TYPE)?;
 
         while let Ok(event) = events.recv_async().await {
+            // The frames screen replaces this one, the search of a screen
+            // that is gone ends here.
+            if !from_main(move || self.is_ok()) {
+                break;
+            }
             match event {
                 ServiceEvent::ServiceResolved(service) => {
                     let Some(app_id) = service.txt_properties.get_property_val_str("app_id") else {
@@ -131,13 +148,24 @@ impl MainScreen {
                         continue;
                     };
 
-                    let app_id = app_id.to_string();
+                    let app_id = match service.txt_properties.get_property_val_str("name") {
+                        Some(name) => format!("{name} {app_id}"),
+                        None => app_id.to_string(),
+                    };
                     let addr = SocketAddr::new(ip, service.port);
 
-                    on_main(move || self.app_discovered(app_id, addr));
+                    on_main(move || {
+                        if self.is_ok() {
+                            self.app_discovered(app_id, addr);
+                        }
+                    });
                 }
                 ServiceEvent::ServiceRemoved(_, fullname) => {
-                    on_main(move || self.app_removed(&fullname));
+                    on_main(move || {
+                        if self.is_ok() {
+                            self.app_removed(&fullname);
+                        }
+                    });
                 }
                 _ => {}
             }
@@ -155,14 +183,16 @@ impl MainScreen {
         self.apps.push((app_id.clone(), addr));
         self.reload_clients();
 
-        if self.current_client.is_none() {
+        // Only the app the list shows as picked. A connect to every found
+        // app showed the tree of another app than the list named.
+        if self.current_client.is_none() && self.clients.try_get_value() == Some(app_id.as_str()) {
             self.connect_to(app_id);
         }
     }
 
     fn app_removed(mut self: Weak<Self>, fullname: &str) {
         let app_id = fullname.strip_suffix(&format!(".{SERVICE_TYPE}")).unwrap_or(fullname);
-        self.apps.retain(|(id, _)| id != app_id);
+        self.apps.retain(|(text, _)| !text.ends_with(app_id));
         self.reload_clients();
     }
 
@@ -183,12 +213,25 @@ impl MainScreen {
             let response = client.send(UIRequest::GetUI.into()).await?;
 
             on_main(move || {
-                self.set_client(client);
-                self.process_command(response);
+                if self.is_ok() {
+                    self.set_client(client);
+                    self.process_command(response);
+                }
             });
 
             Ok(())
         });
+    }
+
+    /// Opens the frames of the last record of the connected app.
+    fn frames_tapped(self: Weak<Self>) {
+        // The app picked in the list, a connect to another one can still run.
+        let picked = self.clients.try_get_value();
+        let Some((_, addr)) = self.apps.iter().find(|(id, _)| Some(id.as_str()) == picked) else {
+            error!("No app is picked, the frames screen has nothing to show");
+            return;
+        };
+        UIManager::set_view(FramesView::new()).open(*addr);
     }
 
     fn set_client(mut self: Weak<Self>, client: Client) {
@@ -236,13 +279,17 @@ impl MainScreen {
     fn process_command(self: Weak<Self>, command: AppCommand) {
         match command {
             AppCommand::UI(UIResponse::SendUI { scale, root, .. }) => on_main(move || {
-                self.ui_represent.set_root(scale, root);
-                self.restore_selection();
+                if self.is_ok() {
+                    self.ui_represent.set_root(scale, root);
+                    self.restore_selection();
+                }
             }),
             AppCommand::Error(err) => error!("App returned an error: {err}"),
             AppCommand::Ok
             | AppCommand::Screenshot { .. }
             | AppCommand::Frames { .. }
+            | AppCommand::Record(_)
+            | AppCommand::KeptFrames(_)
             | AppCommand::Paused { .. }
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)

@@ -53,11 +53,12 @@ static SERVICE: AtomicPtr<Service> = AtomicPtr::new(null_mut());
 
 /// Announces the inspect server of this app on the local network.
 #[cfg(ios)]
-pub(crate) fn announce(app_id: &str, port: u16) -> Result<()> {
+pub(crate) fn announce(app_id: &str, app_name: &str, port: u16) -> Result<()> {
     let name = CString::new(app_id)?;
     // The system wants the type alone, the domain is its own choice.
     let service_type = CString::new(SERVICE_TYPE.trim_end_matches(".local."))?;
-    let text = text_record("app_id", app_id)?;
+    let mut text = text_record("app_id", app_id)?;
+    text.extend(text_record("name", app_name)?);
 
     let mut service = null_mut();
     // SAFETY: every pointer lives over the call, and the system copies what

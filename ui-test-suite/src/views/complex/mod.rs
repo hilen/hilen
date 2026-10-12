@@ -16,6 +16,7 @@ mod drop_down_cells;
 mod drop_down_in_modal;
 mod drop_down_outside_tap;
 mod drop_down_over_button;
+mod drop_down_over_deep_view;
 mod drop_down_scroll;
 mod drop_down_style;
 mod key_binding_under_modal;

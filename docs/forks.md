@@ -14,8 +14,9 @@ last rebase was on 2026-09-03, the old heads are `pin-2026-09-03`.
 ## wgpu
 
 Branch `ios-edr-guard` at github.com/VladasZ/wgpu sits on the upstream v30.0.1 tag with
-3 commits on top. Only 1 source file differs from stock wgpu 30, Apple only, so Windows,
-Linux, Android and wasm builds of `hilen-wgpu` are identical to upstream.
+4 commits on top, plus the version bumps. Only the Metal backend differs from stock wgpu
+30, Apple only, so Windows, Linux, Android and wasm builds of `hilen-wgpu` are identical
+to upstream.
 
 - Guard `wantsExtendedDynamicRangeContent` behind iOS 16. Merged upstream as
   [gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257) on 2026-09-16, on
@@ -28,12 +29,20 @@ Linux, Android and wasm builds of `hilen-wgpu` are identical to upstream.
   [gfx-rs/wgpu#10013](https://github.com/gfx-rs/wgpu/issues/10013). The same line was
   merged upstream as [gfx-rs/wgpu#10286](https://github.com/gfx-rs/wgpu/pull/10286) by
   another contributor on 2026-09-29, on trunk only. No PR from us.
+- The time a presented frame reached the screen, `metal::on_next_presented` in the new
+  file `wgpu-hal/src/metal/presented.rs` and 1 line in `present`. The handler is given
+  to the next drawable that is presented and gets the seconds since Metal showed it,
+  from `presentedTime` of the drawable. The frame record of the inspector reads it, see
+  [inspect.md](inspect.md). Published as `hilen-wgpu-hal` 30.0.3 on 2026-10-12, the root
+  `Cargo.toml` asks for that version by name. Fork only, upstream wgpu has no present
+  time on any backend, so this keeps the fork alive past v31.
 
 Both fixes are on trunk, which is v31, and neither is copied to the upstream `v30`
 branch. The decision is to wait for v31, not to send a backport. The upstream v31
 milestone is due 2026-10-09. Once hilen moves to a v31 that holds both, the fork carries
-only the rename, so hilen goes back to stock `wgpu` and the `hilen-wgpu` crates stop.
-`wgpu_text` moves in the same step, its fork depends on `hilen-wgpu` and two `wgpu`
+only the rename and the presented time below. The plan to go back to stock `wgpu`
+with v31 waits until upstream has a present time of its own.
+`wgpu_text` moves with it, its fork depends on `hilen-wgpu` and two `wgpu`
 crates do not interchange, see [ios.md](ios.md). Check on an iOS 12 device and on a P3
 display first.
 
@@ -45,6 +54,8 @@ Publishing follows upstream's habit, only the crates whose content changed get t
 version and the internal version requirements stay at `30.0.0`. The 2026-09-03 rebase
 touched `wgpu` and `wgpu-hal`, so crates.io has `hilen-wgpu` and `hilen-wgpu-hal` at
 30.0.2 while `hilen-wgpu-core` and the 4 `hilen-wgpu-core-deps-*` crates stay at 30.0.0.
+The presented time on 2026-10-12 touched only `wgpu-hal`, so `hilen-wgpu-hal` alone is
+at 30.0.3.
 The workspace version bump is its own commit on the branch. Publish order is
 `hilen-wgpu-hal` first, then `hilen-wgpu`, each `cargo publish -p <name>` from a clean
 tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`, and

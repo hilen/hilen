@@ -483,6 +483,10 @@ impl State {
         self.frame_work_time = self.update_work + work_started.elapsed().as_secs_f32();
 
         if let Some(surface_texture) = surface_texture {
+            #[cfg(all(feature = "inspect", apple))]
+            if let Some(handler) = frame_control::presented_handler() {
+                wgpu_hal::metal::on_next_presented(handler);
+            }
             Window::queue().present(surface_texture);
         }
 

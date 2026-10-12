@@ -13,7 +13,8 @@ in the `local` repo for the pattern.
 With the feature on, the app starts an inspect server at launch, a release build only with
 `HILEN_INSPECT=1`, see [Release builds](#release-builds)
 (`hilen/src/inspect/`): a TCP listener, advertised over mDNS
-as `_hilen-inspect._tcp.local.` with the app instance id in the TXT record. No config,
+as `_hilen-inspect._tcp.local.` with the app instance id as `app_id` and the name of
+the exe as `name` in the TXT record. No config,
 any number of apps per machine. The first app on a device takes the port 7435,
 `FIXED_PORT` in `protocol/mod.rs`, every other app takes a free port of the system. So
 a tool that can not search the network still finds 1 app by the address of the device,
@@ -41,14 +42,17 @@ for a phone, a socket bound to the own address of that network goes out there.
 
 Two clients exist:
 
-- `inspector` — the GUI. Browses mDNS continuously, lists running apps in a dropdown,
-  filters out its own advertisement.
+- `inspector` — the GUI. Browses mDNS continuously, lists running apps in a dropdown
+  by name and id, like `blast EENIUK`, filters out its own advertisement, and connects
+  to the app picked in the list. An app on an engine from before 2026-10-12 tells no
+  name and shows its id alone. `Frames` opens the frames screen for the picked app,
+  see [The frames screen](#the-frames-screen).
 - `hilen-inspect` — the CLI, also the interface for AI agents. Install once with
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
-  `resize`, `record`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
+  `resize`, `record`, `record-start`, `record-stop`, `frames`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `devices`, and `hot-status` and `hot-send`
   for the loader on a device, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
@@ -121,8 +125,9 @@ anything else is a winit `KeyCode` name like `Space` or `ArrowUp`.
 ## Frame by frame
 
 A screenshot is 1 frame, the one the app drew last, some frames after the input. A
-layout that settles over 3 frames or a flash of 1 frame is never in it. 2 things show
-every frame.
+layout that settles over 3 frames or a flash of 1 frame is never in it. 3 things show
+every frame: a record after an input, a record from a start to a stop, and a frame
+step.
 
 A record saves every frame after an input. `tap <query> --frames 30 --out <dir>` sends
 the tap and saves the next 30 frames the app draws as `000.png` to `029.png`. `000.png`
@@ -131,6 +136,32 @@ skipped. The printed line of each frame has its time since the tap. `hover`, `ke
 `scroll` take the same 2 flags. `record --frames 30 --out <dir> [--timeout 60]` sends
 no input, the next press, key or wheel turn of the user starts it, so a glitch is
 shown by doing it once. A record takes up to 120 frames and 1 runs at a time.
+
+A record from a start to a stop needs no input and no frame count. `record-start`
+starts it, `record-stop` stops it, and the app keeps the frames of its last 10
+seconds until the next start. `frames --out <dir>` saves them as `00000.png` and so
+on, named by the count of the frame from the start, and prints for each frame its
+time, the gap to the frame before and its draw time. It is the record for a stretch
+with no input, like a playback, and for a glitch that comes when it wants: start it,
+use the app, stop it right after the glitch.
+
+- No frame is left out. Every frame the app draws is taken, the answer says how many
+  the app drew and how many the record took. When the app cannot pack the frames
+  fast enough it waits for its packers, and the frame it drew after the wait is
+  marked `stalled`, so the record shows its own cost. A frame is lost only when the
+  packers do not answer for 2 seconds, `skipped` counts those and is 0 in a healthy
+  app.
+- A frame is kept at 1 pixel per point, so half the size on a screen with scale 2,
+  with no loss, in the QOI format.
+- A frame has 2 times. `ms` is when the engine drew it. `shown_ms` is when it
+  reached the screen, told by Metal, so only on a Mac and an iPhone, and not for a
+  covered window. The draw times of even frames jump by several ms, the screen
+  times are exactly 1 refresh apart. On Blast the screen time was 65 ms after the
+  draw time.
+- In a window on screen the record asks for no frame, it takes what the app draws.
+  An app that draws nothing gives no frames, that is the truth about that app and
+  no fault of the record. A covered window and a headless run draw with nothing to
+  pace them, there the record asks for the frames itself, 60 a second.
 
 A frame step walks a running app. `pause` freezes the engine clock and the drawing,
 `step [n]` draws the next n frames, each moves the clock by one frame of 60 a second,
@@ -161,9 +192,40 @@ How it works:
 - A paused app runs only the queued callbacks in its loop turn, so the inspector still
   gets its answers. `Clock::enter_stepped` holds the clock, a step calls
   `Clock::advance_frame` before the update.
+- The record from a start to a stop is `hilen/src/window/frame_ring.rs`. The main
+  thread hands each read back frame to a line of at most 16, and worker threads, 1
+  per 2 cores, scale it down and pack it. With a full line the main thread waits,
+  the only place where the engine blocks it on purpose. The packed frames sit in a
+  map by index, a frame older than 10 seconds than the newest one is dropped.
+- The screen time comes from the wgpu fork, `wgpu::hal::metal::on_next_presented`,
+  see [forks.md](forks.md). `State` asks for it right before it presents a frame a
+  record took. Metal calls back on a thread of its own when the frame is on screen.
 
-The `Inspect frames` UI test proves both on an animation, a card that slides and
-changes its color in every frame.
+The `Inspect frames` UI test proves the record after an input and the frame step on
+an animation, a card that slides and changes its color in every frame. The `Inspect
+record` UI test proves the record from a start to a stop on a card that slides for 2
+seconds: 127 frames in 2.1 seconds, as many taken as drawn, none lost, in order, at
+1 pixel per point. A headless run presents nothing, so no test proves the screen
+time.
+
+### The frames screen
+
+The `inspector` app shows the kept record of an app. `Record` starts and stops a
+record, `Reload` loads the record again, like one made with the CLI.
+
+- A time line with 1 piece per frame, as wide as the time its picture stayed on
+  screen. 2 grays take turns so the frames can be told apart. A piece has a color
+  in 1 case only, orange where the app waited for the record. A picture that stays
+  long has no color, on a screen where nothing moves that is normal. A click or a
+  drag on the line selects the frame that was on screen at that time.
+- A strip of small pictures, the selected frame in big, and under it the screen
+  time, how long it stayed and the draw time.
+- The left and right arrow keys step. `Play` or Space plays the record at its real
+  speed, or at 0.5, 0.25 and 0.1 of it.
+- `Changed pixels` paints the pixels that differ from the frame before in magenta
+  and counts them.
+
+The code is `inspector/src/ui/frames/`.
 
 ## Protocol
 
@@ -207,6 +269,12 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
   a `Tap`, `Keys`, `Hover`, `Scroll` or `Drag`, and replies with `Frames`, every frame
   as base64 PNG with its `index` from the input and its `ms`. With no input it waits
   up to `wait_ms` for an input of the user and replies with an error when none came.
+- `RecordStart`, `RecordStop`, `RecordInfo` — the record from a start to a stop. Each
+  replies with `Record`, a `RecordRepr`: whether it runs, the frames drawn, taken,
+  lost and waited at, and a `FrameInfoRepr` per kept frame with no picture.
+- `RecordFrames { from, count }` — replies with `KeptFrames`, the pictures of at most
+  `count` kept frames from the index `from` on, each as base64 QOI with its
+  `FrameInfoRepr`. At most 120 in 1 answer, a client asks in pieces.
 - `Pause`, `Step { frames }`, `Resume` — the frame step. `Pause` and `Step` reply with
   `Paused { frame }`, the frames drawn since the pause. `Step` on an app that is not
   paused is an error.

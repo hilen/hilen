@@ -26,6 +26,12 @@ const CHECK: f32 = 14.0;
 /// The open list never comes closer than this to the edge of the window.
 const SCREEN_MARGIN: f32 = 8.0;
 
+/// How much closer an open drop down sits than its siblings: 400 nesting
+/// steps, so the list draws over a view nested that deep. It stays under
+/// the step between 2 modal layers, 0.005, so a list in a modal never
+/// draws over the modal above it.
+const PANEL_RAISE: f32 = 0.004;
+
 /// What a `DropDown` shows. Like `TableData` for a table: the drop down
 /// owns no values, it only knows the index of the picked row.
 ///
@@ -246,7 +252,7 @@ impl DropDown {
         // The panel floats over whatever sits under the box. Pushed
         // forward once, later siblings stay behind it.
         if !self.raised {
-            self.bump_z_position(0.000_1);
+            self.bump_z_position(PANEL_RAISE);
             self.raised = true;
         }
 

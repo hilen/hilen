@@ -3,7 +3,7 @@
 
 use crate::window::Screenshot;
 #[cfg(feature = "inspect")]
-use crate::window::{frame_record, frame_step};
+use crate::window::{frame_record, frame_ring, frame_step};
 
 /// Takes the picture of the frame that was just drawn.
 pub(crate) type FrameReader = Box<dyn FnOnce(Screenshot) + Send>;
@@ -13,7 +13,10 @@ pub(crate) type FrameReader = Box<dyn FnOnce(Screenshot) + Send>;
 #[cfg(not_wasm)]
 pub(crate) fn pace() {
     #[cfg(feature = "inspect")]
-    frame_record::pace();
+    {
+        frame_record::pace();
+        frame_ring::pace();
+    }
 }
 
 /// Before the update of a frame that is not held.
@@ -49,7 +52,7 @@ pub(crate) fn holding() -> bool {
 pub(crate) fn offscreen_wanted() -> bool {
     #[cfg(feature = "inspect")]
     {
-        frame_step::stepping() || frame_record::running()
+        frame_step::stepping() || frame_record::running() || frame_ring::running()
     }
     #[cfg(not(feature = "inspect"))]
     {
@@ -63,11 +66,26 @@ pub(crate) fn input_arrived() {
     frame_record::start();
 }
 
-/// The reader of a running record for the frame being drawn.
+/// The frame being drawn goes to the screen now. A running record wants
+/// to know when it gets there: the handler gets the seconds since then,
+/// or `None` for a frame the screen never showed. Only Metal tells that.
+#[cfg(all(feature = "inspect", apple))]
+pub(crate) fn presented_handler() -> Option<Box<dyn FnOnce(Option<f64>) + Send>> {
+    frame_ring::presented_handler()
+}
+
+/// The reader of the running records for the frame being drawn. A record
+/// after an input and a record from a start to a stop can run together.
 pub(crate) fn frame_reader() -> Option<FrameReader> {
     #[cfg(feature = "inspect")]
     {
-        frame_record::take_frame()
+        match (frame_record::take_frame(), frame_ring::take_frame()) {
+            (Some(first), Some(second)) => Some(Box::new(move |shot: Screenshot| {
+                first(shot.clone());
+                second(shot);
+            })),
+            (first, second) => first.or(second),
+        }
     }
     #[cfg(not(feature = "inspect"))]
     {

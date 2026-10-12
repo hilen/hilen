@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 
 use crate::{
@@ -5,11 +7,12 @@ use crate::{
     gm::LossyConvert,
     inspect::{
         AppCommand, InspectService,
-        protocol::{FrameRepr, UIRequest, UIResponse},
+        protocol::{FrameInfoRepr, FrameRepr, KeptFrameRepr, RecordRepr, UIRequest, UIResponse},
         wait::MAX_WAIT_MS,
     },
     window::{
         frame_record::{self, RecordedFrame},
+        frame_ring::{self, PackedFrame},
         frame_step,
     },
 };
@@ -84,6 +87,57 @@ impl InspectService {
         }
     }
 
+    pub(super) fn record_start() -> AppCommand {
+        match from_main(frame_ring::start) {
+            Ok(()) => Self::record_info(),
+            Err(error) => AppCommand::Error(error),
+        }
+    }
+
+    pub(super) fn record_stop() -> AppCommand {
+        match from_main(frame_ring::stop) {
+            Ok(()) => Self::record_info(),
+            Err(error) => AppCommand::Error(error),
+        }
+    }
+
+    pub(super) fn record_info() -> AppCommand {
+        let kept = match frame_ring::kept() {
+            Ok(kept) => kept,
+            Err(error) => return AppCommand::Error(error),
+        };
+        AppCommand::Record(RecordRepr {
+            running:  kept.running,
+            drawn:    kept.drawn,
+            recorded: kept.recorded,
+            skipped:  kept.skipped,
+            stalled:  kept.stalled,
+            frames:   kept.frames.iter().map(|frame| frame_info(frame, &kept.shown)).collect(),
+        })
+    }
+
+    pub(super) fn record_frames(from: u32, count: u32) -> AppCommand {
+        if count == 0 || count > MAX_FRAMES {
+            return AppCommand::Error(format!("An answer takes 1 to {MAX_FRAMES} frames"));
+        }
+        let kept = match frame_ring::kept() {
+            Ok(kept) => kept,
+            Err(error) => return AppCommand::Error(error),
+        };
+        let count = usize::try_from(count).unwrap_or(usize::MAX);
+        let frames = kept
+            .frames
+            .iter()
+            .filter(|frame| frame.index >= from)
+            .take(count)
+            .map(|frame| KeptFrameRepr {
+                info:       frame_info(frame, &kept.shown),
+                qoi_base64: STANDARD.encode(&frame.qoi),
+            })
+            .collect();
+        AppCommand::KeptFrames(frames)
+    }
+
     pub(super) fn pause() -> AppCommand {
         AppCommand::Paused {
             frame: from_main(frame_step::pause),
@@ -104,6 +158,17 @@ impl InspectService {
     pub(super) fn resume() -> AppCommand {
         from_main(frame_step::resume);
         AppCommand::Ok
+    }
+}
+
+fn frame_info(frame: &PackedFrame, shown: &BTreeMap<u32, f32>) -> FrameInfoRepr {
+    FrameInfoRepr {
+        index:    frame.index,
+        ms:       frame.ms,
+        shown_ms: shown.get(&frame.index).copied(),
+        width:    frame.size.width,
+        height:   frame.size.height,
+        stalled:  frame.stalled,
     }
 }
 

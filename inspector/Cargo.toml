@@ -9,9 +9,12 @@ name = "inspector"
 
 [dependencies]
 anyhow = { workspace = true }
+base64 = { workspace = true }
+image = { workspace = true }
 log = { workspace = true }
 mdns-sd = { workspace = true }
 parking_lot = { workspace = true }
+tokio = { workspace = true }
 
 hilen = { workspace = true, features = ["inspect"] }
 

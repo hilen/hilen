@@ -28,6 +28,23 @@ pub enum InspectorCommand {
         #[serde(default)]
         wait_ms: u32,
     },
+    /// Starts a record of every frame the app draws. It runs until
+    /// `RecordStop` and keeps its last 10 seconds, each frame at 1 pixel
+    /// per point with no loss. No frame is left out: when the app cannot
+    /// pack fast enough it waits, and the frame says so. It drops the
+    /// record kept before it.
+    RecordStart,
+    /// Stops the running record. The app keeps its frames until the next
+    /// start.
+    RecordStop,
+    /// Asks for the list of the kept frames, with no pictures.
+    RecordInfo,
+    /// Asks for the pictures of the kept frames from the index `from`
+    /// on, at most `count` of them. The answer is `KeptFrames`.
+    RecordFrames {
+        from:  u32,
+        count: u32,
+    },
     /// Freezes the engine clock and the drawing until `Resume`.
     Pause,
     /// Draws the next frames of a paused app, each moves the clock by one

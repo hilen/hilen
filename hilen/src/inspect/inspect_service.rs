@@ -20,6 +20,8 @@ use tokio::{net::TcpListener, time::sleep};
 use crate::deps::hreads::log_spawn;
 #[cfg(any(wasm, feature = "audio"))]
 use crate::deps::hreads::on_main;
+#[cfg(not_wasm)]
+use crate::filesystem::Paths;
 #[cfg(ios)]
 use crate::inspect::bonjour;
 #[cfg(hot)]
@@ -163,7 +165,7 @@ impl InspectService {
 
             // An iPhone lets only its own Bonjour service announce.
             #[cfg(ios)]
-            bonjour::announce(app_id, port)?;
+            bonjour::announce(app_id, &Self::app_name(), port)?;
             // The daemon lives to the end of this task, like the listener.
             #[cfg(not(ios))]
             let mdns = ServiceDaemon::new()?;
@@ -175,7 +177,7 @@ impl InspectService {
                     &format!("{app_id}.local."),
                     "",
                     port,
-                    &[("app_id", app_id)][..],
+                    &[("app_id", app_id), ("name", Self::app_name().as_str())][..],
                 )?
                 .enable_addr_auto(),
             )?;
@@ -184,6 +186,13 @@ impl InspectService {
 
             serve(listener, Self::process_command).await
         });
+    }
+
+    /// The name an inspector shows next to the id of this app. It is the
+    /// name of the exe, a test runner has no project name to tell.
+    #[cfg(not_wasm)]
+    fn app_name() -> String {
+        Paths::executable_name()
     }
 
     #[cfg(hot)]
@@ -221,6 +230,10 @@ impl InspectService {
                 input,
                 wait_ms,
             } => Self::record(frames, input, wait_ms),
+            InspectorCommand::RecordStart => Self::record_start(),
+            InspectorCommand::RecordStop => Self::record_stop(),
+            InspectorCommand::RecordInfo => Self::record_info(),
+            InspectorCommand::RecordFrames { from, count } => Self::record_frames(from, count),
             InspectorCommand::Pause => Self::pause(),
             InspectorCommand::Step { frames } => Self::step(frames),
             InspectorCommand::Resume => Self::resume(),

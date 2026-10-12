@@ -8,6 +8,8 @@ mod frame_counter;
 #[cfg(feature = "inspect")]
 pub(crate) mod frame_record;
 #[cfg(feature = "inspect")]
+pub(crate) mod frame_ring;
+#[cfg(feature = "inspect")]
 pub(crate) mod frame_step;
 mod fullscreen;
 #[cfg(desktop)]

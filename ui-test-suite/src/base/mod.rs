@@ -19,6 +19,7 @@ mod inspect_frames;
 /// Inspector hover uses the pointer pipeline, available on desktop and web.
 #[cfg(any(desktop, wasm))]
 mod inspect_hover;
+mod inspect_record;
 // The engine compiles the inspector out on wasm, so its tests go with it.
 #[cfg(not_wasm)]
 mod inspect_keys;
