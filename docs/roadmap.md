@@ -19,6 +19,30 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A phone has no keys for a view that reads the keyboard itself
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-12, on hilen `9c6c911c`. Its terminal
+page reads every key itself, see A view that reads the keys itself in
+[focus.md](focus.md). On a Mac that works. On an iPhone the terminal shows and
+updates, and nobody can type into it.
+
+- Current: the screen keyboard of a phone comes up only for an edited `TextField`,
+  which is a system text field there, see The system text field in [ios.md](ios.md).
+  Its 3 callbacks in `hilen/src/ui/views/basic/text_field/system_field.rs` are
+  `changed` with the whole text, `returned` and `ended`. So `UIEvents::keyboard_input`
+  and `UIEvents::keyboard_key` never fire from the screen keyboard: no char, no
+  Backspace, no arrow. The native file `hilen/native/ios/hilen_text.m` sets no row of
+  keys above the keyboard. Android was not looked at.
+- Needed: a view that is no text field asks for the screen keyboard and gives it
+  back. While it has it, every typed char fires `keyboard_input` and Backspace and
+  Return fire `keyboard_key`, with nothing kept as a text, and with no autocorrect
+  and no capital first letter. A row of extra keys above the keyboard that an app
+  fills, like Esc, Tab, Ctrl and the arrows, each a key event or a held modifier.
+  The place of the keyboard comes through `ScreenKeyboard` as for a field, so the
+  view can make itself smaller. A UI test on the simulator lane types through the
+  real keyboard with `system_input`.
+- Blocks: typing into a terminal of banda on a phone, the key row of its plan.
+
 ## A play after a long pause is not proven in flixen yet
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-12, on hilen `2f98fb71`. A video was
