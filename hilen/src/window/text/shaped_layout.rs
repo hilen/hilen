@@ -5,6 +5,7 @@ use std::{
 
 use rustybuzz::{UnicodeBuffer, shape};
 use unicode_linebreak::{BreakClass, break_property, linebreaks};
+use unicode_width::UnicodeWidthChar;
 use wgpu_text::glyph_brush::{
     GlyphPositioner, HorizontalAlign, SectionGeometry, SectionGlyph, ToSectionText,
     ab_glyph::{Font as AbGlyphFont, Glyph, GlyphId, PxScale, Rect, ScaleFont, point},
@@ -46,6 +47,9 @@ pub(crate) struct Shaping {
     /// The text is a secret, so it stays out of the shape and measure
     /// caches, which keep a copy of every text as their key.
     pub secret:      bool,
+    /// The width of 1 cell in points when the text sits on a cell grid,
+    /// see `ShapedParams::grid`.
+    pub grid:        Option<f32>,
 }
 
 /// Per label shaping parameters, collected where the label is drawn.
@@ -67,6 +71,11 @@ pub(crate) struct ShapedParams {
     pub runs:        Vec<FontRun>,
     /// The text is a secret and stays out of the shape cache.
     pub secret:      bool,
+    /// The width of 1 cell in pixels when the text sits on a cell grid,
+    /// like in a terminal: every char takes whole cells, 2 for a wide
+    /// one and none for a mark that joins the char before it, whatever
+    /// the advance of its glyph is. `None` for text that flows.
+    pub grid:        Option<f32>,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -90,6 +99,7 @@ impl Hash for ShapedLayout<'_> {
         self.params.tracking.to_bits().hash(state);
         self.params.multiline.hash(state);
         self.params.line_height.map(f32::to_bits).hash(state);
+        self.params.grid.map(f32::to_bits).hash(state);
         (self.params.h_align as u8).hash(state);
         self.params.v_align.hash(state);
         for run in &self.params.runs {
@@ -366,6 +376,32 @@ impl ShapedLayout<'_> {
         }
     }
 
+    /// Puts the glyphs of a line on a grid of cells `cell` pixels wide.
+    /// A cluster advances by the cells of its chars, as Unicode counts
+    /// their width, and its first glyph carries that advance. So a glyph
+    /// of a fallback font, wider or narrower than the cell, moves no
+    /// char after it out of its column.
+    fn snap_to_grid(glyphs: &mut [ShapedGlyph], text: &str, line_end: usize, cell: f32) {
+        let mut first = 0;
+        while first < glyphs.len() {
+            let cluster = glyphs[first].cluster;
+            let next = glyphs[first..]
+                .iter()
+                .position(|glyph| glyph.cluster != cluster)
+                .map_or(glyphs.len(), |more| first + more);
+            let end = glyphs.get(next).map_or(line_end, |glyph| glyph.cluster);
+            let cells: usize = text.get(cluster..end).map_or(1, |chars| {
+                chars.chars().map(|char| char.width().unwrap_or(0)).sum()
+            });
+            let cells: f32 = cells.lossy_convert();
+            glyphs[first].x_advance = cell * cells;
+            for glyph in &mut glyphs[first + 1..next] {
+                glyph.x_advance = 0.0;
+            }
+            first = next;
+        }
+    }
+
     fn shape_text(&self, text: &str, sources: &[Source], bound_w: f32) -> Vec<ShapedLine> {
         let mut lines = vec![];
         let mut offset = 0;
@@ -374,6 +410,9 @@ impl ShapedLayout<'_> {
             let line_end = offset + raw_line.len();
             let mut shaped = self.shape_line(text, offset..line_end, sources);
             Self::expand_tabs(&mut shaped, text, sources);
+            if let Some(cell) = self.params.grid {
+                Self::snap_to_grid(&mut shaped, text, line_end, cell);
+            }
 
             let chunks = if self.params.multiline {
                 Self::wrap(shaped, text, offset..line_end, bound_w)

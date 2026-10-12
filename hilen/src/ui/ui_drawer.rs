@@ -382,6 +382,7 @@ impl UIDrawer {
             // shadow flushed ahead of its view would cover it.
             Self::draw_shadow(view, &frame, ctx.scale, opacity);
             Self::draw_selection(view, &frame, ctx.scale, opacity);
+            Self::draw_background_runs(view, &frame, ctx.scale, opacity);
             Self::draw_background(view, &frame, ctx.scale, opacity);
         }
 

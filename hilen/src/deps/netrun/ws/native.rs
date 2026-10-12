@@ -22,6 +22,7 @@ pub struct WebSocket {
 
 enum Command {
     Send(String),
+    SendBytes(Vec<u8>),
     Close,
 }
 
@@ -37,6 +38,14 @@ impl WebSocket {
     pub fn send(&self, message: impl ToString) {
         if self.commands.send(Command::Send(message.to_string())).is_err() {
             warn!("WebSocket message dropped, the connection is gone");
+        }
+    }
+
+    /// Sends a binary message. It keeps its place among the text
+    /// messages sent before and after it.
+    pub fn send_bytes(&self, bytes: impl Into<Vec<u8>>) {
+        if self.commands.send(Command::SendBytes(bytes.into())).is_err() {
+            warn!("WebSocket bytes dropped, the connection is gone");
         }
     }
 
@@ -67,6 +76,7 @@ async fn run(url: String, mut commands: UnboundedReceiver<Command>, mut on_event
         tokio::select! {
             message = read.next() => match message {
                 Some(Ok(Message::Text(text))) => on_event(WsEvent::Message(text.to_string())),
+                Some(Ok(Message::Binary(bytes))) => on_event(WsEvent::Binary(bytes.to_vec())),
                 Some(Ok(Message::Ping(data))) => {
                     if let Err(err) = write.send(Message::Pong(data)).await {
                         error!("Failed to answer a WebSocket ping: {err}");
@@ -76,7 +86,7 @@ async fn run(url: String, mut commands: UnboundedReceiver<Command>, mut on_event
                     on_event(WsEvent::Closed);
                     return;
                 }
-                Some(Ok(_)) => debug!("WebSocket ignored a non text frame"),
+                Some(Ok(_)) => debug!("WebSocket ignored a frame that is no message"),
                 Some(Err(err)) => {
                     on_event(WsEvent::Error(format!("WebSocket failed: {err}")));
                     on_event(WsEvent::Closed);
@@ -86,6 +96,13 @@ async fn run(url: String, mut commands: UnboundedReceiver<Command>, mut on_event
             command = commands.recv() => match command {
                 Some(Command::Send(message)) => {
                     if let Err(err) = write.send(Message::text(message)).await {
+                        on_event(WsEvent::Error(format!("Failed to send over WebSocket: {err}")));
+                        on_event(WsEvent::Closed);
+                        return;
+                    }
+                }
+                Some(Command::SendBytes(bytes)) => {
+                    if let Err(err) = write.send(Message::binary(bytes)).await {
                         on_event(WsEvent::Error(format!("Failed to send over WebSocket: {err}")));
                         on_event(WsEvent::Closed);
                         return;

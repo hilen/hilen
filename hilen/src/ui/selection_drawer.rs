@@ -58,21 +58,40 @@ impl UIDrawer {
         let color = over(SELECTION_COLOR.faded(opacity), label.color().faded(opacity));
 
         for rect in label.selection_rects(highlight.start..highlight.end, highlight.goes_on) {
-            Pipelines::rect().add(UIRectInstance::new(
-                Rect::new(
-                    frame.x() + rect.x(),
-                    frame.y() + rect.y(),
-                    rect.width(),
-                    rect.height(),
-                ),
-                color,
-                CLEAR,
-                0.0,
-                CornerRadii::default(),
-                label.z_position(),
-                scale,
-            ));
+            Self::draw_under_text(label, frame, &rect, color, scale);
         }
+    }
+
+    /// The colors behind byte ranges of a label, see
+    /// `Label::set_background_runs`. They are queued like the rects of a
+    /// selection and for the same reason, after them, so a selection
+    /// wins where both are, and before the background of the label.
+    pub(super) fn draw_background_runs(view: &dyn View, frame: &Rect, scale: f32, opacity: f32) {
+        let Some(label) = view.as_any().downcast_ref::<Label>() else {
+            return;
+        };
+        for (rect, color) in label.background_rects() {
+            let color = over(color.faded(opacity), label.color().faded(opacity));
+            Self::draw_under_text(label, frame, &rect, color, scale);
+        }
+    }
+
+    /// A rect of a label in its own points, at the depth of the label.
+    fn draw_under_text(label: &Label, frame: &Rect, rect: &Rect, color: Color, scale: f32) {
+        Pipelines::rect().add(UIRectInstance::new(
+            Rect::new(
+                frame.x() + rect.x(),
+                frame.y() + rect.y(),
+                rect.width(),
+                rect.height(),
+            ),
+            color,
+            CLEAR,
+            0.0,
+            CornerRadii::default(),
+            label.z_position(),
+            scale,
+        ));
     }
 }
 

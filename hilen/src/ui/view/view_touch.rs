@@ -13,6 +13,14 @@ pub(crate) const NO_TOUCH_ID: usize = 0;
 
 pub trait ViewTouch {
     fn is_selected(&self) -> bool;
+    /// Makes this view the selected one, the way a press on it does:
+    /// the view that was selected is so no more, a text field in edit
+    /// ends its editing. A view that reads the keyboard itself, like a
+    /// terminal, takes the keys only while it is selected, so a field
+    /// or a popup that gets them takes them away from it. This call
+    /// gives them to it with no press, when its page opens.
+    /// `UIManager::unselect_view` takes the selection away again.
+    fn select(&self) -> &Self;
     fn is_hovered(&self) -> bool;
     /// This view or a view inside it is hovered, see `hover_within`.
     fn is_hover_within(&self) -> bool;
@@ -43,6 +51,11 @@ pub trait ViewTouch {
 impl<T: ?Sized + View> ViewTouch for T {
     fn is_selected(&self) -> bool {
         self.__base_view().is_selected
+    }
+
+    fn select(&self) -> &Self {
+        UIManager::set_selected(self.weak_view(), true);
+        self
     }
 
     fn is_hovered(&self) -> bool {

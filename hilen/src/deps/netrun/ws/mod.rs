@@ -1,4 +1,5 @@
-//! A text WebSocket client with one API on every platform. The browser
+//! A WebSocket client with one API on every platform, for text and for
+//! binary messages. The browser
 //! build dials through the JS socket, every other build through tokio.
 //! Events arrive on the socket's own context, the browser main thread on
 //! wasm and a tokio task on native, so a UI app hops to the main thread
@@ -22,6 +23,8 @@ pub enum WsEvent {
     Opened,
     /// One incoming text message.
     Message(String),
+    /// One incoming binary message.
+    Binary(Vec<u8>),
     /// A transport failure. When the connection dies `Closed` follows.
     Error(String),
     /// The connection ended. Dropping the handle closes silently instead.
@@ -106,6 +109,54 @@ mod test {
             assert_eq!(
                 received.recv_timeout(TIMEOUT)?,
                 WsEvent::Message("second".to_string())
+            );
+
+            socket.close();
+            assert_eq!(received.recv_timeout(TIMEOUT)?, WsEvent::Closed);
+
+            Ok(())
+        }
+
+        /// Bytes that are no text go out and come back as they are, and
+        /// keep their place between the text messages around them.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn ws_binary_round_trip() -> Result<()> {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("Failed to accept a connection");
+                let mut socket = accept_async(stream).await.expect("Failed the WebSocket handshake");
+
+                while let Some(Ok(message)) = socket.next().await {
+                    if message.is_text() || message.is_binary() {
+                        socket.send(message).await.expect("Failed to echo a message");
+                    }
+                }
+            });
+
+            let (events, received) = channel();
+
+            let socket = WebSocket::connect(format!("ws://{address}"), move |event| {
+                events.send(event).expect("Failed to deliver an event");
+            });
+
+            let bytes = vec![0, 27, 255, 0x89, b'P', 10, 13];
+
+            // Sent before the connection opens, must be queued and flushed.
+            socket.send("before");
+            socket.send_bytes(bytes.clone());
+            socket.send("after");
+
+            assert_eq!(received.recv_timeout(TIMEOUT)?, WsEvent::Opened);
+            assert_eq!(
+                received.recv_timeout(TIMEOUT)?,
+                WsEvent::Message("before".to_string())
+            );
+            assert_eq!(received.recv_timeout(TIMEOUT)?, WsEvent::Binary(bytes));
+            assert_eq!(
+                received.recv_timeout(TIMEOUT)?,
+                WsEvent::Message("after".to_string())
             );
 
             socket.close();

@@ -2,7 +2,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use log::{debug, error, warn};
 use web_sys::{
-    MessageEvent,
+    BinaryType, MessageEvent,
+    js_sys::{ArrayBuffer, Uint8Array},
     wasm_bindgen::{JsCast, closure::Closure},
 };
 
@@ -10,13 +11,31 @@ use crate::deps::netrun::ws::WsEvent;
 
 type Callback = Rc<RefCell<dyn FnMut(WsEvent)>>;
 
+/// A message sent before the socket opened.
+enum Queued {
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
+type Pending = Rc<RefCell<Vec<Queued>>>;
+
+fn send_now(socket: &web_sys::WebSocket, message: &Queued) {
+    let sent = match message {
+        Queued::Text(text) => socket.send_with_str(text),
+        Queued::Bytes(bytes) => socket.send_with_u8_array(bytes),
+    };
+    if let Err(err) = sent {
+        error!("Failed to send over WebSocket: {err:?}");
+    }
+}
+
 /// The browser side of the client. The socket and its JS callbacks live
 /// on the main thread. Dropping the handle detaches the callbacks and
 /// closes the socket without a Closed event.
 pub struct WebSocket {
     socket:   Option<web_sys::WebSocket>,
     handlers: Option<Handlers>,
-    pending:  Rc<RefCell<Vec<String>>>,
+    pending:  Pending,
 }
 
 struct Handlers {
@@ -30,10 +49,15 @@ impl WebSocket {
     pub fn connect(url: impl ToString, on_event: impl FnMut(WsEvent) + 'static) -> Self {
         let url = url.to_string();
         let callback: Callback = Rc::new(RefCell::new(on_event));
-        let pending: Rc<RefCell<Vec<String>>> = Rc::default();
+        let pending: Pending = Rc::default();
 
         let socket = match web_sys::WebSocket::new(&url) {
-            Ok(socket) => socket,
+            Ok(socket) => {
+                // A binary message comes as a blob by default, which is
+                // read in a later turn of the page and so out of order.
+                socket.set_binary_type(BinaryType::Arraybuffer);
+                socket
+            }
             Err(err) => {
                 emit(
                     &callback,
@@ -57,9 +81,7 @@ impl WebSocket {
                 emit(&callback, WsEvent::Opened);
 
                 for message in pending.borrow_mut().drain(..) {
-                    if let Err(err) = socket.send_with_str(&message) {
-                        error!("Failed to flush a queued WebSocket message: {err:?}");
-                    }
+                    send_now(&socket, &message);
                 }
             })
         };
@@ -68,12 +90,14 @@ impl WebSocket {
             let callback = callback.clone();
 
             Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
-                let Some(text) = event.data().as_string() else {
-                    warn!("WebSocket ignored a non text frame");
-                    return;
-                };
-
-                emit(&callback, WsEvent::Message(text));
+                let data = event.data();
+                if let Some(text) = data.as_string() {
+                    emit(&callback, WsEvent::Message(text));
+                } else if let Some(buffer) = data.dyn_ref::<ArrayBuffer>() {
+                    emit(&callback, WsEvent::Binary(Uint8Array::new(buffer).to_vec()));
+                } else {
+                    warn!("WebSocket ignored a frame that is neither text nor bytes");
+                }
             })
         };
 
@@ -114,20 +138,24 @@ impl WebSocket {
     }
 
     pub fn send(&self, message: impl ToString) {
+        self.queue(Queued::Text(message.to_string()));
+    }
+
+    /// Sends a binary message. It keeps its place among the text
+    /// messages sent before and after it.
+    pub fn send_bytes(&self, bytes: impl Into<Vec<u8>>) {
+        self.queue(Queued::Bytes(bytes.into()));
+    }
+
+    fn queue(&self, message: Queued) {
         let Some(socket) = &self.socket else {
             warn!("WebSocket message dropped, the connection never opened");
             return;
         };
 
-        let message = message.to_string();
-
         match socket.ready_state() {
             web_sys::WebSocket::CONNECTING => self.pending.borrow_mut().push(message),
-            web_sys::WebSocket::OPEN => {
-                if let Err(err) = socket.send_with_str(&message) {
-                    error!("Failed to send over WebSocket: {err:?}");
-                }
-            }
+            web_sys::WebSocket::OPEN => send_now(socket, &message),
             _ => warn!("WebSocket message dropped, the connection is closed"),
         }
     }

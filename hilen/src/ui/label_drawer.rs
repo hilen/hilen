@@ -81,6 +81,7 @@ impl UIDrawer {
             base:        label.font(),
             runs:        label.shaping_runs(text),
             secret:      label.is_secret(),
+            grid:        label.cell_width().map(|width| width * scale),
         }
     }
 

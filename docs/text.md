@@ -203,6 +203,36 @@ text its cluster came from, so a run boundary never breaks kerning or letter
 spacing. Theme pairs in a run re-resolve on a switch like the text color does.
 `set_text` clears the runs.
 
+## Background runs
+
+`Label::set_background_runs(ranges)` paints a color behind byte ranges of the text,
+under the glyphs and over the color of the label. A range that wraps is painted on
+every line it is on. The ranges are treated like the ones of `set_color_runs`, a theme
+pair resolves again on a switch, and `set_text` clears them.
+`UIDrawer::draw_background_runs` queues 1 rect per line piece like the rects of a
+selection and right after them, so a selection wins where both are. The rect of a
+selection starts at the top of the glyphs. With a custom line box half of the leading
+is above the glyphs, so a background rect is moved up by it and fills the box itself:
+only so the colors of 2 rows that touch meet with no seam. `Label background runs`
+pins it, its 3 rows count the colors of a column of pixels from top to bottom.
+
+## Cell grid
+
+`Label::set_cell_grid(true)` puts the text on a grid of cells, like the screen of a
+terminal. Every char takes whole cells, 1 for most, 2 for a wide one like a CJK
+letter or an emoji, as the `unicode-width` crate counts them, and none for a mark
+that joins the char before it. `snap_to_grid` in `ShapedLayout` runs after shaping
+and after the tabs: the first glyph of a cluster gets the advance of its cells and
+the rest of the cluster none. So a glyph of a fallback font, wider or narrower than
+the font of the label, moves nothing after it out of its column.
+
+`Label::cell_size()` is the size of 1 cell in points: the advance of a space and the
+line pitch of the font, each rounded to whole pixels of the screen. A cell of half a
+pixel more leaves seams between the backgrounds of 2 cells. The grid takes the width
+in the unit of the layout, points in a measure and pixels in the drawer, so both
+agree. The lines of a grid label are 1 cell high unless `set_line_height` says more.
+A row of a terminal is 1 such label, 1 cell high. `Label cell grid` pins it.
+
 ## Font runs
 
 `Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,

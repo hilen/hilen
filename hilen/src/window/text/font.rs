@@ -9,7 +9,7 @@ use rustybuzz::{
 use wgpu::MultisampleState;
 use wgpu_text::{
     BrushBuilder, Section, Text, TextBrush,
-    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, VariableFont},
+    glyph_brush::ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, ScaleFont, VariableFont},
 };
 
 #[cfg(not_wasm)]
@@ -241,7 +241,21 @@ impl Font {
             base:        weak_from_ref(self),
             runs:        shaping.runs,
             secret:      shaping.secret,
+            grid:        shaping.grid,
         }
+    }
+
+    /// The advance of a space and the distance between 2 baselines of
+    /// this font at `size`, in the unit of `size`. What 1 cell of a
+    /// cell grid is made from.
+    pub(crate) fn cell_metrics(&self, size: f32) -> (f32, f32) {
+        let scaled = self.ab().as_scaled(PxScale::from(size * self.em_scale));
+        let advance = self
+            .face()
+            .glyph_index(' ')
+            .and_then(|id| self.face().glyph_hor_advance(id))
+            .map_or(0.0, |units| f32::from(units) * scaled.scale_factor().horizontal);
+        (advance, scaled.ascent() - scaled.descent() + scaled.line_gap())
     }
 
     /// Size the text takes when drawn at `size`. `width` bounds wrapping,

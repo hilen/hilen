@@ -8,6 +8,7 @@ use crate::{
     deps::refs::weak_from_ref,
     gm::{
         LossyConvert,
+        color::Color,
         flat::{Point, Rect},
     },
     ui::{Label, TextAlignment, VerticalAlignment, ViewFrame, ViewTouch},
@@ -144,11 +145,45 @@ impl Label {
     pub(crate) fn selection_rects(&self, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
         let drawn = self.display_text(self.width());
         let layout = self.text_layout_for(drawn);
+        self.range_rects(drawn, &layout, range, goes_on)
+    }
+
+    /// The rects behind every background run of the label, each with
+    /// its color. The text is laid out once for all of them.
+    pub(crate) fn background_rects(&self) -> Vec<(Rect, Color)> {
+        let runs = self.background_runs();
+        if runs.is_empty() {
+            return Vec::new();
+        }
+        let drawn = self.display_text(self.width());
+        let layout = self.text_layout_for(drawn);
+        // The rect of a range starts at the top of the glyphs of its
+        // line. A custom line box has half of its leading above them,
+        // and a background fills the box itself: only so the colors of
+        // 2 rows that touch meet with no seam.
+        let above = self
+            .line_height()
+            .map_or(0.0, |height| (height - (layout.ascent - layout.descent)) / 2.0);
+        runs.iter()
+            .flat_map(|run| {
+                self.range_rects(drawn, &layout, run.range.clone(), false)
+                    .into_iter()
+                    .map(|rect| {
+                        let boxed = Rect::new(rect.x(), rect.y() - above, rect.width(), rect.height());
+                        (boxed, run.color)
+                    })
+            })
+            .collect()
+    }
+
+    /// One rect per line of `range` of the full text, on a `layout` of
+    /// the text as it is `drawn`.
+    fn range_rects(&self, drawn: &str, layout: &TextLayout, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
         let cut = Cut::of(&self.text, drawn);
         let start = cut.drawn_byte(drawn.len(), range.start);
         let end = cut.drawn_byte(drawn.len(), range.end);
 
-        let top = self.text_top(&layout);
+        let top = self.text_top(layout);
         let last = layout.lines.len().saturating_sub(1);
         let mut rects = Vec::new();
 
@@ -177,7 +212,7 @@ impl Label {
 
             let row: f32 = index.lossy_convert();
             rects.push(Rect::new(
-                self.line_left(&layout, index) + from,
+                self.line_left(layout, index) + from,
                 top + row * layout.line_height,
                 width,
                 layout.line_height,

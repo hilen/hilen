@@ -26,6 +26,16 @@ use crate::{
 
 static DEFAULT_TEXT_SIZE: AtomicF32 = AtomicF32::new(16.0);
 
+/// How the chars of a label get their place.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Placing {
+    /// Each char as wide as its glyph.
+    #[default]
+    Flow,
+    /// Each char in whole cells of a grid, see `Label::set_cell_grid`.
+    Grid,
+}
+
 #[derive(Debug, Default)]
 pub enum TextAlignment {
     Left,
@@ -114,6 +124,13 @@ pub struct Label {
     /// overlapping. Everything outside them keeps `text_color`.
     color_runs: Vec<ColorRun>,
 
+    /// Byte ranges of the text with a color of their own behind them,
+    /// sorted and not overlapping. See `set_background_runs`.
+    background_runs: Vec<ColorRun>,
+
+    /// Whether the text sits on a cell grid, see `set_cell_grid`.
+    placing: Placing,
+
     /// Byte ranges drawn in their own font or underlined, sorted and not
     /// overlapping. See `set_font_runs`.
     pub(super) font_runs: Vec<StyleRun>,
@@ -148,6 +165,7 @@ impl Label {
         }
         this.text = text.to_label();
         this.color_runs.clear();
+        this.background_runs.clear();
         this.font_runs.clear();
         this.ellipsized = None;
         self
@@ -187,10 +205,47 @@ impl Label {
     pub(super) fn shaping(&self, text: &str) -> Shaping {
         Shaping {
             tracking:    self.letter_spacing,
-            line_height: self.line_height,
+            line_height: self.line_height(),
             runs:        self.shaping_runs(text),
             secret:      self.secret,
+            grid:        self.cell_width(),
         }
+    }
+
+    /// Puts the text on a cell grid, like the screen of a terminal.
+    /// Every char then takes whole cells, 1 for most, 2 for a wide one
+    /// like a CJK letter or an emoji, and none for a mark that joins the
+    /// char before it. A glyph that comes from a fallback font, wider or
+    /// narrower than the font of the label, moves nothing after it out
+    /// of its column. `cell_size` is the size of 1 cell.
+    ///
+    /// The lines are 1 cell high, unless `set_line_height` says more. A
+    /// label 1 cell high per line is so filled by its lines with no gap,
+    /// and rows of such labels tile.
+    ///
+    /// Made for a mono font. With any other font the text is spread
+    /// over cells as wide as its space.
+    pub fn set_cell_grid(&self, grid: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.placing = if grid { Placing::Grid } else { Placing::Flow };
+        this.ellipsized = None;
+        self
+    }
+
+    /// The size of 1 cell of the cell grid at the font and the text size
+    /// of this label, in points: the advance of a space and the line
+    /// pitch of the font, each rounded to whole pixels of the screen. A
+    /// cell of half a pixel more would leave seams between the colored
+    /// backgrounds of 2 cells. It changes with the scale of the screen.
+    pub fn cell_size(&self) -> Size {
+        let scale = UIManager::scale();
+        let (advance, pitch) = self.font().cell_metrics(self.text_size);
+        Size::new((advance * scale).round() / scale, (pitch * scale).round() / scale)
+    }
+
+    /// The width of 1 cell when the text sits on a cell grid.
+    pub(crate) fn cell_width(&self) -> Option<f32> {
+        (self.placing == Placing::Grid).then(|| self.cell_size().width)
     }
 
     /// Paints byte ranges of the text in their own colors, the rest keeps
@@ -200,8 +255,37 @@ impl Label {
     /// A highlighter such as syntect produces exactly this shape.
     pub fn set_color_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) -> &Self {
         let mut this = weak_from_ref(self);
-        let len = this.text.len();
+        this.color_runs = Self::sorted_runs(this.text.len(), runs);
+        self
+    }
 
+    /// Paints a color behind byte ranges of the text, each as high as
+    /// its line, under the glyphs and over the color of the label. The
+    /// rest shows the color of the label. Ranges are treated like the
+    /// ones of `set_color_runs`. A selection shows over them.
+    /// `set_text` clears the runs.
+    pub fn set_background_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.background_runs = Self::sorted_runs(this.text.len(), runs);
+        self
+    }
+
+    pub fn clear_background_runs(&self) -> &Self {
+        weak_from_ref(self).background_runs.clear();
+        self
+    }
+
+    pub(crate) fn background_runs(&self) -> &[ColorRun] {
+        &self.background_runs
+    }
+
+    pub fn background_runs_len(&self) -> usize {
+        self.background_runs.len()
+    }
+
+    /// Ranges clamped to a text of `len` bytes, sorted, with no overlap:
+    /// a later range wins.
+    fn sorted_runs(len: usize, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) -> Vec<ColorRun> {
         let mut all: Vec<ColorRun> = runs
             .into_iter()
             .map(|(range, color)| ColorRun {
@@ -228,8 +312,7 @@ impl Label {
             runs.push(run);
         }
 
-        this.color_runs = runs;
-        self
+        runs
     }
 
     pub fn clear_color_runs(&self) -> &Self {
@@ -322,8 +405,10 @@ impl Label {
         self
     }
 
+    /// The line box that was set, else 1 cell for a text on a cell grid.
     pub(crate) fn line_height(&self) -> Option<f32> {
         self.line_height
+            .or_else(|| (self.placing == Placing::Grid).then(|| self.cell_size().height))
     }
 
     /// Points between baselines, the CSS line box, see the field.
@@ -608,7 +693,7 @@ impl ViewCallbacks for Label {
         if let Some(color) = self.dynamic_text_end_color {
             self.text_end_color = Some(color.resolve());
         }
-        for run in &mut self.color_runs {
+        for run in self.color_runs.iter_mut().chain(&mut self.background_runs) {
             if let Some(color) = run.dynamic {
                 run.color = color.resolve();
             }

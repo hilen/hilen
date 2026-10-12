@@ -12,6 +12,8 @@ mod glyph_fallback;
 /// Not a test, the screen keyboard tests draw the keyboard with it.
 mod keyboard_marker;
 mod label;
+mod label_background_runs;
+mod label_cell_grid;
 mod label_color_runs;
 mod label_effect_made_again;
 mod label_effect_over_new_image;

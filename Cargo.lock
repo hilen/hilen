@@ -3103,6 +3103,7 @@ dependencies = [
  "two-face",
  "ui-proc",
  "unicode-linebreak",
+ "unicode-width",
  "usvg",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

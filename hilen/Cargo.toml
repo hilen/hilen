@@ -129,6 +129,7 @@ level-proc = { workspace = true, optional = true }
 project-proc = { workspace = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
+unicode-width = { workspace = true }
 gltf = { workspace = true, optional = true }
 hilen-session = { workspace = true, optional = true }
 qrcode = { workspace = true, optional = true }

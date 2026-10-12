@@ -46,3 +46,4 @@ mod theme_switch;
 #[cfg(any(desktop, wasm))]
 mod tooltip_hover;
 mod tooltip_long_press;
+mod view_select;

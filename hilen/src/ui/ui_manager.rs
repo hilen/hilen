@@ -220,6 +220,9 @@ impl UIManager {
         }
 
         if let Some(selected) = selected_view.get_mut() {
+            // The view that loses the selection said it was selected for
+            // as long as it lived, only the callback below was told.
+            selected.__base_view().is_selected = false;
             selected.__internal_on_selection_changed(false);
             *selected_view = Weak::default();
         }

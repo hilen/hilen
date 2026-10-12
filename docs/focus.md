@@ -57,6 +57,19 @@ Keys the owner of a text field takes in [text.md](text.md).
 The ring is one of the app views, its frame is counted from where they start, below
 the status bar of a phone, the test is `Focus ring place`.
 
+## A view that reads the keys itself
+
+A view like a terminal takes every key. It subscribes to `UIEvents::keyboard_input`
+and `UIEvents::keyboard_key`, which fire for every press in the app, and reads the
+held modifiers with `Keys::modifiers()`, to tell Ctrl with a letter from the letter.
+The keys are meant for it only while it is the selected view: a press on a view with
+touch on selects it, `ViewTouch::select` does the same with no press, when its page
+opens, and a field that is focused or `UIManager::unselect_view` takes the selection
+away. So it checks `is_selected` before it takes a key. `View select` is the test.
+A named key the focus ring takes never reaches it, such an app turns the ring off
+with `Focus::set_enabled(false)`. The keymap takes Ctrl for Cmd on every system, so a
+binding that must not fire on Ctrl checks `Keys::modifiers().super_key()` itself.
+
 The tests are `Key focus`, `Key focus table`, `Key focus modal`, `Key focus long
 press` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
 of an Apple TV drives it in the simulator, see [tvos.md](tvos.md). The remote of a

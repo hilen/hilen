@@ -20,6 +20,7 @@ pub(crate) struct MeasureKey {
     pub width:       Option<u32>,
     pub tracking:    u32,
     pub line_height: Option<u32>,
+    pub grid:        Option<u32>,
     pub runs:        Vec<(String, usize, usize)>,
 }
 
@@ -38,6 +39,7 @@ impl MeasureKey {
             width:       width.map(f32::to_bits),
             tracking:    shaping.tracking.to_bits(),
             line_height: shaping.line_height.map(f32::to_bits),
+            grid:        shaping.grid.map(f32::to_bits),
             runs:        shaping
                 .runs
                 .iter()
@@ -110,6 +112,7 @@ mod tests {
             width:       None,
             tracking:    0.0_f32.to_bits(),
             line_height: None,
+            grid:        None,
             runs:        vec![],
         }
     }
