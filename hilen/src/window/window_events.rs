@@ -50,6 +50,10 @@ pub trait WindowEvents {
     }
     fn key_event(&mut self, _event: KeyEvent) {}
     fn modifiers_changed(&mut self, _modifiers: winit::event::Modifiers) {}
+    /// A file or a folder is held over the window, 1 call per item.
+    fn hovered_file(&mut self, _path: PathBuf) {}
+    /// The held items left the window with no drop.
+    fn hovered_file_cancelled(&mut self) {}
     fn dropped_file(&mut self, _path: PathBuf) {}
     fn theme_changed(&mut self, _theme: Theme) {}
 }

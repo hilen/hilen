@@ -146,6 +146,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   thread, the `image_pasted` event of `TextField`, and how a test stays away from the
   clipboard of the user. Read before touching `hilen/src/system/clipboard` or the paste
   of a text field.
+- [docs/file-drop.md](docs/file-drop.md) — a file or a folder dragged onto the window:
+  `on_drop_file`, `on_hover_file`, `on_hover_file_end`, and the test helpers.
 - [docs/file-browser.md](docs/file-browser.md) — `FileBrowser` and `FilePicker`, the
   `FileSource` trait with `LocalFiles` and `MemoryFiles`, the pick modes, the touch
   screen taps, the keys and the tests. Read before touching

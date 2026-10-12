@@ -385,6 +385,12 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.te_window_events.modifiers_changed(modifiers);
             }
+            WindowEvent::HoveredFile(path) => {
+                self.te_window_events.hovered_file(path);
+            }
+            WindowEvent::HoveredFileCancelled => {
+                self.te_window_events.hovered_file_cancelled();
+            }
             WindowEvent::DroppedFile(path) => {
                 self.te_window_events.dropped_file(path);
             }

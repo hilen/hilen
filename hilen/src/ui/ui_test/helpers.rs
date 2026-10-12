@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 
 use crate::{
@@ -44,6 +46,27 @@ pub fn inject_pinch(x: impl ToF32, y: impl ToF32, scale: impl ToF32) {
     let center = Point::new(x.to_f32(), y.to_f32());
     let scale = scale.to_f32();
     from_main(move || PinchInput::step(scale, center, Point::default()));
+    human_pause();
+}
+
+/// A file or a folder held over the window, what the system reports when
+/// a drag from a file manager enters it.
+pub fn inject_file_hover(path: impl Into<PathBuf>) {
+    let path = path.into();
+    from_main(move || UIManager::trigger_hover_file(path));
+    human_pause();
+}
+
+/// The held items left the window with no drop.
+pub fn inject_file_hover_end() {
+    from_main(UIManager::trigger_hover_file_end);
+    human_pause();
+}
+
+/// A file or a folder dropped on the window.
+pub fn inject_file_drop(path: impl Into<PathBuf>) {
+    let path = path.into();
+    from_main(move || UIManager::trigger_drop_file(path));
     human_pause();
 }
 

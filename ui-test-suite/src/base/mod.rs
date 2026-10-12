@@ -13,6 +13,7 @@ mod cursor_capture;
 #[cfg(desktop)]
 mod cursor_hidden;
 mod dispatch;
+mod file_hover;
 mod global_styles;
 mod image_edges;
 mod inspect_frames;

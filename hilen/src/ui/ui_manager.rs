@@ -64,7 +64,9 @@ pub struct UIManager {
     manual_scale:  AtomicU32,
     scale_changed: UIEvent<f32>,
 
-    on_drop_file: UIEvent<PathBuf>,
+    on_drop_file:      UIEvent<PathBuf>,
+    on_hover_file:     UIEvent<PathBuf>,
+    on_hover_file_end: UIEvent,
 
     draw_touches: AtomicBool,
 
@@ -252,6 +254,8 @@ impl UIManager {
             manual_scale: AtomicU32::new(0.0f32.to_bits()),
             scale_changed: UIEvent::default(),
             on_drop_file: UIEvent::default(),
+            on_hover_file: UIEvent::default(),
+            on_hover_file_end: UIEvent::default(),
             draw_touches: false.into(),
             touch_marks: Mutex::new(Vec::new()),
             keymap: Own::default(),
@@ -459,12 +463,38 @@ impl UIManager {
 }
 
 impl UIManager {
+    /// The system reports no end of the hold after a drop, so the drop ends
+    /// it here and an app hides its drop mark in 1 place.
     pub(crate) fn trigger_drop_file(file: PathBuf) {
+        Self::get().on_hover_file_end.trigger(());
         Self::get().on_drop_file.trigger(file);
     }
 
+    pub(crate) fn trigger_hover_file(file: PathBuf) {
+        Self::get().on_hover_file.trigger(file);
+    }
+
+    pub(crate) fn trigger_hover_file_end() {
+        Self::get().on_hover_file_end.trigger(());
+    }
+
+    /// A file or a folder was dropped on the window. A drop of several
+    /// items calls this once per item, all in the same frame.
     pub fn on_drop_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
         Self::get().on_drop_file.val(subscriber, action);
+    }
+
+    /// A file or a folder is held over the window, before a drop. Called
+    /// once per held item when it enters the window. Desktop only, no
+    /// other platform reports a hold.
+    pub fn on_hover_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
+        Self::get().on_hover_file.val(subscriber, action);
+    }
+
+    /// The hold is over: the items left the window, or they were dropped.
+    /// After a drop this comes before `on_drop_file`.
+    pub fn on_hover_file_end<T: ?Sized>(subscriber: Weak<T>, mut action: impl FnMut() + Send + 'static) {
+        Self::get().on_hover_file_end.val(subscriber, move |()| action());
     }
 
     /// The screen background, what shows where no view paints. The root view of
