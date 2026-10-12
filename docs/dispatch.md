@@ -141,11 +141,23 @@ and nothing asks for one. `keep_frames_while(condition)` on a view does: while t
 condition returns true the loop draws on every refresh, and it sleeps again when the
 condition ends or the view is gone. A view has 1 condition, a new call replaces it. It
 is an empty `UIAnimation` with a finish condition, so it works wherever animations do.
+
+The condition is dropped the first time it returns false, and nothing asks it again.
+So make the call at the moment the condition becomes true, like the start of a player,
+and make it again at every such start. A call in `setup` with a condition that is
+still false ends in the first frame and keeps no frame. Blast had that bug, its play
+line was drawn about 8 times a second.
 `Spinner`, `RingSpinner`, `AnimatedImage` and `VideoView` use it. A covered window
 still draws nothing. The UI test is `Keep frames while`.
 
 ```rust
-self.keep_frames_while(move || self.player.is_some());
+fn toggle_play(mut self: Weak<Self>) {
+    self.player = match self.player.take() {
+        Some(_) => None,
+        None => Some(Player::start()),
+    };
+    self.keep_frames_while(move || self.player.is_some());
+}
 ```
 
 ### The time of a frame

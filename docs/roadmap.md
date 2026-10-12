@@ -175,16 +175,17 @@ Found by blast, `~/dev/apps/blast`, a drum practice app, on 2026-10-10.
   asks for every frame itself. On 2026-10-12 the record from a start to a stop, which
   asks for nothing in a window on screen, showed what the app does alone: during a
   playback blast drew about 8 frames a second, each picture 130 to 170 ms on screen.
-  Nothing there asks for a frame while the line moves, `ExerciseView::update` only
-  runs in a frame something else asked for. Where blast did draw, the frames were
-  16.7 ms apart on screen by the screen time of Metal, while their draw times were 9
-  to 24 ms apart. The cause of the 8 frames a second is not proven.
-- Needed: prove that cause and make blast, or the engine for a view that moves in
-  `update`, ask for frames while the line moves. Then measure the steps of the line
-  from the screen times of a record, see "Frame by frame" in
-  [inspect.md](inspect.md), with the window in front, with and without the frame
-  time. Nothing ran in a browser, on Windows, Linux, iOS or Android.
-- Blocks: the play line of blast, which stutters at times.
+  The cause was in blast. It called `keep_frames_while` in `setup`, where its
+  condition was still false, so the engine dropped the condition in the first frame,
+  see "A view that needs every frame" in [dispatch.md](dispatch.md). With the call
+  moved to the start of the player, a record of 3.1 seconds on a 60 Hz display has
+  185 frames with 0 lost, and all 184 gaps on screen are 16.7 ms. The steps of the
+  line in pixels were not measured in that record.
+- Needed: measure the steps of the line from the pictures and the screen times of a
+  record, see "Frame by frame" in [inspect.md](inspect.md), with the window in front,
+  with and without the frame time. Nothing ran on a 120 Hz display, in a browser, on
+  Windows, Linux, iOS or Android.
+- Blocks: the proof that the play line of blast moves in even steps.
 
 ## The feed of a sound clock is not proven behind a covered window
 
