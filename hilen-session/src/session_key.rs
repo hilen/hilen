@@ -3,7 +3,10 @@
 //! other is the id of this machine, so a file copied to another computer does
 //! not open even with the binary next to it.
 
-use std::hint::black_box;
+use std::{
+    hint::black_box,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use sha2::{Digest, Sha256};
 
@@ -13,8 +16,18 @@ include!(concat!(env!("OUT_DIR"), "/session_key.rs"));
 
 const CONTEXT: &[u8] = b"hilen session store v1";
 
+/// The warning about the development key was written since the start. An
+/// app asks for the key on every request to its backend, a line each time
+/// fills the log.
+static WARNED: AtomicBool = AtomicBool::new(false);
+
+/// True only for the first call with this flag.
+fn first_time(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::Relaxed)
+}
+
 pub(crate) fn session_key() -> EncryptionKey {
-    if IS_DEV {
+    if IS_DEV && first_time(&WARNED) {
         log::warn!("SessionStore uses the public development key, the build had no HILEN_SESSION_KEY");
     }
 
@@ -56,7 +69,17 @@ fn machine_id() -> String {
 
 #[cfg(test)]
 mod test {
-    use super::{IS_DEV, MASKED, built_in, session_key};
+    use std::sync::atomic::AtomicBool;
+
+    use super::{IS_DEV, MASKED, built_in, first_time, session_key};
+
+    #[test]
+    fn warns_once() {
+        let flag = AtomicBool::new(false);
+        assert!(first_time(&flag));
+        assert!(!first_time(&flag));
+        assert!(!first_time(&flag));
+    }
 
     #[test]
     fn mask_comes_off() {

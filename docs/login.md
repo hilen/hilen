@@ -143,7 +143,9 @@ between the two. `hilen-session/src/session_key.rs` puts it back together behind
 it the optimizer folds the constants back into the plain key. Checked once by hand: an
 optimized build with a known key does not hold that text.
 
-No key means the public development key and a cargo warning. `HILEN_RELEASE` set means a
+No key means the public development key and a cargo warning. Such a build also writes a
+warning into the log of the app, 1 time per start and not on every use of the key, an
+app asks for the key on every request to its backend. `HILEN_RELEASE` set means a
 missing key fails the build. `build/release/with-secrets.sh` sets the mark, since every
 shipped build runs through it, and the release scripts set it again on their own. The same
 mark blocks the `inspect` feature, see [inspect.md](inspect.md). The cargo release profile cannot be the mark, `make run`
