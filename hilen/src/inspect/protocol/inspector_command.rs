@@ -53,6 +53,15 @@ pub enum InspectorCommand {
         frames: u32,
     },
     Resume,
+    /// Starts a run of the speed test on this connection. With `to_app`
+    /// the client then sends bytes and the app counts them, else the app
+    /// sends bytes for `ms`. The bytes are no JSON, they go in pieces
+    /// behind their length and a length of 0 ends the run. The answer
+    /// after them is `Speed`.
+    Speed {
+        to_app: bool,
+        ms:     u32,
+    },
     /// Asks a hot build which library runs, see `docs/hot-reload.md`. Every
     /// other build answers with an error.
     HotInfo,
@@ -68,6 +77,18 @@ pub enum InspectorCommand {
         file:        String,
         offset:      u64,
         data_base64: String,
+    },
+    /// The same piece with no base64: its `len` bytes follow this command
+    /// on the connection as they are, and the transport puts them into
+    /// `data`. The sender does not wait for the answer before the next
+    /// piece. As base64 the 45 MB library of an app went at 12.7 MB a
+    /// second over a link that carries 45.
+    HotBytes {
+        file:   String,
+        offset: u64,
+        len:    u32,
+        #[serde(skip)]
+        data:   Vec<u8>,
     },
     /// Makes the loader swap to a library that was sent. `root` is the
     /// folder below the hot folder that holds the `assets` of the app.

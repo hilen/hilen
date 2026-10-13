@@ -304,6 +304,10 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `GetStartTime` — unix seconds of when the current process started, recorded before the
   app runner launches. Used with `GetBuildTime` to distinguish a source edit made after
   launch from an app-only source edit already present when the process started.
+- `Speed { to_app, ms }` — a run of the speed test, see "Speed test" below. Its bytes
+  are not all JSON.
+- `HotBytes { file, offset, len }` — a piece of a file for a hot build. Its `len` bytes
+  follow the command on the connection as they are, see [hot-reload.md](hot-reload.md).
 - `Quit` — closes the app the way closing its window does, through `AppRunner::stop`,
   and replies before it exits. Desktop only, elsewhere it replies with an error. The
   flag is read where the event loop is about to wait and the stop wakes the loop, so an
@@ -324,6 +328,34 @@ never sees stale frames. Failures (unknown view id, bad rule index, view without
 reply with `Error(String)` instead of being silently ignored. All UI access happens on the
 main thread via `from_main`. Responses hold `Own` pointers, so the transport hands them to
 the main thread for dropping (see [refs.md](refs.md)).
+
+## Speed test
+
+`hilen-inspect speed [--seconds 3]` measures the link between the tool and an app, with
+`--device` or `--addr` like every command. It prints the time of a round trip, the least
+and the average of 10 small questions, then the MB per second to the app and from the
+app, with a line per second.
+
+- It measures like iperf: raw bytes on the connection for a fixed time, counted on the
+  side that gets them. No JSON, no base64 and no wait per piece are in the number.
+- A run starts with the `Speed` command. The bytes follow on the same connection in
+  pieces of 256 KB, each behind its length as 4 bytes, and a length of 0 ends the run.
+  Then the app answers `Speed { bytes, ms }`. `handle_connection` in `transport.rs` runs
+  it on the connection, the handler of the service never sees it, so the number waits
+  on no frame of the app.
+- To the app the run ends when the app said how many bytes it got. Bytes that still
+  wait in a buffer do not count as fast.
+- The bytes have no pattern, so nothing on the way can pack them.
+- An app sends for 30 seconds at most, whatever the client asks.
+- An app built before 2026-10-13 does not know the command and closes the connection.
+  The tool says so.
+- A browser page has no TCP connection, the test is for native apps only.
+- Measured on 2026-10-13 from an M1 mac to an iPhone 16 Pro Max on Wi-Fi: 14 ms for a
+  round trip, 44 to 50 MB a second in both directions. The hot send of the 45 MB
+  library of banda in the same minute made 12.7 MB a second, `times:` in its output.
+  The link is not what limits that send.
+- The first run right after a hot swap ended once with a broken pipe after 2 seconds.
+  5 runs after it passed, the cause is not known.
 
 ## Browser transport
 

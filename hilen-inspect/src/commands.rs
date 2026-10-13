@@ -13,7 +13,9 @@ use super::{
     frames::{kept_frames, pause, record, record_start, record_stop, resume, step},
     get_ui, hold,
     input::{RecordArgs, hover, keys, scroll, tap},
-    print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send, wait,
+    print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send,
+    speed::speed,
+    wait,
 };
 
 #[derive(Subcommand)]
@@ -245,6 +247,13 @@ pub(super) enum Command {
     /// file here. Tells a stale binary from a current one before anything is
     /// tested against it.
     BuildTime,
+    /// Measure the link to the app: the time of a round trip, then raw
+    /// bytes to the app and from it, like iperf
+    Speed {
+        /// Seconds of each direction
+        #[arg(long, default_value_t = 3)]
+        seconds: u32,
+    },
     /// Close the app the way closing its window does and wait until its
     /// process is gone. Desktop only.
     Quit {
@@ -283,6 +292,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         }
         Command::RunTests => run_tests(client).await?,
         Command::BuildTime => build_time(client).await?,
+        Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
         Command::Edits => {
             let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {

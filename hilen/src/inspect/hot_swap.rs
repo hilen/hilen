@@ -51,6 +51,7 @@ pub(crate) fn info() -> Result<AppCommand> {
     let started = started.trim();
     Ok(AppCommand::Hot {
         library: (!started.is_empty()).then(|| started.to_string()),
+        raw:     true,
     })
 }
 
@@ -82,8 +83,13 @@ fn list(root: &Path, folder: &Path, found: &mut Vec<HotFileRepr>) -> Result<()> 
 }
 
 pub(crate) fn chunk(file: &str, offset: u64, data_base64: &str) -> Result<AppCommand> {
+    piece(file, offset, &STANDARD.decode(data_base64)?)
+}
+
+/// Writes a piece of a file below the hot folder. The piece at offset 0
+/// starts the file again.
+pub(crate) fn piece(file: &str, offset: u64, data: &[u8]) -> Result<AppCommand> {
     let path = below(&dir()?, file)?;
-    let data = STANDARD.decode(data_base64)?;
 
     let mut target = if offset == 0 {
         create_dir_all(path.parent().context("the file has no folder")?)?;
@@ -96,7 +102,7 @@ pub(crate) fn chunk(file: &str, offset: u64, data_base64: &str) -> Result<AppCom
         "`{file}` got a piece out of order"
     );
     target.seek(SeekFrom::Start(offset))?;
-    target.write_all(&data)?;
+    target.write_all(data)?;
     Ok(AppCommand::Ok)
 }
 

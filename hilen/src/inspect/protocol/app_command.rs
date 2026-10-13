@@ -50,9 +50,19 @@ pub enum AppCommand {
     BuildTime(u64),
     /// Unix seconds of when this app process started.
     StartTime(u64),
+    /// The end of a run of the speed test: the bytes the app got or sent,
+    /// and how long that took on its side.
+    Speed {
+        bytes: u64,
+        ms:    u64,
+    },
     /// The library a hot build runs, none for the one packed in the loader.
     Hot {
         library: Option<String>,
+        /// It takes a file in raw pieces, `HotBytes`. A build from before
+        /// 2026-10-13 says nothing and gets the pieces as base64.
+        #[serde(default)]
+        raw:     bool,
     },
     HotFiles(Vec<HotFileRepr>),
     UI(UIResponse),

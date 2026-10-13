@@ -4,6 +4,7 @@ mod frames;
 mod hot;
 mod input;
 mod reach;
+mod speed;
 
 use std::{
     env::{current_dir, temp_dir},

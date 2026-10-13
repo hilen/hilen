@@ -13,7 +13,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use hilen::inspect::protocol::{
-    AppCommand, Client, FIXED_PORT, HotFileRepr, InspectorCommand, discover, file_hash,
+    AppCommand, Client, FIXED_PORT, HotFileRepr, InspectorCommand, discover, file_hash, megabytes,
 };
 use tokio::time::{Instant, sleep, timeout};
 
@@ -90,13 +90,15 @@ struct Loader {
     client:  Client,
     /// The library it runs, none for the one packed in the loader app.
     library: Option<String>,
+    /// It takes a file in raw pieces.
+    raw:     bool,
 }
 
 /// The library an app runs, when the app is a hot build that answers.
-async fn ask(addr: SocketAddr) -> Option<(Client, Option<String>)> {
+async fn ask(addr: SocketAddr) -> Option<(Client, Option<String>, bool)> {
     let client = timeout(CONNECT, Client::connect(addr)).await.ok()?.ok()?;
     match timeout(CONNECT, client.send(InspectorCommand::HotInfo)).await.ok()?.ok()? {
-        AppCommand::Hot { library } => Some((client, library)),
+        AppCommand::Hot { library, raw } => Some((client, library, raw)),
         _ => None,
     }
 }
@@ -104,12 +106,13 @@ async fn ask(addr: SocketAddr) -> Option<(Client, Option<String>)> {
 async fn loaders(apps: HashMap<String, SocketAddr>) -> Vec<Loader> {
     let mut found = vec![];
     for (id, addr) in apps {
-        if let Some((client, library)) = ask(addr).await {
+        if let Some((client, library, raw)) = ask(addr).await {
             found.push(Loader {
                 id,
                 addr,
                 client,
                 library,
+                raw,
             });
         }
     }
@@ -119,12 +122,13 @@ async fn loaders(apps: HashMap<String, SocketAddr>) -> Vec<Loader> {
 /// The first hot build that answers at one of the `places`.
 async fn first_at(places: Vec<SocketAddr>) -> Option<Loader> {
     for addr in places {
-        if let Some((client, library)) = ask(addr).await {
+        if let Some((client, library, raw)) = ask(addr).await {
             return Some(Loader {
                 id: GIVEN.to_string(),
                 addr,
                 client,
                 library,
+                raw,
             });
         }
     }
@@ -181,20 +185,24 @@ pub(super) async fn send_app(
     let loader = loader(app, target).await?;
     println!("loader {} at {}", loader.id, loader.addr);
 
+    // The time of each step, a slow send says which one it was.
+    let started = Instant::now();
     let root = match assets {
         Some(assets) => {
             let root = format!("apps/{name}");
-            send_assets(&loader.client, assets, &root).await?;
+            send_assets(&loader, assets, &root).await?;
             Some(root)
         }
         None => None,
     };
+    let assets_done = Instant::now();
 
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let sent_name = format!("{stamp}.dylib");
     let data = read(library).with_context(|| format!("no library at {}", library.display()))?;
     println!("sending the library, {} MB", data.len() / 1024 / 1024);
-    send_file(&loader.client, &sent_name, &data).await?;
+    send_file(&loader, &sent_name, &data).await?;
+    let library_done = Instant::now();
 
     send(
         &loader.client,
@@ -205,10 +213,20 @@ pub(super) async fn send_app(
     )
     .await?;
 
-    wait_for(loader.addr, target, &sent_name).await
+    wait_for(loader.addr, target, &sent_name).await?;
+    let library_time = library_done - assets_done;
+    println!(
+        "times: assets {:.1} s, library {:.1} s at {:.1} MB/s, start of the app {:.1} s",
+        (assets_done - started).as_secs_f64(),
+        library_time.as_secs_f64(),
+        megabytes(u64::try_from(data.len())?) / library_time.as_secs_f64(),
+        library_done.elapsed().as_secs_f64(),
+    );
+    Ok(())
 }
 
-async fn send_assets(client: &Client, assets: &Path, root: &str) -> Result<()> {
+async fn send_assets(loader: &Loader, assets: &Path, root: &str) -> Result<()> {
+    let client = &loader.client;
     let remote_root = format!("{root}/assets");
     let AppCommand::HotFiles(there) = send(
         client,
@@ -235,7 +253,7 @@ async fn send_assets(client: &Client, assets: &Path, root: &str) -> Result<()> {
         if there.contains(&here) {
             continue;
         }
-        send_file(client, &format!("{remote_root}/{path}"), &data).await?;
+        send_file(loader, &format!("{remote_root}/{path}"), &data).await?;
         sent += 1;
     }
     println!(
@@ -245,7 +263,12 @@ async fn send_assets(client: &Client, assets: &Path, root: &str) -> Result<()> {
     Ok(())
 }
 
-async fn send_file(client: &Client, file: &str, data: &[u8]) -> Result<()> {
+async fn send_file(loader: &Loader, file: &str, data: &[u8]) -> Result<()> {
+    let client = &loader.client;
+    if loader.raw {
+        return client.send_file(file, data).await;
+    }
+    // A loader from before 2026-10-13 takes a piece only as base64.
     // An empty file has no piece, it is still made.
     let pieces: Vec<&[u8]> = if data.is_empty() {
         vec![data]

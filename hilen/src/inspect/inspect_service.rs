@@ -225,6 +225,10 @@ impl InspectService {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
             InspectorCommand::Quit => Self::quit(),
+            // The TCP transport runs it on the connection and never asks here.
+            InspectorCommand::Speed { .. } => {
+                AppCommand::Error("The speed test needs a TCP connection to the app".into())
+            }
             InspectorCommand::Record {
                 frames,
                 input,
@@ -248,6 +252,10 @@ impl InspectService {
                 data_base64,
             } => Self::hot(hot_swap::chunk(&file, offset, &data_base64)),
             #[cfg(hot)]
+            InspectorCommand::HotBytes {
+                file, offset, data, ..
+            } => Self::hot(hot_swap::piece(&file, offset, &data)),
+            #[cfg(hot)]
             InspectorCommand::HotSwap { library, root } => {
                 Self::hot(hot_swap::swap(&library, root.as_deref()))
             }
@@ -255,6 +263,7 @@ impl InspectService {
             InspectorCommand::HotInfo
             | InspectorCommand::HotFiles { .. }
             | InspectorCommand::HotChunk { .. }
+            | InspectorCommand::HotBytes { .. }
             | InspectorCommand::HotSwap { .. } => AppCommand::Error("This app is not a hot build".into()),
             InspectorCommand::UI(ui) => {
                 Self::lay_out_covered();

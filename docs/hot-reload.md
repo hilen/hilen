@@ -149,6 +149,15 @@ make device args=tv          # a word in front picks the device, here the Apple 
   inspect tool.
 - A loader that does not answer is started with `devicectl` before the send. The device
   has to be unlocked.
+- An app in front that answers the inspector and is no hot build gets the loader
+  installed again by the script, which then sends the app, `Woke::Plain` in
+  `build/shared/src/device.rs`. On 2026-10-13 such an app sat on a phone, the send
+  waited 90 seconds on it and then blamed the lock screen. What that app was is not
+  known, the install wrote over it. The path with the install was never run, only its
+  parts are tested.
+- A run with no change of the app took 10.7 seconds on 2026-10-13: 2.5 for the copy of
+  the engine folder to the builder, 2.4 for the build, 1.6 to bring the library back,
+  1.0 for the send and 2.3 until the app runs.
 - The last lines print the inspect command for that device, `hilen-inspect --device
   <id> tree`. `--device` takes the same word as `make device`, see
   [inspect.md](inspect.md).
@@ -234,7 +243,15 @@ for development and gives no promise for it.
   was gone, and every image of the app showed as the stand in picture, a blue
   trash can. In the simulator the root is the repo of the app on the Mac, a
   full path, and stays one. The commands are `HotInfo`, `HotFiles`,
-  `HotChunk` and `HotSwap`, a file goes in pieces of 8 MB. An asset whose
+  `HotBytes` and `HotSwap`. A file goes in raw pieces of 4 MB, each behind
+  its command on the same connection, and the sender does not wait for an
+  answer between them, `send_file` in `protocol/transport.rs`. On
+  2026-10-13 the 45 MB library of banda went to an iPhone in 1.0 second,
+  45 MB a second, the speed of the link. As base64 in `HotChunk`, with a
+  wait per piece, it took 3.4 seconds. A loader says in its `HotInfo`
+  answer that it takes raw pieces, `raw`. One built before that day says
+  nothing and gets `HotChunk` in pieces of 8 MB. The send ends with a line
+  of the time of each step, `times:`. An asset whose
   length and hash are there already is not sent again. Only the library that
   runs and the next one stay on the phone.
 - A phone that is not on the network of the Mac is reached by its address, over a
