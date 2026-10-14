@@ -6,7 +6,7 @@
 #![cfg_attr(not(ios), feature(linkage))]
 #![feature(adt_const_params)]
 #![feature(unsized_const_params)]
-#![feature(generic_const_exprs)]
+#![recursion_limit = "256"]
 #![feature(const_type_name)]
 #![feature(unsize)]
 #![feature(coerce_unsized)]

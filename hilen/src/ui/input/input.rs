@@ -1,6 +1,6 @@
 use log::warn;
 use parking_lot::Mutex;
-use winit::event::TouchPhase;
+use winit::event::{MouseScrollDelta, TouchPhase};
 pub use winit::{
     keyboard::{ModifiersState, NamedKey},
     window::CursorIcon,
@@ -23,6 +23,27 @@ use crate::{
     window::frame_control,
 };
 
+/// Points one wheel line scrolls. X11 and Windows report a wheel notch as
+/// one line, this is about the Windows default of three text lines. It
+/// used to be 28 and then went through a trackpad factor as well, 7 a
+/// notch, a 30 point row took four notches.
+const LINE_SCROLL_POINTS: f32 = 60.0;
+
+/// The points a wheel event moves the content, whichever unit the platform
+/// sent. A trackpad reports physical pixels, the scale turns them into
+/// points, so the content moves exactly as far as the fingers, like in
+/// every other app. It used to move a quarter of the pixels, half the
+/// distance on a 2x screen.
+pub(crate) fn wheel_points_at(delta: MouseScrollDelta, scale: f32) -> Point {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => Point::new(x, y) * LINE_SCROLL_POINTS,
+        MouseScrollDelta::PixelDelta(delta) => {
+            let pixels: Point = (delta.x, delta.y).into();
+            pixels * (1.0 / scale)
+        }
+    }
+}
+
 const LOG_TOUCHES: bool = false;
 const DRAW_TOUCHES: bool = false;
 
@@ -40,6 +61,12 @@ static LATIN: Mutex<Option<char>> = Mutex::new(None);
 pub(crate) struct Input;
 
 impl Input {
+    /// The points a wheel event of the window moves the content, at the UI
+    /// scale.
+    pub(crate) fn wheel_points(delta: MouseScrollDelta) -> Point {
+        wheel_points_at(delta, UIManager::scale())
+    }
+
     pub(crate) fn set_modifiers(modifiers: ModifiersState) {
         *MODIFIERS.lock() = modifiers;
     }
@@ -280,5 +307,30 @@ impl Input {
         if let Some((_, mut scroll)) = front {
             scroll.__process_wheel_scroll(delta);
         }
+    }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+    use super::wheel_points_at;
+
+    // One X11 or Windows wheel notch is one line and must move a few rows,
+    // and a trackpad moves the content as far as the fingers, on any scale.
+    #[test]
+    fn a_wheel_notch_is_sixty_points_and_a_trackpad_moves_its_own_distance() {
+        let notch = wheel_points_at(MouseScrollDelta::LineDelta(0.0, -1.0), 2.0);
+        assert_eq!((notch.x, notch.y), (0.0, -60.0));
+        let retina = wheel_points_at(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(8.0, -40.0)),
+            2.0,
+        );
+        assert_eq!((retina.x, retina.y), (4.0, -20.0));
+        let plain = wheel_points_at(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(8.0, -40.0)),
+            1.0,
+        );
+        assert_eq!((plain.x, plain.y), (8.0, -40.0));
     }
 }

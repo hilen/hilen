@@ -43,6 +43,7 @@ pub use state::*;
 pub use suite::{
     TestRunReport, drop_named, keep_named, present_test, registered_test_maps, run_all_tests, run_test_maps,
 };
+use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
 
 pub use self::ui_test::*;
 use crate::{
@@ -99,6 +100,19 @@ fn inject_touch(touch: impl Into<Touch> + Send + Copy + 'static) {
 pub fn inject_scroll(scroll: impl ToF32) {
     from_main(move || {
         Input::on_scroll((0, scroll).into());
+    });
+    human_pause();
+}
+
+/// A trackpad scroll of `points`, sent as the physical pixels a window reports
+/// and through the same conversion as a real one. Negative moves the content
+/// up.
+pub fn inject_trackpad_scroll(points: impl ToF32) {
+    let points = points.to_f32();
+    from_main(move || {
+        let pixels = f64::from(points * UIManager::scale());
+        let delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, pixels));
+        Input::on_wheel(Input::wheel_points(delta));
     });
     human_pause();
 }
