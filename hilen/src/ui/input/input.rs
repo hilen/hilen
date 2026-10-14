@@ -33,6 +33,10 @@ const BROWSER_PINCH_STEP: f32 = 0.01;
 
 static MODIFIERS: Mutex<ModifiersState> = Mutex::new(ModifiersState::empty());
 
+/// The Latin character of the key whose character is being handed out
+/// right now, see `Input::shortcut_char`.
+static LATIN: Mutex<Option<char>> = Mutex::new(None);
+
 pub(crate) struct Input;
 
 impl Input {
@@ -53,11 +57,22 @@ impl Input {
         modifiers.super_key() || modifiers.control_key()
     }
 
-    pub(crate) fn on_char(ch: char) {
+    /// A typed character. `latin` is the Latin one of the same key when the
+    /// layout typed another, see `latin_candidate`. Bindings and commands
+    /// read it, text gets only the typed one.
+    pub(crate) fn on_char(ch: char, latin: Option<char>) {
         frame_control::input_arrived();
-        UIManager::keymap().check(ch);
-        TextSelection::on_char(ch);
+        *LATIN.lock() = latin;
+        UIManager::keymap().check_char(ch, latin);
+        TextSelection::on_char(Self::shortcut_char(ch));
         UIEvents::keyboard_input().trigger(ch);
+        *LATIN.lock() = None;
+    }
+
+    /// The character a command like Cmd and C reads from a typed one: the
+    /// Latin character of the key when the layout typed another one.
+    pub(crate) fn shortcut_char(ch: char) -> char {
+        LATIN.lock().unwrap_or(ch)
     }
 
     pub(crate) fn on_key(key: NamedKey) {

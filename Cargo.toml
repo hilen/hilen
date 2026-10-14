@@ -250,7 +250,7 @@ wgpu-hal = { package = "hilen-wgpu-hal", version = "30.0.3", features = ["metal"
 wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "ecb57d0c673a9a0a3055a8053ce3b665e9eefea6" }
 # The full version: an app that pins hilen by rev keeps the fork version of
 # its own lock file while it still fits, and an older fork has no tvOS remote.
-winit = { package = "hilen-winit", version = "0.30.15", features = ["serde"] }
+winit = { package = "hilen-winit", version = "0.30.16", features = ["serde"] }
 x25519-dalek = { version = "3.0", features = ["static_secrets"] }
 zeroize = "1.9"
 

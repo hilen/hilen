@@ -23,16 +23,38 @@ impl Keymap {
     }
 
     pub(crate) fn check(&self, key: impl Into<KeymapKey>) {
-        let key = key.into();
+        self.check_keys(&[key.into()]);
+    }
+
+    /// A typed character, and the Latin one of the same key when the
+    /// layout typed another, see `latin_candidate`. The Latin one is
+    /// checked only when no binding took the typed one.
+    pub(crate) fn check_char(&self, typed: char, latin: Option<char>) {
+        match latin {
+            Some(latin) => self.check_keys(&[typed.into(), latin.into()]),
+            None => self.check_keys(&[typed.into()]),
+        }
+    }
+
+    fn check_keys(&self, keys: &[KeymapKey]) {
         let modifiers = Input::modifiers();
-        let cmd = command_held(key, modifiers);
         let shift = modifiers.shift_key();
         // An action may bind keys itself, a screen it swaps in binds its
         // own in `setup`, so the list is not borrowed while actions run.
         // A binding added by an action joins after the run, it never
         // sees the press that added it.
         let mut actions = take(&mut *self.keys.borrow_mut());
-        actions.retain(|a| a.check(key, cmd, shift));
+        actions.retain(KeyAction::is_alive);
+        for &key in keys {
+            let cmd = command_held(key, modifiers);
+            let mut fired = false;
+            for action in &actions {
+                fired |= action.check(key, cmd, shift);
+            }
+            if fired {
+                break;
+            }
+        }
         actions.append(&mut self.keys.borrow_mut());
         *self.keys.borrow_mut() = actions;
     }
@@ -57,6 +79,7 @@ mod test {
         atomic::{AtomicUsize, Ordering},
     };
 
+    use serial_test::serial;
     use winit::keyboard::{ModifiersState, NamedKey};
 
     use super::{Keymap, command_held};
@@ -95,6 +118,7 @@ mod test {
     // on the same keymap, while the press is still being dispatched. That
     // used to panic with the key list borrowed twice.
     #[test]
+    #[serial]
     fn an_action_can_bind_a_key_while_its_press_is_checked() {
         // A `Weak` is read on the main thread only, the test thread is it.
         set_current_thread_as_main();
@@ -132,6 +156,43 @@ mod test {
             fired.load(Ordering::SeqCst),
             1,
             "the added binding fires on the next press"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn the_latin_key_fires_only_when_the_typed_one_did_not() {
+        set_current_thread_as_main();
+        let keymap = Keymap::default();
+        let screen = Own::new(1_u8);
+        let latin = Arc::new(AtomicUsize::new(0));
+        let cyrillic = Arc::new(AtomicUsize::new(0));
+
+        let count = latin.clone();
+        keymap.add(screen.weak(), 'b', move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        keymap.check_char('и', Some('b'));
+        assert_eq!(
+            latin.load(Ordering::SeqCst),
+            1,
+            "a Cyrillic press fires the Latin binding"
+        );
+
+        let count = cyrillic.clone();
+        keymap.add(screen.weak(), 'и', move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        keymap.check_char('и', Some('b'));
+        assert_eq!(
+            cyrillic.load(Ordering::SeqCst),
+            1,
+            "a binding on the typed letter fires"
+        );
+        assert_eq!(
+            latin.load(Ordering::SeqCst),
+            1,
+            "and the Latin one does not fire with it"
         );
     }
 }

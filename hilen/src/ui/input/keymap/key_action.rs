@@ -26,13 +26,20 @@ impl KeyAction {
 }
 
 impl KeyAction {
+    pub(crate) fn is_alive(&self) -> bool {
+        !self.subscriber.is_null()
+    }
+
+    /// Runs the action when the key is its key and reaches its subscriber,
+    /// and says whether it ran.
     pub(crate) fn check(&self, key: KeymapKey, cmd_held: bool, shift_held: bool) -> bool {
-        if self.subscriber.is_null() {
+        if !self.is_alive()
+            || !self.combo.matches(key, cmd_held, shift_held)
+            || !TouchStack::key_reaches(self.subscriber.raw())
+        {
             return false;
         }
-        if self.combo.matches(key, cmd_held, shift_held) && TouchStack::key_reaches(self.subscriber.raw()) {
-            self.action.trigger(());
-        }
+        self.action.trigger(());
         true
     }
 }

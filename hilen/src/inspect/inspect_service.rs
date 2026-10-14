@@ -457,7 +457,7 @@ impl InspectService {
                     Input::set_modifiers(modifiers);
                     for key in keys {
                         match key {
-                            Key::Char(ch) => Input::on_char(ch),
+                            Key::Char(ch) => Input::on_char(ch, None),
                             // A real named key also arrives as its text,
                             // Backspace as 0x08, and the text field edits
                             // on that char. Same two calls as the winit
@@ -465,7 +465,7 @@ impl InspectService {
                             Key::Named(key) => {
                                 Input::on_key(key);
                                 if let Some(text) = key.to_text() {
-                                    Input::on_char(text.chars().last().expect("Key text is empty"));
+                                    Input::on_char(text.chars().last().expect("Key text is empty"), None);
                                 }
                                 Input::on_key_up(key);
                             }

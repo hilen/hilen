@@ -155,7 +155,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   an app.
 - [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the
   ring picks the next view, tables, modals, scrolling, Back as Escape, and the calls an
-  app has. Read before touching `hilen/src/ui/focus.rs` or key handling in `input.rs`.
+  app has. Also how a binding like Cmd and B fires on any keyboard layout, Cyrillic
+  and Greek included. Read before touching `hilen/src/ui/focus.rs`, the keymap or key
+  handling in `input.rs`.
 - [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: `make webos`, the
   `[webos]` table of `hilen.toml`, the Chromium 79 build flags, the start script rewrite, what the TV needed from the engine, the plain
   canvas format, no texture copy, 1 sample, lazy pictures, shared text pipelines, and

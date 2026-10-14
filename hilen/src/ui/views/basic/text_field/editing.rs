@@ -77,7 +77,7 @@ impl TextField {
         }
 
         if Input::command_held() {
-            self.on_command(ch);
+            self.on_command(Input::shortcut_char(ch));
             return;
         }
 

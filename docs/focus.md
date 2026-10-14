@@ -49,6 +49,33 @@ the new screen binds in its `setup` join the keymap after the press, they never 
 the press that added them. `Keymap::check` in `input/keymap/keymap.rs` keeps the key
 list unborrowed while actions run for that.
 
+## A binding on any keyboard layout
+
+A binding names a Latin key, like `KeyCombo::cmd('b')`, and fires on every layout. A
+layout like Russian, Greek or Hebrew types no Latin letters, Cmd with B types `и` there.
+So every typed character comes with a second one, `latin_candidate` in
+`input/keymap/latin.rs`. The keymap checks the typed character first and the Latin
+one only when no binding took the typed one, so a binding on `и` still wins. Qt
+matches its shortcuts the same way.
+
+- The Latin letter comes from the system, `latin_key` of the winit fork, see
+  [forks.md](forks.md). On Windows it is the virtual key code, on macOS the key with
+  Cmd held, on Linux the first other installed layout that types Latin, the walk of
+  Qt with its check that no earlier layout types that letter on another key.
+- With no answer from the system, on the web, iOS and Android, the place of the key
+  on a US keyboard decides.
+- A layout that types ASCII keeps its own letters, AZERTY gets no second one and Cmd
+  with Z stays on the key labeled Z.
+- The digit row always offers its digit, AZERTY types `&` and Lithuanian `ą` on the 1
+  key.
+- The Latin letter follows the case of the typed one, Shift with `я` gives `Z`.
+
+Text gets only the typed character. Cmd with A, C, X and V of a `TextField` and the
+copy of `TextSelection` read the Latin one through `Input::shortcut_char`. A view
+that reads the keys itself through `UIEvents::keyboard_input` gets only the typed
+character. The test is `Layout shortcuts`, `inject_layout_key` presses a key as a
+layout types it.
+
 An edited `TextField` gets a named key before the keymap does when its owner took that
 key with `take_keys`, and then nothing else sees the press, no binding and no
 `keyboard_key` subscriber. `Input::on_key` asks `TextField::offer_key` for that, see

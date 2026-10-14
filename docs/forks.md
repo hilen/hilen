@@ -121,10 +121,13 @@ dependency stay in the fork.
 ## winit
 
 Branch `tvos-0.30` at github.com/VladasZ/winit sits on the v0.30.13 tag, the newest
-0.30 release, with 5 commits on top: tvos in the cfg aliases and target sections, the
-5 view controller selectors guarded on tvos, the rename, the feature `ios-attach`, and
-the presses of the remote of an Apple TV sent as key events, see [tvos.md](tvos.md).
-crates.io has it as `hilen-winit` 0.30.15. The root `Cargo.toml` asks for that full
+0.30 release, with 6 commits on top: tvos in the cfg aliases and target sections, the
+5 view controller selectors guarded on tvos, the rename, the feature `ios-attach`, the
+presses of the remote of an Apple TV sent as key events, see [tvos.md](tvos.md), and
+`latin_key` of a key event, the Latin letter of the key for a binding on a layout that
+types other letters, see [focus.md](focus.md). It is in the `modifier_supplement` trait
+on Windows, macOS, X11 and Wayland, fork only so far. crates.io has it as
+`hilen-winit` 0.30.16. The root `Cargo.toml` asks for that full
 version, not for `0.30`. An app that pins hilen by rev keeps the version of its own
 lock file while it fits the requirement, so with `0.30` an app stayed on a fork with no
 remote presses after a rev bump. Raise the requirement with every new fork version the

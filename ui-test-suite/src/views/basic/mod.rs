@@ -30,6 +30,7 @@ mod hover_within;
 mod image_cut;
 mod image_scissor;
 mod inject_touch;
+mod layout_shortcuts;
 mod nine_segment;
 mod opacity;
 mod rounded_clip;

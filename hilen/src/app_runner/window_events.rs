@@ -4,9 +4,11 @@ use std::{path::PathBuf, sync::Once};
 
 use log::debug;
 use plat::Platform;
+#[cfg(desktop)]
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::{
     event::{KeyEvent, TouchPhase},
-    keyboard::Key,
+    keyboard::{Key, PhysicalKey},
 };
 
 #[cfg(not_wasm)]
@@ -20,7 +22,7 @@ use crate::{
     pipelines::Pipelines,
     ui::{
         Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
-        ViewData, ViewSubviews, WeakView, damage::Damage,
+        ViewData, ViewSubviews, WeakView, damage::Damage, latin_candidate,
     },
     window::{ElementState, MouseButton, RenderFrame, Theme as OsTheme, Window},
 };
@@ -285,8 +287,13 @@ impl crate::window::WindowEvents for AppRunner {
             Input::on_key(back_as_escape(key));
         }
 
-        if let Some(ch) = event.logical_key.to_text() {
-            Input::on_char(ch.chars().last().unwrap());
+        if let Some(text) = event.logical_key.to_text() {
+            let typed = text.chars().last().unwrap();
+            let code = match event.physical_key {
+                PhysicalKey::Code(code) => Some(code),
+                PhysicalKey::Unidentified(_) => None,
+            };
+            Input::on_char(typed, latin_candidate(typed, code, system_latin(&event)));
         }
     }
 
@@ -309,6 +316,18 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn theme_changed(&mut self, theme: OsTheme) {
         Theme::set_system(theme.into());
+    }
+}
+
+/// The Latin letter the system gives the physical key, for a binding while
+/// the layout types other letters. Only the desktop systems tell it.
+fn system_latin(event: &KeyEvent) -> Option<char> {
+    #[cfg(desktop)]
+    return event.latin_key().and_then(|key| key.chars().next());
+    #[cfg(not(desktop))]
+    {
+        _ = event;
+        None
     }
 }
 

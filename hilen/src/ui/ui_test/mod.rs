@@ -54,9 +54,9 @@ use crate::{
     gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
     ui::{
         Input, LongPress, ModifiersState, NamedKey, Tooltip, Touch, U8Color, UIEvents, UIManager,
-        input::TouchEvent,
+        input::TouchEvent, latin_candidate,
     },
-    window::{MouseButton, Window},
+    window::{KeyCode, MouseButton, Window},
 };
 
 pub fn test_combinations<const A: usize, Val>(comb: [(&'static str, Val); A]) -> Result<()>
@@ -223,13 +223,21 @@ pub fn inject_keys(s: impl ToString) {
 
     from_main(move || {
         for ch in s.chars() {
-            Input::on_char(ch);
+            Input::on_char(ch, None);
         }
     });
 }
 
 pub fn inject_key(key: char) {
-    from_main(move || Input::on_char(key));
+    from_main(move || Input::on_char(key, None));
+    human_pause_key();
+}
+
+/// Presses a physical key on a layout that types `typed` on it, like `'и'`
+/// on `KeyCode::KeyB` for Russian. The Latin letter comes from the US place
+/// of the key, the same on every platform.
+pub fn inject_layout_key(typed: char, code: KeyCode) {
+    from_main(move || Input::on_char(typed, latin_candidate(typed, Some(code), None)));
     human_pause_key();
 }
 
