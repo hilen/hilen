@@ -25,6 +25,14 @@ struct UIRectInstance {
     scale: f32,
 }
 
+// `UIBackdropInstance`, the rect with the tail after it at offset 80.
+// `tail` is the middle of the triangle from the left edge, half its width,
+// its height and its edge, 1 for the bottom, -1 for the top, 0 for none.
+struct UIBackdropInstance {
+    rect: UIRectInstance,
+    tail: vec4<f32>,
+}
+
 @group(0) @binding(0)
 var<uniform> view: RectView;
 
@@ -32,7 +40,7 @@ var<uniform> view: RectView;
 @group(1) @binding(1) var blurred_sampler: sampler;
 
 @group(2) @binding(0)
-var<storage, read> instances: array<UIRectInstance>;
+var<storage, read> instances: array<UIBackdropInstance>;
 
 // An A7 GPU draws nothing at all from a shader carrying more than eight float
 // components between the stages, see docs/ios.md. Only `uv` really varies
@@ -105,6 +113,44 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
+// Signed distance to a triangle with its apex at the origin and its base
+// at y = `q.y`, `q.x` wide on each side. Negative inside. After Inigo
+// Quilez, sdTriangleIsosceles.
+fn triangle_sdf(p_in: vec2<f32>, q: vec2<f32>) -> f32 {
+    let p = vec2<f32>(abs(p_in.x), p_in.y);
+    let a = p - q * clamp(dot(p, q) / dot(q, q), 0.0, 1.0);
+    let b = p - q * vec2<f32>(clamp(p.x / q.x, 0.0, 1.0), 1.0);
+    let s = -sign(q.y);
+    let d = min(
+        vec2<f32>(dot(a, a), s * (p.x * q.y - p.y * q.x)),
+        vec2<f32>(dot(b, b), s * (p.y - q.y)),
+    );
+    return -sqrt(d.x) * sign(d.y);
+}
+
+// The distance to the rounded box, or with a tail to the box and the
+// triangle together. The box gives up the height of the tail on its edge.
+fn shape_sdf(local_pos: vec2<f32>, instance: UIBackdropInstance) -> f32 {
+    let rect = instance.rect;
+    let edge = instance.tail.w;
+    let height = instance.tail.z * abs(edge);
+
+    let box_center = vec2<f32>(0.0, -edge * height * 0.5);
+    let box_half = vec2<f32>(rect.size.x * 0.5, (rect.size.y - height) * 0.5);
+    let p = local_pos - box_center;
+    var dist: f32 = rounded_box_sdf(p, box_half, pick_radius(p, rect.corner_radii));
+
+    if edge != 0.0 {
+        let apex = vec2<f32>(instance.tail.x - rect.size.x * 0.5, edge * rect.size.y * 0.5);
+        // y grows from the apex toward the box. The base goes 1 point into
+        // the box, so no seam of edge coverage shows between them.
+        let t = vec2<f32>(local_pos.x - apex.x, (apex.y - local_pos.y) * edge);
+        dist = min(dist, triangle_sdf(t, vec2<f32>(instance.tail.y, height + 1.0)));
+    }
+
+    return dist;
+}
+
 // One pixel wide analytic edge coverage. See ui_rect.wgsl.
 fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
@@ -120,11 +166,11 @@ fn pixel_width(derivative: f32, scale: f32) -> f32 {
 // instance color is a tint mixed on top by its alpha.
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIRectInstance = instances[in.index];
+    let backdrop: UIBackdropInstance = instances[in.index];
+    let instance: UIRectInstance = backdrop.rect;
 
     let local_pos: vec2<f32> = in.uv * instance.size;
-    let radius: f32 = pick_radius(local_pos, instance.corner_radii);
-    let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
+    let dist: f32 = shape_sdf(local_pos, backdrop);
 
     // Zero guarded, see ui_rect.wgsl.
     let width: f32 = pixel_width(fwidth(dist), instance.scale);

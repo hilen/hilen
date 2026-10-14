@@ -675,9 +675,8 @@ landed, see [file-browser.md](file-browser.md).
   own palette. A delete on `LocalFiles` is for good, nothing goes to a trash.
 - Needed: the 14 tests green on `make ui-ios` and `make ui-web`. A run of a
   `LocalFiles` browser on Windows. A style call, so the picker takes the palette of
-  the app, the same for `ContextMenu`, whose colors are fixed in
-  `hilen/src/ui/views/controls/context_menu.rs`.
-- Blocks: a folder picker and a right click menu in the colors of banda.
+  the app, the way `MenuStyle` does for `ContextMenu`.
+- Blocks: a folder picker in the colors of banda.
 
 ## Google access, the proof on a phone, in a browser and with a linked account
 

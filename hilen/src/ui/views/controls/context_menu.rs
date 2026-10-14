@@ -8,8 +8,9 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        Container, DynamicColor, ImageView, Input, Label, Setup, Shadow, TextAlignment, Touch, TouchStack,
-        UIColor, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
+        BlurTail, BlurView, Container, DrawingView, DynamicColor, FillRule, Font, ImageView, Input, Label,
+        Setup, Shadow, StrokeStyle, TailEdge, TextAlignment, Touch, TouchStack, UIColor, UIManager,
+        VectorPath, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
     },
     window::{
         NamedKey,
@@ -40,6 +41,112 @@ const ICON_GAP: f32 = 8.0;
 const ANCHOR_GAP: f32 = 4.0;
 
 const CHECK_ICON: &[u8] = include_bytes!("../../images/check.svg");
+
+/// How a [`ContextMenu`] looks. [`MenuStyle::default`] is the plain menu
+/// that follows the system theme, the one the `ContextMenu::show` calls
+/// open. A menu with its own look, like one over a video, takes the
+/// default, changes the fields it needs and opens through the style:
+///
+/// ```ignore
+/// let style = MenuStyle { blur: 16.0, ..MenuStyle::default() };
+/// style.show_above(items, button, MenuAlign::Right);
+/// ```
+#[derive(Clone, Copy)]
+pub struct MenuStyle {
+    /// The fill of the menu. With a `blur` it tints the blurred picture,
+    /// so a half clear color lets what is under the menu show through.
+    pub background:    DynamicColor,
+    /// Blurs what is under the menu by this radius in points. Zero draws
+    /// no blur.
+    pub blur:          f32,
+    pub border:        DynamicColor,
+    /// Zero draws no border.
+    pub border_width:  f32,
+    /// The line of [`MenuItem::separator`].
+    pub separator:     DynamicColor,
+    pub text:          DynamicColor,
+    pub disabled_text: DynamicColor,
+    pub danger_text:   DynamicColor,
+    /// The row under the pointer.
+    pub highlight:     DynamicColor,
+    pub corner_radius: f32,
+    pub item_height:   f32,
+    pub text_size:     f32,
+    /// The font of the titles, the default font when `None`.
+    pub font:          Option<Weak<Font>>,
+    pub shadow:        bool,
+    /// The height of an arrow on the edge of the menu that faces the
+    /// anchor of a `show_above` or `show_below` call, with its tip at the
+    /// middle of the anchor. It is twice as wide as it is tall. Zero draws
+    /// none. A menu with an arrow and a blur draws no shadow.
+    pub arrow:         f32,
+}
+
+impl Default for MenuStyle {
+    fn default() -> Self {
+        Self {
+            background:    BACKGROUND,
+            blur:          0.0,
+            border:        BORDER,
+            border_width:  1.0,
+            separator:     BORDER,
+            text:          TEXT,
+            disabled_text: DISABLED_TEXT,
+            danger_text:   DANGER_TEXT,
+            highlight:     HIGHLIGHT,
+            corner_radius: CORNER_RADIUS,
+            item_height:   ITEM_HEIGHT,
+            text_size:     TEXT_SIZE,
+            font:          None,
+            shadow:        true,
+            arrow:         0.0,
+        }
+    }
+}
+
+impl MenuStyle {
+    /// [`ContextMenu::show_at_cursor`] with this look.
+    pub fn show_at_cursor(self, items: Vec<MenuItem>) -> Weak<ContextMenu> {
+        self.show(items, UIManager::cursor_position())
+    }
+
+    /// [`ContextMenu::show`] with this look.
+    pub fn show(self, items: Vec<MenuItem>, at: Point) -> Weak<ContextMenu> {
+        ContextMenu::present(items, Placement::At(at), &self)
+    }
+
+    /// [`ContextMenu::show_below`] with this look.
+    pub fn show_below(
+        self,
+        items: Vec<MenuItem>,
+        anchor: impl Deref<Target = impl View + ?Sized>,
+        align: MenuAlign,
+    ) -> Weak<ContextMenu> {
+        ContextMenu::present(items, Placement::Below(*anchor.absolute_frame(), align), &self)
+    }
+
+    /// [`Self::show_below`] at a frame in screen points instead of a view.
+    pub fn show_below_frame(self, items: Vec<MenuItem>, anchor: Rect, align: MenuAlign) -> Weak<ContextMenu> {
+        ContextMenu::present(items, Placement::Below(anchor, align), &self)
+    }
+
+    /// [`Self::show_above`] at a frame in screen points instead of a view,
+    /// for an anchor that is no single view, like the middle of a button
+    /// together with the top of a bar over it.
+    pub fn show_above_frame(self, items: Vec<MenuItem>, anchor: Rect, align: MenuAlign) -> Weak<ContextMenu> {
+        ContextMenu::present(items, Placement::Above(anchor, align), &self)
+    }
+
+    /// [`ContextMenu::show_above`] with this look.
+    pub fn show_above(
+        self,
+        items: Vec<MenuItem>,
+        anchor: impl Deref<Target = impl View + ?Sized>,
+        align: MenuAlign,
+    ) -> Weak<ContextMenu> {
+        ContextMenu::present(items, Placement::Above(*anchor.absolute_frame(), align), &self)
+    }
+}
 
 /// A row of a [`ContextMenu`]. Build with [`MenuItem::new`] or
 /// [`MenuItem::separator`], then chain `icon`, `checked`, `disabled`,
@@ -154,6 +261,7 @@ pub struct MenuItemView {
     icon_name: Option<String>,
     check:     Weak<ImageView>,
     icon:      Weak<ImageView>,
+    style:     MenuStyle,
 
     #[init]
     label: Label,
@@ -192,7 +300,14 @@ impl MenuItemView {
             .sum()
     }
 
-    fn fill(mut self: Weak<Self>, item: MenuItem, leading: Leading) {
+    fn fill(mut self: Weak<Self>, item: MenuItem, leading: Leading, style: &MenuStyle) {
+        self.style = *style;
+        self.set_corner_radius(style.corner_radius - PADDING);
+        self.label.set_text_size(style.text_size);
+        if let Some(font) = style.font {
+            self.label.set_font(font);
+        }
+
         self.enabled = item.enabled;
         self.action = item.action;
         self.label.set_text(&item.title);
@@ -215,7 +330,7 @@ impl MenuItemView {
             let badge = self.add_view::<Label>();
             badge.set_text(text).set_text_size(BADGE_TEXT_SIZE).set_text_color(*color);
             let width = badge.content_size().width.ceil();
-            badge.place().r(offset).center_y().size(width, ITEM_HEIGHT);
+            badge.place().r(offset).center_y().size(width, style.item_height);
             offset += width + BADGE_GAP;
             self.badges.push(badge);
         }
@@ -228,11 +343,11 @@ impl MenuItemView {
 
     fn text_color(&self) -> DynamicColor {
         if !self.enabled {
-            DISABLED_TEXT
+            self.style.disabled_text
         } else if self.danger {
-            DANGER_TEXT
+            self.style.danger_text
         } else {
-            TEXT
+            self.style.text
         }
     }
 
@@ -286,19 +401,20 @@ impl ViewCallbacks for MenuItemView {
 
 impl Setup for MenuItemView {
     fn setup(self: Weak<Self>) {
-        self.set_color(CLEAR).set_corner_radius(CORNER_RADIUS - PADDING);
+        self.set_color(CLEAR);
 
-        self.label
-            .set_color(CLEAR)
-            .set_alignment(TextAlignment::Left)
-            .set_text_size(TEXT_SIZE);
+        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
 
         self.enable_touch();
         self.enable_hover();
 
         self.touch().hovered.val(self, move |hovered| {
             if self.enabled {
-                let color: UIColor = if hovered { HIGHLIGHT.into() } else { CLEAR.into() };
+                let color: UIColor = if hovered {
+                    self.style.highlight.into()
+                } else {
+                    CLEAR.into()
+                };
                 self.set_color(color);
             }
         });
@@ -315,6 +431,9 @@ static OPEN: MainLock<Weak<ContextMenu>> = MainLock::new();
 pub enum MenuAlign {
     Left,
     Right,
+    /// The middle of the menu over the middle of the anchor, the place
+    /// for a menu with an arrow.
+    Center,
 }
 
 impl MenuAlign {
@@ -323,6 +442,7 @@ impl MenuAlign {
         match self {
             Self::Left => anchor.x(),
             Self::Right => anchor.max_x() - width,
+            Self::Center => anchor.x() + (anchor.width() - width) / 2.0,
         }
     }
 }
@@ -344,20 +464,27 @@ enum Placement {
 /// on desktop and in the browser and a long press on a touch screen.
 #[view]
 pub struct ContextMenu {
-    items: Vec<Weak<MenuItemView>>,
+    items:      Vec<Weak<MenuItemView>>,
+    style:      MenuStyle,
+    /// The edge with the arrow, `None` for a menu without one.
+    arrow_edge: Option<TailEdge>,
+    /// The panel and its arrow with a blur, null without a blur.
+    blur:       Weak<BlurView>,
+    /// The arrow of a menu without a blur, null otherwise.
+    arrow:      Weak<DrawingView>,
 }
 
 impl ContextMenu {
     /// Opens at the last known cursor or touch position.
     pub fn show_at_cursor(items: Vec<MenuItem>) -> Weak<Self> {
-        Self::show(items, UIManager::cursor_position())
+        MenuStyle::default().show_at_cursor(items)
     }
 
     /// `at` is an absolute screen position in points. The menu opens with
     /// its top left corner there and slides back inside the screen when
     /// it would not fit.
     pub fn show(items: Vec<MenuItem>, at: Point) -> Weak<Self> {
-        Self::present(items, Placement::At(at))
+        MenuStyle::default().show(items, at)
     }
 
     /// Opens just under `anchor`, with the `align` edge of the menu on the
@@ -369,7 +496,7 @@ impl ContextMenu {
         anchor: impl Deref<Target = impl View + ?Sized>,
         align: MenuAlign,
     ) -> Weak<Self> {
-        Self::present(items, Placement::Below(*anchor.absolute_frame(), align))
+        MenuStyle::default().show_below(items, anchor, align)
     }
 
     /// Opens just over `anchor`, the bottom edge of the menu a gap above
@@ -382,10 +509,10 @@ impl ContextMenu {
         anchor: impl Deref<Target = impl View + ?Sized>,
         align: MenuAlign,
     ) -> Weak<Self> {
-        Self::present(items, Placement::Above(*anchor.absolute_frame(), align))
+        MenuStyle::default().show_above(items, anchor, align)
     }
 
-    fn present(items: Vec<MenuItem>, placement: Placement) -> Weak<Self> {
+    fn present(items: Vec<MenuItem>, placement: Placement, style: &MenuStyle) -> Weak<Self> {
         Self::dismiss_open();
 
         let mut backdrop = Container::new();
@@ -418,7 +545,7 @@ impl ContextMenu {
         });
 
         backdrop.add_subview(menu);
-        weak.fill(items, placement);
+        weak.fill(items, placement, style);
 
         UIManager::keymap().add(weak, NamedKey::Escape, Self::dismiss_open);
 
@@ -453,23 +580,49 @@ impl ContextMenu {
         backdrop.remove_from_superview();
     }
 
-    fn fill(mut self: Weak<Self>, items: Vec<MenuItem>, placement: Placement) {
+    fn fill(mut self: Weak<Self>, items: Vec<MenuItem>, placement: Placement, style: &MenuStyle) {
+        self.style = *style;
+        self.arrow_edge = match placement {
+            _ if style.arrow <= 0.0 => None,
+            Placement::At(_) => None,
+            Placement::Below(..) => Some(TailEdge::Top),
+            Placement::Above(..) => Some(TailEdge::Bottom),
+        };
+        let arrow = if self.arrow_edge.is_some() {
+            style.arrow
+        } else {
+            0.0
+        };
+        // The rows start under an arrow on the top edge.
+        let top = if self.arrow_edge == Some(TailEdge::Top) {
+            arrow
+        } else {
+            0.0
+        };
+
+        // The fill goes in first, so the rows draw over it.
+        if self.arrow_edge.is_some() {
+            self.paint_with_arrow(top, arrow);
+        } else {
+            self.paint();
+        }
+
         let leading = Leading::of(&items);
-        let mut y = PADDING;
+        let mut y = top + PADDING;
         let mut width: f32 = MIN_WIDTH;
 
         for item in items {
             if item.is_separator() {
                 let line = self.add_view::<Container>();
-                line.set_color(BORDER);
+                line.set_color(style.separator);
                 line.place().t(y + (SEPARATOR_HEIGHT / 2.0).floor()).lr(SIDE_PADDING).h(1);
                 y += SEPARATOR_HEIGHT;
                 continue;
             }
 
             let view = self.add_view::<MenuItemView>();
-            view.fill(item, leading);
-            view.place().t(y).lr(PADDING).h(ITEM_HEIGHT);
+            view.fill(item, leading, style);
+            view.place().t(y).lr(PADDING).h(style.item_height);
             width = width.max(
                 leading.title_x()
                     + view.label.content_size().width
@@ -477,16 +630,20 @@ impl ContextMenu {
                     + SIDE_PADDING
                     + PADDING * 2.0,
             );
-            y += ITEM_HEIGHT;
+            y += style.item_height;
 
             self.items.push(view);
         }
 
-        let height = y + PADDING;
+        let height = y + PADDING + arrow - top;
         let width = width.ceil();
 
         self.place().custom(move |rect: &mut Rect| {
             let screen = UIManager::root_view().frame().size;
+            let anchor_middle = match placement {
+                Placement::At(at) => at.x,
+                Placement::Below(anchor, _) | Placement::Above(anchor, _) => anchor.center().x,
+            };
             let at = match placement {
                 Placement::At(at) => at,
                 Placement::Below(anchor, align) => {
@@ -496,21 +653,145 @@ impl ContextMenu {
                     Point::new(align.x(anchor, width), anchor.y() - ANCHOR_GAP - height)
                 }
             };
-            let x = at.x.min(screen.width - width).max(0.0);
-            let y = at.y.min(screen.height - height).max(0.0);
-            *rect = Rect::new(x.round(), y.round(), width, height);
+            let x = at.x.min(screen.width - width).max(0.0).round();
+            let y = at.y.min(screen.height - height).max(0.0).round();
+            *rect = Rect::new(x, y, width, height);
+            self.point_arrow(anchor_middle - x, width, height);
         });
+    }
+
+    /// A menu without an arrow is one rounded view, with a blur behind
+    /// its rows when the style has one.
+    fn paint(self: Weak<Self>) {
+        let style = self.style;
+        self.set_border_color(style.border)
+            .set_border_width(style.border_width)
+            .set_corner_radius(style.corner_radius);
+        if style.shadow {
+            self.set_shadow(Shadow::default());
+        }
+
+        if style.blur > 0.0 {
+            self.set_color(CLEAR);
+            let mut blur = self.add_view::<BlurView>();
+            blur.set_blur_radius(style.blur);
+            blur.set_color(style.background).set_corner_radius(style.corner_radius);
+            blur.place().back();
+        } else {
+            self.set_color(style.background);
+        }
+    }
+
+    /// The menu itself stays clear, its frame holds the panel and the
+    /// arrow. With a blur both are one `BlurView` with a tail, so they
+    /// share 1 blur and 1 outline. Without one the panel is a rounded view
+    /// and the arrow a triangle over its edge.
+    fn paint_with_arrow(mut self: Weak<Self>, top: f32, arrow: f32) {
+        let style = self.style;
+        self.set_color(CLEAR);
+
+        if style.blur > 0.0 {
+            let mut blur = self.add_view::<BlurView>();
+            blur.set_blur_radius(style.blur);
+            blur.set_color(style.background)
+                .set_border_color(style.border)
+                .set_border_width(style.border_width)
+                .set_corner_radius(style.corner_radius);
+            blur.place().back();
+            self.blur = blur;
+            return;
+        }
+
+        let panel = self.add_view::<Container>();
+        panel
+            .set_color(style.background)
+            .set_border_color(style.border)
+            .set_border_width(style.border_width)
+            .set_corner_radius(style.corner_radius);
+        if style.shadow {
+            panel.set_shadow(Shadow::default());
+        }
+        panel.place().lr(0).t(top).b(arrow - top);
+
+        self.arrow = self.add_view::<DrawingView>();
+        self.paint_arrow();
+    }
+
+    /// The triangle of a menu without a blur, in its own frame. Its base
+    /// goes as deep as the border into the panel, so it covers the border
+    /// line there and the panel and the arrow read as one shape.
+    fn paint_arrow(&self) {
+        let (Some(edge), true) = (self.arrow_edge, self.arrow.is_ok()) else {
+            return;
+        };
+        let style = self.style;
+        let half = style.arrow;
+        let height = style.arrow + style.border_width;
+        let (base, tip) = match edge {
+            TailEdge::Bottom => (0.0, height),
+            TailEdge::Top => (height, 0.0),
+        };
+
+        let mut drawing = self.arrow;
+        drawing.remove_all_paths();
+        let shape = VectorPath::polygon([(0.0, base), (half * 2.0, base), (half, tip)]);
+        drawing.add_fill(&shape, style.background.resolve(), FillRule::NonZero);
+        if style.border_width > 0.0 {
+            let sides = VectorPath::polyline([(0.0, base), (half, tip), (half * 2.0, base)]);
+            drawing.add_stroke(
+                &sides,
+                style.border.resolve(),
+                StrokeStyle::width(style.border_width),
+            );
+        }
+    }
+
+    /// Moves the tip of the arrow to `middle`, from the left edge of the
+    /// menu, kept clear of the rounded corners.
+    fn point_arrow(self: Weak<Self>, middle: f32, width: f32, height: f32) {
+        let Some(edge) = self.arrow_edge else {
+            return;
+        };
+        let style = self.style;
+        let half = style.arrow;
+        let inset = style.corner_radius + half;
+        let middle = if width > inset * 2.0 {
+            middle.clamp(inset, width - inset)
+        } else {
+            width / 2.0
+        };
+
+        if self.blur.is_ok() {
+            let mut blur = self.blur;
+            blur.set_tail(Some(BlurTail {
+                edge,
+                x: middle,
+                width: half * 2.0,
+                height: style.arrow,
+            }));
+        }
+
+        if self.arrow.is_ok() {
+            let depth = style.arrow + style.border_width;
+            let y = match edge {
+                TailEdge::Bottom => height - style.arrow - style.border_width,
+                TailEdge::Top => 0.0,
+            };
+            self.arrow.set_frame((middle - half, y, half * 2.0, depth));
+        }
+    }
+}
+
+impl ViewCallbacks for ContextMenu {
+    /// The triangle holds resolved colors, a rounded view follows the
+    /// theme by itself.
+    fn theme_changed(&mut self) {
+        self.paint_arrow();
     }
 }
 
 impl Setup for ContextMenu {
     fn setup(self: Weak<Self>) {
-        self.set_color(BACKGROUND)
-            .set_border_color(BORDER)
-            .set_border_width(1)
-            .set_corner_radius(CORNER_RADIUS)
-            .set_shadow(Shadow::default());
-
         // The menu itself swallows touches, so a tap on the padding does
         // not fall through to the backdrop and dismiss.
         self.enable_touch();

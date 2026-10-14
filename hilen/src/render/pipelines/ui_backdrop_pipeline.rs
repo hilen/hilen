@@ -6,7 +6,7 @@ use wgpu::{
 use crate::{
     gm::flat::Point,
     render::{
-        data::{RectView, UIRectInstance},
+        data::{RectView, UIBackdropInstance},
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
         uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
@@ -18,8 +18,9 @@ use crate::{
 
 const UI_BACKDROP_CODE: &str = include_str!("shaders/ui_backdrop.wgsl");
 
-/// Draws one rounded rect that shows the blurred scene behind it,
-/// tinted by the instance color. Unlike the batched pipelines it draws
+/// Draws one rounded rect, with an optional triangle on its top or bottom
+/// edge, that shows the blurred scene behind it, tinted by the instance
+/// color. Unlike the batched pipelines it draws
 /// immediately, mid frame, right after a blur barrier reopened the
 /// pass. The instance buffer is bump allocated, so several barriers in
 /// one frame do not overwrite each other.
@@ -35,7 +36,7 @@ pub struct UIBackdropPipeline {
     /// for every flush, so it cannot be cached here.
     instances_layout: BindGroupLayout,
 
-    instances: VecBuffer<UIRectInstance>,
+    instances: VecBuffer<UIBackdropInstance>,
 }
 
 impl Default for UIBackdropPipeline {
@@ -47,7 +48,7 @@ impl Default for UIBackdropPipeline {
             label:  Some("ui_backdrop.wgsl"),
             source: ShaderSource::Wgsl(instances_shader(
                 UI_BACKDROP_CODE,
-                size_of::<UIRectInstance>() as u64,
+                size_of::<UIBackdropInstance>() as u64,
                 binding,
             )),
         });
@@ -72,7 +73,7 @@ impl Default for UIBackdropPipeline {
             &shader,
             CompareFunction::Less,
             PrimitiveTopology::TriangleStrip,
-            &[Point::VERTEX_LAYOUT, UIRectInstance::VERTEX_LAYOUT],
+            &[Point::VERTEX_LAYOUT, UIBackdropInstance::VERTEX_LAYOUT],
         );
 
         Self {
@@ -90,7 +91,7 @@ impl UIBackdropPipeline {
         &mut self,
         render_pass: &mut RenderPass,
         view: RectView,
-        instance: UIRectInstance,
+        instance: UIBackdropInstance,
         blurred: &BindGroup,
     ) {
         self.view.update(view);

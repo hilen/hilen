@@ -18,7 +18,7 @@ use crate::{
     render::{
         ImageKey, UIBackdropPipeline, UIBlurPipeline, UIClipPipeline, UIGradientPipeline, UIGroupPipeline,
         UIImageRectPipeline, UIPathPipeline, UIRectPipeline, UIShadowPipeline,
-        data::{PathData, RectView, UIImageInstance, UIRectInstance, UIShadowInstance},
+        data::{PathData, RectView, UIBackdropInstance, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
     ui::{
         BlurView, DrawingView, ImageView, Label, ScrimView, TextSelection, UIManager, View, ViewData,
@@ -236,15 +236,18 @@ impl UIDrawer {
                 resolution: ctx.resolution,
                 _padding:   0,
             },
-            UIRectInstance::new(
-                *frame,
-                view.color().faded(view.__base_view().tree_opacity),
-                view.border_color().faded(view.__base_view().tree_opacity),
-                view.border_width(),
-                view.corner_radii(),
-                view.z_position(),
-                ctx.scale,
-            ),
+            UIBackdropInstance {
+                rect: UIRectInstance::new(
+                    *frame,
+                    view.color().faded(view.__base_view().tree_opacity),
+                    view.border_color().faded(view.__base_view().tree_opacity),
+                    view.border_width(),
+                    view.corner_radii(),
+                    view.z_position(),
+                    ctx.scale,
+                ),
+                tail: view.tail_params(),
+            },
             BLUR_DRAWER.output_bind(),
         );
     }

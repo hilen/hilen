@@ -516,6 +516,12 @@ impl Font {
         Self::bundled("Roboto-700", include_bytes!("fonts/Roboto.ttf"), 700.0)
     }
 
+    /// Roboto at weight 500, between regular and bold, for a title that
+    /// has to stand out a little, like a menu over a video.
+    pub fn medium() -> Weak<Font> {
+        Self::bundled("Roboto-500", include_bytes!("fonts/Roboto.ttf"), 500.0)
+    }
+
     pub fn italic() -> Weak<Font> {
         Self::bundled(
             "Roboto-Italic-400",
