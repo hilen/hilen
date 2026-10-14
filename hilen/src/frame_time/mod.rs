@@ -68,6 +68,13 @@ fn real_seconds() -> f64 {
     }
 }
 
+/// The refresh period of the screen as measured from the frames, none
+/// before the frames came in an even rhythm. On the main thread.
+#[cfg(apple)]
+pub(crate) fn refresh_period() -> Option<f64> {
+    FOLLOWER.get_mut().period()
+}
+
 /// Before the update of a frame, on the main thread.
 pub(crate) fn begin_frame() {
     let time = FOLLOWER.get_mut().advance(frame_start());

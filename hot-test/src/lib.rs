@@ -3,7 +3,9 @@
 //! The lane builds it 2 times as a dynamic library, the second time with the
 //! `second` feature, which stands for a saved change. It then swaps the 2 in
 //! a running app and reads what each one leaves: the color of the screen and
-//! a marker file.
+//! a marker file. A turning ring in a corner runs a declared loop, which a
+//! layer of the system shows, so every stop also takes a layer off the
+//! window view.
 
 #![allow(incomplete_features)]
 #![feature(specialization)]
@@ -15,7 +17,7 @@ use hilen::{
     App,
     filesystem::Paths,
     refs::{Own, Weak},
-    ui::{Setup, UIManager, View, view},
+    ui::{RingSpinner, Setup, UIManager, View, ViewData, view},
 };
 use log::error;
 
@@ -33,11 +35,16 @@ const COLOR: &str = "#00FF00";
 const MARKER: &str = "hot-generation";
 
 #[view]
-struct Screen {}
+struct Screen {
+    #[init]
+    ring: RingSpinner,
+}
 
 impl Setup for Screen {
     fn setup(self: Weak<Self>) {
         UIManager::set_clear_color(COLOR);
+        // Off the middle of the screen, where the lane reads the color.
+        self.ring.place().tl(40).size(40, 40);
 
         if let Err(err) = write(Paths::storage().join(MARKER), GENERATION) {
             error!("the marker of the hot reload lane was not written: {err}");

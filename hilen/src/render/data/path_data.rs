@@ -54,6 +54,10 @@ pub struct PathData {
     vertex_buffer: Buffer,
     index_buffer:  Buffer,
     index_count:   u32,
+    /// A hash of the mesh, so 2 paths with the same shape are known as the
+    /// same without the buffers, see `feed_shape`.
+    #[cfg(apple)]
+    shape:         u64,
 }
 
 impl PathData {
@@ -104,7 +108,35 @@ impl PathData {
             vertex_buffer,
             index_buffer,
             index_count: u32::try_from(indices.len()).unwrap(),
+            #[cfg(apple)]
+            shape: Self::shape_hash(vertices, indices),
         }
+    }
+
+    #[cfg(apple)]
+    fn shape_hash(vertices: &[Point], indices: &[u32]) -> u64 {
+        use std::hash::Hasher;
+
+        let mut hasher = rustc_hash::FxHasher::default();
+        hasher.write(bytemuck::cast_slice(vertices));
+        hasher.write(bytemuck::cast_slice(indices));
+        hasher.finish()
+    }
+
+    /// What the path looks like wherever it is placed: its colors, its
+    /// scale and its mesh, but not its place on the screen. A pose of a
+    /// loop makes a new path with new buffers for the same shape, and the
+    /// pictures of the loop must not be drawn again for that, see
+    /// `ui::loops`.
+    #[cfg(apple)]
+    pub(crate) fn feed_shape(&self, key: &mut PaintKey) {
+        let placed = PathView {
+            position: Point::default(),
+            resolution: Size::default(),
+            z_position: 0.0,
+            ..self.view
+        };
+        key.pod(&placed).hash(&self.visible).hash(&self.index_count).hash(&self.shape);
     }
 
     /// Compares against the last uploaded state and writes the uniform

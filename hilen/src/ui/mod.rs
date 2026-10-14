@@ -8,6 +8,7 @@ mod input;
 mod label_drawer;
 mod label_effect;
 mod layout;
+pub(crate) mod loops;
 mod modal_view;
 mod navigation_view;
 mod screen_keyboard;
@@ -45,6 +46,7 @@ pub use self::{
     images::*,
     input::*,
     layout::*,
+    loops::LoopAnimation,
     modal_view::*,
     navigation_view::*,
     screen_keyboard::{ScreenKeyboard, ScreenKeyboardMove},

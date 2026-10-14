@@ -148,6 +148,9 @@ pub fn run_test_maps(maps: &[BTreeMap<String, UITestEntry>]) -> TestRunReport {
     };
 
     restore_app(state);
+    // The app shows its loops on layers again.
+    #[cfg(apple)]
+    crate::ui::loops::set_test_layers(None);
 
     report
 }

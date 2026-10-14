@@ -35,9 +35,11 @@ impl UIDrawer {
 
         let plan = damage::plan();
 
+        let root = UIManager::root_view_static();
+
         match &plan.regions {
             None => {
-                Self::draw_region(render_frame, display_rect, resolution, false);
+                Self::draw_region(render_frame, root, display_rect, resolution, false);
                 Self::drop_stale_text_effects();
             }
             // A text effect counts as used in the frames that draw it. A
@@ -46,7 +48,7 @@ impl UIDrawer {
             Some(regions) => {
                 for region in regions {
                     Self::fill_region(*region, plan.fill);
-                    Self::draw_region(render_frame, *region, resolution, true);
+                    Self::draw_region(render_frame, root, *region, resolution, true);
                 }
             }
         }
@@ -92,8 +94,24 @@ impl UIDrawer {
         }
     }
 
-    /// Draws every view that has pixels in `region`, cut at its edges.
-    fn draw_region(render_frame: &mut RenderFrame, region: Rect<u32>, resolution: Size, partial: bool) {
+    /// Draws 1 view and its subviews alone, at their place in the window,
+    /// cut at `region`. A picture of a loop for a layer of the system, see
+    /// `ui::loops`. The frame starts clear, so what is behind the view is
+    /// not in it.
+    #[cfg(apple)]
+    pub(crate) fn draw_subtree(render_frame: &mut RenderFrame, view: &dyn View, region: Rect<u32>) {
+        Self::draw_region(render_frame, view, region, UIManager::window_resolution(), false);
+    }
+
+    /// Draws every view under `root` that has pixels in `region`, cut at
+    /// its edges.
+    fn draw_region(
+        render_frame: &mut RenderFrame,
+        root: &dyn View,
+        region: Rect<u32>,
+        resolution: Size,
+        partial: bool,
+    ) {
         let mut ctx = DrawContext {
             text_sections: vec![],
             nearest_text: 0.0,
@@ -112,7 +130,6 @@ impl UIDrawer {
 
         scissor(render_frame.pass(), region);
 
-        let root = UIManager::root_view_static();
         Self::draw_view(render_frame, root, &mut ctx);
 
         Self::flush_pipelines(render_frame.pass(), resolution, &mut ctx.paths);

@@ -167,11 +167,12 @@ impl ViewTest for RingSpinnerTest {
         wait_for_next_frame();
         check_colors(DARK_PROBES)?;
 
-        // A held ring must not keep the loop awake through its stroke alone.
-        // The keep alive animation runs whenever the ring is visible, so
-        // the loop draws while a ring shows, and sleeps once it hides.
+        // A held ring runs no loop, its stroke alone must not keep the loop
+        // of the app awake. A turning ring runs a declared loop, which
+        // draws on every refresh while the ring shows on the frame path,
+        // and sleeps once it hides.
         let continuous = from_main(continuous_render_active);
-        ensure!(continuous, "a visible ring must keep the loop drawing");
+        ensure!(!continuous, "a held ring must let the loop sleep");
 
         from_main(move || {
             let mut this = view;

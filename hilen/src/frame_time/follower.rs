@@ -127,7 +127,7 @@ impl FrameFollower {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, apple))]
     pub(super) fn period(&self) -> Option<f64> {
         self.period
     }

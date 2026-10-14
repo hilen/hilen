@@ -57,6 +57,8 @@ them pixel for pixel after each of 10 small changes.
 - A setting that no view holds and many views draw with calls `damage::whole_next`.
 - A view that changes its pixels with no change of what it holds, like a video, uses
   `keep_frames_while`. Such a view and its subviews count as changed in every frame.
+- A view whose loop a layer of the system shows, `ViewBase::loop_layer`, is not in
+  the frame. The walk skips it like a view that is gone, see [loops.md](loops.md).
 - A view that is not drawn in a region still takes part in the flushes: its text and
   its pictures are noted, and a clip outside the region flushes like one inside. The
   order of the draws is so the same as in a whole frame, and with it every pixel.

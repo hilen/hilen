@@ -1,6 +1,5 @@
 use std::f32::consts::PI;
 
-use chrono::Utc;
 use log::{trace, warn};
 use parking_lot::{Mutex, MutexGuard};
 use ui_proc::view;
@@ -18,8 +17,8 @@ use crate::{
         flat::{Size, point_on_circle},
     },
     ui::{
-        Container, ModalView, Setup, SpinnerLockGlobal, SpinnerLockOnView, TouchStack, UIAnimation, View,
-        ViewCallbacks, ViewData, ViewFrame, ViewSubviews, WeakView,
+        Container, LoopAnimation, ModalView, Setup, SpinnerLockGlobal, SpinnerLockOnView, TouchStack,
+        UIAnimation, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
 };
 
@@ -29,8 +28,11 @@ static SPINNER: Mutex<Weak<Spinner>> = Mutex::new(Weak::const_default());
 #[view]
 pub struct Spinner {
     pub dot_color:      Color,
+    /// Seconds per turn.
     pub rotation_speed: f32,
 
+    /// The `rotation_speed` the loop runs with.
+    period:  f32,
     circles: Vec<Weak<Container>>,
     event:   OnceEvent,
 }
@@ -60,45 +62,26 @@ impl Setup for Spinner {
             let circle = self.add_view::<Container>();
             self.circles.push(circle);
         }
+        self.turn();
     }
 }
 
 impl Spinner {
-    /// Render on demand sleeps the loop unless something asks for frames.
-    /// The dots move off the wall clock in `update`, so without this the
-    /// spinner only turned when input events asked for frames. It asks
-    /// while it is on screen and stops on its own when it hides, scrolls
-    /// out or dies, the same way `RingSpinner` does.
-    fn keep_frames_coming(self: Weak<Self>) {
-        if self.__base_view().keeps_frames {
-            return;
-        }
-        self.keep_frames_while(move || self.is_visible_on_screen());
+    /// The dots go round in a declared loop, see `LoopAnimation`, so on
+    /// Apple systems a layer of the system turns them and the app draws no
+    /// frame for it. A new speed keeps the phase.
+    fn turn(mut self: Weak<Self>) {
+        self.period = self.rotation_speed;
+        let now = self.loop_phase().unwrap_or(0.0);
+        self.run_loop(LoopAnimation::new(self.period, move |phase| self.pose(phase)).starting_at(now));
     }
-}
 
-impl ViewCallbacks for Spinner {
-    fn update(&mut self) {
-        if !self.is_visible_on_screen() {
-            return;
-        }
-        self.weak().keep_frames_coming();
-
-        let duration_scale = self.rotation_speed;
-        let microseconds_in_one_second = 1_000_000.0;
-
-        let cycle_duration: i64 = (microseconds_in_one_second * duration_scale).lossy_convert();
-
-        let current_time: i64 = Utc::now().timestamp_micros();
-
-        let elapsed: f32 = (current_time % cycle_duration).lossy_convert();
-        let cycle: f32 = cycle_duration.lossy_convert();
-        let val: f32 = elapsed / cycle;
-
+    /// The dots at `phase` of a turn.
+    fn pose(mut self: Weak<Self>, phase: f32) {
         let span = PI * 2.0;
         let start = -PI;
 
-        let angle = start + span * val;
+        let angle = start + span * phase;
 
         let step = 2.0 * PI / CIRCLES_N.lossy_convert();
 
@@ -116,12 +99,21 @@ impl ViewCallbacks for Spinner {
             })
             .collect();
 
+        let color = self.dot_color;
         for (circle, point) in self.circles.iter_mut().zip(points) {
             circle
                 .set_size(size, size)
                 .set_corner_radius(half_size)
                 .set_position((point.x - half_size, point.y - half_size))
-                .set_color(self.dot_color);
+                .set_color(color);
+        }
+    }
+}
+
+impl ViewCallbacks for Spinner {
+    fn update(&mut self) {
+        if self.rotation_speed.to_bits() != self.period.to_bits() && self.rotation_speed > 0.0 {
+            self.weak().turn();
         }
     }
 }

@@ -147,8 +147,13 @@ So make the call at the moment the condition becomes true, like the start of a p
 and make it again at every such start. A call in `setup` with a condition that is
 still false ends in the first frame and keeps no frame. Blast had that bug, its play
 line was drawn about 8 times a second.
-`Spinner`, `RingSpinner`, `AnimatedImage` and `VideoView` use it. A covered window
-still draws nothing. The UI test is `Keep frames while`.
+`VideoView` and a gif with a loop count use it. A covered window still draws
+nothing. The UI test is `Keep frames while`.
+
+It is for a thing that ends. A condition that holds for 10 seconds writes a warning
+once per view, a thing that repeats is a declared loop, see [loops.md](loops.md),
+which the system can show with no frame of the app. `Spinner`, `RingSpinner` and
+a gif that loops forever are declared loops.
 
 ```rust
 fn toggle_play(mut self: Weak<Self>) {

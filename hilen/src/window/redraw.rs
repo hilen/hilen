@@ -138,7 +138,7 @@ pub(crate) fn continuous_render_active() -> bool {
     let level_running = !crate::level::LevelManager::no_level();
     #[cfg(not(feature = "level"))]
     let level_running = false;
-    crate::ui::UIManager::has_live_animations() || level_running
+    crate::ui::UIManager::has_live_animations() || crate::ui::loops::wants_frames() || level_running
 }
 
 /// The window is minimized, fully covered or on another desktop, so nothing

@@ -94,6 +94,11 @@ Do not read these upfront. Read the matching file only when the task touches tha
   changed, and `set_msaa_sample_count`, the samples per pixel an app picks while it runs.
   Read before touching `UIDrawer`, a pipeline, the frame state, or adding anything a view
   draws with.
+- [docs/loops.md](docs/loops.md) — declared loops, `run_loop` with a `LoopAnimation`: the pose of
+  a phase, the frame path, the Core Animation layer that shows drawn pictures with no frame of the
+  app on macOS, iOS and tvOS, when a view falls back, why tests see the frame path, and the
+  warnings for closure animations with no end. Read before touching `hilen/src/ui/loops`, a spinner,
+  `AnimatedImage`, `keep_frames_while` or anything that animates without end.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before
   proposing an optimization or a speculative fix; add new unproved ideas there, not to code.
 - [docs/text.md](docs/text.md) — the text pipeline: the bundled fonts, `MarkdownView` and its style, rustybuzz shaping, em sizing, variable

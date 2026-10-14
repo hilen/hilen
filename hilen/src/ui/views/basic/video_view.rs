@@ -8,7 +8,7 @@ use crate::{
         refs::{Weak, weak_from_ref},
         vents::Event,
     },
-    ui::{ImageMode, ImageView, Setup, View, ViewCallbacks, ViewData, ViewFrame},
+    ui::{ImageMode, ImageView, Setup, View, ViewCallbacks, ViewData, ViewFrame, keep_frames_exempt},
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 #[cfg(ffmpeg)]
@@ -276,12 +276,12 @@ impl VideoView {
 
     /// Render on demand sleeps the loop unless something asks for frames. A
     /// playing video asks while frames are wanted and stops when it pauses,
-    /// hides or dies.
+    /// hides or dies. A video is no loop, so a long play is no mistake.
     fn keep_frames_coming(self: Weak<Self>) {
         if self.__base_view().keeps_frames {
             return;
         }
-        self.keep_frames_while(move || {
+        keep_frames_exempt(self.weak_view(), move || {
             self.is_visible_on_screen() && self.player.as_ref().is_some_and(Player::needs_frames)
         });
     }

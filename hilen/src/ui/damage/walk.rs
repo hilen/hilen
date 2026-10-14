@@ -87,7 +87,14 @@ impl<'a> Walk<'a> {
         let scale = self.pixel_scale * base.tree_scale;
         let opacity = base.tree_opacity;
 
-        if view.is_hidden() || frame.size.has_no_area() || opacity <= 0.0 || base.group_alpha <= 0.0 {
+        // A view a layer of the system shows is not in the frame, its old
+        // pixels go like the ones of a view that is gone.
+        if view.is_hidden()
+            || frame.size.has_no_area()
+            || opacity <= 0.0
+            || base.group_alpha <= 0.0
+            || base.loop_layer
+        {
             return;
         }
 

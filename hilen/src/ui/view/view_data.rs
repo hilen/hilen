@@ -1,16 +1,24 @@
 use std::ops::DerefMut;
 
+use log::warn;
+
 use crate::{
     deps::{
         refs::{Own, Weak, weak_from_ref},
         vents::Event,
     },
     gm::{ToF32, color::Color, flat::CornerRadii},
+    monotonic::monotonic_seconds,
     ui::{
-        Gradient, NavigationView, Shadow, Style, UIAnimation, UIColor, UIManager, View, WeakView,
-        layout::Placer,
+        FramesWanted, Gradient, LoopAnimation, NavigationView, Shadow, Style, UIAnimation, UIColor,
+        UIManager, View, WeakView, layout::Placer, loops,
     },
 };
+
+/// A condition of `keep_frames_while` that holds this long is taken for a
+/// thing that runs without end, a loop that has to be declared, see
+/// `docs/loops.md`. Longer than any transition or scroll glide.
+pub(crate) const ENDLESS_SECONDS: f64 = 10.0;
 
 pub trait ViewData {
     fn tag(&self) -> usize;
@@ -110,6 +118,23 @@ pub trait ViewData {
     /// self.keep_frames_while(move || self.playing);
     /// ```
     fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static);
+
+    /// Runs a declared loop on the view, a period and a pose of the
+    /// phase, see `LoopAnimation`. Anything that repeats or runs without
+    /// end is a loop, a closure animation is for a short move that ends.
+    /// A new call replaces the loop the view has.
+    ///
+    /// ```ignore
+    /// self.run_loop(LoopAnimation::new(1.0, move |phase| self.turn_to(phase)));
+    /// ```
+    fn run_loop(&self, animation: LoopAnimation);
+
+    /// Ends the loop of `run_loop`. The view keeps the pose it has.
+    fn stop_loop(&self);
+
+    /// Where the loop of `run_loop` stands at the time of this frame, 0 to
+    /// 1. None when the view runs no loop.
+    fn loop_phase(&self) -> Option<f32>;
 
     fn weak(&self) -> Weak<Self>;
 }
@@ -355,48 +380,91 @@ impl<T: ?Sized + View> ViewData for T {
     }
 
     fn add_animation(&self, mut anim: UIAnimation) {
+        if anim.repeats {
+            warn_endless(self.weak_view(), "runs a closure animation that repeats");
+        }
         anim.view = self.weak_view();
         UIManager::add_animation(anim);
     }
 
     fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static) {
-        let view = self.weak_view();
-        let base = self.__base_view();
-        base.frames_wanted = Some(Box::new(wanted));
-        if base.keeps_frames {
-            return;
-        }
-        base.keeps_frames = true;
+        self.__base_view().frames_exempt = false;
+        keep_frames(self.weak_view(), Box::new(wanted));
+    }
 
-        // The loop draws on every refresh while an animation is live, see
-        // `continuous_render_active`. This one changes nothing.
-        let anim = UIAnimation::new(|_, _| {}).finish_condition(move || {
-            // Taken out for the call, the condition may set a new one.
-            let Some(mut wanted) = view.__base_view().frames_wanted.take() else {
-                return true;
-            };
-            if !wanted() {
-                return true;
-            }
-            let base = view.__base_view();
-            if base.frames_wanted.is_none() {
-                base.frames_wanted = Some(wanted);
-            }
-            false
-        });
-        anim.on_finish.sub(move || {
-            if view.is_ok() {
-                let base = view.__base_view();
-                base.keeps_frames = false;
-                base.frames_wanted = None;
-            }
-        });
-        self.add_animation(anim);
+    fn run_loop(&self, animation: LoopAnimation) {
+        loops::start(self.weak_view(), animation);
+    }
+
+    fn stop_loop(&self) {
+        loops::stop(self.weak_view());
+    }
+
+    fn loop_phase(&self) -> Option<f32> {
+        loops::phase(self.weak_view())
     }
 
     fn weak(&self) -> Weak<Self> {
         weak_from_ref(self)
     }
+}
+
+/// `keep_frames_while` for a view whose frames are for no loop, like a
+/// playing video. It writes no warning however long the condition holds.
+pub(crate) fn keep_frames_exempt(view: WeakView, wanted: impl FnMut() -> bool + Send + 'static) {
+    view.__base_view().frames_exempt = true;
+    keep_frames(view, Box::new(wanted));
+}
+
+fn keep_frames(view: WeakView, wanted: FramesWanted) {
+    let base = view.__base_view();
+    base.frames_wanted = Some(wanted);
+    if base.keeps_frames {
+        return;
+    }
+    base.keeps_frames = true;
+    base.frames_since = monotonic_seconds();
+
+    // The loop draws on every refresh while an animation is live, see
+    // `continuous_render_active`. This one changes nothing.
+    let anim = UIAnimation::new(|_, _| {}).finish_condition(move || {
+        // Taken out for the call, the condition may set a new one.
+        let Some(mut wanted) = view.__base_view().frames_wanted.take() else {
+            return true;
+        };
+        if !wanted() {
+            return true;
+        }
+        let base = view.__base_view();
+        if base.frames_wanted.is_none() {
+            base.frames_wanted = Some(wanted);
+        }
+        if !base.frames_exempt && monotonic_seconds() - base.frames_since >= ENDLESS_SECONDS {
+            warn_endless(view, "keeps frames with no end");
+        }
+        false
+    });
+    anim.on_finish.sub(move || {
+        if view.is_ok() {
+            let base = view.__base_view();
+            base.keeps_frames = false;
+            base.frames_wanted = None;
+        }
+    });
+    view.add_animation(anim);
+}
+
+/// Once per view. The view goes on as it is, on the frame path.
+fn warn_endless(view: WeakView, what: &str) {
+    let base = view.__base_view();
+    if base.endless_warned {
+        return;
+    }
+    base.endless_warned = true;
+    warn!(
+        "{} {what}. A thing that repeats is a declared loop, `run_loop` with a `LoopAnimation`, see docs/loops.md",
+        base.view_label
+    );
 }
 
 pub trait AfterSetup {

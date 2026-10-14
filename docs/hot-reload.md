@@ -450,6 +450,10 @@ names.
   moment longer. So winit keeps a weak reference to each window, view and view
   controller, and deletes only when all are gone. In the proof that took 0.1
   seconds.
+- The layers of declared loops stay on the winit view at the stop and go
+  with it. A removal there crashed the lane in about half of its runs, most
+  likely through a layout of the view that runs after the stop in the
+  deleted class, see [loops.md](loops.md).
 - A class compiled from a `.m` file cannot be deleted. A second copy loads
   anyway, the runtime prints 1 warning, and the new image uses its own copy.
   That covers `HilenTextField` and `HilenTextBridge`.

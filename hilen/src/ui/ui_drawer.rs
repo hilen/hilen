@@ -22,9 +22,10 @@ use crate::{
     },
     ui::{
         BlurView, DrawingView, ImageView, Label, ScrimView, TextSelection, UIManager, View, ViewData,
-        ViewFrame, ViewLayout, ViewSubviews,
+        ViewFrame, ViewLayout, ViewSubviews, WeakView,
         damage::{clip_rect, paint_rect},
         label_drawer::TextSections,
+        loops,
     },
     window::{RenderFrame, Window},
 };
@@ -130,6 +131,21 @@ impl UIDrawer {
         TextSelection::tick();
         *NEEDS_SAMPLING.get_mut() = false;
         Self::update_view(UIManager::root_view().deref_mut(), 1.0);
+        // After the layout, a loop decides by the frames of this one where
+        // it is shown, see `ui::loops`.
+        loops::step();
+    }
+
+    /// Lays out and updates 1 view and its subviews again, after the pose
+    /// of a loop changed them.
+    pub(crate) fn update_subtree(mut view: WeakView) {
+        let superview = *view.superview();
+        let parent_opacity = if superview.is_ok() {
+            superview.__base_view().tree_opacity
+        } else {
+            1.0
+        };
+        Self::update_view(view.deref_mut(), parent_opacity);
     }
 
     pub(crate) fn needs_sampleable_frame() -> bool {
@@ -374,6 +390,11 @@ impl UIDrawer {
         let group_alpha = view.__base_view().group_alpha;
 
         if view.is_hidden() || frame.size.has_no_area() || opacity <= 0.0 || group_alpha <= 0.0 {
+            return;
+        }
+
+        // A layer of the system shows this view and its subviews.
+        if view.__base_view().loop_layer {
             return;
         }
 

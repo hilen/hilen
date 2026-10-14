@@ -457,6 +457,12 @@ every test, so a test never has to clean it up on the failure path. `Frame stepp
 animation` and `Animated gif` are the examples. `Animation drives frames` must never
 run stepped, it proves free running animations request their own frames.
 
+A declared loop, `run_loop`, runs on the frame path in every test, the runner turns
+the layers of the system off before each test, since a check reads the frame and a
+layer is not in it. A test pins a loop at a phase with stepped time: enter it, then
+start the loop, then `step_frames`. `Declared loop` turns the layers on to test them,
+see [loops.md](loops.md).
+
 ## System input
 
 The screen keyboard of a phone is drawn by another process, and no event the engine sends

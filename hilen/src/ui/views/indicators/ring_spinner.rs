@@ -1,21 +1,22 @@
 use std::f32::consts::TAU;
 
 use ui_proc::view;
-use web_time::Instant;
 
 use crate::{
     deps::refs::Weak,
     gm::{
         ToF32,
         color::{Color, GRAY},
-        flat::{LineCap, StrokeStyle, VectorPath},
+        flat::{LineCap, Size, StrokeStyle, VectorPath},
     },
-    ui::{DrawingView, Setup, UIColor, View, ViewCallbacks, ViewData, ViewFrame},
+    ui::{DrawingView, LoopAnimation, Setup, UIColor, ViewCallbacks, ViewData, ViewFrame},
 };
 
 /// An indeterminate progress ring. A circle stroke with a quarter gap that
-/// turns while the view is visible, the browser `animate-spin` border ring.
-/// The ring fills the view's frame, so size it like any view.
+/// turns, the browser `animate-spin` border ring. The ring fills the
+/// view's frame, so size it like any view. The turn is a declared loop, see
+/// `LoopAnimation`, so on Apple systems a layer of the system turns it and
+/// the app draws no frame for it.
 #[view]
 pub struct RingSpinner {
     ring_color: UIColor,
@@ -23,9 +24,12 @@ pub struct RingSpinner {
     line_width: f32,
     /// Turns per second.
     speed:      f32,
-    /// Position of the gap, in turns.
+    /// Position of the gap now, in turns.
     angle:      f32,
-    last_tick:  Option<Instant>,
+    /// Where the gap was when the turning started, in turns.
+    start:      f32,
+    /// The size the path was made for.
+    drawn_size: Size,
 
     #[init]
     drawing: DrawingView,
@@ -49,24 +53,35 @@ impl RingSpinner {
 
     /// Turns per second. Zero holds the ring still at its current angle.
     pub fn set_speed(&mut self, turns_per_second: impl ToF32) -> &mut Self {
+        let angle = self.angle();
         self.speed = turns_per_second.to_f32();
+        self.weak().turn(angle);
         self
     }
 
-    /// Where the gap sits, in turns clockwise from the top.
+    /// Where the gap sits, in turns clockwise from the top. A turning ring
+    /// turns on from there.
     pub fn set_angle(&mut self, turns: impl ToF32) -> &mut Self {
         self.angle = turns.to_f32().rem_euclid(1.0);
         self.redraw();
+        self.weak().turn(self.angle);
         self
     }
 
+    /// Where the gap is at the time of this frame, in turns. A ring on a
+    /// layer of the system holds its path at the start of the turn, so a
+    /// turning ring reads it from the loop.
     pub fn angle(&self) -> f32 {
-        self.angle
+        match self.loop_phase() {
+            Some(phase) => (self.start + phase * self.speed.signum()).rem_euclid(1.0),
+            None => self.angle,
+        }
     }
 
     fn redraw(&mut self) {
         self.drawing.remove_all_paths();
         let size = self.size();
+        self.drawn_size = size;
         let radius = (size.smallest_side() - self.line_width) / 2.0;
         if radius <= 0.0 {
             return;
@@ -82,16 +97,33 @@ impl RingSpinner {
         );
     }
 
-    /// Render on demand sleeps the loop unless something asks for frames.
-    /// The ring asks while it is on screen and stops on its own when it
-    /// hides, scrolls out or dies.
-    fn keep_frames_coming(mut self: Weak<Self>) {
-        if self.__base_view().keeps_frames {
+    /// A turning ring runs a loop of 1 turn from `start`, a ring with no
+    /// speed runs none and holds the angle it has.
+    fn turn(mut self: Weak<Self>, start: f32) {
+        if self.speed == 0.0 {
+            if self.angle.to_bits() != start.to_bits() {
+                self.angle = start;
+                self.redraw();
+            }
+            self.stop_loop();
             return;
         }
-        // The time the ring was away must not count as one huge step.
-        self.last_tick = None;
-        self.keep_frames_while(move || self.is_visible_on_screen());
+        self.start = start;
+        let period = 1.0 / self.speed.abs();
+        self.run_loop(LoopAnimation::new(period, move |phase| self.pose(phase)));
+    }
+
+    /// The ring at `phase` of a turn. The path is made again only when the
+    /// angle or the size moved.
+    fn pose(mut self: Weak<Self>, phase: f32) {
+        let angle = (self.start + phase * self.speed.signum()).rem_euclid(1.0);
+        if angle.to_bits() != self.angle.to_bits()
+            || self.drawing.paths().is_empty()
+            || self.size() != self.drawn_size
+        {
+            self.angle = angle;
+            self.redraw();
+        }
     }
 }
 
@@ -99,25 +131,15 @@ impl Setup for RingSpinner {
     fn setup(mut self: Weak<Self>) {
         self.set_ring_color(GRAY);
         self.line_width = 2.0;
-        self.speed = 1.0;
         self.set_size(12, 12);
         self.drawing.place().back();
+        self.set_speed(1);
     }
 }
 
 impl ViewCallbacks for RingSpinner {
     fn update(&mut self) {
-        if !self.is_visible_on_screen() {
-            return;
-        }
-        self.weak().keep_frames_coming();
-
-        let now = Instant::now();
-        let passed = self.last_tick.map_or(0.0, |tick| (now - tick).as_secs_f32());
-        self.last_tick = Some(now);
-        let angle = (self.speed * passed + self.angle).rem_euclid(1.0);
-        if angle.to_bits() != self.angle.to_bits() || self.drawing.paths().is_empty() {
-            self.angle = angle;
+        if self.size() != self.drawn_size {
             self.redraw();
         }
     }

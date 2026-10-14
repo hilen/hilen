@@ -108,6 +108,8 @@ pub extern "C" fn hilen_stop() {
     let mut root = UIManager::root_view();
     root.clear_root();
     UIManager::free_deleted_views();
+    // The loops hold the layers they put on the window view.
+    crate::ui::loops::stop_all();
 
     // After the views, a video player holds a track of the audio manager.
     #[cfg(feature = "audio")]

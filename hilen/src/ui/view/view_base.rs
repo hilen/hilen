@@ -170,9 +170,25 @@ pub struct ViewBase {
 
     /// The condition of `ViewData::keep_frames_while`.
     #[educe(Debug(ignore))]
-    pub(crate) frames_wanted: Option<FramesWanted>,
+    pub(crate) frames_wanted:  Option<FramesWanted>,
     /// The empty animation of `ViewData::keep_frames_while` is live.
-    pub(crate) keeps_frames:  bool,
+    pub(crate) keeps_frames:   bool,
+    /// When the condition of `keep_frames_while` began to hold, in the
+    /// seconds of `monotonic_seconds`.
+    pub(crate) frames_since:   f64,
+    /// The view keeps frames for a thing that is no loop, like a playing
+    /// video, so a condition that holds for long is no mistake.
+    pub(crate) frames_exempt:  bool,
+    /// The warning about frames kept without end was written for it.
+    pub(crate) endless_warned: bool,
+
+    /// The declared loop of the view, see `ui::loops`, 0 for none.
+    pub(crate) loop_id:    u64,
+    /// The time of phase 0 of the loop and its period, in seconds.
+    pub(crate) loop_clock: (f64, f64),
+    /// A layer of the system shows the loop now. The frame then draws
+    /// nothing of the view and its subviews.
+    pub(crate) loop_layer: bool,
 
     /// Whether the view draws into the pass by itself, learned when it is
     /// first drawn.

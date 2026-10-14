@@ -21,7 +21,9 @@ pub struct UIAnimation {
     #[educe(Debug(ignore))]
     pub on_finish:   OnceEvent,
 
-    finish_condition: Function<(), bool>,
+    finish_condition:   Function<(), bool>,
+    /// Made by `repeat`, a closure animation with no end.
+    pub(crate) repeats: bool,
 }
 
 impl UIAnimation {
@@ -32,6 +34,7 @@ impl UIAnimation {
             action:           Box::new(action),
             on_finish:        OnceEvent::default(),
             finish_condition: Function::default(),
+            repeats:          false,
         }
     }
 
@@ -41,8 +44,11 @@ impl UIAnimation {
     }
 
     /// Never finishes. The value keeps bouncing between the ends until the
-    /// view is gone.
-    pub fn repeat(self) -> Self {
+    /// view is gone. A thing that repeats is better a declared loop,
+    /// `ViewData::run_loop`, which the system can run with no frame of
+    /// the app. This one writes a warning once per view.
+    pub fn repeat(mut self) -> Self {
+        self.repeats = true;
         self.finish_condition(|| false)
     }
 

@@ -123,6 +123,10 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         }
         // A ring left by one test would look for a view in the next.
         crate::ui::Focus::reset();
+        // A check reads the frame, and a loop on a layer of the system is
+        // not in it. A test of the layers turns them on itself.
+        #[cfg(apple)]
+        crate::ui::loops::set_test_layers(Some(false));
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {

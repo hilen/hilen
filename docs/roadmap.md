@@ -19,29 +19,98 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A frame that changes little still costs a whole frame of fixed work
+## A small animation keeps the whole engine busy
 
-Found by banda, `~/dev/apps/banda`, on 2026-10-12. A mark of 18 points that moves
-at 60 frames per second kept the main thread busy 9.3% of the time on an M1 Pro after
-partial frames landed, and the GPU of the mac 7 points above idle with 1 sample. The
-numbers and what was done are in [damage.md](damage.md).
+Found by banda, `~/dev/apps/banda`, on 2026-10-12, and by ui-compare,
+`~/dev/ui-compare`, on 2026-10-14, the same app on hilen and on Tauri, measured from
+outside. Its results and the 10 s Time Profiler run are in `results/` there. 2
+consults of Claude and Codex read the code, their answers are not kept in the repo.
 
-- Current: a partial frame draws only the regions that changed. It still walks every
-  view 3 times, in `UIDrawer::update`, in `damage::find` and once per region in
-  `UIDrawer::draw_view`. It still encodes and submits a pass, and it still shows a new
-  image of the whole window, which the system then composes. With 4 samples it also
-  loads and resolves the multisampled texture of the whole window.
-- Needed, 3 parts that can land apart:
-  - Views that say what changed, so a frame of an animation that only sets colors
-    skips the update walk and the compare walk. A view is changed from anywhere, also
-    by a write to a field, so this needs a record around the animation callbacks and
-    a check mode that runs the full walk next to it.
-  - A small multisampled target for a region, resolved into a kept texture with 1
-    sample, so 4 samples cost by the size of the region and not of the window.
-  - A layer of the system for an animated view, a `CAMetalLayer` or a `CALayer` on
-    Apple systems, so a step of the animation shows no new image of the window.
-- Blocks: battery life on a phone for any app with a spinner or a progress mark on
-  the screen.
+- Current:
+  - At 120 Hz on an M1 Pro, idle for 60 s, the ui-compare app uses 43.7% of a core
+    with a turning `RingSpinner` in a frosted bar and 37.5% with a plain bar. The
+    Tauri copy uses 0.1% and 0.0%. WebKit draws no frame for a CSS rotation, it hands
+    the rotation to the system compositor. With the frosted bar hilen misses frames,
+    295 long gaps in 60 s against 10. `HILEN_DAMAGE=0` and `HILEN_MSAA=1` change no
+    CPU number.
+  - A Core Animation layer that turns a ring, or shows 120 pictures of it in a loop,
+    costs its app 0.03% at 120 Hz while its main thread sleeps, `tools/layer` in
+    ui-compare. The cost of a frame that hilen or a bare wgpu or Metal loop draws
+    itself is not measured yet. The `floor-hilen` number, 21.6%, is a whole frame,
+    its root calls `keep_frames_while`, which marks the root and every child changed.
+  - Every frame of the app is whole. A visible `BlurView` forces it in
+    `damage/walk.rs`. `damage::paint_rect` gives a `DrawingView` its whole clip, and
+    with no view above that clips, 1 small path damages the whole window.
+  - Waste in every frame, read from the code and the profile:
+    - `Queue::write_buffer` makes a new staging buffer and a Metal buffer through a
+      kernel call for every upload, and `maintain` frees it, about 0.5 ms a frame.
+    - 3 Metal command buffers a frame, the pending writes, the render, and 1 that the
+      wgpu fork makes only to present, `wgpu-hal/src/metal/mod.rs`.
+    - `State::render` takes the drawable before it plans the damage, so a frame with
+      nothing to draw still encodes, resolves the window and presents.
+    - The pacer is `Poll` on every platform but iOS, `window/redraw.rs`. On macOS the
+      winit fork runs it as a run loop timer at now, the frame only paces because the
+      drawable blocks. The timer and kevent take about 170 µs a frame.
+    - `RingSpinner` makes 3 new GPU buffers and a bind group every frame.
+    - The update walk, the damage walk and `stamp_for_address`, about 400 µs a frame.
+    - Text placement, the glyph draw cache and the vertices are redone every frame,
+      shaping is already cached.
+  - A browser page draws on every display refresh, also with nothing moving,
+    `app_handler.rs` asks for a redraw in every turn of the loop.
+  - Declared loops landed, [loops.md](loops.md). On macOS, iOS and tvOS a Core
+    Animation layer shows the pictures of a loop and the app draws no frame for it.
+    The same ui-compare app at 60 Hz, idle for 20 s, 5 runs each in 1 session: 0.1% of
+    a core with the loop on a layer, 24.5% before, Tauri 0.2%. Memory went from 128 to
+    157 MB, the cause is not checked. Everything that is not a declared loop on an
+    Apple system, a closure animation, a scroll, a covered or clipped loop and every
+    other platform, still pays the whole frame below.
+- Needed, in this order. Each step lands with its UI test and its own A/B per
+  [benchmark.md](benchmark.md), 5 runs per side, idle runs of 60 s, never 2 changes
+  in 1 A/B.
+  1. The floor, with no engine change. `floor-hilen` keeps frames on the dot, not the
+     root, and counts its own frames, the capture tops at 112 fps. A bare Metal loop in
+     `tools/layer` and a bare wgpu loop, each with a whole window surface and a small
+     one. The "nothing" case runs under the same recorder. No other load on the
+     machine. It gives the CPU per presented frame of Metal, wgpu and hilen.
+  2. No new buffer per upload. Upload storage is kept and used again once the GPU is
+     done with it, a mapped buffer is never in a submit. `RingSpinner` writes its arc
+     into the same 3 buffers every frame and takes its time from `frame_seconds`. A
+     kept buffer gets a content revision, the damage key hashes the revision and not
+     the buffer. The proof counts buffers made and freed, not the live count.
+  3. In the wgpu fork, present from the render command buffer. The submit is told
+     which surface texture it finishes, Metal first, the other backends as today.
+  4. No frame without damage: the damage is planned before the drawable is taken.
+  5. Pacing from the display: the `FrameWake` pacer of iOS on desktop, a display link
+     wake on `Wait`, macOS first.
+  6. Paint bounds for a `DrawingView`: the box of its meshes joined with its own frame,
+     it never clips to its frame. A partial frame with 1 blur on the screen uses the
+     blur result of the frame before when nothing under the blur changed, 2 blurs or a
+     change under it keep the whole frame.
+  7. Frames on demand in a browser. The loop stays on `Wait`, which Firefox needs, and
+     asks for a redraw only when input, a timer, async work or `keep_frames_while`
+     asks.
+  8. Retained drawing. A set of changed views in place of the update walk and the
+     damage walk, kept draw lists per view, and a check mode that runs the full walk
+     next to it on every frame of the suite. A view is changed from anywhere, also by
+     a write to a field, so the record goes around setters, layout and the animation
+     callbacks. The draw order is planned again when opacity, overlap, a clip or an
+     effect changes, not only the tree.
+  9. Text kept across frames, placed glyphs and their vertex range per label, dropped
+      when the glyph atlas changes. A new 120 Hz profile of scroll decides it, at
+      120 Hz hilen is only level with Tauri there.
+  10. More layers. Declared loops have the flipbook on Apple systems. Still missing:
+      keyframe animations, a transform or fade the compositor runs, a small surface
+      the engine draws into so the window is not presented again, and the other
+      platforms, Windows DirectComposition, a browser a page element, Linux a
+      `wl_subsurface`, Android a `SurfaceControl`. A screen capture test of the layer
+      pixels at fixed phases on a Mac, today only its place and flip are checked.
+  - Later, only when a GPU measurement asks for it: a small multisampled target for
+    a region, resolved into a small 1 sample texture and copied into the kept scene.
+  - Target: the Mac and iOS reach the Tauri idle numbers, about 0.1% of a core, and
+    keep the lead in drag, startup and memory. Other platforms get the steps where
+    they apply, with no CPU target until Tauri is measured there.
+- Blocks: battery life of any app with a spinner, a progress mark or a looping mark
+  on the screen.
 
 ## A phone has no keys for a view that reads the keyboard itself
 
