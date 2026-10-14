@@ -135,11 +135,14 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPa
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSException", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSException", "NSProcessInfo", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
 objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CALayer", "CAMediaTiming", "CATransaction", "objc2-core-foundation"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 open = "5.4"
+# Already in the build through sentry-contexts on Windows, the engine reads the
+# Windows version and edition from it for a Sentry event.
+os_info = { version = "3", default-features = false }
 parking_lot = "0.12"
 pollster = "1.0"
 pretty_assertions = "1.4"
@@ -243,6 +246,7 @@ web-sys = { version = "0.3", features = [
 ] }
 web-time = "1.1"
 webpki-roots = "1.0"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry"] }
 wgpu = { package = "hilen-wgpu", version = "30.0" }
 # Asked for by name on Apple systems, where the frame record of the inspector needs
 # the presented time that came with 30.0.3. An app keeps the version of its own lock

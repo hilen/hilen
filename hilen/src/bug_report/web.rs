@@ -14,7 +14,7 @@ use web_sys::js_sys::{Math, Uint8Array};
 
 use crate::{
     bug_report::{
-        BugReportData,
+        BugReportData, app_release,
         envelope::{self, BrowserContext, Contexts, Dsn, Event, Exception, Exceptions, Mechanism},
         log_ring::LogRing,
     },
@@ -89,7 +89,7 @@ pub(super) fn warning(message: String, values: Vec<(String, String)>) {
 
 /// An event of now with a new id and the browser.
 fn event(level: &'static str) -> Event {
-    let mut event = Event::new(event_id(), now(), level);
+    let mut event = Event::new(event_id(), now(), level, app_release());
     event.contexts = user_agent().map(|name| Contexts {
         browser: BrowserContext { name },
     });
@@ -136,7 +136,7 @@ pub(crate) fn report_panic(info: &PanicHookInfo) {
         return;
     };
 
-    let mut event = Event::new(event_id(), now(), "fatal");
+    let mut event = Event::new(event_id(), now(), "fatal", app_release());
     event.exception = Some(Exceptions {
         values: vec![Exception {
             ty:        "panic",

@@ -187,6 +187,7 @@ web-sys = { workspace = true }
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = { workspace = true }
 jni = { workspace = true }
+libc = { workspace = true }
 ndk-context = { workspace = true }
 winit = { workspace = true, features = ["android-game-activity"] }
 
@@ -198,6 +199,7 @@ rfd = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { workspace = true }
+libc = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true }
 objc2-core-foundation = { workspace = true }
@@ -206,6 +208,10 @@ objc2-foundation = { workspace = true }
 objc2-media-player = { workspace = true }
 objc2-quartz-core = { workspace = true }
 wgpu-hal = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+os_info = { workspace = true }
+windows-sys = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = { workspace = true }

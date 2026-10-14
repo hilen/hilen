@@ -3069,6 +3069,7 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "objc2-ui-kit 0.3.2",
  "open",
+ "os_info",
  "parking_lot",
  "plat",
  "pollster 1.0.1",
@@ -3114,6 +3115,7 @@ dependencies = [
  "web-sys",
  "web-time",
  "webpki-roots 1.0.9",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

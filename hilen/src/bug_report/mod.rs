@@ -13,6 +13,8 @@ mod input_ring;
 mod log_ring;
 #[cfg(not_wasm)]
 mod native;
+#[cfg(not_wasm)]
+mod platform;
 mod report_view;
 mod style;
 #[cfg(wasm)]
@@ -30,6 +32,8 @@ use log::{error, warn};
 /// Only the dialog UI test builds `KeyPress` values from outside.
 #[cfg(feature = "ui-tests")]
 pub(crate) use crate::bug_report::input_ring::KeyPress;
+#[cfg(not_wasm)]
+pub(crate) use crate::bug_report::platform::{Platform, sentry_options};
 pub use crate::bug_report::style::BugReportStyle;
 #[cfg(wasm)]
 pub(crate) use crate::bug_report::web::{report_panic, set_dsn};
@@ -87,6 +91,17 @@ static ANIMATION: std::sync::RwLock<Option<&'static [u8]>> = std::sync::RwLock::
 /// The email the report form opens with, set by an app that knows who
 /// is signed in.
 static EMAIL: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// The Sentry release of the app, `<project_name>@<version>`, from what
+/// `register_app!` puts into the crate of the app. Never the engine, a
+/// `sentry::release_name!` inside the engine names `hilen`.
+pub(crate) fn app_release() -> String {
+    release(crate::app::hilen_project_name(), crate::app::hilen_app_version())
+}
+
+fn release(name: &str, version: &str) -> String {
+    format!("{name}@{version}")
+}
 
 pub struct BugReport;
 

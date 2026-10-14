@@ -130,11 +130,13 @@ unsafe extern "C" {
     pub(crate) fn hilen_create_app() -> Box<dyn App>;
 }
 
-// One loader runs several apps in a hot build, so the data folder has the
-// name of the project there, see `Paths::storage`.
-#[cfg(hot)]
+// An iOS app always has `register_app!`, like `hilen_create_app` above. A
+// hot build names its data folder with the project name, see
+// `Paths::storage`, and a Sentry event names its release with both.
+#[cfg(ios)]
 unsafe extern "Rust" {
     pub(crate) safe fn hilen_project_name() -> &'static str;
+    pub(crate) safe fn hilen_app_version() -> &'static str;
 }
 
 #[cfg(not(ios))]
@@ -167,9 +169,9 @@ unsafe extern "Rust" {
 }
 
 /// The `project_name` of the app's `hilen.toml`, the name of its data
-/// folder. `register_app!` puts the real one into the final crate, this
-/// one is linked when an app has no `register_app!`.
-#[cfg(desktop)]
+/// folder and of its Sentry release. `register_app!` puts the real one into
+/// the final crate, this one is linked when an app has no `register_app!`.
+#[cfg(not(ios))]
 #[unsafe(no_mangle)]
 #[linkage = "weak"]
 pub extern "Rust" fn hilen_project_name() -> &'static str {
@@ -205,8 +207,9 @@ macro_rules! embed_assets {
 }
 
 /// The version of the app's own package, what the updater compares a
-/// manifest against. `register_app!` puts the real one into the final crate.
-#[cfg(desktop)]
+/// manifest against and what a Sentry release carries. `register_app!` puts
+/// the real one into the final crate.
+#[cfg(not(ios))]
 #[unsafe(no_mangle)]
 #[linkage = "weak"]
 pub extern "Rust" fn hilen_app_version() -> &'static str {

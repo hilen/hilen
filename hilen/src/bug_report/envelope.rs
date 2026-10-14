@@ -146,14 +146,15 @@ pub(crate) struct Event {
 
 impl Event {
     /// `event_id` is 32 lowercase hex chars, a uuid without dashes.
-    pub(crate) fn new(event_id: String, timestamp: f64, level: &'static str) -> Self {
+    /// `release` is the one of the app, `bug_report::app_release`, the same
+    /// the native client sends.
+    pub(crate) fn new(event_id: String, timestamp: f64, level: &'static str, release: String) -> Self {
         Self {
             event_id,
             timestamp,
             platform: "other",
             level,
-            // The same name the native client sends, `sentry::release_name!`.
-            release: format!("{}@{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+            release,
             sdk: Sdk {
                 name:    SDK_NAME,
                 version: env!("CARGO_PKG_VERSION"),
@@ -297,6 +298,7 @@ mod tests {
     use crate::bug_report::{BugReportAttachment, BugReportData};
 
     const DSN: &str = "https://abc123@o42.ingest.sentry.io/7001";
+    const RELEASE: &str = "skaityk@3.0.6";
 
     #[derive(Deserialize)]
     struct Header {
@@ -322,6 +324,7 @@ mod tests {
     struct ParsedEvent {
         event_id: String,
         level:    String,
+        release:  String,
         message:  String,
         user:     ParsedUser,
     }
@@ -364,7 +367,12 @@ mod tests {
     fn envelope_items_round_trip() -> Result<()> {
         let dsn = Dsn::parse(DSN)?;
 
-        let mut event = Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "info");
+        let mut event = Event::new(
+            "0123456789abcdef0123456789abcdef".to_string(),
+            1.5,
+            "info",
+            RELEASE.to_string(),
+        );
         event.message = Some("the button does nothing".to_string());
         event.user = Some(User {
             email: "a@b.c".to_string(),
@@ -403,6 +411,7 @@ mod tests {
         let parsed: ParsedEvent = serde_json::from_slice(payload)?;
         assert_eq!(parsed.event_id, event.event_id);
         assert_eq!(parsed.level, "info");
+        assert_eq!(parsed.release, RELEASE);
         assert_eq!(parsed.message, "the button does nothing");
         assert_eq!(parsed.user.email, "a@b.c");
 
@@ -453,7 +462,12 @@ mod tests {
     fn send(attachment: Option<BugReportAttachment>, log: &str) -> Result<Vec<u8>> {
         report(
             &Dsn::parse(DSN)?,
-            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "info"),
+            Event::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                1.5,
+                "info",
+                RELEASE.to_string(),
+            ),
             BugReportData {
                 email: "a@b.c".to_string(),
                 description: "the button does nothing".to_string(),
@@ -516,7 +530,12 @@ mod tests {
 
         let bytes = warning(
             &dsn,
-            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "warning"),
+            Event::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                1.5,
+                "warning",
+                RELEASE.to_string(),
+            ),
             "a story has more audio than sentences".to_string(),
             vec![
                 ("url".to_string(), "https://example.com/story/42".to_string()),
@@ -552,7 +571,12 @@ mod tests {
 
         let bytes = warning(
             &dsn,
-            Event::new("0123456789abcdef0123456789abcdef".to_string(), 1.5, "warning"),
+            Event::new(
+                "0123456789abcdef0123456789abcdef".to_string(),
+                1.5,
+                "warning",
+                RELEASE.to_string(),
+            ),
             "no values at all".to_string(),
             Vec::new(),
             "",
