@@ -7,6 +7,7 @@ pub(crate) mod app_activity;
 #[cfg(feature = "login")]
 pub(crate) mod browser_sheet;
 mod clipboard;
+pub(crate) mod links;
 mod locale;
 mod media_session;
 mod open_url;
@@ -17,6 +18,7 @@ mod updater;
 
 pub use app_activity::AppActivity;
 pub use clipboard::{Clipboard, ClipboardImage};
+pub use links::{Links, OpenedLink};
 pub use locale::{language_code, locale};
 #[cfg(tvos)]
 pub(crate) use media_session::deliver as deliver_media_command;

@@ -41,6 +41,8 @@ pub use winit::{
     window::Theme,
 };
 
+#[cfg(desktop)]
+pub(crate) use self::app_handler::ready_winit_window;
 /// On wasm only the test suite reads the flag, the frame pacing that
 /// reads it natively lives in a `not_wasm` block.
 #[cfg(any(not_wasm, feature = "ui-tests"))]

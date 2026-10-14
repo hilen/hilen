@@ -21,6 +21,14 @@ use crate::{
     window::{KeyCode, Window, request_frame},
 };
 
+/// Opens the app with `url`, the way a tap on a link of the app does on a
+/// phone or a click on a link of its url scheme does on a desktop. The
+/// link goes through the same path as one from the system and reaches
+/// `system::Links::on_open` in a later turn of the loop.
+pub fn open_link(url: &str) {
+    crate::system::links::fake(url);
+}
+
 /// Press a key and keep it down until `release_key`, what a player
 /// reads while walking. The run resets held keys before every test.
 pub fn hold_key(code: KeyCode) {

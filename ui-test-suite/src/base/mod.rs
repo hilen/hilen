@@ -41,6 +41,7 @@ mod modal_test;
 mod navigation;
 mod navigation_escape;
 mod on_tap_add;
+mod opened_link;
 mod out_bounds_test;
 mod present;
 mod present_rich;

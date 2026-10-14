@@ -69,6 +69,38 @@ pub fn build_time(input: TokenStream) -> TokenStream {
     quote! { #seconds }.into()
 }
 
+/// The url scheme of the `[links]` table of the `hilen.toml` above the crate
+/// that calls it, as `Some("shopping")`, or `None` for an app with no such
+/// table. The scheme is `scheme` of the table, else the `project_name` in
+/// lower case with `-` for `_`. A desktop app reads it to find the link in
+/// the arguments of its start, see `system::Links` of the engine.
+#[proc_macro]
+pub fn link_scheme(input: TokenStream) -> TokenStream {
+    let found = if input.is_empty() {
+        var("CARGO_MANIFEST_DIR")
+            .context("CARGO_MANIFEST_DIR is not set")
+            .and_then(|dir| find_link_scheme(Path::new(&dir)))
+    } else {
+        Err(anyhow!("link_scheme!() takes no arguments"))
+    };
+
+    match found {
+        Ok((path, scheme)) => {
+            let path = path.to_string_lossy().into_owned();
+            let scheme = scheme.map_or_else(|| quote! { None }, |scheme| quote! { Some(#scheme) });
+            quote! {{
+                const _: &[u8] = include_bytes!(#path);
+                #scheme
+            }}
+        }
+        Err(err) => {
+            let message = format!("{err:#}");
+            quote! { compile_error!(#message) }
+        }
+    }
+    .into()
+}
+
 /// The files of the app's `assets` folder as a list of name and bytes, for
 /// `hilen::embed_assets!`. The folder is the nearest one at or above the
 /// crate that calls it.
@@ -130,6 +162,43 @@ fn find(start: &Path) -> Result<(PathBuf, String)> {
     Ok((path, name))
 }
 
+#[derive(Deserialize)]
+struct LinksFile {
+    links: Option<LinksTable>,
+}
+
+/// Only the scheme is read here, the domains are for the mobile projects.
+#[derive(Deserialize)]
+struct LinksTable {
+    scheme: Option<String>,
+}
+
+/// The nearest `hilen.toml` and the url scheme of its `[links]` table.
+fn find_link_scheme(start: &Path) -> Result<(PathBuf, Option<String>)> {
+    let (path, name) = find(start)?;
+    let text = read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let file: LinksFile =
+        toml::from_str(&text).with_context(|| format!("a wrong [links] table in {}", path.display()))?;
+    let Some(links) = file.links else {
+        return Ok((path, None));
+    };
+    let scheme = links.scheme.unwrap_or_else(|| name.to_lowercase().replace('_', "-"));
+    let mut chars = scheme.chars();
+    ensure!(
+        chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '-' | '.')),
+        "the link scheme {scheme:?} in {} must start with a small letter and have only small letters, \
+         digits, +, - and .",
+        path.display()
+    );
+    ensure!(
+        !matches!(scheme.as_str(), "http" | "https" | "file"),
+        "the link scheme {scheme:?} in {} belongs to the system",
+        path.display()
+    );
+    Ok((path, Some(scheme)))
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -141,7 +210,7 @@ mod test {
 
     use anyhow::Result;
 
-    use super::{FILE, find};
+    use super::{FILE, find, find_link_scheme};
 
     /// A fresh folder per test, removed when the test ends.
     struct Repo(PathBuf);
@@ -184,6 +253,45 @@ mod test {
         write(repo.0.join("crates/app").join(FILE), "project_name = \"inner\"\n")?;
 
         assert_eq!(find(&repo.0.join("crates/app/src"))?.1, "inner");
+        Ok(())
+    }
+
+    #[test]
+    fn an_app_with_no_links_table_has_no_scheme() -> Result<()> {
+        let repo = Repo::new("no-links")?;
+        write(repo.0.join(FILE), "project_name = \"shopping\"\n")?;
+
+        assert_eq!(find_link_scheme(&repo.0)?.1, None);
+        Ok(())
+    }
+
+    #[test]
+    fn the_scheme_is_the_project_name_unless_the_table_names_one() -> Result<()> {
+        let repo = Repo::new("links")?;
+        write(
+            repo.0.join(FILE),
+            "project_name = \"My_Shop\"\n[links]\ndomains = [\"shop.example.com\"]\n",
+        )?;
+        assert_eq!(find_link_scheme(&repo.0)?.1.as_deref(), Some("my-shop"));
+
+        write(
+            repo.0.join(FILE),
+            "project_name = \"shop\"\n[links]\nscheme = \"shop-app\"\n",
+        )?;
+        assert_eq!(find_link_scheme(&repo.0)?.1.as_deref(), Some("shop-app"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_wrong_scheme_is_an_error() -> Result<()> {
+        let repo = Repo::new("bad-scheme")?;
+        for scheme in ["Shop", "1shop", "shop app", "https", "shop/x", ""] {
+            write(
+                repo.0.join(FILE),
+                format!("project_name = \"shop\"\n[links]\nscheme = \"{scheme}\"\n"),
+            )?;
+            assert!(find_link_scheme(&repo.0).is_err(), "{scheme:?}");
+        }
         Ok(())
     }
 

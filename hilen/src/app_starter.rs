@@ -110,6 +110,15 @@ fn prepare_storage() {
     OnDisk::<()>::set_root_path(dir);
 }
 
+/// A start with a link that another copy of the app took ends here, before
+/// the app runs any code of its own.
+#[cfg(desktop)]
+fn start_desktop_links(headless: bool) {
+    if !headless && !crate::filesystem::Paths::test_storage() && !crate::window::placement_store::test_env() {
+        crate::system::links::start_desktop();
+    }
+}
+
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
@@ -120,6 +129,9 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
         #[cfg(desktop)]
         crate::window::placement_store::open(headless);
+
+        #[cfg(desktop)]
+        start_desktop_links(headless);
 
         app.before_launch();
 
@@ -164,10 +176,13 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         {
             event_loop.set_control_flow(ControlFlow::Poll);
             crate::system::install_popstate_listener();
+            crate::system::links::receive_start_url();
             crate::web::install_reload_shortcut_listener();
             crate::web::install_pointer_lock_listener();
             crate::web::install_tv_back_listener();
         }
+
+        crate::system::links::install_platform_handlers();
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
         run_app(event_loop, app);

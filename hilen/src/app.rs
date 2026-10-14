@@ -178,6 +178,17 @@ pub extern "Rust" fn hilen_project_name() -> &'static str {
     panic!("The app has no name, add hilen::register_app!(YourApp) to its main.rs")
 }
 
+/// The url scheme of the `[links]` table of the app's `hilen.toml`, which a
+/// desktop start looks for in its arguments, see `system::Links`.
+/// `register_app!` puts the real one into the final crate, an app without it
+/// has no scheme.
+#[cfg(desktop)]
+#[unsafe(no_mangle)]
+#[linkage = "weak"]
+pub extern "Rust" fn hilen_link_scheme() -> Option<&'static str> {
+    None
+}
+
 /// The files an app packed into its binary with `embed_assets!`, each with
 /// its name below the `assets` folder. An app without the macro links this
 /// empty list.
@@ -234,6 +245,11 @@ macro_rules! register_app {
         #[unsafe(no_mangle)]
         pub extern "Rust" fn hilen_app_build_time() -> u64 {
             hilen::build_time!()
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "Rust" fn hilen_link_scheme() -> Option<&'static str> {
+            hilen::link_scheme!()
         }
 
         #[unsafe(no_mangle)]

@@ -99,6 +99,9 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // screen moved for the next.
         crate::ui::ScreenKeyboard::reset();
         crate::ui::Cursor::reset();
+        // A link that waits for a subscriber, like the address of the test
+        // page in a browser, must not reach a test that listens for links.
+        crate::system::links::drop_pending();
         // A test that kept the clipboard inside the process and failed
         // must not leave it so for a test that copies for real.
         #[cfg(desktop)]

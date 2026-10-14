@@ -47,7 +47,7 @@ fn remembered(headless: bool, test_storage: bool, test_env: bool) -> bool {
 
 /// The spellings that turn a real app into a test run, see
 /// `AppRunner::spawn_test_autorun`.
-fn test_env() -> bool {
+pub(crate) fn test_env() -> bool {
     var_os("HILEN_RUN_TESTS").is_some() || var_os("HILEN_PRESENT").is_some()
 }
 

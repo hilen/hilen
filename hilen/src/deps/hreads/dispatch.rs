@@ -121,6 +121,13 @@ pub fn ok_main(action: impl FnOnce() + Send + 'static) -> Result<()> {
     Ok(())
 }
 
+/// Queues `action` for the next turn of the main loop, also when the caller
+/// is the main thread. `on_main` runs it at once there.
+pub(crate) fn on_main_later(action: impl FnOnce() + Send + 'static) {
+    CALLBACKS.lock().push(Box::new(action));
+    wake_main();
+}
+
 pub fn after(delay: f32, action: impl FnOnce() + Send + 'static) {
     crate::deps::hreads::spawn(async move {
         crate::deps::hreads::sleep(delay).await;

@@ -32,6 +32,16 @@ fn run_queued() {
 
 static APP_HANDLER: MainLock<Option<AppHandler>> = MainLock::new();
 
+/// The winit window once the app has one, `None` before that and in a
+/// headless run. On the main thread.
+#[cfg(desktop)]
+pub(crate) fn ready_winit_window() -> Option<&'static winit::window::Window> {
+    let AppHandlerState::Ready(window) = &APP_HANDLER.get_mut().as_ref()?.state else {
+        return None;
+    };
+    window.screen.winit_window()
+}
+
 /// What the event loop delivers through its user event channel.
 pub(crate) enum UserEvent {
     /// The GPU window finished async setup on a worker and is ready to install.
@@ -212,9 +222,24 @@ impl AppHandler {
     }
 }
 
+impl AppHandler {
+    fn focus_changed(&mut self, focused: bool) {
+        app_activity::update(ActivityChange::Focused(focused));
+        // A link while the app runs comes as a new intent, and the app comes
+        // to the front for it.
+        #[cfg(target_os = "android")]
+        if focused {
+            crate::system::links::check_intent();
+        }
+        self.te_window_events.focus_changed(focused);
+    }
+}
+
 impl ApplicationHandler<UserEvent> for AppHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         app_activity::update(ActivityChange::Resumed(true));
+        #[cfg(target_os = "android")]
+        crate::system::links::check_intent();
         if let AppHandlerState::Init(proxy) = &mut self.state
             && let Some(proxy) = proxy.take()
         {
@@ -331,10 +356,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::CursorLeft { .. } => {
                 self.te_window_events.cursor_left();
             }
-            WindowEvent::Focused(focused) => {
-                app_activity::update(ActivityChange::Focused(focused));
-                self.te_window_events.focus_changed(focused);
-            }
+            WindowEvent::Focused(focused) => self.focus_changed(focused),
             // Minimized, fully covered or on another desktop. The frame
             // pacing in `about_to_wait` holds every frame while this is on,
             // and the frame this event requests below draws the catch up

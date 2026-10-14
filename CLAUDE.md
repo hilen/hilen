@@ -117,6 +117,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/updater.md](docs/updater.md) — `system::Updater` and the `hilen-updater` crate under it, the manifest schema, the ed25519
   signing contract and what the in place swap means for packaging. Read before wiring
   self update into an app or a daemon, or touching `hilen/src/system/updater.rs` or `hilen-updater`.
+- [docs/links.md](docs/links.md) — links that open the app: `Links::on_open`, the `[links]` table
+  of `hilen.toml`, what each platform does, and `AppLinks` in `hilen-server` that serves the 2
+  well-known files. Read before touching `hilen/src/system/links`, `app_links.rs` or a link flow.
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.

@@ -1,3 +1,4 @@
+pub mod app_links;
 pub mod auth;
 pub mod config;
 pub mod data_dir;
@@ -10,6 +11,7 @@ pub mod prometheus;
 pub mod tracing_init;
 pub mod web;
 
+pub use app_links::{AppLinks, app_links_mount};
 pub use axum;
 pub use config::Config;
 pub use db::{Db, build_db, build_sqlite};
