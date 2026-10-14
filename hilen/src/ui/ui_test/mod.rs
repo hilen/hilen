@@ -43,7 +43,10 @@ pub use state::*;
 pub use suite::{
     TestRunReport, drop_named, keep_named, present_test, registered_test_maps, run_all_tests, run_test_maps,
 };
-use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+use winit::{
+    dpi::PhysicalPosition,
+    event::{MouseScrollDelta, TouchPhase},
+};
 
 pub use self::ui_test::*;
 use crate::{
@@ -108,11 +111,22 @@ pub fn inject_scroll(scroll: impl ToF32) {
 /// and through the same conversion as a real one. Negative moves the content
 /// up.
 pub fn inject_trackpad_scroll(points: impl ToF32) {
-    let points = points.to_f32();
+    inject_trackpad_wheel(points.to_f32(), TouchPhase::Moved);
+}
+
+/// The end of a trackpad scroll that still carries `points`, as macOS sends
+/// it when it merged that end with the start of the next scroll.
+pub fn inject_trackpad_scroll_end(points: impl ToF32) {
+    inject_trackpad_wheel(points.to_f32(), TouchPhase::Ended);
+}
+
+fn inject_trackpad_wheel(points: f32, phase: TouchPhase) {
     from_main(move || {
         let pixels = f64::from(points * UIManager::scale());
         let delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, pixels));
-        Input::on_wheel(Input::wheel_points(delta));
+        if let Some(points) = Input::wheel_points(delta, phase) {
+            Input::on_wheel(points);
+        }
     });
     human_pause();
 }

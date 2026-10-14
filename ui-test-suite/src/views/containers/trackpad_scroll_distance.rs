@@ -2,12 +2,13 @@ use anyhow::{Result, ensure};
 use hilen::{
     refs::Weak,
     ui::{Color, Container, ScrollView, Setup, ViewData, ViewSubviews, ViewTest, view},
-    ui_test::{inject_touches, inject_trackpad_scroll},
+    ui_test::{inject_touches, inject_trackpad_scroll, inject_trackpad_scroll_end},
 };
 
 /// A trackpad moves the content exactly as far as the fingers moved, like in
 /// every other app. It once moved a quarter of the physical pixels, half the
-/// distance on a 2x screen.
+/// distance on a 2x screen. The end of a scroll moves nothing, even when macOS
+/// merged it with the next scroll and it carries that scroll's first delta.
 #[view]
 struct TrackpadScrollDistance {
     #[init]
@@ -34,6 +35,13 @@ impl ViewTest for TrackpadScrollDistance {
         ensure!(
             (offset + 120.0).abs() < 0.01,
             "3 trackpad scrolls of 40 points moved the content to {offset}, not -120"
+        );
+
+        inject_trackpad_scroll_end(-40);
+        let offset = view.scroll.get_scroll_content_offset();
+        ensure!(
+            (offset + 120.0).abs() < 0.01,
+            "the end of the scroll with a delta of 40 moved the content to {offset}, it must stay at -120"
         );
         Ok(())
     }

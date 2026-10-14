@@ -62,9 +62,13 @@ pub(crate) struct Input;
 
 impl Input {
     /// The points a wheel event of the window moves the content, at the UI
-    /// scale.
-    pub(crate) fn wheel_points(delta: MouseScrollDelta) -> Point {
-        wheel_points_at(delta, UIManager::scale())
+    /// scale. None for the end of a trackpad scroll: macOS can merge the end
+    /// of 1 scroll with the start of the next while the main thread is busy,
+    /// the end then carries the first delta of the next scroll and that start
+    /// arrives with it again. A real end carries no delta, the web views and
+    /// the native views of macOS move nothing on it either.
+    pub(crate) fn wheel_points(delta: MouseScrollDelta, phase: TouchPhase) -> Option<Point> {
+        (phase != TouchPhase::Ended).then(|| wheel_points_at(delta, UIManager::scale()))
     }
 
     pub(crate) fn set_modifiers(modifiers: ModifiersState) {

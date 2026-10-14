@@ -6,7 +6,7 @@ use log::{debug, error};
 use plat::Platform;
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, WindowEvent},
+    event::{DeviceEvent, DeviceId, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
@@ -70,6 +70,12 @@ pub struct AppHandler {
 }
 
 impl AppHandler {
+    fn mouse_wheel(&mut self, delta: MouseScrollDelta, phase: TouchPhase) {
+        if let Some(points) = Input::wheel_points(delta, phase) {
+            self.te_window_events.mouse_scroll(points);
+        }
+    }
+
     pub(crate) fn new(
         app: impl WindowEvents + 'static,
         event_loop: &EventLoop<UserEvent>,
@@ -342,9 +348,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             WindowEvent::Touch(touch) => {
                 self.te_window_events.touch_event(touch);
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.te_window_events.mouse_scroll(Input::wheel_points(delta));
-            }
+            WindowEvent::MouseWheel { delta, phase, .. } => self.mouse_wheel(delta, phase),
             WindowEvent::PinchGesture { delta, phase, .. } => {
                 self.te_window_events.pinch(delta.lossy_convert(), phase);
             }
