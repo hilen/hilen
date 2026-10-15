@@ -31,7 +31,9 @@ them pixel for pixel after each of 10 small changes.
 - A view with a `before_render` of its own is on the screen. It draws what the engine
   cannot see.
 - A blur, a scrim, a group fade, or a hole in the page of a browser is on the screen.
-- A scene or a level runs, and the frame after it ends.
+- A scene or a level runs over the whole root area, and the frame after it ends. A
+  scene in a `SceneView` draws into the image of the view, so only the rect of the
+  view is drawn again, the view keeps its frames coming while it holds the scene.
 - The default font or the fallback fonts changed, `damage::whole_next` asks for it.
 - Debug frames are on.
 - More than half of the window changed.

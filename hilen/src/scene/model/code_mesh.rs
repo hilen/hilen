@@ -35,7 +35,7 @@ impl Model {
     }
 }
 
-fn mesh_source(mesh: MeshData) -> ModelSource {
+pub(super) fn mesh_source(mesh: MeshData) -> ModelSource {
     assert_eq!(
         mesh.indices.len() % 3,
         0,

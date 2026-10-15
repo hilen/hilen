@@ -9,7 +9,7 @@ use crate::{
         LossyConvert,
         flat::{Point, Size},
     },
-    scene::{Scene, SceneManager},
+    scene::{Scene, SceneManager, SceneView},
     ui::{Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
@@ -52,6 +52,13 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
     /// over its nodes, in the test and in presentation alike. `view` is
     /// the root over the whole canvas. Nothing by default.
     fn overlay(_: Weak<Self>, _: Weak<SceneTestView>) {}
+
+    /// A `SceneView` inside `view` to run the scene in, made here, for a
+    /// test of a scene that shares the canvas with other views. None runs
+    /// it over the whole canvas.
+    fn scene_view(_: Weak<SceneTestView>) -> Option<Weak<SceneView>> {
+        None
+    }
 
     /// A stepped scene stands still from its setup on and moves only by
     /// `step_scene`. A test that pins where physics ends up needs it, a
@@ -188,7 +195,7 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
             let view = UITest::set(SceneTestView::new(), width, height, true, get_test_name::<T>());
 
             let scene = from_main(move || {
-                let scene = SceneManager::set_scene(T::default());
+                let scene = start::<T>(view);
                 // Only a build with scene tests has the stepped time, a game
                 // on `scene` alone keeps the fast path and must still compile.
                 #[cfg(feature = "scene-tests")]
@@ -216,11 +223,23 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
                 UIManager::override_scale(1.0);
                 let canvas = Size::new(width.lossy_convert(), height.lossy_convert());
                 UIManager::root_view().set_test_canvas(canvas);
-                let scene = SceneManager::set_scene(T::default());
+                let scene = start::<T>(view);
                 T::overlay(scene, view);
-                view.enable_orbit();
+                // A scene view turns and zooms its own camera.
+                if SceneManager::host().is_none() {
+                    view.enable_orbit();
+                }
             });
         })
+    }
+}
+
+/// Starts the scene of `T` over the whole canvas `view`, or in the
+/// `SceneView` the test makes there.
+fn start<T: SceneTest + 'static>(view: Weak<SceneTestView>) -> Weak<T> {
+    match T::scene_view(view) {
+        Some(host) => host.set_scene(T::default()),
+        None => SceneManager::set_scene(T::default()),
     }
 }
 

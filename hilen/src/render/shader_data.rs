@@ -71,7 +71,11 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 /// fourth component is padding unless named. `camera_pos.w` is the
 /// world height of the view one unit from the camera, twice the tangent
 /// of half the field of view, what a pixel's size on a surface comes
-/// from. `sun_dir` is the direction the light travels, unit length. `sun_color`
+/// from. `eye` is the unit direction the camera looks in, and its `w` the
+/// world height of the view of an orthographic camera, 0 for a
+/// perspective one. Then every pixel looks along `eye` and its size on a
+/// surface is that height over the pixels of the view. `sun_dir` is the
+/// direction the light travels, unit length. `sun_color`
 /// and `ambient` are linear light, the sun's times its intensity, and
 /// `sun_color.w` is 1 when the sun casts shadows, then `sun_view_proj` maps the
 /// world into each cascade's layer of the shadow map, `sun_texel` holds the
@@ -91,7 +95,7 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
 #[educe(Default)]
-pub struct SceneView {
+pub struct SceneUniform {
     #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
     pub view_proj:     crate::gm::volume::Mat4,
     #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
@@ -99,6 +103,8 @@ pub struct SceneView {
     #[educe(Default = [crate::gm::volume::Mat4::IDENTITY; SHADOW_CASCADES])]
     pub sun_view_proj: [crate::gm::volume::Mat4; SHADOW_CASCADES],
     pub camera_pos:    crate::gm::volume::Vec4,
+    #[educe(Default = crate::gm::volume::Vec4::NEG_Z)]
+    pub eye:           crate::gm::volume::Vec4,
     #[educe(Default = crate::gm::volume::Vec4::NEG_Y)]
     pub sun_dir:       crate::gm::volume::Vec4,
     pub sun_color:     crate::gm::volume::Vec4,
@@ -121,7 +127,7 @@ mod scene_test {
 
     #[test]
     fn scene_view_is_a_uniform() {
-        assert_eq!(size_of::<SceneView>() % 16, 0);
-        assert_eq!(size_of::<SceneView>(), 656);
+        assert_eq!(size_of::<SceneUniform>() % 16, 0);
+        assert_eq!(size_of::<SceneUniform>(), 672);
     }
 }

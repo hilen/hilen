@@ -8,7 +8,7 @@ use crate::{
         volume::{Bounds, Mat4, Vec3},
     },
     render::SHADOW_CASCADES,
-    scene::{Camera, Sun},
+    scene::{Camera, Projection, Sun},
 };
 
 /// One slice of the sun's shadow: the light's view projection into its
@@ -120,6 +120,15 @@ fn split_depths(near: f32, far: f32) -> [f32; SHADOW_CASCADES + 1] {
 /// the far corners are equally far, or at the far plane when that
 /// point would lie past it.
 fn slice_sphere(camera: &Camera, aspect: f32, forward: Vec3, near: f32, far: f32) -> Sphere {
+    // An orthographic slice is a box of one size along its depth, its
+    // sphere sits in the middle.
+    if let Projection::Orthographic { height } = camera.projection {
+        let half = height / 2.0;
+        return Sphere {
+            center: camera.position + forward * f32::midpoint(near, far),
+            radius: ((far - near).powi(2) / 4.0 + half * half * (1.0 + aspect * aspect)).sqrt(),
+        };
+    }
     let tan = (camera.fov_y / 2.0).tan();
     let corner = tan * tan * (1.0 + aspect * aspect);
     let depth = ((near + far) * (1.0 + corner) / 2.0).min(far);
@@ -210,7 +219,7 @@ mod test {
         let forward = (camera.target - camera.position).normalize();
         let right = forward.cross(camera.up).normalize();
         let up = right.cross(forward);
-        let half_height = depth * (camera.fov_y / 2.0).tan();
+        let half_height = camera.view_height(depth) / 2.0;
         let half_width = half_height * aspect;
         let center = camera.position + forward * depth;
         [
@@ -235,7 +244,20 @@ mod test {
     // unshadowed. Outside the scene there is nothing to shadow.
     #[test]
     fn every_slice_lands_in_its_map() {
-        let camera = low_camera();
+        slices_land_in_their_maps(low_camera());
+    }
+
+    // An orthographic slice is a box, not a cut of a pyramid, and its
+    // sphere has to hold the corners all the same.
+    #[test]
+    fn every_orthographic_slice_lands_in_its_map() {
+        slices_land_in_their_maps(Camera {
+            projection: Projection::Orthographic { height: 24.0 },
+            ..low_camera()
+        });
+    }
+
+    fn slices_land_in_their_maps(camera: Camera) {
         let aspect = 1.5;
         let scene = Sphere::around(field());
         let forward = (camera.target - camera.position).normalize();

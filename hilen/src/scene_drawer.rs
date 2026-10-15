@@ -11,10 +11,13 @@ use crate::{
         flat::Size,
         volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
     },
-    render::{MeshKey, MeshPipeline, PicturePipeline, SceneView, data::MeshInstance},
+    render::{
+        MeshKey, MeshPipeline, PicturePipeline, SceneUniform,
+        data::{MeshInstance, WideLine},
+    },
     scene::{
-        DayNightSky, LightPick, Material, Mesh, Model, Node, Playback, Scene, SceneManager, collider_lines,
-        pick_lights, sun_cascades,
+        DayNightSky, LightPick, Line3, Material, Mesh, Model, Node, Playback, Projection, Scene,
+        SceneManager, collider_lines, pick_lights, sun_cascades,
     },
     ui::{UIManager, ui_drawer::set_viewport},
     window::{
@@ -27,12 +30,24 @@ use crate::{
 static MESH: MainLock<MeshPipeline> = MainLock::new();
 static PICTURE: MainLock<PicturePipeline> = MainLock::new();
 static PICTURE_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
+/// The targets of the scene in a `SceneView`, apart from the pictures so
+/// a grid of pictures next to the view does not make them again.
+static VIEW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 
 /// Drops what is built for a sample count. Each part is made again when
 /// it is next used.
 pub(crate) fn drop_pipelines() {
     MESH.clear();
     PICTURE_TARGETS.clear();
+    VIEW_TARGETS.clear();
+}
+
+/// The targets of `size` in `slot`, made again for another size.
+fn targets_of(slot: &mut Option<PictureTargets>, size: Size<u32>) -> &PictureTargets {
+    if slot.as_ref().is_none_or(|targets| targets.size != size) {
+        *slot = Some(PictureTargets::new(size));
+    }
+    slot.as_ref().expect("just set")
 }
 
 /// What a picture is drawn into before it becomes an image, kept for the
@@ -89,6 +104,13 @@ const COLLIDER_COLOR: Color = Color::hex("#00ff60");
 const DEPTH_BAND: (f32, f32) = (0.6, 1.0);
 
 pub(crate) struct SceneDrawer;
+
+fn push_line(pipeline: &mut MeshPipeline, line: Line3) {
+    pipeline.add_wide_line(
+        WideLine::new(line.from, line.to, line.color, line.width),
+        line.on_top,
+    );
+}
 
 /// Where one node's draws go: the batch of its mesh and textures, or the
 /// translucent list drawn after every batch.
@@ -183,9 +205,23 @@ impl SceneDrawer {
     }
 
     /// Gathers the frame's nodes into the pipeline, loads them and draws
-    /// the shadow map, before the frame's pass opens.
+    /// the shadow map, before the frame's pass opens. A scene in a
+    /// `SceneView` draws its whole picture here, into the image of the
+    /// view, which the frame's pass then draws like any image.
     pub(crate) fn prepare(encoder: &mut CommandEncoder) {
         if SceneManager::no_scene() {
+            return;
+        }
+
+        if let Some(host) = SceneManager::host() {
+            if !host.is_ok() {
+                return;
+            }
+            let Some(image) = host.frame_target() else {
+                return;
+            };
+            let targets = targets_of(VIEW_TARGETS.get_mut(), image.size);
+            Self::draw_into(SceneManager::scene(), &image, targets, host.background(), encoder);
             return;
         }
 
@@ -208,11 +244,75 @@ impl SceneDrawer {
             pipeline.add_light(light.mesh_light());
         }
 
-        // Translucent nodes blend over what is behind them, so they draw
-        // after every opaque node, the farthest first.
+        let extent = Self::gather_nodes(pipeline, scene, area);
+
+        let sun = scene.sun;
+        let sun_color = sun.color.linear();
+        let ambient = scene.ambient.linear();
+        let sky = scene.sky.as_ref();
+        let fog = scene.fog;
+        let [sky_sun, sky_moon, sky_params] = DayNightSky::shader_data(scene.day_night_sky.as_ref());
+        let fog_color = fog.map_or(Vec4::ZERO, |fog| {
+            let color = fog.color.linear();
+            Vec4::new(color.r, color.g, color.b, 1.0)
+        });
+        let fog_range = fog.map_or(Vec4::ZERO, |fog| {
+            let (start, inverse) = fog.range();
+            Vec4::new(start, inverse, fog.height.max(1e-3), 0.0)
+        });
+        let aspect = area.width / area.height;
+        let view_proj = camera.view_projection(aspect);
+        let cascades = sun_cascades(&sun, &camera, aspect, Bounds::of_points(extent));
+        let mut sun_texel = Vec4::ZERO;
+        let mut sun_depth = Vec4::ZERO;
+        for (slot, cascade) in cascades.iter().enumerate() {
+            sun_texel[slot] = cascade.texel;
+            sun_depth[slot] = 1.0 / cascade.depth;
+        }
+
+        let view = SceneUniform {
+            view_proj,
+            inv_view_proj: view_proj.inverse(),
+            sun_view_proj: cascades.map(|cascade| cascade.view_proj),
+            camera_pos: camera.position.extend(2.0 * (camera.fov_y / 2.0).tan()),
+            eye: camera.forward().extend(match camera.projection {
+                Projection::Perspective => 0.0,
+                Projection::Orthographic { height } => height,
+            }),
+            sun_dir: sun.direction.normalize_or_zero().extend(0.0),
+            sun_color: Vec4::new(
+                sun_color.r * sun.intensity,
+                sun_color.g * sun.intensity,
+                sun_color.b * sun.intensity,
+                f32::from(u8::from(sun.shadows)),
+            ),
+            ambient: Vec4::new(
+                ambient.r,
+                ambient.g,
+                ambient.b,
+                f32::from(u8::from(sky.is_some())),
+            ),
+            viewport: Vec4::new(area.width, area.height, depth.0, depth.1 - depth.0),
+            sun_texel,
+            sun_depth,
+            fog_color,
+            fog_range,
+            sky_sun,
+            sky_moon,
+            sky_params,
+            irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
+        };
+
+        pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);
+    }
+
+    /// Puts every node, the lines and the handle of `scene` into the
+    /// pipeline. Translucent nodes blend over what is behind them, so they
+    /// go after every opaque node, the farthest first. Gives the corners
+    /// of every node's sphere, what the shadow cascades stay inside of.
+    fn gather_nodes(pipeline: &mut MeshPipeline, scene: &dyn Scene, area: Size) -> Vec<Vec3> {
+        let camera = scene.camera;
         let mut translucent = vec![];
-        // The corners of every node's sphere, what the shadow cascades
-        // stay inside of.
         let mut extent = vec![];
 
         for node in scene.nodes() {
@@ -249,71 +349,37 @@ impl SceneDrawer {
                     node.position() + node.rotation() * node.collider_offset(),
                 );
             }
+
+            if !node.lines.is_empty() {
+                let space = Mat4::from_scale_rotation_translation(
+                    Vec3::splat(node.world_scale()),
+                    node.rotation(),
+                    node.position(),
+                );
+                for line in &node.lines {
+                    push_line(pipeline, line.transformed(space));
+                }
+            }
+        }
+
+        for line in &scene.lines {
+            push_line(pipeline, *line);
+        }
+        if let Some(handle) = &scene.handle {
+            for line in handle.lines(&camera, area) {
+                push_line(pipeline, line);
+            }
         }
 
         translucent.sort_by(|a, b| b.0.total_cmp(&a.0));
         for (_, key, instance) in translucent {
             pipeline.add_transparent(key, instance);
         }
-
-        let sun = scene.sun;
-        let sun_color = sun.color.linear();
-        let ambient = scene.ambient.linear();
-        let sky = scene.sky.as_ref();
-        let fog = scene.fog;
-        let [sky_sun, sky_moon, sky_params] = DayNightSky::shader_data(scene.day_night_sky.as_ref());
-        let fog_color = fog.map_or(Vec4::ZERO, |fog| {
-            let color = fog.color.linear();
-            Vec4::new(color.r, color.g, color.b, 1.0)
-        });
-        let fog_range = fog.map_or(Vec4::ZERO, |fog| {
-            let (start, inverse) = fog.range();
-            Vec4::new(start, inverse, fog.height.max(1e-3), 0.0)
-        });
-        let aspect = area.width / area.height;
-        let view_proj = camera.view_projection(aspect);
-        let cascades = sun_cascades(&sun, &camera, aspect, Bounds::of_points(extent));
-        let mut sun_texel = Vec4::ZERO;
-        let mut sun_depth = Vec4::ZERO;
-        for (slot, cascade) in cascades.iter().enumerate() {
-            sun_texel[slot] = cascade.texel;
-            sun_depth[slot] = 1.0 / cascade.depth;
-        }
-
-        let view = SceneView {
-            view_proj,
-            inv_view_proj: view_proj.inverse(),
-            sun_view_proj: cascades.map(|cascade| cascade.view_proj),
-            camera_pos: camera.position.extend(2.0 * (camera.fov_y / 2.0).tan()),
-            sun_dir: sun.direction.normalize_or_zero().extend(0.0),
-            sun_color: Vec4::new(
-                sun_color.r * sun.intensity,
-                sun_color.g * sun.intensity,
-                sun_color.b * sun.intensity,
-                f32::from(u8::from(sun.shadows)),
-            ),
-            ambient: Vec4::new(
-                ambient.r,
-                ambient.g,
-                ambient.b,
-                f32::from(u8::from(sky.is_some())),
-            ),
-            viewport: Vec4::new(area.width, area.height, depth.0, depth.1 - depth.0),
-            sun_texel,
-            sun_depth,
-            fog_color,
-            fog_range,
-            sky_sun,
-            sky_moon,
-            sky_params,
-            irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
-        };
-
-        pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);
+        extent
     }
 
     pub fn draw(pass: &mut RenderPass) {
-        if SceneManager::no_scene() {
+        if SceneManager::no_scene() || SceneManager::host().is_some() {
             return;
         }
 
@@ -341,19 +407,34 @@ impl SceneDrawer {
         );
 
         let image = Image::render_target(&format!("{name}-{}x{}", size.width, size.height), size);
+        let targets = targets_of(PICTURE_TARGETS.get_mut(), size);
 
-        let slot = PICTURE_TARGETS.get_mut();
-        if slot.as_ref().is_none_or(|targets| targets.size != size) {
-            *slot = Some(PictureTargets::new(size));
-        }
-        let targets = slot.as_ref().expect("just set");
-
-        let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
         let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {
             label: Some("scene_picture"),
         });
 
-        Self::gather(scene, area, (0.0, 1.0), &mut encoder);
+        Self::draw_into(scene, &image, targets, background, &mut encoder);
+
+        crate::render::upload_pending();
+        Window::queue().submit([encoder.finish()]);
+        MESH.get_mut().forget_frame();
+
+        image
+    }
+
+    /// Draws `scene` into `image` through `targets` of its size, over
+    /// `background`, with the camera aspect of the image.
+    fn draw_into(
+        scene: &dyn Scene,
+        image: &Image,
+        targets: &PictureTargets,
+        background: Color,
+        encoder: &mut CommandEncoder,
+    ) {
+        let size = image.size;
+        let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
+
+        Self::gather(scene, area, (0.0, 1.0), encoder);
 
         let (color, resolve_target) = match &targets.msaa {
             Some(msaa) => (msaa, Some(&targets.resolved.view)),
@@ -404,11 +485,6 @@ impl SceneDrawer {
             );
         }
 
-        PICTURE.get_mut().draw(&mut encoder, &targets.bind.bind, image.view());
-        crate::render::upload_pending();
-        Window::queue().submit([encoder.finish()]);
-        MESH.get_mut().forget_frame();
-
-        image
+        PICTURE.get_mut().draw(encoder, &targets.bind.bind, image.view());
     }
 }

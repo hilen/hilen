@@ -3,7 +3,7 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{ColliderShape, Material, Mesh, Node, Playback},
+    scene::{ColliderShape, Line3, Material, Mesh, Node, Playback},
 };
 
 #[derive(Educe)]
@@ -35,6 +35,10 @@ pub struct NodeData {
     pub(crate) playback: Option<Playback>,
 
     pub tag: u32,
+
+    /// Lines in the node's own space, so they move, turn and grow with
+    /// it, the edges of a part or its outline, see `Line3`.
+    pub lines: Vec<Line3>,
 
     pub material: Material,
 

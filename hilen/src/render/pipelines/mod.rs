@@ -12,6 +12,8 @@ use crate::render::{
 mod background_pipeline;
 mod lab_pipeline;
 #[cfg(feature = "scene")]
+mod mesh_binds;
+#[cfg(feature = "scene")]
 mod mesh_pipeline;
 #[cfg(feature = "scene")]
 mod picture_pipeline;

@@ -1,12 +1,13 @@
 // Shared by the mesh and the sky shader, prepended to both by
 // `MeshPipeline` after a line declaring `SHADOW_CASCADES`. See
-// `SceneView` for what the fields carry.
+// `SceneUniform` for what the fields carry.
 
-struct SceneView {
+struct SceneUniform {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     sun_view_proj: array<mat4x4<f32>, SHADOW_CASCADES>,
     camera_pos: vec4<f32>,
+    eye: vec4<f32>,
     sun_dir: vec4<f32>,
     sun_color: vec4<f32>,
     ambient: vec4<f32>,
@@ -22,7 +23,7 @@ struct SceneView {
 }
 
 @group(0) @binding(0)
-var<uniform> view: SceneView;
+var<uniform> view: SceneUniform;
 
 @group(0) @binding(1)
 var sky_cube: texture_cube<f32>;
@@ -85,6 +86,23 @@ fn fragment_ndc(frag: vec4<f32>) -> vec3<f32> {
 fn world_position(frag: vec4<f32>) -> vec3<f32> {
     let world = view.inv_view_proj * vec4<f32>(fragment_ndc(frag), 1.0);
     return world.xyz / world.w;
+}
+
+// The unit direction from `p` to the eye. An orthographic camera looks
+// along one line, so every point sees it the same way.
+fn to_eye_of(p: vec3<f32>) -> vec3<f32> {
+    if view.eye.w > 0.0 {
+        return -view.eye.xyz;
+    }
+    return normalize(view.camera_pos.xyz - p);
+}
+
+// The world size of a pixel on a surface at `p`, before its slant.
+fn pixel_size_at(p: vec3<f32>) -> f32 {
+    if view.eye.w > 0.0 {
+        return view.eye.w / view.viewport.y;
+    }
+    return length(view.camera_pos.xyz - p) * view.camera_pos.w / view.viewport.y;
 }
 
 fn sky_radiance(dir: vec3<f32>, level: f32) -> vec3<f32> {

@@ -10,10 +10,14 @@ mod desktop;
 mod ios;
 #[cfg(all(ios, not(tvos)))]
 mod ios_document;
+#[cfg(all(ios, not(tvos)))]
+mod ios_save;
+mod save;
 #[cfg(wasm)]
 mod web;
 
 use log::{debug, info};
+pub use save::SavedFile;
 
 use crate::filesystem::Paths;
 
@@ -57,6 +61,7 @@ fn content_type_of(name: &str) -> String {
 pub(crate) fn stop() {
     ios::stop();
     ios_document::stop();
+    ios_save::stop();
 }
 
 /// Lower case and with no dot in front, the form every platform filter

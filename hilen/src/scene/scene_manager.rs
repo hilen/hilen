@@ -8,9 +8,13 @@ use rapier3d::{
 
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
-    gm::{color::Color, flat::Size},
-    scene::{Scene, scene::ScenePhysics},
+    gm::{
+        color::Color,
+        flat::{Point, Size},
+    },
+    scene::{Scene, SceneView, scene::ScenePhysics},
     scene_drawer::SceneDrawer,
+    ui::{UIManager, ViewFrame},
     window::image::Image,
 };
 
@@ -26,6 +30,10 @@ pub struct SceneManager {
 
     scene: Option<Own<dyn Scene>>,
 
+    /// The view the scene draws in, see `SceneView`. None draws it over
+    /// the whole root area.
+    host: Option<Weak<SceneView>>,
+
     /// Holds the scene's time, see `set_paused`.
     paused: bool,
 
@@ -37,6 +45,11 @@ pub struct SceneManager {
 
 impl SceneManager {
     pub(crate) fn update() {
+        // A scene lives as long as the view it draws in.
+        if SELF.host.is_some_and(|host| !host.is_ok()) {
+            Self::stop_scene();
+        }
+
         if Self::no_scene() || SELF.paused {
             return;
         }
@@ -53,13 +66,51 @@ impl SceneManager {
 }
 
 impl SceneManager {
+    /// Runs `scene` over the whole root area, behind every view. A scene
+    /// that ran before, here or in a `SceneView`, stops.
     pub fn set_scene<T: Scene + 'static>(scene: T) -> Weak<T> {
+        Self::install(scene, None)
+    }
+
+    /// Runs `scene` inside `host`, see `SceneView::set_scene`.
+    pub(crate) fn set_scene_in<T: Scene + 'static>(scene: T, host: Weak<SceneView>) -> Weak<T> {
+        Self::install(scene, Some(host))
+    }
+
+    fn install<T: Scene + 'static>(scene: T, host: Option<Weak<SceneView>>) -> Weak<T> {
         let s = SELF.get_mut();
         let scene = Own::new(scene);
         let weak = scene.weak();
+        // The host is known before the setup, which may ask for the area.
+        s.host = host;
         s.scene = Some(scene);
         s.scene.as_ref().unwrap().__internal_setup();
         weak
+    }
+
+    /// The `SceneView` the running scene draws in, none for a scene over
+    /// the whole root area. The view can be gone already, then the scene
+    /// draws nowhere and stops at the next update.
+    pub fn host() -> Option<Weak<SceneView>> {
+        SELF.host
+    }
+
+    /// The pixels the running scene draws in, what its rays and screen
+    /// points are measured in.
+    pub(crate) fn area() -> Size {
+        match SELF.host {
+            Some(host) if host.is_ok() => host.pixel_area(),
+            _ => UIManager::render_area(),
+        }
+    }
+
+    /// Where the area of the running scene starts, in points of the root
+    /// view.
+    pub(crate) fn origin() -> Point {
+        match SELF.host {
+            Some(host) if host.is_ok() => host.absolute_frame().origin,
+            _ => Point::default(),
+        }
     }
 
     /// Draws `scene` once into an image of `size` pixels and returns it, a
@@ -89,6 +140,7 @@ impl SceneManager {
     pub fn stop_scene() {
         let s = SELF.get_mut();
         s.scene = None;
+        s.host = None;
         #[cfg(feature = "scene-tests")]
         {
             s.steps_left = None;

@@ -46,6 +46,136 @@ on the drawn surface. `Camera::orbit` turns the camera around its target and
 `Camera::zoom` moves it along the line of sight, the demo page and presentation
 mode drive them from a drag and the wheel.
 
+## A scene inside a view
+
+`SceneView` draws the running scene inside its own frame, so a scene can sit next
+to other views, like a 3D preview next to a code editor:
+
+```rust
+let preview = self.add_view::<SceneView>();
+preview.place().t(0).b(0).r(0).w(500);
+let scene = preview.set_scene(Part::default());
+```
+
+The view runs the one scene of `SceneManager`. `set_scene` on it replaces a scene
+that ran over the whole window, and `SceneManager::set_scene` takes the scene out
+of the view again. `SceneManager::host` gives the view a scene draws in. The scene
+stops when its view is gone.
+
+The scene draws in `prepare`, before the frame's pass opens, into an image of the
+view's size in pixels, through the same targets and copy pass a picture uses, see
+Pictures below. The camera takes the aspect of that image. The view shows the image
+with an `ImageView` inside it, so it clips, sits under the views over it and next to
+the views beside it like any view. The main pass draws no scene then, and the frame
+is not drawn whole for it. The view asks for every frame with
+`keep_frames_exempt` while it holds the scene, so only its rect is drawn again, see
+[damage.md](damage.md). `set_background` is what shows where the scene draws
+nothing, clear by default. A sky or fog covers it.
+
+A drag on the view turns the camera around its target, or the head of a player,
+the wheel and a pinch zoom, and a tap picks a node the way a touch on a scene over
+the whole window does, in the pixels of the view. `set_camera_controls(false)`
+leaves the drag and the zoom to the app. A drag that begins on the scene's
+`TransformHandle` goes to the handle. `ray`, `node_at` and `view_point` on the scene
+measure in the frame of the view, and `view_point` gives points of the root view
+inside that frame. A touch outside the view never reaches the scene. Only 1 scene
+runs, so only 1 view shows a scene at a time.
+
+## Orthographic camera
+
+`Camera::projection` is `Projection::Perspective`, the default, or
+`Projection::Orthographic { height }`, where a thing has the same size on the screen
+at any distance and `height` is the world height the view shows, the front, top and
+side views of a part. `Camera::orthographic(position, target, height)` makes one.
+The camera stands outside what it shows, it sees from its near plane on.
+
+`ray` follows the projection. An orthographic ray starts on the near plane at its
+pixel and goes along the line of sight, so every ray of the view is parallel.
+`screen_point` reads the depth along the line of sight, since w stays 1. `zoom`
+scales the height and leaves the camera where it is. `view_height(depth)` and
+`units_per_pixel(world, area)` give the size of the view and of 1 pixel at a point,
+the same at every depth for an orthographic camera.
+
+The shader gets the line of sight and the height in the `eye` vector of
+`SceneUniform`. Every pixel then looks along that line, for the specular light and
+the size of a pixel the shadow cascades pick a map by. A sky needs nothing, its
+direction comes from the near and the far point of the pixel. An orthographic
+slice of the view is a box, so its cascade sphere sits in the middle of it, see
+`slice_sphere`.
+
+## Lines
+
+`Line3` is a straight line in a scene, `width` pixels wide at any distance, in its
+own color. The lines in `SceneBase::lines` are in the world, the ones in a node's
+`lines` are in its own space and move, turn and grow with it. `Line3::grid` and
+`Line3::axes` make a floor grid and the 3 axes in `AXIS_COLORS`.
+`MeshData::edges(crease_degrees)` gives the edges of a mesh worth a line, where 2
+triangles meet at more than that angle and where a triangle has no neighbor, with
+the corners of flat faces welded:
+
+```rust
+let edges = mesh.edges(30.0).into_iter().map(|[a, b]| Line3::new(a, b, dark).width(2));
+let mut part = self.make_node::<Prop>(Shape3::Model(Model::from_mesh("part", mesh)), Vec3::ZERO);
+part.lines = edges.collect();
+self.lines = Line3::grid(20.0, 1.0, gray);
+```
+
+A line hides behind the nodes in front of it, or draws over everything with
+`on_top`, the outline of a selected part or a handle. Each line is 1 instance of a
+quad of 6 vertices that `wide_lines.wgsl` spreads across the screen from its 2
+ends, with square ends so a polyline has no gaps. A line that crosses the near plane
+is cut there. The tested lines draw after the opaque nodes and before the
+translucent ones, the ones on top last. A line sits a little nearer to the eye
+along its line of sight, so it keeps its pixel and a face it lies on does not cut
+it: a thousandth of its distance, plus 2.5 pixels of the world for each pixel from
+its middle to its edge. That holds a floor seen down to about 22 degrees. The cost
+is a hidden edge that shows for a few pixels where it leaves a corner of a part.
+
+## Triangle hits
+
+`hit_triangle(ray)` on a scene gives the nearest triangle of a model that the ray
+meets on its drawn side, as a `TriangleHit` with the node, the distance, the point,
+the normal and the index of the triangle. `triangle_at(pixel)` does it for the ray
+of a pixel. Only nodes that draw a model take part, at rest, and the box around
+each node is tried first. A model keeps its triangles in model space for this,
+`Model::triangle_count` and `Model::triangle(index)`. For a mesh built in code the
+index is the triangle of its `MeshData`, 3 indices each, since the split into 16 bit
+parts keeps their order. So an app reads its own data per triangle, like the part a
+CSG library made it from. `node_at` and a touch still use the box around a model.
+
+## Transform handle
+
+`TransformHandle` in `SceneBase::handle` draws 3 arrows to move along x, y and z, 3
+rings to turn about them and 3 boxes on the arrows to scale along them, over
+everything, `size` pixels long at any distance. It stands on a node with
+`TransformHandle::on(node)`, or at its own `position`. The axes are the world's, or
+the node's with `local`. `modes` picks which parts show.
+
+A `SceneView` hands it every drag that begins on a part, a box before an arrow
+before a ring, in place of turning the camera. The part held draws yellow. The
+handle changes nothing by itself, `on_drag` gets a `HandleDrag` with the part, the
+axis and the amount from the start of the drag, on every move and once more with
+`ended`. The amount is world units along the axis for a move, radians about it by
+the right hand for a turn, and a factor for a scale. `snap` rounds each to a step.
+
+```rust
+let mut handle = TransformHandle::on(part.weak_node());
+handle.snap.turns = Some(PI / 12.0);
+handle.on_drag.val(move |drag| match drag.part.mode {
+    HandleMode::Move => part.set_position(start + drag.axis * drag.amount),
+    HandleMode::Turn => part.set_rotation(Quat::from_axis_angle(drag.axis, drag.amount) * turned),
+    HandleMode::Scale => part.set_scale(scale * drag.amount),
+});
+self.handle = Some(handle);
+```
+
+A move takes the point of the axis nearest to the ray of the pointer. A scale is
+the ratio of that point's distance from the center to the one at the press. A turn
+is the angle the pointer went round the center on the screen, the other way when
+the axis points away from the eye. A node has 1 scale for all axes, so a scale
+along 1 axis is for the app to apply, a CAD app writes it into its source.
+`press`, `drag_to` and `release` drive the handle from code of the app.
+
 ## Models
 
 `Model` is a `.glb` on the GPU, a managed resource like an `Image`. It loads from
@@ -178,7 +308,7 @@ stars from `star_seed` twinkling by `twinkle` and the moon disc with its glow. I
 drawn in place of the cube `sky`, which still lights the scene when both are set, and
 fog blends it at the horizon the same way. It lights nothing itself, the game moves
 `sun` and `ambient` with it. Its values reach the sky shader as three vectors of
-`SceneView`.
+`SceneUniform`.
 
 ## Picking
 
@@ -295,8 +425,9 @@ M series Mac, models and textures are managed and load once.
 
 ## How it draws
 
-The scene draws in the main render pass, before the level and the UI, into the
-viewport depth band 0.6 to 1.0. The UI draws at 0.5 and closer, a level sprite at
+A scene over the whole root area draws in the main render pass, before the level
+and the UI, into the viewport depth band 0.6 to 1.0. A scene in a `SceneView` draws
+into the image of the view instead, see above. The UI draws at 0.5 and closer, a level sprite at
 0.85, so the UI stays in front of any scene and a level can share the frame. The
 band costs about one and a half bits of depth precision, the camera near plane
 matters far more, keep it at 0.1 or above.
@@ -377,7 +508,17 @@ view while no scene runs. `Glow` orange flames at night glowing by 0, 0.5 and 1,
 turned to full glow. `Cutout` quads of leaves over a wall, not cut, cut out, 2
 crossed that hide each other by depth and the masked `leaf_card.glb`, then the
 threshold lowered so the leaves grow, and `Cutout shadows` the same quads over a
-floor, a square shadow from the one not cut and leaf shadows from the rest. A scene test leaves its scene on screen through the final
+floor, a square shadow from the one not cut and leaf shadows from the rest.
+`Scene in view` runs its scene in a tall `SceneView` next to a panel with a label
+over it, picks the ball with a tap, turns and zooms the camera, narrows the view
+and removes it. `Orthographic camera` shows 3 cubes at 3 depths as 3 squares of 1
+size, the same camera in perspective, a view from above with shadows, a tap on the
+far cube and a zoom. `Scene lines` has a grid, the axes, the edges of a part that
+turn with it, a line hidden by a ball and one on top, a line through the near plane
+and the same lines seen orthographic. `Triangle picking` taps the 2 parts of an L
+built as 1 mesh and the empty corner of the L. `Transform handle test` drags the x
+arrow, the y ring with a snap and the z box of a handle on a crate, pulls the camera
+back and drags off the handle. A scene test leaves its scene on screen through the final
 human hold, the next test or the end of the run stops it. The loop runs free, so the frames
 between two waits vary by one. A check of a pose in flight freezes the clip at a
 chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
@@ -422,6 +563,6 @@ the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): an embeddable live
-scene view, a picture is the still one, and culling nodes outside a cascade's box on the CPU so a short shadow
-distance also cuts the shadow passes on a big level.
+The remaining deliveries are in [roadmap.md](roadmap.md): culling nodes outside a
+cascade's box on the CPU so a short shadow distance also cuts the shadow passes on
+a big level. A scene in a view is above, and only 1 scene runs at a time.

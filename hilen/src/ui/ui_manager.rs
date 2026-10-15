@@ -21,8 +21,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation, UIColor, UIEvent,
-        View, ViewData, ViewFrame, ViewSubviews, WeakView,
+        CodeEditor, DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation,
+        UIColor, UIEvent, View, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
     window::Window,
 };
@@ -195,11 +195,13 @@ impl UIManager {
         *Self::get().selected_view.lock() = view;
     }
 
-    /// A text field has an editing session open. Its Escape ends the
-    /// editing, so nothing else may take that key.
+    /// A text field or a code editor has an editing session open. Its
+    /// Escape and its arrows belong to it, so nothing else may take them.
     pub(crate) fn text_editing() -> bool {
         let selected = *Self::get().selected_view.lock();
-        selected.is_ok() && selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
+        selected.is_ok()
+            && (selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
+                || selected.downcast_view::<CodeEditor>().is_some_and(|editor| editor.is_editing()))
     }
 
     /// The view that has the keys, a null view when none has.

@@ -181,3 +181,11 @@ through a delegate that objc2 makes at run time.
 - Both initializers are sent with `msg_send!`. The typed one of objc2 for the old
   call is marked deprecated and would be a warning.
 - Apple TV has no picker, both calls answer `None` there.
+
+`Paths::save_file_bytes` opens the same controller made to export, in
+`picker/ios_save.rs`. The bytes go into a file with the suggested name in the temp
+folder of the app, the sheet copies it to where the user says, and the copy in the
+temp folder is deleted after. From iOS 14 it is `initForExportingURLs:asCopy:`, iOS
+12 and 13 get `initWithURL:inMode:` in the export mode. The answer is the name of the
+saved file, iOS gives no path an app may write to later. Apple TV answers `None`.
+`Paths::save_file`, the dialog that gives a path, is desktop only and answers `None`.

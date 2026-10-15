@@ -1,5 +1,6 @@
 //! The photo picker of Android 13 and later for an image,
-//! `ACTION_GET_CONTENT` before it and for a file of any kind. Only Java
+//! `ACTION_GET_CONTENT` before it and for a file of any kind, and
+//! `ACTION_CREATE_DOCUMENT` for a file to save. Only Java
 //! gets an activity result, so the launch goes through the
 //! `ActivityResultRegistry` of the activity with a callback that
 //! `java.lang.reflect.Proxy` makes over `io.hilen.NativeHandler`, the one
@@ -15,7 +16,7 @@ use parking_lot::Mutex;
 use tokio::sync::oneshot::{Sender, channel};
 
 use crate::{
-    filesystem::picker::PickedFile,
+    filesystem::picker::{PickedFile, save::SavedFile},
     system::android_jni::{activity, clear_exception, with_activity},
 };
 
@@ -30,6 +31,7 @@ const PICK_IMAGES_API: i32 = 33;
 const RESULT_OK: i32 = -1;
 
 const GET_CONTENT: &str = "android.intent.action.GET_CONTENT";
+const CREATE_DOCUMENT: &str = "android.intent.action.CREATE_DOCUMENT";
 const ANY_TYPE: &str = "*/*";
 
 const REGISTRY_KEY: &str = "hilen.pick";
@@ -96,6 +98,32 @@ pub(super) async fn pick(title: &str, kind: Kind<'_>) -> Option<PickedFile> {
     .ok()
 }
 
+/// Lets the user pick where `bytes` go as a file named `name` of the type
+/// `mime`, then writes them there.
+pub(super) async fn save(name: &str, mime: &str, bytes: &[u8]) -> Option<SavedFile> {
+    let (answer, answered) = channel();
+    *ANSWER.lock() = Some(answer);
+
+    let started = with_activity(|env, activity| {
+        save_intent(env, name, mime)
+            .and_then(|intent| post(env, activity, &intent))
+            .inspect_err(|_| clear_exception(env))
+    });
+    if let Err(err) = started {
+        error!("save dialog failed to open: {err}");
+        ANSWER.lock().take();
+        return None;
+    }
+
+    let uri = answered.await.ok().flatten()?;
+
+    with_activity(|env, activity| {
+        write(env, activity, &uri, bytes, name).inspect_err(|_| clear_exception(env))
+    })
+    .inspect_err(|err| error!("file {name} failed to save: {err}"))
+    .ok()
+}
+
 /// Builds the intent here and launches it on the UI thread, where the
 /// registry and `startActivityForResult` belong.
 fn start(env: &mut Env, activity: &JObject, title: &str, kind: Kind<'_>) -> Result<()> {
@@ -103,7 +131,12 @@ fn start(env: &mut Env, activity: &JObject, title: &str, kind: Kind<'_>) -> Resu
         Kind::Image => image_intent(env, title)?,
         Kind::File(types) => file_intent(env, title, types)?,
     };
-    *INTENT.lock() = Some(env.new_global_ref(&intent)?);
+    post(env, activity, &intent)
+}
+
+/// Keeps the intent for `launch` and runs that on the UI thread.
+fn post(env: &mut Env, activity: &JObject, intent: &JObject) -> Result<()> {
+    *INTENT.lock() = Some(env.new_global_ref(intent)?);
 
     let runnable = proxy(env, activity, "java.lang.Runnable")?;
     env.call_method(
@@ -150,6 +183,24 @@ fn file_intent<'local>(env: &mut Env<'local>, title: &str, types: &[String]) -> 
     chooser(env, &intent, title)
 }
 
+/// The system file creator, a name the user can change and the type of
+/// the file. It has no chooser, the system shows its own screen.
+fn save_intent<'local>(env: &mut Env<'local>, name: &str, mime: &str) -> Result<JObject<'local>> {
+    let intent = typed_intent(env, CREATE_DOCUMENT, mime)?;
+    add_openable(env, &intent)?;
+
+    let key = env.new_string("android.intent.extra.TITLE")?;
+    let name = env.new_string(name)?;
+    env.call_method(
+        &intent,
+        jni_str!("putExtra"),
+        jni_sig!("(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"),
+        &[JValue::Object(&key), JValue::Object(&name)],
+    )?;
+
+    Ok(intent)
+}
+
 fn put_mime_types(env: &mut Env, intent: &JObject, types: &[String]) -> Result<()> {
     let null = JObject::null();
     let array = env.new_object_array(i32::try_from(types.len())?, jni_str!("java/lang/String"), &null)?;
@@ -188,8 +239,8 @@ fn typed_intent<'local>(env: &mut Env<'local>, action: &str, mime: &str) -> Resu
     Ok(intent)
 }
 
-/// The chooser of the apps that can open a file of the intent.
-fn chooser<'local>(env: &mut Env<'local>, intent: &JObject, title: &str) -> Result<JObject<'local>> {
+/// Only files a stream can be opened for.
+fn add_openable(env: &mut Env, intent: &JObject) -> Result<()> {
     let openable = env.new_string("android.intent.category.OPENABLE")?;
     env.call_method(
         intent,
@@ -197,6 +248,12 @@ fn chooser<'local>(env: &mut Env<'local>, intent: &JObject, title: &str) -> Resu
         jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
         &[JValue::Object(&openable)],
     )?;
+    Ok(())
+}
+
+/// The chooser of the apps that can open a file of the intent.
+fn chooser<'local>(env: &mut Env<'local>, intent: &JObject, title: &str) -> Result<JObject<'local>> {
+    add_openable(env, intent)?;
 
     let title = env.new_string(title)?;
     Ok(env
@@ -358,6 +415,50 @@ fn read(env: &mut Env, activity: &JObject, uri: &Uri, fallback_name: &str) -> Re
     env.call_method(&stream, jni_str!("close"), jni_sig!("()V"), &[])?;
 
     Ok(PickedFile::new(name, content_type, bytes?))
+}
+
+/// Writes the bytes to the file the user made. The provider may have
+/// changed the name, to keep 2 files apart, so it is read back.
+fn write(env: &mut Env, activity: &JObject, uri: &Uri, bytes: &[u8], name: &str) -> Result<SavedFile> {
+    let resolver = env
+        .call_method(
+            activity,
+            jni_str!("getContentResolver"),
+            jni_sig!("()Landroid/content/ContentResolver;"),
+            &[],
+        )?
+        .l()?;
+
+    let stream = env
+        .call_method(
+            &resolver,
+            jni_str!("openOutputStream"),
+            jni_sig!("(Landroid/net/Uri;)Ljava/io/OutputStream;"),
+            &[JValue::Object(uri)],
+        )?
+        .l()?;
+    if stream.is_null() {
+        return Err(anyhow!("the provider gave no stream for {name}"));
+    }
+
+    let array = env.byte_array_from_slice(bytes)?;
+    let written = env.call_method(
+        &stream,
+        jni_str!("write"),
+        jni_sig!("([B)V"),
+        &[JValue::Object(&array)],
+    );
+    // A failed write leaves its Java error pending, the close would fail
+    // on it.
+    if written.is_err() {
+        clear_exception(env);
+    }
+    let closed = env.call_method(&stream, jni_str!("close"), jni_sig!("()V"), &[]);
+    written?;
+    closed?;
+
+    let name = display_name(env, &resolver, uri)?.unwrap_or_else(|| name.to_string());
+    Ok(SavedFile { name, path: None })
 }
 
 fn read_stream(env: &mut Env, stream: &JObject) -> Result<Vec<u8>> {

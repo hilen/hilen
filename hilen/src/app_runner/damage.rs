@@ -32,8 +32,9 @@ pub(super) fn of_frame() -> Damage {
 
 /// Whether something that is no view draws into the frame.
 fn draws_outside_views() -> bool {
+    // A scene in a `SceneView` draws into the image of that view.
     #[cfg(feature = "scene")]
-    if !crate::scene::SceneManager::no_scene() {
+    if !crate::scene::SceneManager::no_scene() && crate::scene::SceneManager::host().is_none() {
         return true;
     }
     #[cfg(feature = "level")]

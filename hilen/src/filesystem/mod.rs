@@ -12,7 +12,7 @@ pub(crate) use self::read::set_android_app;
 pub use self::source::LocalFiles;
 pub use self::{
     paths::Paths,
-    picker::PickedFile,
+    picker::{PickedFile, SavedFile},
     source::{
         Changed, FileCategory, FileEntry, FileKind, FilePath, FilePlace, FileSource, Listed, MemoryFiles,
         PlaceKind, date_text, size_text,

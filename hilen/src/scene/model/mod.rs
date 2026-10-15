@@ -1,7 +1,9 @@
 mod code_mesh;
+mod edges;
 mod parse;
 mod rig;
 mod split;
+mod triangles;
 
 use std::path::Path;
 
@@ -19,7 +21,7 @@ use crate::{
         },
     },
     filesystem::read_bytes,
-    gm::volume::{Bounds, Mat4},
+    gm::volume::{Bounds, Mat4, Vec3},
     managed,
     scene::{Material, Mesh},
     window::image::Image,
@@ -42,6 +44,9 @@ pub struct Model {
     /// Every skin's joint matrices at rest, what a node draws with
     /// while no clip plays.
     pub(crate) rest_joints: Vec<Vec<Mat4>>,
+    /// Every triangle in model space at rest, what a ray is tested
+    /// against, see `Model::hit_triangle`.
+    pub(crate) triangles:   Vec<[Vec3; 3]>,
 }
 
 /// One drawn mesh of a model with its place and look.
@@ -79,10 +84,12 @@ impl Model {
             bounds:      Bounds::default(),
             rig:         None,
             rest_joints: vec![],
+            triangles:   vec![],
         }
     }
 
     fn upload(source: ModelSource) -> Self {
+        let triangles = triangles::of_parts(&source.parts);
         let images: Vec<_> = source
             .images
             .iter()
@@ -118,6 +125,7 @@ impl Model {
             bounds: source.bounds,
             rig: source.rig,
             rest_joints: source.rest_joints,
+            triangles,
         }
     }
 }

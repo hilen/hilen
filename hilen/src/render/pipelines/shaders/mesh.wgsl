@@ -301,9 +301,8 @@ fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
     if view.sun_color.w < 0.5 {
         return 1.0;
     }
-    let to_eye = view.camera_pos.xyz - p;
-    let facing = max(abs(dot(n, normalize(to_eye))), 0.1);
-    let footprint = length(to_eye) * view.camera_pos.w / view.viewport.y / facing;
+    let facing = max(abs(dot(n, to_eye_of(p))), 0.1);
+    let footprint = pixel_size_at(p) / facing;
     let nol = saturate(dot(n, -view.sun_dir.xyz));
     var held = -1;
     var held_point: CascadePoint;
@@ -363,7 +362,7 @@ fn lit(in: VertexOutput) -> vec4<f32> {
 
     var s: Surface;
     s.normal = perturb_normal(normalize(in.normal), world_pos, in.uv, map);
-    s.to_eye = normalize(view.camera_pos.xyz - world_pos);
+    s.to_eye = to_eye_of(world_pos);
     s.nov = max(dot(s.normal, s.to_eye), 1e-4);
     s.diffuse = base * (1.0 - metallic);
     s.f0 = mix(vec3<f32>(0.04), base, metallic);

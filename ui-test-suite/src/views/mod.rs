@@ -1,4 +1,5 @@
 pub mod basic;
+pub mod code_editor;
 pub mod complex;
 pub mod containers;
 pub mod file_browser;

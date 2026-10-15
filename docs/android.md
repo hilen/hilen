@@ -95,3 +95,9 @@ extensions become MIME types by `mime_guess`: 1 type is the type of the intent,
 more go into `EXTRA_MIME_TYPES`. When 1 extension has no known type there is no
 filter at all, a file of that kind would be greyed out otherwise. A provider that
 gives a file another type than `mime_guess` does still greys it out.
+
+`Paths::save_file_bytes` goes the same way with `ACTION_CREATE_DOCUMENT`: the type of
+the suggested name by `mime_guess` and the name in `EXTRA_TITLE`. The system shows its
+own screen, no chooser. The bytes go out through `openOutputStream` of the content
+resolver, and the name is read back, a provider may change it to keep 2 files apart.
+It shares the 1 waiting pick, a save and a pick end each other with `None`.

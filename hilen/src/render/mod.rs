@@ -1,7 +1,7 @@
 #[cfg(feature = "scene")]
 pub(crate) use crate::render::shader_data::SHADOW_CASCADES;
 #[cfg(feature = "scene")]
-pub use crate::render::shader_data::SceneView;
+pub use crate::render::shader_data::SceneUniform;
 #[cfg(feature = "level")]
 pub use crate::render::shader_data::SpriteView;
 #[cfg(feature = "level")]

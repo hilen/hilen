@@ -4,7 +4,9 @@ mod collider_shape;
 mod day_night_sky;
 mod event_handler;
 mod fog;
+mod handle;
 mod light;
+mod line;
 mod material;
 mod mesh;
 mod model;
@@ -15,6 +17,7 @@ mod player;
 mod scene;
 mod scene_manager;
 mod scene_test;
+mod scene_view;
 mod sets;
 mod shadow;
 mod sky;
@@ -27,11 +30,13 @@ pub use rapier3d::dynamics::CoefficientCombineRule;
 #[cfg(feature = "scene-tests")]
 pub use self::scene_test::step_scene;
 pub use self::{
-    camera::Camera,
+    camera::{Camera, Projection},
     collider_shape::{ColliderShape, Heightfield},
     day_night_sky::DayNightSky,
     fog::Fog,
+    handle::{HandleDrag, HandleMode, HandlePart, HandleSnap, TransformHandle},
     light::{Light, LightKind, Sun},
+    line::{AXIS_COLORS, Line3},
     material::Material,
     mesh::Mesh,
     model::{Clip, MeshData, Model},
@@ -39,9 +44,12 @@ pub use self::{
     nodes::*,
     playback::Playback,
     player::{Player, WalkKeys},
-    scene::{QueryHit, Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates},
+    scene::{
+        QueryHit, Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates, TriangleHit,
+    },
     scene_manager::SceneManager,
     scene_test::{MaybeSceneTest, SceneRegistrable, SceneTest, SceneTestView, register_if_scene_test},
+    scene_view::SceneView,
     sky::Sky,
     third_person::ThirdPerson,
     to_collider::ToCollider,

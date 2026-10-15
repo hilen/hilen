@@ -268,8 +268,9 @@ impl Input {
             return LevelManager::level_weak().add_touch(original_pos);
         }
 
+        // A scene in a `SceneView` gets its touches from that view.
         #[cfg(feature = "scene")]
-        if touch.is_began() && !SceneManager::no_scene() {
+        if touch.is_began() && !SceneManager::no_scene() && SceneManager::host().is_none() {
             return SceneManager::scene_weak().add_touch(original_pos);
         }
 

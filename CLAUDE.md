@@ -179,7 +179,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the sprite shaders or `terrain.wgsl`.
 - [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, glb
   models with skins and clips, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
-  budget of the mesh shader, scene tests and what is still to come. Read before touching
+  budget of the mesh shader, a scene inside a `SceneView`, the orthographic camera, lines,
+  triangle hits, the transform handle, scene tests and what is still to come. Read before touching
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
 - [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
@@ -202,6 +203,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   modes, `reload_cell`, `load_new_cells` and `drop_first_cells`, and `set_keeps_end` of
   `ScrollView` and `TableView`, a view at its end that stays there. Read before touching
   `views/containers/table_view` or the offset code of `scrolling/scroll_view.rs`.
+- [docs/code-editor.md](docs/code-editor.md): `CodeEditor`, the view that edits code, its
+  lines in a table of rows, the gutter, color runs and marks per line set by the app, undo
+  and redo by steps of lines, the keys and the menu. Read before touching
+  `views/complex/code_editor` or putting a code editor into an app.
 - [docs/log-view.md](docs/log-view.md) — `LogView`, the ready view for a log: the
   `LogData` trait, ANSI colors, the prefix column, follow the end, and why a row out of
   view gets its height from arithmetic and not from shaped text. Read before touching

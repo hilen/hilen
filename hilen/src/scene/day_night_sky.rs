@@ -39,7 +39,7 @@ impl Default for DayNightSky {
 }
 
 impl DayNightSky {
-    /// The three vectors the sky shader reads, see `SceneView`. Zero
+    /// The three vectors the sky shader reads, see `SceneUniform`. Zero
     /// when there is no such sky, then the shader draws the cube.
     pub(crate) fn shader_data(sky: Option<&Self>) -> [Vec4; 3] {
         let Some(sky) = sky else {

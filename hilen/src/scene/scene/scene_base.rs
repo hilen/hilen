@@ -13,8 +13,8 @@ use crate::{
         volume::{Ray, Vec3},
     },
     scene::{
-        Camera, DayNightSky, Fog, Light, Node, Player, Scene, Sky, Sun, follow_parent,
-        scene::scene_physics::ScenePhysics,
+        Camera, DayNightSky, Fog, Light, Line3, Node, Player, Scene, SceneManager, Sky, Sun, TransformHandle,
+        follow_parent, scene::scene_physics::ScenePhysics,
     },
     ui::UIManager,
 };
@@ -47,6 +47,15 @@ pub struct SceneBase {
     /// The first person player, see `add_player`. While one exists the
     /// camera follows its eyes.
     pub player:        Option<Player>,
+
+    /// Lines in the world, axes or a floor grid, see `Line3`. A node
+    /// carries the lines of its own space in its own `lines`.
+    pub lines: Vec<Line3>,
+
+    /// A handle to move, turn and scale a node with a drag, see
+    /// `TransformHandle`. A `SceneView` hands it the drags that begin on
+    /// it.
+    pub handle: Option<TransformHandle>,
 
     /// A touch that no view took, as the ray it makes from the camera.
     /// The nearest node under it gets its own `on_touch` first.
@@ -137,18 +146,20 @@ impl SceneBase {
         self.player.as_mut().expect("just set")
     }
 
-    /// The ray from the camera through a pixel of the scene's area.
+    /// The ray from the camera through a pixel of the scene's area, the
+    /// root area or the frame of its `SceneView`.
     pub fn ray(&self, point: Point) -> Ray {
-        self.camera.ray(point, UIManager::render_area())
+        self.camera.ray(point, SceneManager::area())
     }
 
     /// Where a world point lands on the screen, in points of the root view,
     /// so a view centered there sits over it, a damage number or a name
-    /// over a node. None while the point is behind the camera.
+    /// over a node. None while the point is behind the camera. A scene in a
+    /// `SceneView` lands inside the frame of that view.
     pub fn view_point(&self, world: impl Into<Vec3>) -> Option<Point> {
-        let point = self.camera.screen_point(world.into(), UIManager::render_area())?;
+        let point = self.camera.screen_point(world.into(), SceneManager::area())?;
         let scale = UIManager::scale();
-        Some(Point::new(point.x / scale, point.y / scale))
+        Some(SceneManager::origin() + Point::new(point.x / scale, point.y / scale))
     }
 
     /// The nearest node under a pixel, by the ray against every node's

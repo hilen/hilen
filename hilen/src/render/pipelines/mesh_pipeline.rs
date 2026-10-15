@@ -1,27 +1,28 @@
-use std::{num::NonZeroU64, ops::Range};
+use std::ops::Range;
 
 use indexmap::IndexMap;
 use plat::Platform;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType,
-    BufferUsages, CommandEncoder, CompareFunction, IndexFormat, PipelineLayoutDescriptor, PrimitiveTopology,
-    RenderPass, RenderPipeline, Sampler, SamplerBindingType, ShaderModuleDescriptor, ShaderSource,
-    ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
+    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CompareFunction, IndexFormat,
+    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, Sampler, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, TextureView,
 };
 
+use super::mesh_binds::{
+    instances_bind, instances_layout, opaque_bind, plain_texture, storage_bind, textures_bind,
+    textures_layout, view_bind, view_layout,
+};
 use crate::{
     deps::refs::Weak,
     gm::{
         color::Color,
-        flat::Size,
         volume::{Mat4, SkinVertex, Vec3, Vertex3D},
     },
     render::{
-        SHADOW_CASCADES, SceneView,
+        SHADOW_CASCADES, SceneUniform,
         bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
-        data::{LineVertex, MeshInstance, MeshLight},
+        data::{LineVertex, MeshInstance, MeshLight, WideLine},
         device_helper::{DeviceHelper, MeshDraw},
         pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
@@ -31,7 +32,7 @@ use crate::{
     scene::{Mesh, Sky},
     window::{
         Window,
-        image::{Image, Texture, TextureRawData},
+        image::{Image, Texture},
     },
 };
 
@@ -41,8 +42,10 @@ const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
 const SHADOW: &str = include_str!("shaders/shadow.wgsl");
 const LINES: &str = include_str!("shaders/lines.wgsl");
+const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
 
 const LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[LineVertex::VERTEX_LAYOUT];
+const WIDE_LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[WideLine::VERTEX_LAYOUT];
 
 /// The vertex buffers of a static draw and of a skinned one, which adds
 /// the joints and weights per vertex.
@@ -67,12 +70,12 @@ pub(crate) struct MeshKey {
 }
 
 /// The sky cube, its sampler and the shadow map a view bind holds.
-type ViewKey = (TextureView, Sampler, TextureView);
+pub(super) type ViewKey = (TextureView, Sampler, TextureView);
 /// The instance range and the joint range an instances bind holds.
-type InstancesKey = (StorageKey, StorageKey);
+pub(super) type InstancesKey = (StorageKey, StorageKey);
 /// Whether the base texture and the normal map of a key were alive when
 /// its bind was made, a dead one is bound as its plain stand in.
-type TexturesKey = (bool, bool);
+pub(super) type TexturesKey = (bool, bool);
 
 /// One instanced draw: the instances of a mesh and texture pair. They
 /// wait on the CPU until `prepare` copies every batch into the one opaque
@@ -110,6 +113,14 @@ pub struct MeshPipeline {
     /// every node and depth tested against them.
     lines_pipeline: RenderPipeline,
     lines:          VecBuffer<LineVertex>,
+
+    /// The lines of the scene, a quad per line of its own width. The
+    /// tested ones hide behind the nodes, the ones on top draw last over
+    /// everything.
+    wide_tested:  RenderPipeline,
+    wide_on_top:  RenderPipeline,
+    tested_lines: VecBuffer<WideLine>,
+    on_top_lines: VecBuffer<WideLine>,
 
     /// The frame's view, the sky cube it lights and reflects, and the
     /// sun's shadow map.
@@ -182,6 +193,7 @@ impl Default for MeshPipeline {
         let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{MESH}"));
         let sky_shader = shader(device, "sky_shader", format!("{common}\n{SKY}"));
         let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
+        let wide_shader = shader(device, "wide_lines_shader", format!("{common}\n{WIDE_LINES}"));
         let shadow_shader = shader(device, "shadow_shader", SHADOW.to_string());
 
         let view_layout = view_layout(device);
@@ -222,17 +234,11 @@ impl Default for MeshPipeline {
         );
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
         // The lines bind only the view, the sky's layout.
-        let lines_pipeline = device.pipeline(
-            "lines_pipeline",
-            &sky_layout,
-            &lines_shader,
-            CompareFunction::Less,
-            PrimitiveTopology::LineList,
-            LINE_LAYOUTS,
-        );
+        let [lines_pipeline, wide_tested, wide_on_top] =
+            line_pipelines(device, &sky_layout, &lines_shader, &wide_shader);
 
         let view_buffer = device.buffer(
-            &SceneView::default(),
+            &SceneUniform::default(),
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         );
 
@@ -243,6 +249,10 @@ impl Default for MeshPipeline {
             sky,
             lines_pipeline,
             lines: VecBuffer::default(),
+            wide_tested,
+            wide_on_top,
+            tested_lines: VecBuffer::default(),
+            on_top_lines: VecBuffer::default(),
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
@@ -296,6 +306,16 @@ impl MeshPipeline {
         self.lines.push(LineVertex::new(to, color));
     }
 
+    /// A line of the scene, `width` pixels wide, hidden behind the nodes
+    /// or drawn over them all.
+    pub(crate) fn add_wide_line(&mut self, line: WideLine, on_top: bool) {
+        if on_top {
+            self.on_top_lines.push(line);
+        } else {
+            self.tested_lines.push(line);
+        }
+    }
+
     /// Queues the joint matrices of one skinned node and returns where
     /// they start, the `joint_base` of its instances.
     pub(crate) fn add_joints(&mut self, matrices: &[Mat4]) -> u32 {
@@ -312,7 +332,7 @@ impl MeshPipeline {
     pub(crate) fn prepare(
         &mut self,
         encoder: &mut CommandEncoder,
-        view: &SceneView,
+        view: &SceneUniform,
         shadows: bool,
         map_size: u32,
     ) {
@@ -364,6 +384,13 @@ impl MeshPipeline {
         } else {
             self.lines.load();
         }
+        for lines in [&mut self.tested_lines, &mut self.on_top_lines] {
+            if lines.is_empty() {
+                lines.forget();
+            } else {
+                lines.load();
+            }
+        }
 
         if shadows && self.instances.values().any(|batch| batch.loaded(frame)) {
             self.shadow.fit(Window::device(), map_size);
@@ -411,7 +438,13 @@ impl MeshPipeline {
         let frame = Window::render_frame();
         let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
         let lines = self.lines.frame() == frame && self.lines.has_loaded();
-        let no_nodes = !self.instances.values().any(|batch| batch.loaded(frame)) && !translucent && !lines;
+        let tested = self.tested_lines.frame() == frame && self.tested_lines.has_loaded();
+        let on_top = self.on_top_lines.frame() == frame && self.on_top_lines.has_loaded();
+        let no_nodes = !self.instances.values().any(|batch| batch.loaded(frame))
+            && !translucent
+            && !lines
+            && !tested
+            && !on_top;
         if no_nodes && !background {
             self.transparent_keys.clear();
             return;
@@ -470,6 +503,14 @@ impl MeshPipeline {
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.drawn.end - batch.drawn.start);
         }
 
+        // Before the translucent nodes, which blend over a line behind
+        // them.
+        if tested {
+            render_pass.set_pipeline(&self.wide_tested);
+            render_pass.set_vertex_buffer(0, self.tested_lines.slice());
+            render_pass.draw(0..6, 0..self.tested_lines.len());
+        }
+
         if translucent {
             self.draw_translucent(render_pass);
         } else {
@@ -480,6 +521,12 @@ impl MeshPipeline {
             render_pass.set_pipeline(&self.lines_pipeline);
             render_pass.set_vertex_buffer(0, self.lines.slice());
             render_pass.draw(0..self.lines.len(), 0..1);
+        }
+
+        if on_top {
+            render_pass.set_pipeline(&self.wide_on_top);
+            render_pass.set_vertex_buffer(0, self.on_top_lines.slice());
+            render_pass.draw(0..6, 0..self.on_top_lines.len());
         }
     }
 
@@ -493,6 +540,8 @@ impl MeshPipeline {
         self.transparent.forget();
         self.transparent_keys.clear();
         self.lines.forget();
+        self.tested_lines.forget();
+        self.on_top_lines.forget();
     }
 
     fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
@@ -542,6 +591,42 @@ pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[R
 
 /// A mesh pipeline and its skinned twin, the same shader from its two
 /// vertex entries.
+/// The thin lines, then the wide lines that are depth tested and the wide
+/// lines on top of everything.
+fn line_pipelines(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    lines: &wgpu::ShaderModule,
+    wide: &wgpu::ShaderModule,
+) -> [RenderPipeline; 3] {
+    [
+        device.pipeline(
+            "lines_pipeline",
+            layout,
+            lines,
+            CompareFunction::Less,
+            PrimitiveTopology::LineList,
+            LINE_LAYOUTS,
+        ),
+        device.pipeline(
+            "wide_lines_tested",
+            layout,
+            wide,
+            CompareFunction::Less,
+            PrimitiveTopology::TriangleList,
+            WIDE_LINE_LAYOUTS,
+        ),
+        device.pipeline(
+            "wide_lines_on_top",
+            layout,
+            wide,
+            CompareFunction::Always,
+            PrimitiveTopology::TriangleList,
+            WIDE_LINE_LAYOUTS,
+        ),
+    ]
+}
+
 fn mesh_pipelines(
     device: &wgpu::Device,
     name: &str,
@@ -573,258 +658,5 @@ fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderMod
     device.create_shader_module(ShaderModuleDescriptor {
         label:  label.into(),
         source: ShaderSource::Wgsl(source.into()),
-    })
-}
-
-/// The frame's view, the sky cube and the sun's shadow map, one layer
-/// per cascade.
-fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "scene_view_layout".into(),
-        entries: &[
-            BindGroupLayoutEntry {
-                binding:    0,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
-                ty:         BindingType::Buffer {
-                    ty:                 BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size:   None,
-                },
-                count:      None,
-            },
-            texture_entry(1, TextureViewDimension::Cube),
-            sampler_entry(2),
-            BindGroupLayoutEntry {
-                binding:    3,
-                visibility: ShaderStages::FRAGMENT,
-                ty:         BindingType::Texture {
-                    multisampled:   false,
-                    view_dimension: TextureViewDimension::D2Array,
-                    sample_type:    TextureSampleType::Depth,
-                },
-                count:      None,
-            },
-        ],
-    })
-}
-
-fn view_bind(
-    layout: &BindGroupLayout,
-    view_buffer: &Buffer,
-    sky: &Sky,
-    shadow_map: &TextureView,
-) -> BindGroup {
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some("scene_view_bind"),
-        layout,
-        entries: &[
-            BindGroupEntry {
-                binding:  0,
-                resource: view_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding:  1,
-                resource: BindingResource::TextureView(&sky.view),
-            },
-            BindGroupEntry {
-                binding:  2,
-                resource: BindingResource::Sampler(&sky.sampler),
-            },
-            BindGroupEntry {
-                binding:  3,
-                resource: BindingResource::TextureView(shadow_map),
-            },
-        ],
-    })
-}
-
-/// The instances for the fragment stage and the joints for the vertex
-/// stage. Four bind groups is every lane's limit, so the two share one.
-fn instances_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "mesh_instances_layout".into(),
-        entries: &[
-            storage_entry(0, ShaderStages::FRAGMENT),
-            storage_entry(1, ShaderStages::VERTEX),
-        ],
-    })
-}
-
-/// The part of the instance buffer this frame's flush landed in, so the
-/// fragment stage indexes the same elements the draw uses, and the
-/// frame's joints for the vertex stage.
-fn instances_bind(
-    layout: &BindGroupLayout,
-    instances: &VecBuffer<MeshInstance>,
-    joints: &VecBuffer<Mat4>,
-) -> BindGroup {
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some("mesh_instances_bind"),
-        layout,
-        entries: &[
-            BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(loaded_range(instances)),
-            },
-            BindGroupEntry {
-                binding:  1,
-                resource: BindingResource::Buffer(loaded_range(joints)),
-            },
-        ],
-    })
-}
-
-/// The bind over the opaque instances and the joints of the frame, what
-/// the frame's pass and the shadow passes both draw with.
-fn opaque_bind<'a>(
-    slot: &'a mut Option<CachedBind<InstancesKey>>,
-    layout: &BindGroupLayout,
-    instances: &VecBuffer<MeshInstance>,
-    joints: &VecBuffer<Mat4>,
-) -> &'a BindGroup {
-    cached(slot, (StorageKey::of(instances), StorageKey::of(joints)), || {
-        instances_bind(layout, instances, joints)
-    })
-}
-
-/// The base color texture and the normal map of a draw.
-fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "mesh_textures_layout".into(),
-        entries: &[
-            texture_entry(0, TextureViewDimension::D2),
-            sampler_entry(1),
-            texture_entry(2, TextureViewDimension::D2),
-            sampler_entry(3),
-        ],
-    })
-}
-
-fn storage_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility,
-        ty: BindingType::Buffer {
-            ty:                 BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size:   None,
-        },
-        count: None,
-    }
-}
-
-fn texture_entry(binding: u32, view_dimension: TextureViewDimension) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Texture {
-            multisampled: false,
-            view_dimension,
-            sample_type: TextureSampleType::Float { filterable: true },
-        },
-        count: None,
-    }
-}
-
-fn sampler_entry(binding: u32) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Sampler(SamplerBindingType::Filtering),
-        count: None,
-    }
-}
-
-fn plain_texture(rgba: [u8; 4], label: &str) -> Texture {
-    Texture::from_raw_data(
-        TextureRawData {
-            data:     rgba.to_vec(),
-            size:     Size::new(1, 1),
-            channels: 4,
-        },
-        label,
-    )
-}
-
-/// The image's texture, or the plain one when the material has none or
-/// the image is gone.
-fn image_or<'a>(image: Option<&'a Weak<Image>>, plain: &'a Texture) -> (&'a TextureView, &'a Sampler) {
-    match image {
-        Some(image) if image.is_ok() => {
-            let image: &'a Image = image;
-            (image.view(), image.sampler())
-        }
-        _ => (&plain.view, &plain.sampler),
-    }
-}
-
-/// The textures bind of `key` out of `cache`, remade when one of its
-/// images has died since, its plain stand in is bound then.
-fn textures_bind<'a>(
-    cache: &'a mut IndexMap<MeshKey, Option<CachedBind<TexturesKey>>>,
-    layout: &BindGroupLayout,
-    key: &MeshKey,
-    white: &Texture,
-    flat_normal: &Texture,
-) -> &'a BindGroup {
-    let alive = |image: &Option<Weak<Image>>| image.as_ref().is_some_and(Weak::is_ok);
-    let slot = cache.entry(key.clone()).or_default();
-    cached(slot, (alive(&key.texture), alive(&key.normal_map)), || {
-        make_textures_bind(layout, key, white, flat_normal)
-    })
-}
-
-fn make_textures_bind(
-    layout: &BindGroupLayout,
-    key: &MeshKey,
-    white: &Texture,
-    flat_normal: &Texture,
-) -> BindGroup {
-    let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
-    let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some("mesh_textures_bind"),
-        layout,
-        entries: &[
-            BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::TextureView(base_view),
-            },
-            BindGroupEntry {
-                binding:  1,
-                resource: BindingResource::Sampler(base_sampler),
-            },
-            BindGroupEntry {
-                binding:  2,
-                resource: BindingResource::TextureView(normal_view),
-            },
-            BindGroupEntry {
-                binding:  3,
-                resource: BindingResource::Sampler(normal_sampler),
-            },
-        ],
-    })
-}
-
-/// The part of a loaded `VecBuffer` that this frame's flush landed in.
-fn loaded_range<T>(buffer: &VecBuffer<T>) -> BufferBinding<'_> {
-    let range = buffer.range();
-    BufferBinding {
-        buffer: buffer.buffer(),
-        offset: range.start,
-        size:   NonZeroU64::new(range.end - range.start),
-    }
-}
-
-/// Binds the loaded part of a `VecBuffer` alone, so the shader indexes
-/// the same elements the draw uses.
-fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some(label),
-        layout,
-        entries: &[BindGroupEntry {
-            binding:  0,
-            resource: BindingResource::Buffer(loaded_range(buffer)),
-        }],
     })
 }

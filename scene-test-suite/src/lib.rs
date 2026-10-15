@@ -47,13 +47,16 @@ mod models;
 #[cfg(desktop)]
 mod mouse_look;
 mod node_parenting;
+mod orthographic_camera;
 mod picking;
 /// The same bits as on desktop in the browser, the picture fails on
 /// `SwiftShader`, see docs/roadmap.md.
 #[cfg(not_wasm)]
 mod player_walk;
 mod primitives;
+mod scene_in_view;
 mod scene_leaves_keys;
+mod scene_lines;
 mod scene_picture;
 mod scene_picture_clear;
 mod scene_queries;
@@ -63,7 +66,9 @@ mod shadows;
 mod skybox;
 mod textures;
 mod third_person_camera;
+mod transform_handle;
 mod transparency;
+mod triangle_picking;
 mod vertex_colors;
 mod view_points;
 
