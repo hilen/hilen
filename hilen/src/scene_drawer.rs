@@ -16,14 +16,16 @@ use crate::{
         data::{MeshInstance, WideLine},
     },
     scene::{
-        DayNightSky, LightPick, Line3, Material, Mesh, Model, Node, Playback, Projection, Scene,
+        Camera, DayNightSky, LightPick, Line3, Material, Mesh, Model, Node, Playback, Projection, Scene,
         SceneManager, collider_lines, pick_lights, sun_cascades,
     },
     ui::{UIManager, ui_drawer::set_viewport},
     window::{
         Window,
         image::{Image, ImageBind, Texture},
-        msaa_sample_count, surface_texture_format,
+        msaa_sample_count,
+        state::State,
+        surface_texture_format,
     },
 };
 
@@ -33,6 +35,9 @@ static PICTURE_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 /// The targets of the scene in a `SceneView`, apart from the pictures so
 /// a grid of pictures next to the view does not make them again.
 static VIEW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
+/// The RGBA texture a photo is read back from, kept for the next photo
+/// of the same size, see `SceneManager::photo`.
+static PHOTO: MainLock<Option<Texture>> = MainLock::new();
 
 /// Drops what is built for a sample count. Each part is made again when
 /// it is next used.
@@ -127,6 +132,8 @@ impl NodeDraws<'_> {
             mesh,
             texture: material.texture,
             normal_map: material.normal_map,
+            metallic_roughness_map: material.metallic_roughness_map,
+            occlusion_map: material.occlusion_map,
             cutout: material.cutout.is_some(),
         };
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
@@ -221,30 +228,46 @@ impl SceneDrawer {
                 return;
             };
             let targets = targets_of(VIEW_TARGETS.get_mut(), image.size);
-            Self::draw_into(SceneManager::scene(), &image, targets, host.background(), encoder);
+            let scene = SceneManager::scene();
+            Self::draw_into(
+                scene,
+                &scene.camera,
+                image.view(),
+                image.size,
+                targets,
+                host.background(),
+                encoder,
+            );
             return;
         }
 
+        let scene = SceneManager::scene();
         Self::gather(
-            SceneManager::scene(),
+            scene,
+            &scene.camera,
             UIManager::render_area(),
             DEPTH_BAND,
             encoder,
         );
     }
 
-    /// Gathers the nodes of `scene` into the pipeline for a target of
-    /// `area` pixels that draws in the depth band `depth`, loads them and
-    /// draws the shadow map.
-    fn gather(scene: &dyn Scene, area: Size, depth: (f32, f32), encoder: &mut CommandEncoder) {
+    /// Gathers the nodes of `scene` seen through `camera` into the
+    /// pipeline for a target of `area` pixels that draws in the depth band
+    /// `depth`, loads them and draws the shadow map.
+    fn gather(
+        scene: &dyn Scene,
+        camera: &Camera,
+        area: Size,
+        depth: (f32, f32),
+        encoder: &mut CommandEncoder,
+    ) {
         let pipeline = MESH.get_mut();
-        let camera = scene.camera;
 
         for light in &scene.lights {
             pipeline.add_light(light.mesh_light());
         }
 
-        let extent = Self::gather_nodes(pipeline, scene, area);
+        let extent = Self::gather_nodes(pipeline, scene, camera, area);
 
         let sun = scene.sun;
         let sun_color = sun.color.linear();
@@ -262,7 +285,7 @@ impl SceneDrawer {
         });
         let aspect = area.width / area.height;
         let view_proj = camera.view_projection(aspect);
-        let cascades = sun_cascades(&sun, &camera, aspect, Bounds::of_points(extent));
+        let cascades = sun_cascades(&sun, camera, aspect, Bounds::of_points(extent));
         let mut sun_texel = Vec4::ZERO;
         let mut sun_depth = Vec4::ZERO;
         for (slot, cascade) in cascades.iter().enumerate() {
@@ -310,8 +333,12 @@ impl SceneDrawer {
     /// pipeline. Translucent nodes blend over what is behind them, so they
     /// go after every opaque node, the farthest first. Gives the corners
     /// of every node's sphere, what the shadow cascades stay inside of.
-    fn gather_nodes(pipeline: &mut MeshPipeline, scene: &dyn Scene, area: Size) -> Vec<Vec3> {
-        let camera = scene.camera;
+    fn gather_nodes(
+        pipeline: &mut MeshPipeline,
+        scene: &dyn Scene,
+        camera: &Camera,
+        area: Size,
+    ) -> Vec<Vec3> {
         let mut translucent = vec![];
         let mut extent = vec![];
 
@@ -366,7 +393,7 @@ impl SceneDrawer {
             push_line(pipeline, *line);
         }
         if let Some(handle) = &scene.handle {
-            for line in handle.lines(&camera, area) {
+            for line in handle.lines(camera, area) {
                 push_line(pipeline, line);
             }
         }
@@ -413,7 +440,15 @@ impl SceneDrawer {
             label: Some("scene_picture"),
         });
 
-        Self::draw_into(scene, &image, targets, background, &mut encoder);
+        Self::draw_into(
+            scene,
+            &scene.camera,
+            image.view(),
+            image.size,
+            targets,
+            background,
+            &mut encoder,
+        );
 
         crate::render::upload_pending();
         Window::queue().submit([encoder.finish()]);
@@ -422,19 +457,60 @@ impl SceneDrawer {
         image
     }
 
-    /// Draws `scene` into `image` through `targets` of its size, over
-    /// `background`, with the camera aspect of the image.
+    /// Draws `scene` once through `camera` into an RGBA picture of `size`
+    /// pixels over `background`, the way `picture` does, and copies it into
+    /// a buffer to read back, see `SceneManager::photo`. The scene's own
+    /// camera and the frame on screen are not touched.
+    pub(crate) fn photo(
+        scene: &dyn Scene,
+        camera: &Camera,
+        size: Size<u32>,
+        background: Color,
+    ) -> wgpu::Buffer {
+        let photo = PHOTO.get_mut();
+        if photo.as_ref().is_none_or(|texture| texture.size != size) {
+            *photo = Some(Texture::render_target(size, "scene_photo"));
+        }
+        let photo = photo.as_ref().expect("just set");
+        let targets = targets_of(PICTURE_TARGETS.get_mut(), size);
+
+        let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("scene_photo"),
+        });
+
+        Self::draw_into(
+            scene,
+            camera,
+            &photo.view,
+            size,
+            targets,
+            background,
+            &mut encoder,
+        );
+        let (buffer, _) = State::read_screen(&mut encoder, &photo.texture);
+
+        crate::render::upload_pending();
+        Window::queue().submit([encoder.finish()]);
+        MESH.get_mut().forget_frame();
+
+        buffer
+    }
+
+    /// Draws `scene` through `camera` into `target` of `size` pixels with
+    /// `targets` of that size, over `background`, with the camera aspect
+    /// of the target.
     fn draw_into(
         scene: &dyn Scene,
-        image: &Image,
+        camera: &Camera,
+        target: &TextureView,
+        size: Size<u32>,
         targets: &PictureTargets,
         background: Color,
         encoder: &mut CommandEncoder,
     ) {
-        let size = image.size;
         let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
 
-        Self::gather(scene, area, (0.0, 1.0), encoder);
+        Self::gather(scene, camera, area, (0.0, 1.0), encoder);
 
         let (color, resolve_target) = match &targets.msaa {
             Some(msaa) => (msaa, Some(&targets.resolved.view)),
@@ -485,6 +561,6 @@ impl SceneDrawer {
             );
         }
 
-        PICTURE.get_mut().draw(encoder, &targets.bind.bind, image.view());
+        PICTURE.get_mut().draw(encoder, &targets.bind.bind, target);
     }
 }

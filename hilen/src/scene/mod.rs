@@ -12,6 +12,7 @@ mod mesh;
 mod model;
 mod node_data;
 mod nodes;
+mod photo;
 mod playback;
 mod player;
 mod scene;
@@ -42,6 +43,7 @@ pub use self::{
     model::{Clip, MeshData, Model},
     node_data::NodeData,
     nodes::*,
+    photo::ScenePhoto,
     playback::Playback,
     player::{Player, WalkKeys},
     scene::{

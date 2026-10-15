@@ -706,7 +706,12 @@ impl State {
         r
     }
 
-    fn read_screen(encoder: &mut wgpu::CommandEncoder, texture: &wgpu::Texture) -> (wgpu::Buffer, Size<u32>) {
+    /// Copies `texture` of 4 bytes a pixel into a new buffer to map, each
+    /// row padded to `COPY_BYTES_PER_ROW_ALIGNMENT`.
+    pub(crate) fn read_screen(
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+    ) -> (wgpu::Buffer, Size<u32>) {
         let screen_width_bytes: u64 = u64::from(texture.size().width) * std::mem::size_of::<u32>() as u64;
 
         let width_bytes = screen_width_bytes.next_multiple_of(u64::from(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));

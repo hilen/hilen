@@ -3025,6 +3025,7 @@ dependencies = [
  "fern",
  "ffmpeg-next",
  "fontdb 0.23.0",
+ "futures-channel",
  "futures-util",
  "geo",
  "getrandom 0.4.3",

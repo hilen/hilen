@@ -19,31 +19,34 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 pub(crate) struct MeshInstance {
-    pub model:        Mat4,
+    pub model:              Mat4,
     /// The inverse transpose of the model's rotation and scale, what a
     /// normal transforms by when the scale is not uniform. Three vec4
     /// rows, the fourth component is padding.
-    pub normal:       [Vec4; 3],
-    pub color:        Color,
-    pub metallic:     f32,
-    pub roughness:    f32,
-    pub light_count:  u32,
+    pub normal:             [Vec4; 3],
+    pub color:              Color,
+    pub metallic:           f32,
+    pub roughness:          f32,
+    pub light_count:        u32,
     /// Where this instance sits in the storage buffer of its draw. The
     /// vertex stage carries it instead of `instance_index`, so a
     /// translucent node drawn alone from the middle of the buffer needs
     /// no base instance, which an A7 cannot draw.
-    pub index:        u32,
+    pub index:              u32,
     /// Indices into the light buffer, two to a word, see `LightPick`.
-    pub lights:       [u32; 4],
-    pub normal_scale: f32,
+    pub lights:             [u32; 4],
+    pub normal_scale:       f32,
     /// Where this instance's joint matrices start in the frame's joint
     /// buffer, what the skinned vertex stage reads. Zero on a static
     /// mesh, whose pipelines never read it.
-    pub joint_base:   u32,
-    pub emissive:     f32,
+    pub joint_base:         u32,
+    pub emissive:           f32,
     /// The alpha under which a fragment is not drawn, see
     /// `Material::cutout`. Zero on a node that is not cut out.
-    pub cutout:       f32,
+    pub cutout:             f32,
+    pub occlusion_strength: f32,
+    /// Rounds the struct up to a multiple of 16 bytes, the std430 size.
+    pub padding:            [f32; 3],
 }
 
 impl MeshInstance {
@@ -66,6 +69,8 @@ impl MeshInstance {
             joint_base,
             emissive: material.emissive,
             cutout: material.cutout.unwrap_or(0.0),
+            occlusion_strength: material.occlusion_strength,
+            padding: [0.0; 3],
         }
     }
 }
@@ -128,7 +133,8 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, joint_base), 164);
         assert_eq!(offset_of!(MeshInstance, emissive), 168);
         assert_eq!(offset_of!(MeshInstance, cutout), 172);
-        assert_eq!(size_of::<MeshInstance>(), 176);
+        assert_eq!(offset_of!(MeshInstance, occlusion_strength), 176);
+        assert_eq!(size_of::<MeshInstance>(), 192);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);
     }

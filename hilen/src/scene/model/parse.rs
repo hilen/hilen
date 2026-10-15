@@ -3,7 +3,6 @@ use gltf::{
     Document, Gltf, Node, Primitive,
     animation::{Interpolation as KeyInterpolation, Property, util::ReadOutputs},
     buffer, image,
-    material::AlphaMode,
     mesh::{
         Mode,
         util::{ReadJoints, ReadWeights},
@@ -12,16 +11,13 @@ use gltf::{
 use log::warn;
 
 use super::{
+    material_source::{MaterialSource, material_source},
     rig::{Channel, Clip, Interpolation, Rig, RigNode, Skin, Track},
     split::split_u16,
 };
-use crate::{
-    gm::{
-        color::Color,
-        flat::Point,
-        volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
-    },
-    scene::Material,
+use crate::gm::{
+    flat::Point,
+    volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
 };
 
 /// Everything a `.glb` holds, decoded on the CPU and ready to upload.
@@ -52,19 +48,6 @@ pub(crate) struct PartSource {
     pub skin:          Option<usize>,
     /// None when the primitive has no material, the node's own applies.
     pub material:      Option<MaterialSource>,
-}
-
-/// A glTF material, its textures as indices into `ModelSource::images`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MaterialSource {
-    pub color:        Color,
-    pub metallic:     f32,
-    pub roughness:    f32,
-    pub texture:      Option<usize>,
-    pub normal_map:   Option<usize>,
-    pub normal_scale: f32,
-    /// The alpha cutoff of a masked material.
-    pub cutout:       Option<f32>,
 }
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
@@ -381,31 +364,6 @@ fn flat_shaded(
         vertices,
         skin: skin_vertices,
     }
-}
-
-fn material_source(material: &gltf::Material) -> Option<MaterialSource> {
-    // The default material has no index, the node's material stands in.
-    material.index()?;
-
-    let pbr = material.pbr_metallic_roughness();
-    let [r, g, b, a] = pbr.base_color_factor();
-    // A blended material is translucent and a masked one is cut out by
-    // its alpha, an opaque one ignores it.
-    let mode = material.alpha_mode();
-    let alpha = if mode == AlphaMode::Opaque { 1.0 } else { a };
-    let cutout = (mode == AlphaMode::Mask).then(|| material.alpha_cutoff().unwrap_or(Material::CUTOUT));
-    let normal = material.normal_texture();
-
-    Some(MaterialSource {
-        // glTF factors are linear light, the engine's colors are encoded.
-        color: Color::rgba(r, g, b, alpha).encoded(),
-        metallic: pbr.metallic_factor(),
-        roughness: pbr.roughness_factor(),
-        texture: pbr.base_color_texture().map(|info| info.texture().source().index()),
-        normal_map: normal.as_ref().map(|normal| normal.texture().source().index()),
-        normal_scale: normal.map_or(1.0, |normal| normal.scale()),
-        cutout,
-    })
 }
 
 /// The node tree with its skins and clips, for a file that has either.

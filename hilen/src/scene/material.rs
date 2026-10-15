@@ -8,34 +8,45 @@ pub struct Material {
     /// the tint of the reflection of a metal. An alpha below one makes
     /// the node translucent, drawn after every opaque node, back to
     /// front, unless `cutout` is set.
-    pub color:        Color,
+    pub color:                  Color,
     /// 0 is a dielectric, plastic, stone or paint. 1 is a metal, which
     /// has no diffuse and colors its reflection.
-    pub metallic:     f32,
+    pub metallic:               f32,
     /// 0 is a mirror, 1 is fully matte.
-    pub roughness:    f32,
+    pub roughness:              f32,
     /// Multiplies `color` per texel, encoded sRGB like every image, its
     /// alpha multiplies the alpha.
-    pub texture:      Option<Weak<Image>>,
+    pub texture:                Option<Weak<Image>>,
+    /// The metallic in blue and the roughness in green, each multiplies
+    /// its factor per texel, the glTF packing. Read as plain data, not
+    /// as a color.
+    pub metallic_roughness_map: Option<Weak<Image>>,
     /// A tangent space normal map, the glTF convention with green up.
     /// No tangents are needed, the shader builds the frame from the
     /// derivatives of the position and the uv.
-    pub normal_map:   Option<Weak<Image>>,
+    pub normal_map:             Option<Weak<Image>>,
     /// How far the normal map tilts the normal, 1 as painted, more for
     /// deeper relief, the glTF normal scale.
-    pub normal_scale: f32,
+    pub normal_scale:           f32,
+    /// How much light from all around reaches each texel, in red, 0 for
+    /// none and 1 for all. It darkens the light of the sky or of the
+    /// flat ambient, not the sun or a lamp, as glTF asks.
+    pub occlusion_map:          Option<Weak<Image>>,
+    /// How far the occlusion map darkens, 0 not at all and 1 as painted,
+    /// the glTF occlusion strength.
+    pub occlusion_strength:     f32,
     /// Light the surface gives off itself, lit or in the dark: its color
     /// times this is added to what the lights give it. 0 for none, 1
     /// shows the full color even at night, more blooms past it. Flames
     /// and lamps glow this way. It lights nothing around it, a point
     /// light does that.
-    pub emissive:     f32,
+    pub emissive:               f32,
     /// Cuts the shape of the alpha out of the node, leaves on a quad: a
     /// fragment whose alpha, the color's times the texel's, is under
     /// this is not drawn at all, and the rest draws solid, with depth,
     /// lit and casting the shadow of what is left. `None` draws every
     /// fragment. `Material::CUTOUT` is the usual threshold.
-    pub cutout:       Option<f32>,
+    pub cutout:                 Option<f32>,
 }
 
 impl Material {
@@ -46,14 +57,17 @@ impl Material {
 impl Default for Material {
     fn default() -> Self {
         Self {
-            color:        Color::random(),
-            metallic:     0.0,
-            roughness:    0.5,
-            texture:      None,
-            normal_map:   None,
-            normal_scale: 1.0,
-            emissive:     0.0,
-            cutout:       None,
+            color:                  Color::random(),
+            metallic:               0.0,
+            roughness:              0.5,
+            texture:                None,
+            metallic_roughness_map: None,
+            normal_map:             None,
+            normal_scale:           1.0,
+            occlusion_map:          None,
+            occlusion_strength:     1.0,
+            emissive:               0.0,
+            cutout:                 None,
         }
     }
 }

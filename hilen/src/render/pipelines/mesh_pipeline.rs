@@ -57,25 +57,28 @@ pub(super) const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
     SkinVertex::VERTEX_LAYOUT,
 ];
 
-/// What one instanced draw shares: the mesh, the two textures and the
+/// What one instanced draw shares: the mesh, the four textures and the
 /// pipeline, a cut out node draws through its own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MeshKey {
-    pub mesh:       Weak<Mesh>,
-    pub texture:    Option<Weak<Image>>,
-    pub normal_map: Option<Weak<Image>>,
+    pub mesh:                   Weak<Mesh>,
+    pub texture:                Option<Weak<Image>>,
+    pub normal_map:             Option<Weak<Image>>,
+    pub metallic_roughness_map: Option<Weak<Image>>,
+    pub occlusion_map:          Option<Weak<Image>>,
     /// Whether the material has a cutout. The threshold is the
     /// instance's own.
-    pub cutout:     bool,
+    pub cutout:                 bool,
 }
 
 /// The sky cube, its sampler and the shadow map a view bind holds.
 pub(super) type ViewKey = (TextureView, Sampler, TextureView);
 /// The instance range and the joint range an instances bind holds.
 pub(super) type InstancesKey = (StorageKey, StorageKey);
-/// Whether the base texture and the normal map of a key were alive when
-/// its bind was made, a dead one is bound as its plain stand in.
-pub(super) type TexturesKey = (bool, bool);
+/// Whether the base texture, the normal map, the metallic roughness map
+/// and the occlusion map of a key were alive when its bind was made, a
+/// dead one is bound as its plain stand in.
+pub(super) type TexturesKey = (bool, bool, bool, bool);
 
 /// One instanced draw: the instances of a mesh and texture pair. They
 /// wait on the CPU until `prepare` copies every batch into the one opaque
@@ -165,9 +168,10 @@ pub struct MeshPipeline {
     lights:        VecBuffer<MeshLight>,
     lights_bind:   Option<CachedBind<StorageKey>>,
 
-    /// The base color texture and the normal map of a draw, with the
-    /// plain ones a material without them binds, and the bind of every
-    /// key drawn, opaque or translucent.
+    /// The base color texture, the normal map, the metallic roughness
+    /// map and the occlusion map of a draw, with the plain ones a
+    /// material without them binds, white for all but the normal map,
+    /// and the bind of every key drawn, opaque or translucent.
     textures_layout: BindGroupLayout,
     white:           Texture,
     flat_normal:     Texture,

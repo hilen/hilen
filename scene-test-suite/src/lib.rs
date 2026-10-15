@@ -41,6 +41,7 @@ mod glow;
 mod leaves;
 mod lights;
 mod materials;
+mod metal_roughness;
 mod models;
 /// Mouse capture needs a mouse, and a browser grants pointer lock only
 /// after a real click, which no test can inject.
@@ -57,6 +58,7 @@ mod primitives;
 mod scene_in_view;
 mod scene_leaves_keys;
 mod scene_lines;
+mod scene_photo;
 mod scene_picture;
 mod scene_picture_clear;
 mod scene_queries;

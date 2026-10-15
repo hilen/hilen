@@ -19,6 +19,128 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Several logins on 1 device
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-15, on hilen `ffd1d2b2`. Several
+people share 1 Apple TV, and each one picks their own profile, like the account switch
+of Instagram. Each profile is a real Google or Apple login with its own session.
+
+- Current: `SessionStore` in `hilen-session` keeps 1 token, with `load`, `save` and
+  `clear`. `Login::token()` in `hilen/src/login/client.rs` gives that 1 token, and a
+  new login saves over it, so a second person logs the first one out. `logout` clears
+  the store. `GoogleAccounts` keeps more than 1 account, but only tokens for Google
+  APIs, not sessions of the app's own backend.
+- Needed: the store keeps a list of accounts, each with its `LoginUser` and its token,
+  and which one is active. A stored single token from before loads as a list of 1, with
+  its user filled in by the next `current_user`, so nobody logs in again after an update.
+  `Login::accounts()` lists them, `Login::switch(id)` makes one active and
+  `Login::forget(id)` ends that session on the server and drops it. A login by
+  `start` or `start_with_code` adds an account and makes it active, a login of an
+  account that is in the list already replaces its token. `token()`, `send` and
+  `current_user` work on the active account, so an app with 1 login needs no change.
+  `logout` ends only the active account, and an empty list means nobody is logged in.
+  A 401 drops only the active account. It works on every platform, the browser keeps
+  the list in `localStorage` and tvOS in its user defaults, sealed like the token is
+  now. `cargo test` tests cover the add, the replace, the switch, the forget, the 401
+  and the load of an old single token. `docs/login.md` and the `google-login.md`
+  chapter of the skill describe the calls.
+- Blocks: the profile screen of flixen, "Who is watching", with the switch of
+  profiles on a TV, a computer, a phone and in the browser.
+
+## The metallic and roughness texture of a glTF material
+
+Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
+simulator shows a circuit board, the Sparkfun 5 Stars model from Sketchfab, where the
+copper, the solder mask and the solder differ in shine per pixel.
+
+- Current: `hilen/src/scene/model/parse.rs` reads only `metallic_factor` and
+  `roughness_factor` of a material. The `metallicRoughnessTexture` is never read, so
+  a material with a metallic factor of 1 and the real values in its texture draws as
+  full metal everywhere. 5 of the 6 materials of that board are such. The occlusion
+  texture is not read either.
+- Needed: the loader reads the `metallicRoughnessTexture`, blue for metallic and
+  green for roughness as glTF says, and the shader multiplies the 2 factors by it per
+  pixel. The `occlusionTexture` darkens the ambient light per pixel the same way. A
+  scene test with a model whose texture has a metal half and a rough half checks a
+  pixel of each half.
+- Blocks: a correct look of the circuit board in the turnscan simulator, and so the
+  photos its photogrammetry is tested with.
+
+## A picture of a scene as bytes
+
+Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
+simulator renders a 3D rig with an object on a turntable, and a virtual phone in the
+scene takes 4032 x 3024 photos that go to a photogrammetry pipeline like real ones.
+
+- Current: `SceneDrawer::picture` in `hilen/src/scene_drawer.rs` draws a scene once
+  into an image of any size, off screen, with its own encoder. It is `pub(crate)`, and
+  the image stays on the GPU. The only way back to pixels is
+  `AppRunner::take_screenshot`, which reads the whole window at its own size.
+- Needed: a public call that draws a scene through a given `Camera` into a size the
+  app picks, larger than the window too, reads the pixels back, and gives RGBA bytes
+  and the size, async, with no change to the frame on screen. A picture of a scene
+  in a `SceneView` and of the window scene both work. It runs on every platform,
+  WebGL included, and a scene test checks a known pixel of a picture.
+- Blocks: the virtual camera of the turnscan simulator.
+
+## A photo from a camera of the device
+
+Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. It is a
+turntable 3D scanner. The app turns the object, waits, and takes a photo with the
+camera of the phone, 24 to 144 times in a row, with nobody at the screen.
+
+- Current: the engine has no access to a camera of the device. Every `camera` in the
+  code is the 3D scene camera, `hilen/src/scene/camera.rs`. A grep of the repo finds no
+  `AVCaptureDevice`, no `getUserMedia`, no Android camera and no
+  `NSCameraUsageDescription` in the iOS project.
+- Needed: an app lists the cameras of the device and opens 1 of them. A view shows its
+  live picture. A call in code takes a photo at full resolution with no tap of the
+  user, and gives the encoded bytes, HEIC or JPEG, with the width and the height.
+  Focus, exposure and white balance can be locked, so a series of photos looks the
+  same. On an iPhone the app picks the lens, like the main wide one. It works on every
+  platform: iOS and macOS through AVFoundation, Android, a webcam on Windows and Linux,
+  and the browser through `getUserMedia`. The engine asks for the permission with a
+  text from the app config, and a refusal is a clear error.
+- Blocks: the whole capture side of turnscan.
+
+## Bluetooth LE devices
+
+Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. The app
+drives the servos of its turntable through a Seeed XIAO nRF52840 board over Bluetooth
+LE.
+
+- Current: the engine has no Bluetooth. A grep of the repo finds no Bluetooth crate in
+  any `Cargo.toml`, no CoreBluetooth code and no `NSBluetoothAlwaysUsageDescription`
+  in the iOS project.
+- Needed: the central role of Bluetooth LE. An app scans for devices with a given
+  service UUID, connects, finds the services and characteristics, reads, writes, and
+  subscribes to notifications. A lost connection is an event. It works on every
+  platform that has the hardware: iOS, macOS, Windows, Linux, Android, and the browser
+  through Web Bluetooth where the browser has it. The engine puts the permission texts
+  into the iOS and Android projects from the app config. Check
+  [btleplug](https://github.com/deviceplug/btleplug) first, it may cover most of the
+  platforms.
+- Blocks: the Bluetooth link of turnscan to its board.
+
+## Find a device on the local network
+
+Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its Wi-Fi
+boards and a fake board on a Mac announce a service on the local network, and the
+app has to find them.
+
+- Current: `mdns-sd` is in the engine only under the `inspect` feature, and only to
+  announce the inspect server. `hilen/src/inspect/bonjour.rs` says that on a real
+  iPhone `mdns-sd` stays silent, because an app needs an entitlement from Apple to send
+  multicast of its own. So the system Bonjour service announces there. No app can
+  browse for a service, on any platform.
+- Needed: an app browses for a service type, like `_turnscan._tcp`, and gets every
+  device that comes and goes, with its name, address, port and text record. On iOS
+  this goes through the system Bonjour service, and the engine writes
+  `NSBonjourServices` and `NSLocalNetworkUsageDescription` into the project from the
+  app config. The other native platforms use `mdns-sd`. A browser has no mDNS, so
+  there the call gives a clear error.
+- Blocks: the Wi-Fi link of turnscan to its boards and to its fake board.
+
 ## A small animation keeps the whole engine busy
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-12, and by ui-compare,

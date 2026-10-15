@@ -33,29 +33,31 @@ impl Setup for ScreenAwakeDesktop {
 
 impl ViewTest for ScreenAwakeDesktop {
     fn perform_test(view: Weak<Self>) -> Result<()> {
-        ensure!(!system_holds()?, "no hold before the first guard");
+        check(false, "no hold before the first guard")?;
 
         let guard = from_main(move || {
             view.state.set_text("screen awake: on");
             ScreenAwake::acquire()
         });
-        ensure!(system_holds()?, "the system must list the hold of a live guard");
+        check(true, "the system must list the hold of a live guard")?;
         checkpoint("screen awake: on, the system lists the hold")?;
 
         drop(guard);
         from_main(move || {
             view.state.set_text("screen awake: off");
         });
-        ensure!(!system_holds()?, "the hold must be gone after the guard drops");
+        check(false, "the hold must be gone after the guard drops")?;
         checkpoint("screen awake: off, the hold is gone")?;
         Ok(())
     }
 }
 
-/// The system's own answer to whether this app holds the display awake.
-fn system_holds() -> Result<bool> {
+/// Whether this app holds the display awake is `expected`, in the engine and,
+/// on macOS, in the system's own list.
+fn check(expected: bool, what: &str) -> Result<()> {
     // The drop of a guard lands on the main thread, wait for it.
     let applied = from_main(|| super::STATE.get_mut().applied);
+    ensure!(applied == expected, "{what}, the engine says {applied}");
 
     #[cfg(macos)]
     {
@@ -69,8 +71,6 @@ fn system_holds() -> Result<bool> {
             listed == applied,
             "the engine says {applied} and the system says {listed}"
         );
-        Ok(listed)
     }
-    #[cfg(not(macos))]
-    Ok(applied)
+    Ok(())
 }

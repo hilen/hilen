@@ -182,7 +182,8 @@ along 1 axis is for the app to apply, a CAD app writes it into its source.
 `assets/models` through `filesystem::read_bytes`, so the APK and the browser
 manifest serve it like any asset, and `Model::get("tree.glb")` returns the one
 copy. `Shape3::Model(model)` puts it on a node. The meshes, the metallic roughness
-materials, the embedded base color and normal textures and the node tree load, the
+materials, the embedded base color, normal, metallic roughness and occlusion
+textures and the node tree load, the
 tree flattened into parts with their placements, so a node draws every mesh of the
 file at its own size and with its own materials. `set_scale` sizes a node uniformly
 on top of that, so a model in other units fits the scene, the collider and picking
@@ -236,6 +237,17 @@ even at night. It lights nothing around it, a point light does that, the flames
 of a campfire are both. No tangents are stored, the shader builds the frame from the screen
 derivatives of the position and the uv. A `color` with alpha below one makes the
 node translucent, see below.
+
+`metallic_roughness_map` holds metallic in its blue channel and roughness in its
+green, as glTF packs them. The shader multiplies `metallic` and `roughness` by
+them per pixel, so a circuit board with a factor of 1 gets shiny pads and a dull
+solder mask. `occlusion_map` holds ambient occlusion in its red channel, and
+`occlusion_strength`, 1 by default, scales it as 1 + strength times red minus 1.
+It darkens only the sky or flat ambient light, never the sun or a lamp, as glTF
+asks. Both maps are often 1 image. A material without them binds the plain white
+texture, which draws exactly as before. The loader is
+`hilen/src/scene/model/material_source.rs`, and the scene test `Metal roughness`
+checks a quad whose 1 texture has a metal half, a rough half and an occluded half.
 
 `cutout` cuts a node out by its alpha, leaves on a quad: `set_cutout(threshold)`,
 `Material::CUTOUT` is the usual 0.5. A fragment whose alpha, the color's times the
@@ -422,6 +434,42 @@ straight alpha, so without the divide every outline gets a dark rim. The
 targets are kept for the next picture of the same size. 50 pictures of 256
 pixels take about 18 ms of CPU time in a debug build and 12 ms in release on an
 M series Mac, models and textures are managed and load once.
+
+## Photos
+
+`SceneManager::photo(camera, size, background)` draws the running scene through
+another `Camera` and gives its pixels back, a `ScenePhoto` with `size` and `rgba`,
+4 bytes a pixel from the top row, straight alpha. It is for a virtual camera in
+a scene, like the phone of a 3D scanner rig that takes 4032 x 3024 photos while
+the rig shows live on screen. The scene's own camera does not move and the frame
+on screen does not change. It works for the scene of the window and for one in a
+`SceneView`.
+
+```rust
+let photo = SceneManager::photo(phone_camera, (4032, 3024), BLACK);
+spawn(async move {
+    match photo.await {
+        Ok(photo) => save_jpeg(&photo.rgba, photo.size),
+        Err(err) => log::error!("no photo of the rig: {err}"),
+    }
+});
+```
+
+The draw is sent in the call, so photos taken in a row each show the scene at
+their own call. On native the future waits for the GPU and reads the bytes, in a
+browser it ends after the next frame of the loop. No scene, a size of 0, a side
+over the GPU limit, 8192 in a browser, or a buffer too big for the GPU is an
+error.
+
+`SceneDrawer::photo` draws through the same targets and `PicturePipeline` as a
+picture, into an RGBA texture kept for the next photo of the same size, and in
+the same encoder copies it into a buffer through `State::read_screen`, the path
+of a screenshot. A 4032 x 3024 photo takes 9 to 16 ms in a debug build on an M
+series Mac. Its targets with 4 samples take about 450 MB of GPU memory and stay
+for the next photo, which is not measured on a phone yet. The scene tests
+`Photo of scene` and `Photo of scene in view` check 6 known pixels of a big
+photo, take 24 small ones on a full turn, and check that the screen is the same
+before and after.
 
 ## How it draws
 

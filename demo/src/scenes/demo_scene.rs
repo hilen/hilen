@@ -169,14 +169,13 @@ impl SceneSetup for DemoScene {
         // A face of a box shows the texture once, so a wall of two
         // meter blocks gets bricks at a real size.
         let bricks = Material {
-            color:        Color::hex("#ffffff"),
-            metallic:     0.0,
-            roughness:    0.8,
-            texture:      Some(Image::get("bricks.jpg")),
-            normal_map:   Some(Image::get("bricks_normal.jpg")),
+            color: Color::hex("#ffffff"),
+            metallic: 0.0,
+            roughness: 0.8,
+            texture: Some(Image::get("bricks.jpg")),
+            normal_map: Some(Image::get("bricks_normal.jpg")),
             normal_scale: 1.5,
-            emissive:     0.0,
-            cutout:       None,
+            ..Material::default()
         };
         for i in 0..WALL_BLOCKS {
             let x = (i.lossy_convert() - (WALL_BLOCKS - 1).lossy_convert() / 2.0) * 2.0;

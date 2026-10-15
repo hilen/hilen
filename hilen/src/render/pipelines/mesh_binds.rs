@@ -137,7 +137,10 @@ pub(super) fn opaque_bind<'a>(
     })
 }
 
-/// The base color texture and the normal map of a draw.
+/// The base color texture, the normal map, the metallic roughness map
+/// and the occlusion map of a draw. With the sky and the shadow map the
+/// fragment stage reads 6 textures through 5 samplers, under the 16 of
+/// WebGL2 and of an A7.
 pub(super) fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label:   "mesh_textures_layout".into(),
@@ -146,6 +149,10 @@ pub(super) fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
             sampler_entry(1),
             texture_entry(2, TextureViewDimension::D2),
             sampler_entry(3),
+            texture_entry(4, TextureViewDimension::D2),
+            sampler_entry(5),
+            texture_entry(6, TextureViewDimension::D2),
+            sampler_entry(7),
         ],
     })
 }
@@ -222,7 +229,13 @@ pub(super) fn textures_bind<'a>(
 ) -> &'a BindGroup {
     let alive = |image: &Option<Weak<Image>>| image.as_ref().is_some_and(Weak::is_ok);
     let slot = cache.entry(key.clone()).or_default();
-    cached(slot, (alive(&key.texture), alive(&key.normal_map)), || {
+    let alive_now = (
+        alive(&key.texture),
+        alive(&key.normal_map),
+        alive(&key.metallic_roughness_map),
+        alive(&key.occlusion_map),
+    );
+    cached(slot, alive_now, || {
         make_textures_bind(layout, key, white, flat_normal)
     })
 }
@@ -235,6 +248,9 @@ pub(super) fn make_textures_bind(
 ) -> BindGroup {
     let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
     let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
+    let (metallic_roughness_view, metallic_roughness_sampler) =
+        image_or(key.metallic_roughness_map.as_ref(), white);
+    let (occlusion_view, occlusion_sampler) = image_or(key.occlusion_map.as_ref(), white);
     Window::device().create_bind_group(&BindGroupDescriptor {
         label: Some("mesh_textures_bind"),
         layout,
@@ -254,6 +270,22 @@ pub(super) fn make_textures_bind(
             BindGroupEntry {
                 binding:  3,
                 resource: BindingResource::Sampler(normal_sampler),
+            },
+            BindGroupEntry {
+                binding:  4,
+                resource: BindingResource::TextureView(metallic_roughness_view),
+            },
+            BindGroupEntry {
+                binding:  5,
+                resource: BindingResource::Sampler(metallic_roughness_sampler),
+            },
+            BindGroupEntry {
+                binding:  6,
+                resource: BindingResource::TextureView(occlusion_view),
+            },
+            BindGroupEntry {
+                binding:  7,
+                resource: BindingResource::Sampler(occlusion_sampler),
             },
         ],
     })

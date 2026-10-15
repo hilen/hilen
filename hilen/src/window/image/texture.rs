@@ -221,8 +221,8 @@ impl Texture {
         })
     }
 
-    /// A blank RGBA texture a pass can draw into and the image pipeline can
-    /// sample, one mip level, clamped edges.
+    /// A blank RGBA texture a pass can draw into, the image pipeline can
+    /// sample and a scene photo reads back, one mip level, clamped edges.
     #[cfg(any(all(feature = "video", ffmpeg), feature = "scene"))]
     pub(crate) fn render_target(size: Size<u32>, label: &str) -> Self {
         let device = Window::device();
@@ -238,7 +238,9 @@ impl Texture {
             sample_count:    1,
             dimension:       TextureDimension::D2,
             format:          TextureFormat::Rgba8Unorm,
-            usage:           TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            usage:           TextureUsages::TEXTURE_BINDING
+                | TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::COPY_SRC,
             view_formats:    &[],
         });
 

@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use anyhow::Result;
 use educe::Educe;
 use rapier3d::{
     dynamics::{RigidBody, RigidBodyHandle},
@@ -12,7 +13,7 @@ use crate::{
         color::Color,
         flat::{Point, Size},
     },
-    scene::{Scene, SceneView, scene::ScenePhysics},
+    scene::{Camera, Scene, ScenePhoto, SceneView, photo, scene::ScenePhysics},
     scene_drawer::SceneDrawer,
     ui::{UIManager, ViewFrame},
     window::image::Image,
@@ -135,6 +136,39 @@ impl SceneManager {
             "A scene picture has no physics. Build its scene of Prop nodes and leave needs_physics off."
         );
         SceneDrawer::picture(&*scene, name, size.into(), background.into())
+    }
+
+    /// Draws the running scene once through `camera` into a picture of
+    /// `size` pixels and gives its pixels, a photo from a camera that
+    /// stands in the scene, like a phone on a rig. The scene, its own
+    /// camera and the frame on screen are not touched, so a scene in a
+    /// `SceneView` shows on as before. The size can be larger than the
+    /// window, up to what the GPU draws on a side. The camera takes the
+    /// aspect of the size. Where nothing is drawn the photo shows
+    /// `background`, `CLEAR` leaves it see through, and a sky or fog
+    /// covers it. The draw goes to the GPU in this call, so photos taken
+    /// in a row show the scene as it was at each call.
+    ///
+    /// On a native GPU the call waits for the draw, a browser gives the
+    /// bytes back after a frame of the loop, so await the future off the
+    /// main loop or `spawn` it there. An error says why, like no scene
+    /// runs or a size the GPU does not take.
+    ///
+    /// ```ignore
+    /// let photo = SceneManager::photo(phone_camera, (4032, 3024), BLACK);
+    /// spawn(async move {
+    ///     match photo.await {
+    ///         Ok(photo) => save_jpeg(&photo.rgba, photo.size),
+    ///         Err(err) => log::error!("no photo of the rig: {err}"),
+    ///     }
+    /// });
+    /// ```
+    pub fn photo(
+        camera: Camera,
+        size: impl Into<Size<u32>>,
+        background: impl Into<Color>,
+    ) -> impl Future<Output = Result<ScenePhoto>> {
+        photo::take(camera, size.into(), background.into())
     }
 
     pub fn stop_scene() {

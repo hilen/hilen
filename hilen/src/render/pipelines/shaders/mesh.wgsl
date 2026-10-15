@@ -14,6 +14,7 @@ struct MeshInstance {
     joint_base: u32,
     emissive: f32,
     cutout: f32,
+    occlusion_strength: f32,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -42,6 +43,17 @@ var base_sampler: sampler;
 var normal_texture: texture_2d<f32>;
 @group(3) @binding(3)
 var normal_sampler: sampler;
+// Plain data like the normal map, metallic in blue and roughness in
+// green, the glTF packing.
+@group(3) @binding(4)
+var metallic_roughness_texture: texture_2d<f32>;
+@group(3) @binding(5)
+var metallic_roughness_sampler: sampler;
+// The share of the light from all around in red.
+@group(3) @binding(6)
+var occlusion_texture: texture_2d<f32>;
+@group(3) @binding(7)
+var occlusion_sampler: sampler;
 
 struct Vertex {
     @location(0) pos: vec3<f32>,
@@ -354,9 +366,12 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
     let base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb);
     let alpha = instance.color.a * tint.a * texel.a;
-    let metallic = instance.metallic;
+    let metal_rough = textureSample(metallic_roughness_texture, metallic_roughness_sampler, in.uv);
+    let metallic = instance.metallic * metal_rough.b;
     // Below this a highlight collapses to a few pixels of noise.
-    let perceptual = clamp(instance.roughness, 0.045, 1.0);
+    let perceptual = clamp(instance.roughness * metal_rough.g, 0.045, 1.0);
+    let occlusion_texel = textureSample(occlusion_texture, occlusion_sampler, in.uv).r;
+    let occlusion = 1.0 + instance.occlusion_strength * (occlusion_texel - 1.0);
 
     let world_pos = world_position(in.pos);
 
@@ -381,6 +396,9 @@ fn lit(in: VertexOutput) -> vec4<f32> {
         // term, its reflection the base reflectance.
         color = view.ambient.rgb * (s.diffuse + s.f0);
     }
+    // Occlusion darkens only the light from all around, never the sun
+    // or a lamp, as glTF asks.
+    color *= occlusion;
 
     color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, normalize(in.normal));
 

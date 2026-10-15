@@ -1,5 +1,6 @@
 mod code_mesh;
 mod edges;
+mod material_source;
 mod parse;
 mod rig;
 mod split;
@@ -7,7 +8,7 @@ mod triangles;
 
 use std::path::Path;
 
-use log::error;
+use log::{debug, error};
 
 use self::parse::{ModelSource, parse_glb};
 pub(crate) use self::rig::Rig;
@@ -108,14 +109,17 @@ impl Model {
                 node:      part.node,
                 skin:      part.skin,
                 material:  part.material.map(|material| Material {
-                    color:        material.color,
-                    metallic:     material.metallic,
-                    roughness:    material.roughness,
-                    texture:      material.texture.map(|index| images[index]),
-                    normal_map:   material.normal_map.map(|index| images[index]),
-                    normal_scale: material.normal_scale,
-                    emissive:     0.0,
-                    cutout:       material.cutout,
+                    color:                  material.color,
+                    metallic:               material.metallic,
+                    roughness:              material.roughness,
+                    texture:                material.texture.map(|index| images[index]),
+                    metallic_roughness_map: material.metallic_roughness.map(|index| images[index]),
+                    normal_map:             material.normal_map.map(|index| images[index]),
+                    normal_scale:           material.normal_scale,
+                    occlusion_map:          material.occlusion.map(|index| images[index]),
+                    occlusion_strength:     material.occlusion_strength,
+                    emissive:               0.0,
+                    cutout:                 material.cutout,
                 }),
             })
             .collect();
@@ -149,6 +153,14 @@ impl ResourceLoader for Model {
 
         let source =
             parse_glb(data, &name).unwrap_or_else(|err| panic!("Failed to load model {name}. Err: {err}"));
+        let materials = || source.parts.iter().filter_map(|part| part.material);
+        debug!(
+            "Model {name}: {} parts, {} images, {} materials with a metallic roughness texture, {} with an occlusion texture",
+            source.parts.len(),
+            source.images.len(),
+            materials().filter(|material| material.metallic_roughness.is_some()).count(),
+            materials().filter(|material| material.occlusion.is_some()).count(),
+        );
 
         from_main(move || Self::upload(source))
     }
