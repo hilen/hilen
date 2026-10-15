@@ -13,6 +13,7 @@ mod progress_view;
 mod slider;
 mod switch;
 mod text_field;
+mod tool_button;
 #[cfg(feature = "video")]
 mod video_view;
 
@@ -29,5 +30,6 @@ pub use progress_view::*;
 pub use slider::*;
 pub use switch::*;
 pub use text_field::TextField;
+pub use tool_button::ToolButton;
 #[cfg(feature = "video")]
 pub use video_view::VideoView;

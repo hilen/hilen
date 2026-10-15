@@ -43,6 +43,7 @@ mod stick_images;
 mod switch;
 mod switch_colors;
 mod theme_switch;
+mod tool_button;
 /// Hover tooltips need a pointer, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod tooltip_hover;
