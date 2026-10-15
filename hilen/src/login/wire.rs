@@ -2,17 +2,8 @@
 //! server crate never links this one, so `hilen-server/src/auth/wire.rs` holds
 //! the same shapes. A change here needs the same change there.
 
+pub use hilen_session::LoginUser;
 use serde::{Deserialize, Serialize};
-
-/// The logged in user, as the server knows them from Google or Apple.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoginUser {
-    pub id:      String,
-    pub email:   String,
-    pub name:    String,
-    /// A link to the Google profile picture. An Apple account has none.
-    pub picture: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct PollRequest<'a> {

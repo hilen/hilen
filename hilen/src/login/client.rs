@@ -193,10 +193,44 @@ impl Login {
         ATTEMPT.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// The session token, for the `Authorization: Bearer` header of the app's
-    /// own requests. `None` when nobody is logged in.
+    /// The token of the active session, for the `Authorization: Bearer`
+    /// header of the app's own requests. `None` when nobody is logged in.
     pub fn token() -> Option<String> {
         SessionStore::load()
+    }
+
+    /// Everybody logged in on this device, in the order they logged in. A
+    /// new login adds to the list, it does not log the others out.
+    pub fn accounts() -> Vec<LoginUser> {
+        SessionStore::sessions()
+            .into_iter()
+            .filter_map(|session| session.user)
+            .collect()
+    }
+
+    /// The user of the active session as it was stored, with no request.
+    /// `None` when nobody is active. `current_user` asks the server.
+    pub fn active_user() -> Option<LoginUser> {
+        SessionStore::active_user()
+    }
+
+    /// Makes the session of this user, an `id` of `accounts`, the active one.
+    /// Every request after it goes out as that user.
+    pub fn switch(id: &str) -> Result<()> {
+        SessionStore::switch(id)?;
+        log::info!("the active login is now user {id}");
+        Ok(())
+    }
+
+    /// Ends the session of this user on the server and forgets it here, the
+    /// other sessions stay. Nobody is active after it when it was the active
+    /// one. The local half happens even when the server cannot be reached.
+    pub fn forget(id: &str, done: impl FnOnce(Result<()>) + Send + 'static) {
+        let id = id.to_owned();
+        spawn(async move {
+            let result = forget_session(&id).await;
+            on_main(move || done(result));
+        });
     }
 
     /// Sends a request of the app with the session token as its
@@ -212,9 +246,9 @@ impl Login {
         }
     }
 
-    /// Who the stored session belongs to, for the app launch. `None` when
-    /// nobody is logged in, also when the server no longer knows the session,
-    /// which then is forgotten here too.
+    /// Who the active session belongs to, for the app launch. `None` when
+    /// nobody is active, also when the server no longer knows the session,
+    /// which then is forgotten here too. The other sessions stay.
     pub fn current_user(done: impl FnOnce(Result<Option<LoginUser>>) + Send + 'static) {
         spawn(async move {
             let result = fetch_current_user().await;
@@ -222,8 +256,9 @@ impl Login {
         });
     }
 
-    /// Ends the session on the server and forgets it here. The local half
-    /// happens even when the server cannot be reached.
+    /// Ends the active session on the server and forgets it here, the other
+    /// sessions stay and none of them becomes active. The local half happens
+    /// even when the server cannot be reached.
     pub fn logout(done: impl FnOnce(Result<()>) + Send + 'static) {
         spawn(async move {
             let result = end_session().await;
@@ -291,7 +326,7 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
         match poll(server, verifier).await {
             Ok(PollResponse::Done { token, user }) => {
                 log::info!("login done");
-                return Waited::Done(SessionStore::save(&token).map(|()| user));
+                return Waited::Done(SessionStore::add(&token, user.clone()).map(|()| user));
             }
             Ok(PollResponse::Pending) if closed => {
                 log::info!("the login sheet was closed before the login was done, the wait ends");
@@ -363,12 +398,18 @@ async fn poll(server: &str, verifier: &str) -> Result<PollResponse> {
 }
 
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
-    if SessionStore::load().is_none() {
+    let Some(token) = SessionStore::load() else {
         return Ok(None);
-    }
+    };
 
-    match Login::send(Call::get(format!("{}/auth/me", server()?))).await {
-        Ok(user) => Ok(Some(user)),
+    let call = Call::get(format!("{}/auth/me", server()?)).bearer(token.clone());
+    match call.send::<LoginUser>().await {
+        Ok(user) => {
+            // A session of an engine with 1 login gets its user here, and a
+            // new name or picture reaches the list of accounts.
+            SessionStore::set_user(&token, user.clone())?;
+            Ok(Some(user))
+        }
         Err(RequestError::Unauthorized) => {
             SessionStore::clear()?;
             Ok(None)
@@ -382,7 +423,18 @@ async fn end_session() -> Result<()> {
         return Ok(());
     };
     SessionStore::clear()?;
+    logout_on_server(token).await
+}
 
+async fn forget_session(id: &str) -> Result<()> {
+    let Some(token) = SessionStore::remove(id)? else {
+        return Ok(());
+    };
+    log::info!("the login of user {id} is forgotten on this device");
+    logout_on_server(token).await
+}
+
+async fn logout_on_server(token: String) -> Result<()> {
     let call = Call::post(format!("{}/auth/logout", server()?)).bearer(token);
 
     // An unknown session is as logged out as it gets.
@@ -420,7 +472,14 @@ mod test {
 
     use anyhow::Result;
     #[cfg(not_wasm)]
-    use axum::{Json, Router, routing::post, serve};
+    use axum::{
+        Json, Router,
+        http::{HeaderMap, StatusCode},
+        routing::{get, post},
+        serve,
+    };
+    #[cfg(not_wasm)]
+    use parking_lot::Mutex;
     #[cfg(not_wasm)]
     use serde_json::{Value, json};
     #[cfg(not_wasm)]
@@ -429,7 +488,10 @@ mod test {
     use tokio::{net::TcpListener, spawn};
 
     #[cfg(not_wasm)]
-    use super::{ATTEMPT, CLOSED, POLL_SECONDS, Waited, wait_for_login};
+    use super::{
+        ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_session, fetch_current_user, forget_session,
+        wait_for_login,
+    };
     use super::{challenge, login_code, new_verifier};
     #[cfg(not_wasm)]
     use crate::{
@@ -440,9 +502,148 @@ mod test {
                 test_server::start_test_server,
             },
         },
-        login::Login,
+        login::{Login, LoginUser},
         store::SessionStore,
     };
+
+    #[cfg(not_wasm)]
+    fn user(id: &str) -> LoginUser {
+        LoginUser {
+            id:      id.to_owned(),
+            email:   format!("{id}@example.com"),
+            name:    id.to_uppercase(),
+            picture: None,
+        }
+    }
+
+    /// Stands in for `/auth/me` and `/auth/logout` of a backend. It knows the
+    /// session `token-ann` only, and keeps the token of every logout.
+    #[cfg(not_wasm)]
+    async fn account_server() -> Result<Arc<Mutex<Vec<String>>>> {
+        let logouts = Arc::new(Mutex::new(Vec::new()));
+        let kept = logouts.clone();
+        let bearer = |headers: &HeaderMap| {
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .trim_start_matches("Bearer ")
+                .to_owned()
+        };
+
+        let app = Router::new()
+            .route(
+                "/auth/me",
+                get(move |headers: HeaderMap| async move {
+                    if bearer(&headers) == "token-ann" {
+                        Ok(Json(user("ann")))
+                    } else {
+                        Err(StatusCode::UNAUTHORIZED)
+                    }
+                }),
+            )
+            .route(
+                "/auth/logout",
+                post(move |headers: HeaderMap| async move {
+                    kept.lock().push(bearer(&headers));
+                    Json(())
+                }),
+            );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        Login::set_server(format!("http://{}", listener.local_addr()?));
+        spawn(async move {
+            if let Err(error) = serve(listener, app).await {
+                eprintln!("the account server stopped: {error}");
+            }
+        });
+        Ok(logouts)
+    }
+
+    #[cfg(not_wasm)]
+    fn account_ids() -> Vec<String> {
+        Login::accounts().into_iter().map(|user| user.id).collect()
+    }
+
+    /// A root of its own with no session left from an earlier run.
+    #[cfg(not_wasm)]
+    fn fresh_root(name: &str) -> Result<()> {
+        SessionStore::set_root(temp_dir().join(name));
+        for user in Login::accounts() {
+            SessionStore::remove(&user.id)?;
+        }
+        Ok(())
+    }
+
+    /// The user changed the name at Google. `current_user` puts the new one
+    /// into the stored session, so the list of accounts shows it.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn current_user_puts_the_new_user_into_its_session() -> Result<()> {
+        account_server().await?;
+        fresh_root("hilen-login-accounts-me-test")?;
+        let old = LoginUser {
+            name: "Old name".to_owned(),
+            ..user("ann")
+        };
+        SessionStore::add("token-ann", old)?;
+
+        assert_eq!(fetch_current_user().await?, Some(user("ann")));
+        assert_eq!(Login::active_user(), Some(user("ann")));
+        assert_eq!(Login::accounts(), [user("ann")]);
+
+        SessionStore::clear()?;
+        Ok(())
+    }
+
+    /// The server forgot the session of bob. Only bob goes, ann stays and
+    /// nobody is active.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn a_session_the_server_forgot_drops_only_that_account() -> Result<()> {
+        account_server().await?;
+        fresh_root("hilen-login-accounts-401-test")?;
+        SessionStore::add("token-ann", user("ann"))?;
+        SessionStore::add("token-bob", user("bob"))?;
+
+        assert_eq!(fetch_current_user().await?, None);
+        assert_eq!(account_ids(), ["ann"]);
+        assert_eq!(Login::token(), None);
+
+        Login::switch("ann")?;
+        assert_eq!(fetch_current_user().await?, Some(user("ann")));
+
+        SessionStore::clear()?;
+        Ok(())
+    }
+
+    /// `forget` and `logout` each end 1 session on the server, with the
+    /// token of that session, and keep the others here.
+    #[cfg(not_wasm)]
+    #[tokio::test]
+    #[serial(on_disk_root)]
+    async fn forget_and_logout_end_1_session_each() -> Result<()> {
+        let logouts = account_server().await?;
+        fresh_root("hilen-login-accounts-forget-test")?;
+        SessionStore::add("token-ann", user("ann"))?;
+        SessionStore::add("token-bob", user("bob"))?;
+        SessionStore::add("token-cid", user("cid"))?;
+
+        forget_session("ann").await?;
+        assert_eq!(account_ids(), ["bob", "cid"]);
+        assert_eq!(Login::token().as_deref(), Some("token-cid"));
+
+        end_session().await?;
+        assert_eq!(account_ids(), ["bob"]);
+        assert_eq!(Login::token(), None);
+        assert_eq!(*logouts.lock(), ["token-ann", "token-cid"]);
+
+        forget_session("bob").await?;
+        assert_eq!(Login::accounts(), []);
+        Ok(())
+    }
 
     /// Stands in for `/auth/poll` of a backend. It gives every poll the same
     /// answer and counts the polls.
@@ -571,7 +772,7 @@ mod test {
         let url = format!("{base_url}/header/authorization");
         SessionStore::set_root(temp_dir().join("hilen-login-send-test"));
 
-        SessionStore::save("token-7")?;
+        SessionStore::add("token-7", user("ann"))?;
         let seen: Option<String> = Login::send(Call::get(&url)).await?;
         assert_eq!(seen.as_deref(), Some("Bearer token-7"));
 

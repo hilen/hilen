@@ -52,9 +52,41 @@ engine, see `hilen/src/deps/netrun/rest/call.rs`. A 401 comes back as
 forgot the session.
 
 `Login::send(call)` is the same path for the app's own routes behind the login. It adds
-the stored token as `Authorization: Bearer`. With no stored token it sends nothing and
-gives `Unauthorized`. It never clears the session, the URL may be another server.
-`Call` does not log a request body, the poll carries the verifier in it.
+the token of the active session as `Authorization: Bearer`. With no active session it
+sends nothing and gives `Unauthorized`. It never clears the session, the URL may be
+another server. `Call` does not log a request body, the poll carries the verifier in it.
+
+## Several logins on 1 device
+
+Several people can be logged in on 1 device at once, like the account switch of
+Instagram, and 1 of them is active. Flixen uses it for its "Who is watching" screen on a
+shared TV. Each login is a real session of its own on the server, the server needs
+nothing new.
+
+- `SessionStore` keeps a list of sessions in the 1 sealed file it always had, as JSON:
+  each `Session` has its token and its `LoginUser`, and an index names the active one.
+  `LoginUser` lives in `hilen-session` for that, `hilen::login` re-exports it.
+- A login by `start` or `start_with_code` is added with `SessionStore::add` and becomes
+  active. A login of a user who is in the list already gets the new token in the old
+  place.
+- `load`, `token()`, `send` and `current_user` work on the active session, so an app
+  with 1 login needs no change. `clear` and `logout` drop only the active session, and
+  none of the others becomes active by itself, an app shows its profiles then.
+  `current_user` drops only the active session on a 401, and puts a new name or picture
+  from `/auth/me` into the list.
+- `Login::accounts()` lists the users, `Login::active_user()` is the active one with no
+  request, `Login::switch(id)` makes one active, and `Login::forget(id)` ends that
+  session on the server and drops it here.
+- A file of an engine with 1 login holds the bare sealed token. It loads as the only
+  session, active, with no user, and the first `current_user` fills the user in. So an
+  update logs nobody out. Seen on a Mac and an LG TV on 2026-10-15.
+- An older engine that reads a file of this one takes the JSON as a token. The server
+  answers 401 and the user logs in again.
+- Every change reads the file and writes it back under 1 lock. The last session to go
+  removes the file.
+- `cargo test -p hilen-session` covers the list, the old file and the twin of a user
+  whose old session had no user yet. The client tests in `login/client.rs` run
+  `current_user`, `forget` and `logout` against a small stand in server.
 
 ## A device with no keyboard
 

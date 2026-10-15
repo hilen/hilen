@@ -11,4 +11,7 @@ mod session_store;
 
 #[cfg(feature = "device-key")]
 pub use self::device_key::DeviceKey;
-pub use self::{secret_store::SecretStore, session_store::SessionStore};
+pub use self::{
+    secret_store::SecretStore,
+    session_store::{LoginUser, Session, SessionStore},
+};

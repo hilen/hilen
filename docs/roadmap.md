@@ -19,34 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Several logins on 1 device
-
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-15, on hilen `ffd1d2b2`. Several
-people share 1 Apple TV, and each one picks their own profile, like the account switch
-of Instagram. Each profile is a real Google or Apple login with its own session.
-
-- Current: `SessionStore` in `hilen-session` keeps 1 token, with `load`, `save` and
-  `clear`. `Login::token()` in `hilen/src/login/client.rs` gives that 1 token, and a
-  new login saves over it, so a second person logs the first one out. `logout` clears
-  the store. `GoogleAccounts` keeps more than 1 account, but only tokens for Google
-  APIs, not sessions of the app's own backend.
-- Needed: the store keeps a list of accounts, each with its `LoginUser` and its token,
-  and which one is active. A stored single token from before loads as a list of 1, with
-  its user filled in by the next `current_user`, so nobody logs in again after an update.
-  `Login::accounts()` lists them, `Login::switch(id)` makes one active and
-  `Login::forget(id)` ends that session on the server and drops it. A login by
-  `start` or `start_with_code` adds an account and makes it active, a login of an
-  account that is in the list already replaces its token. `token()`, `send` and
-  `current_user` work on the active account, so an app with 1 login needs no change.
-  `logout` ends only the active account, and an empty list means nobody is logged in.
-  A 401 drops only the active account. It works on every platform, the browser keeps
-  the list in `localStorage` and tvOS in its user defaults, sealed like the token is
-  now. `cargo test` tests cover the add, the replace, the switch, the forget, the 401
-  and the load of an old single token. `docs/login.md` and the `google-login.md`
-  chapter of the skill describe the calls.
-- Blocks: the profile screen of flixen, "Who is watching", with the switch of
-  profiles on a TV, a computer, a phone and in the browser.
-
 ## The metallic and roughness texture of a glTF material
 
 Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
