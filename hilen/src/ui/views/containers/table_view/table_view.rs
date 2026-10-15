@@ -1,5 +1,5 @@
 use super::{
-    layout::LayoutMode,
+    layout::{LayoutMode, sticky_raise},
     rows::{Rows, row_offsets},
 };
 use crate::{
@@ -57,6 +57,10 @@ pub struct TableView {
     pub(super) header_height: f32,
     pub(super) footer_height: f32,
     pub(super) header_views:  Vec<WeakView>,
+
+    /// The header view that sticks to the top, with its top in the
+    /// content and its height, see `add_sticky_header_view`.
+    pub(super) sticky_header: Option<(WeakView, f32, f32)>,
 
     pub(super) registry: CellRegistry,
 
@@ -198,6 +202,30 @@ impl TableView {
         view
     }
 
+    /// A header view that sticks. It rides in the header at the place
+    /// `set_sticky_header_place` gives it, stays at the top of the table
+    /// while the rows scroll under it, and goes back to its place on a
+    /// scroll up. It is as wide as the table, draws in front of the
+    /// cells and takes the touches over them. The table sets its frame,
+    /// so it takes no `place()` rules. Call it once per table.
+    pub fn add_sticky_header_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
+        let view = self.add_header_view::<T>();
+        view.bump_z_position(sticky_raise());
+        self.sticky_header = Some((view.weak_view(), 0.0, 0.0));
+        view
+    }
+
+    /// Where the sticky header view rides in the header, its top from
+    /// the content top and its height.
+    pub fn set_sticky_header_place(&mut self, top: impl ToF32, height: impl ToF32) -> &mut Self {
+        if let Some(header) = &mut self.sticky_header {
+            header.1 = top.to_f32();
+            header.2 = height.to_f32();
+        }
+        self.place_sticky_header();
+        self
+    }
+
     pub fn bottom_reached(&self) -> &UIEvent {
         &self.scroll.bottom_reached
     }
@@ -315,9 +343,9 @@ impl TableView {
 
     /// The cell index at a point in the table's own coordinates, from
     /// the row geometry alone, pinned sticky rows ignored. `None` above
-    /// the first row or past the last.
+    /// the first row, past the last and under a stuck sticky header view.
     pub fn index_at(&self, pos: Point) -> Option<usize> {
-        if self.data.is_null() {
+        if self.data.is_null() || self.sticky_header_covers(pos.y) {
             return None;
         }
 
@@ -387,7 +415,7 @@ impl TableView {
     // pixel gap between touch areas. Taps past the last row are
     // ignored.
     pub(super) fn select_at(mut self: Weak<Self>, pos: Point) {
-        if self.data.is_null() {
+        if self.data.is_null() || self.sticky_header_covers(pos.y) {
             return;
         }
 
@@ -454,6 +482,7 @@ impl TableView {
         // before, they have to go too.
         if number_of_cells == 0 {
             self.clear_cells();
+            self.place_sticky_header();
             return;
         }
 
@@ -469,6 +498,7 @@ impl TableView {
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);
         self.apply_sideways();
+        self.place_sticky_header();
     }
 }
 

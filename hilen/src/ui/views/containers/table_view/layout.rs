@@ -24,7 +24,7 @@ fn lower_z(view: WeakView, z: f32) {
 /// How far a pinned cell rises in front of its siblings: clears several
 /// nesting levels of the other cells' subtrees while staying far behind
 /// the menu and modal layers.
-fn sticky_raise() -> f32 {
+pub(super) fn sticky_raise() -> f32 {
     UIManager::subview_z_offset() * 5.0
 }
 
@@ -291,6 +291,38 @@ impl TableView {
         for view in lowered {
             lower_z(view, sticky_raise());
         }
+    }
+
+    /// Puts the sticky header view at its place in the header, or at the
+    /// top of the table once the rows scrolled past that place. While it
+    /// is stuck its views go to the front of the touches again, a cell
+    /// set up by the scroll registers after them.
+    pub(super) fn place_sticky_header(&mut self) {
+        let Some((view, top, height)) = self.sticky_header else {
+            return;
+        };
+        if view.is_null() || view.is_hidden() {
+            return;
+        }
+
+        let y = top.max(-self.scroll.get_scroll_content_offset());
+        view.set_frame((0.0, y, self.width(), height));
+        if y > top {
+            TouchStack::raise_subtree(view);
+        }
+    }
+
+    /// The sticky header view covers this y of the table, in the table's
+    /// own coordinates.
+    pub(super) fn sticky_header_covers(&self, y: f32) -> bool {
+        let Some((view, ..)) = self.sticky_header else {
+            return false;
+        };
+        if view.is_null() || view.is_hidden() {
+            return false;
+        }
+        let top = view.y() + self.scroll.get_scroll_content_offset();
+        y >= top && y < top + view.height()
     }
 
     /// Takes cells off the screen and hands them to the registry, for the

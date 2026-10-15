@@ -13,6 +13,7 @@ mod scroll_to_row;
 mod set_content_offset;
 mod spacing;
 mod split_regions;
+mod sticky_header;
 mod sticky_rows;
 mod variable_heights;
 

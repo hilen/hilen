@@ -61,6 +61,26 @@ every step and compares the result with a full reload of the same data.
 `row_top(index)` gives where a row starts in the content, for a view that keeps a
 row at its place while the heights of other rows change, `LogView` does that.
 
+## A sticky header view
+
+`add_sticky_header_view` adds a header view whose frame the table sets itself, so it
+takes no `place()` rules. `set_sticky_header_place(top, height)` says where it rides
+in the header. `place_sticky_header` in `layout.rs` runs at the end of every layout,
+all 3 modes and the empty table too, and puts it at `max(top, -offset)` in the
+content, as wide as the table. A sticky row in a grid is only 1 column wide, which is
+why this is a header view and not a row.
+
+It is raised once by `sticky_raise` when it is added, so it draws in front of the
+cells and its later subviews inherit that depth. Touches go to the view registered
+last, and a cell set up by a scroll registers after it, so while it is stuck every
+layout moves its subtree to the front of the touches again. A tap on it never
+selects a cell under it, `select_at` and `index_at` both check
+`sticky_header_covers`.
+
+`Table sticky header` pins it: a grid of 3 columns, a plain header over the sticky
+one, a real wheel scroll that pins it over a row, a tap on it, a tap on its button
+and a scroll back to its place.
+
 ## Keeping the end
 
 `set_keeps_end(true)` is a rule of `ScrollView`, the table passes it on to the scroll
