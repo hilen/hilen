@@ -97,6 +97,22 @@ android-dex:
 		$$ANDROID_HOME/build-tools/34.0.0/d8 --min-api 26 --output /tmp/dex /tmp/classes/io/hilen/NativeHandler.class && \
 		cp /tmp/dex/classes.dex native_handler.dex'
 
+# The Java half of btleplug, the crate under the `bluetooth` feature, built
+# into the dex the engine embeds for Android. The sources come from the
+# btleplug of Cargo.lock, so run it after every btleplug bump and commit the dex.
+android-btleplug-dex:
+	cargo fetch
+	docker build --platform linux/amd64 -t hilen-android-dex ./build/android
+	version=$$(cargo pkgid btleplug | sed 's/.*@//'); \
+	java=$$(ls -d $${CARGO_HOME:-$$HOME/.cargo}/registry/src/*/btleplug-$$version/src/droidplug/java/src/main/java | head -n 1); \
+	test -d "$$java" || { echo "no Java sources of btleplug $$version"; exit 1; }; \
+	docker run --rm --platform linux/amd64 -v "$$java:/src:ro" -v "$(CURDIR)/hilen/android:/work" -w /work hilen-android-dex sh -c '\
+		jar=$$ANDROID_HOME/platforms/android-34/android.jar && \
+		javac --release 8 -Xlint:-options -cp $$jar -d /tmp/classes $$(find /src -name "*.java") && \
+		mkdir /tmp/dex && \
+		$$ANDROID_HOME/build-tools/34.0.0/d8 --min-api 26 --lib $$jar --output /tmp/dex $$(find /tmp/classes -name "*.class") && \
+		cp /tmp/dex/classes.dex btleplug.dex'
+
 fix-lint:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
 

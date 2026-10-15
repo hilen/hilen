@@ -21,7 +21,11 @@ checks = []
 default = ["checks"]
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
-inspect = ["dep:if-addrs", "dep:mdns-sd"]
+inspect = ["discovery", "dep:if-addrs"]
+# Find devices on the local network by the service they announce, see
+# `hilen/src/discovery`. The system Bonjour service on macOS, iOS and tvOS,
+# mdns-sd on Windows, Linux and Android. Off by default.
+discovery = ["dep:mdns-sd"]
 # Hot reload on iOS, see docs/hot-reload.md. The app is a dynamic library that
 # a loader app starts, the loader owns `UIApplicationMain`. It turns `inspect`
 # on, so the release guards of `inspect` keep it out of a shipped app.
@@ -42,6 +46,24 @@ level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 audio = ["dep:kira"]
 # MIDI input devices through midir, see docs/midi.md. Off by default.
 midi = ["dep:midir"]
+# Bluetooth LE devices in the central role, through btleplug and through Web
+# Bluetooth in a browser, see the doc of `hilen::bluetooth`. Off by default.
+bluetooth = ["dep:btleplug", "dep:uuid"]
+# The cameras of the device: the list, a live picture in `CameraView` and a
+# photo at full resolution. AVFoundation on macOS and iOS, the NDK camera on
+# Android, Media Foundation through nokhwa on Windows, Video for Linux
+# through linuxvideo, getUserMedia in a browser. Off by default.
+camera = [
+  "dep:futures-channel",
+  "dep:dispatch2",
+  "dep:linuxvideo",
+  "dep:ndk",
+  "dep:ndk-sys",
+  "dep:nokhwa",
+  "dep:objc2-av-foundation",
+  "dep:objc2-core-media",
+  "dep:objc2-core-video",
+]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
@@ -132,12 +154,14 @@ project-proc = { workspace = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
 unicode-width = { workspace = true }
+uuid = { workspace = true, optional = true }
 gltf = { workspace = true, optional = true }
 hilen-session = { workspace = true, optional = true }
 qrcode = { workspace = true, optional = true }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+btleplug = { workspace = true, optional = true }
 fontdb = { workspace = true }
 image = { workspace = true, features = ["default-formats", "gif", "png"] }
 resvg = { workspace = true, features = ["default"] }
@@ -146,7 +170,6 @@ memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
 if-addrs = { workspace = true, optional = true }
 infisical = { workspace = true }
-mdns-sd = { workspace = true, optional = true }
 rapier2d = { workspace = true, optional = true } # simd can crash if there are too many active objects
 rapier3d = { workspace = true, optional = true }
 pollster = { workspace = true }
@@ -158,8 +181,13 @@ tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 webpki-roots = { workspace = true }
 
+# macOS, iOS and tvOS announce and browse through the system Bonjour service.
+[target.'cfg(not(any(target_arch = "wasm32", target_vendor = "apple")))'.dependencies]
+mdns-sd = { workspace = true, optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 axum = { workspace = true }
+mdns-sd = { workspace = true }
 hilen-server = { workspace = true }
 rcgen = { workspace = true }
 tokio-rustls = { workspace = true }
@@ -200,7 +228,9 @@ web-sys = { workspace = true }
 android_logger = { workspace = true }
 jni = { workspace = true }
 libc = { workspace = true }
+ndk = { workspace = true, optional = true }
 ndk-context = { workspace = true }
+ndk-sys = { workspace = true, optional = true }
 winit = { workspace = true, features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -222,8 +252,20 @@ objc2-quartz-core = { workspace = true }
 wgpu-hal = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { workspace = true, optional = true, features = ["input-msmf"] }
 os_info = { workspace = true }
 windows-sys = { workspace = true }
+
+# Pure Rust, nokhwa on Linux needs libclang and the kernel headers to build.
+[target.'cfg(target_os = "linux")'.dependencies]
+linuxvideo = { workspace = true, optional = true }
+
+# tvOS has no camera, the camera module answers with an error there.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+dispatch2 = { workspace = true, optional = true }
+objc2-av-foundation = { workspace = true, optional = true }
+objc2-core-media = { workspace = true, optional = true }
+objc2-core-video = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = { workspace = true }

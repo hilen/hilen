@@ -2,7 +2,7 @@
 
 pub mod protocol;
 
-#[cfg(any(ios, test))]
+#[cfg(any(apple, test))]
 mod bonjour;
 mod edit_log;
 mod frames;

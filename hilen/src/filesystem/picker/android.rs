@@ -169,15 +169,14 @@ fn image_intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'l
 /// `ACTION_GET_CONTENT` filters by 1 type. More types go into
 /// `EXTRA_MIME_TYPES` under the type of every file.
 fn file_intent<'local>(env: &mut Env<'local>, title: &str, types: &[String]) -> Result<JObject<'local>> {
-    let intent = match types {
-        [one] => typed_intent(env, GET_CONTENT, one)?,
-        _ => {
-            let intent = typed_intent(env, GET_CONTENT, ANY_TYPE)?;
-            if !types.is_empty() {
-                put_mime_types(env, &intent, types)?;
-            }
-            intent
+    let intent = if let [one] = types {
+        typed_intent(env, GET_CONTENT, one)?
+    } else {
+        let intent = typed_intent(env, GET_CONTENT, ANY_TYPE)?;
+        if !types.is_empty() {
+            put_mime_types(env, &intent, types)?;
         }
+        intent
     };
 
     chooser(env, &intent, title)

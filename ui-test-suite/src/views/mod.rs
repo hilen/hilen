@@ -1,4 +1,5 @@
 pub mod basic;
+mod camera;
 pub mod code_editor;
 pub mod complex;
 pub mod containers;

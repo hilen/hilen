@@ -28,11 +28,11 @@ there with no error. The system announces for an app whose `Info.plist` has
 `NSBonjourServices`. `build/ios/build-project.rs` writes both keys when the built
 library carries the server, and `hot_loader.plist` has them.
 
-On a Mac the clients find apps through the system too,
-`hilen/src/inspect/protocol/bonjour_browse.rs`. The `mdns-sd` crate shares the
-mDNS port with the system there and often hears no answer, in a 12 second test
-it got none while the system had every app. `discover` in
-`protocol/discovery.rs` is the one search, Linux and Windows keep `mdns-sd`. A
+On a Mac the system announces and finds apps too. The `mdns-sd` crate shares the
+mDNS port with the system there and often hears no answer, in a 12 second test it
+got none while the system had every app, so it is on no Apple target. `discover` in
+`protocol/discovery.rs` is the one search, a `ServiceBrowser` of the `discovery`
+feature, see [discovery.md](discovery.md). Linux and Windows keep `mdns-sd`. A
 phone on a cable answers with the address of the cable too, an address of the
 real network wins.
 

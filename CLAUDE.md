@@ -51,7 +51,7 @@ report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `video` is video
+with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
 through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, the sound levels of a file for a waveform, a list of pieces played as 1 video with a volume per piece and music under it, and the export to an mp4 file with pictures and texts drawn over it, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `hot` is hot reload in the iOS and the Apple TV simulator, on a real iPhone and on a real Apple TV, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
@@ -183,6 +183,14 @@ Do not read these upfront. Read the matching file only when the task touches tha
   triangle hits, the transform handle, the metallic roughness and occlusion maps, photos of a
   scene through another camera as bytes, scene tests and what is still to come. Read before touching
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
+- [docs/camera.md](docs/camera.md) — the `camera` feature: the list of cameras, `CameraView`, the
+  photo and the locks, and what each platform does. Read before touching `hilen/src/camera`.
+- [docs/bluetooth.md](docs/bluetooth.md) — the `bluetooth` feature: scan, connect, read, write
+  and notifications through btleplug and Web Bluetooth, the Android dex and permissions. Read
+  before touching `hilen/src/bluetooth`.
+- [docs/discovery.md](docs/discovery.md) — the `discovery` feature: `ServiceBrowser`, the system
+  Bonjour on Apple, `mdns-sd` elsewhere, the `[local_network]` table. Read before touching
+  `hilen/src/discovery`.
 - [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
   hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
   how to build one, request headers, the buffering state, tracks and subtitles, HDR tone

@@ -149,6 +149,19 @@ impl Image {
         }
     }
 
+    /// A picture whose pixels change in place, like the live picture of a
+    /// camera, RGBA with 1 level. `Texture::write_level_0` on the texture
+    /// it gives puts new pixels in. Keyed like any managed image, free it
+    /// by its name when it is done. The texture stays out of the image, a
+    /// texture of WebGPU may not leave the main thread and an image may.
+    #[cfg(feature = "camera")]
+    pub(crate) fn stream(name: &str, size: Size<u32>) -> (Weak<Image>, wgpu::Texture) {
+        let texture = Texture::stream(size, name);
+        let image =
+            Image::store_with_name::<Infallible>(name, || Ok(Self::from_texture(&texture, None))).unwrap();
+        (image, texture.texture)
+    }
+
     pub fn from_raw_data(
         data: Vec<u8>,
         name: impl Into<String>,

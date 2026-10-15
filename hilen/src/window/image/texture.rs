@@ -221,6 +221,73 @@ impl Texture {
         })
     }
 
+    /// An RGBA texture of 1 level that `write_level_0` fills again and
+    /// again, the live picture of a camera. Clamped edges.
+    #[cfg(feature = "camera")]
+    pub(crate) fn stream(size: Size<u32>, label: &str) -> Self {
+        let device = Window::device();
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label:           label.into(),
+            size:            Extent3d {
+                width:                 size.width,
+                height:                size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count:    1,
+            dimension:       TextureDimension::D2,
+            format:          TextureFormat::Rgba8Unorm,
+            usage:           TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats:    &[],
+        });
+
+        let view = texture.create_view(&TextureViewDescriptor::default());
+
+        let sampler = device.create_sampler(&SamplerDescriptor {
+            label: "stream_sampler".into(),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+            channels: 4,
+        }
+    }
+
+    /// Writes RGBA pixels of `size` into the first level of `texture`.
+    #[cfg(feature = "camera")]
+    pub(crate) fn write_level_0(texture: &wgpu::Texture, size: Size<u32>, rgba: &[u8]) {
+        Window::queue().write_texture(
+            TexelCopyTextureInfo {
+                aspect: TextureAspect::All,
+                texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+            },
+            rgba,
+            TexelCopyBufferLayout {
+                offset:         0,
+                bytes_per_row:  Some(4 * size.width),
+                rows_per_image: Some(size.height),
+            },
+            Extent3d {
+                width:                 size.width,
+                height:                size.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     /// A blank RGBA texture a pass can draw into, the image pipeline can
     /// sample and a scene photo reads back, one mip level, clamped edges.
     #[cfg(any(all(feature = "video", ffmpeg), feature = "scene"))]

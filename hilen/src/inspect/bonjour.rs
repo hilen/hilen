@@ -1,4 +1,6 @@
-//! The announce of the inspect server on iOS, see `docs/inspect.md`.
+//! The announce of the inspect server on macOS, iOS and tvOS, see
+//! `docs/inspect.md`. On a Mac the system owns the mDNS port, the browse
+//! of `discovery` asks the system there too.
 //!
 //! On a real iPhone an app may not send multicast packets of its own, that
 //! needs an entitlement Apple gives on request. So the `mdns-sd` crate stays
@@ -6,28 +8,28 @@
 //! for the app, and for that the `Info.plist` names the service type in
 //! `NSBonjourServices` and has a `NSLocalNetworkUsageDescription`.
 
-#[cfg(ios)]
+#[cfg(apple)]
 use std::{
     ffi::{CString, c_char, c_void},
     ptr::{null, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-#[cfg(ios)]
+#[cfg(apple)]
 use anyhow::bail;
 use anyhow::{Context, Result};
 
-#[cfg(ios)]
+#[cfg(apple)]
 use crate::inspect::protocol::SERVICE_TYPE;
 
 /// `_DNSServiceRef_t`, only ever behind a pointer here.
-#[cfg(ios)]
+#[cfg(apple)]
 #[repr(C)]
 struct Service {
     private: [u8; 0],
 }
 
-#[cfg(ios)]
+#[cfg(apple)]
 unsafe extern "C" {
     fn DNSServiceRegister(
         service: *mut *mut Service,
@@ -48,11 +50,11 @@ unsafe extern "C" {
 }
 
 /// The announce lives as long as this reference does.
-#[cfg(ios)]
+#[cfg(apple)]
 static SERVICE: AtomicPtr<Service> = AtomicPtr::new(null_mut());
 
 /// Announces the inspect server of this app on the local network.
-#[cfg(ios)]
+#[cfg(apple)]
 pub(crate) fn announce(app_id: &str, app_name: &str, port: u16) -> Result<()> {
     let name = CString::new(app_id)?;
     // The system wants the type alone, the domain is its own choice.
@@ -97,7 +99,7 @@ pub(crate) fn stop() {
 }
 
 /// 1 entry of a DNS text record: a length byte, then `key=value`.
-#[cfg(any(ios, test))]
+#[cfg(any(apple, test))]
 fn text_record(key: &str, value: &str) -> Result<Vec<u8>> {
     let entry = format!("{key}={value}");
     let len = u8::try_from(entry.len())

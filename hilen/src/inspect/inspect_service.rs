@@ -9,7 +9,7 @@ use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 #[cfg(not_wasm)]
 use log::{debug, info, warn};
-#[cfg(all(not_wasm, not(ios)))]
+#[cfg(all(not_wasm, not(apple)))]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 #[cfg(ios)]
 use objc2_foundation::NSBundle;
@@ -22,11 +22,11 @@ use crate::deps::hreads::log_spawn;
 use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
 use crate::filesystem::Paths;
-#[cfg(ios)]
+#[cfg(apple)]
 use crate::inspect::bonjour;
 #[cfg(hot)]
 use crate::inspect::hot_swap;
-#[cfg(all(not_wasm, not(ios)))]
+#[cfg(all(not_wasm, not(apple)))]
 use crate::inspect::protocol::SERVICE_TYPE;
 #[cfg(not_wasm)]
 use crate::inspect::{
@@ -163,13 +163,14 @@ impl InspectService {
 
             let app_id = UIManager::app_instance_id();
 
-            // An iPhone lets only its own Bonjour service announce.
-            #[cfg(ios)]
+            // An iPhone lets only its own Bonjour service announce, and on
+            // a Mac the system owns the mDNS port.
+            #[cfg(apple)]
             bonjour::announce(app_id, &Self::app_name(), port)?;
             // The daemon lives to the end of this task, like the listener.
-            #[cfg(not(ios))]
+            #[cfg(not(apple))]
             let mdns = ServiceDaemon::new()?;
-            #[cfg(not(ios))]
+            #[cfg(not(apple))]
             mdns.register(
                 ServiceInfo::new(
                     SERVICE_TYPE,

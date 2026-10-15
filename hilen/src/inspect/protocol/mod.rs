@@ -1,6 +1,4 @@
 mod app_command;
-#[cfg(macos)]
-mod bonjour_browse;
 #[cfg(not_wasm)]
 mod discovery;
 mod inspector_command;

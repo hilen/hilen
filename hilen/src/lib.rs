@@ -57,7 +57,13 @@ pub mod audio;
 pub mod video;
 #[cfg(all(feature = "video", not(any(ffmpeg, wasm))))]
 compile_error!("the video feature is for desktop, iOS, tvOS and the browser for now, see docs/video.md");
+#[cfg(feature = "bluetooth")]
+pub mod bluetooth;
 pub mod bug_report;
+#[cfg(feature = "camera")]
+pub mod camera;
+#[cfg(feature = "discovery")]
+pub mod discovery;
 pub mod filesystem;
 #[cfg(feature = "level")]
 pub mod game;
