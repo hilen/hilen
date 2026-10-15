@@ -1,11 +1,12 @@
 use std::mem::take;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use linkify::{LinkFinder, LinkKind};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
 use super::model::{Block, Face, Item, Link, Marker, Span, Style, Styled};
 
-/// GitHub flavored markdown as blocks, with tables, task lists and
-/// strikethrough.
+/// GitHub flavored markdown as blocks, with tables, task lists,
+/// strikethrough and bare urls as links.
 #[cfg(test)]
 pub(crate) fn parse(text: &str) -> Vec<Block> {
     parse_lines(text, false)
@@ -19,7 +20,9 @@ pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool) -> Vec<Block> {
         soft_break: if keeps_line_breaks { "\n" } else { " " },
         ..Builder::default()
     };
-    for event in Parser::new_ext(text, options) {
+    // The parser can hand 1 text over in several pieces, a url among them,
+    // merged it is found whole.
+    for event in TextMergeStream::new(Parser::new_ext(text, options)) {
         builder.event(event);
     }
     builder.finish()
@@ -238,12 +241,34 @@ impl Builder {
         }
     }
 
+    /// Adds a text, a bare url in it becomes a link. A trailing dot or
+    /// other mark after the url stays out of it, `linkify` decides that.
     fn text(&mut self, text: &str, code: bool) {
+        if code || self.depth.link > 0 {
+            self.push_text(text, code, false);
+            return;
+        }
+        let mut finder = LinkFinder::new();
+        finder.kinds(&[LinkKind::Url]);
+        for piece in finder.spans(text) {
+            let url = piece.kind().is_some();
+            let start = self.inline.as_ref().map_or(0, |styled| styled.text.len());
+            self.push_text(piece.as_str(), false, url);
+            if url && let Some(styled) = &mut self.inline {
+                styled.links.push(Link {
+                    range: start..styled.text.len(),
+                    url:   piece.as_str().to_string(),
+                });
+            }
+        }
+    }
+
+    fn push_text(&mut self, text: &str, code: bool, url: bool) {
         let style = Style {
             face: Face::new(self.depth.bold > 0, self.depth.italic > 0),
             code,
             strike: self.depth.strike > 0,
-            link: self.depth.link > 0,
+            link: url || self.depth.link > 0,
         };
         let styled = self.inline.get_or_insert_with(Styled::default);
         let start = styled.text.len();
@@ -327,6 +352,57 @@ mod tests {
         assert_eq!(text.links.len(), 1);
         assert_eq!(&text.text[text.links[0].range.clone()], "link");
         assert_eq!(text.links[0].url, "https://x.y");
+    }
+
+    /// The urls of a paragraph and their texts.
+    fn urls(text: &str) -> Vec<(String, String)> {
+        let blocks = parse(text);
+        let [Block::Paragraph(text)] = &blocks[..] else {
+            panic!("one paragraph expected, got {blocks:?}");
+        };
+        text.links
+            .iter()
+            .map(|link| (text.text[link.range.clone()].to_string(), link.url.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn a_bare_url_is_a_link_without_the_dot_after_it() {
+        let url = "https://webostv.developer.lge.com";
+        assert_eq!(
+            urls(&format!("The site is {url}. Click SIGN IN.")),
+            [(url.to_string(), url.to_string())]
+        );
+        let blocks = parse(&format!("Here it is:\n\n{url}\n\nClick SIGN IN."));
+        let [_, Block::Paragraph(alone), _] = &blocks[..] else {
+            panic!("3 paragraphs expected, got {blocks:?}");
+        };
+        assert_eq!(alone.links.len(), 1);
+        assert_eq!(alone.links[0].range, 0..url.len());
+        assert_eq!(alone.links[0].url, url);
+        assert!(alone.spans.iter().all(|span| span.style.link));
+    }
+
+    #[test]
+    fn marks_after_a_bare_url_stay_out_of_it() {
+        let found = urls("(see https://x.com/a_b), or https://y.com/q?a=1! and \"https://z.com\"; end");
+        let found: Vec<&str> = found.iter().map(|(_, url)| url.as_str()).collect();
+        assert_eq!(
+            found,
+            ["https://x.com/a_b", "https://y.com/q?a=1", "https://z.com"]
+        );
+    }
+
+    #[test]
+    fn a_url_in_code_or_in_a_link_is_not_found_again() {
+        assert_eq!(
+            urls("`https://x.com` and www.y.com"),
+            Vec::<(String, String)>::new()
+        );
+        assert_eq!(
+            urls("[https://x.com](https://x.com/long)"),
+            [("https://x.com".to_string(), "https://x.com/long".to_string())]
+        );
     }
 
     #[test]

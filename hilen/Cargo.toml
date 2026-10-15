@@ -93,6 +93,7 @@ hex = { workspace = true }
 image = { workspace = true }
 indexmap = { workspace = true }
 kira = { workspace = true, optional = true }
+linkify = { workspace = true }
 log = { workspace = true }
 local-ip-address = { workspace = true }
 lyon = { workspace = true }

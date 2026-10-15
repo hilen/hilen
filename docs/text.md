@@ -267,6 +267,10 @@ in `hilen/src/ui/views/complex/markdown`.
 
 - `parse.rs` turns the events of `pulldown-cmark` into the blocks of `model.rs`. A
   text keeps no marks, only byte ranges with a style, and the ranges of its links.
+  A bare `https://` or `http://` address in plain text is a link too, found by
+  [linkify](https://github.com/robinst/linkify). A trailing `.`, `,`, `;`, `:`, `!`,
+  `?`, a quote, or a `)` with no `(` in the address stays out of it, as on GitHub.
+  Inline code and a markdown link are not searched. `Markdown bare link` pins it.
 - `CodeHighlighter` in `ui/code_highlighter.rs` colors a code block. `syntect` parses it with the language files of
   `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
   builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix
