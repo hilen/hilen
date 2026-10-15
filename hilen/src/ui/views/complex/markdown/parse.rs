@@ -5,18 +5,24 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMer
 
 use super::model::{Block, Face, Item, Link, Marker, Span, Style, Styled};
 
+/// Stands right after every link when the view shows copy buttons, the
+/// button of the link is drawn over it. A copy of the text leaves it out.
+pub(crate) const COPY_ROOM: char = '\u{2003}';
+
 /// GitHub flavored markdown as blocks, with tables, task lists,
 /// strikethrough and bare urls as links.
 #[cfg(test)]
 pub(crate) fn parse(text: &str) -> Vec<Block> {
-    parse_lines(text, false)
+    parse_lines(text, false, false)
 }
 
 /// Like `parse`. With `keeps_line_breaks` a line break inside a paragraph
-/// stays one, markdown itself reads it as a space.
-pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool) -> Vec<Block> {
+/// stays one, markdown itself reads it as a space. With `copy_rooms` a
+/// `COPY_ROOM` follows every link.
+pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool, copy_rooms: bool) -> Vec<Block> {
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let mut builder = Builder {
+        copy_rooms,
         soft_break: if keeps_line_breaks { "\n" } else { " " },
         ..Builder::default()
     };
@@ -73,6 +79,7 @@ struct Builder {
     table:      Option<Table>,
     /// What a line break inside a paragraph becomes.
     soft_break: &'static str,
+    copy_rooms: bool,
 }
 
 impl Builder {
@@ -235,16 +242,18 @@ impl Builder {
                         range: start..text.text.len(),
                         url,
                     });
+                    self.copy_room();
                 }
             }
             _ => {}
         }
     }
 
-    /// Adds a text, a bare url in it becomes a link. A trailing dot or
-    /// other mark after the url stays out of it, `linkify` decides that.
+    /// Adds a text, a bare url in it becomes a link, also one in inline
+    /// code. A trailing dot or other mark after the url stays out of it,
+    /// `linkify` decides that.
     fn text(&mut self, text: &str, code: bool) {
-        if code || self.depth.link > 0 {
+        if self.depth.link > 0 {
             self.push_text(text, code, false);
             return;
         }
@@ -253,13 +262,20 @@ impl Builder {
         for piece in finder.spans(text) {
             let url = piece.kind().is_some();
             let start = self.inline.as_ref().map_or(0, |styled| styled.text.len());
-            self.push_text(piece.as_str(), false, url);
+            self.push_text(piece.as_str(), code, url);
             if url && let Some(styled) = &mut self.inline {
                 styled.links.push(Link {
                     range: start..styled.text.len(),
                     url:   piece.as_str().to_string(),
                 });
+                self.copy_room();
             }
+        }
+    }
+
+    fn copy_room(&mut self) {
+        if self.copy_rooms {
+            self.push_text(COPY_ROOM.encode_utf8(&mut [0; 4]), false, false);
         }
     }
 
@@ -312,7 +328,7 @@ impl Builder {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, parse_lines};
+    use super::{COPY_ROOM, parse, parse_lines};
     use crate::ui::views::complex::markdown::model::{Block, Face, Marker, Style};
 
     #[test]
@@ -394,15 +410,38 @@ mod tests {
     }
 
     #[test]
-    fn a_url_in_code_or_in_a_link_is_not_found_again() {
+    fn a_url_in_code_is_a_link_and_one_in_a_link_is_not_found_again() {
         assert_eq!(
             urls("`https://x.com` and www.y.com"),
-            Vec::<(String, String)>::new()
+            [("https://x.com".to_string(), "https://x.com".to_string())]
         );
         assert_eq!(
             urls("[https://x.com](https://x.com/long)"),
             [("https://x.com".to_string(), "https://x.com/long".to_string())]
         );
+    }
+
+    #[test]
+    fn a_copy_room_follows_every_link_only_when_asked() {
+        let text = "see https://x.com. and [a](https://y.com) or `https://z.com`";
+        let [Block::Paragraph(plain)] = &parse_lines(text, false, false)[..] else {
+            panic!("one paragraph expected");
+        };
+        assert!(!plain.text.contains(COPY_ROOM));
+        let [Block::Paragraph(roomy)] = &parse_lines(text, false, true)[..] else {
+            panic!("one paragraph expected");
+        };
+        assert_eq!(
+            roomy.text,
+            "see https://x.com\u{2003}. and a\u{2003} or https://z.com\u{2003}"
+        );
+        for link in &roomy.links {
+            assert!(roomy.text[link.range.end..].starts_with(COPY_ROOM));
+            assert!(!roomy.text[link.range.clone()].contains(COPY_ROOM));
+        }
+        // The room is plain text, no underline and no code color.
+        let room = roomy.links[0].range.end;
+        assert!(roomy.spans.iter().all(|span| !span.range.contains(&room)));
     }
 
     #[test]
@@ -425,7 +464,7 @@ mod tests {
             panic!("2 paragraphs expected");
         };
         assert_eq!(joined.text, "one two");
-        let [Block::Paragraph(kept), Block::Paragraph(_)] = &parse_lines(text, true)[..] else {
+        let [Block::Paragraph(kept), Block::Paragraph(_)] = &parse_lines(text, true, false)[..] else {
             panic!("2 paragraphs expected");
         };
         assert_eq!(kept.text, "one\ntwo");

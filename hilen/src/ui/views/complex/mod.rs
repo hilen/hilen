@@ -19,6 +19,7 @@ pub use file_browser::{
     FileBrowser, FileBrowserControl, FileBrowserMode, FilePick, FilePicker, FileSort, SortKey,
 };
 pub use log_view::{LogData, LogLine, LogStyle, LogView};
+pub(crate) use markdown::COPY_ROOM;
 pub use markdown::{MarkdownFonts, MarkdownListMarkers, MarkdownStyle, MarkdownView};
 pub use number_view::*;
 pub use point_view::PointView;

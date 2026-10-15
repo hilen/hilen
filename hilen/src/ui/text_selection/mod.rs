@@ -33,7 +33,7 @@ use crate::{
     system::Clipboard,
     ui::{
         Input, Label, Mouse, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
-        input::TouchEvent, view::DoubleTap,
+        input::TouchEvent, view::DoubleTap, views::COPY_ROOM,
     },
     window::{MouseButton, request_frame},
 };
@@ -165,6 +165,8 @@ impl TextSelection {
                 }
             }
         }
+        // The room a markdown view keeps for a copy button is not text.
+        text.retain(|ch| ch != COPY_ROOM);
         text
     }
 

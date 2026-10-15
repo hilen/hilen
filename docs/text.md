@@ -270,7 +270,24 @@ in `hilen/src/ui/views/complex/markdown`.
   A bare `https://` or `http://` address in plain text is a link too, found by
   [linkify](https://github.com/robinst/linkify). A trailing `.`, `,`, `;`, `:`, `!`,
   `?`, a quote, or a `)` with no `(` in the address stays out of it, as on GitHub.
-  Inline code and a markdown link are not searched. `Markdown bare link` pins it.
+  A url in inline code is a link too, in the code font and underlined. The text of a
+  markdown link is not searched. `Markdown bare link` pins it.
+- `set_copy_buttons(true)` puts a small Lucide copy icon right after every link and
+  in the top right corner of every code block, and a tap on inline code that is not a
+  url copies its text. The parser keeps room for the icon of a link: an em space,
+  `COPY_ROOM`, follows the link in the text, and the icon is an `ImageView` placed
+  over it from `Label::text_layout_for`. So the highlight and the copy of a selection
+  use 1 string, and `TextSelection::text` drops the em space from the copy. A copy
+  goes to `Clipboard::set_text` and shows `Copied` in a `Toast` over what was copied.
+  The icon has the link color written into the svg, so a theme switch lays the view
+  out again. Every copy fires `copied` with the text, a test reads that, since a
+  browser gives no clipboard text back. Off by default, the look of every other view
+  stays. `Markdown copy
+  buttons` pins it, a headless run keeps the clipboard inside its process.
+- `Toast::show(text, over)` in `hilen/src/ui/toast.rs` is a short note centered
+  above `over`, a rect in the points of the screen, or under it at the top edge. It
+  goes away after `Toast::SECONDS`, 1.5, and a new note takes the place of the old
+  one. It takes no touches. It is built like `Tooltip`, a label on the root view.
 - `CodeHighlighter` in `ui/code_highlighter.rs` colors a code block. `syntect` parses it with the language files of
   `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
   builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix

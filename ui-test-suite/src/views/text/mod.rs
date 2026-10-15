@@ -37,6 +37,7 @@ mod label_wide_effect;
 mod letter_spacing;
 mod markdown_bare_link;
 mod markdown_bold_item;
+mod markdown_copy_buttons;
 mod markdown_heading_sizes;
 mod markdown_inline_markers;
 mod markdown_line_breaks;

@@ -21,6 +21,7 @@ mod text_field_constraint;
 mod text_selection;
 mod theme;
 mod to_label;
+mod toast;
 mod tooltip;
 mod touch_layer;
 mod touch_stack;
@@ -56,6 +57,7 @@ pub use self::{
     text_selection::TextSelection,
     theme::*,
     to_label::*,
+    toast::*,
     tooltip::*,
     touch_stack::*,
     ui_drawer::UIDrawer,

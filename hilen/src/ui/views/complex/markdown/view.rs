@@ -1,4 +1,4 @@
-use std::mem::take;
+use std::{mem::take, ops::Range};
 
 use log::{info, warn};
 use ui_proc::view;
@@ -8,16 +8,17 @@ use crate::{
     gm::{
         LossyConvert,
         color::WHITE,
-        flat::{CornerRadii, LineCap, LineJoin, Point, StrokeStyle, VectorPath},
+        flat::{CornerRadii, LineCap, LineJoin, Point, Rect, StrokeStyle, VectorPath},
     },
-    system::open_url,
+    system::{Clipboard, open_url},
     ui::{
-        CodeHighlighter, Container, DrawingView, Label, MarkdownListMarkers, MarkdownStyle, RunStyle, Setup,
-        TextAlignment, TextSelection, UIColor, VerticalAlignment, ViewCallbacks, ViewFrame, ViewSubviews,
+        CodeHighlighter, Container, DrawingView, ImageView, Label, MarkdownListMarkers, MarkdownStyle,
+        RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment,
+        ViewCallbacks, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
-            model::{Block, Item, Link, Marker, Styled},
-            parse::parse_lines,
+            model::{Block, Item, Marker, Styled},
+            parse::{COPY_ROOM, parse_lines},
             selection::marker_text,
         },
     },
@@ -37,12 +38,18 @@ const MIN_COLUMN: f32 = 48.0;
 const MIN_WIDTH: f32 = 40.0;
 /// A bound no line reaches, to ask a label for the width of its text.
 const UNBOUND: f32 = 100_000.0;
+/// The copy icon of a code block.
+const CODE_BUTTON: f32 = 16.0;
+/// How much of the room after a link its copy icon fills.
+const ICON_SHARE: f32 = 0.8;
 
 /// A markdown text drawn as blocks, one under the other: paragraphs,
 /// headings, lists with tasks, quotes, code with colors, tables and
 /// rules. Inside a text: bold, italic, struck, code and links. A tap on
 /// a link fires `link_tapped` and opens the address, `set_opens_links`
-/// turns the opening off for an app that handles its links itself.
+/// turns the opening off for an app that handles its links itself. A
+/// bare url is a link too, also one in inline code. `set_copy_buttons`
+/// adds a copy icon to every link and code block.
 ///
 /// The view does not size itself. `height_for_width` says how high the
 /// text is at a width, the owner gives it that room, the way a table
@@ -52,8 +59,20 @@ const UNBOUND: f32 = 100_000.0;
 pub struct MarkdownView {
     /// A link was tapped, the value is its address.
     pub link_tapped: Event<String>,
+    /// A copy button or inline code put a text on the clipboard, the
+    /// value is that text.
+    pub copied:      Event<String>,
     /// A tap on a link only fires the event.
     keeps_links:     bool,
+    /// A copy icon after every link and in the corner of every code
+    /// block, and a tap on inline code copies it.
+    copy_buttons:    bool,
+    /// The markdown of the last `set_text`, read again when
+    /// `copy_buttons` changes.
+    source:          Option<String>,
+    /// The links of the running layout that get a copy icon: the label,
+    /// the byte of the room after the link and the address.
+    pending_copies:  Vec<(Weak<Label>, usize, String)>,
 
     pub(super) blocks: Vec<Block>,
     /// The label of every text in reading order, made by the last layout.
@@ -90,6 +109,14 @@ impl ViewCallbacks for MarkdownView {
             self.weak().lay_out_if_needed(width);
         }
     }
+
+    /// A copy icon is a picture with its color written in, a new layout
+    /// tints it again.
+    fn theme_changed(&mut self) {
+        if self.copy_buttons {
+            self.weak().changed();
+        }
+    }
 }
 
 /// Where the next block goes and how wide it may be.
@@ -111,15 +138,36 @@ struct Column {
 impl MarkdownView {
     /// GitHub flavored markdown, with tables, task lists and strikethrough.
     pub fn set_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
-        self.blocks = parse_lines(text, MarkdownStyle::current().keeps_line_breaks);
+        self.source = Some(text.to_string());
+        self.blocks = parse_lines(
+            text,
+            MarkdownStyle::current().keeps_line_breaks,
+            self.copy_buttons,
+        );
         self.changed();
         self
     }
 
     /// A text shown as it is, one paragraph with no marks read.
     pub fn set_plain_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
+        self.source = None;
         self.blocks = vec![Block::Paragraph(Styled::plain(text))];
         self.changed();
+        self
+    }
+
+    /// A small copy icon right after every link and in the top right
+    /// corner of every code block, and a tap on inline code copies its
+    /// text. A copy puts the text on the clipboard and shows `Copied` in
+    /// a `Toast` next to what was copied. Off by default.
+    pub fn set_copy_buttons(mut self: Weak<Self>, on: bool) -> Weak<Self> {
+        if self.copy_buttons == on {
+            return self;
+        }
+        self.copy_buttons = on;
+        if let Some(source) = self.source.clone() {
+            self.set_text(&source);
+        }
         self
     }
 
@@ -200,6 +248,65 @@ impl MarkdownView {
         self.blocks(&style, &blocks, column, &mut y);
         self.blocks = blocks;
         self.height = y;
+        self.place_copy_buttons(&style);
+    }
+
+    /// The copy icon of every link of this layout, over the room the
+    /// parser left after the link. The labels have their frames by now.
+    fn place_copy_buttons(mut self: Weak<Self>, style: &MarkdownStyle) {
+        for (label, room, url) in take(&mut self.pending_copies) {
+            let layout = label.text_layout_for(label.text());
+            let Some(line) = (0..layout.line_count()).find(|line| layout.line_range(*line).contains(&room))
+            else {
+                continue;
+            };
+            let left = layout.x_on_line(line, room);
+            let right = layout.x_on_line(line, room + COPY_ROOM.len_utf8());
+            let size = ((right - left).min(layout.line_height) * ICON_SHARE).round();
+            let top: f32 = line.lossy_convert();
+            let frame = *label.frame();
+            let x = frame.origin.x + label.text_inset() + left + (right - left - size) / 2.0;
+            let y = frame.origin.y + top * layout.line_height + (layout.line_height - size) / 2.0;
+            self.copy_button(style, url, (x, y, size, size));
+        }
+    }
+
+    fn copy_button(self: Weak<Self>, style: &MarkdownStyle, text: String, frame: (f32, f32, f32, f32)) {
+        let button = self.add_view::<ImageView>();
+        button.set_image(UIImages::copy(style.link.resolve()));
+        button.set_frame(frame);
+        button.enable_touch();
+        button
+            .touch()
+            .up_inside
+            .val(button, move |_| self.copy(&text, *button.absolute_frame()));
+    }
+
+    /// Puts `text` on the clipboard and says so in a `Toast` over `over`,
+    /// a rect in the points of the screen.
+    fn copy(self: Weak<Self>, text: &str, over: Rect) {
+        match Clipboard::set_text(text) {
+            Ok(()) => {
+                info!("copied {} bytes", text.len());
+                Toast::show("Copied", over);
+                self.copied.trigger(text.to_string());
+            }
+            Err(err) => {
+                warn!("a copy of {} bytes failed: {err:#}", text.len());
+                Toast::show("Copy failed", over);
+            }
+        }
+    }
+
+    fn open_link(self: Weak<Self>, url: &str) {
+        self.link_tapped.trigger(url.to_string());
+        if self.keeps_links {
+            return;
+        }
+        info!("opening the link {url}");
+        if let Err(err) = open_url(url) {
+            warn!("the link {url} did not open: {err:#}");
+        }
     }
 
     fn blocks(self: Weak<Self>, style: &MarkdownStyle, blocks: &[Block], column: Column, y: &mut f32) {
@@ -253,7 +360,7 @@ impl MarkdownView {
     /// A text with its bold, italic, struck, code and link ranges drawn
     /// as such.
     fn label(
-        self: Weak<Self>,
+        mut self: Weak<Self>,
         style: &MarkdownStyle,
         text: &Styled,
         size: f32,
@@ -306,26 +413,46 @@ impl MarkdownView {
             };
             Some((span.range.clone(), color))
         }));
-        if !text.links.is_empty() {
-            let links = text.links.clone();
+        let codes: Vec<Range<usize>> = if self.copy_buttons {
+            text.spans
+                .iter()
+                .filter(|span| span.style.code && !span.style.link)
+                .map(|span| span.range.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if !text.links.is_empty() || !codes.is_empty() {
+            let links: Vec<(Range<usize>, String)> =
+                text.links.iter().map(|link| (link.range.clone(), link.url.clone())).collect();
+            let whole = text.text.clone();
             label.enable_touch();
             label.touch().up_inside.val(label, move |touch| {
                 // The release of a drag that selected text is no click.
                 if self.is_selectable() && !TextSelection::is_empty() {
                     return;
                 }
-                let Some(url) = link_at(label, &links, touch.position) else {
-                    return;
-                };
-                self.link_tapped.trigger(url.to_string());
-                if self.keeps_links {
-                    return;
-                }
-                info!("opening the link {url}");
-                if let Err(err) = open_url(url) {
-                    warn!("the link {url} did not open: {err:#}");
+                let ranges: Vec<Range<usize>> = links.iter().map(|(range, _)| range.clone()).collect();
+                if let Some((index, _)) = piece_at(label, &ranges, touch.position) {
+                    self.open_link(&links[index].1);
+                } else if let Some((index, piece)) = piece_at(label, &codes, touch.position) {
+                    let at = label.absolute_frame().origin;
+                    let over = Rect::new(
+                        at.x + piece.origin.x,
+                        at.y + piece.origin.y,
+                        piece.size.width,
+                        piece.size.height,
+                    );
+                    self.copy(&whole[codes[index].clone()], over);
                 }
             });
+        }
+        if self.copy_buttons {
+            for link in &text.links {
+                if text.text[link.range.end..].starts_with(COPY_ROOM) {
+                    self.pending_copies.push((label, link.range.end, link.url.clone()));
+                }
+            }
         }
         self.note_text(label);
         label
@@ -358,11 +485,21 @@ impl MarkdownView {
             label.set_color_runs(highlighter.color_runs(code));
         }
 
-        let inner = width - CODE_PAD * 2.0;
+        // The copy icon keeps a strip at the right, no code runs under it.
+        let button_room = if self.copy_buttons { CODE_BUTTON } else { 0.0 };
+        let inner = width - CODE_PAD * 2.0 - button_room;
         let height = label.size_for_width(inner).height;
         background.set_frame((x, *y, width, height + CODE_PAD * 2.0));
         label.set_frame((x + CODE_PAD, *y + CODE_PAD, inner, height));
         self.note_text(label);
+        if self.copy_buttons {
+            let left = x + width - CODE_PAD / 2.0 - CODE_BUTTON;
+            self.copy_button(
+                style,
+                code.to_string(),
+                (left, *y + CODE_PAD / 2.0, CODE_BUTTON, CODE_BUTTON),
+            );
+        }
         *y += height + CODE_PAD * 2.0;
     }
 
@@ -580,9 +717,10 @@ impl MarkdownView {
     }
 }
 
-/// The address of the link drawn at a point of a label, in the points
-/// of the label. A link that wraps is hit on every line it has a piece on.
-fn link_at(label: Weak<Label>, links: &[Link], point: Point) -> Option<&str> {
+/// The range of text drawn at a point of a label, and the rect of its
+/// piece on that line, both in the points of the label. A range that
+/// wraps is hit on every line it has a piece on.
+fn piece_at(label: Weak<Label>, ranges: &[Range<usize>], point: Point) -> Option<(usize, Rect)> {
     let layout = label.text_layout_for(label.text());
     let count: f32 = layout.line_count().lossy_convert();
     // The label draws its text from its top edge.
@@ -591,13 +729,27 @@ fn link_at(label: Weak<Label>, links: &[Link], point: Point) -> Option<&str> {
     }
     let line = layout.line_at_y(point.y);
     let on_line = layout.line_range(line);
-    let x = point.x - label.text_inset();
-    links
-        .iter()
-        .find(|link| {
-            let start = link.range.start.max(on_line.start);
-            let end = link.range.end.min(on_line.end);
-            start < end && x >= layout.x_on_line(line, start) && x <= layout.x_on_line(line, end)
+    let inset = label.text_inset();
+    let x = point.x - inset;
+    let top: f32 = line.lossy_convert();
+    ranges.iter().enumerate().find_map(|(index, range)| {
+        let start = range.start.max(on_line.start);
+        let end = range.end.min(on_line.end);
+        if start >= end {
+            return None;
+        }
+        let left = layout.x_on_line(line, start);
+        let right = layout.x_on_line(line, end);
+        (x >= left && x <= right).then(|| {
+            (
+                index,
+                Rect::new(
+                    inset + left,
+                    top * layout.line_height,
+                    right - left,
+                    layout.line_height,
+                ),
+            )
         })
-        .map(|link| link.url.as_str())
+    })
 }
