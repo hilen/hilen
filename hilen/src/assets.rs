@@ -24,7 +24,7 @@ impl Assets {
         let paths = crate::assets_paths::AssetsPaths::new(root_path);
 
         crate::window::image::Image::set_root_path(&paths.images);
-        #[cfg(feature = "audio")]
+        #[cfg(sound)]
         crate::audio::Sound::set_root_path(&paths.sounds);
         crate::window::Font::set_root_path(&paths.fonts);
         #[cfg(feature = "scene")]
@@ -124,7 +124,7 @@ mod web_assets {
     use log::error;
     use serde::Deserialize;
 
-    #[cfg(feature = "audio")]
+    #[cfg(sound)]
     use crate::audio::Sound;
     #[cfg(feature = "scene")]
     use crate::scene::Model;
@@ -269,11 +269,11 @@ mod web_assets {
             "fonts" => {
                 Font::download(&entry.name, &url).await?;
             }
-            #[cfg(feature = "audio")]
+            #[cfg(sound)]
             "sounds" => {
                 Sound::download(&entry.name, &url).await?;
             }
-            #[cfg(not(feature = "audio"))]
+            #[cfg(not(sound))]
             "sounds" => return Err(anyhow!("Sound asset {} needs the audio feature", entry.name)),
             #[cfg(feature = "scene")]
             "models" => {

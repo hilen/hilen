@@ -10,7 +10,7 @@ use crate::{
     ui::{
         BlurTail, BlurView, Container, DrawingView, DynamicColor, FillRule, Font, ImageView, Input, Label,
         Setup, Shadow, StrokeStyle, TailEdge, TextAlignment, Touch, TouchStack, UIColor, UIManager,
-        VectorPath, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, view,
+        VectorPath, View, ViewCallbacks, ViewData, ViewFocus, ViewFrame, ViewSubviews, ViewTouch, view,
     },
     window::{
         NamedKey,
@@ -793,7 +793,9 @@ impl ViewCallbacks for ContextMenu {
 impl Setup for ContextMenu {
     fn setup(self: Weak<Self>) {
         // The menu itself swallows touches, so a tap on the padding does
-        // not fall through to the backdrop and dismiss.
+        // not fall through to the backdrop and dismiss. The ring of a
+        // remote walks the rows, the panel around them is no place for it.
         self.enable_touch();
+        self.set_key_focus(false);
     }
 }

@@ -100,7 +100,9 @@ getrandom = "0.4"
 hex = "0.4"
 hkdf = "0.13"
 if-addrs = "0.15"
-image = { version = "0.25", default-features = false, features = ["default-formats", "gif", "png"] }
+# The formats are chosen by each crate. A browser build of hilen takes only a
+# few, an LG TV compiles every MB of wasm for about 4.7 s.
+image = { version = "0.25", default-features = false }
 indexmap = "2.14"
 infisical = "0.0.3"
 http-body-util = "0.1"
@@ -155,7 +157,8 @@ rapier3d = { version = "0.36" }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 redis = { version = "1.6", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "http2", "json", "query"] }
-resvg = "0.48"
+# Features are chosen in hilen/Cargo.toml, a browser build has no svg text.
+resvg = { version = "0.48", default-features = false }
 rfd = "0.17"
 ring = "0.17"
 rust-embed = { version = "8.12", features = ["include-exclude"] }
@@ -207,7 +210,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
 unicode-linebreak = "0.1"
 unicode-width = "0.2"
-usvg = "0.48"
+usvg = { version = "0.48", default-features = false }
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
 wasm_thread = "0.3"
@@ -216,6 +219,7 @@ web-sys = { version = "0.3", features = [
     "BinaryType",
     "Blob",
     "BlobPropertyBag",
+    "CanvasRenderingContext2d",
     "Clipboard",
     "CloseEvent",
     "CssStyleDeclaration",
@@ -230,6 +234,9 @@ web-sys = { version = "0.3", features = [
     "HtmlInputElement",
     "HtmlMediaElement",
     "HtmlVideoElement",
+    "ImageBitmap",
+    "ImageBitmapOptions",
+    "ImageData",
     "KeyboardEvent",
     "KeyboardEventInit",
     "Location",
@@ -238,12 +245,16 @@ web-sys = { version = "0.3", features = [
     "Navigator",
     "Node",
     "Performance",
+    "ResizeQuality",
     "Storage",
     "Url",
     "VideoPlaybackQuality",
     "WebSocket",
     "Window",
-    "XmlHttpRequest", "Screen",
+    "XmlHttpRequest",
+    "XmlHttpRequestEventTarget",
+    "XmlHttpRequestResponseType",
+    "Screen",
 ] }
 web-time = "1.1"
 webpki-roots = "1.0"

@@ -20,7 +20,7 @@ const HOT_DIR: &str = "HILEN_HOT_DIR";
 
 pub(crate) struct AssetsPaths {
     pub(crate) images: PathBuf,
-    #[cfg(feature = "audio")]
+    #[cfg(sound)]
     pub(crate) sounds: PathBuf,
     pub(crate) fonts:  PathBuf,
     #[cfg(feature = "scene")]
@@ -33,7 +33,7 @@ impl AssetsPaths {
         let assets = Self::assets(&root);
         Rc::new(Self {
             images:                           assets.join("images"),
-            #[cfg(feature = "audio")]
+            #[cfg(sound)]
             sounds:                           assets.join("sounds"),
             fonts:                            assets.join("fonts"),
             #[cfg(feature = "scene")]

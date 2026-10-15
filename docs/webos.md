@@ -12,7 +12,7 @@ is a Mali-G51. The engine of a TV never updates, a firmware update keeps the sam
 ## The build
 
 `make webos-dist` builds the dist of the app for the TV, `make webos` also packs the
-hosted app. Both are `build/web/webos.rs` and read the `[webos]` table of `hilen.toml`:
+app. Both are `build/web/webos.rs` and read the `[webos]` table of `hilen.toml`:
 
 ```toml
 [webos]
@@ -21,6 +21,7 @@ title = "My App"                    # the name on the TV, project_name when left
 icon = "assets/icon.png"            # a square png, this path when left out
 features = "webgl"                  # cargo features of the build, this when left out
 default_features = true             # false leaves the default features out
+packaged = false                    # true packs the whole dist, url is then not used
 ```
 
 Chromium 79 knows only part of the wasm features a default Rust build turns on. It has no
@@ -31,8 +32,16 @@ with the same flags. This is what the script runs in the app crate:
 ```bash
 RUSTFLAGS="--cfg tokio_unstable -Ctarget-cpu=mvp -Ctarget-feature=+mutable-globals,+sign-ext,+nontrapping-fptoint,+bulk-memory" \
 CARGO_UNSTABLE_BUILD_STD=std,panic_abort \
-trunk build --release --no-sri --features webgl
+CARGO_PROFILE_DEPLOY_WASM_OPT_LEVEL=s \
+trunk build --release --cargo-profile deploy-wasm --no-sri --features webgl
 ```
+
+The TV compiles wasm with its slow optimizing compiler only, about 4.7 s a MB, and that
+compile is the whole start of the app. So the TV build alone is built for size, on the
+shipping profile with fat LTO. Measured with flixen on 2026-10-15: opt-level 3 gave 11.9
+MB and Rust started 37.4 s after the page, `"s"` gave 8.7 MB and 24.6 s, `"z"` 7.7 MB and
+20.2 s. The frame times were the same in all 3, `"z"` took 6 points more CPU while idle.
+A `wasm-opt -Oz` pass on top saved 1 to 2 %.
 
 `RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so the
 script says `--cfg tokio_unstable` again when the config has it. The demo sets
@@ -50,9 +59,47 @@ The hosted app is a small `.ipk`: `appinfo.json` of type `web`, 2 icons scaled f
 app icon, and a page that sends the TV on to `url`. The app on the TV is so always the
 one the server has. `disableBackHistoryAPI` makes the Back key reach the page. The
 packer is `ares-package` of the LG CLI, `npm install -g @webos-tools/cli`, and
-`ares-install` puts the `.ipk` on a TV in developer mode. The pack step waits on a
-RustScript fix: the interpreter writes the `type` field of `appinfo.json` as `r#type`
-and the packer refuses the file, see the open entry in the RustScript roadmap.
+`ares-install` puts the `.ipk` on a TV in developer mode.
+
+The packaged app, `packaged = true`, holds the whole dist and starts with no server. The
+TV opens it from `file:///media/developer/apps/usr/palm/applications/<id>/index.html`,
+and Chromium 79 there loads no module script, a file has no MIME type, and `fetch` of a
+local file fails. An `XMLHttpRequest` of a local file works. So the build:
+
+- builds from a copy of `index.html`, `webos.index.html` next to it, whose rust link has
+  `data-bindgen-target="no-modules"`, so wasm-bindgen writes a classic script,
+- builds with `--public-url ./`, a link from `/` would start at the root of the TV,
+- puts a classic start script in place of the one of trunk, it reads the wasm by XHR and
+  calls the global `wasm_bindgen`,
+- leaves out the preload links, they fetch.
+
+The engine reads a local file by XHR, `deps/refs/manage/file_xhr.rs`, so the asset
+groups load from the package. The script fills `target/webos/<name>` and checks for
+`ares-package` last, so a builder without the LG CLI leaves a whole folder another machine
+can pack.
+
+Every TV page gets a small script first in its head: the `WEBGL_compressed_texture_astc`
+of Chromium 79 has no `getSupportedProfiles`, which came later, and wgpu calls it. The
+script adds it with `["ldr"]`, what an extension without it means.
+
+The remote debugger of the TV is the console there: `ares-inspect --device tv --app <id>`
+opens the DevTools protocol on port 9998 of the TV, a page and its `console` are read
+over its websocket. The inspector of hilen does not reach a packaged app, it dials the
+origin of the page and a file has none.
+
+## Size of a browser build
+
+A browser build of hilen leaves out what a page does not run, the native builds keep all
+of it. The `image` crate decodes only png, jpeg and gif, a browser decodes a downloaded
+picture itself. `usvg` and `resvg` have no svg text, icons have none, that stack was
+about 0.9 MB of wasm. `video` alone pulls no `audio` module, the `sound` cfg of
+`hilen/build.rs` builds it only where ffmpeg plays the sound, a page plays it in the
+video element. A downloaded picture other than an svg is decoded by the browser with
+`createImageBitmap`, 2 at a time with 1 shared canvas, see
+`window/image/browser_decode.rs`. `Image::set_download_max_side` shrinks it while it
+is decoded, on every platform. The logger of a page lets only the engine and the
+`log_targets` of the app through at debug, like the native one, the debug lines of naga
+were about 13700 at the start of flixen on the TV.
 
 A page opened over plain http on a LAN address works, WebGL needs no secure context.
 
@@ -140,10 +187,9 @@ The Mali also draws some soft grays up to 49 off the desktop value, over the lim
 
 ## What still stands
 
-- None of the points above ran on a TV yet. They are proven on desktop and in Chrome
-  only: the focus tests, `Web video` in the browser lane, the login code against a
-  local server. The Back key code 461 comes from the LG documents.
+- Ran on the TV with flixen on 2026-10-15: the remote with the key focus, a menu walked
+  with the arrows, video in a video element with a seek, the login of the server. The
+  QR code login and the long press of OK were not tried there.
 - The lost context guard has no reproduced failure behind it.
-- The pack step of `make webos` waits on the RustScript fix above.
 - The Scrolling page of the demo runs at 21 to 24 frames a second, the cause is not
   measured.

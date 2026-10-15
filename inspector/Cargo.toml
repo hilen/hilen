@@ -10,7 +10,7 @@ name = "inspector"
 [dependencies]
 anyhow = { workspace = true }
 base64 = { workspace = true }
-image = { workspace = true }
+image = { workspace = true, features = ["default-formats", "gif", "png"] }
 log = { workspace = true }
 mdns-sd = { workspace = true }
 parking_lot = { workspace = true }

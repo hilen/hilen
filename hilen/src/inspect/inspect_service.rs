@@ -18,7 +18,7 @@ use tokio::{net::TcpListener, time::sleep};
 
 #[cfg(not_wasm)]
 use crate::deps::hreads::log_spawn;
-#[cfg(any(wasm, feature = "audio"))]
+#[cfg(any(wasm, sound))]
 use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
 use crate::filesystem::Paths;
@@ -48,7 +48,7 @@ use crate::{
     },
     window::{MouseButton, Screenshot},
 };
-#[cfg(feature = "audio")]
+#[cfg(sound)]
 use crate::{audio::Sound, deps::refs::manage::DataManager};
 
 pub struct InspectService;
@@ -202,7 +202,7 @@ impl InspectService {
 
     pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
-            #[cfg(feature = "audio")]
+            #[cfg(sound)]
             InspectorCommand::PlaySound => {
                 on_main(|| {
                     Sound::get("retro.wav").play();
@@ -210,7 +210,7 @@ impl InspectService {
 
                 AppCommand::Ok
             }
-            #[cfg(not(feature = "audio"))]
+            #[cfg(not(sound))]
             InspectorCommand::PlaySound => AppCommand::Error("App built without the audio feature".into()),
             InspectorCommand::Screenshot => match Self::screenshot() {
                 Ok(screenshot) => screenshot,

@@ -43,7 +43,38 @@ pub(crate) struct TextureLevels {
     format:   TextureFormat,
 }
 
+/// The size `size` shrinks to so its longest side is `max_side`, with the
+/// same shape. None when it already fits or `max_side` is 0, no limit.
+pub(crate) fn fitted_size(size: Size<u32>, max_side: u32) -> Option<Size<u32>> {
+    let longest = size.width.max(size.height);
+    if max_side == 0 || longest <= max_side {
+        return None;
+    }
+    let scale = |side: u32| {
+        let scaled = u64::from(side) * u64::from(max_side) / u64::from(longest);
+        u32::try_from(scaled).unwrap_or(max_side).max(1)
+    };
+    Some(Size::new(scale(size.width), scale(size.height)))
+}
+
 impl TextureRawData {
+    /// The same picture with its longest side at most `max_side`. The data
+    /// of a decoded file is always 4 bytes a pixel, whatever `channels` says.
+    pub(crate) fn fit_in(self, max_side: u32) -> Result<Self> {
+        let Some(size) = fitted_size(self.size, max_side) else {
+            return Ok(self);
+        };
+        let channels = self.channels;
+        let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(self.size.width, self.size.height, self.data)
+            .ok_or_else(|| anyhow!("Pixel data does not match the size {:?}", self.size))?;
+        let small = image::imageops::thumbnail(&buffer, size.width, size.height);
+        Ok(Self {
+            data: small.into_raw(),
+            size,
+            channels,
+        })
+    }
+
     pub(crate) fn into_levels(self) -> TextureLevels {
         let Self { data, size, channels } = self;
 
@@ -339,8 +370,32 @@ fn _save_rgba_image(buffer: &[u8], width: u32, height: u32, path: &str) -> Resul
 
 #[cfg(test)]
 mod test {
-    use super::TextureRawData;
+    use super::{TextureRawData, fitted_size};
     use crate::gm::flat::Size;
+
+    #[test]
+    fn a_big_picture_fits_its_longest_side() {
+        assert_eq!(fitted_size(Size::new(1000, 1500), 600), Some(Size::new(400, 600)));
+        assert_eq!(fitted_size(Size::new(3000, 10), 300), Some(Size::new(300, 1)));
+        assert_eq!(fitted_size(Size::new(400, 600), 600), None);
+        assert_eq!(fitted_size(Size::new(4000, 6000), 0), None);
+    }
+
+    #[test]
+    fn fit_in_shrinks_the_pixels() {
+        let raw = TextureRawData {
+            data:     vec![90; 20 * 10 * 4],
+            size:     Size::new(20, 10),
+            channels: 3,
+        };
+
+        let small = raw.fit_in(5).expect("fits");
+
+        assert_eq!(small.size, Size::new(5, 2));
+        assert_eq!(small.data.len(), 5 * 2 * 4);
+        assert_eq!(small.channels, 3);
+        assert!(small.data.iter().all(|byte| *byte == 90));
+    }
 
     /// A unit test has no device and no main thread, so every level this
     /// returns was built in the step a worker thread runs. A mip chain

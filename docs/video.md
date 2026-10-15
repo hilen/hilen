@@ -247,6 +247,10 @@ view. The cue parser has unit tests.
 events `on_finish`, `on_error` and `on_state`. `VideoState` is `Empty`,
 `Loading`, `Paused`, `Playing`, `Buffering`, `Finished` or `Failed`, and
 `on_state` fires on every change. `is_playing` stays true while buffering.
+A handler of `on_state` may seek or play: the change that call makes is
+reported on the next frame, never from inside the handler. In a browser a
+seek turns the element `seeking` at once, a second trigger from inside the
+first panicked and stopped the whole page, found on an LG TV on 2026-10-15.
 `play` on a `Failed` video opens the source again and goes on from the
 position it failed at, on desktop, on iOS and in a browser.
 A `VideoSource` carries request headers for an http or https source,

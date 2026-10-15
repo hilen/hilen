@@ -45,7 +45,10 @@ midi = ["dep:midir"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
-video = ["audio", "dep:ffmpeg-next", "dep:objc2-avf-audio"]
+# kira is pulled in, not `audio`: the `sound` cfg of build.rs builds the
+# audio module where ffmpeg plays the sound, and a browser build stays
+# without it.
+video = ["dep:kira", "dep:ffmpeg-next", "dep:objc2-avf-audio"]
 # 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
 # pipeline. Off by default, a GUI only app carries none of it.
 scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
@@ -90,7 +93,6 @@ futures-util = { workspace = true }
 geo = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 hex = { workspace = true }
-image = { workspace = true }
 indexmap = { workspace = true }
 kira = { workspace = true, optional = true }
 linkify = { workspace = true }
@@ -104,7 +106,6 @@ nonempty = { workspace = true }
 parking_lot = { workspace = true }
 pulldown-cmark = { workspace = true }
 reqwest = { workspace = true }
-resvg = { workspace = true }
 rustc-hash = { workspace = true }
 rust_decimal = { workspace = true }
 rustybuzz = { workspace = true }
@@ -115,7 +116,6 @@ sysinfo = { workspace = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
 two-face = { workspace = true }
-usvg = { workspace = true }
 web-time = { workspace = true }
 wgpu = { workspace = true }
 wgpu_text = { workspace = true }
@@ -138,6 +138,9 @@ sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fontdb = { workspace = true }
+image = { workspace = true, features = ["default-formats", "gif", "png"] }
+resvg = { workspace = true, features = ["default"] }
+usvg = { workspace = true, features = ["default"] }
 memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
 if-addrs = { workspace = true, optional = true }
@@ -170,7 +173,14 @@ image = { workspace = true, features = ["rayon"] }
 rapier2d = { workspace = true, optional = true, features = ["parallel"] }
 rapier3d = { workspace = true, optional = true, features = ["parallel"] }
 
+# A browser decodes downloaded pictures itself, the engine decodes only the
+# bundled ones, png, jpeg and gif. Svg icons have no text, and the svg text
+# stack was about 0.9 MB of wasm code. An LG C1 compiles wasm at about 4.7 s
+# a MB, see docs/webos.md.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+image = { workspace = true, features = ["gif", "jpeg", "png"] }
+resvg = { workspace = true, features = ["raster-images", "svgz"] }
+usvg = { workspace = true, features = ["svgz", "writer"] }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
 getrandom = { workspace = true, optional = true, features = ["wasm_js"] }

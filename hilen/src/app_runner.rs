@@ -79,15 +79,9 @@ impl AppRunner {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let output = std::io::stdout();
 
-        let mut dispatch = Dispatch::new()
-            .level(LevelFilter::Warn)
-            .level_for("hilen", LevelFilter::Debug)
-            .level_for("inspector", LevelFilter::Debug)
-            .level_for("netrun", LevelFilter::Debug);
-
-        for target in app_targets {
-            dispatch = dispatch.level_for(*target, LevelFilter::Debug);
-        }
+        let dispatch = Dispatch::new().level(LevelFilter::Debug).filter(move |metadata| {
+            metadata.level() <= Level::Warn || crate::app::is_debug_target(metadata.target(), app_targets)
+        });
 
         // The bug report ring keeps the same formatted lines the console
         // shows, so a report attaches exactly what the log printed.

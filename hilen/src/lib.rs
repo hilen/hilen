@@ -51,7 +51,7 @@ mod panic_log;
 mod pipelines;
 mod wipe;
 
-#[cfg(feature = "audio")]
+#[cfg(sound)]
 pub mod audio;
 #[cfg(feature = "video")]
 pub mod video;

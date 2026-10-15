@@ -85,7 +85,13 @@ pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
 /// `fetch_bytes` with request headers, for a server behind a login. A 404
 /// page is an error here, not bytes, or it would fail later in a parser.
 pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
-    let mut request = client().get(absolute_url(url).as_ref());
+    let url = absolute_url(url);
+    #[cfg(target_arch = "wasm32")]
+    if super::file_xhr::is_file(&url) {
+        return super::file_xhr::read(&url).await;
+    }
+
+    let mut request = client().get(url.as_ref());
     for (name, value) in headers {
         request = request.header(*name, *value);
     }
@@ -242,67 +248,80 @@ pub trait DataManager<T: Managed> {
         name: impl ToString,
         source: impl Future<Output = Result<Vec<u8>>>,
     ) -> Result<Weak<T>> {
-        /// Wakes the waiters even if the leading download errors,
-        /// panics, or its task is dropped mid await.
-        struct FinishGuard {
-            in_flight: &'static InFlightDownloads,
-            name:      String,
-        }
-
-        impl Drop for FinishGuard {
-            fn drop(&mut self) {
-                if let Some(event) = self.in_flight.lock().remove(&self.name) {
-                    event.notify(usize::MAX);
-                }
-            }
-        }
-
         let name = name.to_string();
+        let label = name.clone();
+        download_loaded::<T>(name, async move {
+            let started = Instant::now();
+            let data = source.await?;
+            let fetched = started.elapsed();
 
-        if let Some(existing) = Self::get_existing(&name) {
-            return Ok(existing);
-        }
+            let load_started = Instant::now();
+            let loaded = Self::load(&data, &label);
 
-        let waiter = {
-            let mut in_flight = Self::in_flight_downloads().lock();
+            log::debug!(
+                "Asset {label}: {} bytes fetched in {} ms, loaded in {} ms",
+                data.len(),
+                fetched.as_millis(),
+                load_started.elapsed().as_millis()
+            );
 
-            if let Some(existing) = Self::storage().get(&name) {
-                return Ok(existing.weak());
-            }
-
-            if let Some(event) = in_flight.get(&name) {
-                Some(event.listen())
-            } else {
-                in_flight.insert(name.clone(), Arc::new(Event::new()));
-                None
-            }
-        };
-
-        if let Some(listener) = waiter {
-            listener.await;
-            return Self::get_existing(&name)
-                .ok_or_else(|| anyhow!("Download of '{name}' failed in the task which started it"));
-        }
-
-        let _guard = FinishGuard {
-            in_flight: Self::in_flight_downloads(),
-            name:      name.clone(),
-        };
-
-        let started = Instant::now();
-        let data = source.await?;
-        let fetched = started.elapsed();
-
-        let load_started = Instant::now();
-        let loaded = Self::load(&data, &name);
-
-        log::debug!(
-            "Asset {name}: {} bytes fetched in {} ms, loaded in {} ms",
-            data.len(),
-            fetched.as_millis(),
-            load_started.elapsed().as_millis()
-        );
-
-        Ok(loaded)
+            Ok(loaded)
+        })
+        .await
     }
+}
+
+/// `download_from` for a `source` that stores the resource under `name`
+/// by itself, like a picture the browser decodes. The same name asked for
+/// while that runs waits for it, and `source` runs only for the first.
+pub(crate) async fn download_loaded<T: Managed>(
+    name: String,
+    source: impl Future<Output = Result<Weak<T>>>,
+) -> Result<Weak<T>> {
+    /// Wakes the waiters even if the leading download errors,
+    /// panics, or its task is dropped mid await.
+    struct FinishGuard {
+        in_flight: &'static InFlightDownloads,
+        name:      String,
+    }
+
+    impl Drop for FinishGuard {
+        fn drop(&mut self) {
+            if let Some(event) = self.in_flight.lock().remove(&self.name) {
+                event.notify(usize::MAX);
+            }
+        }
+    }
+
+    if let Some(existing) = T::get_existing(&name) {
+        return Ok(existing);
+    }
+
+    let waiter = {
+        let mut in_flight = T::in_flight_downloads().lock();
+
+        if let Some(existing) = T::storage().get(&name) {
+            return Ok(existing.weak());
+        }
+
+        if let Some(event) = in_flight.get(&name) {
+            Some(event.listen())
+        } else {
+            in_flight.insert(name.clone(), Arc::new(Event::new()));
+            None
+        }
+    };
+
+    if let Some(listener) = waiter {
+        listener.await;
+        return T::get_existing(&name)
+            .ok_or_else(|| anyhow!("Download of '{name}' failed in the task which started it"));
+    }
+
+    let _guard = FinishGuard {
+        in_flight: T::in_flight_downloads(),
+        name:      name.clone(),
+    };
+
+    source.await
 }

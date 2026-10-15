@@ -48,6 +48,53 @@ impl Image {
         Ok(Self::from_texture(&texture, svg))
     }
 
+    /// Decodes a downloaded file and stores it under `name`, its longest
+    /// side at most `max_side`, 0 for its own size. A browser decodes it
+    /// itself, see `browser_decode`. An svg keeps the usual path.
+    #[cfg(wasm)]
+    pub(crate) async fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
+        if Svg::is_svg(&data) {
+            return Ok(Self::load(&data, name));
+        }
+        match crate::window::image::browser_decode::decode(&data, max_side).await {
+            Ok(raw) => Ok(Self::store_raw(name, raw)),
+            Err(err) => {
+                log::warn!("The browser did not decode {name}, the engine does: {err}");
+                Self::decode_here(name, &data, max_side)
+            }
+        }
+    }
+
+    /// `decode_download` with the decoder of the engine, the only one there is
+    /// outside a browser.
+    #[cfg(not_wasm)]
+    pub(crate) fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
+        if Svg::is_svg(&data) {
+            return Ok(Self::load(&data, name));
+        }
+        Self::decode_here(name, &data, max_side)
+    }
+
+    fn decode_here(name: &str, data: &[u8], max_side: u32) -> Result<Weak<Image>> {
+        let raw = Texture::parse_file_from_bytes(data)?.fit_in(max_side)?;
+        Ok(Self::store_raw(name, raw))
+    }
+
+    /// The mip chain is built on the calling thread, the texture on main.
+    fn store_raw(name: &str, raw: TextureRawData) -> Weak<Image> {
+        let levels = raw.into_levels();
+        let name = name.to_string();
+        let stored = from_main(move || {
+            Self::store_with_name(&name, || {
+                Ok::<_, Infallible>(Self::from_texture(&Texture::from_levels(levels, &name), None))
+            })
+        });
+        match stored {
+            Ok(image) => image,
+            Err(never) => match never {},
+        }
+    }
+
     pub(crate) fn bind_texture(texture: &Texture) -> ImageBind {
         Self::bind_view(&texture.view, &texture.sampler)
     }

@@ -19,6 +19,96 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A live 3D scene inside a view
+
+Found by fluorit, `~/dev/apps/fluorit`, on 2026-10-15. The CAD app shows a code
+editor and a live 3D view side by side.
+
+- Current: a scene draws in the main pass over the whole root area, in the depth band
+  0.6 to 1.0, see How it draws in [scene.md](scene.md). `SceneManager` runs 1 scene.
+  `SceneManager::picture` gives only a still image.
+- Needed: a `SceneView` that draws a live scene into its own frame, with the camera
+  aspect of that frame. It takes the touches, the drag and the wheel inside its frame,
+  and other views sit next to it and over it. It redraws by the rules of
+  [damage.md](damage.md). Not checked: whether an app needs 2 scene views at once,
+  fluorit needs 1.
+- Blocks: the fluorit editor with its 3D preview, and any app with a 3D view that is
+  not the whole window.
+
+## An orthographic scene camera
+
+Found by fluorit on 2026-10-15, for the front, top and side views of a part.
+
+- Current: `Camera` in `hilen/src/scene/camera.rs` has `fov_y`, `near` and `far`, so it
+  is perspective only. The only orthographic projection is the sun shadow map in
+  `scene/shadow.rs`.
+- Needed: a projection setting on `Camera`, perspective or orthographic with a view
+  height. `ray`, `screen_point`, `orbit` and `zoom` all follow it, and `zoom` changes
+  the view height when the camera is orthographic.
+- Blocks: the front, top and side views of fluorit.
+
+## Lines in a scene
+
+Found by fluorit on 2026-10-15, for the axes, the floor grid and the edges of a part.
+
+- Current: the line pipeline draws only the collider wireframes of `show_colliders`.
+  An app has no call to draw a line.
+- Needed: lines on a scene, each with a color and a width in pixels, depth tested
+  against the meshes, with a choice to draw them on top of everything. The uses are
+  axes, a floor grid, the edges of a mesh and the outline of a selected part.
+- Blocks: the axes, the grid and the edges in fluorit, and the move handle below.
+
+## A ray hit on a single triangle
+
+Found by fluorit on 2026-10-15. A click on a CSG mesh has to find the part a triangle
+came from.
+
+- Current: `Shape3::hit` tests a ray against a ball by its surface and against
+  everything else by its collider box, see Picking in [scene.md](scene.md). A mesh
+  from `Model::from_mesh` is hit on the box around its vertices.
+- Needed: a ray test against the triangles of a model that gives the node, the point,
+  the normal and the index of the triangle hit. With the index an app reads its own
+  data per triangle, like the part number a CSG library keeps.
+- Blocks: a click on a part in fluorit that finds its line of code.
+
+## A handle to move, turn and scale a node
+
+Found by fluorit on 2026-10-15, for moving and turning a part with the mouse.
+
+- Current: nothing in the scene draws or drives a transform handle.
+- Needed: a handle with 3 arrows to move, 3 rings to turn and 3 boxes to scale along
+  x, y and z, drawn over the scene at the same size on screen at any distance. A drag
+  on 1 of them changes the value along its axis, with an optional snap step, and tells
+  the app each change and the end of the drag. It builds on the lines and the
+  triangle hit above.
+- Blocks: the move, turn and scale tools of fluorit.
+
+## A code editor view
+
+Found by fluorit on 2026-10-15, for the `.scad` editor.
+
+- Current: the multiline `TextField` has no undo or redo and no color runs, Tab moves
+  the focus, see `text_field/editing.rs`, and it has no line numbers. It lays out the
+  whole text as 1 string. Color runs exist only on `Label`, see [text.md](text.md).
+- Needed: a `CodeEditor` view, separate from `TextField`. It keeps the text as lines,
+  so a long file stays fast. It has a gutter with line numbers, color runs per line
+  that the app sets, undo and redo, and Tab and Shift Tab that indent with spaces. It
+  shows a mark with a message on a line, for an error, and a highlight on a range of
+  lines that the app sets. It uses a mono font and has the keys, the selection, the
+  copy and the paste of a text editor on every platform.
+- Blocks: the editor of fluorit, and any app that edits code or a config file.
+
+## A save file dialog
+
+Found by fluorit on 2026-10-15, for Save as and the STL and 3MF export.
+
+- Current: `hilen::filesystem` opens a native dialog to pick a file or a folder. There
+  is no save dialog.
+- Needed: a save dialog with a suggested name and the file types, which gives back
+  `Option<PathBuf>`. On desktop it is the rfd dialog. On iOS and Android it is the
+  system sheet that saves or shares the bytes, and in a browser a download.
+- Blocks: Save as and the export of fluorit.
+
 ## A small animation keeps the whole engine busy
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-12, and by ui-compare,
@@ -814,17 +904,6 @@ Found by flixen, whose admin screens have text fields and stay off the TV for it
   checked: whether Chromium 79 on webOS has it for an mkv.
 - Blocks: a film whose first sound track the device cannot play, DTS on an LG C1.
 
-## Packaged app for LG webOS
-
-`make webos` packs a hosted app, a small `.ipk` whose page sends the TV to a served
-wasm dist.
-
-- Current: the app needs its server for its own files.
-- Needed: the same target also packs the whole dist into the `.ipk`, so the app starts
-  with no server. Not verified: a packaged app loads from a local origin on the TV, and
-  the engine fetches the wasm and the asset groups relative to the document base.
-- Blocks: a webOS app that works with no network and no server.
-
 ## 3D scene, remaining deliveries
 
 The `scene` module landed with primitives, physics, the Filament mobile PBR
@@ -834,9 +913,8 @@ with image based lighting, transparency, a tonemap, a first person player,
 distance, distance fog and touch picking, see [scene.md](scene.md). The rest was
 planned with it.
 
-- An embeddable `SceneView` that composites into any view frame instead of the
-  root area, and the offscreen linear pass with real HDR that `colors.md`
-  sketches, if a scene ever needs it.
+- The offscreen linear pass with real HDR that `colors.md` sketches, if a scene
+  ever needs it.
 - The shadow passes draw every opaque node into every cascade, the GPU clips
   what lies outside a map. Culling nodes against each cascade's box on the CPU
   would make a short shadow distance cut the passes' cost on a big level.

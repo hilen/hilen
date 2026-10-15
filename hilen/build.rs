@@ -14,6 +14,22 @@ fn main() {
     compile_native();
     compile_tvos_dispatch();
     hot_cfg();
+    sound_cfg();
+}
+
+/// `sound` is where the `audio` module is built: the `audio` feature, or
+/// `video` where ffmpeg decodes and kira plays the sound. A browser plays
+/// the sound of a video in its video element, so `video` alone leaves kira
+/// and its decoders out of a wasm build, 0.37 MB of code on an LG TV that
+/// compiles wasm at about 4.7 s a MB. The targets are the `ffmpeg` alias of
+/// `plat`, which a build script cannot read back.
+fn sound_cfg() {
+    println!("cargo:rustc-check-cfg=cfg(sound)");
+    let os = var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let ffmpeg = matches!(os.as_str(), "macos" | "linux" | "windows" | "ios" | "tvos");
+    if var("CARGO_FEATURE_AUDIO").is_ok() || (var("CARGO_FEATURE_VIDEO").is_ok() && ffmpeg) {
+        println!("cargo:rustc-cfg=sound");
+    }
 }
 
 /// See `native/tvos/dispatch_stub.c`.

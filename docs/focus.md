@@ -33,6 +33,9 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
   `Focus::hold_keys`, the focus is off until `Focus::release_keys`, or until that
   view is hidden or under another touch layer. `FileBrowser` does it after a press
   on its list, see [file-browser.md](file-browser.md).
+- A `ContextMenu` panel takes touches for its padding and keeps the ring off itself, the
+  ring walks its rows, test `Key focus menu`. Before, the arrow below a row went to the
+  middle of the whole panel when a separator stood between the rows.
 - `view.set_key_focus(false)` keeps the ring off a view, a backdrop that takes
   touches. `view.set_focus_neighbor(direction, other)` names the next view by hand
   where the nearest one is wrong. `Focus::set(view)` puts the ring somewhere.

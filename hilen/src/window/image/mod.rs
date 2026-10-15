@@ -1,3 +1,5 @@
+#[cfg(wasm)]
+mod browser_decode;
 #[cfg(not_wasm)]
 mod disk_cache;
 mod gif;

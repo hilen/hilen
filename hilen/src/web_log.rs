@@ -6,13 +6,23 @@
 //! the desktop lane does and a stuck run names the last thing the app
 //! said. The browser lane cannot read the console, see `docs/ui-tests.md`.
 
+use std::sync::OnceLock;
+
 use log::{Level, LevelFilter, Log, Metadata, Record};
+
+use crate::app::is_debug_target;
 
 struct WebLogger;
 
+static APP_TARGETS: OnceLock<&'static [&'static str]> = OnceLock::new();
+
 impl Log for WebLogger {
+    // The same filter as the native logger. On an old TV the debug lines of
+    // naga alone were about 13700 at start, and the console keeps them all.
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Debug
+        let app = APP_TARGETS.get().copied().unwrap_or_default();
+        metadata.level() <= Level::Warn
+            || (metadata.level() <= Level::Debug && is_debug_target(metadata.target(), app))
     }
 
     fn log(&self, record: &Record) {
@@ -36,7 +46,10 @@ impl Log for WebLogger {
 
 static LOGGER: WebLogger = WebLogger;
 
-pub(crate) fn init() {
+pub(crate) fn init(app_targets: &'static [&'static str]) {
     log::set_logger(&LOGGER).expect("Couldn't initialize logger");
     log::set_max_level(LevelFilter::Debug);
+    if APP_TARGETS.set(app_targets).is_err() {
+        log::warn!("The log targets of the app were set twice, the first ones stay");
+    }
 }

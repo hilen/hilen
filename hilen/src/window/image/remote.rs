@@ -9,6 +9,7 @@ use std::{thread, time::Duration};
 use anyhow::Result;
 #[cfg(not_wasm)]
 use log::error;
+use web_time::Instant;
 
 #[cfg(wasm)]
 use crate::deps::refs::manage::fetch_bytes_with;
@@ -17,7 +18,11 @@ use crate::window::image::disk_cache::DiskCache;
 use crate::{
     deps::{
         hreads::on_main,
-        refs::{__internal_deps::Mutex, Weak, manage::DataManager},
+        refs::{
+            __internal_deps::Mutex,
+            Weak,
+            manage::{DataManager, download_loaded},
+        },
     },
     window::{Window, image::Image},
 };
@@ -28,11 +33,13 @@ const ON_SCREEN_FRAMES: u64 = 2;
 
 struct Remote {
     #[cfg(not_wasm)]
-    cache: DiskCache,
+    cache:    DiskCache,
     /// Bytes the downloaded images may hold, 0 for no bound.
-    limit: usize,
+    limit:    usize,
+    /// The longest side a downloaded image keeps, 0 for its own size.
+    max_side: u32,
     /// The name of every downloaded image still alive, with its bytes.
-    held:  Vec<(String, usize)>,
+    held:     Vec<(String, usize)>,
 }
 
 static REMOTE: Mutex<Remote> = Mutex::new(Remote {
@@ -43,6 +50,7 @@ static REMOTE: Mutex<Remote> = Mutex::new(Remote {
         recheck_age: None,
     },
     limit:                  0,
+    max_side:               0,
     held:                   Vec::new(),
 });
 
@@ -62,7 +70,28 @@ impl Image {
         headers: &[(&str, &str)],
     ) -> Result<Weak<Image>> {
         let name = name.to_string();
-        let image = Self::download_from(&name, bytes_of(url, headers)).await?;
+        let max_side = REMOTE.lock().max_side;
+        let label = name.clone();
+        let image = download_loaded::<Image>(name.clone(), async move {
+            let started = Instant::now();
+            let data = bytes_of(url, headers).await?;
+            let fetched = started.elapsed();
+            let bytes = data.len();
+
+            let decode_started = Instant::now();
+            #[cfg(wasm)]
+            let image = Self::decode_download(&label, data, max_side).await?;
+            #[cfg(not_wasm)]
+            let image = Self::decode_download(&label, data, max_side)?;
+            log::debug!(
+                "Image {label}: {bytes} bytes fetched in {} ms, decoded in {} ms to {:?}",
+                fetched.as_millis(),
+                decode_started.elapsed().as_millis(),
+                image.size
+            );
+            Ok(image)
+        })
+        .await?;
 
         let bytes = image.size.width as usize * image.size.height as usize * 4;
         {
@@ -125,6 +154,14 @@ impl Image {
     pub fn set_download_memory_limit(bytes: usize) {
         REMOTE.lock().limit = bytes;
         on_main(enforce_limit);
+    }
+
+    /// The longest side in pixels a downloaded image keeps, 0 for its own
+    /// size, the default. A bigger one is shrunk while it is decoded, so it
+    /// holds less memory and costs the GPU less. An svg keeps its size.
+    /// Images downloaded before the call keep theirs.
+    pub fn set_download_max_side(pixels: u32) {
+        REMOTE.lock().max_side = pixels;
     }
 }
 

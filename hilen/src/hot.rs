@@ -21,7 +21,7 @@ use sentry::ClientInitGuard;
 use tokio::runtime::{EnterGuard, Handle, Runtime};
 use winit::platform::ios::release_classes;
 
-#[cfg(feature = "audio")]
+#[cfg(sound)]
 use crate::audio::manager::stop as stop_audio;
 #[cfg(feature = "level")]
 use crate::level::LevelManager;
@@ -112,7 +112,7 @@ pub extern "C" fn hilen_stop() {
     crate::ui::loops::stop_all();
 
     // After the views, a video player holds a track of the audio manager.
-    #[cfg(feature = "audio")]
+    #[cfg(sound)]
     stop_audio();
 
     MediaSession::stop();

@@ -30,7 +30,9 @@ pub struct VideoView {
     volume:  f32,
     speed:   f64,
 
-    state: VideoState,
+    state:     VideoState,
+    /// `on_state` runs its handler right now.
+    reporting: bool,
 
     /// Fires once when playback reaches the end and the video does not loop.
     pub on_finish:   Event<()>,
@@ -122,10 +124,20 @@ impl VideoView {
     }
 
     fn report_state(mut self: Weak<Self>) {
+        // A handler of `on_state` that seeks or plays comes back here while
+        // the event still holds it, and a second trigger panics. In a
+        // browser a seek makes the element seeking at once, so the state
+        // changes inside the call. The next frame reports it, `update` asks
+        // every frame.
+        if self.reporting {
+            return;
+        }
         let state = self.state();
         if state != self.state {
             self.state = state;
+            self.reporting = true;
             self.on_state.trigger(state);
+            self.reporting = false;
         }
     }
 

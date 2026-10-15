@@ -11,6 +11,21 @@ use crate::{
 
 pub type PinnedFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
 
+/// The crates of the engine that log at debug level. Every other crate is
+/// held to warnings, with the `log_targets` of the app let through too.
+const ENGINE_LOG_TARGETS: &[&str] = &["hilen", "inspector", "netrun"];
+
+/// True when a log line of `target` comes through at debug level: the crate
+/// is one of the engine or of the app, or a module of one. `hilen_server`
+/// is not `hilen`.
+pub(crate) fn is_debug_target(target: &str, app_targets: &[&str]) -> bool {
+    ENGINE_LOG_TARGETS.iter().chain(app_targets).any(|name| {
+        target
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
+
 /// The running app, reachable for as long as it runs.
 ///
 /// It lives here rather than inside `AppRunner` because more than the runner
@@ -269,9 +284,20 @@ macro_rules! register_app {
 mod tests {
     use crate::{
         App,
+        app::is_debug_target,
         deps::refs::Own,
         ui::{Container, Setup, View},
     };
+
+    #[test]
+    fn debug_targets_are_the_engine_and_the_app() {
+        assert!(is_debug_target("hilen", &[]));
+        assert!(is_debug_target("hilen::window::image", &[]));
+        assert!(is_debug_target("flixen::net", &["flixen"]));
+        assert!(!is_debug_target("hilen_server", &[]));
+        assert!(!is_debug_target("naga::front::wgsl", &["flixen"]));
+        assert!(!is_debug_target("wgpu_hal::gles", &[]));
+    }
 
     struct Plain;
 
