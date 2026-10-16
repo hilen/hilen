@@ -211,8 +211,7 @@ fn phase_at((zero, period): (f64, f64), time: f64) -> f32 {
     if phase >= 1.0 { 0.0 } else { phase }
 }
 
-/// Read where `continuous_render_active` is, gated the same.
-#[cfg(any(not_wasm, feature = "ui-tests"))]
+/// Read by `continuous_render_active`.
 pub(crate) fn wants_frames() -> bool {
     WANTS_FRAMES.load(Ordering::Relaxed)
 }

@@ -115,9 +115,18 @@ than frames arrive, so waiting presents an empty buffer for the whole drag. In a
 reads as the page going black while it is dragged, since the cleared canvas shows the page
 background behind it.
 
-Headless runs render every iteration and ignore the flag. Wasm uses `ControlFlow::Wait` with an
-unconditional `request_redraw` in `about_to_wait`, so the loop runs one iteration per display
-frame off requestAnimationFrame. It must not use `Poll`: winit implements web `Poll` with a
+Headless runs render every iteration and ignore the flag. Wasm uses `ControlFlow::Wait`, and a
+page asks the browser for a frame only when it needs one, so a still page draws nothing.
+`about_to_wait` calls `request_redraw` only while the flag is set or continuous work runs, and
+a redraw that nobody asked for returns at once. A JS callback runs outside the loop, so
+`request_frame` on the main thread of a page calls `request_redraw` itself, and the dispatch
+waker is `request_frame` there too. `spawn` and `block_on` wrap every task so that each poll of it wakes
+the loop, since an `on_main` from a task of a page runs at once and wakes nothing. The listeners
+of a socket, popstate, pointer lock and the TV back key ask for a frame the same way. A worker
+of the atomics build cannot ask the browser, so that build asks on every refresh and the frame
+skips itself when the flag is clear. The UI test `Idle draws no frame` checks that a still
+screen draws at most 2 frames in a second, and that a timer and a task each get their frame.
+It must not use `Poll`: winit implements web `Poll` with a
 continuous `scheduler.postTask` chain, and Firefox starves requestAnimationFrame under that
 flood, which freezes the app. A normal wasm build is single threaded. The browser test build
 spawns real workers through `spawn_thread`, and they drive the main thread like native

@@ -20,9 +20,9 @@ static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
 /// event is the winit blessed way to wake the loop from any thread. It stays
 /// `None` in headless, which renders every iteration and ignores the flag.
 ///
-/// Wasm never has one. It is single threaded and browser driven, the loop polls
-/// every iteration and there is no other thread to wake it from. The proxy type
-/// is also not `Sync` there, so a static holding it would not even compile.
+/// Wasm never has one. A page asks the browser for its frame itself, see
+/// `request_frame`. The proxy type is also not `Sync` there, so a static
+/// holding it would not even compile.
 #[cfg(not_wasm)]
 static WAKE_PROXY: Mutex<Option<EventLoopProxy<UserEvent>>> = Mutex::new(None);
 
@@ -50,6 +50,17 @@ pub(crate) fn clear_wake_proxy() {
 /// flag.
 pub(crate) fn request_frame() {
     NEEDS_REDRAW.store(true, Ordering::Relaxed);
+
+    // A page gets a frame only when it asks the browser for one, and a JS
+    // callback like a key listener runs outside the loop. A worker has no
+    // window to ask with, the atomics build ticks the loop for it, see
+    // `AppHandler::page_wants_frame`.
+    #[cfg(wasm)]
+    if crate::deps::hreads::is_main_thread()
+        && let Some(window) = crate::window::ready_winit_window()
+    {
+        window.request_redraw();
+    }
 
     #[cfg(not_wasm)]
     {
@@ -117,11 +128,17 @@ pub(crate) fn frame_drawn(continuous: bool) {
 }
 
 /// Consumes the pending flag. The native winit loop calls this once per
-/// iteration and draws only when it returns true. Wasm never waits, so it
-/// never asks.
-#[cfg(not_wasm)]
+/// iteration, a page once per browser frame, and each draws only when it
+/// returns true.
 pub(crate) fn take_needs_render() -> bool {
     NEEDS_REDRAW.swap(false, Ordering::Relaxed)
+}
+
+/// The pending flag, left as it is. A page reads it when it decides whether
+/// to ask the browser for the next frame.
+#[cfg(wasm)]
+pub(crate) fn needs_render() -> bool {
+    NEEDS_REDRAW.load(Ordering::Relaxed)
 }
 
 /// True while something must redraw every frame, a live animation or a loaded
@@ -130,9 +147,6 @@ pub(crate) fn take_needs_render() -> bool {
 /// `about_to_wait` does not re-arm a loop already asleep in Wait, so a
 /// per-frame flag is not enough to keep continuous work drawing. The presence
 /// of the work is.
-/// On wasm the loop is browser driven and never sleeps, only the test
-/// suite asserts through this.
-#[cfg(any(not_wasm, feature = "ui-tests"))]
 pub(crate) fn continuous_render_active() -> bool {
     #[cfg(feature = "level")]
     let level_running = !crate::level::LevelManager::no_level();

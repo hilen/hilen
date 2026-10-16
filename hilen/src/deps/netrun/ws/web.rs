@@ -199,4 +199,6 @@ impl Drop for WebSocket {
 fn emit(callback: &Callback, event: WsEvent) {
     let mut callback = callback.borrow_mut();
     (*callback)(event);
+    // A socket event comes outside the loop of the page.
+    crate::deps::hreads::wake_main();
 }

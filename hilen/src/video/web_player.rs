@@ -12,7 +12,7 @@ use std::sync::{
 
 use log::{debug, info, warn};
 use parking_lot::Mutex;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     HtmlVideoElement,
     js_sys::Reflect,
@@ -263,7 +263,7 @@ impl Player {
         };
 
         let landed = Arc::clone(&self.landed);
-        spawn_local(async move {
+        crate::deps::hreads::spawn(async move {
             if let Err(error) = JsFuture::from(promise).await {
                 // A pause or a new source right after the play ends it
                 // with an abort, which is no failure.
@@ -377,7 +377,7 @@ impl Player {
         let load = self.cue_load;
         let landed = Arc::clone(&self.landed);
 
-        spawn_local(async move {
+        crate::deps::hreads::spawn(async move {
             let mut request = reqwest::Client::new().get(source.location());
             for (name, value) in source.headers() {
                 request = request.header(name, value);

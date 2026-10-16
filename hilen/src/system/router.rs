@@ -126,6 +126,7 @@ pub(crate) fn install_popstate_listener() {
     let listener = Closure::<dyn FnMut()>::new(|| {
         let path = Router::current_path().expect("Popstate fired outside the browser");
         ON_POP.trigger(path);
+        crate::window::request_frame();
     });
 
     web_sys::window()

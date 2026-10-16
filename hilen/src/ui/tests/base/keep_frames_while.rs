@@ -100,14 +100,14 @@ impl Setup for KeepFramesWhile {
 /// the loop, hand the view the frame it has to ask for itself and hide a
 /// stall.
 #[cfg(not_wasm)]
-fn reached_in_time(reached: &Receiver<()>) -> bool {
+pub(super) fn reached_in_time(reached: &Receiver<()>) -> bool {
     reached.recv_timeout(GIVE_UP_AFTER).is_ok()
 }
 
 /// `recv_timeout` needs the std `Instant`, which panics in a browser, so
 /// this polls the channel in short sleeps.
 #[cfg(wasm)]
-fn reached_in_time(reached: &Receiver<()>) -> bool {
+pub(super) fn reached_in_time(reached: &Receiver<()>) -> bool {
     let start = Instant::now();
     loop {
         if reached.try_recv().is_ok() {

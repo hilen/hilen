@@ -11,7 +11,20 @@ use log::error;
 #[cfg(wasm)]
 pub fn spawn<F>(future: F)
 where F: Future<Output = ()> + 'static {
-    wasm_bindgen_futures::spawn_local(future);
+    wasm_bindgen_futures::spawn_local(waking_main(future));
+}
+
+/// A task of a page runs on the main thread, so its `on_main` runs at once
+/// and wakes nothing. Each run of the task wakes the loop instead, else a
+/// change it made waits for the next input.
+#[cfg(wasm)]
+fn waking_main(future: impl Future<Output = ()> + 'static) -> impl Future<Output = ()> {
+    let mut future = Box::pin(future);
+    std::future::poll_fn(move |context| {
+        let poll = future.as_mut().poll(context);
+        super::dispatch::wake_main();
+        poll
+    })
 }
 
 #[cfg(not_wasm)]
@@ -70,7 +83,7 @@ pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
 pub fn block_on<F>(future: F)
 where F: Future<Output = ()> + 'static {
     #[cfg(wasm)]
-    wasm_bindgen_futures::spawn_local(future);
+    wasm_bindgen_futures::spawn_local(waking_main(future));
     // pollster runs the future on the calling thread with no runtime of its
     // own, so it works from inside the tokio runtime. tokio's own block_on
     // would panic there, which is the reason async-std was used before.

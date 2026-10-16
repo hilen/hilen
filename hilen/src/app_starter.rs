@@ -163,14 +163,13 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
                 .unwrap()
         };
 
-        // Native sleeps until an event or a requested frame, so an idle screen
-        // costs no CPU. Background work wakes the loop through the dispatch
-        // waker. Wasm keeps the browser driven polling it had.
+        // The loop sleeps until an event or a requested frame, so an idle
+        // screen costs no CPU. Background work wakes the loop through the
+        // dispatch waker. A page asks the browser for its frame the same way.
         #[cfg(not_wasm)]
         {
             event_loop.set_control_flow(ControlFlow::Wait);
             crate::window::set_wake_proxy(event_loop.create_proxy());
-            crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
         }
         #[cfg(wasm)]
         {
@@ -181,6 +180,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
             crate::web::install_pointer_lock_listener();
             crate::web::install_tv_back_listener();
         }
+        crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
 
         crate::system::links::install_platform_handlers();
 

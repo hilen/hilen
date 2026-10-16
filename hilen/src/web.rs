@@ -41,6 +41,7 @@ pub(crate) fn install_pointer_lock_listener() {
         move || {
             if document.pointer_lock_element().is_none() {
                 crate::ui::Cursor::release();
+                crate::window::request_frame();
             }
         }
     });
@@ -195,6 +196,7 @@ pub(crate) fn install_tv_back_listener() {
             event.stop_immediate_propagation();
             event.prevent_default();
             crate::ui::Input::on_key(crate::ui::NamedKey::Escape);
+            crate::window::request_frame();
         }
     });
 

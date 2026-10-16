@@ -34,7 +34,7 @@ static APP_HANDLER: MainLock<Option<AppHandler>> = MainLock::new();
 
 /// The winit window once the app has one, `None` before that and in a
 /// headless run. On the main thread.
-#[cfg(desktop)]
+#[cfg(any(desktop, wasm))]
 pub(crate) fn ready_winit_window() -> Option<&'static winit::window::Window> {
     let AppHandlerState::Ready(window) = &APP_HANDLER.get_mut().as_ref()?.state else {
         return None;
@@ -62,8 +62,6 @@ enum AppHandlerState {
 }
 
 impl AppHandlerState {
-    // Only the native frame pacing asks, wasm polls every iteration.
-    #[cfg(not_wasm)]
     fn ready(&self) -> bool {
         !self.not_ready()
     }
@@ -163,9 +161,17 @@ impl AppHandler {
     }
 
     /// Work that needs every frame lives, and the app is not paused.
-    #[cfg(not_wasm)]
     fn continuous() -> bool {
         crate::window::continuous_render_active() && !frame_control::holding()
+    }
+
+    /// A page asks the browser for the next frame only for a change or for
+    /// work that moves, so a still page draws nothing. A worker of the
+    /// atomics build cannot ask the browser, so that build asks on every
+    /// refresh, and the frame skips itself when nobody wanted it.
+    #[cfg(wasm)]
+    fn page_wants_frame() -> bool {
+        cfg!(target_feature = "atomics") || crate::window::needs_render() || Self::continuous()
     }
 
     #[cfg(desktop)]
@@ -341,8 +347,7 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         // Any event other than a redraw can change what is on screen: input,
         // resize, theme, a dropped file. Ask for a frame so the change shows.
         // A redraw already draws, so it must not ask for another or the loop
-        // never sleeps. Only native waits, wasm keeps its own polling cadence.
-        #[cfg(not_wasm)]
+        // never sleeps.
         let request_frame = self.state.ready() && !matches!(event, WindowEvent::RedrawRequested);
 
         match event {
@@ -445,6 +450,13 @@ impl ApplicationHandler<UserEvent> for AppHandler {
                     return;
                 }
 
+                // The browser also sends a redraw of its own, and the
+                // atomics build ticks on every refresh.
+                #[cfg(wasm)]
+                if !(crate::window::take_needs_render() || Self::continuous()) {
+                    return;
+                }
+
                 Self::frame();
 
                 #[cfg(not_wasm)]
@@ -453,7 +465,6 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             _ => {}
         }
 
-        #[cfg(not_wasm)]
         if request_frame {
             crate::window::request_frame();
         }
@@ -490,12 +501,17 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             event_loop.set_control_flow(flow);
         }
 
-        // Wait, not Poll. The redraw below re-arms a rAF every
-        // iteration, so the loop is paced by the display. Poll spins
-        // the runner through scheduler.postTask between frames, and
-        // Firefox starves rAF under that flood, freezing the app.
+        // Wait, not Poll. A redraw asked below arms 1 rAF, so the loop is
+        // paced by the display while something moves. Poll spins the
+        // runner through scheduler.postTask between frames, and Firefox
+        // starves rAF under that flood, freezing the app.
         #[cfg(wasm)]
-        event_loop.set_control_flow(ControlFlow::Wait);
+        {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            if !Self::page_wants_frame() {
+                return;
+            }
+        }
 
         window.request_redraw();
     }

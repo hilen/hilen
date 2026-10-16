@@ -10,6 +10,7 @@ mod frame_stepped_animation;
 mod held_drag;
 mod hidden_parent_touch;
 mod hidden_touch;
+mod idle_draws_no_frame;
 mod keep_frames_while;
 mod manual_z_position;
 mod offscreen_clip;
