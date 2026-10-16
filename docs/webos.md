@@ -36,12 +36,35 @@ CARGO_PROFILE_DEPLOY_WASM_OPT_LEVEL=s \
 trunk build --release --cargo-profile deploy-wasm --no-sri --features webgl
 ```
 
-The TV compiles wasm with its slow optimizing compiler only, about 4.7 s a MB, and that
-compile is the whole start of the app. So the TV build alone is built for size, on the
+Without Liftoff, see below, the TV compiles wasm with its slow optimizing compiler only,
+about 4.7 s a MB, and that compile is the whole start of the app. So the TV build alone is built for size, on the
 shipping profile with fat LTO. Measured with flixen on 2026-10-15: opt-level 3 gave 11.9
 MB and Rust started 37.4 s after the page, `"s"` gave 8.7 MB and 24.6 s, `"z"` 7.7 MB and
 20.2 s. The frame times were the same in all 3, `"z"` took 6 points more CPU while idle.
 A `wasm-opt -Oz` pass on top saved 1 to 2 %.
+
+V8 on the TV has Liftoff, its fast first compiler for wasm, but it is off there. The
+build writes `"v8ExtraFlags": "--liftoff"` into `appinfo.json`, and the web engine of
+webOS hands it to V8. Measured with flixen on 2026-10-16, 5.98 MB of wasm: Rust started
+after 17.7 s without it and after 10 s with it, the first screen was ready after 19.5 s
+and 11.6 s. Other flags were measured too. `--wasm-lazy-compilation` was slower, 20.9 s
+alone and 16.5 s with Liftoff, it compiles each function on the main thread at its first
+call. `--no-wasm-tier-up` and `--wasm-num-compilation-tasks=4` changed nothing, the
+compile already runs on 3 threads. With Liftoff the start grows by about 2.3 s per MB of
+code, an estimate. The data of the file costs no compile time.
+
+The TV reads `v8ExtraFlags` only when it installs the app. An edit of the installed
+`appinfo.json` does nothing, `getAppInfo` of `com.webos.applicationManager` shows what
+the TV took.
+
+The compiled code is never kept between 2 starts. Chromium keeps the code of a wasm
+only for a file from its http cache, and the cache of the TV is about 10 MB, too small
+to keep a file over about 1/8 of it. Tried on 2026-10-16, from the `file://` app and
+from an http page: every start fetched the whole file again and compiled it again.
+
+The package also holds `splash.png`, the app icon in the middle of a black picture of
+1920 by 1080, named in `splashBackground`. webOS shows it from the launch to the first
+frame, so the compile is not a black screen. It was not seen on the TV yet.
 
 `RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so the
 script says `--cfg tokio_unstable` again when the config has it. The demo sets
@@ -55,7 +78,7 @@ when trunk wrote another start script. `--no-sri` leaves the `integrity` attribu
 their hash would not hold after the rewrite. A dist built this way also loads in every
 new browser, so a server can serve the one dist to all.
 
-The hosted app is a small `.ipk`: `appinfo.json` of type `web`, 2 icons scaled from the
+The hosted app is a small `.ipk`: `appinfo.json` of type `web`, 2 icons and a splash made from the
 app icon, and a page that sends the TV on to `url`. The app on the TV is so always the
 one the server has. `disableBackHistoryAPI` makes the Back key reach the page. The
 packer is `ares-package` of the LG CLI, `npm install -g @webos-tools/cli`, and

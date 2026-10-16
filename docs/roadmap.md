@@ -19,6 +19,59 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Svg icons on an old browser with no svg stack in the wasm
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`. The start of
+flixen on an LG C1 is the compile of its wasm, about 2.3 s per MB of code with Liftoff,
+see `docs/webos.md`.
+
+- Current: a browser build turns every svg icon into pixels in the wasm, with
+  `usvg`, `resvg` and `tiny-skia`, see `window/image/svg.rs` and the wasm block of
+  `hilen/Cargo.toml`. In the TV build of flixen that stack is about 0.58 MB of the
+  5.6 MB of code before wasm-bindgen: `tiny_skia` 262 KB, `usvg` 142 KB, `resvg`
+  74 KB, `tiny_skia_path` 33 KB, `roxmltree` 30 KB, `svgtypes` 24 KB, `simplecss`
+  12 KB, measured with `twiggy` on a `deploy-wasm` build with debug names.
+- Needed: a browser build that draws svg icons with no svg code in the wasm. Either
+  the browser turns the svg into pixels, an `<img>` or a `Blob` through
+  `createImageBitmap` like `window/image/browser_decode.rs` does for pictures, or the
+  build turns every bundled svg into png files ahead of time. Tinting and the sizes of
+  an icon must stay the same, so the UI tests of icons pass on the browser lane.
+- Blocks: about 1.3 s of the start of every hilen app on a TV, an estimate.
+
+## No jpeg and webp decoders for svg pictures in a browser build
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
+
+- Current: the wasm block of `hilen/Cargo.toml` gives `resvg` the `raster-images`
+  feature, which pulls `image-webp` and `zune-jpeg` for pictures inside an svg file.
+  The `image` crate of the wasm build has no webp, so `image_webp` is there only for
+  that. In the TV build of flixen `zune_jpeg` is 195 KB and `image_webp` 85 KB of
+  code, and `zune_jpeg` is also used by the `jpeg` feature of `image`.
+- Needed: prove that no bundled svg of an app needs a picture inside it, then drop
+  `raster-images` on wasm. Then check whether a bundled jpeg can go through the
+  browser decoder of `window/image/browser_decode.rs`, so the `jpeg` feature of
+  `image` and with it `zune_jpeg` leaves the wasm too. Measure the code with `twiggy`
+  before and after.
+- Blocks: up to about 0.6 s of the start of a hilen app on a TV, an estimate.
+  This entry goes away with the svg entry above if that one removes `resvg` from
+  the wasm.
+
+## Shaders for WebGL made at build time, with no naga in the wasm
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
+
+- Current: on WebGL the wgpu fork of hilen translates every WGSL shader to GLSL with
+  naga while the app starts. In the TV build of flixen `naga` is 617 KB of code, the
+  largest crate of the file, with `codespan_reporting` 19 KB for its error text. The
+  rest of the GPU stack is `hilen_wgpu_core` 359 KB, `hilen_wgpu` 151 KB and
+  `hilen_wgpu_hal` 137 KB.
+- Needed: GLSL made from the WGSL of the engine and of an app at build time, and a
+  WebGL path of the wgpu fork that takes it with no naga linked. The WebGPU path of a
+  new browser keeps WGSL. Find first how much of naga wgpu core also needs for its
+  checks, and whether a smaller naga feature set gives part of the gain with less
+  work.
+- Blocks: up to about 1.4 s of the start of a hilen app on a TV, an estimate.
+
 ## A home screen and lock screen widget on iOS
 
 Found by nome, `~/dev/apps/nome`, a metronome, on 2026-10-16, on hilen `6f961029`. A
