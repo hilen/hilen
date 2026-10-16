@@ -88,14 +88,11 @@ impl UIDrawer {
 
     /// Where a label's text anchors inside its pixel `frame` and the
     /// bounds it wraps in, the section geometry of the brush.
-    pub(super) fn label_geometry(frame: &Rect, label: &Label) -> ((f32, f32), (f32, f32)) {
+    pub(super) fn label_geometry(frame: &Rect, label: &Label, scale: f32) -> ((f32, f32), (f32, f32)) {
         let center = frame.center();
-        let margin = 16.0;
+        let margin = label.text_inset() * scale;
 
-        let bounds = (
-            frame.width() - if label.alignment.center() { 0.0 } else { margin },
-            frame.height(),
-        );
+        let bounds = (frame.width() - margin, frame.height());
         let position = (
             match label.alignment {
                 TextAlignment::Left => frame.x() + margin,
@@ -125,7 +122,7 @@ impl UIDrawer {
         let font = params.base;
 
         let frame = frame * scale;
-        let (position, bounds) = Self::label_geometry(&frame, label);
+        let (position, bounds) = Self::label_geometry(&frame, label, scale);
         let layout = ShapedLayout {
             emit: &font.name,
             params,
@@ -291,7 +288,7 @@ impl UIDrawer {
             }
         }
 
-        let (position, bounds) = Self::label_geometry(&frame, label);
+        let (position, bounds) = Self::label_geometry(&frame, label, scale);
         let mut section = section.with_bounds(bounds).with_screen_position(position);
 
         // A hard shadow is the same text again in 1 color, queued before

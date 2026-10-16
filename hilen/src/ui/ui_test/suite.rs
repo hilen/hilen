@@ -15,8 +15,9 @@ pub struct TestRunReport {
 
 /// Everything a run takes from the app, kept so it can be handed back.
 ///
-/// A run is not read only. It pins scale 1, forces its own text size, paints
-/// its own background and tears the app's root view down. Leave any of it
+/// A run is not read only. It pins scale 1, forces its own text size and
+/// text inset, paints its own background and tears the app's root view
+/// down. Leave any of it
 /// behind and the app carries on wrong: at scale 1 on a phone that is really 2,
 /// boxed into the test canvas, or with no root view at all.
 struct AppState {
@@ -24,6 +25,7 @@ struct AppState {
     dialog_style:   Option<DialogStyle>,
     markdown_style: Option<MarkdownStyle>,
     text_size:      f32,
+    text_inset:     f32,
     scale_override: f32,
     clear_color:    UIColor,
     bug_animation:  Option<&'static [u8]>,
@@ -31,6 +33,11 @@ struct AppState {
     bug_email:      Option<String>,
     system_fonts:   bool,
 }
+
+/// The tests were recorded when the indent of left and right aligned text
+/// was 16 pixels, which is 16 points at the scale 1 of a run. With the
+/// default of 8 points every recorded text would move.
+pub(super) const HARNESS_TEXT_INSET: f32 = 16.0;
 
 /// Tests expect scale 1 and 32 point text. Any host that runs them must match,
 /// or every layout and color check drifts.
@@ -43,6 +50,7 @@ fn prepare_harness() -> AppState {
         dialog_style:   DialogStyle::take_global(),
         markdown_style: MarkdownStyle::take_global(),
         text_size:      Label::default_text_size(),
+        text_inset:     Label::default_text_inset(),
         scale_override: UIManager::scale_override(),
         clear_color:    UIManager::clear_color(),
         bug_animation:  crate::BugReport::animation(),
@@ -52,6 +60,7 @@ fn prepare_harness() -> AppState {
     });
 
     Label::set_default_text_size(32);
+    Label::set_default_text_inset(HARNESS_TEXT_INSET);
 
     from_main(|| {
         UIManager::override_scale(1.0);
@@ -63,6 +72,7 @@ fn prepare_harness() -> AppState {
 /// Give the app back everything the run took, and a root view to live in.
 fn restore_app(state: AppState) {
     Label::set_default_text_size(state.text_size);
+    Label::set_default_text_inset(state.text_inset);
     crate::BugReport::restore_animation(state.bug_animation);
     crate::BugReport::restore_email(state.bug_email);
 
@@ -177,6 +187,7 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     from_main(MarkdownStyle::take_global);
     from_main(crate::BugReportStyle::take_global);
     Label::set_default_text_size(32);
+    Label::set_default_text_inset(HARNESS_TEXT_INSET);
     (entry.present)();
 
     Ok(())

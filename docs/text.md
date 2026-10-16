@@ -97,6 +97,22 @@ italic and code text with no font file of its own.
 and `set_font`, to its internal label. Needed to match platforms that apply the
 font's `trak` curve automatically, macOS does for the system font.
 
+## Text inset
+
+Left and right aligned text stands `Label::text_inset()` points from the edge of the
+frame, 0 for centered text. It is in points, so the text sits at the same place on
+every screen. The default is 8, what a retina screen showed when the indent was 16
+pixels of the screen. `set_text_inset(points)` sets it per label, 0 included, and
+`Label::set_default_text_inset(points)` for every label made after the call, like
+`set_default_text_size`. A label keeps the value it was made with, so a `Label` style
+can also set it. `label_geometry` in `label_drawer.rs` turns it into pixels for the
+brush, the color glyphs and the text effects. The measure, the wrap bound, the
+ellipsis cut, the selection, the underlines, the caret of a `TextField` and the iOS
+system field all read `text_inset()`, so they agree with the drawn text. The value is
+in the paint key. A UI test run sets the default to 16, the value its scale 1 had
+before, so recorded tests keep their pixels. `Label text inset` checks the text start
+at scale 1, 2 and 3.
+
 ## Line handling
 
 `\n` always breaks lines, single line labels included. Multiline labels

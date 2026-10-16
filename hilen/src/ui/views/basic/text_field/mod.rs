@@ -146,8 +146,8 @@ impl Setup for TextField {
             }
         });
         // The caret and the selection are laid out in points from the frame
-        // and from the text inset, and the inset is a fixed count of screen
-        // pixels. So both move when the frame or the UI scale changes.
+        // and from the text layout, which is shaped in screen pixels. So
+        // both move when the frame or the UI scale changes.
         self.size_changed().sub(move || self.update_caret());
         UIManager::on_scale_changed(self, move |_| {
             self.update_caret();

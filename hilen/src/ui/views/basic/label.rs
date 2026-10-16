@@ -29,6 +29,11 @@ use crate::{
 
 static DEFAULT_TEXT_SIZE: AtomicF32 = AtomicF32::new(16.0);
 
+/// Points between the frame and left or right aligned text, see
+/// `Label::set_text_inset`. 8 is what apps laid out on a retina screen
+/// had when the indent was 16 pixels of the screen.
+static DEFAULT_TEXT_INSET: AtomicF32 = AtomicF32::new(8.0);
+
 /// How the chars of a label get their place.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Placing {
@@ -143,6 +148,11 @@ pub struct Label {
 
     #[educe(Default = DEFAULT_TEXT_SIZE.load(Ordering::Relaxed))]
     text_size: f32,
+
+    /// Points between the frame and left or right aligned text, see
+    /// `set_text_inset`.
+    #[educe(Default = DEFAULT_TEXT_INSET.load(Ordering::Relaxed))]
+    text_inset: f32,
 
     /// Extra points between glyphs, CoreText style tracking. Negative
     /// tightens. Needed to match fonts whose tracking the platform
@@ -467,13 +477,13 @@ impl Label {
         Size::new(measured.width + margin, measured.height)
     }
 
-    // The drawer indents left and right aligned text by 16 physical pixels,
+    // The drawer indents left and right aligned text by the text inset,
     // so the fitted frame must include it or the text clips.
     fn alignment_margin(&self) -> f32 {
         if self.alignment.center() {
             0.0
         } else {
-            16.0 / UIManager::scale()
+            self.text_inset
         }
     }
 }
@@ -498,10 +508,22 @@ impl Label {
         self.font().text_layout(text, self.text_size, bound, self.shaping(text))
     }
 
-    /// Where the drawn text starts inside the frame, see `alignment_margin`.
-    /// Public so a view can lay a selection highlight over the text.
+    /// Where the drawn text starts inside the frame, in points: the inset
+    /// for left and right aligned text, 0 for centered text. Public so a
+    /// view can lay a selection highlight over the text.
     pub fn text_inset(&self) -> f32 {
         self.alignment_margin()
+    }
+
+    /// Points between the frame and the text of a left or a right aligned
+    /// label, the same on every screen. 0 puts the text at the edge of the
+    /// frame. Centered text ignores it. The default is 8, see
+    /// `set_default_text_inset`.
+    pub fn set_text_inset(&self, points: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.text_inset = points.to_f32();
+        this.ellipsized = None;
+        self
     }
 
     pub(crate) fn is_multiline(&self) -> bool {
@@ -675,6 +697,16 @@ impl Label {
     pub(crate) fn default_text_size() -> f32 {
         DEFAULT_TEXT_SIZE.load(Ordering::Relaxed)
     }
+
+    /// The text inset of every label made after this call, in points, see
+    /// `set_text_inset`. A label made before keeps its own.
+    pub fn set_default_text_inset(points: impl ToF32) {
+        DEFAULT_TEXT_INSET.store(points.to_f32(), Ordering::Relaxed);
+    }
+
+    pub(crate) fn default_text_inset() -> f32 {
+        DEFAULT_TEXT_INSET.load(Ordering::Relaxed)
+    }
 }
 
 impl Setup for Label {
@@ -732,10 +764,36 @@ mod tests {
     use serial_test::serial;
 
     use crate::{
-        deps::hreads::set_current_thread_as_main,
-        ui::{Label, Setup},
+        deps::{hreads::set_current_thread_as_main, refs::Own},
+        ui::{Label, Setup, TextAlignment},
         wipe::probe::{Freed, Watch},
     };
+
+    fn left_label() -> Own<Label> {
+        let label = Label::new();
+        label.set_alignment(TextAlignment::Left);
+        label
+    }
+
+    // The UI tests run with an inset of their own, so only this test sees
+    // the default an app gets.
+    #[test]
+    #[serial]
+    fn a_label_takes_the_default_inset_of_the_time_it_is_made() {
+        set_current_thread_as_main();
+        let centered = Label::new();
+        let before = left_label();
+        Label::set_default_text_inset(0);
+        let after = left_label();
+        Label::set_default_text_inset(8);
+
+        assert!(centered.text_inset().abs() < f32::EPSILON);
+        assert!((before.text_inset() - 8.0).abs() < f32::EPSILON);
+        assert!(after.text_inset().abs() < f32::EPSILON);
+
+        after.set_text_inset(12);
+        assert!((after.text_inset() - 12.0).abs() < f32::EPSILON);
+    }
 
     const FIRST: &str = "correct horse battery staple";
     const SECOND: &str = "another text of the same label";

@@ -8,6 +8,7 @@ use anyhow::Result;
 use clap::Parser;
 use log::info;
 
+use super::suite::HARNESS_TEXT_INSET;
 use crate::{
     AppRunner,
     dispatch::{from_main, is_main_thread},
@@ -178,6 +179,7 @@ fn run(args: Args) -> Result<()> {
 
     let actor = async move {
         Label::set_default_text_size(32);
+        Label::set_default_text_inset(HARNESS_TEXT_INSET);
         UIManager::set_display_touches(human);
 
         from_main(move || {

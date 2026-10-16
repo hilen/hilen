@@ -266,22 +266,6 @@ an edge of a clip is trimmed, and a seek slider that does not lag.
 - Blocks: a live picture while an edge is trimmed in kutreel. The app waits for the
   edge to rest for now.
 
-## Left aligned label text has an indent that differs per screen
-
-Found by banda, `~/dev/apps/banda`, on 2026-10-11. Its prompt mark, a `Label` of 20
-points with 1 character, was cut down to 4 points on a screen with no retina scale.
-
-- Current: a `Label` that is not centered indents its text by 16 physical pixels,
-  `alignment_margin` in `hilen/src/ui/views/basic/label.rs`, `16.0 / UIManager::scale()`.
-  That is 8 points at scale 2 and 16 points at scale 1, so the same label shows its
-  text at 2 places on 2 screens, and a narrow one cuts it on the screen with scale 1.
-  No app can set the indent.
-- Needed: an indent in points, the same on every screen, and a way for an app to set
-  it, 0 included. Every app laid out on a retina screen relies on the 8 points of
-  today, so the default stays 8.
-- Blocks: nothing in banda now, its mark is centered. Any narrow left aligned label
-  of any app on a screen with scale 1.
-
 ## The file picker is proven only on an iPhone
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-10. It wants an upload button for files

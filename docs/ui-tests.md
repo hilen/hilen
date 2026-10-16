@@ -498,7 +498,8 @@ engine text, which `Screen keyboard look` does.
 
 ## What a run takes from the app
 
-A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32,
+A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32
+and the default label text inset to 16 points, the 16 pixels the tests were recorded with,
 takes the app's global styles away, paints its own clear color, pins the root to the test canvas
 and tears the app's root view down. `run_test_map` snapshots all of it and hands it back at the
 end, then asks the app for a new root view, so an app that runs its own suite lands back on its

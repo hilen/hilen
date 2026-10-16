@@ -17,7 +17,7 @@ const RING_DIAMETER: f32 = 20.0;
 const DOT_DIAMETER: f32 = 10.0;
 const RING_BORDER: f32 = 2.0;
 
-/// Left aligned label text is already indented by `alignment_margin`, so
+/// Left aligned label text is already indented by `Label::text_inset`, so
 /// this rides on top of that rather than being the whole visual gap.
 const RING_TO_LABEL: f32 = 4.0;
 

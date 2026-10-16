@@ -192,7 +192,7 @@ impl UIDrawer {
             frame.height(),
         )
             .into();
-        let (position, bounds) = Self::label_geometry(&local, label);
+        let (position, bounds) = Self::label_geometry(&local, label, scale);
 
         let now = Window::render_frame();
         for (index, (color, offset, kind)) in layers.into_iter().enumerate() {

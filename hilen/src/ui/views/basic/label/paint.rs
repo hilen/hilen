@@ -20,6 +20,7 @@ impl Label {
             .hash(&self.box_chars)
             .pod(&self.text_color)
             .pod(&self.text_size)
+            .pod(&self.text_inset)
             .pod(&self.letter_spacing)
             .hash(&self.font().name);
 

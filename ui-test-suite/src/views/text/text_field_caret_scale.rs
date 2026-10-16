@@ -7,11 +7,11 @@ use hilen::{
     ui_test::{check_colors, set_record_probe_count},
 };
 
-/// The text of a left aligned field starts 16 screen pixels in, which is a
-/// different number of points at every UI scale. The caret of a focused
-/// field must move with the text when the scale changes. A field focused in
-/// the `setup` of the first screen of an app gets the screen scale only
-/// after that, and its caret stood inside the first letter of the
+/// The text of a left aligned field starts a number of points in, which is
+/// a different number of screen pixels at every UI scale. The caret of a
+/// focused field must move with the text when the scale changes. A field
+/// focused in the `setup` of the first screen of an app gets the screen scale
+/// only after that, and its caret stood inside the first letter of the
 /// placeholder.
 #[view]
 struct TextFieldCaretScale {
@@ -187,9 +187,9 @@ const SCALE_2: &str = r"
      132   60 - #0a0e10
      312   60 - #000000
      472   60 - #223039
-     224   64 - #000000
      280   64 - #000000
      292   64 - #000000
+     336   64 - #000001
      352   64 - #000000
      364   64 - #000000
      392   64 - #000000
@@ -199,115 +199,115 @@ const SCALE_2: &str = r"
      124   68 - #597c95
      156   68 - #597c95
      200   68 - #000001
+     224   68 - #597c95
      236   68 - #000000
      256   68 - #597c95
      272   68 - #3b5262
-     324   68 - #000001
-     336   68 - #597c95
      412   68 - #394f5f
      424   68 - #000000
      444   68 - #597c95
      120   72 - #394f5f
      140   72 - #23313b
-     228   72 - #000001
+     172   72 - #000001
+     184   72 - #597c95
      272   72 - #3b5262
      280   72 - #070a0c
-     312   72 - #000000
+     316   72 - #597c95
+     332   72 - #000000
      348   72 - #141c22
-     364   72 - #597c95
      376   72 - #12191e
-     388   72 - #000000
      412   72 - #394f5f
      432   72 - #2c3d4a
      140   76 - #23313b
      152   76 - #597c95
-     180   76 - #597c95
      196   76 - #597c95
      208   76 - #000001
+     236   76 - #000000
      260   76 - #597c95
      272   76 - #3b5262
      292   76 - #597c95
-     320   76 - #597c95
+     324   76 - #000001
      348   76 - #141c22
+     364   76 - #597c95
+     388   76 - #000000
      396   76 - #597c95
      432   76 - #2c3d4a
      448   76 - #597c95
      224   80 - #000001
      336   80 - #000001
-     364   80 - #000001
-     112  140 - #ffffff
-     176  140 - #ffffff
-     252  140 - #ffffff
-     336  140 - #ffffff
+     108  140 - #ffffff
+     164  140 - #ffffff
+     240  140 - #ffffff
+     348  140 - #ffffff
+     516  140 - #ffffff
      568  140 - #ffffff
-     388  160 - #ffffff
-      40  168 - #000000
-     476  172 - #ffffff
-      60  180 - #bcbcbc
-     300  180 - #cccccc
-      40  184 - #000000
-      72  184 - #bcbcbc
-      60  192 - #ffffff
-      88  192 - #bcbcbc
-     164  192 - #bcbcbc
-     212  192 - #bcbcbc
-     228  192 - #bcbcbc
-     240  192 - #bcbcbc
-     264  192 - #bcbcbc
-     280  192 - #bcbcbc
-     292  192 - #bcbcbc
-      40  196 - #000000
-      96  196 - #ffffff
-     120  196 - #ffffff
-     136  196 - #bcbcbc
-     152  196 - #ffffff
-     156  196 - #ffffff
-     196  196 - #bcbcbc
-     540  196 - #ffffff
-      68  200 - #bcbcbc
-     180  200 - #bcbcbc
-     300  200 - #cccccc
-     428  200 - #ffffff
-     208  204 - #bcbcbc
-     220  204 - #bcbcbc
-     232  204 - #ffffff
-     236  204 - #ffffff
-     244  204 - #bcbcbc
-     284  204 - #ffffff
-     288  204 - #ffffff
-     356  204 - #ffffff
-      40  208 - #000000
-      92  208 - #ffffff
-     100  208 - #d2d2d2
-      88  212 - #ffffff
-      96  212 - #ffffff
-     128  212 - #ffffff
-     160  212 - #ffffff
-     260  212 - #bfbfbf
-     276  212 - #bcbcbc
-     148  216 - #bcbcbc
-     184  216 - #bcbcbc
-     204  216 - #bcbcbc
-     228  216 - #bcbcbc
-     240  216 - #bcbcbc
-     292  216 - #bcbcbc
-      48  220 - #dedede
-     104  220 - #dedede
-      40  232 - #000000
-     500  244 - #ffffff
-     352  256 - #ffffff
-     428  256 - #ffffff
+     396  152 - #ffffff
+      56  168 - #000000
+     476  168 - #ffffff
+     316  180 - #cccccc
+      56  184 - #000000
+      76  188 - #ffffff
+     104  192 - #bcbcbc
+     192  192 - #bcbcbc
+     244  192 - #bcbcbc
+     276  192 - #bcbcbc
+     308  192 - #bcbcbc
+      88  196 - #bcbcbc
+     112  196 - #ffffff
+     136  196 - #ffffff
+     140  196 - #ffffff
+     152  196 - #bcbcbc
+     168  196 - #ffffff
+     172  196 - #ffffff
+     208  196 - #bcbcbc
+     260  196 - #bcbcbc
+     548  196 - #ffffff
+      56  200 - #000000
+      72  200 - #bcbcbc
+     224  200 - #bcbcbc
+     196  204 - #bcbcbc
+     236  204 - #bcbcbc
+     248  204 - #ffffff
+     252  204 - #ffffff
+     272  204 - #bcbcbc
+     300  204 - #ffffff
+     304  204 - #ffffff
+     316  204 - #cccccc
+     104  208 - #ffffff
+     116  208 - #d2d2d2
+     392  208 - #ffffff
+      56  212 - #000000
+     108  212 - #ffffff
+     132  212 - #bcbcbc
+     144  212 - #ffffff
+     164  212 - #bcbcbc
+     176  212 - #ffffff
+     100  216 - #bcbcbc
+     200  216 - #bcbcbc
+     220  216 - #bcbcbc
+     244  216 - #bcbcbc
+     256  216 - #bcbcbc
+     276  216 - #bfbfbf
+     296  216 - #bcbcbc
+     312  216 - #bcbcbc
+      64  220 - #dedede
+     120  220 - #dedede
+     172  220 - #bcbcbc
+      56  232 - #000000
+     504  236 - #ffffff
+     432  252 - #ffffff
+     360  256 - #ffffff
      572  256 - #ffffff
-      96  352 - #597c95
-     336  376 - #597c95
-     216  404 - #597c95
-     548  424 - #597c95
-       4  448 - #597c95
-     388  484 - #597c95
-     120  488 - #597c95
-      36  592 - #597c95
-     184  592 - #597c95
-     316  592 - #597c95
-     460  592 - #597c95
+      96  360 - #597c95
+     456  368 - #597c95
+     224  404 - #597c95
+     560  424 - #597c95
+       4  456 - #597c95
+     400  476 - #597c95
+     128  484 - #597c95
+     468  580 - #597c95
+      60  592 - #597c95
+     208  592 - #597c95
+     340  592 - #597c95
      592  592 - #597c95
 ";

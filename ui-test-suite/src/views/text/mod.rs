@@ -32,6 +32,7 @@ mod label_soft_shadow;
 mod label_stress;
 mod label_strikethrough;
 mod label_tab;
+mod label_text_inset;
 mod label_vertical_alignment;
 mod label_wide_effect;
 mod letter_spacing;
