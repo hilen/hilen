@@ -24,6 +24,7 @@ struct MeshInstance {
     emissive: f32,
     cutout: f32,
     occlusion_strength: f32,
+    unlit: f32,
 }
 
 @group(1) @binding(0)

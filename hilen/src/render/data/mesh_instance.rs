@@ -45,8 +45,11 @@ pub(crate) struct MeshInstance {
     /// `Material::cutout`. Zero on a node that is not cut out.
     pub cutout:             f32,
     pub occlusion_strength: f32,
+    /// 1 for a node drawn with no light, see `Material::unlit`. A float
+    /// so it takes a word of the padding the struct already had.
+    pub unlit:              f32,
     /// Rounds the struct up to a multiple of 16 bytes, the std430 size.
-    pub padding:            [f32; 3],
+    pub padding:            [f32; 2],
 }
 
 impl MeshInstance {
@@ -70,7 +73,8 @@ impl MeshInstance {
             emissive: material.emissive,
             cutout: material.cutout.unwrap_or(0.0),
             occlusion_strength: material.occlusion_strength,
-            padding: [0.0; 3],
+            unlit: if material.unlit { 1.0 } else { 0.0 },
+            padding: [0.0; 2],
         }
     }
 }

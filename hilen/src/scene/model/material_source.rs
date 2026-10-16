@@ -21,6 +21,8 @@ pub(crate) struct MaterialSource {
     pub occlusion_strength: f32,
     /// The alpha cutoff of a masked material.
     pub cutout:             Option<f32>,
+    /// `KHR_materials_unlit`, the base color drawn with no light.
+    pub unlit:              bool,
 }
 
 pub(crate) fn material_source(material: &gltf::Material) -> Option<MaterialSource> {
@@ -49,6 +51,7 @@ pub(crate) fn material_source(material: &gltf::Material) -> Option<MaterialSourc
         occlusion: occlusion.as_ref().map(|occlusion| occlusion.texture().source().index()),
         occlusion_strength: occlusion.map_or(1.0, |occlusion| occlusion.strength()),
         cutout,
+        unlit: material.unlit(),
     })
 }
 
@@ -74,5 +77,19 @@ mod test {
         assert_eq!(material.metallic_roughness, Some(0));
         assert_eq!(material.occlusion, Some(0));
         assert_eq!(material.occlusion_strength, 1.0);
+        assert!(!material.unlit);
+    }
+
+    // The fixture of `deps/models/make_unlit_quad.ts`, a red quad whose
+    // material is marked `KHR_materials_unlit`.
+    #[test]
+    fn unlit_quad_reads_as_unlit() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets/models/unlit_quad.glb");
+        let data = fs::read(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+        let model = parse_glb(&data, "unlit_quad.glb").unwrap();
+
+        let material = model.parts[0].material.expect("the quad has a material");
+        assert!(material.unlit);
+        assert_eq!(material.texture, None);
     }
 }

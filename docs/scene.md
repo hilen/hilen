@@ -189,7 +189,9 @@ file at its own size and with its own materials. `set_scale` sizes a node unifor
 on top of that, so a model in other units fits the scene, the collider and picking
 follow. A primitive without a material
 takes the node's `Material`. A material with `alphaMode` `MASK` loads as a cutout
-with its `alphaCutoff`, `BLEND` as translucent. `doubleSided` is not read, back
+with its `alphaCutoff`, `BLEND` as translucent. A material marked
+`KHR_materials_unlit` loads as `unlit`, `unlit_quad.glb` is the fixture and
+`deps/models/make_unlit_quad.ts` makes it with Bun. `doubleSided` is not read, back
 faces are always culled. The collider is the box around the model's `bounds`,
 placed where the bounds are, so a model whose origin sits at its feet still rests
 on the floor. A primitive over 65535 vertices is split into parts so every lane
@@ -234,7 +236,10 @@ tangent space with green up, the glTF convention, and `normal_scale` for its
 depth. `emissive` makes a node glow by its own color: its base color
 times the value is added to what the lights give it, so 1 shows the full color
 even at night. It lights nothing around it, a point light does that, the flames
-of a campfire are both. No tangents are stored, the shader builds the frame from the screen
+of a campfire are both. `unlit`, or `set_unlit(true)` on a node, draws the base color
+times the texture as it is, with no light and no shadow on it, only the fog over it.
+A photo scan carries its light in its texture already. The `Unlit` scene test
+keeps a red box red under a blue sun. No tangents are stored, the shader builds the frame from the screen
 derivatives of the position and the uv. A `color` with alpha below one makes the
 node translucent, see below.
 

@@ -41,6 +41,11 @@ pub struct Material {
     /// and lamps glow this way. It lights nothing around it, a point
     /// light does that.
     pub emissive:               f32,
+    /// Draws the color times the texture as it is, with no light and no
+    /// shadow on it, what `KHR_materials_unlit` of glTF asks. A photo
+    /// scan carries its light in its texture already. The fog still
+    /// covers it.
+    pub unlit:                  bool,
     /// Cuts the shape of the alpha out of the node, leaves on a quad: a
     /// fragment whose alpha, the color's times the texel's, is under
     /// this is not drawn at all, and the rest draws solid, with depth,
@@ -67,6 +72,7 @@ impl Default for Material {
             occlusion_map:          None,
             occlusion_strength:     1.0,
             emissive:               0.0,
+            unlit:                  false,
             cutout:                 None,
         }
     }

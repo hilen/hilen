@@ -95,7 +95,7 @@ ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "44662c2ba
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
 glam = { version = "0.33", features = ["bytemuck"] }
-gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names", "KHR_materials_unlit"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 futures-channel = "0.3"
 futures-util = "0.3"

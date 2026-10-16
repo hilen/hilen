@@ -119,6 +119,7 @@ impl Model {
                     occlusion_map:          material.occlusion.map(|index| images[index]),
                     occlusion_strength:     material.occlusion_strength,
                     emissive:               0.0,
+                    unlit:                  material.unlit,
                     cutout:                 material.cutout,
                 }),
             })

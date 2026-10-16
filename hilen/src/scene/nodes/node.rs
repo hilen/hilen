@@ -179,6 +179,8 @@ pub trait NodeTemplates {
     fn set_roughness(&mut self, _: impl ToF32) -> &mut Self;
     /// How much the node glows by its own color, see `Material::emissive`.
     fn set_emissive(&mut self, _: impl ToF32) -> &mut Self;
+    /// Draws the node with no light on it, see `Material::unlit`.
+    fn set_unlit(&mut self, unlit: bool) -> &mut Self;
     /// Cuts the node out by its alpha, fragments under `threshold` are
     /// not drawn, see `Material::cutout`.
     fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self;
@@ -251,6 +253,11 @@ impl<T: ?Sized + Node> NodeTemplates for T {
 
     fn set_emissive(&mut self, emissive: impl ToF32) -> &mut Self {
         self.material.emissive = emissive.to_f32();
+        self
+    }
+
+    fn set_unlit(&mut self, unlit: bool) -> &mut Self {
+        self.material.unlit = unlit;
         self
     }
 

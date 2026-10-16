@@ -15,6 +15,7 @@ struct MeshInstance {
     emissive: f32,
     cutout: f32,
     occlusion_strength: f32,
+    unlit: f32,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -422,6 +423,11 @@ fn lit(in: VertexOutput) -> vec4<f32> {
 
     // Its own glow, the base color the lights would have shown.
     color += base * instance.emissive;
+
+    // An unlit node shows its base color alone. A select and not an early
+    // return: the flag differs per instance, and the derivatives above
+    // need every fragment to take the same path.
+    color = select(color, base, instance.unlit > 0.5);
 
     return vec4<f32>(encode(fogged(color, world_pos)), alpha);
 }
