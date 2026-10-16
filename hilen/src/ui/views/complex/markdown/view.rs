@@ -377,6 +377,9 @@ impl MarkdownView {
         if let Some(line_height) = style.line_height_for(size) {
             label.set_line_height(line_height);
         }
+        // A table drawn with box chars stands only when the line breaks
+        // stay, and then its lines join like in a terminal.
+        label.set_joins_box_chars(style.keeps_line_breaks);
         label.set_font(if heading { fonts.bold } else { fonts.regular });
         label.set_text(&text.text);
         label.set_text_color(color);
@@ -479,6 +482,7 @@ impl MarkdownView {
             .set_alignment(TextAlignment::Left)
             .set_vertical_alignment(VerticalAlignment::Top);
         label.set_font(style.fonts().mono);
+        label.set_joins_box_chars(true);
         label.set_text(code);
         label.set_text_color(column.color);
         if let Some(mut highlighter) = CodeHighlighter::for_language(language) {

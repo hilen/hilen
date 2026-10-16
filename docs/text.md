@@ -233,6 +233,34 @@ in the unit of the layout, points in a measure and pixels in the drawer, so both
 agree. The lines of a grid label are 1 cell high unless `set_line_height` says more.
 A row of a terminal is 1 such label, 1 cell high. `Label cell grid` pins it.
 
+## Box chars that join
+
+`Label::set_joins_box_chars(true)` draws every box char, U+2500 to U+257F, over its
+whole cell the way a terminal does: from the top of its line to the top of the next,
+and from its left edge to the next char. So the lines of a table drawn with box chars
+join above, below, left and right, at any text size and line height. Off by default.
+A `MarkdownView` turns it on in every code block, and in a text when
+`keeps_line_breaks` is set.
+
+2 things broke such a table before:
+
+- All glyphs of 1 label share 1 depth, and the brush writes depth over the whole box of
+  a glyph. A box char that reaches into the next cell lost its pixels where the box of
+  the glyph drawn before it lay, so every `─` and `│` came out dashed.
+- A font whose `│` is shorter than its line pitch, or a line height taller than the
+  glyph, left a real gap on every row.
+
+`box_chars.rs` in `window/text` reads the x bounds of `─` and the y bounds of `│` of a
+font and stretches each box glyph over its cell, with the cell edges on whole pixels
+and 0.25 pixel past each edge. `ShapedLayout` hands the brush the text without the
+fitted glyphs, and `label_drawer.rs` adds 4 more layers after the text, by row and
+column parity, each 1 `LAYER_STEP` nearer. So 2 neighbors, also on a diagonal, never
+share a layer and both draw whole. Where 2 strokes overlap, the soft edge of a stroke
+is blended twice and shows a faint darker dot, never a gap. A font with no `─` or no
+`│` keeps its box chars as they are. A hard text shadow draws them unfitted.
+`Markdown box chars` pins it with 4 tables in 2 fonts, `0xProtoBoxChars.ttf` is a
+subset of 0xProto for that test.
+
 ## Font runs
 
 `Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,

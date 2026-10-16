@@ -1,3 +1,4 @@
+mod box_chars;
 mod color_glyph;
 mod fallback;
 mod font;
@@ -9,6 +10,7 @@ mod system_emoji;
 mod system_fallback;
 mod text_layout;
 
+pub(crate) use box_chars::{BOX_LAYERS, BoxChars, BoxFrame, box_layer, fit_box, is_box_char};
 pub(crate) use fallback::runs_with_fallbacks;
 pub use font::*;
 pub(crate) use measure_cache::*;

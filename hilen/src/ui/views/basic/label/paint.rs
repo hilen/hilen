@@ -17,6 +17,7 @@ impl Label {
             .hash(&self.max_lines)
             .hash(&discriminant(&self.ellipsize))
             .hash(&discriminant(&self.placing))
+            .hash(&self.box_chars)
             .pod(&self.text_color)
             .pod(&self.text_size)
             .pod(&self.letter_spacing)

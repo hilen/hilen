@@ -29,8 +29,8 @@ use crate::{
     window::{
         msaa_sample_count, surface_texture_format,
         text::{
-            MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, Shaping, TextLayout,
-            VerticalAlign,
+            BoxChars, BoxFrame, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, Shaping,
+            TextLayout, VerticalAlign,
             color_glyph::{self, ColorGlyph},
             system_emoji,
         },
@@ -67,6 +67,8 @@ pub struct Font {
     /// The font has COLR layers or PNG strikes, so some of its glyphs
     /// draw as color images. Plain fonts skip the per glyph lookup.
     has_color:      bool,
+    /// What the box chars of the font fill, `None` when it has none.
+    box_frame:      Option<BoxFrame>,
     /// Rasters by glyph and pixel size, `None` for a glyph whose color
     /// data failed to render so it is not retried every frame.
     color_glyphs:   MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
@@ -124,6 +126,7 @@ impl Font {
 
         let tables = face.tables();
         let has_color = tables.colr.is_some() || tables.cbdt.is_some() || tables.sbix.is_some();
+        let box_frame = BoxFrame::of(&face);
 
         let brush = Self::make_brush(&font, stem_darkening);
         Ok(Self {
@@ -142,6 +145,7 @@ impl Font {
             shape_cache: MainLock::new(),
             measure_cache: MainLock::new(),
             has_color,
+            box_frame,
             color_glyphs: MainLock::new(),
             first_batch: true,
         })
@@ -239,6 +243,10 @@ impl Font {
         self.has_color
     }
 
+    pub(crate) fn box_frame(&self) -> Option<BoxFrame> {
+        self.box_frame
+    }
+
     /// Whether glyph `id` at `px_per_em` draws as a color image through
     /// the image pipeline instead of through the brush.
     pub(crate) fn is_color_glyph(&self, id: u16, px_per_em: f32) -> bool {
@@ -266,6 +274,7 @@ impl Font {
             runs:        shaping.runs,
             secret:      shaping.secret,
             grid:        shaping.grid,
+            box_chars:   BoxChars::Glyphs,
         }
     }
 

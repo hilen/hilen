@@ -20,7 +20,7 @@ use crate::{
         Label, TextAlignment, UIManager, VerticalAlignment, ViewFrame,
         ui_drawer::{IMAGE_RECT_DRAWER, UIDrawer},
     },
-    window::{Font, ShapedLayout, ShapedParams, VerticalAlign},
+    window::{BOX_LAYERS, BoxChars, Font, ShapedLayout, ShapedParams, VerticalAlign, is_box_char},
 };
 
 /// How much nearer each layer of an outlined text sits than the one before,
@@ -82,6 +82,7 @@ impl UIDrawer {
             runs:        label.shaping_runs(text),
             secret:      label.is_secret(),
             grid:        label.cell_width().map(|width| width * scale),
+            box_chars:   label.box_chars(),
         }
     }
 
@@ -189,6 +190,34 @@ impl UIDrawer {
         }
     }
 
+    /// Box chars that fill their cells overlap the cells next to them, and
+    /// a glyph is cut where the box of a glyph drawn before it at the same
+    /// depth lies. So they go in layers after the text, each nearer than
+    /// the one before, and no 2 neighbors share a layer.
+    fn push_box_layers<'a>(
+        layers: &mut Vec<(Section<'a>, ShapedParams)>,
+        section: &Section<'a>,
+        params: &ShapedParams,
+        text: &str,
+        text_z: f32,
+    ) {
+        if params.box_chars != BoxChars::Fitted || !text.chars().any(is_box_char) {
+            return;
+        }
+        for layer in 0..BOX_LAYERS {
+            let mut copy = section.clone();
+            let forward = f32::from(layer + 1);
+            for piece in &mut copy.text {
+                piece.extra.z = text_z - forward * LAYER_STEP;
+            }
+            let fitted = ShapedParams {
+                box_chars: BoxChars::Layer(layer),
+                ..params.clone()
+            };
+            layers.push((copy, fitted));
+        }
+    }
+
     pub(super) fn draw_label<'a>(
         frame: &Rect,
         label: &'a Label,
@@ -274,7 +303,11 @@ impl UIDrawer {
         // layers start where plain text sits and the text itself comes
         // forward. 3 layers stay far inside the gap to the next view.
         let under = under_layers(label, scale);
-        let mut layers = Vec::with_capacity(under.len() + 1);
+        let mut layers = Vec::with_capacity(under.len() + 1 + usize::from(BOX_LAYERS));
+        let plain = ShapedParams {
+            box_chars: BoxChars::Glyphs,
+            ..params.clone()
+        };
         for (index, (color, offset, kind)) in under.iter().enumerate() {
             if !matches!(kind, Under::Plain) {
                 continue;
@@ -284,12 +317,13 @@ impl UIDrawer {
                 .with_scale(scale_px)
                 .with_color(color.faded(opacity).as_slice())
                 .with_z(z - forward * LAYER_STEP);
-            layers.push(
+            layers.push((
                 Section::new()
                     .add_text(copy)
                     .with_bounds(bounds)
                     .with_screen_position((position.0 + offset.x, position.1 + offset.y)),
-            );
+                plain.clone(),
+            ));
         }
         if !under.is_empty() {
             let forward: f32 = under.len().lossy_convert();
@@ -297,7 +331,10 @@ impl UIDrawer {
                 piece.extra.z = z - forward * LAYER_STEP;
             }
         }
-        layers.push(section);
+
+        let text_z = section.text.first().map_or(z, |piece| piece.extra.z);
+        layers.push((section.clone(), params.clone()));
+        Self::push_box_layers(&mut layers, &section, &params, text, text_z);
 
         // A font run draws through its own font's brush, so the section
         // is queued once per font it touches. Every copy lays the whole
@@ -310,7 +347,7 @@ impl UIDrawer {
         }
 
         for font in fonts {
-            let queued = layers.iter().map(|layer| (layer.clone(), params.clone()));
+            let queued = layers.iter().cloned();
             match sections.iter_mut().find(|(f, _)| f.name == font.name) {
                 Some((_, list)) => list.extend(queued),
                 None => sections.push((font, queued.collect())),

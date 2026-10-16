@@ -16,7 +16,7 @@ use crate::{
     gm::LossyConvert,
     window::{
         Font,
-        text::{TextLayout, TextLine},
+        text::{BoxChars, TextLayout, TextLine, box_layer, fit_box},
     },
     wipe::joined,
 };
@@ -76,6 +76,9 @@ pub(crate) struct ShapedParams {
     /// one and none for a mark that joins the char before it, whatever
     /// the advance of its glyph is. `None` for text that flows.
     pub grid:        Option<f32>,
+    /// Whether the box chars fill their cells and which of them the
+    /// brush gets, see `Label::set_joins_box_chars`.
+    pub box_chars:   BoxChars,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -100,6 +103,7 @@ impl Hash for ShapedLayout<'_> {
         self.params.multiline.hash(state);
         self.params.line_height.map(f32::to_bits).hash(state);
         self.params.grid.map(f32::to_bits).hash(state);
+        self.params.box_chars.hash(state);
         (self.params.h_align as u8).hash(state);
         self.params.v_align.hash(state);
         for run in &self.params.runs {
@@ -146,6 +150,8 @@ struct PlacedGlyph {
     cluster: usize,
     x:       f32,
     y:       f32,
+    /// The scale and the layer of a box char stretched over its cell.
+    fit:     Option<(PxScale, u8)>,
 }
 
 /// A color glyph of a laid out text, the emoji of a color font, which
@@ -490,10 +496,15 @@ impl ShapedLayout<'_> {
 
         let line_height = self.line_pitch(&scaled);
         let mut baseline = self.first_baseline(&scaled, screen.1, lines.len());
+        let fits = self.params.box_chars != BoxChars::Glyphs;
+        // From the top of a line box down to its baseline.
+        let rise = self.params.line_height.map_or(scaled.ascent(), |height| {
+            (height - (scaled.ascent() - scaled.descent())) / 2.0 + scaled.ascent()
+        });
 
         let mut result = vec![];
 
-        for line in lines {
+        for (line_index, line) in lines.into_iter().enumerate() {
             let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
 
             let mut x = match self.params.h_align {
@@ -502,13 +513,21 @@ impl ShapedLayout<'_> {
                 HorizontalAlign::Right => screen.0 - line_width,
             };
 
-            for glyph in line.glyphs {
+            for (place, glyph) in line.glyphs.into_iter().enumerate() {
+                let cell = (x, baseline - rise, glyph.x_advance, line_height);
+                let fitted = fits.then(|| fit_box(&text[glyph.cluster..], &sources[glyph.source].font, cell));
+                let fitted = fitted.flatten();
+                let (at, fit) = match fitted {
+                    Some((scale, origin)) => (origin, Some((scale, box_layer(line_index, place)))),
+                    None => (point(x + glyph.x_offset, baseline - glyph.y_offset), None),
+                };
                 result.push(PlacedGlyph {
-                    source:  glyph.source,
-                    id:      glyph.id,
+                    source: glyph.source,
+                    id: glyph.id,
                     cluster: glyph.cluster,
-                    x:       x + glyph.x_offset,
-                    y:       baseline - glyph.y_offset,
+                    x: at.x,
+                    y: at.y,
+                    fit,
                 });
                 x += glyph.x_advance;
             }
@@ -569,7 +588,7 @@ impl ShapedLayout<'_> {
                         source.font,
                         Glyph {
                             id:       GlyphId(placed.id),
-                            scale:    source.scale,
+                            scale:    placed.fit.map_or(source.scale, |(scale, _)| scale),
                             position: point(snap_to_cache(placed.x), snap_to_cache(placed.y)),
                         },
                     )
@@ -738,6 +757,17 @@ impl GlyphPositioner for ShapedLayout<'_> {
             if source.font.name != self.emit || source.font.is_color_glyph(placed.id, source.px_per_em) {
                 continue;
             }
+            // The fitted box chars of a label go to the brush in their own
+            // layers, see `UIDrawer::draw_label`.
+            let layer = placed.fit.map(|(_, layer)| layer);
+            let emits = match self.params.box_chars {
+                BoxChars::Glyphs => true,
+                BoxChars::Fitted => layer.is_none(),
+                BoxChars::Layer(wanted) => layer == Some(wanted),
+            };
+            if !emits {
+                continue;
+            }
 
             let section_index = starts.partition_point(|start| *start <= placed.cluster).saturating_sub(1);
 
@@ -746,7 +776,7 @@ impl GlyphPositioner for ShapedLayout<'_> {
                 byte_index: placed.cluster - starts[section_index],
                 glyph: Glyph {
                     id:       GlyphId(placed.id),
-                    scale:    source.scale,
+                    scale:    placed.fit.map_or(source.scale, |(scale, _)| scale),
                     position: point(snap_to_cache(placed.x), snap_to_cache(placed.y)),
                 },
                 font_id: first.font_id,

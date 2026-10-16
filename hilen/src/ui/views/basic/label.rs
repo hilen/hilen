@@ -1,3 +1,4 @@
+mod box_chars;
 mod paint;
 
 use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
@@ -22,7 +23,7 @@ use crate::{
             label_style::{TextOutline, TextShadow},
         },
     },
-    window::{Font, Shaping, TextLayout, image::ToImage},
+    window::{BoxChars, Font, Shaping, TextLayout, image::ToImage},
     wipe::joined,
 };
 
@@ -132,6 +133,9 @@ pub struct Label {
 
     /// Whether the text sits on a cell grid, see `set_cell_grid`.
     placing: Placing,
+
+    /// `Fitted` when box chars fill their cells, see `set_joins_box_chars`.
+    box_chars: BoxChars,
 
     /// Byte ranges drawn in their own font or underlined, sorted and not
     /// overlapping. See `set_font_runs`.
