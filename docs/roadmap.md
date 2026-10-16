@@ -19,6 +19,51 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A home screen and lock screen widget on iOS
+
+Found by nome, `~/dev/apps/nome`, a metronome, on 2026-10-16, on hilen `6f961029`. A
+user asked for a widget on the lock screen that works like a remote: Start, Stop and
+the BPM, with the phone locked.
+
+- Current: `hilen-mobile` at `~/dev/hilen-mobile` makes an Xcode project with 1
+  Objective-C target, `main.m` calls `hilen_start_app`. It has no Swift, no widget
+  extension target and no App Group, a grep of its source for `swift`, `appex` and
+  `extension` finds nothing. An app has no way to take an App Intent from Swift into
+  Rust. The generated `Info.plist` has no `UIBackgroundModes` with `audio`, so the
+  sound of an app stops when the phone locks, see the entry "Video on iOS, the proof
+  on a phone".
+- Needed: a knob in `hilen.toml` that adds a WidgetKit extension to the generated
+  project, iOS 17 or newer for buttons, while the app keeps its own minimum. The
+  widget shows values the app writes into a shared App Group store, like the BPM and
+  whether it plays, and its buttons run App Intents. An intent that adopts
+  `AudioPlaybackIntent` runs in the process of the app, started in the background,
+  and calls a Rust handler that the app registers, like `start`, `stop` and `bpm+5`.
+  The intent code must be in both the app target and the extension target, else
+  background audio fails on a device while the simulator hides it, see
+  [Apple forum 736445](https://developer.apple.com/forums/thread/736445). The
+  `audio` background mode comes with the same work. Apple must not ask for an unlock
+  before the intent runs, see `IntentAuthenticationPolicy`. A lock screen widget, the
+  `accessoryRectangular` family, and a home screen widget come from 1 code. The proof
+  is a tap on a button of the lock screen widget of a locked iPhone that starts the
+  sound, then the same in the simulator. Android and macOS widgets are later entries.
+- Blocks: the lock screen remote of nome.
+
+## A picker of the sound output, AirPlay on Apple
+
+Found by nome, `~/dev/apps/nome`, on 2026-10-16, on hilen `6f961029`. A user wants the
+metronome to play on a HomePod, from a button inside the app.
+
+- Current: a grep for `airplay` and `AVRoutePicker` in `docs` and `hilen/src` finds
+  nothing. The `audio` feature plays on the default output of the system, kira opens
+  it in `hilen/src/audio/manager.rs`, and an app cannot see or pick another output.
+- Needed: 1 view that opens a picker of the sound output on every platform. On iOS
+  and macOS it is the system AirPlay list, `AVRoutePickerView`, the only public way to
+  reach a HomePod. On Android the system output switcher. On Windows, Linux and in a
+  browser a list of the output devices that the engine draws, which moves the output
+  of kira to the picked device, and `selectAudioOutput` in a browser that has it. A
+  UI test for the drawn list, and a check by hand on an iPhone with a HomePod.
+- Blocks: playing nome on a HomePod.
+
 ## The metallic and roughness texture of a glTF material
 
 Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
