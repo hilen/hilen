@@ -2,6 +2,7 @@ mod drag_scrolling;
 mod drop_first_cells;
 mod emptied;
 mod footer;
+mod footer_view;
 mod infinite_scroll;
 mod keeps_end;
 mod long_table;

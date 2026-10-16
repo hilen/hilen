@@ -56,7 +56,12 @@ pub struct TableView {
 
     pub(super) header_height: f32,
     pub(super) footer_height: f32,
+    /// The views in the scroll content that are no cells: the header
+    /// views and the footer view.
     pub(super) header_views:  Vec<WeakView>,
+
+    /// The view under the last row, see `add_footer_view`.
+    pub(super) footer_view: Option<WeakView>,
 
     /// The header view that sticks to the top, with its top in the
     /// content and its height, see `add_sticky_header_view`.
@@ -184,9 +189,9 @@ impl TableView {
         self
     }
 
-    /// Empty space after the last row, so the content can scroll past it
-    /// by this much. Gives the bottom of a list the same breathing room
-    /// the cell spacing gives every other row.
+    /// Space after the last row, so the content can scroll past it by
+    /// this much. Gives the bottom of a list the same breathing room the
+    /// cell spacing gives every other row, and holds the footer view.
     pub fn set_footer_height(&mut self, height: impl ToF32) -> &mut Self {
         self.footer_height = height.to_f32();
         self.layout_cells(LayoutMode::Full);
@@ -199,6 +204,19 @@ impl TableView {
     pub fn add_header_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
         let view = self.scroll.add_view::<T>();
         self.header_views.push(view.weak_view());
+        view
+    }
+
+    /// A view in the footer, right under the last row, as wide as the
+    /// table and as tall as `set_footer_height`. It scrolls with the rows
+    /// and stays under the last one when rows come or go, the columns
+    /// change or a row changes its height. With no rows it sits right
+    /// under the header. The table sets its frame, so it takes no
+    /// `place()` rules, its own subviews do. Call it once per table.
+    pub fn add_footer_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
+        let view = self.add_header_view::<T>();
+        self.footer_view = Some(view.weak_view());
+        self.layout_cells(LayoutMode::Full);
         view
     }
 

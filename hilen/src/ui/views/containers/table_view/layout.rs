@@ -78,6 +78,18 @@ impl TableView {
         let width = self.width();
         self.scroll.set_content_height(self.header_height + self.footer_height);
         self.scroll.set_content_width(width);
+        self.place_footer(self.header_height);
+    }
+
+    /// Puts the footer view at `top` of the content, the end of the rows.
+    fn place_footer(&self, top: f32) {
+        let Some(view) = self.footer_view else {
+            return;
+        };
+        if view.is_null() {
+            return;
+        }
+        view.set_frame((0.0, top, self.width(), self.footer_height));
     }
 
     pub(super) fn layout_fixed_cells(&mut self, number_of_cells: usize, columns: usize, mode: LayoutMode) {
@@ -95,6 +107,7 @@ impl TableView {
 
         self.scroll.set_content_height(total_height);
         self.scroll.set_content_width(width);
+        self.place_footer(rows.total() + header);
 
         let offset = self.scroll.get_scroll_content_offset();
         let top = -offset - header;
