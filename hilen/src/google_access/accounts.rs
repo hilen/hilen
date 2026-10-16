@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{any::type_name, collections::HashMap};
 
 use anyhow::{Context, Result, anyhow, bail};
 use hilen_session::SecretStore;
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, from_str, from_value, to_string};
 
 use crate::{
@@ -185,13 +185,13 @@ impl GoogleAccounts {
         let token = Self::access_token(&main.subject).await.map_err(anyhow::Error::new)?;
         let drive = Drive::new(token);
 
-        let files = drive.find().await?;
+        let files = drive.find(VAULT_FILE).await?;
         let mut remote = Vault::new();
         // What the file that is kept holds now. The other files, made when 2
         // devices started at the same moment, are only read.
         let mut first = Vault::new();
         for (index, file) in files.iter().enumerate() {
-            match drive.read(file).await {
+            match drive.read::<Vault>(file).await {
                 Ok(vault) => {
                     if index == 0 {
                         first = vault.clone();
@@ -213,7 +213,7 @@ impl GoogleAccounts {
         if merged != first {
             let file = match files.first() {
                 Some(file) => file.clone(),
-                None => drive.create().await?,
+                None => drive.create(VAULT_FILE).await?,
             };
             drive.write(&file, &merged).await?;
             log::info!("the accounts file in the Drive folder is updated");
@@ -222,6 +222,44 @@ impl GoogleAccounts {
         let all = Self::all();
         log::info!("google accounts synced, {} linked", all.len().saturating_sub(1));
         Ok(all)
+    }
+
+    /// The app's own JSON file `name` in the Drive folder of the main
+    /// account, `None` when no device saved it yet. Every device of the user
+    /// reads the same file.
+    pub async fn app_data<T: DeserializeOwned>(name: &str) -> Result<Option<T>> {
+        let drive = Self::app_drive(name).await?;
+        let Some(file) = drive.find(name).await?.into_iter().next() else {
+            log::debug!("the app file {name} is not in the Drive folder yet");
+            return Ok(None);
+        };
+        drive.read(&file).await.map(Some)
+    }
+
+    /// Writes the app's own file `name`, and makes it when it is missing. The
+    /// last write wins, 2 devices that save at the same moment do not merge.
+    pub async fn save_app_data<T: Serialize>(name: &str, data: &T) -> Result<()> {
+        let drive = Self::app_drive(name).await?;
+        let file = match drive.find(name).await?.into_iter().next() {
+            Some(file) => file,
+            None => drive.create(name).await?,
+        };
+        drive.write(&file, data).await?;
+        log::info!("the app file {name} in the Drive folder is saved");
+        Ok(())
+    }
+
+    /// The Drive folder with the token of the main account, for an app file.
+    /// The name goes into a Drive query as it is, so it keeps to plain
+    /// characters, and the accounts file is not the app's to touch.
+    async fn app_drive(name: &str) -> Result<Drive> {
+        let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+        if name.is_empty() || !plain || name == VAULT_FILE {
+            bail!("{name:?} can not name an app file in the Drive folder");
+        }
+        let main = stored_main().context("nobody is signed in")?;
+        let token = Self::access_token(&main.subject).await.map_err(anyhow::Error::new)?;
+        Ok(Drive::new(token))
     }
 
     /// An access token of this account that is good for at least a minute.
@@ -352,7 +390,7 @@ fn keep_token(account: &GoogleAccount) {
 }
 
 /// The 4 calls to the app folder of Google Drive, with the access token of
-/// the main account.
+/// the main account. They serve the accounts file and the files of the app.
 struct Drive {
     url:   String,
     token: String,
@@ -369,45 +407,54 @@ struct File {
     id: String,
 }
 
+#[derive(Serialize)]
+struct NewFile<'a> {
+    name:    &'a str,
+    parents: [&'static str; 1],
+}
+
 impl Drive {
     fn new(token: String) -> Self {
         let url = STATE.lock().drive_url.clone().unwrap_or_else(|| DRIVE_URL.to_owned());
         Self { url, token }
     }
 
-    /// The ids of the accounts files, oldest first. There is 1, or 2 right
-    /// after 2 devices made it at the same moment.
-    async fn find(&self) -> Result<Vec<String>> {
+    /// The ids of the files with this name, oldest first. There is 1, or 2
+    /// right after 2 devices made it at the same moment.
+    async fn find(&self, name: &str) -> Result<Vec<String>> {
         let call = Call::get(format!(
-            "{}/drive/v3/files?spaces=appDataFolder&orderBy=createdTime&fields=files(id)&q=name%3D%27{VAULT_FILE}%27",
+            "{}/drive/v3/files?spaces=appDataFolder&orderBy=createdTime&fields=files(id)&q=name%3D%27{name}%27",
             self.url
         ));
         let list: FileList = self.send(call).await?;
         Ok(list.files.into_iter().map(|file| file.id).collect())
     }
 
-    async fn read(&self, file: &str) -> Result<Vault> {
+    async fn read<T: DeserializeOwned>(&self, file: &str) -> Result<T> {
         let call = Call::get(format!("{}/drive/v3/files/{file}?alt=media", self.url));
         let json: Value = self.send(call).await.map_err(without_body)?;
-        // The error of a parse straight from the body would carry the tokens.
-        from_value(json).ok().context("the accounts file is not a vault")
+        // The error of a parse straight from the body would carry its secrets,
+        // the tokens of the accounts file or what an app keeps.
+        from_value(json)
+            .ok()
+            .with_context(|| format!("the Drive file {file} is not a {}", type_name::<T>()))
     }
 
-    async fn create(&self) -> Result<String> {
-        let call = Call::post(format!("{}/drive/v3/files?fields=id", self.url)).body(serde_json::json!({
-            "name": VAULT_FILE,
-            "parents": ["appDataFolder"],
-        }));
+    async fn create(&self, name: &str) -> Result<String> {
+        let call = Call::post(format!("{}/drive/v3/files?fields=id", self.url)).body(&NewFile {
+            name,
+            parents: ["appDataFolder"],
+        });
         let file: File = self.send(call).await?;
         Ok(file.id)
     }
 
-    async fn write(&self, file: &str, vault: &Vault) -> Result<()> {
+    async fn write<T: Serialize>(&self, file: &str, data: &T) -> Result<()> {
         let call = Call::patch(format!(
             "{}/upload/drive/v3/files/{file}?uploadType=media&fields=id",
             self.url
         ))
-        .body(vault);
+        .body(data);
         let _: File = self.send(call).await?;
         Ok(())
     }
@@ -422,10 +469,10 @@ impl Drive {
 }
 
 /// An error of a request names the body it could not parse, and the body of
-/// the accounts file holds tokens.
+/// a Drive file holds tokens or other secrets.
 fn without_body(error: anyhow::Error) -> anyhow::Error {
     match error.downcast::<RequestError>() {
-        Ok(RequestError::Parse { expected, .. }) => anyhow!("the accounts file is not {expected}"),
+        Ok(RequestError::Parse { expected, .. }) => anyhow!("the Drive file is not {expected}"),
         Ok(error) => error.into(),
         Err(error) => error,
     }

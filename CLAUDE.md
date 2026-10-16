@@ -206,7 +206,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/google-access.md](docs/google-access.md) — Google API access with the tokens on the device:
   the 1 Web client on the backend, the sealed hand over between `hilen::google_access` and
   `hilen_server::google_access`, the refresh that stores nothing, `GoogleAccounts` with a main
-  account and linked accounts in the Drive app folder, and `SecretStore`. Read before touching
+  account and linked accounts in the Drive app folder, app files in the same folder with
+  `app_data` and `save_app_data`, and `SecretStore`. Read before touching
   those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
 - [docs/table.md](docs/table.md) — `TableView` inside: what a layout keeps, the 3 layout
   modes, `reload_cell`, `load_new_cells` and `drop_first_cells`, and `set_keeps_end` of

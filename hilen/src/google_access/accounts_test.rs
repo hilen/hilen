@@ -2,6 +2,7 @@
 //! `hilen-server` and a stand in for the app folder of Google Drive.
 
 use std::{
+    collections::HashMap,
     env::temp_dir,
     sync::{Arc, Mutex},
 };
@@ -9,11 +10,12 @@ use std::{
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     routing::{get, patch},
 };
 use hilen_session::{SecretStore, SessionStore};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use serial_test::serial;
 
@@ -22,12 +24,27 @@ use crate::google_access::{
     client::test::{backend, serve_on_a_free_port},
 };
 
-/// The accounts files of the folder, id and content, and how often one was
+/// The files of the folder, id, name and content, and how often one was
 /// written.
 #[derive(Default)]
 struct Folder {
-    files:  Vec<(String, Value)>,
+    files:  Vec<(String, String, Value)>,
     writes: u32,
+}
+
+impl Folder {
+    fn content(&self, name: &str) -> Vec<String> {
+        self.files
+            .iter()
+            .filter(|(_, have, _)| have == name)
+            .map(|(_, _, content)| content.to_string())
+            .collect()
+    }
+}
+
+#[derive(Deserialize)]
+struct NewFile {
+    name: String,
 }
 
 type Drive = Arc<Mutex<Folder>>;
@@ -43,18 +60,36 @@ fn allowed(headers: &HeaderMap) -> Result<(), StatusCode> {
     }
 }
 
-async fn list(State(drive): State<Drive>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+/// Drive takes a query like `name='accounts.json'` and lists only those.
+async fn list(
+    State(drive): State<Drive>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
     allowed(&headers)?;
+    let name = query
+        .get("q")
+        .and_then(|q| q.strip_prefix("name='")?.strip_suffix('\''))
+        .ok_or(StatusCode::BAD_REQUEST)?;
     let folder = drive.lock().expect("the test lock");
-    let files: Vec<Value> = folder.files.iter().map(|(id, _)| json!({ "id": id })).collect();
+    let files: Vec<Value> = folder
+        .files
+        .iter()
+        .filter(|(_, have, _)| have == name)
+        .map(|(id, _, _)| json!({ "id": id }))
+        .collect();
     Ok(Json(json!({ "files": files })))
 }
 
-async fn create(State(drive): State<Drive>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
+async fn create(
+    State(drive): State<Drive>,
+    headers: HeaderMap,
+    Json(file): Json<NewFile>,
+) -> Result<Json<Value>, StatusCode> {
     allowed(&headers)?;
     let mut folder = drive.lock().expect("the test lock");
     let id = format!("file-{}", folder.files.len() + 1);
-    folder.files.push((id.clone(), Value::Null));
+    folder.files.push((id.clone(), file.name, Value::Null));
     Ok(Json(json!({ "id": id })))
 }
 
@@ -65,8 +100,12 @@ async fn read(
 ) -> Result<Json<Value>, StatusCode> {
     allowed(&headers)?;
     let folder = drive.lock().expect("the test lock");
-    let file = folder.files.iter().find(|(have, _)| *have == id).ok_or(StatusCode::NOT_FOUND)?;
-    Ok(Json(file.1.clone()))
+    let file = folder
+        .files
+        .iter()
+        .find(|(have, _, _)| *have == id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(file.2.clone()))
 }
 
 async fn write(
@@ -81,9 +120,9 @@ async fn write(
     let file = folder
         .files
         .iter_mut()
-        .find(|(have, _)| *have == id)
+        .find(|(have, _, _)| *have == id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    file.1 = content;
+    file.2 = content;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -186,7 +225,7 @@ async fn linked_accounts_follow_the_main_account_to_another_device() -> Result<(
     // Device 2 unlinks one. Its token is gone from the folder.
     GoogleAccounts::unlink("work").await?;
     assert_eq!(emails(), ["main@example.com", "club@example.com"]);
-    let stored = drive.lock().expect("the test lock").files[0].1.to_string();
+    let stored = drive.lock().expect("the test lock").files[0].2.to_string();
     assert!(!stored.contains("refresh-work"), "{stored}");
     assert!(stored.contains("refresh-club"));
 
@@ -206,7 +245,7 @@ async fn linked_accounts_follow_the_main_account_to_another_device() -> Result<(
     assert!(GoogleAccounts::sync().await.is_err());
     assert!(
         drive.lock().expect("the test lock").files[0]
-            .1
+            .2
             .to_string()
             .contains("refresh-club")
     );
@@ -232,7 +271,11 @@ async fn two_files_from_two_devices_become_one_list() -> Result<()> {
             "subject": subject, "email": format!("{subject}@example.com"), "name": null, "picture": null,
             "refresh_token": format!("refresh-{subject}"), "updated_at": 100.0, "removed": false,
         }]});
-        drive.lock().expect("the test lock").files.push((id.to_owned(), file));
+        drive
+            .lock()
+            .expect("the test lock")
+            .files
+            .push((id.to_owned(), "accounts.json".to_owned(), file));
     }
 
     start_device(&drive_url);
@@ -244,8 +287,70 @@ async fn two_files_from_two_devices_become_one_list() -> Result<()> {
     );
 
     // The first file now holds both.
-    let first = drive.lock().expect("the test lock").files[0].1.to_string();
+    let first = drive.lock().expect("the test lock").files[0].2.to_string();
     assert!(first.contains("refresh-work") && first.contains("refresh-club"));
+
+    GoogleAccounts::sign_out()?;
+    GoogleAccounts::use_drive(None);
+    GoogleAccess::swap_server(before);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial(google_access_server)]
+async fn app_data_follows_the_main_account_to_another_device() -> Result<()> {
+    SessionStore::set_root(temp_dir().join("hilen-google-accounts-test"));
+    SecretStore::keep_in_files();
+
+    let before = GoogleAccess::swap_server(Some(backend().await?));
+    let drive = Drive::default();
+    let drive_url = fake_drive(drive.clone()).await?;
+
+    // No main account, no folder to read.
+    start_device(&drive_url);
+    assert!(GoogleAccounts::app_data::<Vec<String>>("feeds.json").await.is_err());
+
+    // Device 1 reads a file nobody saved, then saves it twice.
+    GoogleAccounts::put_main(&account("main", "refresh-main"))?;
+    assert_eq!(GoogleAccounts::app_data::<Vec<String>>("feeds.json").await?, None);
+    GoogleAccounts::save_app_data("feeds.json", &["a"]).await?;
+    GoogleAccounts::save_app_data("feeds.json", &["a", "b"]).await?;
+    assert_eq!(
+        drive.lock().expect("the test lock").content("feeds.json").len(),
+        1
+    );
+
+    // The accounts file and the app file live side by side.
+    GoogleAccounts::put_linked(&account("work", "refresh-work"), 100.0);
+    GoogleAccounts::sync().await?;
+    {
+        let folder = drive.lock().expect("the test lock");
+        assert_eq!(folder.files.len(), 2);
+        assert!(folder.content("feeds.json")[0].contains("\"b\""));
+        assert!(folder.content("accounts.json")[0].contains("refresh-work"));
+    }
+
+    // The app can not name the accounts file, nor a name Drive would read
+    // as more of the query.
+    assert!(GoogleAccounts::app_data::<Value>("accounts.json").await.is_err());
+    assert!(GoogleAccounts::save_app_data("x' or name='y", &1).await.is_err());
+    assert!(GoogleAccounts::app_data::<Value>("").await.is_err());
+
+    // Device 2 has the same file after a sign in with the main account.
+    start_device(&drive_url);
+    GoogleAccounts::put_main(&account("main", "refresh-main"))?;
+    assert_eq!(
+        GoogleAccounts::app_data::<Vec<String>>("feeds.json").await?,
+        Some(vec!["a".to_owned(), "b".to_owned()])
+    );
+
+    // A file that does not hold the asked type is an error without its
+    // content.
+    let error = GoogleAccounts::app_data::<u32>("feeds.json")
+        .await
+        .err()
+        .map_or_default(|error| format!("{error:#}"));
+    assert!(error.contains("not a u32") && !error.contains("\"b\""), "{error}");
 
     GoogleAccounts::sign_out()?;
     GoogleAccounts::use_drive(None);

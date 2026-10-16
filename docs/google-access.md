@@ -103,6 +103,27 @@ from a tap, `cancel`, `renew` and `revoke`.
 - No error and no `Debug` print carries a token. A parse of a body with tokens
   never goes into an error text.
 
+### App files in the Drive folder
+
+An app can keep its own data in the same Drive folder, so every device of the
+user has it after a sign in with the main account. Lendar keeps its calendar
+links there.
+
+```rust
+let feeds: Option<Vec<Feed>> = GoogleAccounts::app_data("feeds.json").await?;
+GoogleAccounts::save_app_data("feeds.json", &feeds).await?;
+```
+
+- 1 JSON file per name, any serde type. `app_data` gives `None` while no device
+  saved the file. `save_app_data` makes the file when it is missing.
+- The calls use the token of the main account and give an error when nobody is
+  signed in.
+- The name keeps to letters, digits, `.`, `-` and `_`, it goes into a Drive
+  query as it is. `accounts.json` belongs to the engine and is refused.
+- The last write wins. 2 devices that save at the same moment do not merge, and
+  if both made the file, the oldest one is read and written.
+- An error never quotes the content of the file, an app keeps secrets there too.
+
 ## The buttons
 
 `GoogleSignInButton` signs the main account in and `GoogleLinkButton` links one
@@ -144,6 +165,6 @@ session, with a warning in the log for the last case.
   proves that no token is readable in any column.
 - `hilen`: `client::test` runs the real client against the real routes, with
   `hilen-server` as a dev dependency. `accounts_test` plays 2 devices against
-  a stand in for the Drive folder.
+  a stand in for the Drive folder, for the accounts file and an app file.
 - No test asks the real Google. Run them with
   `cargo test -p hilen --features google-access google_access`.
