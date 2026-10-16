@@ -31,6 +31,18 @@ pub struct CodeEditorStyle {
     pub mark:         UIColor,
     /// The background of a line with a mark.
     pub mark_line:    UIColor,
+    /// The background of every match of the find bar.
+    pub find_match:   UIColor,
+    /// The background of the current match, stronger than the others.
+    pub find_current: UIColor,
+    /// The find bar over the top of the editor.
+    pub find_bar:     UIColor,
+    /// The fields of the find bar.
+    pub find_field:   UIColor,
+    /// The text of the fields and the buttons of the find bar.
+    pub find_text:    UIColor,
+    /// A toggle of the find bar that is on, like the one for the case.
+    pub find_toggle:  UIColor,
 }
 
 impl CodeEditorStyle {
@@ -48,6 +60,12 @@ impl CodeEditorStyle {
         highlight:    dynamic("#fff8c5", "#3b2e00"),
         mark:         dynamic("#cf222e", "#ff7b72"),
         mark_line:    dynamic("#ffebe9", "#3d1d1f"),
+        find_match:   dynamic("#fff1a8", "#4d3d00"),
+        find_current: dynamic("#f9c513", "#9e6a03"),
+        find_bar:     dynamic("#eaeef2", "#21262d"),
+        find_field:   dynamic("#ffffff", "#0d1117"),
+        find_text:    dynamic("#24292f", "#e6edf3"),
+        find_toggle:  dynamic("#b6e3ff", "#1f6feb"),
     };
 
     pub(super) fn regular_font(&self) -> Weak<Font> {

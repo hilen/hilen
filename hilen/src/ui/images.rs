@@ -34,6 +34,12 @@ impl UIImages {
         tint_svg(include_bytes!("images/copy.svg"), "copy.svg", tint)
     }
 
+    /// The Lucide arrow up, drawn in `tint`. The same file as the one of
+    /// the file browser, so the same name.
+    pub(crate) fn arrow_up(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/fb_arrow_up.svg"), "fb_arrow_up.svg", tint)
+    }
+
     /// The Lucide arrow down, drawn in `tint`.
     pub(crate) fn arrow_down(tint: Color) -> Weak<Image> {
         tint_svg(include_bytes!("images/arrow_down.svg"), "arrow_down.svg", tint)

@@ -3204,6 +3204,7 @@ dependencies = [
  "rapier3d",
  "rcgen",
  "reflected",
+ "regex",
  "reqwest 0.13.5",
  "resvg",
  "rfd",

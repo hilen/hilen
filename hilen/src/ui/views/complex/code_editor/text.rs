@@ -61,8 +61,9 @@ impl Default for CodeText {
     }
 }
 
-/// A char of a name, a word for a jump of the cursor.
-fn is_word(ch: char) -> bool {
+/// A char of a name, a word for a jump of the cursor and for a find of
+/// whole words.
+pub(super) fn is_word(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
 

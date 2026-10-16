@@ -37,6 +37,9 @@ pub(super) struct LineLook<'a> {
     pub caret:       Option<usize>,
     pub mark:        Option<&'a str>,
     pub highlighted: bool,
+    /// The bytes of the matches of the find bar on the line, each with
+    /// whether it is the current match.
+    pub matches:     Vec<(Range<usize>, bool)>,
 }
 
 /// Puts the font and the size of the style on a label of the code. The
@@ -120,6 +123,14 @@ impl CodeLine {
         code_label(self.code, style);
         self.code.set_text_color(style.text).set_text(look.text);
         self.code.set_color_runs(look.runs.iter().cloned());
+        self.code.set_background_runs(look.matches.iter().map(|(range, current)| {
+            let color = if *current {
+                style.find_current
+            } else {
+                style.find_match
+            };
+            (range.clone(), color)
+        }));
         let inset = self.code.text_inset();
         self.code
             .set_frame((columns.text_x - inset, 0.0, columns.text_width + inset, height));

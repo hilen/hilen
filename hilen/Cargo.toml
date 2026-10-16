@@ -128,6 +128,7 @@ noise = { workspace = true }
 nonempty = { workspace = true }
 parking_lot = { workspace = true }
 pulldown-cmark = { workspace = true }
+regex = { workspace = true }
 reqwest = { workspace = true }
 rustc-hash = { workspace = true }
 rust_decimal = { workspace = true }

@@ -111,6 +111,34 @@ impl CodeText {
         self.apply(from.line, to.line - from.line + 1, new, after, kind)
     }
 
+    /// Puts `text` in place of the text from `from` to `to` as a step of
+    /// its own, the cursor right after it. The replace of 1 match.
+    pub(crate) fn replace_range(&mut self, from: CodePos, to: CodePos, text: &str) -> LinesChanged {
+        self.replace(from, to, &clean(text), StepKind::Other)
+    }
+
+    /// Puts each text in place of its range, all in 1 step of the
+    /// history, the cursor at the start of the first range. The ranges
+    /// are in the order of the text, none over a line break and none
+    /// over another. The Replace All of the find bar. `None` for no
+    /// ranges.
+    pub(crate) fn replace_all(&mut self, edits: &[(CodePos, CodePos, String)]) -> Option<LinesChanged> {
+        let (first, _, _) = edits.first()?;
+        let (last, _, _) = edits.last()?;
+        let (first, last) = (first.line, last.line);
+        let mut lines = self.lines[first..=last].to_vec();
+        for (from, to, text) in edits.iter().rev() {
+            lines[from.line - first].replace_range(from.byte..to.byte, &clean(text));
+        }
+        // A replacement with a line break makes more lines.
+        let new: Vec<String> = lines.join("\n").split('\n').map(str::to_string).collect();
+        let after = Spot {
+            cursor: edits[0].0,
+            anchor: None,
+        };
+        Some(self.apply(first, last - first + 1, new, after, StepKind::Other))
+    }
+
     /// The selection, or the empty place of the cursor.
     fn target(&self) -> (CodePos, CodePos) {
         self.selection().unwrap_or((self.cursor, self.cursor))

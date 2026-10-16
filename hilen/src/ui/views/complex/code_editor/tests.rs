@@ -1,5 +1,6 @@
 use super::{
     edit::LinesChanged,
+    find::{FindOptions, FindState, Finder},
     text::{CodePos, CodeText},
 };
 
@@ -256,4 +257,181 @@ fn chars_of_many_bytes() {
     // A byte inside a char lands on its start.
     let code = text("ñ");
     assert_eq!(code.clamp(at(0, 1)), at(0, 0));
+}
+
+fn lines(text: &str) -> Vec<String> {
+    text.split('\n').map(str::to_string).collect()
+}
+
+fn found(text: &str, query: &str, options: FindOptions) -> Vec<(CodePos, CodePos)> {
+    let finder = Finder::new(query, options).expect("a valid query").expect("a query");
+    finder.matches(&lines(text), 0)
+}
+
+fn span(line: usize, from: usize, to: usize) -> (CodePos, CodePos) {
+    (at(line, from), at(line, to))
+}
+
+/// A find bar state with `query` searched in `text`.
+fn searched(text: &[String], query: &str, options: FindOptions) -> FindState {
+    let mut find = FindState::default();
+    find.query = query.to_string();
+    find.options = options;
+    find.search(text);
+    find
+}
+
+#[test]
+fn find_ignores_the_case_until_asked() {
+    let text = "Size = size;\nSIZE";
+    assert_eq!(
+        found(text, "size", FindOptions::default()),
+        [span(0, 0, 4), span(0, 7, 11), span(1, 0, 4)]
+    );
+    let case = FindOptions {
+        case_sensitive: true,
+        ..FindOptions::default()
+    };
+    assert_eq!(found(text, "size", case), [span(0, 7, 11)]);
+    // A query is plain text, its regex chars mean themselves.
+    assert_eq!(found("a.b axb", "a.b", FindOptions::default()), [span(0, 0, 3)]);
+    assert!(Finder::new("", FindOptions::default()).unwrap().is_none());
+}
+
+#[test]
+fn whole_word_needs_no_word_char_around() {
+    let words = FindOptions {
+        whole_word: true,
+        ..FindOptions::default()
+    };
+    assert_eq!(
+        found("cube cubes my_cube cube(1) .cube", "cube", words),
+        [span(0, 0, 4), span(0, 19, 23), span(0, 28, 32)]
+    );
+    // A match that starts with a char of no word may follow a word, and
+    // still may not end inside one.
+    assert_eq!(found("a.b a.bc", ".b", words), [span(0, 1, 3)]);
+}
+
+#[test]
+fn a_regex_query_and_its_groups() {
+    let regex = FindOptions {
+        regex: true,
+        ..FindOptions::default()
+    };
+    assert_eq!(found("x1 y22 z", r"\d+", regex), [span(0, 1, 2), span(0, 4, 6)]);
+    // A match of nothing is left out.
+    assert_eq!(found("abc", "x*", regex), []);
+    assert!(Finder::new("(", regex).is_err());
+
+    let finder = Finder::new(r"(\w+)\((\d+)\)", regex).unwrap().unwrap();
+    let line = "cube(10); sphere(2);";
+    assert_eq!(finder.replacement(line, 10..19, "$2$1"), "2sphere");
+    // Plain text keeps a `$` as it is.
+    let plain = Finder::new("cube", FindOptions::default()).unwrap().unwrap();
+    assert_eq!(plain.replacement(line, 0..4, "$1"), "$1");
+}
+
+#[test]
+fn next_and_back_go_round_and_the_bar_counts() {
+    let text = lines("a b\na\nb a");
+    let mut find = searched(&text, "a", FindOptions::default());
+    assert_eq!(find.status(), "3 found");
+    find.settle(at(1, 1));
+    assert_eq!(find.current(), Some(2));
+    assert_eq!(find.status(), "3 of 3");
+    assert_eq!(find.step(true), Some(span(0, 0, 1)));
+    assert_eq!(find.step(false), Some(span(2, 2, 3)));
+    assert_eq!(find.on_line(2), [(2..3, true)]);
+    assert_eq!(find.on_line(0), [(0..1, false)]);
+
+    // Past the last match the cursor gives the first one.
+    find.settle(at(2, 3));
+    assert_eq!(find.current(), Some(0));
+
+    find.query = "q".to_string();
+    find.search(&text);
+    assert_eq!(find.status(), "No results");
+    find.options.regex = true;
+    find.query = "[".to_string();
+    find.search(&text);
+    assert_eq!(find.status(), "Bad regex");
+    assert!(find.error().is_some());
+}
+
+#[test]
+fn matches_follow_the_edits() {
+    let mut code = text("x\nab x\nx x\nx");
+    let mut find = searched(code.lines(), "x", FindOptions::default());
+    assert_eq!(find.matches().len(), 5);
+
+    // A new line above the matches moves them down by 1.
+    code.move_to(at(0, 1), false);
+    let changed = code.new_line();
+    find.lines_changed(code.lines(), changed);
+    assert_eq!(
+        find.matches(),
+        [
+            span(0, 0, 1),
+            span(2, 3, 4),
+            span(3, 0, 1),
+            span(3, 2, 3),
+            span(4, 0, 1)
+        ]
+    );
+
+    // A change of 1 line finds again on that line only.
+    code.move_to(at(3, 1), false);
+    let changed = code.delete_backward().unwrap();
+    find.lines_changed(code.lines(), changed);
+    assert_eq!(
+        find.matches(),
+        [span(0, 0, 1), span(2, 3, 4), span(3, 1, 2), span(4, 0, 1)]
+    );
+
+    // Lines taken out take their matches with them.
+    code.select(at(2, 0), at(4, 0));
+    let changed = code.delete_selection().unwrap();
+    find.lines_changed(code.lines(), changed);
+    assert_eq!(code.lines(), ["x", "", "x"]);
+    assert_eq!(find.matches(), [span(0, 0, 1), span(2, 0, 1)]);
+
+    // A closed bar follows nothing.
+    find.close();
+    let changed = code.insert("x");
+    find.lines_changed(code.lines(), changed);
+    assert_eq!(find.matches(), []);
+}
+
+#[test]
+fn replace_all_is_1_undo_step() {
+    let mut code = text("cube(1);\nsphere(2);\ncube(3); cube(4);");
+    let find = searched(code.lines(), "cube", FindOptions::default());
+    let edits = find.replacements(code.lines(), "box");
+    let changed = code.replace_all(&edits).unwrap();
+    assert_eq!(code.lines(), ["box(1);", "sphere(2);", "box(3); box(4);"]);
+    assert_eq!(
+        changed,
+        LinesChanged {
+            start:    0,
+            removed:  3,
+            inserted: 3,
+        }
+    );
+    code.undo();
+    assert_eq!(code.lines(), ["cube(1);", "sphere(2);", "cube(3); cube(4);"]);
+    assert!(!code.can_undo());
+    assert_eq!(code.replace_all(&[]), None);
+
+    // A regex replacement fills in the groups, and 1 match is its own step.
+    let regex = FindOptions {
+        regex: true,
+        ..FindOptions::default()
+    };
+    let mut find = searched(code.lines(), r"cube\((\d)\)", regex);
+    find.settle(at(1, 0));
+    let (from, to, with) = find.current_replacement(code.lines(), "box($1, $1)").unwrap();
+    code.replace_range(from, to, &with);
+    assert_eq!(code.lines()[2], "box(3, 3); cube(4);");
+    assert_eq!(code.cursor(), at(2, 9));
 }

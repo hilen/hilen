@@ -4,6 +4,8 @@ use unicode_width::UnicodeWidthChar;
 
 use super::{
     edit::LinesChanged,
+    find::FindState,
+    find_bar::FindBar,
     line::{CodeLine, Columns, LineLook, code_label},
     style::CodeEditorStyle,
     text::{CodePos, CodeText},
@@ -41,7 +43,7 @@ pub(super) struct LineDecor {
 /// on screen are views, so a long file costs no more to show than a short
 /// one. It has a gutter with line numbers, a mono font, a caret and a
 /// selection, the keys of a text editor, copy and paste, undo and redo,
-/// and Tab and Shift Tab that indent with spaces.
+/// Tab and Shift Tab that indent with spaces, and a find bar with replace.
 ///
 /// The app colors the code with `set_color_runs` per line, marks a line
 /// with a message, an error for example, with `set_mark`, and lights a
@@ -65,6 +67,11 @@ pub struct CodeEditor {
     /// A press is moving the cursor and the selection follows it.
     pub(super) dragging:    bool,
 
+    /// Whether the find bar is open, the query, the matches and the
+    /// current match.
+    pub(super) find:     FindState,
+    pub(super) find_bar: Weak<FindBar>,
+
     /// The user changed the text, with the first line that changed. The
     /// colors of the changed lines are gone, the app sets them again
     /// here. A change by `set_text` fires nothing.
@@ -85,10 +92,10 @@ impl Setup for CodeEditor {
         self.widths = vec![0];
         self.table.set_data_source(self).register_cell::<CodeLine>();
         self.table.set_footer_height(BAR_ROOM);
-        self.table.place().back();
         self.measure.set_hidden(true);
 
         self.setup_touch();
+        self.setup_find();
         self.size_changed().sub(move || self.relayout());
         self.use_style();
     }
@@ -118,6 +125,9 @@ impl CodeEditor {
         self.relayout();
         self.table.set_content_offset(0);
         self.table.set_content_offset_x(0);
+        if self.find.open {
+            self.search();
+        }
         self
     }
 
@@ -294,19 +304,30 @@ impl CodeEditor {
         self.set_color(style.background);
         self.gutter.set_color(style.gutter);
         code_label(self.measure, &style);
+        self.find_bar.set_look(&style);
         self.relayout();
     }
 
     /// The rows draw again on the next frame. For the decor, which an app
     /// may set for many lines in a row.
-    fn refresh(&mut self) {
+    pub(super) fn refresh(&mut self) {
         self.stale = true;
         request_frame();
     }
 
     /// Works out the columns from the font, the count of lines and the
-    /// widest line, and draws every row again.
+    /// widest line, puts the rows under the find bar, and draws every row
+    /// again.
     pub(super) fn relayout(&mut self) {
+        let (width, height) = (self.width(), self.height());
+        let top = if self.find.open {
+            self.find_bar.bar_height()
+        } else {
+            0.0
+        };
+        self.find_bar.set_frame((0.0, 0.0, width, top));
+        self.table.set_frame((0.0, top, width, (height - top).max(0.0)));
+
         let cell = self.measure.cell_size();
         let digits = self.text.line_count().to_string().len().max(MIN_DIGITS);
         let digits: f32 = digits.lossy_convert();
@@ -350,6 +371,10 @@ impl CodeEditor {
             .map(|line| columns_of(line))
             .collect();
         self.widths.splice(start..start + removed, widths);
+        if self.find.open {
+            self.find.lines_changed(self.text.lines(), changed);
+            self.matches_followed();
+        }
 
         self.relayout();
         self.scroll_to_cursor();
@@ -367,14 +392,20 @@ impl CodeEditor {
 
     /// Scrolls so the line and the column of the cursor are on screen.
     fn scroll_to_cursor(&mut self) {
+        let cursor = self.text.cursor();
+        self.reveal(cursor, cursor);
+    }
+
+    /// Scrolls so the line of `from` and the text from `from` to `to` on
+    /// it are on screen, `from` first when both do not fit.
+    pub(super) fn reveal(&mut self, from: CodePos, to: CodePos) {
         let height = self.table.height() - BAR_ROOM;
         let width = self.table.width() - BAR_ROOM;
         if height <= 0.0 || width <= 0.0 {
             return;
         }
-        let cursor = self.text.cursor();
         let row = self.columns.row_height;
-        let top = cursor.line.to_f32() * row;
+        let top = from.line.to_f32() * row;
         let shown_top = -self.table.content_offset();
         if top < shown_top {
             self.table.set_content_offset(-top);
@@ -382,14 +413,18 @@ impl CodeEditor {
             self.table.set_content_offset(height - top - row);
         }
 
-        let x = self.x_of(cursor);
+        let x = self.x_of(from);
+        let end = if to.line == from.line { self.x_of(to) } else { x };
         let room = (width - self.columns.text_x - self.columns.char_width).max(0.0);
         let shown_left = -self.table.content_offset_x();
-        if x < shown_left {
-            self.table.set_content_offset_x(-x);
-        } else if x > shown_left + room {
-            self.table.set_content_offset_x(room - x);
-        }
+        let left = if x < shown_left {
+            x
+        } else if end > shown_left + room {
+            (end - room).min(x)
+        } else {
+            return;
+        };
+        self.table.set_content_offset_x(-left);
     }
 
     /// Where the caret place of `pos` is, in the points of the editor, in
@@ -399,7 +434,7 @@ impl CodeEditor {
         if pos.line >= self.text.line_count() {
             return None;
         }
-        let top = pos.line.to_f32() * self.columns.row_height + self.table.content_offset();
+        let top = pos.line.to_f32() * self.columns.row_height + self.table.content_offset() + self.table.y();
         let x = self.columns.text_x + self.x_of(pos) + self.table.content_offset_x();
         Some(Point::new(x, top + self.columns.row_height / 2.0))
     }
@@ -413,7 +448,7 @@ impl CodeEditor {
     /// The place in the text under `point`, in the points of the editor.
     /// A point above or below the lines lands on the first or the last.
     pub(super) fn pos_at(&self, point: Point) -> CodePos {
-        let y = point.y - self.table.content_offset();
+        let y = point.y - self.table.y() - self.table.content_offset();
         let last = self.text.line_count() - 1;
         let row: usize = (y / self.columns.row_height).floor().max(0.0).lossy_convert();
         let line = row.min(last);
@@ -455,6 +490,7 @@ impl TableData for CodeEditor {
             caret:       (self.editing && cursor.line == index).then_some(cursor.byte),
             mark:        decor.and_then(|decor| decor.mark.as_deref()),
             highlighted: self.highlight.as_ref().is_some_and(|lines| lines.contains(&index)),
+            matches:     self.find.on_line(index),
         };
         cell.show(&look, &self.columns, &self.style);
         cell

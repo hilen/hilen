@@ -51,16 +51,22 @@ impl CodeEditor {
     /// Where a drag scrolls, a touch screen, the cursor goes there on the
     /// tap instead, so a scroll does not move it.
     fn pressed(self: Weak<Self>, position: Point) {
-        if UIManager::drag_scrolling() {
+        if UIManager::drag_scrolling() || self.on_find_bar(position) {
             return;
         }
         self.place(position);
     }
 
     fn tapped(self: Weak<Self>, position: Point) {
-        if UIManager::drag_scrolling() {
+        if UIManager::drag_scrolling() && !self.on_find_bar(position) {
             self.place(position);
         }
+    }
+
+    /// A press on the find bar, between its fields and buttons, is no
+    /// press on the text under it.
+    fn on_find_bar(&self, position: Point) -> bool {
+        position.y < self.table.y()
     }
 
     fn place(mut self: Weak<Self>, position: Point) {
@@ -121,8 +127,15 @@ impl CodeEditor {
     }
 
     fn on_command(mut self: Weak<Self>, ch: char) {
-        let shift = Input::modifiers().shift_key();
+        let modifiers = Input::modifiers();
+        let shift = modifiers.shift_key();
         match ch.to_ascii_lowercase() {
+            // Cmd H hides the app on a Mac, so replace is Cmd Alt F there.
+            'f' if modifiers.alt_key() && Platform::MAC => self.find_from_keys(true),
+            'h' if !Platform::MAC => self.find_from_keys(true),
+            'f' => self.find_from_keys(false),
+            'g' if shift => self.find_previous(),
+            'g' => self.find_next(),
             'a' => self.select_all(),
             'c' => self.copy(),
             'x' => self.cut(),
@@ -146,6 +159,11 @@ impl CodeEditor {
         } else {
             modifiers.control_key()
         };
+        // Escape closes an open find bar first.
+        if key == NamedKey::Escape && self.find.open {
+            self.close_find();
+            return;
+        }
         let text = &mut self.text;
 
         match key {
@@ -251,6 +269,9 @@ impl CodeEditor {
     /// A right click or a long press. Outside the selection it first puts
     /// the cursor there, a long press on a touch screen takes the word.
     fn show_menu(mut self: Weak<Self>, position: Point) {
+        if self.on_find_bar(position) {
+            return;
+        }
         let at = self.pos_at(position);
         let inside = self.text.selection().is_some_and(|(start, end)| start <= at && at <= end);
         if !inside {

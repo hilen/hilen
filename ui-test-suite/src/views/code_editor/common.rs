@@ -3,8 +3,11 @@ use std::ops::Range;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{CodeEditor, CodePos, Color, DynamicColor, Label, TextAlignment, UIColor, ViewFrame},
-    ui_test::inject_touches,
+    ui::{
+        CodeEditor, CodePos, Color, DynamicColor, Label, ModifiersState, TextAlignment, UIColor, View,
+        ViewData, ViewFrame, ViewSubviews, WeakView,
+    },
+    ui_test::{inject_keys, inject_modifiers, inject_touches},
 };
 
 use crate::text_points::{click, drag};
@@ -105,4 +108,68 @@ pub(super) fn drag_over(editor: Weak<CodeEditor>, from: CodePos, to: CodePos) {
 /// spaces of an indent show.
 pub(super) fn quoted(lines: &[String]) -> String {
     lines.iter().map(|line| format!("{line:?}")).collect::<Vec<_>>().join("\n")
+}
+
+/// `key` with the command modifier, Cmd on a Mac and Ctrl elsewhere, and
+/// with `more` held too.
+pub(super) fn command_with(more: ModifiersState, key: char) {
+    inject_modifiers(ModifiersState::SUPER | more);
+    inject_keys(key);
+    inject_modifiers(ModifiersState::empty());
+}
+
+pub(super) fn command(key: char) {
+    command_with(ModifiersState::empty(), key);
+}
+
+/// The keys that show the replace row of the find bar: Cmd Alt F on a
+/// Mac, Ctrl H elsewhere.
+pub(super) fn replace_keys() {
+    let (modifiers, key) = if cfg!(target_os = "macos") {
+        (ModifiersState::SUPER | ModifiersState::ALT, 'f')
+    } else {
+        (ModifiersState::CONTROL, 'h')
+    };
+    inject_modifiers(modifiers);
+    inject_keys(key);
+    inject_modifiers(ModifiersState::empty());
+}
+
+/// The middle of a part of the find bar on the screen, `name` is its
+/// field in `FindBar`, like `case` or `replacement`.
+pub(super) fn bar_point(editor: Weak<CodeEditor>, name: &'static str) -> (f32, f32) {
+    from_main(move || {
+        let prefix = format!("FindBar.{name}:");
+        let part =
+            labeled(editor.weak_view(), &prefix).unwrap_or_else(|| panic!("no {prefix} in the editor"));
+        let frame = part.absolute_frame();
+        (frame.x() + frame.width() / 2.0, frame.y() + frame.height() / 2.0)
+    })
+}
+
+/// A click on a part of the find bar, see `bar_point`.
+pub(super) fn click_bar(editor: Weak<CodeEditor>, name: &'static str) {
+    inject_touches(click(bar_point(editor, name)));
+    wait_for_next_frame();
+}
+
+fn labeled(view: WeakView, prefix: &str) -> Option<WeakView> {
+    view.subviews().iter().find_map(|sub| {
+        let sub = sub.weak();
+        if sub.label().starts_with(prefix) {
+            Some(sub)
+        } else {
+            labeled(sub, prefix)
+        }
+    })
+}
+
+/// A match of the find bar on 1 line.
+pub(super) fn span(line: usize, from: usize, to: usize) -> (CodePos, CodePos) {
+    (CodePos::new(line, from), CodePos::new(line, to))
+}
+
+/// The matches of the find bar and the index of the current one.
+pub(super) fn find_state(editor: Weak<CodeEditor>) -> (Vec<(CodePos, CodePos)>, Option<usize>) {
+    from_main(move || (editor.find_matches().to_vec(), editor.current_match()))
 }
