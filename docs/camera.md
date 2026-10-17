@@ -67,4 +67,6 @@ entitlement on a Mac release, and the `CAMERA` permission on Android.
 Unit tests of the fake camera, the photo, the locks, the refusal, the frame shrink,
 the formats and the YUV colors, and the UI test `Camera view test` on Linux, macOS and
 the iOS simulator. No real camera was used yet on any platform, so the hardware code of
-every platform is not proven.
+every platform is not proven. The browser lane leaves the test out: the page stopped
+answering in it after the camera opened, about 1 run in 3 on 2026-10-17, also on
+`dev` with no other change. The cause is not found.

@@ -626,6 +626,12 @@ yield no candidates at all. Its labels recorded nothing but the background aroun
 glyphs and read as tested: `Label stress` pinned 26 of its 40 labels, and blanking the
 other 14 kept the suite green. Uniform along a stem holds however thin the stem is.
 
+The picker skips the edges of every svg on screen, where its coverage changes. resvg on
+desktop and the page in a browser shade such a pixel differently, by up to 266 on a
+thin icon stroke, so a probe there failed only on the browser lane. The fills of an
+icon and the ground around it stay. A block recorded before this rule can still hold
+such a probe, re-record it when the browser lane fails on an icon edge.
+
 Changing the picker does not invalidate existing blocks. `stable_color` is only reached
 under `--record-colors`, a normal run just compares the pinned pixels, so old blocks keep
 passing and a test only gains the better probes when someone re-records it.

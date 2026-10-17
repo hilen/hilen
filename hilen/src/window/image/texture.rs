@@ -114,8 +114,13 @@ impl Texture {
     }
 
     pub(crate) fn parse_file_from_bytes(bytes: &[u8]) -> Result<TextureRawData> {
+        #[cfg(not_wasm)]
         if Svg::is_svg(bytes) {
             return Svg::fixed_raster(bytes);
+        }
+        #[cfg(wasm)]
+        if Svg::is_svg(bytes) {
+            anyhow::bail!("A browser draws an svg itself, see svg_browser.rs");
         }
 
         Self::parse_dynamic_image(bytes)

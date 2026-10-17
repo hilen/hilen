@@ -91,6 +91,25 @@ impl Svg {
         draw(&raster.bind.bind);
     }
 
+    /// Always true here, a raster is built in the frame that first draws
+    /// it. A browser draws it later, see `svg_browser.rs`.
+    #[allow(clippy::unused_self)]
+    pub(crate) fn is_ready(&self, _size: Size<u32>) -> bool {
+        true
+    }
+
+    /// The alpha of the raster of `size`, row by row, for the probe
+    /// recorder of the UI tests.
+    pub(crate) fn alpha(&self, size: Size<u32>) -> Vec<u8> {
+        rasterize(&self.tree, size)
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect()
+    }
+
     pub(crate) fn drop_stale(&self, frame: u64) {
         self.rasters
             .lock()

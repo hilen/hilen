@@ -52,8 +52,11 @@ bluetooth = ["dep:btleplug", "dep:uuid"]
 # The cameras of the device: the list, a live picture in `CameraView` and a
 # photo at full resolution. AVFoundation on macOS and iOS, the NDK camera on
 # Android, Media Foundation through nokhwa on Windows, Video for Linux
-# through linuxvideo, getUserMedia in a browser. Off by default.
+# through linuxvideo, getUserMedia in a browser. Off by default. A photo is
+# encoded with the jpeg codec of `image`, which a browser build has only
+# through this feature.
 camera = [
+  "image/jpeg",
   "dep:futures-channel",
   "dep:dispatch2",
   "dep:linuxvideo",
@@ -203,14 +206,12 @@ image = { workspace = true, features = ["rayon"] }
 rapier2d = { workspace = true, optional = true, features = ["parallel"] }
 rapier3d = { workspace = true, optional = true, features = ["parallel"] }
 
-# A browser decodes downloaded pictures itself, the engine decodes only the
-# bundled ones, png, jpeg and gif. Svg icons have no text, and the svg text
-# stack was about 0.9 MB of wasm code. An LG C1 compiles wasm at about 4.7 s
-# a MB, see docs/webos.md.
+# A browser decodes downloaded pictures and bundled jpegs itself, the engine
+# decodes only bundled png and gif. The page also draws every svg, so no svg
+# crate and no jpeg decoder is linked, see window/image/late.rs. An LG C1
+# compiles wasm at about 2.3 s a MB with Liftoff, see docs/webos.md.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-image = { workspace = true, features = ["gif", "jpeg", "png"] }
-resvg = { workspace = true, features = ["raster-images", "svgz"] }
-usvg = { workspace = true, features = ["svgz", "writer"] }
+image = { workspace = true, features = ["gif", "png"] }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
 getrandom = { workspace = true, optional = true, features = ["wasm_js"] }

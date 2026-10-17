@@ -96,7 +96,11 @@ pub(crate) fn next_check_index(test_name: &str) -> usize {
 
 pub(crate) fn print_recorded_colors() -> Result<()> {
     let screenshot = AppRunner::take_screenshot()?;
-    let probes = pick_probes(&screenshot);
+    #[cfg(not_wasm)]
+    let skip = svg_edges::pixels();
+    #[cfg(wasm)]
+    let skip = std::collections::HashSet::new();
+    let probes = pick_probes(&screenshot, &skip);
 
     let test_name = TEST_NAME.lock().clone();
     let index = next_check_index(&test_name);
@@ -128,7 +132,7 @@ type Probe = ((u32, u32), U8Color);
 /// are clustered by color and each cluster gets a share of the probes,
 /// spread spatially, so text bodies get pinned alongside backgrounds.
 /// Small enclosed features cluster separately and go first.
-fn pick_probes(shot: &Screenshot) -> Vec<Probe> {
+fn pick_probes(shot: &Screenshot, skip: &std::collections::HashSet<(u32, u32)>) -> Vec<Probe> {
     let (width, height) = match *CANVAS.lock() {
         Some((width, height)) => (width.min(shot.size.width), height.min(shot.size.height)),
         None => (shot.size.width, shot.size.height),
@@ -140,6 +144,9 @@ fn pick_probes(shot: &Screenshot) -> Vec<Probe> {
 
     for y in (margin..height.saturating_sub(margin)).step_by(GRID_STEP as usize) {
         for x in (margin..width.saturating_sub(margin)).step_by(GRID_STEP as usize) {
+            if skip.contains(&(x, y)) {
+                continue;
+            }
             if let Some(color) = stable_color(shot, x, y) {
                 candidates.push(((x, y), color));
             }
@@ -311,6 +318,100 @@ fn directional_run(shot: &Screenshot, probe: &Probe, (dx, dy): (i64, i64)) -> u3
     }
 
     SMALL_FEATURE_EXTENT + 1
+}
+
+/// Screen pixels on the edge of an svg on screen, where its coverage
+/// changes. resvg on desktop and the browser on a page shade such a pixel
+/// differently, a thin icon stroke by up to 266, so a probe there fails on 1
+/// lane however well both draw. The fills and the ground stay.
+#[cfg(not_wasm)]
+mod svg_edges {
+    use std::collections::HashSet;
+
+    use crate::{
+        deps::hreads::from_main,
+        gm::LossyConvert,
+        ui::{ImageView, UIManager, View, ViewData, ViewSubviews},
+        window::image::Svg,
+    };
+
+    pub(super) fn pixels() -> HashSet<(u32, u32)> {
+        from_main(|| {
+            let mut pixels = HashSet::new();
+            collect(UIManager::root_view_static(), UIManager::scale(), &mut pixels);
+            pixels
+        })
+    }
+
+    fn collect(view: &dyn View, scale: f32, pixels: &mut HashSet<(u32, u32)>) {
+        if view.is_hidden() {
+            return;
+        }
+        if let Some(image_view) = view.as_any().downcast_ref::<ImageView>()
+            && image_view.image().is_ok()
+            && let Some(svg) = &image_view.image().svg
+        {
+            mark(image_view, svg, scale, pixels);
+        }
+        for sub in view.subviews() {
+            collect(&**sub, scale, pixels);
+        }
+    }
+
+    fn mark(view: &ImageView, svg: &Svg, scale: f32, pixels: &mut HashSet<(u32, u32)>) {
+        let frame = view.image_frame();
+        let left: u32 = (frame.origin.x * scale).floor().max(0.0).lossy_convert();
+        let top: u32 = (frame.origin.y * scale).floor().max(0.0).lossy_convert();
+        let right: u32 = ((frame.origin.x + frame.size.width) * scale).ceil().max(0.0).lossy_convert();
+        let bottom: u32 = ((frame.origin.y + frame.size.height) * scale).ceil().max(0.0).lossy_convert();
+
+        // The 3 parts of a cut map to the raster by their own rules.
+        if view.cut().is_some() {
+            for y in top..=bottom {
+                for x in left..=right {
+                    pixels.insert((x, y));
+                }
+            }
+            return;
+        }
+
+        let size = view.svg_raster_size(scale);
+        let alpha = svg.alpha(size);
+        let uv = view.uv_rect();
+        let at = |x: i64, y: i64| {
+            let x = x.clamp(0, i64::from(size.width) - 1);
+            let y = y.clamp(0, i64::from(size.height) - 1);
+            alpha[usize::try_from(y * i64::from(size.width) + x).unwrap_or(0)]
+        };
+
+        for y in top..bottom {
+            for x in left..right {
+                let mut u = ((x.lossy_convert() + 0.5) / scale - frame.origin.x) / frame.size.width;
+                let mut v = ((y.lossy_convert() + 0.5) / scale - frame.origin.y) / frame.size.height;
+                if view.flip_x {
+                    u = 1.0 - u;
+                }
+                if view.flip_y {
+                    v = 1.0 - v;
+                }
+                let raster_x: f32 = (uv.origin.x + u * uv.size.width) * size.width.lossy_convert();
+                let raster_y: f32 = (uv.origin.y + v * uv.size.height) * size.height.lossy_convert();
+                let (rx, ry): (i64, i64) =
+                    (raster_x.floor().lossy_convert(), raster_y.floor().lossy_convert());
+
+                // An edge is where the coverage changes. The filter of the
+                // GPU blends a pixel with its neighbors, so all 9 count. An
+                // even part cover, like a soft layer, shades the same in both.
+                let around = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)));
+                let (low, high) = around
+                    .map(|(dx, dy)| at(rx + dx, ry + dy))
+                    .fold((u8::MAX, u8::MIN), |(low, high), a| (low.min(a), high.max(a)));
+                if low != high {
+                    pixels.insert((x, y));
+                }
+            }
+        }
+    }
 }
 
 fn stable_color(shot: &Screenshot, x: u32, y: u32) -> Option<U8Color> {

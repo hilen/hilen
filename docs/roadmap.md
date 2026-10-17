@@ -19,6 +19,26 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Browser lane tests that the pictures of the page made flaky
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-17, by the change that lets the page
+draw svg icons and decode bundled jpegs, see `window/image/late.rs`. 2 full runs of the
+browser lane on the Linux builder, every test but `Camera view test` and `Inspect frames`.
+
+- Current: `AppRunner::take_screenshot` waits for the pictures the last frame drew and
+  takes the shot again when the shot frame started one. Still, in a full run:
+  - `Image view s v g` failed 1 of 2, the background at 84 432 where a blue svg fill is.
+  - `Stick images` failed 1 of 2, the background at 444 104, 2 pixels inside the ring.
+  - `Rounded clip` failed 2 of 2, `#00ffff` at the corner 498 102 where the scene has no
+    cyan, while the failure screenshot taken after it looks right. Clean `dev` never
+    reaches this test in a full run, `Inspect frames` stalls first, so it is not known
+    whether the change made it.
+  All 3 pass when run alone.
+- Needed: find the frame where a picture of the page is missing from a shot, and the
+  cause of the cyan corner. Run the same full list on clean `dev` with `Inspect frames`
+  left out, to know which of them are old.
+- Blocks: a green browser lane.
+
 ## A partial frame over several samples on an iPhone
 
 Found by skaityk on 2026-10-17, on an iPhone 16 Pro Max with iOS 27.0.1, with the hilen
@@ -36,43 +56,6 @@ of that day. The iOS simulator does not show it.
   iOS, or the whole frame rule kept with the reason written down.
 - Blocks: partial frames for an iOS app that sets 2 or 4 samples.
 
-## Svg icons on an old browser with no svg stack in the wasm
-
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`. The start of
-flixen on an LG C1 is the compile of its wasm, about 2.3 s per MB of code with Liftoff,
-see `docs/webos.md`.
-
-- Current: a browser build turns every svg icon into pixels in the wasm, with
-  `usvg`, `resvg` and `tiny-skia`, see `window/image/svg.rs` and the wasm block of
-  `hilen/Cargo.toml`. In the TV build of flixen that stack is about 0.58 MB of the
-  5.6 MB of code before wasm-bindgen: `tiny_skia` 262 KB, `usvg` 142 KB, `resvg`
-  74 KB, `tiny_skia_path` 33 KB, `roxmltree` 30 KB, `svgtypes` 24 KB, `simplecss`
-  12 KB, measured with `twiggy` on a `deploy-wasm` build with debug names.
-- Needed: a browser build that draws svg icons with no svg code in the wasm. Either
-  the browser turns the svg into pixels, an `<img>` or a `Blob` through
-  `createImageBitmap` like `window/image/browser_decode.rs` does for pictures, or the
-  build turns every bundled svg into png files ahead of time. Tinting and the sizes of
-  an icon must stay the same, so the UI tests of icons pass on the browser lane.
-- Blocks: about 1.3 s of the start of every hilen app on a TV, an estimate.
-
-## No jpeg and webp decoders for svg pictures in a browser build
-
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
-
-- Current: the wasm block of `hilen/Cargo.toml` gives `resvg` the `raster-images`
-  feature, which pulls `image-webp` and `zune-jpeg` for pictures inside an svg file.
-  The `image` crate of the wasm build has no webp, so `image_webp` is there only for
-  that. In the TV build of flixen `zune_jpeg` is 195 KB and `image_webp` 85 KB of
-  code, and `zune_jpeg` is also used by the `jpeg` feature of `image`.
-- Needed: prove that no bundled svg of an app needs a picture inside it, then drop
-  `raster-images` on wasm. Then check whether a bundled jpeg can go through the
-  browser decoder of `window/image/browser_decode.rs`, so the `jpeg` feature of
-  `image` and with it `zune_jpeg` leaves the wasm too. Measure the code with `twiggy`
-  before and after.
-- Blocks: up to about 0.6 s of the start of a hilen app on a TV, an estimate.
-  This entry goes away with the svg entry above if that one removes `resvg` from
-  the wasm.
-
 ## Shaders for WebGL made at build time, with no naga in the wasm
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
@@ -87,6 +70,25 @@ Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
   new browser keeps WGSL. Find first how much of naga wgpu core also needs for its
   checks, and whether a smaller naga feature set gives part of the gain with less
   work.
+- Found on 2026-10-17 while starting it, nothing built yet:
+  - naga by module in the TV build of flixen: `front::wgsl` 203 KB,
+    `proc::constant_evaluator` 101 KB, `valid` about 150 KB, `back::glsl` 73 KB, the
+    IR and arenas about 90 KB. The GLSL writer and part of the IR may have to stay, so
+    the gain is about 0.45 to 0.64 MB.
+  - GLES in the fork already takes a GLSL string, `ShaderModuleSource::Passthrough`
+    in `wgpu-hal/src/gles/device.rs`, but that path skips `consume_reflection`. WebGL2
+    is GLSL ES 3.0, which has no `layout(binding = N)`, so ready GLSL also needs the
+    reflection naga makes: uniform names, texture and sampler pairs, varyings.
+  - Not every shader is known at build time. The shader lab compiles typed WGSL. The
+    `fs_main_darken` entry of the text fork takes `stem_px` as an override, its value
+    comes from the font setting, and naga writes it into the GLSL. Apps make their own
+    shaders, like the mesh materials and `video/nv12.rs`. `instances_shader` is fixed
+    per pipeline and can be made ahead.
+  - So naga cannot leave every browser build. The safe shape is an opt-in feature for
+    the TV build only: a recording run collects every shader, entry point and constant
+    value, the build makes GLSL and reflection for them, the shader lab is off there,
+    and a shader missing from the record fails loudly. The risk is a shader added
+    later that only fails on the TV.
 - Blocks: up to about 1.4 s of the start of a hilen app on a TV, an estimate.
 
 ## A home screen and lock screen widget on iOS

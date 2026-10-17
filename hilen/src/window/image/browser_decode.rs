@@ -8,17 +8,15 @@
 
 use std::{
     cell::RefCell,
-    io::Cursor,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use anyhow::{Result, anyhow};
 use event_listener::Event;
-use image::ImageReader;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Blob, CanvasRenderingContext2d, HtmlCanvasElement, ImageBitmap, ImageBitmapOptions, ResizeQuality,
-    Window,
+    Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement, ImageBitmap,
+    ImageBitmapOptions, ResizeQuality, Url, Window,
     js_sys::{Array, Uint8Array},
     wasm_bindgen::{JsCast, JsValue},
 };
@@ -85,7 +83,7 @@ fn canvas(window: &Window) -> Result<(HtmlCanvasElement, CanvasRenderingContext2
 
 use crate::{
     gm::flat::Size,
-    window::image::{TextureRawData, fitted_size},
+    window::image::{TextureRawData, fitted_size, image_header},
 };
 
 fn js(err: JsValue) -> anyhow::Error {
@@ -94,9 +92,11 @@ fn js(err: JsValue) -> anyhow::Error {
 
 /// The pixels of the picture in `bytes`, its longest side at most
 /// `max_side`, 0 for its own size. Only the header is read in wasm, for the
-/// size. A page with no window, a worker, gets an error and decodes in wasm.
+/// size. A page with no window, a worker, gets an error and decodes in wasm,
+/// which has no jpeg decoder.
 pub(crate) async fn decode(bytes: &[u8], max_side: u32) -> Result<TextureRawData> {
-    let (width, height) = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.into_dimensions()?;
+    let (width, height) =
+        image_header::dimensions(bytes).ok_or_else(|| anyhow!("Not a png, jpeg, gif or webp header"))?;
     let size = Size::new(width, height);
     let size = fitted_size(size, max_side).unwrap_or(size);
 
@@ -120,6 +120,48 @@ pub(crate) async fn decode(bytes: &[u8], max_side: u32) -> Result<TextureRawData
     canvas.set_height(size.height);
     context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0).map_err(js)?;
     bitmap.close();
+    let data = context
+        .get_image_data(0.0, 0.0, f64::from(size.width), f64::from(size.height))
+        .map_err(js)?
+        .data()
+        .to_vec();
+
+    Ok(TextureRawData {
+        data,
+        size,
+        channels: 4,
+    })
+}
+
+/// The svg in `bytes` drawn by the browser at `size`, straight alpha RGBA
+/// like a picture. An `<img>` draws it, `createImageBitmap` takes no svg in
+/// every browser. The root tag must carry `size`, see `svg_size::sized`.
+pub(crate) async fn rasterize_svg(bytes: &[u8], size: Size<u32>) -> Result<TextureRawData> {
+    let window = web_sys::window().ok_or_else(|| anyhow!("No window to draw an svg in"))?;
+    let parts = Array::of1(&Uint8Array::from(bytes));
+    let options = BlobPropertyBag::new();
+    options.set_type("image/svg+xml");
+    let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &options).map_err(js)?;
+    let url = Url::create_object_url_with_blob(&blob).map_err(js)?;
+    let image = HtmlImageElement::new().map_err(js)?;
+    image.set_src(&url);
+    let decoded = JsFuture::from(image.decode()).await;
+    let _ = Url::revoke_object_url(&url);
+    decoded.map_err(js)?;
+
+    // A new size also clears what the last picture left on the canvas.
+    let (canvas, context) = canvas(&window)?;
+    canvas.set_width(size.width);
+    canvas.set_height(size.height);
+    context
+        .draw_image_with_html_image_element_and_dw_and_dh(
+            &image,
+            0.0,
+            0.0,
+            f64::from(size.width),
+            f64::from(size.height),
+        )
+        .map_err(js)?;
     let data = context
         .get_image_data(0.0, 0.0, f64::from(size.width), f64::from(size.height))
         .map_err(js)?

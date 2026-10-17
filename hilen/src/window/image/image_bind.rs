@@ -16,3 +16,7 @@ pub(crate) struct ImageBind {
 
 #[cfg(wasm)]
 unsafe impl Send for ImageBind {}
+// The fixed raster of an svg in a browser lands after its image is made, in
+// a `OnceLock` that needs this. Only the main thread touches GPU objects.
+#[cfg(wasm)]
+unsafe impl Sync for ImageBind {}

@@ -212,10 +212,14 @@ impl<'a> Walk<'a> {
         let frame = Window::render_frame();
         image.drawn_at.store(frame, Ordering::Relaxed);
         if let Some(svg) = &image.svg {
-            svg.touch(view.svg_raster_size(scale), frame);
+            let size = view.svg_raster_size(scale);
+            svg.touch(size, frame);
+            // A browser draws the raster later, its landing repaints the view.
+            key.hash(&svg.is_ready(size));
         }
 
-        key.hash(&image.addr())
+        key.hash(&image.pixels_ready())
+            .hash(&image.addr())
             .pod(&image.size)
             .pod(&view.image_frame())
             .pod(&view.uv_rect())

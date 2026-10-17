@@ -15,143 +15,143 @@ echo copied
 ";
 
 const SHOWN: &str = r"
-             304   64 - #c5d3ea
-             504   64 - #c5d3ea
               40   68 - #ffffff
               84   68 - #71a6f9
               92   68 - #2f7df6
              144   68 - #85b3fa
              228   68 - #85b3fa
-             304   68 - #94bcfb
+             320   68 - #ffffff
+             348   68 - #ffffff
              416   68 - #ffffff
-             504   68 - #88b4fa
+             472   68 - #ffffff
+             488   68 - #ffffff
              548   68 - #e4bdae
              552   68 - #c36d4b
+             128   72 - #ffffff
              160   72 - #2f7df6
-             264   72 - #ffffff
+             272   72 - #ffffff
              336   72 - #ffffff
              376   72 - #ffffff
-             508   72 - #a6c7fc
              604   72 - #b4491f
-             588  108 - #a3c3f6
-             584  112 - #2f7df6
-             592  112 - #a3c3f6
-             584  116 - #2f7df6
-             588  116 - #2f7df6
-             588  120 - #2f7df6
+             592  120 - #eef1f5
               84  124 - #98beeb
              136  124 - #eef1f5
-             324  204 - #ffffff
-             100  220 - #ffffff
+               4  148 - #ffffff
+             456  148 - #ffffff
+             220  160 - #ffffff
+             360  172 - #ffffff
+             536  200 - #ffffff
+              80  204 - #ffffff
                4  232 - #ffffff
-             196  232 - #ffffff
-             456  232 - #ffffff
+             160  232 - #ffffff
+             272  232 - #ffffff
+             444  232 - #ffffff
              632  232 - #ffffff
 ";
 
 const LINK_COPIED: &str = r"
+             284   32 - #dadada
              328   36 - #333338
              272   40 - #e8e8e8
              304   40 - #333338
              316   40 - #333338
+             320   40 - #333338
              292   44 - #333338
+             280   48 - #333338
              340   48 - #e8e8e8
              308   52 - #333338
              328   56 - #333338
              280   60 - #c5c5c5
              296   60 - #c3c3c3
              320   60 - #c3c3c3
-             304   64 - #aebbcf
              312   64 - #e1e1e1
-             504   64 - #c5d3ea
+              84   68 - #71a6f9
               92   68 - #2f7df6
              144   68 - #85b3fa
-             156   68 - #ffffff
              228   68 - #85b3fa
              416   68 - #ffffff
-             504   68 - #88b4fa
+             488   68 - #ffffff
              548   68 - #e4bdae
              552   68 - #c36d4b
              160   72 - #2f7df6
              336   72 - #ffffff
-             508   72 - #a6c7fc
              604   72 - #b4491f
-             588  108 - #a3c3f6
-             588  120 - #2f7df6
               84  124 - #98beeb
+             136  124 - #eef1f5
                4  232 - #ffffff
-             240  232 - #ffffff
-             424  232 - #ffffff
+             272  232 - #ffffff
+             444  232 - #ffffff
+             632  232 - #ffffff
 ";
 
 const CODE_COPIED: &str = r"
              552   28 - #e9e9e9
+             572   28 - #e1e1e1
              604   32 - #333338
              584   36 - #333338
+             552   40 - #c3c3c3
              564   40 - #333338
              612   40 - #d3d3d3
              548   48 - #e1e1e1
+             576   48 - #333338
              560   52 - #333338
              612   52 - #d3d3d3
              596   56 - #bbbbbb
              580   60 - #dadada
-             304   64 - #c5d3ea
-             504   64 - #c5d3ea
-              40   68 - #ffffff
               84   68 - #71a6f9
               92   68 - #2f7df6
              144   68 - #85b3fa
              228   68 - #85b3fa
              416   68 - #ffffff
+             488   68 - #ffffff
              548   68 - #e4bdae
              552   68 - #c36d4b
              160   72 - #2f7df6
              336   72 - #ffffff
-             508   72 - #a6c7fc
              604   72 - #b4491f
-             584  112 - #2f7df6
-             592  112 - #a3c3f6
-             588  120 - #2f7df6
+             592  120 - #eef1f5
               84  124 - #98beeb
              136  124 - #eef1f5
                4  232 - #ffffff
-             196  232 - #ffffff
-             456  232 - #ffffff
+             160  232 - #ffffff
+             272  232 - #ffffff
+             444  232 - #ffffff
+             632  232 - #ffffff
 ";
 
 const BLOCK_COPIED: &str = r"
-             304   64 - #c5d3ea
-             504   64 - #c5d3ea
-              40   68 - #ffffff
               84   68 - #71a6f9
               92   68 - #2f7df6
              144   68 - #85b3fa
              228   68 - #85b3fa
              416   68 - #ffffff
+             488   68 - #ffffff
              548   68 - #e4bdae
              552   68 - #c36d4b
              160   72 - #2f7df6
+             272   72 - #ffffff
              336   72 - #ffffff
-             508   72 - #a6c7fc
-             572   76 - #e1e1e1
+             564   76 - #e4e4e4
+             576   76 - #e1e1e1
              588   80 - #333338
+             600   80 - #333338
              616   80 - #333338
-             560   84 - #d3d3d3
              576   88 - #333338
              596   92 - #a7a7a9
-             612   92 - #333338
-             556  104 - #e1e4e8
-             604  104 - #bbbbbb
+             620   92 - #c3c3c3
+             564   96 - #333338
+             572  104 - #afb1b4
+             584  104 - #afb1b4
              616  104 - #bcbcbc
-             572  108 - #ccced2
-             588  108 - #8ca7d3
-             592  112 - #9bbaeb
-             588  120 - #2f7df6
+             564  112 - #e4e7eb
+             600  112 - #e3e6ea
               84  124 - #98beeb
              136  124 - #eef1f5
                4  232 - #ffffff
-             196  232 - #ffffff
-             448  232 - #ffffff
+             160  232 - #ffffff
+             272  232 - #ffffff
+             444  232 - #ffffff
+             632  232 - #ffffff
 ";
 
 #[view]

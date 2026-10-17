@@ -39,10 +39,22 @@ pub struct Image {
     /// The render frame an `ImageView` last drew it on, 0 for never. The
     /// memory bound of downloaded images frees the ones drawn longest ago.
     pub(crate) drawn_at: AtomicU64,
+    /// A bundled jpeg in a browser, whose pixels the page decodes later.
+    /// `bind` is transparent until then.
+    #[cfg(wasm)]
+    late:                Option<crate::window::image::late::Late>,
 }
 
 impl Image {
     fn load_to_wgpu(name: &str, data: &[u8]) -> Result<Self> {
+        #[cfg(wasm)]
+        if Svg::is_svg(data) {
+            return Ok(Self::from_svg(Svg::parse(data)?));
+        }
+        #[cfg(wasm)]
+        if crate::window::image::image_header::is_jpeg(data) {
+            return Self::from_browser(name, data);
+        }
         let texture = Texture::from_file_bytes(data, name)?;
         let svg = Svg::is_svg(data).then(|| Svg::parse(data)).transpose()?;
         Ok(Self::from_texture(&texture, svg))
@@ -99,7 +111,7 @@ impl Image {
         Self::bind_view(&texture.view, &texture.sampler)
     }
 
-    fn bind_view(view: &TextureView, sampler: &Sampler) -> ImageBind {
+    pub(crate) fn bind_view(view: &TextureView, sampler: &Sampler) -> ImageBind {
         let bind = Window::device().create_bind_group(&wgpu::BindGroupDescriptor {
             label:   "image_bind_group".into(),
             layout:  Self::uniform_layout(),
@@ -132,10 +144,79 @@ impl Image {
         self.filter = filter;
         let view = self.bind.view.clone();
         self.bind = Self::bind_view(&view, &Texture::image_sampler(filter));
+        #[cfg(wasm)]
+        {
+            if let Some(late) = &mut self.late {
+                late.set_filter(filter);
+            }
+            if let Some(svg) = &mut self.svg {
+                svg.set_filter(filter);
+            }
+        }
     }
 
     pub fn filter(&self) -> ImageFilter {
         self.filter
+    }
+
+    /// An svg in a browser, whose rasters the page draws later. Its own
+    /// texture is never drawn, `bind` hands out the fixed raster.
+    #[cfg(wasm)]
+    fn from_svg(svg: Svg) -> Self {
+        Self {
+            size:     svg.fixed_size(),
+            channels: 4,
+            bind:     Self::bind_texture(&crate::window::image::late::transparent_texture("svg_image")),
+            filter:   ImageFilter::Linear,
+            svg:      Some(svg),
+            drawn_at: AtomicU64::new(0),
+            late:     None,
+        }
+    }
+
+    /// A bundled jpeg in a browser. The wasm has no jpeg decoder, the page
+    /// decodes it, see `browser_decode`. The size comes from the header.
+    #[cfg(wasm)]
+    fn from_browser(name: &str, data: &[u8]) -> Result<Self> {
+        use crate::window::image::{browser_decode, image_header, late};
+
+        let (width, height) = image_header::dimensions(data)
+            .ok_or_else(|| anyhow::anyhow!("No size in the header of {name}"))?;
+        let late = late::Late::default();
+        let bytes = data.to_vec();
+        late.start(name.to_string(), async move {
+            browser_decode::decode(&bytes, 0).await
+        });
+        Ok(Self {
+            size:     Size::new(width, height),
+            channels: 4,
+            bind:     Self::bind_texture(&late::transparent_texture(name)),
+            filter:   ImageFilter::Linear,
+            svg:      None,
+            drawn_at: AtomicU64::new(0),
+            late:     Some(late),
+        })
+    }
+
+    /// Pictures of this image drawn on `frame` or later that the browser
+    /// still makes, see `late::pictures_pending`.
+    #[cfg(wasm)]
+    pub(crate) fn pending_since(&self, frame: u64) -> usize {
+        let svg = self.svg.as_ref().map_or(0, |svg| svg.pending_since(frame));
+        let late = self.late.as_ref().is_some_and(|late| {
+            late.is_pending() && self.drawn_at.load(std::sync::atomic::Ordering::Relaxed) >= frame
+        });
+        svg + usize::from(late)
+    }
+
+    /// Whether the pixels are here, false while a browser still makes a
+    /// bundled jpeg. The damage of a view changes when they land.
+    #[cfg_attr(not_wasm, allow(clippy::unused_self))]
+    pub(crate) fn pixels_ready(&self) -> bool {
+        #[cfg(wasm)]
+        return self.late.as_ref().is_none_or(|late| late.get().is_some());
+        #[cfg(not_wasm)]
+        true
     }
 
     fn from_texture(texture: &Texture, svg: Option<Svg>) -> Self {
@@ -146,6 +227,8 @@ impl Image {
             filter: ImageFilter::Linear,
             svg,
             drawn_at: AtomicU64::new(0),
+            #[cfg(wasm)]
+            late: None,
         }
     }
 
@@ -195,17 +278,30 @@ impl Image {
     }
 
     pub(crate) fn bind(&self) -> &BindGroup {
-        &self.bind.bind
+        #[cfg(wasm)]
+        if let Some(svg) = &self.svg {
+            return svg.fixed_bind();
+        }
+        &self.current_bind().bind
+    }
+
+    /// The bind of the pixels, a late one once it landed.
+    fn current_bind(&self) -> &ImageBind {
+        #[cfg(wasm)]
+        if let Some(bind) = self.late.as_ref().and_then(crate::window::image::late::Late::get) {
+            return bind;
+        }
+        &self.bind
     }
 
     #[cfg(any(feature = "scene", all(feature = "video", ffmpeg)))]
     pub(crate) fn view(&self) -> &TextureView {
-        &self.bind.view
+        &self.current_bind().view
     }
 
     #[cfg(feature = "scene")]
     pub(crate) fn sampler(&self) -> &Sampler {
-        &self.bind.sampler
+        &self.current_bind().sampler
     }
 }
 
@@ -236,6 +332,20 @@ impl ResourceLoader for Image {
 
         #[cfg(wasm)]
         crate::window::image::svg_sources::store(&name, data);
+
+        #[cfg(wasm)]
+        if Svg::is_svg(data) {
+            let svg = Svg::parse(data).unwrap_or_else(|err| panic!("Failed to parse svg {name}. Err: {err}"));
+            return from_main(move || Image::from_svg(svg));
+        }
+        #[cfg(wasm)]
+        if crate::window::image::image_header::is_jpeg(data) {
+            let data = data.to_vec();
+            return from_main(move || {
+                Image::from_browser(&name, &data)
+                    .unwrap_or_else(|err| panic!("Failed to load image {name}. Err: {err}"))
+            });
+        }
 
         let decode_started = web_time::Instant::now();
 

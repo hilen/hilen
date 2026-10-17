@@ -53,6 +53,13 @@ call. `--no-wasm-tier-up` and `--wasm-num-compilation-tasks=4` changed nothing, 
 compile already runs on 3 threads. With Liftoff the start grows by about 2.3 s per MB of
 code, an estimate. The data of the file costs no compile time.
 
+Less code is the way left. On 2026-10-17 the page took over svg icons and bundled
+jpegs, see Size of a browser build, and the code of flixen went from 5.69 to 4.98 MB,
+the file from 5.98 to 5.28 MB. 8 launches of each build on the C1, after a warm up
+launch per install: Rust started after 10.47 s before and 8.89 s after, the profiles
+screen showed after 12.12 s and 10.46 s. The slowest launch after was faster than the
+fastest before. naga is the largest crate left, 617 KB, see its roadmap entry.
+
 The TV reads `v8ExtraFlags` only when it installs the app. An edit of the installed
 `appinfo.json` does nothing, `getAppInfo` of `com.webos.applicationManager` shows what
 the TV took.
@@ -113,9 +120,14 @@ origin of the page and a file has none.
 ## Size of a browser build
 
 A browser build of hilen leaves out what a page does not run, the native builds keep all
-of it. The `image` crate decodes only png, jpeg and gif, a browser decodes a downloaded
-picture itself. `usvg` and `resvg` have no svg text, icons have none, that stack was
-about 0.9 MB of wasm. `video` alone pulls no `audio` module, the `sound` cfg of
+of it. The `image` crate decodes only png and gif, a browser decodes a downloaded
+picture and a bundled jpeg itself. The `camera` feature turns the jpeg codec of `image`
+back on, a photo is encoded with it. The page also draws every svg, so no svg crate is
+linked: `window/image/svg_browser.rs` draws each pixel size of an svg through an `<img>`
+and a canvas, see `window/image/late.rs`. Such a picture draws transparent for a
+frame or more until the page made it, and a test screenshot waits for the pictures on
+the screen, see `AppRunner::take_screenshot`. The 2 changes took about 0.71 MB of code
+out of flixen. `video` alone pulls no `audio` module, the `sound` cfg of
 `hilen/build.rs` builds it only where ffmpeg plays the sound, a page plays it in the
 video element. A downloaded picture other than an svg is decoded by the browser with
 `createImageBitmap`, 2 at a time with 1 shared canvas, see

@@ -343,9 +343,55 @@ impl AppRunner {
     pub fn take_screenshot() -> Result<Screenshot> {
         human_pause();
 
+        #[cfg(wasm)]
+        Self::wait_for_browser_pictures();
+
         let recv = from_main(|| Window::current().request_screenshot());
         let screenshot = recv.recv()?;
+
+        // The shot frame itself showed a picture first, take it again once
+        // that landed. Only then, an extra frame moves a running scene.
+        #[cfg(wasm)]
+        if crate::window::image::late::pictures_pending() > 0 {
+            Self::wait_for_browser_pictures();
+            return Ok(from_main(|| Window::current().request_screenshot()).recv()?);
+        }
+
         Ok(screenshot)
+    }
+
+    /// A browser makes an svg raster or a bundled jpeg some frames after
+    /// the view first shows it, see `window/image/late.rs`. Frames are
+    /// drawn only while one is pending, so a still screen gets no extra one.
+    /// The count is an atomic read here, not through `from_main`: on a page
+    /// each `from_main` asks for a frame, and a scene moves 1 step a frame.
+    #[cfg(wasm)]
+    fn wait_for_browser_pictures() {
+        use crate::{
+            deps::hreads::wait_for_next_frame,
+            window::{image::late::pictures_pending, request_frame},
+        };
+
+        if crate::deps::hreads::is_main_thread() {
+            return;
+        }
+        // A picture the page never finishes must not hang the suite.
+        let started = web_time::Instant::now();
+        let late = || started.elapsed() > std::time::Duration::from_secs(5);
+        while pictures_pending() > 0 {
+            let before = from_main(|| {
+                request_frame();
+                Window::render_frame()
+            });
+            while from_main(Window::render_frame) <= before && !late() {
+                wait_for_next_frame();
+            }
+            if late() {
+                let names = from_main(crate::window::image::late::pending_names);
+                log::warn!("The shot did not wait any longer for the browser pictures {names:?}");
+                return;
+            }
+        }
     }
 
     pub fn fps() -> f32 {
