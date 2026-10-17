@@ -69,9 +69,15 @@ only for a file from its http cache, and the cache of the TV is about 10 MB, too
 to keep a file over about 1/8 of it. Tried on 2026-10-16, from the `file://` app and
 from an http page: every start fetched the whole file again and compiled it again.
 
-The package also holds `splash.png`, the app icon in the middle of a black picture of
-1920 by 1080, named in `splashBackground`. webOS shows it from the launch to the first
-frame, so the compile is not a black screen. It was not seen on the TV yet.
+The package also holds `splash.png`, the app icon in the middle of a picture of 1920 by
+1080, named in `splashBackground`. webOS shows it from the launch to the first frame, so
+the compile is not a black screen. Seen on the C1 on 2026-10-17. The picture has the
+color of the top left pixel of the icon, so the edge of a square icon does not show,
+white for an icon with a clear corner. The same color goes into `iconColor` of
+`appinfo.json`. The launcher tile is taller than the icon and filled the rest with
+black without it, a square icon got black bars at the top and the bottom.
+`build/web/webos.rs` reads the pixel with `sips` or `magick`, the script runs on
+rustscript, which has no `png` crate.
 
 `RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so the
 script says `--cfg tokio_unstable` again when the config has it. The demo sets
