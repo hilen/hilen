@@ -224,6 +224,11 @@ calls, so `VideoView` is one view on both.
   that reports an error keeps it for good, so `play` on a failed video calls `load` on
   the element, which starts at 0, and sets the old position once the length is known.
   No test covers this yet.
+- A TV loads the source of a paused element again when its app comes back from the
+  background, and the element reads 0 until it plays, seen on an LG C1 on 2026-10-17.
+  So `pause` holds the place, `position` gives the held place while paused, `seek_to`
+  moves it, and the element is put back there on the next frame and on `play`. `Web
+  video` pins it with a `load` of the paused element.
 - A video element sends no request headers. A `VideoSource` with headers logs a warning
   and plays without them, the url has to carry the access.
 - The tracks inside a file are not listed, a video element hands out neither the sound

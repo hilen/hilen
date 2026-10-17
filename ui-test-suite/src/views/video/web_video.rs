@@ -13,8 +13,9 @@ use hilen::{
     video::VideoState,
 };
 use web_sys::{
-    Blob, BlobPropertyBag, Url,
+    Blob, BlobPropertyBag, HtmlVideoElement, Url,
     js_sys::{Array, Uint8Array},
+    wasm_bindgen::JsCast,
 };
 
 /// Four solid frames at one per second, red, green, blue, yellow, h264 in
@@ -90,13 +91,18 @@ fn blob_url(bytes: &[u8], kind: &str) -> Result<String> {
     Url::create_object_url_with_blob(&blob).map_err(|error| anyhow!("no blob url: {error:?}"))
 }
 
-/// The CSS box of the first video element of the page.
-fn element_box() -> Result<(f64, f64, f64, f64)> {
-    let element = web_sys::window()
+/// The first video element of the page.
+fn page_video() -> Result<HtmlVideoElement> {
+    web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| document.query_selector("video").ok().flatten())
-        .ok_or_else(|| anyhow!("the page has no video element"))?;
-    let rect = element.get_bounding_client_rect();
+        .map(JsCast::unchecked_into)
+        .ok_or_else(|| anyhow!("the page has no video element"))
+}
+
+/// The CSS box of the first video element of the page.
+fn element_box() -> Result<(f64, f64, f64, f64)> {
+    let rect = page_video()?.get_bounding_client_rect();
     Ok((rect.left(), rect.top(), rect.width(), rect.height()))
 }
 
@@ -189,6 +195,38 @@ impl ViewTest for WebVideo {
             "no second subtitle line after the seek to 2.5 s"
         );
         checkpoint("paused at 2.5 s on the blue frame, the second line shows")?;
+
+        // A TV loads the source of a paused element again when its app comes
+        // back from the background, the element reads 0 after that.
+        from_main(|| -> Result<()> {
+            let element = page_video()?;
+            element.load();
+            ensure!(
+                element.current_time() == 0.0,
+                "the element did not start over, it is at {}",
+                element.current_time()
+            );
+            Ok(())
+        })?;
+        let (_, position) = view.show();
+        ensure!(
+            (position - 2.5).abs() < 0.1,
+            "a paused video that loaded again says {position:.2} s, not 2.5"
+        );
+        view.wait("the way back to the held place", |state, position| {
+            state == VideoState::Paused && (position - 2.5).abs() < 0.1
+        })?;
+        from_main(move || {
+            view.video.play();
+        });
+        view.wait("the playback from the held place", |state, position| {
+            state == VideoState::Playing && position >= 2.5
+        })?;
+        let at = from_main(|| page_video().map(|element| element.current_time()))?;
+        ensure!(at >= 2.5, "the element plays from {at:.2} s, not from the held 2.5 s");
+        from_main(move || {
+            view.video.pause();
+        });
 
         from_main(move || {
             view.video.play();

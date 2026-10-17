@@ -37,6 +37,8 @@ const HAVE_METADATA: u16 = 1;
 const HAVE_CURRENT_DATA: u16 = 2;
 /// And enough after it to play on.
 const HAVE_FUTURE_DATA: u16 = 3;
+/// A paused element this far from its held place lost it.
+const HELD_DRIFT: f64 = 0.5;
 
 /// A view that is hidden, or sits in a hidden view, gets no `update`, so it
 /// cannot take its own element off the page. Every placed element is listed
@@ -106,6 +108,10 @@ pub(crate) struct Player {
     wants_play: bool,
     /// The place a source that loads again after a failure goes back to.
     resume_at:  Option<f64>,
+    /// The place of a paused video. A TV loads the source of a paused
+    /// element again when its app comes back from the background, and the
+    /// element then reads 0 until it plays. Found on an LG C1 on 2026-10-17.
+    held:       Option<f64>,
     looping:    bool,
     stage:      Stage,
 
@@ -183,6 +189,7 @@ impl Player {
             location: source.location().to_string(),
             wants_play: false,
             resume_at: None,
+            held: None,
             looping: false,
             stage: Stage::Loading,
             landed: Arc::default(),
@@ -244,12 +251,24 @@ impl Player {
     }
 
     pub(crate) fn position(&self) -> f64 {
-        self.resume_at.unwrap_or_else(|| self.element().current_time())
+        self.resume_at
+            .or(self.held)
+            .unwrap_or_else(|| self.element().current_time())
     }
 
     pub(crate) fn play(&mut self) {
         if self.stage == Stage::Failed {
             self.load_again();
+        }
+        if let Some(at) = self.held.take()
+            && self.resume_at.is_none()
+            && (self.element().current_time() - at).abs() > HELD_DRIFT
+        {
+            info!(
+                "video: {} lost its place while paused, it plays on from {at:.1} s",
+                self.location
+            );
+            self.resume_at = Some(at);
         }
         self.wants_play = true;
         self.leave_the_end();
@@ -277,6 +296,9 @@ impl Player {
     }
 
     pub(crate) fn pause(&mut self) {
+        if self.is_loaded() {
+            self.held = Some(self.position());
+        }
         self.wants_play = false;
         if let Err(error) = self.element().pause() {
             warn!("video: pause failed: {error:?}");
@@ -309,6 +331,9 @@ impl Player {
     pub(crate) fn seek_to(&mut self, seconds: f64) {
         self.leave_the_end();
         let seconds = seconds.max(0.0);
+        if self.held.is_some() {
+            self.held = Some(seconds);
+        }
         // The element loads again, the seek waits for it like the old place.
         if self.resume_at.is_some() {
             self.resume_at = Some(seconds);
@@ -529,6 +554,20 @@ impl Player {
         {
             element.set_current_time(at);
             self.resume_at = None;
+        }
+
+        // The picture of a paused element that loaded again goes back to
+        // the held place too, not only the position.
+        if let Some(at) = self.held
+            && element.ready_state() >= HAVE_METADATA
+            && !element.seeking()
+            && (element.current_time() - at).abs() > HELD_DRIFT
+        {
+            info!(
+                "video: {} lost its place while paused, back to {at:.1} s",
+                self.location
+            );
+            element.set_current_time(at);
         }
 
         if self.stage == Stage::Loading && element.ready_state() >= HAVE_CURRENT_DATA {
