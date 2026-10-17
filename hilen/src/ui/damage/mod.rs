@@ -64,6 +64,7 @@ pub(crate) struct Frames {
 /// partial frames out, so a test of them has nothing to check there.
 pub(crate) const WHY_OFF: &str = "HILEN_DAMAGE=0";
 pub(crate) const WHY_NO_KEPT_FRAME: &str = "a surface with 1 sample keeps no frame";
+pub(crate) const WHY_IPHONE_SAMPLES: &str = "an iPhone loses the frame kept in several samples";
 
 static LAST: MainLock<Paints> = MainLock::new();
 static SEEN: MainLock<Paints> = MainLock::new();

@@ -9,6 +9,8 @@ mod clip_test;
 #[cfg(feature = "ui-tests")]
 mod drag_cancel_test;
 #[cfg(feature = "ui-tests")]
+mod fling_again_test;
+#[cfg(feature = "ui-tests")]
 mod horizontal_scroll_test;
 #[cfg(feature = "ui-tests")]
 mod keeps_end_test;

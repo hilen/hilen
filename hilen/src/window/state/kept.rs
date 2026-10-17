@@ -107,6 +107,12 @@ impl State {
         if msaa_sample_count() == 1 && !(target.keeps() && kept.target == target) {
             return Damage::Whole(damage::WHY_NO_KEPT_FRAME);
         }
+        // Proven on an iPhone 16 Pro Max with iOS 27: a partial frame over
+        // the kept multisampled texture shows black or an older screen,
+        // the simulator keeps it. See the roadmap.
+        if cfg!(target_os = "ios") && msaa_sample_count() > 1 {
+            return Damage::Whole(damage::WHY_IPHONE_SAMPLES);
+        }
         // A region is painted over with the clear color first. A color
         // that is not solid would mix with the old pixels there.
         if self.clear_color.a < 1.0 {

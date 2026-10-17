@@ -42,7 +42,11 @@ pub fn msaa_sample_count() -> u32 {
     #[cfg(not(target_arch = "wasm32"))]
     let value = std::env::var("HILEN_MSAA").ok();
 
-    let default = default_sample_count(BACKEND.get().copied(), cfg!(target_arch = "wasm32"));
+    let default = default_sample_count(
+        BACKEND.get().copied(),
+        cfg!(target_arch = "wasm32"),
+        cfg!(target_os = "ios"),
+    );
 
     let count = value.map_or(default, |value| {
         value.parse().unwrap_or_else(|_| panic!("Invalid HILEN_MSAA value: {value}"))
@@ -101,8 +105,12 @@ pub fn set_msaa_sample_count(count: u32) {
 /// A browser on WebGL gets no multisampling. That is the path of old and
 /// weak devices, the Mali-G51 of an LG C1 TV drew one label at 10 frames a
 /// second with 4 samples at 1080p and at 48 with 1.
-fn default_sample_count(backend: Option<Backend>, browser: bool) -> u32 {
-    if browser && backend == Some(Backend::Gl) {
+///
+/// An iPhone draws 1 sample. Its screen is 3x, so the rough edges of 1
+/// sample are hard to see, and 1 sample is half the GPU work. It is also
+/// the only count that keeps a partial frame there, see `docs/damage.md`.
+fn default_sample_count(backend: Option<Backend>, browser: bool, iphone: bool) -> u32 {
+    if iphone || (browser && backend == Some(Backend::Gl)) {
         1
     } else {
         4
@@ -117,18 +125,23 @@ mod test {
 
     #[test]
     fn a_browser_on_webgl_draws_one_sample() {
-        assert_eq!(default_sample_count(Some(Backend::Gl), true), 1);
+        assert_eq!(default_sample_count(Some(Backend::Gl), true, false), 1);
     }
 
     #[test]
     fn a_browser_on_webgpu_keeps_four_samples() {
-        assert_eq!(default_sample_count(Some(Backend::BrowserWebGpu), true), 4);
+        assert_eq!(default_sample_count(Some(Backend::BrowserWebGpu), true, false), 4);
     }
 
     #[test]
     fn native_keeps_four_samples_on_every_backend() {
-        assert_eq!(default_sample_count(Some(Backend::Gl), false), 4);
-        assert_eq!(default_sample_count(Some(Backend::Metal), false), 4);
-        assert_eq!(default_sample_count(None, false), 4);
+        assert_eq!(default_sample_count(Some(Backend::Gl), false, false), 4);
+        assert_eq!(default_sample_count(Some(Backend::Metal), false, false), 4);
+        assert_eq!(default_sample_count(None, false, false), 4);
+    }
+
+    #[test]
+    fn an_iphone_draws_one_sample() {
+        assert_eq!(default_sample_count(Some(Backend::Metal), false, true), 1);
     }
 }

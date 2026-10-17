@@ -19,6 +19,23 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A partial frame over several samples on an iPhone
+
+Found by skaityk on 2026-10-17, on an iPhone 16 Pro Max with iOS 27.0.1, with the hilen
+of that day. The iOS simulator does not show it.
+
+- Current: with 4 samples a partial frame draws over the multisampled texture of the
+  frame before, see `docs/damage.md`. On the phone that texture comes back black or
+  with an older screen: the app flashes black, and a back press shows the screen
+  before it again. 1 sample, which keeps the frame in the scene texture, and
+  `HILEN_DAMAGE=0` both draw right on the same phone. The passes store the texture,
+  Metal gets `StoreAndMultisampleResolve`, and the texture is not memoryless, so the
+  cause is not found. iOS now draws 1 sample by default, and with more samples every
+  frame there is whole, `WHY_IPHONE_SAMPLES` in `window/state/kept.rs`.
+- Needed: the cause, proven on a phone, and partial frames with several samples on
+  iOS, or the whole frame rule kept with the reason written down.
+- Blocks: partial frames for an iOS app that sets 2 or 4 samples.
+
 ## Svg icons on an old browser with no svg stack in the wasm
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`. The start of

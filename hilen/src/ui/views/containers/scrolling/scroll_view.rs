@@ -78,6 +78,10 @@ struct End {
 pub struct ScrollView {
     inertia:            f32,
     inertia_x:          f32,
+    /// The number of the fling that may move the content. A new fling or
+    /// a finger that lands takes a new one, so an older fling animation
+    /// ends instead of adding its steps to the new one.
+    fling:              u32,
     began_touch:        Point,
     previous_touch:     Point,
     dragging:           bool,
@@ -501,6 +505,8 @@ impl Scrollable for ScrollView {
             && self.__base_view().__touch_id == NO_TOUCH_ID
             && target_frame.contains(touch.position)
         {
+            // A finger that lands on a fling holds the content.
+            self.stop_fling();
             self.__base_view().__touch_id = touch.id;
             self.began_touch = touch.position;
             self.previous_touch = touch.position;
@@ -674,14 +680,25 @@ impl ScrollView {
         self.dragging || self.inertia != 0.0 || self.inertia_x != 0.0
     }
 
-    fn add_inertia_animation(&self) {
+    fn stop_fling(&mut self) {
+        self.inertia = 0.0;
+        self.inertia_x = 0.0;
+        self.fling = self.fling.wrapping_add(1);
+    }
+
+    fn add_inertia_animation(&mut self) {
         if self.inertia == 0.0 && self.inertia_x == 0.0 {
             return;
         }
 
+        self.fling = self.fling.wrapping_add(1);
+        let fling = self.fling;
         let mut scroll = weak_from_ref(self);
 
         let anim = UIAnimation::new(move |_, _| {
+            if scroll.fling != fling {
+                return;
+            }
             if scroll.inertia_x == 0.0 {
                 let inertia = scroll.inertia;
                 scroll.on_scroll(inertia);
@@ -693,6 +710,9 @@ impl ScrollView {
             }
         })
         .finish_condition(move || {
+            if scroll.fling != fling {
+                return true;
+            }
             if scroll.inertia.abs() > 0.2 || scroll.inertia_x.abs() > 0.2 {
                 return false;
             }

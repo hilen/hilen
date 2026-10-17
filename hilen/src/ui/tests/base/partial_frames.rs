@@ -6,7 +6,7 @@ use crate::{
     gm::color::{BLACK, BLUE, GREEN, LIGHT_GRAY, ORANGE, RED, WHITE},
     ui::{
         Container, Label, Setup, Shadow, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest,
-        damage::{self, Frames, WHY_NO_KEPT_FRAME, WHY_OFF},
+        damage::{self, Frames, WHY_IPHONE_SAMPLES, WHY_NO_KEPT_FRAME, WHY_OFF},
         view,
     },
     ui_test::check_colors,
@@ -212,9 +212,10 @@ impl Setup for PartialFrames {
 }
 
 /// Whether this run can draw partial frames at all. A surface with 1
-/// sample keeps no frame, and `HILEN_DAMAGE=0` switches them off.
+/// sample keeps no frame, an iPhone with several samples loses it, and
+/// `HILEN_DAMAGE=0` switches them off.
 fn partial_frames_possible(frames: Frames) -> bool {
-    frames.why != WHY_NO_KEPT_FRAME && frames.why != WHY_OFF
+    ![WHY_NO_KEPT_FRAME, WHY_IPHONE_SAMPLES, WHY_OFF].contains(&frames.why)
 }
 
 fn same_pixels(partial: &Screenshot, whole: &Screenshot, step: &str) -> Result<()> {

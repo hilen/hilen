@@ -40,6 +40,9 @@ them pixel for pixel after each of 10 small changes.
 - The size of the window or the clear color changed, or the clear color is not solid.
 - `HILEN_DAMAGE=0` is in the env. This is the A/B lever, and the way around a view
   that shows stale pixels.
+- An iPhone draws with more than 1 sample. It loses the frame kept in the
+  multisampled texture, see the roadmap. iOS draws 1 sample by default, so this
+  happens only when an app sets more.
 
 ## Where the frame before is kept
 
@@ -79,6 +82,10 @@ textures of the frame, and each is made again for the new count. The test
 - A pipeline of an app's own, and a `ShaderLab` view, are not made again by a switch.
 
 `HILEN_MSAA` in the env is only the count a run starts with, for tests and benchmarks.
+
+The default is 4, and 1 on iOS and in a browser on WebGL. An iPhone screen is 3x, so
+the rougher edges are hard to see there, and the frame before is kept only with 1
+sample, see above.
 
 ## What was measured
 
