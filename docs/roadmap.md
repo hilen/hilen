@@ -178,26 +178,6 @@ scene takes 4032 x 3024 photos that go to a photogrammetry pipeline like real on
   WebGL included, and a scene test checks a known pixel of a picture.
 - Blocks: the virtual camera of the turnscan simulator.
 
-## A photo from a camera of the device
-
-Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. It is a
-turntable 3D scanner. The app turns the object, waits, and takes a photo with the
-camera of the phone, 24 to 144 times in a row, with nobody at the screen.
-
-- Current: the engine has no access to a camera of the device. Every `camera` in the
-  code is the 3D scene camera, `hilen/src/scene/camera.rs`. A grep of the repo finds no
-  `AVCaptureDevice`, no `getUserMedia`, no Android camera and no
-  `NSCameraUsageDescription` in the iOS project.
-- Needed: an app lists the cameras of the device and opens 1 of them. A view shows its
-  live picture. A call in code takes a photo at full resolution with no tap of the
-  user, and gives the encoded bytes, HEIC or JPEG, with the width and the height.
-  Focus, exposure and white balance can be locked, so a series of photos looks the
-  same. On an iPhone the app picks the lens, like the main wide one. It works on every
-  platform: iOS and macOS through AVFoundation, Android, a webcam on Windows and Linux,
-  and the browser through `getUserMedia`. The engine asks for the permission with a
-  text from the app config, and a refusal is a clear error.
-- Blocks: the whole capture side of turnscan.
-
 ## Bluetooth LE devices
 
 Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. The app

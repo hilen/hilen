@@ -66,7 +66,13 @@ entitlement on a Mac release, and the `CAMERA` permission on Android.
 
 Unit tests of the fake camera, the photo, the locks, the refusal, the frame shrink,
 the formats and the YUV colors, and the UI test `Camera view test` on Linux, macOS and
-the iOS simulator. No real camera was used yet on any platform, so the hardware code of
-every platform is not proven. The browser lane leaves the test out: the page stopped
+the iOS simulator. A real camera on iOS: turnscan on an iPhone 16 Pro Max with iOS
+27.0.1 on 2026-10-17 listed the cameras, opened the 1x lens on the back, `Back
+Camera`, showed its live picture upright in a `CameraView`, locked exposure and white
+balance, and took over 100 JPEG photos of 8064 x 6048 from code, about 1 every 3
+seconds with the work of the app between them. A hot loader installed before the
+camera came had no `NSCameraUsageDescription`, `make device args=install` fixed it.
+The hardware code of macOS, Android, Windows, Linux and the browser is not proven
+with a real camera. The browser lane leaves the test out: the page stopped
 answering in it after the camera opened, about 1 run in 3 on 2026-10-17, also on
 `dev` with no other change. The cause is not found.
