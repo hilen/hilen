@@ -95,7 +95,7 @@ fn prepare_storage() {
     // Secrets are filed under the name of the data folder, the project name
     // on desktop. A test runner has no project name and gets the name of its
     // temp folder.
-    #[cfg(feature = "google-access")]
+    #[cfg(feature = "secrets")]
     if let Some(name) = dir.file_name() {
         crate::store::SecretStore::set_service(name.to_string_lossy().trim_start_matches('.'));
     }
@@ -104,7 +104,7 @@ fn prepare_storage() {
     // binary, and every debug build is a new binary. So a debug build would
     // ask for the Keychain password after each rebuild. It keeps its secrets
     // in sealed files instead.
-    #[cfg(all(feature = "google-access", debug_assertions))]
+    #[cfg(all(feature = "secrets", debug_assertions))]
     crate::store::SecretStore::keep_in_files();
 
     OnDisk::<()>::set_root_path(dir);

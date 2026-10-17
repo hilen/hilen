@@ -57,7 +57,7 @@ through a `<video>` element under the canvas. Where ffmpeg decodes it also gives
 the remote inspector. `hot` is hot reload in the iOS and the Apple TV simulator, on a real iPhone and on a real Apple TV, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
 `login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
-see [docs/login.md](docs/login.md). `google-access` is Google API access for an app that keeps its Google tokens on the device, `GoogleAccess`, `GoogleAccounts` and `SecretStore`, see [docs/google-access.md](docs/google-access.md). `ui-tests` and `level-tests` register tests. A GUI only app depends
+see [docs/login.md](docs/login.md). `google-access` is Google API access for an app that keeps its Google tokens on the device, `GoogleAccess`, `GoogleAccounts` and `SecretStore`, see [docs/google-access.md](docs/google-access.md). `secrets` is `SecretStore` alone, which `google-access` turns on too. `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
 `demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, Windows, iOS and wasm, and `scene`
 through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
@@ -120,6 +120,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/links.md](docs/links.md) — links that open the app: `Links::on_open`, the `[links]` table
   of `hilen.toml`, what each platform does, and `AppLinks` in `hilen-server` that serves the 2
   well-known files. Read before touching `hilen/src/system/links`, `app_links.rs` or a link flow.
+- [docs/widgets.md](docs/widgets.md) — a home screen widget and a Live Activity on iOS: the
+  `[widget]` table of `hilen.toml`, the Swift folders of the app, the shared keychain group and
+  `SecretStore::shared`. Read before touching `hilen-mobile/src/widget` or a widget of an app.
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.

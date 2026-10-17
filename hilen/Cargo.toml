@@ -95,7 +95,10 @@ login = ["dep:hilen-session", "dep:getrandom", "dep:qrcode"]
 # Google API access with the tokens kept on the device, against the
 # `google_access` routes of a `hilen-server` backend, and `SecretStore`, a
 # secret in the credential store of the system. Off by default.
-google-access = ["dep:hilen-session", "hilen-session/device-key", "hilen-session/keychain", "dep:getrandom"]
+google-access = ["secrets", "hilen-session/device-key", "dep:getrandom"]
+# `SecretStore` alone, a secret in the credential store of the system, also one
+# shared with the widget extension of an iOS app. Off by default.
+secrets = ["dep:hilen-session", "hilen-session/keychain"]
 
 [dependencies]
 anyhow = { workspace = true }

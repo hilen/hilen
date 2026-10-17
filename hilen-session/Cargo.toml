@@ -42,8 +42,9 @@ keyring-core = { workspace = true, optional = true }
 [target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
 keyring-store-apple = { workspace = true, optional = true, features = ["keychain", "protected"] }
 
-# The sealed files of tvOS are entries of the user defaults.
-[target.'cfg(target_os = "tvos")'.dependencies]
+# The sealed files of tvOS are entries of the user defaults. iOS reads the
+# keychain group of a shared secret from its Info.plist.
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2            = { workspace = true }
 objc2-foundation = { workspace = true }
 

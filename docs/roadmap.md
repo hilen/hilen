@@ -39,6 +39,41 @@ browser lane on the Linux builder, every test but `Camera view test` and `Inspec
   left out, to know which of them are old.
 - Blocks: a green browser lane.
 
+## Widgets on iOS, the proof on a phone and the remote of nome
+
+Found by nome, `~/dev/apps/nome`, a metronome, on 2026-10-16, and by banda,
+`~/dev/apps/banda`, on 2026-10-17. Nome wants a lock screen widget that works like a
+remote: Start, Stop and the BPM, with the phone locked. Banda has a Live Activity and
+a home screen widget, kept fresh by push from its backend.
+
+- Current: the `[widget]` table of `hilen-mobile` adds a WidgetKit extension with the
+  Swift of the app, a keychain group both targets share, `aps-environment` and the
+  Live Activity keys, see `docs/widgets.md`. `SecretStore::shared` writes into that
+  group. Banda builds with it for the simulator and for a device, nothing of it ran
+  on a phone yet. There is no App Group, an app has no way to take an App Intent
+  from Swift into Rust, and the generated `Info.plist` has no `UIBackgroundModes`
+  with `audio`, so the sound of an app stops when the phone locks, see the entry
+  "Video on iOS, the proof on a phone".
+- Needed:
+  - The proof for banda: a Live Activity started by a push of its backend on a
+    locked iPhone, and the home screen widget reading the glance with the token the
+    app put into the shared keychain group. The simulator here runs iOS 16.4, which
+    has no push to start and no widget push. Also unproven: a hilen app that iOS
+    wakes in the background for the token of a Live Activity started by push.
+  - For nome: an App Group in the `[widget]` table, and an intent that adopts
+    `AudioPlaybackIntent`, runs in the process of the app, started in the
+    background, and calls a Rust handler that the app registers, like `start`,
+    `stop` and `bpm+5`. The intent code must be in both the app target and the
+    extension target, the `shared` folder of the table, else background audio fails
+    on a device while the simulator hides it, see
+    [Apple forum 736445](https://developer.apple.com/forums/thread/736445). The
+    `audio` background mode comes with the same work. Apple must not ask for an
+    unlock before the intent runs, see `IntentAuthenticationPolicy`. The proof is a
+    tap on a button of the lock screen widget of a locked iPhone that starts the
+    sound. Android and macOS widgets are later entries.
+- Blocks: trust in the widget and the Live Activity of banda, the lock screen remote
+  of nome.
+
 ## A partial frame over several samples on an iPhone
 
 Found by skaityk on 2026-10-17, on an iPhone 16 Pro Max with iOS 27.0.1, with the hilen
@@ -90,35 +125,6 @@ Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
     and a shader missing from the record fails loudly. The risk is a shader added
     later that only fails on the TV.
 - Blocks: up to about 1.4 s of the start of a hilen app on a TV, an estimate.
-
-## A home screen and lock screen widget on iOS
-
-Found by nome, `~/dev/apps/nome`, a metronome, on 2026-10-16, on hilen `6f961029`. A
-user asked for a widget on the lock screen that works like a remote: Start, Stop and
-the BPM, with the phone locked.
-
-- Current: `hilen-mobile` at `~/dev/hilen-mobile` makes an Xcode project with 1
-  Objective-C target, `main.m` calls `hilen_start_app`. It has no Swift, no widget
-  extension target and no App Group, a grep of its source for `swift`, `appex` and
-  `extension` finds nothing. An app has no way to take an App Intent from Swift into
-  Rust. The generated `Info.plist` has no `UIBackgroundModes` with `audio`, so the
-  sound of an app stops when the phone locks, see the entry "Video on iOS, the proof
-  on a phone".
-- Needed: a knob in `hilen.toml` that adds a WidgetKit extension to the generated
-  project, iOS 17 or newer for buttons, while the app keeps its own minimum. The
-  widget shows values the app writes into a shared App Group store, like the BPM and
-  whether it plays, and its buttons run App Intents. An intent that adopts
-  `AudioPlaybackIntent` runs in the process of the app, started in the background,
-  and calls a Rust handler that the app registers, like `start`, `stop` and `bpm+5`.
-  The intent code must be in both the app target and the extension target, else
-  background audio fails on a device while the simulator hides it, see
-  [Apple forum 736445](https://developer.apple.com/forums/thread/736445). The
-  `audio` background mode comes with the same work. Apple must not ask for an unlock
-  before the intent runs, see `IntentAuthenticationPolicy`. A lock screen widget, the
-  `accessoryRectangular` family, and a home screen widget come from 1 code. The proof
-  is a tap on a button of the lock screen widget of a locked iPhone that starts the
-  sound, then the same in the simulator. Android and macOS widgets are later entries.
-- Blocks: the lock screen remote of nome.
 
 ## A picker of the sound output, AirPlay on Apple
 

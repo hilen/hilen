@@ -22,12 +22,31 @@ static FILES_ONLY: AtomicBool = AtomicBool::new(false);
 ///
 /// Windows takes about 2500 bytes per secret, keep one small.
 pub struct SecretStore {
-    name: &'static str,
+    name:   &'static str,
+    #[cfg(all(feature = "keychain", target_os = "ios"))]
+    shared: bool,
 }
 
 impl SecretStore {
     pub const fn new(name: &'static str) -> Self {
-        Self { name }
+        Self {
+            name,
+            #[cfg(all(feature = "keychain", target_os = "ios"))]
+            shared: false,
+        }
+    }
+
+    /// A secret the widget extension of the app reads too. On iOS it goes into
+    /// the keychain group of the `[widget]` table of `hilen.toml`, under the
+    /// service `hilen-shared` and the name as the account, readable after the
+    /// first unlock, so a widget reads it while the phone is locked. Elsewhere
+    /// it is the same as `new`.
+    pub const fn shared(name: &'static str) -> Self {
+        Self {
+            name,
+            #[cfg(all(feature = "keychain", target_os = "ios"))]
+            shared: true,
+        }
     }
 
     /// The name secrets are filed under in the credential store of the
@@ -88,6 +107,10 @@ impl SecretStore {
         if FILES_ONLY.load(Ordering::SeqCst) {
             return None;
         }
+        #[cfg(target_os = "ios")]
+        if self.shared {
+            return keychain::shared_entry(self.name);
+        }
         keychain::entry(self.name)
     }
 }
@@ -146,6 +169,49 @@ mod keychain {
 
         Entry::new(&service, name)
             .inspect_err(|error| log::error!("no credential store entry for {name}: {error}"))
+            .ok()
+    }
+
+    /// The service of every shared secret, the Swift of an app asks for it.
+    #[cfg(target_os = "ios")]
+    const SHARED_SERVICE: &str = "hilen-shared";
+    /// The `Info.plist` key `hilen-mobile` writes the keychain group into.
+    #[cfg(target_os = "ios")]
+    const GROUP_KEY: &str = "HilenKeychainGroup";
+
+    #[cfg(target_os = "ios")]
+    pub(super) fn shared_entry(name: &str) -> Option<Entry> {
+        use std::{collections::HashMap, sync::Arc};
+
+        use keyring_core::api::CredentialStoreApi;
+        use keyring_store_apple::protected::Store;
+        use objc2_foundation::{NSBundle, NSString};
+
+        static STORE: LazyLock<Option<Arc<Store>>> = LazyLock::new(|| {
+            let group = NSBundle::mainBundle()
+                .objectForInfoDictionaryKey(&NSString::from_str(GROUP_KEY))
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .map(|value| value.to_string());
+            let Some(group) = group else {
+                log::error!(
+                    "the app has no {GROUP_KEY}, a shared secret needs the [widget] table in hilen.toml"
+                );
+                return None;
+            };
+            log::info!("shared secrets go into the keychain group {group}");
+            Store::new_with_configuration(&HashMap::from([("access-group", group.as_str())]))
+                .inspect_err(|error| log::error!("no keychain store for the group {group}: {error}"))
+                .ok()
+        });
+
+        STORE
+            .as_ref()?
+            .build(
+                SHARED_SERVICE,
+                name,
+                Some(&HashMap::from([("access-policy", "AfterFirstUnlock")])),
+            )
+            .inspect_err(|error| log::error!("no shared keychain entry for {name}: {error}"))
             .ok()
     }
 

@@ -148,6 +148,11 @@ session, with a warning in the log for the last case.
 
 - The engine files the secrets under the name of the data folder, the project
   name on desktop.
+- `SecretStore::shared(name)` is a secret the widget extension of an iOS app reads
+  too. It goes into the keychain group of the `[widget]` table, see
+  [widgets.md](widgets.md). On other platforms it is the same as `new`.
+- The `secrets` feature brings `SecretStore` alone, for an app with no Google
+  access.
 - `SecretStore::keep_in_files()` is for tests, a test must not ask the real
   credential store. 1 ignored test does, see `secret_store.rs`.
 - Windows takes about 2500 bytes per secret.
