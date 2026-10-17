@@ -65,6 +65,14 @@ So the event fires on desktop only:
 - Browser: there is no paste shortcut at all, the page cannot read the clipboard
   at once.
 
+## A text put in by the app
+
+`TextField::insert_text` puts a text in at the caret, in the place of a selection, the
+way a paste does, and the caret ends after it. A field that is not edited takes it at
+its last caret, the end of a text set by `set_text`. It fires `changed` and, on iOS,
+gives the new text to the system field that edits. Banda puts the path of a dropped
+file into its chat box with it. The UI test is `Text field insert`.
+
 ## A copy of selected text
 
 Selectable text, see [text-selection.md](text-selection.md), copies with Cmd or Ctrl

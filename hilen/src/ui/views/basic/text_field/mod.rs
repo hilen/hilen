@@ -438,6 +438,14 @@ impl TextField {
         UIManager::set_selected(self.weak_view(), true);
     }
 
+    /// Puts `text` in at the caret, in the place of a selection, like a
+    /// paste. The caret ends after it, so what is typed next follows it. A
+    /// field that is not edited takes it at its last caret, the end of a
+    /// text set by `set_text`.
+    pub fn insert_text(&self, text: &str) {
+        weak_from_ref(self).insert(text);
+    }
+
     pub fn clear(&self) -> &Self {
         self.set_text("")
     }
