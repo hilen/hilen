@@ -218,7 +218,8 @@ impl InspectService {
                 Err(err) => AppCommand::Error(format!("Screenshot failed: {err}")),
             },
             InspectorCommand::ListEdits => AppCommand::Edits(edit_log::all()),
-            InspectorCommand::RunTests => Self::run_tests(),
+            InspectorCommand::RunTests => Self::run_tests(None),
+            InspectorCommand::RunTestsNamed { names } => Self::run_tests(Some(&names)),
             // Compiled in, so it reports when this running code was built, not
             // when the bundle around it was linked. See `hilen_app_build_time`.
             InspectorCommand::GetBuildTime => AppCommand::BuildTime(hilen_app_build_time()),
@@ -287,13 +288,21 @@ impl InspectService {
     // Runs off the main thread, on a tokio task natively and on the inspect
     // worker on wasm, which is what the tests need since they drive the main
     // thread through `from_main`.
-    fn run_tests() -> AppCommand {
+    fn run_tests(names: Option<&str>) -> AppCommand {
+        let mut maps = crate::ui_test::registered_test_maps();
+        if let Some(names) = names {
+            crate::ui_test::keep_named(&mut maps, names);
+            if maps.iter().all(std::collections::BTreeMap::is_empty) {
+                return AppCommand::Error(format!("No test of this app is named {names}"));
+            }
+        }
+
         #[cfg(wasm)]
         if let Err(err) = Self::preload_assets() {
             return AppCommand::Error(format!("Asset preload for tests failed: {err}"));
         }
 
-        let report = crate::ui_test::run_all_tests();
+        let report = crate::ui_test::run_test_maps(&maps);
 
         AppCommand::TestResults {
             total:    report.total,

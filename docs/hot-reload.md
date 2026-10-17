@@ -164,6 +164,38 @@ make device args=tv          # a word in front picks the device, here the Apple 
 - `make swap args="phone install"`, `phone <folder>` and `phone status` in the engine
   repo do the same for the paired iPhone, and `tv device ...` for the paired Apple TV.
 
+### 1 session per device
+
+Only 1 agent session at a time sends apps to the loader of a device. On 2026-10-17 a
+second session swapped its own app onto a phone in the middle of a test of another one,
+and 2 bugs looked like 1. `make device` takes a lock for the device, a file per device in
+`~/.cache/hilen/device-locks`, with the session id and the pid of the agent above the
+command, the nearest `claude` or `codex` process. The code is
+`build/shared/src/device_lock.rs`.
+
+- A swap or an install from another agent session that still runs is refused, and the
+  error names the holder.
+- The lock is free when that agent stops, or after `make device args=release` from the
+  session that holds it. A release needs no device, a locked or away phone is fine.
+- A person at a terminal, with no agent above the command, always gets the lock, and is
+  told whose it was.
+- `status` takes no lock.
+
+### The tunnel
+
+`hilen-inspect` reaches a device at the address of the tunnel Xcode opens to it, see
+"The right device" below. Xcode opens that tunnel for a `devicectl` command and closes
+it some seconds after no command holds it, and every new tunnel has a new address. A
+test run sends nothing for longer than that, and on 2026-10-17 the report of every run
+after the first was lost with `No route to host` in the log of the app.
+
+So every `hilen-inspect` command with `--device` holds the tunnel open for as long as it
+runs: it starts `xcrun devicectl device notification observe` for a notification nobody
+sends, waits until the list of Xcode shows the address, and ends it when the command
+ends, `hold` in `hilen-inspect/src/device.rs`. 5 runs 30 seconds apart all reported,
+where before only the first did. A command killed from outside leaves the observe for
+at most 1 hour.
+
 ### The right device
 
 Every command goes to the picked device and to no other. Before 2026-10-11 the send

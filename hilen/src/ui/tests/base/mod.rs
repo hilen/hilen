@@ -7,6 +7,7 @@ mod double_tap;
 mod even_frame_time;
 mod focus_ring_place;
 mod frame_stepped_animation;
+mod frames_over_a_flow;
 mod held_drag;
 mod hidden_parent_touch;
 mod hidden_touch;

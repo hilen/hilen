@@ -28,6 +28,8 @@ pub use router::Router;
 #[cfg(wasm)]
 pub(crate) use router::install_popstate_listener;
 pub use screen_awake::ScreenAwake;
+#[cfg(mobile)]
+pub(crate) use screen_awake::keep_on_for_tests;
 pub use update_state::{UpdatePhase, UpdateState};
 pub(crate) use updater::app_update_source;
 pub use updater::{DEFAULT_UPDATE_HOST, UpdateArtifact, UpdateInfo, UpdateManifest, UpdateSource, Updater};

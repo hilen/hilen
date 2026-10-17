@@ -49,6 +49,17 @@ impl Drop for ScreenAwake {
     }
 }
 
+/// A UI test run on a phone keeps the display on. A phone that locks in
+/// the middle freezes the app, and the run never ends. It is apart from
+/// the guards, so the test of the guards switches it off for itself.
+#[cfg(mobile)]
+pub(crate) fn keep_on_for_tests(on: bool) {
+    let state = STATE.get_mut();
+    state.tests = on;
+    state.active = AppActivity::is_active();
+    state.apply();
+}
+
 pub(crate) fn set_active(active: bool) {
     let state = STATE.get_mut();
     state.active = active;
@@ -60,11 +71,13 @@ struct AwakeState {
     requests: usize,
     active:   bool,
     applied:  bool,
+    /// A UI test run holds the display, see `keep_on_for_tests`.
+    tests:    bool,
 }
 
 impl AwakeState {
     fn requested(&self) -> bool {
-        self.active && self.requests > 0
+        self.active && (self.requests > 0 || self.tests)
     }
 
     fn apply(&mut self) {

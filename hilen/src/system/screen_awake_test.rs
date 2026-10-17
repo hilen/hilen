@@ -49,6 +49,10 @@ impl ViewTest for ScreenAwakeLifecycle {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         from_main(restore_activity);
         let restore = RestoreActivity;
+        // The run keeps a phone display on by itself, the checks here are
+        // about the guards alone.
+        #[cfg(mobile)]
+        let _run_hold = PauseRunHold::new();
         inject_touches("100 50 b\n100 50 e");
         ensure!(from_main(screen_is_awake), "start must request an awake screen");
         checkpoint("Running: screen awake requested")?;
@@ -93,6 +97,26 @@ fn restore_activity() {
     app_activity::update(ActivityChange::Focused(true));
     app_activity::update(ActivityChange::Visible(true));
     app_activity::update(ActivityChange::Resumed(true));
+}
+
+/// Switches the display hold of the test run off, and on again when the
+/// test ends, also when a check fails.
+#[cfg(mobile)]
+struct PauseRunHold;
+
+#[cfg(mobile)]
+impl PauseRunHold {
+    fn new() -> Self {
+        from_main(|| crate::system::keep_on_for_tests(false));
+        Self
+    }
+}
+
+#[cfg(mobile)]
+impl Drop for PauseRunHold {
+    fn drop(&mut self) {
+        from_main(|| crate::system::keep_on_for_tests(true));
+    }
 }
 
 struct RestoreActivity;

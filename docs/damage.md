@@ -87,6 +87,29 @@ The default is 4, and 1 on iOS and in a browser on WebGL. An iPhone screen is 3x
 the rougher edges are hard to see there, and the frame before is kept only with 1
 sample, see above.
 
+## The simulator is no proof
+
+A change of how a frame is drawn, kept or shown is done only after it ran on a real
+iPhone. The sample count, the damage, the surface, the scene texture and the passes are
+such changes. The simulator draws with the GPU and the driver of the Mac, not those of
+the phone, so it shows nothing about them.
+
+This rule comes from 2026-10-17. Partial frames came in on 2026-10-12, proven on the Mac
+and in the simulator, and went to App Review in skaityk 3.0.13. On an iPhone 16 Pro Max
+with iOS 27.0.1 the app flashed black and showed old screens. With the same code, 4
+samples and the old rule, the test `Frames over a flow` failed on the phone and passed
+in the simulator. That the env reached the simulator app was checked: `HILEN_MSAA=3`
+stopped it.
+
+The bug did not come every time. In the morning the test failed in 6 of 6 runs that
+reported, in the afternoon it passed 20 runs in a row with the same settings. The
+failing runs were in a loader process that had lived for hours with several apps
+swapped into it. Memory is the lead, it is not proven. So a pass of the phone lane
+shows that nothing is broken in that run, not that the bug is gone. The default of 1
+sample does not depend on it, that path kept the frame in every run.
+
+The phone lane is in [ui-tests.md](ui-tests.md), under "On a phone".
+
 ## What was measured
 
 On an M1 Pro, in the banda app with a mark of 18 points moving at 60 frames per

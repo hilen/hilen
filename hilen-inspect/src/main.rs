@@ -10,7 +10,6 @@ use std::{
     env::{current_dir, temp_dir},
     fs::{read_dir, write},
     path::{Path, PathBuf},
-    process::exit,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -65,6 +64,12 @@ async fn main() -> Result<()> {
     if let Command::Devices = cli.command {
         return device::print(cli.device.as_deref()).await;
     }
+
+    // Held until the command ends, a long run keeps its way to the device.
+    let _tunnel = match (&addr, &cli.device) {
+        (None, Some(word)) => Some(device::hold(word)?),
+        _ => None,
+    };
 
     // A hot loader is found by what it answers on its device, at whatever
     // port it took there, not by 1 address worked out up front.
@@ -433,8 +438,18 @@ fn parse_named_key(name: &str) -> Result<NamedKey> {
     }
 }
 
-async fn run_tests(client: &Client) -> Result<()> {
-    let AppCommand::TestResults { total, failures } = send(client, InspectorCommand::RunTests).await? else {
+async fn run_tests(client: &Client, only: Option<String>, seconds: u64) -> Result<()> {
+    let command = match only {
+        Some(names) => InspectorCommand::RunTestsNamed { names },
+        None => InspectorCommand::RunTests,
+    };
+    let Ok(answer) = tokio::time::timeout(Duration::from_secs(seconds), send(client, command)).await else {
+        bail!(
+            "no test report after {seconds} s. A locked phone or an app that left the front stops a run, \
+             unlock it and keep the app in front"
+        );
+    };
+    let AppCommand::TestResults { total, failures } = answer? else {
         bail!("Unexpected response to run-tests");
     };
 
@@ -444,8 +459,9 @@ async fn run_tests(client: &Client) -> Result<()> {
         println!("\n===== {} =====\n{}", failure.name, failure.detail);
     }
 
+    // An error and not `exit`, so the tunnel to a device is let go.
     if !failures.is_empty() {
-        exit(1);
+        bail!("{} of {total} tests failed", failures.len());
     }
 
     Ok(())

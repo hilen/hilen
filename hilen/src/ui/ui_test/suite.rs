@@ -134,6 +134,8 @@ fn spaced_names(names: &str) -> Vec<String> {
 /// Runs the maps in turn under one harness into one report. Must not run
 /// on the main thread, the tests drive it through `from_main`.
 pub fn run_test_maps(maps: &[BTreeMap<String, UITestEntry>]) -> TestRunReport {
+    #[cfg(mobile)]
+    from_main(|| crate::system::keep_on_for_tests(true));
     let state = prepare_harness();
     clear_failures();
 
@@ -156,12 +158,19 @@ pub fn run_test_maps(maps: &[BTreeMap<String, UITestEntry>]) -> TestRunReport {
         total:    maps.iter().map(BTreeMap::len).sum(),
         failures: take_failures(),
     };
+    log::info!(
+        "test run done, {} tests, {} failed, the app comes back",
+        report.total,
+        report.failures.len()
+    );
 
     restore_app(state);
     // The app shows its loops on layers again.
     #[cfg(apple)]
     crate::ui::loops::set_test_layers(None);
 
+    #[cfg(mobile)]
+    from_main(|| crate::system::keep_on_for_tests(false));
     report
 }
 

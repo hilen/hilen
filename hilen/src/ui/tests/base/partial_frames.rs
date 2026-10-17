@@ -214,11 +214,11 @@ impl Setup for PartialFrames {
 /// Whether this run can draw partial frames at all. A surface with 1
 /// sample keeps no frame, an iPhone with several samples loses it, and
 /// `HILEN_DAMAGE=0` switches them off.
-fn partial_frames_possible(frames: Frames) -> bool {
+pub(super) fn partial_frames_possible(frames: Frames) -> bool {
     ![WHY_NO_KEPT_FRAME, WHY_IPHONE_SAMPLES, WHY_OFF].contains(&frames.why)
 }
 
-fn same_pixels(partial: &Screenshot, whole: &Screenshot, step: &str) -> Result<()> {
+pub(super) fn same_pixels(partial: &Screenshot, whole: &Screenshot, step: &str) -> Result<()> {
     ensure!(
         partial.size == whole.size,
         "{step}: the 2 screens differ in size, {:?} and {:?}",

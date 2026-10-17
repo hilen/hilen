@@ -378,6 +378,33 @@ The engine's own test modules are gated behind the same feature with `#[cfg]`, s
 default-features build compiles none of them. Without the gate an app pulling the engine as a
 path dependency sees their dead code warnings, since an unregistered test view is unused.
 
+## On a phone
+
+The render tests run on a real iPhone as a step of every App Store release, see "The
+simulator is no proof" in [damage.md](damage.md). In the engine repo, with the phone
+unlocked:
+
+```bash
+make device args=iphone
+hilen-inspect --device iphone run-tests --only "Frames over a flow,Partial frames"
+```
+
+- `make device` sends the demo, which links every test, to the loader on the phone.
+- `run-tests --only` takes a comma list in either spelling and runs only those tests in
+  the app. A name no test has is an error. With no `--only` the whole suite runs.
+- `run-tests --timeout` is 900 seconds by default. A phone that locked or an app that
+  left the front gives an error after it, not a run that never ends.
+- A run keeps the display of a phone on from the first test to the report,
+  `keep_on_for_tests` in `system/screen_awake.rs`, so the phone cannot lock in the
+  middle. The test `Screen awake lifecycle` turns that off for its own checks.
+- `--device` holds the tunnel to the phone open for the whole command, see "A real
+  device" in [hot-reload.md](hot-reload.md). Before that the report of a run was lost
+  with `No route to host`.
+- `Frames over a flow` goes a list, a screen opened from it, back and a fling, and
+  compares frames that change a small mark with whole frames of the same state. A frame
+  that changed nothing did not show the iPhone bug, a small change did. It caught the bug
+  more often than `Partial frames`, 6 of 6 against 2 of 6.
+
 ## Platform gating
 
 Every UI test must run on every supported UI-test platform where the production behavior exists.

@@ -242,7 +242,17 @@ pub(super) enum Command {
     /// List all edits applied to the app in this session
     Edits,
     /// Run the app's whole UI test suite in the app and report every failure
-    RunTests,
+    RunTests {
+        /// Only these tests, a comma separated list, like
+        /// "Partial frames,Frames over a flow"
+        #[arg(long)]
+        only:    Option<String>,
+        /// Seconds to wait for the report. A phone that locks freezes the
+        /// app in the middle of a test, the run then fails instead of
+        /// hanging.
+        #[arg(long, default_value_t = 900)]
+        timeout: u64,
+    },
     /// When the running app's Rust code was compiled, against the newest source
     /// file here. Tells a stale binary from a current one before anything is
     /// tested against it.
@@ -290,7 +300,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             send(client, InspectorCommand::PlaySound).await?;
             println!("ok");
         }
-        Command::RunTests => run_tests(client).await?,
+        Command::RunTests { only, timeout } => run_tests(client, only, timeout).await?,
         Command::BuildTime => build_time(client).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,

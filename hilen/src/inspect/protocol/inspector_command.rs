@@ -12,6 +12,11 @@ pub enum InspectorCommand {
     Screenshot,
     ListEdits,
     RunTests,
+    /// Runs only the tests of a comma separated list, in either spelling,
+    /// like `run-tests --only` asks. The phone lane of a release uses it.
+    RunTestsNamed {
+        names: String,
+    },
     GetBuildTime,
     GetStartTime,
     /// Closes the app the way closing its window does. Desktop only, a

@@ -7,13 +7,20 @@
 //! leads to this device and to no other. An app built before the server
 //! listened on the tunnel is asked by the name of the device on the local
 //! network.
+//!
+//! Xcode opens the tunnel for a `devicectl` command and closes it when no
+//! command holds it, after some seconds. A test run on a phone sends
+//! nothing for longer than that, and on 2026-10-17 the report of every run
+//! after the first was lost with `No route to host`. So a command for a
+//! device holds the tunnel open for as long as it runs, see `hold`.
 
 use std::{
     env::temp_dir,
     fs::{read_to_string, remove_file},
     net::{IpAddr, SocketAddr},
-    process::{Command, Stdio, id},
-    time::Duration,
+    process::{Child, Command, Stdio, id},
+    thread::sleep,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
@@ -266,6 +273,61 @@ fn paired() -> Result<Vec<Device>> {
 /// The paired device `word` names.
 pub(super) fn named(word: &str) -> Result<Device> {
     pick(paired()?, word)
+}
+
+/// How long a tunnel may take to open.
+const TUNNEL_OPENS: Duration = Duration::from_secs(15);
+
+/// Keeps the tunnel to a device open while it lives. It is a `devicectl`
+/// that waits for a notification nobody sends, the tunnel stays as long
+/// as that command runs. Dropping it ends the command.
+pub(super) struct Tunnel {
+    child: Child,
+}
+
+impl Drop for Tunnel {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Opens the tunnel to the device `word` names and holds it, and waits
+/// until the list of Xcode shows its address. A device that is away or
+/// locked shows none, the command then goes on and says so on its own.
+pub(super) fn hold(word: &str) -> Result<Tunnel> {
+    let device = named(word)?;
+    let child = Command::new("xcrun")
+        .args([
+            "devicectl",
+            "device",
+            "notification",
+            "observe",
+            "--device",
+            &device.id,
+            "--name",
+            "dev.hilen.inspect.keep-tunnel",
+            "--session-timeout",
+            "3600",
+            "--timeout",
+            "3610",
+            "--quiet",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("`xcrun devicectl` did not start")?;
+    let tunnel = Tunnel { child };
+
+    let start = Instant::now();
+    while start.elapsed() < TUNNEL_OPENS {
+        if named(word)?.tunnel.is_some() {
+            break;
+        }
+        sleep(Duration::from_millis(500));
+    }
+    Ok(tunnel)
 }
 
 /// The address of the app on the device `word` names.
