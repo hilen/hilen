@@ -3,9 +3,9 @@ use std::ops::Range;
 use indexmap::IndexMap;
 use plat::Platform;
 use wgpu::{
-    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CompareFunction, IndexFormat,
-    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, Sampler, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages, TextureView,
+    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CompareFunction, IndexFormat, PipelineLayout,
+    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, Sampler, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureView,
 };
 
 use super::mesh_binds::{
@@ -111,6 +111,13 @@ pub struct MeshPipeline {
     cutout:      [RenderPipeline; 2],
     translucent: [RenderPipeline; 2],
     sky:         RenderPipeline,
+
+    /// The opaque and the cut out pipelines of a depth photo, made at the
+    /// first one from the layout and the shader of the nodes, so an app
+    /// that takes none does not wait for them at the start.
+    depth:       Option<[[RenderPipeline; 2]; 2]>,
+    mesh_layout: PipelineLayout,
+    mesh_shader: ShaderModule,
 
     /// Debug lines in world space, the collider wireframes, drawn after
     /// every node and depth tested against them.
@@ -251,6 +258,9 @@ impl Default for MeshPipeline {
             cutout,
             translucent,
             sky,
+            depth: None,
+            mesh_layout,
+            mesh_shader,
             lines_pipeline,
             lines: VecBuffer::default(),
             wide_tested,
@@ -473,39 +483,7 @@ impl MeshPipeline {
             return;
         }
 
-        let lights_bind = cached(&mut self.lights_bind, StorageKey::of(&self.lights), || {
-            storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights)
-        });
-        render_pass.set_bind_group(2, lights_bind, &[]);
-
-        if self.instances.values().any(|batch| batch.loaded(frame)) {
-            let instances_bind = opaque_bind(
-                &mut self.opaque_bind,
-                &self.instances_layout,
-                &self.opaque_instances,
-                &self.joints,
-            );
-            render_pass.set_bind_group(1, instances_bind, &[]);
-        }
-
-        for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                key,
-                &self.white,
-                &self.flat_normal,
-            );
-
-            render_pass.set_bind_group(3, textures_bind, &[]);
-            let pipelines = if key.cutout { &self.cutout } else { &self.opaque };
-            set_mesh(render_pass, &key.mesh, pipelines);
-            // The slice starts at the batch, so the draw starts at instance
-            // zero, an A7 cannot draw from a base instance. The `index`
-            // attribute still names the real slot for the fragment stage.
-            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(batch.drawn.clone()));
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.drawn.end - batch.drawn.start);
-        }
+        self.draw_batches(render_pass, frame, false);
 
         // Before the translucent nodes, which blend over a line behind
         // them.
@@ -531,6 +509,87 @@ impl MeshPipeline {
             render_pass.set_pipeline(&self.wide_on_top);
             render_pass.set_vertex_buffer(0, self.on_top_lines.slice());
             render_pass.draw(0..6, 0..self.on_top_lines.len());
+        }
+    }
+
+    /// Draws the opaque and the cut out nodes of the frame with their
+    /// distance from the camera as the color, see
+    /// `SceneManager::depth_photo`. The sky, the translucent nodes and the
+    /// lines are no surface to measure, so they stay out.
+    pub(crate) fn draw_depth(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>) {
+        let frame = Window::render_frame();
+        self.transparent_keys.clear();
+        if !self.instances.values().any(|batch| batch.loaded(frame)) {
+            return;
+        }
+        if self.depth.is_none() {
+            let device = Window::device();
+            let pipelines = |name: &str, draw: MeshDraw| {
+                mesh_pipelines(device, name, &self.mesh_layout, &self.mesh_shader, draw)
+            };
+            self.depth = Some([
+                pipelines("mesh_depth", MeshDraw::Depth),
+                pipelines("mesh_depth_cutout", MeshDraw::DepthCutout),
+            ]);
+        }
+
+        // The sky of the frame, so the cached bind stays the frame's.
+        let sky = sky.unwrap_or(&self.black_sky);
+        let shadow_map = self.shadow.map();
+        let view_bind = cached(
+            &mut self.view_bind,
+            (sky.view.clone(), sky.sampler.clone(), shadow_map.clone()),
+            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map),
+        );
+        render_pass.set_bind_group(0, view_bind, &[]);
+        self.draw_batches(render_pass, frame, true);
+    }
+
+    /// Draws every opaque and cut out batch loaded this `frame`, through
+    /// the depth pipelines when `depth` is set.
+    fn draw_batches(&mut self, render_pass: &mut RenderPass, frame: u64, depth: bool) {
+        let lights_bind = cached(&mut self.lights_bind, StorageKey::of(&self.lights), || {
+            storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights)
+        });
+        render_pass.set_bind_group(2, lights_bind, &[]);
+
+        if self.instances.values().any(|batch| batch.loaded(frame)) {
+            let instances_bind = opaque_bind(
+                &mut self.opaque_bind,
+                &self.instances_layout,
+                &self.opaque_instances,
+                &self.joints,
+            );
+            render_pass.set_bind_group(1, instances_bind, &[]);
+        }
+
+        for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
+            let textures_bind = textures_bind(
+                &mut self.textures,
+                &self.textures_layout,
+                key,
+                &self.white,
+                &self.flat_normal,
+            );
+
+            render_pass.set_bind_group(3, textures_bind, &[]);
+            let pipelines = match (&self.depth, depth) {
+                (Some([plain, cutout]), true) => {
+                    if key.cutout {
+                        cutout
+                    } else {
+                        plain
+                    }
+                }
+                _ if key.cutout => &self.cutout,
+                _ => &self.opaque,
+            };
+            set_mesh(render_pass, &key.mesh, pipelines);
+            // The slice starts at the batch, so the draw starts at instance
+            // zero, an A7 cannot draw from a base instance. The `index`
+            // attribute still names the real slot for the fragment stage.
+            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(batch.drawn.clone()));
+            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.drawn.end - batch.drawn.start);
         }
     }
 

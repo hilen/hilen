@@ -5,11 +5,12 @@ use wgpu::{BufferAsyncError, COPY_BYTES_PER_ROW_ALIGNMENT, MapMode};
 
 use crate::{
     gm::{
+        LossyConvert,
         color::{Color, U8Color},
         flat::Size,
     },
     scene::{Camera, SceneManager},
-    scene_drawer::SceneDrawer,
+    scene_drawer::{Fill, SceneDrawer},
     time::Instant,
     window::Window,
 };
@@ -35,6 +36,60 @@ impl ScenePhoto {
     }
 }
 
+/// The distance of every pixel of a scene photo, see
+/// `SceneManager::depth_photo`.
+#[derive(Clone, Debug, Default)]
+pub struct SceneDepth {
+    pub size:   Size<u32>,
+    /// The distance in meters from the camera to the surface under each
+    /// pixel, along the line of sight, so a plane facing the camera has 1
+    /// distance all over. Row by row from the top, infinity where nothing
+    /// is drawn.
+    pub meters: Vec<f32>,
+}
+
+impl SceneDepth {
+    /// The distance at `x` and `y`, none outside the photo.
+    pub fn at(&self, x: u32, y: u32) -> Option<f32> {
+        if x >= self.size.width || y >= self.size.height {
+            return None;
+        }
+        self.meters.get(usize::try_from(y * self.size.width + x).ok()?).copied()
+    }
+
+    fn from_photo(photo: ScenePhoto) -> Self {
+        let meters = photo
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&[red, green, blue, _]| meters(red, green, blue))
+            .collect();
+        Self {
+            size: photo.size,
+            meters,
+        }
+    }
+}
+
+/// The log scale the mesh shader writes a distance on, `depth_color` in
+/// `mesh.wgsl`: log2 of 1 mm and of 10 km, and the steps between them.
+/// The 24 bits all set are left for no surface.
+const DEPTH_LOG_NEAR: f32 = -9.965_784;
+const DEPTH_LOG_FAR: f32 = 13.287_712;
+const DEPTH_STEPS: u32 = 16_777_214;
+
+/// The distance 3 bytes of a depth photo stand for.
+fn meters(red: u8, green: u8, blue: u8) -> f32 {
+    let steps = u32::from(red) << 16 | u32::from(green) << 8 | u32::from(blue);
+    if steps > DEPTH_STEPS {
+        return f32::INFINITY;
+    }
+    let (steps, all): (f32, f32) = (steps.lossy_convert(), DEPTH_STEPS.lossy_convert());
+    let part = steps / all;
+    (DEPTH_LOG_NEAR + part * (DEPTH_LOG_FAR - DEPTH_LOG_NEAR)).exp2()
+}
+
 type Mapped = oneshot::Receiver<Result<(), BufferAsyncError>>;
 
 /// Draws the running scene through `camera` and reads it back, see
@@ -46,9 +101,20 @@ pub(crate) fn take(
     size: Size<u32>,
     background: Color,
 ) -> impl Future<Output = Result<ScenePhoto>> {
+    take_filled(camera, size, Fill::Light(background))
+}
+
+/// Draws the distance of every pixel through `camera` and reads it back,
+/// see `SceneManager::depth_photo`.
+pub(crate) fn take_depth(camera: Camera, size: Size<u32>) -> impl Future<Output = Result<SceneDepth>> {
+    let photo = take_filled(camera, size, Fill::Depth);
+    async move { photo.await.map(SceneDepth::from_photo) }
+}
+
+fn take_filled(camera: Camera, size: Size<u32>, fill: Fill) -> impl Future<Output = Result<ScenePhoto>> {
     let started = Instant::now();
     #[cfg(not_wasm)]
-    let photo = send(camera, size, background).and_then(|(buffer, mut mapped)| {
+    let photo = send(camera, size, fill).and_then(|(buffer, mut mapped)| {
         Window::device().poll(wgpu::PollType::wait_indefinitely())?;
         mapped
             .try_recv()
@@ -58,7 +124,7 @@ pub(crate) fn take(
         read(&buffer, size)
     });
     #[cfg(wasm)]
-    let sent = send(camera, size, background);
+    let sent = send(camera, size, fill);
     async move {
         #[cfg(wasm)]
         let photo = async {
@@ -84,7 +150,7 @@ pub(crate) fn take(
 }
 
 /// Draws the photo, copies it into a buffer and asks for the buffer.
-fn send(camera: Camera, size: Size<u32>, background: Color) -> Result<(wgpu::Buffer, Mapped)> {
+fn send(camera: Camera, size: Size<u32>, fill: Fill) -> Result<(wgpu::Buffer, Mapped)> {
     ensure!(!SceneManager::no_scene(), "no scene runs to take a photo of");
     ensure!(
         size.width > 0 && size.height > 0,
@@ -109,7 +175,7 @@ fn send(camera: Camera, size: Size<u32>, background: Color) -> Result<(wgpu::Buf
         limits.max_buffer_size
     );
 
-    let buffer = SceneDrawer::photo(SceneManager::scene(), &camera, size, background);
+    let buffer = SceneDrawer::photo(SceneManager::scene(), &camera, size, fill);
 
     let (sender, mapped) = oneshot::channel();
     buffer.slice(..).map_async(MapMode::Read, move |result| {
@@ -143,4 +209,40 @@ fn read(buffer: &wgpu::Buffer, size: Size<u32>) -> Result<ScenePhoto> {
     }
     buffer.unmap();
     Ok(ScenePhoto { size, rgba })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `depth_color` in `mesh.wgsl` writes for `meters`.
+    fn bytes_of(meters: f32) -> (u8, u8, u8) {
+        let part = ((meters.log2() - DEPTH_LOG_NEAR) / (DEPTH_LOG_FAR - DEPTH_LOG_NEAR)).clamp(0.0, 1.0);
+        let all: f32 = DEPTH_STEPS.lossy_convert();
+        let steps: u32 = (part * all).round().lossy_convert();
+        let [_, red, green, blue] = steps.to_be_bytes();
+        (red, green, blue)
+    }
+
+    #[test]
+    fn the_scale_runs_from_a_millimeter_to_ten_kilometers() {
+        assert!((DEPTH_LOG_NEAR - 0.001_f32.log2()).abs() < 1e-5);
+        assert!((DEPTH_LOG_FAR - 10_000_f32.log2()).abs() < 1e-5);
+        assert!((meters(0, 0, 0) - 0.001).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_distance_comes_back_to_a_millionth_of_itself() {
+        for want in [0.01, 0.14, 0.27, 1.0, 5.72, 300.0] {
+            let (red, green, blue) = bytes_of(want);
+            let back = meters(red, green, blue);
+            assert!((back - want).abs() / want < 2e-6, "{want} came back as {back}");
+        }
+    }
+
+    #[test]
+    fn white_is_no_surface() {
+        assert_eq!(meters(255, 255, 255), f32::INFINITY);
+        assert!(meters(255, 255, 254).is_finite());
+    }
 }

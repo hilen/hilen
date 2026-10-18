@@ -456,3 +456,42 @@ fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     return vec4<f32>(color.rgb, 1.0);
 }
+
+// The 24 bits a depth photo has for a distance, spread on a log scale
+// from 1 mm to 10 km, see `scene/photo.rs`, which reads them back. A
+// log scale keeps the same share of precision at every distance, and a
+// pixel where the multisample resolve mixed 2 surfaces still lands
+// between them.
+const DEPTH_LOG_NEAR: f32 = -9.965784;
+const DEPTH_LOG_FAR: f32 = 13.287712;
+const DEPTH_STEPS: f32 = 16777214.0;
+
+// The distance from the camera to the fragment along the line of sight
+// as 3 bytes in red, green and blue. The full 24 bits, white, is left
+// for a pixel with nothing on it.
+fn depth_color(in: VertexOutput) -> vec4<f32> {
+    let along = max(dot(world_position(in.pos) - view.camera_pos.xyz, view.eye.xyz), 1e-6);
+    let part = saturate((log2(along) - DEPTH_LOG_NEAR) / (DEPTH_LOG_FAR - DEPTH_LOG_NEAR));
+    let steps = u32(round(part * DEPTH_STEPS));
+    let bytes = vec3<u32>(steps >> 16u, (steps >> 8u) & 255u, steps & 255u);
+    return vec4<f32>(vec3<f32>(bytes) / 255.0, 1.0);
+}
+
+// The alpha `lit` gives a fragment, without the light.
+fn coverage(in: VertexOutput) -> f32 {
+    let texel = textureSample(base_texture, base_sampler, in.uv);
+    return instances[in.instance].color.a * unpack4x8unorm(in.color).a * texel.a;
+}
+
+@fragment
+fn f_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    return depth_color(in);
+}
+
+@fragment
+fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
+    if coverage(in) < instances[in.instance].cutout {
+        discard;
+    }
+    return depth_color(in);
+}

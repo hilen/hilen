@@ -13,7 +13,7 @@ use crate::{
         color::Color,
         flat::{Point, Size},
     },
-    scene::{Camera, Scene, ScenePhoto, SceneView, photo, scene::ScenePhysics},
+    scene::{Camera, Scene, SceneDepth, ScenePhoto, SceneView, photo, scene::ScenePhysics},
     scene_drawer::SceneDrawer,
     ui::{UIManager, ViewFrame},
     window::image::Image,
@@ -169,6 +169,31 @@ impl SceneManager {
         background: impl Into<Color>,
     ) -> impl Future<Output = Result<ScenePhoto>> {
         photo::take(camera, size.into(), background.into())
+    }
+
+    /// Draws the running scene once through `camera`, the way `photo`
+    /// does, and gives the distance of every pixel in meters along the
+    /// line of sight, the distance a lens focuses by. Only the opaque and
+    /// the cut out nodes count, a pixel of the sky, of a translucent node
+    /// alone or of nothing is infinity.
+    ///
+    /// A distance inside a surface is exact to about a millionth of
+    /// itself. On an edge where multisampling mixes 2 surfaces, the pixel
+    /// lands between them, within about 3 percent of the mix.
+    ///
+    /// ```ignore
+    /// let depth = SceneManager::depth_photo(phone_camera, (4032, 3024));
+    /// spawn(async move {
+    ///     if let Ok(depth) = depth.await {
+    ///         log::info!("the middle is {} m away", depth.at(2016, 1512).unwrap());
+    ///     }
+    /// });
+    /// ```
+    pub fn depth_photo(
+        camera: Camera,
+        size: impl Into<Size<u32>>,
+    ) -> impl Future<Output = Result<SceneDepth>> {
+        photo::take_depth(camera, size.into())
     }
 
     pub fn stop_scene() {

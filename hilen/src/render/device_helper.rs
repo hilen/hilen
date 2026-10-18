@@ -42,6 +42,11 @@ pub(crate) enum MeshDraw {
     /// Blends over what is drawn and leaves the depth alone, so the
     /// nodes behind it stay visible through it.
     Translucent,
+    /// Like `Opaque`, with the distance from the camera as the color,
+    /// see `SceneManager::depth_photo`.
+    Depth,
+    /// Like `Cutout`, with the distance as the color.
+    DepthCutout,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -376,6 +381,8 @@ impl DeviceHelper for Device {
                     MeshDraw::Opaque => "f_opaque",
                     MeshDraw::Cutout => "f_cutout",
                     MeshDraw::Translucent => "f_main",
+                    MeshDraw::Depth => "f_depth",
+                    MeshDraw::DepthCutout => "f_depth_cutout",
                 }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {

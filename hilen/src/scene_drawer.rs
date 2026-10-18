@@ -7,7 +7,7 @@ use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::{
         LossyConvert,
-        color::Color,
+        color::{Color, WHITE},
         flat::Size,
         volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
     },
@@ -107,6 +107,15 @@ const COLLIDER_COLOR: Color = Color::hex("#00ff60");
 /// about one and a half bits of depth precision, the near plane of the
 /// camera matters far more.
 const DEPTH_BAND: (f32, f32) = (0.6, 1.0);
+
+/// What a picture of the scene holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Fill {
+    /// The lit scene over this color where nothing is drawn.
+    Light(Color),
+    /// The distance of every pixel, see `SceneManager::depth_photo`.
+    Depth,
+}
 
 pub(crate) struct SceneDrawer;
 
@@ -235,7 +244,7 @@ impl SceneDrawer {
                 image.view(),
                 image.size,
                 targets,
-                host.background(),
+                Fill::Light(host.background()),
                 encoder,
             );
             return;
@@ -446,7 +455,7 @@ impl SceneDrawer {
             image.view(),
             image.size,
             targets,
-            background,
+            Fill::Light(background),
             &mut encoder,
         );
 
@@ -458,15 +467,11 @@ impl SceneDrawer {
     }
 
     /// Draws `scene` once through `camera` into an RGBA picture of `size`
-    /// pixels over `background`, the way `picture` does, and copies it into
-    /// a buffer to read back, see `SceneManager::photo`. The scene's own
-    /// camera and the frame on screen are not touched.
-    pub(crate) fn photo(
-        scene: &dyn Scene,
-        camera: &Camera,
-        size: Size<u32>,
-        background: Color,
-    ) -> wgpu::Buffer {
+    /// pixels filled by `fill`, the way `picture` does, and copies it into
+    /// a buffer to read back, see `SceneManager::photo` and
+    /// `SceneManager::depth_photo`. The scene's own camera and the frame
+    /// on screen are not touched.
+    pub(crate) fn photo(scene: &dyn Scene, camera: &Camera, size: Size<u32>, fill: Fill) -> wgpu::Buffer {
         let photo = PHOTO.get_mut();
         if photo.as_ref().is_none_or(|texture| texture.size != size) {
             *photo = Some(Texture::render_target(size, "scene_photo"));
@@ -478,15 +483,7 @@ impl SceneDrawer {
             label: Some("scene_photo"),
         });
 
-        Self::draw_into(
-            scene,
-            camera,
-            &photo.view,
-            size,
-            targets,
-            background,
-            &mut encoder,
-        );
+        Self::draw_into(scene, camera, &photo.view, size, targets, fill, &mut encoder);
         let (buffer, _) = State::read_screen(&mut encoder, &photo.texture);
 
         crate::render::upload_pending();
@@ -497,7 +494,7 @@ impl SceneDrawer {
     }
 
     /// Draws `scene` through `camera` into `target` of `size` pixels with
-    /// `targets` of that size, over `background`, with the camera aspect
+    /// `targets` of that size, filled by `fill`, with the camera aspect
     /// of the target.
     fn draw_into(
         scene: &dyn Scene,
@@ -505,9 +502,14 @@ impl SceneDrawer {
         target: &TextureView,
         size: Size<u32>,
         targets: &PictureTargets,
-        background: Color,
+        fill: Fill,
         encoder: &mut CommandEncoder,
     ) {
+        // White is the 24 bits a depth photo keeps for no surface.
+        let background = match fill {
+            Fill::Light(color) => color,
+            Fill::Depth => WHITE,
+        };
         let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
 
         Self::gather(scene, camera, area, (0.0, 1.0), encoder);
@@ -554,11 +556,14 @@ impl SceneDrawer {
                 multiview_mask:           None,
             });
             pass.set_viewport(0.0, 0.0, area.width, area.height, 0.0, 1.0);
-            MESH.get_mut().draw(
-                &mut pass,
-                scene.sky.as_ref(),
-                scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
-            );
+            match fill {
+                Fill::Light(_) => MESH.get_mut().draw(
+                    &mut pass,
+                    scene.sky.as_ref(),
+                    scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
+                ),
+                Fill::Depth => MESH.get_mut().draw_depth(&mut pass, scene.sky.as_ref()),
+            }
         }
 
         PICTURE.get_mut().draw(encoder, &targets.bind.bind, target);

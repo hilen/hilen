@@ -43,7 +43,7 @@ pub use self::{
     model::{Clip, MeshData, Model},
     node_data::NodeData,
     nodes::*,
-    photo::ScenePhoto,
+    photo::{SceneDepth, ScenePhoto},
     playback::Playback,
     player::{Player, WalkKeys},
     scene::{

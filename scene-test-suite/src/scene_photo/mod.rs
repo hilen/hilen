@@ -1,3 +1,4 @@
+mod depth;
 mod in_view;
 
 use std::sync::mpsc::channel;

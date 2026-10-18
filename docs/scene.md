@@ -476,6 +476,20 @@ for the next photo, which is not measured on a phone yet. The scene tests
 photo, take 24 small ones on a full turn, and check that the screen is the same
 before and after.
 
+`SceneManager::depth_photo(camera, size)` draws the same way and gives a
+`SceneDepth`, the distance in meters from the camera to the surface under every
+pixel along the line of sight, infinity where only the sky, a translucent node or
+nothing is. The turnscan simulator blurs its phone photos by it, the way a lens out
+of focus does. A multisampled depth buffer cannot be read on WebGL2, so the nodes
+are drawn a second time through the fragment entries `f_depth` and
+`f_depth_cutout` of `mesh.wgsl`, which write the distance as 24 bits in red, green
+and blue on a log scale from 1 mm to 10 km, white for no surface. Inside a surface
+it comes back to a millionth of itself. On an edge the resolve mixes the samples,
+and the pixel lands within about 3 percent of their mix. The 4 pipelines are made
+at the first depth photo, an app that takes none does not wait for them. The scene
+test `Depth photo of scene` checks the distance of a cube face, 2 floor points and
+the sky against the camera, then a plain photo and the screen after it.
+
 ## How it draws
 
 A scene over the whole root area draws in the main render pass, before the level
