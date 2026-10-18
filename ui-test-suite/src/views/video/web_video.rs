@@ -223,7 +223,7 @@ impl ViewTest for WebVideo {
             state == VideoState::Playing && position >= 2.5
         })?;
         let at = from_main(|| page_video().map(|element| element.current_time()))?;
-        ensure!(at >= 2.5, "the element plays from {at:.2} s, not from the held 2.5 s");
+        ensure!(at >= 2.5, "the element plays from {at:.2} s, not the held 2.5 s");
         from_main(move || {
             view.video.pause();
         });

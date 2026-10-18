@@ -8,8 +8,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        Container, ImageMode, ImageView, UIColor, View, ViewData, ViewFrame, ViewSubviews, WeakView,
-        view::Setup,
+        ImageMode, ImageView, SwipeBack, UIColor, UIManager, View, ViewData, ViewFrame, ViewSubviews,
+        WeakView, view::Setup,
     },
     window::image::{NoImage, ToImage},
 };
@@ -28,8 +28,40 @@ pub struct RootView {
     /// `ScreenKeyboard`.
     keyboard_shift: f32,
 
+    /// Where both layers sit when no swipe moves them.
+    layer_origin: Point,
+
     background: Weak<ImageView>,
-    screen:     Weak<Container>,
+    /// The app views.
+    screen:     Weak<ScreenLayer>,
+    /// The screen a swipe back goes to, behind the app views while the
+    /// swipe runs, see `SwipeBack`. Empty at any other time.
+    under:      Weak<ScreenLayer>,
+}
+
+/// 1 of the 2 layers of the root that hold a screen.
+#[view]
+pub(crate) struct ScreenLayer {
+    /// On while the layer holds the screen under a swipe. It is drawn
+    /// first and is 1 step farther away, as a flat layer the app views
+    /// drawn after it cover all of it. A later sibling draws behind the
+    /// subviews of an earlier one otherwise. A flat layer has to clip.
+    covered: bool,
+}
+
+impl Setup for ScreenLayer {
+    fn clips_to_bounds(&self) -> bool {
+        self.covered
+    }
+
+    fn setup(self: Weak<Self>) {}
+}
+
+impl ScreenLayer {
+    fn set_covered(mut self: Weak<Self>, covered: bool) {
+        self.covered = covered;
+        self.__base_view().flat_depth = covered;
+    }
 }
 
 impl RootView {
@@ -42,12 +74,81 @@ impl RootView {
         self.background = self.__add_subview_internal(image, true).downcast_view::<ImageView>().unwrap();
         self.background.place().back();
 
-        let screen = Container::new();
-        self.screen = self.__add_subview_internal(screen, true).downcast_view::<Container>().unwrap();
+        // Added before the app views, so it is drawn before them. It takes
+        // the depth of the background, 1 sibling step farther than the app
+        // views, which keep the depth they had before this layer existed.
+        let background_z = self.background.z_position();
+        let mut under = ScreenLayer::new();
+        under.set_z_position(background_z);
+        self.under = self.__add_subview_internal(under, true).downcast_view::<ScreenLayer>().unwrap();
+
+        let mut screen = ScreenLayer::new();
+        screen.set_z_position(background_z - UIManager::additional_z_offset());
+        self.screen = self
+            .__add_subview_internal(screen, true)
+            .downcast_view::<ScreenLayer>()
+            .unwrap();
     }
 
     pub(crate) fn clear_root(&mut self) {
+        SwipeBack::reset();
         self.screen.remove_all_subviews();
+        self.under.remove_all_subviews();
+        self.under.set_covered(false);
+        self.place_layers(0.0, 0.0);
+    }
+
+    /// The layer of the app views, which a swipe back moves.
+    pub(crate) fn screen_layer(&self) -> WeakView {
+        self.screen.weak_view()
+    }
+
+    /// Puts the screen a swipe back goes to behind the app views.
+    pub(crate) fn add_under(&mut self, view: Own<dyn View>) -> WeakView {
+        self.under.set_covered(true);
+        self.under.add_subview(view)
+    }
+
+    /// Ends a swipe that went back: the screen in the layer under becomes
+    /// the app views. The 2 layers trade places, the views in them stay,
+    /// so no screen runs its setup again.
+    pub(crate) fn raise_under(mut self: Weak<Self>) {
+        let (front, back) = (self.screen, self.under);
+        let (front_z, back_z) = (front.z_position(), back.z_position());
+        back.set_covered(false);
+        back.bump_z_position(back_z - front_z);
+        back.__base_view().z_position = front_z;
+        front.bump_z_position(front_z - back_z);
+        front.__base_view().z_position = back_z;
+
+        // The subviews are drawn in their order, the app views last.
+        let (front_raw, back_raw) = (front.weak_view().raw(), back.weak_view().raw());
+        let subviews = self.subviews_mut();
+        let front_index = subviews.iter().position(|view| view.raw() == front_raw);
+        let back_index = subviews.iter().position(|view| view.raw() == back_raw);
+        if let (Some(front_index), Some(back_index)) = (front_index, back_index) {
+            subviews.swap(front_index, back_index);
+        }
+
+        front.remove_all_subviews();
+        self.screen = back;
+        self.under = front;
+        self.place_layers(0.0, 0.0);
+    }
+
+    /// Drops the screen a swipe that went back to its start had built.
+    pub(crate) fn clear_under(self: Weak<Self>) {
+        self.under.remove_all_subviews();
+        self.under.set_covered(false);
+        self.place_layers(0.0, 0.0);
+    }
+
+    /// Moves the app views `shift` points right of their place and the
+    /// layer under `under_shift` points.
+    pub(crate) fn place_layers(&self, shift: f32, under_shift: f32) {
+        let origin = self.layer_origin;
+        self.screen.set_position((origin.x + shift, origin.y));
+        self.under.set_position((origin.x + under_shift, origin.y));
     }
 
     /// A test that fails part way through never reaches the line that puts the
@@ -106,7 +207,9 @@ impl RootView {
 
             self.set_size(width, height);
             self.screen.set_size(width, height);
-            self.screen.set_position((0, -self.keyboard_shift));
+            self.under.set_size(width, height);
+            self.layer_origin = Point::new(0.0, -self.keyboard_shift);
+            self.place_layers(0.0, 0.0);
 
             return;
         }
@@ -135,7 +238,9 @@ impl RootView {
         };
 
         self.screen.set_size(size.width * (1.0 / scale), size.height * (1.0 / scale));
-        self.screen.set_position((position.x, position.y - self.keyboard_shift));
+        self.under.set_size(size.width * (1.0 / scale), size.height * (1.0 / scale));
+        self.layer_origin = Point::new(position.x, position.y - self.keyboard_shift);
+        self.place_layers(0.0, 0.0);
     }
 
     /// The part of the app views that no screen cuts and no system bar

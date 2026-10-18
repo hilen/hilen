@@ -251,9 +251,7 @@ impl Player {
     }
 
     pub(crate) fn position(&self) -> f64 {
-        self.resume_at
-            .or(self.held)
-            .unwrap_or_else(|| self.element().current_time())
+        self.resume_at.or(self.held).unwrap_or_else(|| self.element().current_time())
     }
 
     pub(crate) fn play(&mut self) {

@@ -148,6 +148,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   project from the template, the remote as key events, the safe area an app asks for,
   stored data in the user defaults, video, and the upload. Never run on a real Apple
   TV. Read before touching platform cfg aliases, the winit pin, or anything tvOS.
+- [docs/swipe-back.md](docs/swipe-back.md) — `SwipeBack`, the swipe from the left edge that
+  leaves a screen set with `set_view`, the 2 layers of the root that hold the app views and
+  the screen under a swipe, and why the under one is a flat layer. Read before touching
+  `swipe_back.rs`, `root_view.rs` or the touch path in `input.rs`.
 - [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,

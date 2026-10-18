@@ -19,6 +19,55 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Swipe back from the left edge, like a native iOS app
+
+Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18, by the bug report SKAITYK-D
+from an iPhone: "Swipe to go back should work like in native ios app".
+
+- Current: no screen can be left by a swipe. Apps switch screens with
+  `UIManager::set_view`, which frees the old screen, and `NavigationView` is not used,
+  the skill calls it broken. Each pushed screen binds Escape to its own back function,
+  like `UIManager::keymap().add(self, NamedKey::Escape, go_back)` in
+  `skaityk/src/ui/category_view.rs`. `app_runner/window_events.rs` turns `GoBack` and
+  `BrowserBack` into Escape. Whether the Android system back gesture reaches that path
+  is not checked on a device.
+- Needed:
+  - A screen gives the engine the function that builds its back screen, the same one
+    its back arrow and Escape call. 1 line per screen in an app, `set_view` stays.
+  - A touch that starts at the left edge and moves right builds that screen under the
+    current one. The current screen follows the finger and the one below shows, like
+    the slide and the shadow of a native iOS pop.
+  - A release past half the width, or a fling to the right, finishes the switch with
+    the rest of the slide and the new screen becomes the root, like `set_view`. Any
+    other release slides the screen back and drops the one below.
+  - A scroll view, a table or a horizontal drag inside the screen does not start while
+    an edge swipe runs, and an edge swipe does not start inside a modal.
+  - Works on iPhone, iPad and Android. The Android system back runs the same back
+    function. Desktop and the browser keep the back arrow and Escape.
+  - A rebuilt back screen restores its own scroll place, the engine says so in the
+    views chapter of the skill.
+  - UI tests that drive a swipe past half, a short swipe that cancels and a fling,
+    then the proof on a real iPhone, see "The simulator is no proof".
+- Blocks: swipe back in skaityk, and in every app on hilen.
+
+## The Sentry release names the version of Cargo.toml, not of hilen.toml
+
+Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18. Every event of skaityk 3.0.14,
+the bug reports SKAITYK-C and SKAITYK-D among them, carries the release
+`skaityk@0.1.0`.
+
+- Current: `register_app!` in `hilen/src/app.rs` makes `hilen_app_version` return
+  `env!("CARGO_PKG_VERSION")`. Skaityk keeps `version = "0.1.0"` in `Cargo.toml` and
+  its real version, `version = "3.0.14"`, in `hilen.toml`, which `make patch` and the
+  iOS project already use, see `docs/widgets.md`. `deps/project-proc` already reads
+  `project_name` from that file.
+- Needed: a macro in `deps/project-proc` next to `project_name!()` that gives the
+  `version` of `hilen.toml`, and the version of `Cargo.toml` when the file has none.
+  `register_app!` uses it, so the Sentry release, the start log line and the updater
+  all see the same version. A unit test in `project-proc` for both cases.
+- Blocks: the right release on every Sentry event of skaityk, and of any app that keeps
+  its version only in `hilen.toml`.
+
 ## Browser lane tests that the pictures of the page made flaky
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-17, by the change that lets the page

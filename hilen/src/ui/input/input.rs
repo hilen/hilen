@@ -16,9 +16,9 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, TextField, TextSelection,
-        Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch, depth_key,
-        press_keeps_selection,
+        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, SwipeBack, TextField,
+        TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch,
+        depth_key, press_keeps_selection,
     },
     window::frame_control,
 };
@@ -234,6 +234,11 @@ impl Input {
 
         // The 2 fingers of a pinch belong to it, no view sees them move.
         if PinchInput::swallow(&touch) {
+            return true;
+        }
+
+        // A swipe from the left edge takes the finger once it moves right.
+        if SwipeBack::swallow(&touch) {
             return true;
         }
 

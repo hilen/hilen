@@ -15,6 +15,9 @@ mod screen_keyboard;
 mod selection_drawer;
 mod shadow;
 mod style;
+mod swipe_back;
+#[cfg(feature = "ui-tests")]
+mod swipe_back_test;
 #[cfg(feature = "ui-tests")]
 mod tests;
 mod text_field_constraint;
@@ -53,6 +56,7 @@ pub use self::{
     screen_keyboard::{ScreenKeyboard, ScreenKeyboardMove},
     shadow::*,
     style::*,
+    swipe_back::SwipeBack,
     text_field_constraint::*,
     text_selection::TextSelection,
     theme::*,
