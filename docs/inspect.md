@@ -18,7 +18,10 @@ the exe as `name` in the TXT record. No config,
 any number of apps per machine. The first app on a device takes the port 7435,
 `FIXED_PORT` in `protocol/mod.rs`, every other app takes a free port of the system. So
 a tool that can not search the network still finds 1 app by the address of the device,
-see `--addr` below.
+see `--addr` below. The port counts as taken when another app holds it on IPv4 or on
+IPv6, `taken_elsewhere` in `inspect_service.rs`. An app in the iOS simulator listens on
+`::` of the Mac, and macOS let it share 7435 with a Mac app on `0.0.0.0`, so a tool at
+127.0.0.1 reached the Mac app and never the simulator.
 
 On iOS the Bonjour service of the system announces, `hilen/src/inspect/bonjour.rs`,
 not the `mdns-sd` crate. A real iPhone lets an app send multicast packets of its

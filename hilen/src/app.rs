@@ -232,9 +232,10 @@ macro_rules! embed_assets {
     };
 }
 
-/// The version of the app's own package, what the updater compares a
-/// manifest against and what a Sentry release carries. `register_app!` puts
-/// the real one into the final crate.
+/// The version of the app, what the updater compares a manifest against and
+/// what a Sentry release carries. `register_app!` puts the real one into the
+/// final crate: the `version` of `hilen.toml` on iOS, tvOS and Android, whose
+/// projects are stamped with it, the version of the package everywhere else.
 #[cfg(not(ios))]
 #[unsafe(no_mangle)]
 #[linkage = "weak"]
@@ -252,9 +253,19 @@ macro_rules! register_app {
             hilen::project_name!()
         }
 
+        // A phone and a TV app is stamped with the version of hilen.toml.
+        // A desktop release, its updater and `make patch` use Cargo.toml.
         #[unsafe(no_mangle)]
         pub extern "Rust" fn hilen_app_version() -> &'static str {
-            env!("CARGO_PKG_VERSION")
+            if cfg!(any(
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "android"
+            )) {
+                hilen::app_version!()
+            } else {
+                env!("CARGO_PKG_VERSION")
+            }
         }
 
         #[unsafe(no_mangle)]

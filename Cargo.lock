@@ -3460,9 +3460,9 @@ dependencies = [
 
 [[package]]
 name = "hilen-wgpu-hal"
-version = "30.0.3"
+version = "30.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5becfb7af717c20d03338b2310ef9caccfd56a98d08b68c06081a3e95938bed4"
+checksum = "4161d8b34e707e9987f8f784c80f417e4408b28c6d3bfe1fad853beffbee8669"
 dependencies = [
  "android_system_properties",
  "arrayvec",

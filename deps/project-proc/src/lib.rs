@@ -55,6 +55,40 @@ pub fn project_name(input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// The `version` of the `hilen.toml` above the crate that calls it, as a
+/// string literal, or the version of that crate's `Cargo.toml` when the file
+/// has none. The iOS, tvOS and Android projects of an app are stamped with
+/// the version of `hilen.toml`, `register_app!` reports it from there.
+#[proc_macro]
+pub fn app_version(input: TokenStream) -> TokenStream {
+    let found = if input.is_empty() {
+        var("CARGO_MANIFEST_DIR")
+            .context("CARGO_MANIFEST_DIR is not set")
+            .and_then(|dir| find_version(Path::new(&dir)))
+    } else {
+        Err(anyhow!("app_version!() takes no arguments"))
+    };
+
+    match found {
+        Ok((path, version)) => {
+            let path = path.to_string_lossy().into_owned();
+            let version = version.map_or_else(
+                || quote! { env!("CARGO_PKG_VERSION") },
+                |version| quote! { #version },
+            );
+            quote! {{
+                const _: &[u8] = include_bytes!(#path);
+                #version
+            }}
+        }
+        Err(err) => {
+            let message = format!("{err:#}");
+            quote! { compile_error!(#message) }
+        }
+    }
+    .into()
+}
+
 /// The moment the crate that calls it is compiled, in unix seconds, as a
 /// `u64` number. `register_app!` calls it in the final crate of an app.
 /// Cargo compiles that crate again after any change below it, so the number
@@ -163,6 +197,22 @@ fn find(start: &Path) -> Result<(PathBuf, String)> {
 }
 
 #[derive(Deserialize)]
+struct VersionFile {
+    version: Option<String>,
+}
+
+/// The nearest `hilen.toml` and its `version`, none when it has no such
+/// key or an empty one.
+fn find_version(start: &Path) -> Result<(PathBuf, Option<String>)> {
+    let (path, _) = find(start)?;
+    let text = read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let file: VersionFile =
+        toml::from_str(&text).with_context(|| format!("a wrong version in {}", path.display()))?;
+    let version = file.version.filter(|version| !version.trim().is_empty());
+    Ok((path, version))
+}
+
+#[derive(Deserialize)]
 struct LinksFile {
     links: Option<LinksTable>,
 }
@@ -210,7 +260,7 @@ mod test {
 
     use anyhow::Result;
 
-    use super::{FILE, find, find_link_scheme};
+    use super::{FILE, find, find_link_scheme, find_version};
 
     /// A fresh folder per test, removed when the test ends.
     struct Repo(PathBuf);
@@ -253,6 +303,32 @@ mod test {
         write(repo.0.join("crates/app").join(FILE), "project_name = \"inner\"\n")?;
 
         assert_eq!(find(&repo.0.join("crates/app/src"))?.1, "inner");
+        Ok(())
+    }
+
+    #[test]
+    fn the_version_comes_from_the_file() -> Result<()> {
+        let repo = Repo::new("version")?;
+        write(
+            repo.0.join(FILE),
+            "project_name = \"skaityk\"\nversion = \"3.0.14\"\n",
+        )?;
+
+        assert_eq!(
+            find_version(&repo.0.join("crates/app"))?.1.as_deref(),
+            Some("3.0.14")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_with_no_version_leaves_the_cargo_version() -> Result<()> {
+        let repo = Repo::new("no-version")?;
+        write(repo.0.join(FILE), "project_name = \"skaityk\"\nversion = \"\"\n")?;
+        assert_eq!(find_version(&repo.0)?.1, None);
+
+        write(repo.0.join(FILE), "project_name = \"skaityk\"\n")?;
+        assert_eq!(find_version(&repo.0)?.1, None);
         Ok(())
     }
 

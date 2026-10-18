@@ -299,7 +299,7 @@ wgpu = { package = "hilen-wgpu", version = "30.0" }
 # Asked for by name on Apple systems, where the frame record of the inspector needs
 # the presented time that came with 30.0.3. An app keeps the version of its own lock
 # file while it fits, so `30.0` alone left it on a fork without that call.
-wgpu-hal = { package = "hilen-wgpu-hal", version = "30.0.3", features = ["metal"] }
+wgpu-hal = { package = "hilen-wgpu-hal", version = "30.0.4", features = ["metal"] }
 wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "ecb57d0c673a9a0a3055a8053ce3b665e9eefea6" }
 # The full version: an app that pins hilen by rev keeps the fork version of
 # its own lock file while it still fits, and an older fork has no tvOS remote.

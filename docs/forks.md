@@ -35,7 +35,11 @@ to upstream.
   from `presentedTime` of the drawable. The frame record of the inspector reads it, see
   [inspect.md](inspect.md). Published as `hilen-wgpu-hal` 30.0.3 on 2026-10-12, the root
   `Cargo.toml` asks for that version by name. Fork only, upstream wgpu has no present
-  time on any backend, so this keeps the fork alive past v31.
+  time on any backend, so this keeps the fork alive past v31. The drawable of the iOS
+  16.4 simulator has no `addPresentedHandler`, and the call threw an Objective-C
+  exception that ended the app at the first frame of a record. `attach` asks
+  `respondsToSelector:` first, such a frame gets no screen time. Published as
+  `hilen-wgpu-hal` 30.0.4 on 2026-10-18.
 
 Both fixes are on trunk, which is v31, and neither is copied to the upstream `v30`
 branch. The decision is to wait for v31, not to send a backport. The upstream v31
@@ -54,8 +58,8 @@ Publishing follows upstream's habit, only the crates whose content changed get t
 version and the internal version requirements stay at `30.0.0`. The 2026-09-03 rebase
 touched `wgpu` and `wgpu-hal`, so crates.io has `hilen-wgpu` and `hilen-wgpu-hal` at
 30.0.2 while `hilen-wgpu-core` and the 4 `hilen-wgpu-core-deps-*` crates stay at 30.0.0.
-The presented time on 2026-10-12 touched only `wgpu-hal`, so `hilen-wgpu-hal` alone is
-at 30.0.3.
+The presented time on 2026-10-12 and its simulator guard on 2026-10-18 touched only
+`wgpu-hal`, so `hilen-wgpu-hal` alone is at 30.0.4.
 The workspace version bump is its own commit on the branch. Publish order is
 `hilen-wgpu-hal` first, then `hilen-wgpu`, each `cargo publish -p <name>` from a clean
 tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`, and

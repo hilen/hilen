@@ -78,8 +78,18 @@ const ANY: &str = "0.0.0.0";
 /// port of the system when another app has it.
 #[cfg(not_wasm)]
 async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
+    bind_on(ANY, port, tries).await
+}
+
+#[cfg(not_wasm)]
+async fn bind_on(address: &str, port: u16, tries: u32) -> Result<TcpListener> {
     for attempt in 1..=tries {
-        match TcpListener::bind((ANY, port)).await {
+        let result = if taken_elsewhere(port).await {
+            Err(ErrorKind::AddrInUse.into())
+        } else {
+            TcpListener::bind((address, port)).await
+        };
+        match result {
             Ok(listener) => return Ok(listener),
             Err(err) if err.kind() == ErrorKind::AddrInUse => {
                 if attempt < tries {
@@ -90,7 +100,25 @@ async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
         }
     }
     debug!("Inspect port {port} is taken by another app, a free one is used");
-    Ok(TcpListener::bind((ANY, 0)).await?)
+    Ok(TcpListener::bind((address, 0)).await?)
+}
+
+/// Whether another app holds `port` on IPv4 or on IPv6. An app in the iOS
+/// simulator listens on `::` of the Mac, a Mac app on `0.0.0.0`, and macOS
+/// lets both have the same port. A tool at 127.0.0.1 then reached the Mac
+/// app and never the one in the simulator.
+#[cfg(not_wasm)]
+async fn taken_elsewhere(port: u16) -> bool {
+    for address in ["0.0.0.0", "::"] {
+        // A system with no IPv6 answers with another error, the port is
+        // not taken there.
+        if let Err(err) = TcpListener::bind((address, port)).await
+            && err.kind() == ErrorKind::AddrInUse
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// A build without debug assertions starts the server only with this set to
@@ -773,7 +801,7 @@ mod test {
     use anyhow::Result;
     use tokio::{net::TcpListener, runtime::Builder};
 
-    use super::{bind, listener_allowed};
+    use super::{bind, bind_on, listener_allowed};
 
     #[test]
     fn the_first_app_gets_the_port_and_the_next_one_a_free_port() -> Result<()> {
@@ -787,6 +815,21 @@ mod test {
             drop(first);
             let third = bind(port, 1).await?;
             assert_eq!(third.local_addr()?.port(), port);
+            Ok(())
+        })
+    }
+
+    // An app in the iOS simulator listens on `::` of the Mac. macOS let it
+    // take a port a Mac app held on IPv4, and a tool at 127.0.0.1 found the
+    // Mac app.
+    #[test]
+    fn a_port_held_on_ipv4_is_not_taken_on_ipv6() -> Result<()> {
+        Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let held = TcpListener::bind("0.0.0.0:0").await?;
+            let port = held.local_addr()?.port();
+
+            let next = bind_on("::", port, 1).await?;
+            assert_ne!(next.local_addr()?.port(), port);
             Ok(())
         })
     }
