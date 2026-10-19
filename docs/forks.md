@@ -130,8 +130,10 @@ Branch `tvos-0.30` at github.com/VladasZ/winit sits on the v0.30.13 tag, the new
 presses of the remote of an Apple TV sent as key events, see [tvos.md](tvos.md), and
 `latin_key` of a key event, the Latin letter of the key for a binding on a layout that
 types other letters, see [focus.md](focus.md). It is in the `modifier_supplement` trait
-on Windows, macOS, X11 and Wayland, fork only so far. crates.io has it as
-`hilen-winit` 0.30.16. The root `Cargo.toml` asks for that full
+on Windows, macOS, X11 and Wayland, fork only so far. On iOS `Window::theme` reads
+`userInterfaceStyle` of the view and the view sends `ThemeChanged` from
+`traitCollectionDidChange:`, so an app follows the light or dark theme of the phone,
+fork only. crates.io has it as `hilen-winit` 0.30.17. The root `Cargo.toml` asks for that full
 version, not for `0.30`. An app that pins hilen by rev keeps the version of its own
 lock file while it fits the requirement, so with `0.30` an app stayed on a fork with no
 remote presses after a rev bump. Raise the requirement with every new fork version the

@@ -11,6 +11,11 @@ pub(crate) trait Scrollable: View {
     fn __process_scroll_touch(&mut self, touch: Touch) -> bool;
     fn __process_wheel_scroll(&mut self, delta: Point);
 
+    /// A finger on it moves it sideways, so it starts no `SideSwipe`.
+    fn __moves_sideways(&self) -> bool {
+        false
+    }
+
     /// A scroll the engine asks for itself, like the focus ring. Each
     /// axis has to move by its own delta, so it skips the rule that
     /// sends a plain wheel sideways in a view with no vertical range.

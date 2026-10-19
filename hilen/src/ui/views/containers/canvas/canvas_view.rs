@@ -139,6 +139,10 @@ impl Scrollable for CanvasView {
         false
     }
 
+    fn __moves_sideways(&self) -> bool {
+        true
+    }
+
     fn __process_wheel_scroll(&mut self, delta: Point) {
         let cursor = self.__base_view().local_point(UIManager::cursor_position());
         self.zoom_at(cursor, (delta.y * WHEEL_ZOOM).exp());

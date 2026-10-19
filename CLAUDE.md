@@ -153,6 +153,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   leaves a screen set with `set_view`, the 2 layers of the root that hold the app views and
   the screen under a swipe, and why the under one is a flat layer. Read before touching
   `swipe_back.rs`, `root_view.rs` or the touch path in `input.rs`.
+- [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
+  view, also over a scroll view that moves up and down. Read before touching
+  `side_swipe.rs` or the order of the swipes in `input.rs`.
 - [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,

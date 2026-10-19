@@ -17,6 +17,9 @@ mod privacy_cover_test;
 mod screen_keyboard;
 mod selection_drawer;
 mod shadow;
+mod side_swipe;
+#[cfg(feature = "ui-tests")]
+mod side_swipe_test;
 mod style;
 mod swipe_back;
 #[cfg(feature = "ui-tests")]
@@ -58,6 +61,7 @@ pub use self::{
     navigation_view::*,
     screen_keyboard::{ScreenKeyboard, ScreenKeyboardMove},
     shadow::*,
+    side_swipe::{SideSwipe, SideSwipeEnd, SideSwipeEvent},
     style::*,
     swipe_back::SwipeBack,
     text_field_constraint::*,

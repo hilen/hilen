@@ -471,6 +471,10 @@ impl ViewSubviews for ScrollView {
 }
 
 impl Scrollable for ScrollView {
+    fn __moves_sideways(&self) -> bool {
+        self.range_x() > 0.0
+    }
+
     fn __process_scroll_touch(&mut self, touch: Touch) -> bool {
         if self.process_bar_touch(&touch) {
             return true;

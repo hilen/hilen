@@ -3528,9 +3528,9 @@ dependencies = [
 
 [[package]]
 name = "hilen-winit"
-version = "0.30.16"
+version = "0.30.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "294944f100cf2daff682fb59df16298788c25cec8448fa3b9410bec62cfdbbbb"
+checksum = "a9ec7935b169687fa17515d66b6a0ce7b07faa4f7d194c2aaa282d3436d399db"
 dependencies = [
  "ahash",
  "android-activity",

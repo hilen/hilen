@@ -16,9 +16,9 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, SwipeBack, TextField,
-        TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch,
-        depth_key, press_keeps_selection,
+        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, SideSwipe, SwipeBack,
+        TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
+        check_touch, depth_key, press_keeps_selection,
     },
     window::frame_control,
 };
@@ -239,6 +239,12 @@ impl Input {
 
         // A swipe from the left edge takes the finger once it moves right.
         if SwipeBack::swallow(&touch) {
+            SideSwipe::reset();
+            return true;
+        }
+
+        // A swipe left or right over a view that asked for it.
+        if SideSwipe::swallow(&touch) {
             return true;
         }
 

@@ -231,6 +231,10 @@ impl Scrollable for SceneView {
         false
     }
 
+    fn __moves_sideways(&self) -> bool {
+        true
+    }
+
     fn __process_wheel_scroll(&mut self, delta: Point) {
         self.zoom((-delta.y * WHEEL_ZOOM).exp());
     }
