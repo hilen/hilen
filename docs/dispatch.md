@@ -47,6 +47,51 @@ locking still works, and this grants no background execution. Other platforms
 keep their normal display policy. Acquire on main; dropping on another thread
 queues the release on main.
 
+## The privacy cover
+
+`UIManager::set_privacy_cover(true)` turns on a plain cover in the clear color for the
+rest of the run. While a phone app is not active it is drawn in place of every view,
+modals and their scrims included. It is off by default and on desktop and in a
+browser it never shows, a window that only lost the focus stays as it is. The code is
+`hilen/src/ui/privacy_cover.rs`.
+
+- iOS keeps a picture of the app for the app switcher. It takes it right after
+  `applicationDidEnterBackground` returns. While the app is only inactive the card in
+  the switcher is live. An app may not send work to the GPU in the background, so
+  the cover cannot be drawn at that late point. It is drawn at once inside
+  `applicationWillResignActive`, which winit sends as `Suspended`, see `suspended`
+  in `window/app_handler.rs`. That is the first event of an app switch and of a
+  lock, so the frame on the screen is the cover before the switcher shows it.
+- Android goes first through the loss of the focus, while the surface is still
+  there, and the cover is drawn there. `Suspended` on Android comes when the
+  surface goes away.
+- The cover goes away with the next frame once the app is active again. That frame
+  is drawn whole, the frames under the cover drew no view.
+- What sits over the frame is hidden with it: the system text field of an edited
+  field on iPhone and the Core Animation layers of the loops.
+- A system prompt over the app, like Face ID, makes it resign active too, so the
+  cover shows behind it.
+- A check on a real iPhone that the app switcher shows the cover is still open.
+
+The test is `Privacy cover`. It forces the rule of a desktop and of a phone with
+`set_test_phone`, so it checks both on every platform.
+
+## The end of the app
+
+`App::will_quit` runs once on the main thread right before the app ends, from
+`AppHandler::exiting`: a closed window, Cmd and Q, `AppRunner::stop`, the end of a
+headless run, and `applicationWillTerminate` on iOS. A hot build calls it at the
+stop of a generation too.
+
+- iOS sends `applicationWillTerminate` only to an app that runs at that time. A
+  suspended app closed from the app switcher or killed by the system gets no call.
+- Android reports no end, winit does not pass on `onDestroy`, so the hook never runs
+  there.
+- A killed process runs nothing.
+
+Work that must be done before a phone app goes away also listens to
+`AppActivity::changed`.
+
 ## Frames on demand
 
 The winit loop draws only when a frame is requested, so a static screen with nothing moving

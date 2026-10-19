@@ -5,9 +5,13 @@
 pub use hilen_session::LoginUser;
 use serde::{Deserialize, Serialize};
 
+/// `code` is the one time code that came back to the app at the end of the
+/// login. Only the login of a device with no keyboard has none.
 #[derive(Debug, Serialize)]
 pub(crate) struct PollRequest<'a> {
     pub verifier: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code:     Option<&'a str>,
 }
 
 /// Asks for a short code a person types on a phone, for a device with no
@@ -59,8 +63,18 @@ mod test {
     #[test]
     fn request_shape() -> Result<()> {
         assert_eq!(
-            to_string(&PollRequest { verifier: "abc" })?,
+            to_string(&PollRequest {
+                verifier: "abc",
+                code:     None,
+            })?,
             r#"{"verifier":"abc"}"#
+        );
+        assert_eq!(
+            to_string(&PollRequest {
+                verifier: "abc",
+                code:     Some("c0de"),
+            })?,
+            r#"{"verifier":"abc","code":"c0de"}"#
         );
         Ok(())
     }

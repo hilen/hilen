@@ -9,6 +9,7 @@ mod apple_login_button_test;
 mod client;
 #[cfg(feature = "ui-tests")]
 mod google_login_button_test;
+mod hand_back;
 mod login_button;
 #[cfg(feature = "ui-tests")]
 mod login_button_texts_test;

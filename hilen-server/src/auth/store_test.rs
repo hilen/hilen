@@ -154,24 +154,52 @@ async fn count(db: &Db, sql: &'static str) -> Result<i64> {
 
 async fn a_login_runs_from_start_to_session(db: Db) -> Result<()> {
     // The page opens, then reloads: the second start replaces the state.
-    assert!(store::start_pending(&db, "challenge", "state-1").await?);
-    assert!(store::start_pending(&db, "challenge", "state-2").await?);
-    assert!(!store::is_waiting(&db, "state-1", 10).await?);
-    assert!(store::is_waiting(&db, "state-2", 10).await?);
+    assert!(store::start_pending(&db, "challenge", "state-1", "port:5000").await?);
+    assert!(store::start_pending(&db, "challenge", "state-2", "port:5001").await?);
+    assert_eq!(store::waiting(&db, "state-1", 10).await?, None);
+    assert_eq!(
+        store::waiting(&db, "state-2", 10).await?,
+        Some(("challenge".to_owned(), "port:5001".to_owned()))
+    );
 
     // Nothing to hand over before Google has answered.
-    assert_eq!(store::take_finished(&db, "challenge", 10).await?, None);
+    let code = hash("the code that went back");
+    assert_eq!(
+        store::take_finished(&db, "challenge", Some(&code), 10).await?,
+        None
+    );
 
     let user_id = store::login_user(&db, &identity("Ana")).await?;
-    store::finish_pending(&db, "state-2", user_id).await?;
-    assert!(!store::is_waiting(&db, "state-2", 10).await?);
+    store::finish_pending(&db, "state-2", user_id, Some(&code)).await?;
+    assert_eq!(store::waiting(&db, "state-2", 10).await?, None);
 
     // A finished login cannot be started over by somebody else.
-    assert!(!store::start_pending(&db, "challenge", "state-3").await?);
+    assert!(!store::start_pending(&db, "challenge", "state-3", "page").await?);
+
+    // The verifier alone, or with another code, gets nothing.
+    assert_eq!(store::take_finished(&db, "challenge", None, 10).await?, None);
+    assert_eq!(
+        store::take_finished(&db, "challenge", Some(&hash("a guess")), 10).await?,
+        None
+    );
 
     // The hand over happens once.
-    assert_eq!(store::take_finished(&db, "challenge", 10).await?, Some(user_id));
-    assert_eq!(store::take_finished(&db, "challenge", 10).await?, None);
+    assert_eq!(
+        store::take_finished(&db, "challenge", Some(&code), 10).await?,
+        Some(user_id)
+    );
+    assert_eq!(
+        store::take_finished(&db, "challenge", Some(&code), 10).await?,
+        None
+    );
+
+    // The login of a device with no keyboard has no code to bring.
+    assert!(store::start_pending(&db, "tv challenge", "state-tv", "code").await?);
+    store::finish_pending(&db, "state-tv", user_id, None).await?;
+    assert_eq!(
+        store::take_finished(&db, "tv challenge", None, 10).await?,
+        Some(user_id)
+    );
 
     let token = session::create(&db, user_id).await?;
     let user = session::user_of(&db, &token).await?.expect("a fresh session has its user");
@@ -195,15 +223,16 @@ async fn the_same_google_account_is_the_same_user(db: Db) -> Result<()> {
 }
 
 async fn old_logins_and_ended_sessions_are_gone(db: Db) -> Result<()> {
-    assert!(store::start_pending(&db, "challenge", "state").await?);
+    assert!(store::start_pending(&db, "challenge", "state", "page").await?);
     run(
         &db,
         "UPDATE pending_logins SET created_at = now() - interval '11 minutes'",
         "UPDATE pending_logins SET created_at = unixepoch() - 11 * 60",
     )
     .await?;
-    assert!(
-        !store::is_waiting(&db, "state", 10).await?,
+    assert_eq!(
+        store::waiting(&db, "state", 10).await?,
+        None,
         "11 minutes is too old"
     );
     store::prune_pending(&db, 10).await?;
@@ -318,8 +347,8 @@ async fn a_deleted_user_leaves_nothing(db: Db) -> Result<()> {
     let user_id = store::login_user(&db, &identity("Ana")).await?;
     store::login_user(&db, &apple_identity("ana@example.com", None, "refresh-1")).await?;
     let token = session::create(&db, user_id).await?;
-    assert!(store::start_pending(&db, "challenge", "state").await?);
-    store::finish_pending(&db, "state", user_id).await?;
+    assert!(store::start_pending(&db, "challenge", "state", "page").await?);
+    store::finish_pending(&db, "state", user_id, Some(&hash("code"))).await?;
 
     store::delete_user(&db, user_id).await?;
 

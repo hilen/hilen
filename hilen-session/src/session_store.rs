@@ -6,6 +6,8 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
 
+#[cfg(feature = "keychain")]
+use crate::SecretStore;
 use crate::{
     encrypt::{decrypt, encrypt},
     session_key::session_key,
@@ -66,9 +68,18 @@ impl Sessions {
 static CHANGE: Mutex<()> = Mutex::new(());
 
 /// The login sessions of this app on this device, several people can be
-/// logged in at once and 1 of them is active. Sealed with AES-256-GCM under
-/// the key of `session_key.rs`. Nothing else in the engine or in an app
-/// touches the stored bytes, so where they live can change behind these calls.
+/// logged in at once and 1 of them is active.
+///
+/// With the `keychain` feature the list lives in the credential store of the
+/// system through `SecretStore`, on iOS and tvOS as an entry that never
+/// leaves the device. So a copy of the data folder or of a phone backup holds
+/// no session. A sealed file of an older engine moves in at the first load
+/// and is deleted, so an update logs nobody out. Without the feature, in a
+/// browser, and where the system has no credential store, the list is a file
+/// sealed with AES-256-GCM under the key of `session_key.rs`.
+///
+/// Nothing else in the engine or in an app touches the stored bytes, so where
+/// they live can change behind these calls.
 pub struct SessionStore;
 
 impl SessionStore {
@@ -174,6 +185,10 @@ impl SessionStore {
 /// The name of the session file, and of its `localStorage` key in a browser.
 const FILE: &str = "session.bin";
 
+/// The list in the credential store of the system.
+#[cfg(feature = "keychain")]
+static KEPT: SecretStore = SecretStore::device_only("session");
+
 pub(crate) fn seal(text: &str) -> Result<Vec<u8>> {
     encrypt(text.as_bytes(), &session_key())
 }
@@ -182,11 +197,18 @@ pub(crate) fn open(sealed: &[u8]) -> Result<String> {
     Ok(String::from_utf8(decrypt(sealed, &session_key())?)?)
 }
 
-/// The sessions on this device, none when the file is missing or does not
-/// open.
+/// The sessions on this device, none when nothing is stored or it does not
+/// open. It waits for a change that runs, a first load can move the file.
 fn read() -> Sessions {
-    let text = platform::read(FILE).and_then(|sealed| sealed.map(|sealed| open(&sealed)).transpose());
-    match text {
+    let guard = CHANGE.lock().unwrap_or_else(PoisonError::into_inner);
+    let sessions = read_unlocked();
+    drop(guard);
+    sessions
+}
+
+/// `read` for a caller that holds the lock.
+fn read_unlocked() -> Sessions {
+    match stored_text() {
         Ok(Some(text)) => parse(&text),
         Ok(None) => Sessions::default(),
         Err(error) => {
@@ -210,15 +232,68 @@ fn parse(text: &str) -> Sessions {
 
 fn change<T>(edit: impl FnOnce(&mut Sessions) -> Result<T>) -> Result<T> {
     let guard = CHANGE.lock().unwrap_or_else(PoisonError::into_inner);
-    let mut sessions = read();
+    let mut sessions = read_unlocked();
     let result = edit(&mut sessions)?;
     if sessions.list.is_empty() {
-        platform::remove(FILE)?;
+        store_text(None)?;
     } else {
-        platform::write(FILE, &seal(&to_string(&sessions)?)?)?;
+        store_text(Some(&to_string(&sessions)?))?;
     }
     drop(guard);
     Ok(result)
+}
+
+/// The stored list as JSON, or the bare token of an engine with 1 login.
+fn stored_text() -> Result<Option<String>> {
+    #[cfg(feature = "keychain")]
+    if KEPT.in_credential_store() {
+        return match KEPT.load() {
+            Some(text) => Ok(Some(text)),
+            None => move_file_in(),
+        };
+    }
+
+    platform::read(FILE)?.map(|sealed| open(&sealed)).transpose()
+}
+
+/// `None` removes what is stored.
+fn store_text(text: Option<&str>) -> Result<()> {
+    #[cfg(feature = "keychain")]
+    if KEPT.in_credential_store() {
+        match text {
+            Some(text) => KEPT.save(text)?,
+            None => KEPT.clear()?,
+        }
+        // A file that could not move in before must not come back once
+        // the store is empty again.
+        return platform::remove(FILE);
+    }
+
+    match text {
+        Some(text) => platform::write(FILE, &seal(text)?),
+        None => platform::remove(FILE),
+    }
+}
+
+/// The sealed file an engine before the credential store wrote. Its list
+/// goes into the store and the file is deleted. When the store does not
+/// take it, the file stays and is read again next time.
+#[cfg(feature = "keychain")]
+fn move_file_in() -> Result<Option<String>> {
+    let Some(sealed) = platform::read(FILE)? else {
+        return Ok(None);
+    };
+    let text = open(&sealed)?;
+
+    if let Err(error) = KEPT.save(&text) {
+        log::warn!(
+            "the stored sessions stay in the sealed file, the credential store did not take them: {error}"
+        );
+        return Ok(Some(text));
+    }
+    platform::remove(FILE)?;
+    log::info!("the stored sessions moved from the sealed file into the credential store");
+    Ok(Some(text))
 }
 
 #[cfg(all(not_wasm, not(tvos)))]
@@ -356,10 +431,72 @@ mod test {
     use serial_test::serial;
 
     use super::{FILE, LoginUser, SessionStore, platform, seal};
+    use crate::SecretStore;
 
+    /// The sealed file, also in a build with the credential store.
     fn use_test_root() -> Result<()> {
+        SecretStore::keep_in_files();
         SessionStore::set_root(temp_dir().join("hilen-session-test"));
         platform::remove(FILE)
+    }
+
+    /// An app updates to an engine with the credential store. The file of
+    /// the old engine moves in at the first load and is gone, the logins
+    /// stay, and from then on nothing is written to a file.
+    #[cfg(feature = "keychain")]
+    #[test]
+    #[serial]
+    fn a_sealed_file_of_today_moves_into_the_credential_store() -> Result<()> {
+        use super::KEPT;
+
+        use_test_root()?;
+        SessionStore::add("token ann", user("ann"))?;
+        SessionStore::add("token bob", user("bob"))?;
+        assert!(platform::read(FILE)?.is_some());
+
+        SecretStore::set_service("hilen-session-test");
+        SecretStore::use_credential_store();
+        KEPT.clear()?;
+        assert!(KEPT.in_credential_store());
+
+        assert_eq!(SessionStore::load().as_deref(), Some("token bob"));
+        assert_eq!(platform::read(FILE)?, None, "the file is gone after the move");
+        assert_eq!(user_ids(), ["ann", "bob"]);
+        assert!(KEPT.load().is_some_and(|text| text.contains("token ann")));
+
+        SessionStore::switch("ann")?;
+        SessionStore::clear()?;
+        assert_eq!(user_ids(), ["bob"]);
+        assert_eq!(platform::read(FILE)?, None, "a change writes no file");
+
+        SessionStore::remove("bob")?;
+        assert_eq!(KEPT.load(), None);
+        assert_eq!(SessionStore::sessions(), []);
+        use_test_root()
+    }
+
+    /// A bare token of an engine with 1 login moves in the same way.
+    #[cfg(feature = "keychain")]
+    #[test]
+    #[serial]
+    fn a_bare_token_of_an_old_engine_moves_into_the_credential_store() -> Result<()> {
+        use super::KEPT;
+
+        use_test_root()?;
+        platform::write(FILE, &seal("old token")?)?;
+
+        SecretStore::set_service("hilen-session-test");
+        SecretStore::use_credential_store();
+        KEPT.clear()?;
+
+        assert_eq!(SessionStore::load().as_deref(), Some("old token"));
+        assert_eq!(platform::read(FILE)?, None);
+        SessionStore::set_user("old token", user("ann"))?;
+        assert_eq!(SessionStore::active_user(), Some(user("ann")));
+
+        SessionStore::clear()?;
+        assert_eq!(KEPT.load(), None);
+        use_test_root()
     }
 
     fn user(id: &str) -> LoginUser {

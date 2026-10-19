@@ -1,4 +1,9 @@
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use log::info;
 
 use crate::{
     app_starter::hilen_start_with_app,
@@ -43,6 +48,20 @@ pub(crate) fn app() -> &'static dyn App {
         .expect("App is not set. `hilen_start_with_app` does that.")
 }
 
+static QUIT: AtomicBool = AtomicBool::new(false);
+
+/// Calls `App::will_quit`, once, when the app ends. On the main thread.
+pub(crate) fn quit() {
+    let Some(app) = APP.get_mut().as_deref() else {
+        return;
+    };
+    if QUIT.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    info!("The app quits");
+    app.will_quit();
+}
+
 pub trait App {
     fn before_launch(&self) {}
     fn after_launch(&self) {}
@@ -85,6 +104,16 @@ pub trait App {
     fn window_placement_changed(&self, placement: &WindowPlacement) {
         placement.remember();
     }
+
+    /// Runs once on the main thread right before the app ends, where the
+    /// system says that it ends: a closed window, Cmd and Q, the end of
+    /// the event loop, and `applicationWillTerminate` on iOS. iOS sends that
+    /// only for an app that runs at the time, a suspended app that is
+    /// closed from the app switcher or killed by the system gets no call.
+    /// Android reports no end at all, so it never calls this. A killed
+    /// process never calls it either. Work that must happen before the
+    /// app goes away on a phone listens to `AppActivity::changed` too.
+    fn will_quit(&self) {}
 
     /// Log targets of the app itself, usually just the crate name. The
     /// engine logger silences everything except its own crates to warnings,
@@ -293,10 +322,12 @@ macro_rules! register_app {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use crate::{
         App,
         app::is_debug_target,
-        deps::refs::Own,
+        deps::{hreads::set_current_thread_as_main, refs::Own},
         ui::{Container, Setup, View},
     };
 
@@ -338,6 +369,31 @@ mod tests {
     #[should_panic(expected = "add hilen::register_app!")]
     fn an_app_without_register_app_has_no_name() {
         crate::app::hilen_project_name();
+    }
+
+    static QUITS: AtomicU32 = AtomicU32::new(0);
+
+    struct Quits;
+
+    impl App for Quits {
+        fn make_root_view(&self) -> Own<dyn View> {
+            Container::new()
+        }
+
+        fn will_quit(&self) {
+            QUITS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn the_app_hears_once_that_it_quits() {
+        set_current_thread_as_main();
+        crate::app::set_app(Box::new(Quits));
+
+        crate::app::quit();
+        crate::app::quit();
+
+        assert_eq!(QUITS.load(Ordering::Relaxed), 1);
     }
 
     #[test]

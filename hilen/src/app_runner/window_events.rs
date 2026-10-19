@@ -22,7 +22,7 @@ use crate::{
     pipelines::Pipelines,
     ui::{
         Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
-        ViewData, ViewSubviews, WeakView, damage::Damage, latin_candidate,
+        ViewData, ViewSubviews, WeakView, damage::Damage, latin_candidate, privacy_cover,
     },
     window::{ElementState, MouseButton, RenderFrame, Theme as OsTheme, Window},
 };
@@ -146,7 +146,9 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn render(&mut self, frame: &mut RenderFrame) {
-        if UIManager::window_resolution().has_no_area() {
+        // The frame starts from the clear color, so with no view it is the
+        // privacy cover.
+        if UIManager::window_resolution().has_no_area() || privacy_cover::shown() {
             return;
         }
 
@@ -158,7 +160,11 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn damage(&mut self) -> Damage {
-        damage::of_frame()
+        let damage = damage::of_frame();
+        if privacy_cover::shown() {
+            return Damage::Whole("the privacy cover");
+        }
+        damage
     }
 
     fn needs_sampleable_frame(&self) -> bool {

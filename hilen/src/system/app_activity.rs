@@ -1,5 +1,8 @@
 use super::screen_awake;
-use crate::{deps::refs::main_lock::MainLock, ui::UIEvent};
+use crate::{
+    deps::refs::main_lock::MainLock,
+    ui::{UIEvent, privacy_cover},
+};
 
 static STATE: MainLock<ActivityState> = MainLock::new();
 static CHANGED: UIEvent<bool> = UIEvent::const_new();
@@ -31,6 +34,7 @@ pub(crate) enum ActivityChange {
 pub(crate) fn update(change: ActivityChange) {
     let changed = STATE.get_mut().update(change);
     if let Some(active) = changed {
+        privacy_cover::activity_changed(active);
         screen_awake::set_active(active);
         CHANGED.trigger(active);
     }

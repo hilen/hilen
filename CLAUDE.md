@@ -80,8 +80,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   are plain Unorm. Read before touching color types, surface formats, or blending.
 - [docs/refs.md](docs/refs.md) — `Own`/`Weak` smart pointers, the memory model. Read before
   working with view lifetimes, pointers, or anything from the `refs` crate.
-- [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop.
-  Read before touching threading, async, or dispatch code.
+- [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop,
+  app activity, the privacy cover of a phone app and `App::will_quit`. Read before touching
+  threading, async, dispatch code or the app lifecycle in `app_handler.rs`.
 - [docs/ui-tests.md](docs/ui-tests.md) — how UI tests work and how to run a single one.
   Also `system_input`, real taps and screen keyboard keys through the XCUITest helper.
   Read before writing or debugging UI tests.
@@ -233,7 +234,8 @@ Do not read these upfront. Read the matching file only when the task touches tha
   view gets its height from arithmetic and not from shaped text. Read before touching
   `views/complex/log_view` or putting a log into an app.
 - [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
-  `hilen_server::auth`, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
+  `hilen_server::auth`, the way back of the one time code to the app that started the login, the
+  sessions in the credential store, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how
   the button test stays away from a real browser. Read before
   touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the

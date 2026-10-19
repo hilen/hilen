@@ -3,9 +3,10 @@
 //!
 //! An app never sends its user to a provider by itself. It opens
 //! `/auth/google?challenge=` or `/auth/apple?challenge=` of this server in the
-//! browser, this server runs the normal web login of that provider, and the
-//! app polls `/auth/poll` until the login is done and its session token comes
-//! back. The provider secrets stay here.
+//! browser, this server runs the normal web login of that provider, gives a
+//! one time code back to the app that started it, and the app trades its
+//! verifier and that code at `/auth/poll` for its session token. The provider
+//! secrets stay here. How the code goes back is in `hand_back.rs`.
 //!
 //! ```ignore
 //! let db = build_db(&config.database_url).await?;
@@ -20,6 +21,7 @@
 
 mod apple;
 mod google;
+pub(crate) mod hand_back;
 pub(crate) mod identity;
 pub(crate) mod routes;
 #[cfg(test)]
@@ -93,6 +95,9 @@ pub struct AuthConfig {
     pub google_token_url:     String,
     /// `None` leaves the Apple routes answering 404.
     pub apple:                Option<AppleConfig>,
+    /// The login of a device with no keyboard through a short code, off by
+    /// default, see [`AuthConfig::with_code_login`].
+    pub code_login:           bool,
 }
 
 impl AuthConfig {
@@ -110,7 +115,20 @@ impl AuthConfig {
             google_auth_url:      GOOGLE_AUTH_URL.to_owned(),
             google_token_url:     GOOGLE_TOKEN_URL.to_owned(),
             apple:                None,
+            code_login:           false,
         }
+    }
+
+    /// Turns on the login of a device with no keyboard, a TV, through a
+    /// short code its user types on a phone, the `/auth/code` routes.
+    /// Nothing can go back from the phone to the TV, so such a login is
+    /// finished by its verifier alone. A person who sends a code of their
+    /// own TV to someone else gets the session of that someone when they
+    /// log in with it. Turn it on only for an app that runs on a TV.
+    #[must_use]
+    pub const fn with_code_login(mut self) -> Self {
+        self.code_login = true;
+        self
     }
 
     /// Turns Sign in with Apple on.

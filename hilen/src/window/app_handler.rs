@@ -17,7 +17,7 @@ use crate::{
     frame_time,
     gm::LossyConvert,
     system::app_activity::{self, ActivityChange},
-    ui::{Cursor, Input, UIManager},
+    ui::{Cursor, Input, UIManager, privacy_cover},
     window::{Window, WindowEvents, frame_control, state::State, sync_fullscreen},
 };
 
@@ -134,6 +134,8 @@ impl AppHandler {
             }
             Self::frame();
         }
+
+        crate::app::quit();
     }
 
     /// One turn of the frame loop. A paused app, see
@@ -229,8 +231,27 @@ impl AppHandler {
 }
 
 impl AppHandler {
+    /// A privacy cover that comes on is drawn right here when `draw_cover`
+    /// is set, inside the event of the system. The system takes its
+    /// picture for the app switcher soon after and draws no frame of the
+    /// app on its own for it, see `privacy_cover`.
+    fn activity_changed(&self, change: ActivityChange, draw_cover: bool) {
+        let covered = privacy_cover::shown();
+        app_activity::update(change);
+        if !draw_cover || covered || !privacy_cover::shown() {
+            return;
+        }
+        if self.state.not_ready() || frame_control::holding() {
+            return;
+        }
+        let window = Self::window();
+        window.state.update();
+        window.state.render();
+    }
+
     fn focus_changed(&mut self, focused: bool) {
-        app_activity::update(ActivityChange::Focused(focused));
+        // Android takes the focus first, while the surface is still there.
+        self.activity_changed(ActivityChange::Focused(focused), true);
         // A link while the app runs comes as a new intent, and the app comes
         // to the front for it.
         #[cfg(target_os = "android")]
@@ -324,16 +345,22 @@ impl ApplicationHandler<UserEvent> for AppHandler {
         }
     }
 
+    /// `applicationWillResignActive` on iOS, the first event of a lock or
+    /// an app switch. On Android the surface goes away here, so nothing
+    /// can be drawn any more.
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        app_activity::update(ActivityChange::Resumed(false));
+        self.activity_changed(ActivityChange::Resumed(false), Platform::IOS);
     }
 
     /// The last call of the event loop, on every way out: the close
     /// button, `AppRunner::stop`, and Cmd+Q on macOS, where winit sends it
     /// from `applicationWillTerminate` and the process then ends without
-    /// a return from `run_app`.
-    #[cfg(desktop)]
+    /// a return from `run_app`. iOS sends it from its own
+    /// `applicationWillTerminate`, and a hot build at the stop of a
+    /// generation.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        crate::app::quit();
+        #[cfg(desktop)]
         crate::window::placement_store::flush();
     }
 

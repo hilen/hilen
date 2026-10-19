@@ -195,6 +195,16 @@ impl UIManager {
         *Self::get().selected_view.lock() = view;
     }
 
+    /// From now on a plain cover in the clear color hides every view,
+    /// modals included, while a phone app is not active: from the moment
+    /// it resigns active, like for the app switcher or a lock, until it is
+    /// active again. The picture the system keeps for its app switcher
+    /// then shows the cover. A desktop window that loses the focus is not
+    /// covered. Off by default.
+    pub fn set_privacy_cover(on: bool) {
+        on_main(move || crate::ui::privacy_cover::set_enabled(on));
+    }
+
     /// A text field or a code editor has an editing session open. Its
     /// Escape and its arrows belong to it, so nothing else may take them.
     pub(crate) fn text_editing() -> bool {

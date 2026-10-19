@@ -120,7 +120,8 @@ may empty while the app does not run, and the user defaults.
   whose defaults pass 1 MB, a store of over 100 KB is logged.
 - The sealed session of `SessionStore` and a `SecretStore` with no Keychain are
   entries of the user defaults too, `hilen-<file>`. The `keychain` feature of
-  `hilen-session` builds for tvOS with the protected store of iOS. Neither has run.
+  `hilen-session` builds for tvOS with the protected store of iOS, and with it the
+  sessions go into the Keychain, see [login.md](login.md). Neither has run.
 
 ## Video
 

@@ -10,7 +10,10 @@ use crate::{
         hreads::{now, on_main, sleep, spawn},
         netrun::rest::{Call, RequestError},
     },
-    login::wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
+    login::{
+        hand_back::HandBack,
+        wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
+    },
     store::SessionStore,
     system::browser_sheet,
 };
@@ -78,10 +81,12 @@ pub struct LoginCode {
 /// or with Apple.
 ///
 /// The app never talks to the provider. It opens a page of its own backend in
-/// the browser and asks the backend every two seconds if the login is done.
-/// The page address carries only the hash of a secret made here, the secret
-/// itself goes out with the polls, so the browser history is of no use to
-/// anyone.
+/// the browser. At the end of the login the backend gives a one time code
+/// back to this app instance, to a port it listens on or, in a browser, to
+/// the storage of its page, and the app trades the code and a secret made
+/// here for the session. The page address carries only the hash of the
+/// secret, and the code reaches only the device that logged in, so a login
+/// link that somebody else started gives that somebody nothing.
 ///
 /// Every callback runs on the main thread.
 pub struct Login;
@@ -116,26 +121,29 @@ impl Login {
 
         let opened = server().and_then(|server| {
             let verifier = new_verifier()?;
+            let challenge = challenge(&verifier);
+            let hand_back = HandBack::open(&server, &challenge)?;
             log::info!("{} login started", provider.route());
             let page = format!(
-                "{server}/auth/{}?challenge={}",
+                "{server}/auth/{}?challenge={challenge}&{}",
                 provider.route(),
-                challenge(&verifier)
+                hand_back.query()
             );
             let sheet = browser_sheet::open(page, move || {
                 log::info!("the user closed the login sheet");
                 CLOSED.store(attempt, Ordering::SeqCst);
             })?;
-            Ok((server, verifier, sheet))
+            Ok((server, verifier, hand_back, sheet))
         });
 
-        let (server, verifier, sheet) = match opened {
+        let (server, verifier, hand_back, sheet) = match opened {
             Ok(opened) => opened,
             Err(error) => return done(Err(error)),
         };
 
         spawn(async move {
-            let waited = wait_for_login(&server, &verifier, attempt).await;
+            let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
+            drop(hand_back);
             // Does nothing when the user closed the sheet, and where a
             // platform has none.
             browser_sheet::close(sheet);
@@ -181,8 +189,9 @@ impl Login {
 
             on_main(move || shown(Ok(code)));
 
-            // Nothing opens here, so there is no sheet to close.
-            if let Waited::Done(result) = wait_for_login(&server, &verifier, attempt).await {
+            // Nothing opens here, so there is no sheet to close. Nothing can
+            // come back from the phone either, the poll needs no code.
+            if let Waited::Done(result) = wait_for_login(&server, &verifier, None, attempt).await {
                 on_main(move || done(result));
             }
         });
@@ -306,12 +315,16 @@ fn challenge(verifier: &str) -> String {
     hex::encode(Sha256::digest(verifier.as_bytes()))
 }
 
-async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
+/// Waits for the end of the login. With a `hand_back` it polls once a code
+/// came back, the server takes the verifier only with that code. Without
+/// one, for a device with no keyboard, it polls every 2 seconds.
+async fn wait_for_login(server: &str, verifier: &str, hand_back: Option<&HandBack>, attempt: u64) -> Waited {
     let give_up_at = now() + GIVE_UP_SECONDS;
     let mut failures = 0;
+    let mut code = None;
 
     loop {
-        let closed = wait_for_next_poll(attempt).await;
+        let closed = wait_for_next_poll(attempt, hand_back).await;
 
         if ATTEMPT.load(Ordering::SeqCst) != attempt {
             log::debug!("login attempt {attempt} was cancelled, the wait ends");
@@ -321,9 +334,22 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
             return Waited::Done(Err(anyhow!("the login took too long, try again")));
         }
 
+        if let Some(back) = hand_back {
+            if let Some(new) = back.take_code() {
+                code = Some(new);
+            }
+            if code.is_none() {
+                if closed {
+                    log::info!("the login sheet was closed before the login was done, the wait ends");
+                    return Waited::Closed;
+                }
+                continue;
+            }
+        }
+
         // A user can finish the login and close the sheet before the next
         // poll, so a closed sheet still gets 1 poll.
-        match poll(server, verifier).await {
+        match poll(server, verifier, code.as_deref()).await {
             Ok(PollResponse::Done { token, user }) => {
                 log::info!("login done");
                 return Waited::Done(SessionStore::add(&token, user.clone()).map(|()| user));
@@ -332,7 +358,12 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
                 log::info!("the login sheet was closed before the login was done, the wait ends");
                 return Waited::Closed;
             }
-            Ok(PollResponse::Pending) => failures = 0,
+            Ok(PollResponse::Pending) => {
+                if code.take().is_some() {
+                    log::warn!("the server did not take the code that came back, the wait goes on");
+                }
+                failures = 0;
+            }
             Err(error) if closed => {
                 log::warn!("the last login poll after the sheet was closed failed: {error}");
                 return Waited::Closed;
@@ -348,17 +379,20 @@ async fn wait_for_login(server: &str, verifier: &str, attempt: u64) -> Waited {
     }
 }
 
-/// Sleeps until the next poll is due. It ends early for a cancel and for a
-/// sheet the user closed. The answer says whether the sheet of this attempt
-/// was closed.
-async fn wait_for_next_poll(attempt: u64) -> bool {
+/// Sleeps until the next poll is due. It ends early for a cancel, for a
+/// sheet the user closed and for a code that came back. The answer says
+/// whether the sheet of this attempt was closed.
+async fn wait_for_next_poll(attempt: u64, hand_back: Option<&HandBack>) -> bool {
     let poll_at = now() + f64::from(POLL_SECONDS);
 
     loop {
         if CLOSED.load(Ordering::SeqCst) == attempt {
             return true;
         }
-        if ATTEMPT.load(Ordering::SeqCst) != attempt || now() >= poll_at {
+        if ATTEMPT.load(Ordering::SeqCst) != attempt
+            || now() >= poll_at
+            || hand_back.is_some_and(HandBack::has_code)
+        {
             return false;
         }
         sleep(LOOK_SECONDS).await;
@@ -387,8 +421,8 @@ fn login_code(server: &str, code: String) -> LoginCode {
     }
 }
 
-async fn poll(server: &str, verifier: &str) -> Result<PollResponse> {
-    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest { verifier });
+async fn poll(server: &str, verifier: &str, code: Option<&str>) -> Result<PollResponse> {
+    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest { verifier, code });
 
     match call.send().await {
         Ok(response) => Ok(response),
@@ -460,327 +494,5 @@ async fn delete_user() -> Result<()> {
 }
 
 #[cfg(test)]
-mod test {
-    #[cfg(not_wasm)]
-    use std::{
-        env::temp_dir,
-        sync::{
-            Arc,
-            atomic::{AtomicU32, Ordering},
-        },
-    };
-
-    use anyhow::Result;
-    #[cfg(not_wasm)]
-    use axum::{
-        Json, Router,
-        http::{HeaderMap, StatusCode},
-        routing::{get, post},
-        serve,
-    };
-    #[cfg(not_wasm)]
-    use parking_lot::Mutex;
-    #[cfg(not_wasm)]
-    use serde_json::{Value, json};
-    #[cfg(not_wasm)]
-    use serial_test::serial;
-    #[cfg(not_wasm)]
-    use tokio::{net::TcpListener, spawn};
-
-    #[cfg(not_wasm)]
-    use super::{
-        ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_session, fetch_current_user, forget_session,
-        wait_for_login,
-    };
-    use super::{challenge, login_code, new_verifier};
-    #[cfg(not_wasm)]
-    use crate::{
-        deps::{
-            hreads::now,
-            netrun::{
-                rest::{Call, RequestError},
-                test_server::start_test_server,
-            },
-        },
-        login::{Login, LoginUser},
-        store::SessionStore,
-    };
-
-    #[cfg(not_wasm)]
-    fn user(id: &str) -> LoginUser {
-        LoginUser {
-            id:      id.to_owned(),
-            email:   format!("{id}@example.com"),
-            name:    id.to_uppercase(),
-            picture: None,
-        }
-    }
-
-    /// Stands in for `/auth/me` and `/auth/logout` of a backend. It knows the
-    /// session `token-ann` only, and keeps the token of every logout.
-    #[cfg(not_wasm)]
-    async fn account_server() -> Result<Arc<Mutex<Vec<String>>>> {
-        let logouts = Arc::new(Mutex::new(Vec::new()));
-        let kept = logouts.clone();
-        let bearer = |headers: &HeaderMap| {
-            headers
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default()
-                .trim_start_matches("Bearer ")
-                .to_owned()
-        };
-
-        let app = Router::new()
-            .route(
-                "/auth/me",
-                get(move |headers: HeaderMap| async move {
-                    if bearer(&headers) == "token-ann" {
-                        Ok(Json(user("ann")))
-                    } else {
-                        Err(StatusCode::UNAUTHORIZED)
-                    }
-                }),
-            )
-            .route(
-                "/auth/logout",
-                post(move |headers: HeaderMap| async move {
-                    kept.lock().push(bearer(&headers));
-                    Json(())
-                }),
-            );
-
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        Login::set_server(format!("http://{}", listener.local_addr()?));
-        spawn(async move {
-            if let Err(error) = serve(listener, app).await {
-                eprintln!("the account server stopped: {error}");
-            }
-        });
-        Ok(logouts)
-    }
-
-    #[cfg(not_wasm)]
-    fn account_ids() -> Vec<String> {
-        Login::accounts().into_iter().map(|user| user.id).collect()
-    }
-
-    /// A root of its own with no session left from an earlier run.
-    #[cfg(not_wasm)]
-    fn fresh_root(name: &str) -> Result<()> {
-        SessionStore::set_root(temp_dir().join(name));
-        for user in Login::accounts() {
-            SessionStore::remove(&user.id)?;
-        }
-        Ok(())
-    }
-
-    /// The user changed the name at Google. `current_user` puts the new one
-    /// into the stored session, so the list of accounts shows it.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn current_user_puts_the_new_user_into_its_session() -> Result<()> {
-        account_server().await?;
-        fresh_root("hilen-login-accounts-me-test")?;
-        let old = LoginUser {
-            name: "Old name".to_owned(),
-            ..user("ann")
-        };
-        SessionStore::add("token-ann", old)?;
-
-        assert_eq!(fetch_current_user().await?, Some(user("ann")));
-        assert_eq!(Login::active_user(), Some(user("ann")));
-        assert_eq!(Login::accounts(), [user("ann")]);
-
-        SessionStore::clear()?;
-        Ok(())
-    }
-
-    /// The server forgot the session of bob. Only bob goes, ann stays and
-    /// nobody is active.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn a_session_the_server_forgot_drops_only_that_account() -> Result<()> {
-        account_server().await?;
-        fresh_root("hilen-login-accounts-401-test")?;
-        SessionStore::add("token-ann", user("ann"))?;
-        SessionStore::add("token-bob", user("bob"))?;
-
-        assert_eq!(fetch_current_user().await?, None);
-        assert_eq!(account_ids(), ["ann"]);
-        assert_eq!(Login::token(), None);
-
-        Login::switch("ann")?;
-        assert_eq!(fetch_current_user().await?, Some(user("ann")));
-
-        SessionStore::clear()?;
-        Ok(())
-    }
-
-    /// `forget` and `logout` each end 1 session on the server, with the
-    /// token of that session, and keep the others here.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn forget_and_logout_end_1_session_each() -> Result<()> {
-        let logouts = account_server().await?;
-        fresh_root("hilen-login-accounts-forget-test")?;
-        SessionStore::add("token-ann", user("ann"))?;
-        SessionStore::add("token-bob", user("bob"))?;
-        SessionStore::add("token-cid", user("cid"))?;
-
-        forget_session("ann").await?;
-        assert_eq!(account_ids(), ["bob", "cid"]);
-        assert_eq!(Login::token().as_deref(), Some("token-cid"));
-
-        end_session().await?;
-        assert_eq!(account_ids(), ["bob"]);
-        assert_eq!(Login::token(), None);
-        assert_eq!(*logouts.lock(), ["token-ann", "token-cid"]);
-
-        forget_session("bob").await?;
-        assert_eq!(Login::accounts(), []);
-        Ok(())
-    }
-
-    /// Stands in for `/auth/poll` of a backend. It gives every poll the same
-    /// answer and counts the polls.
-    #[cfg(not_wasm)]
-    async fn poll_server(answer: Value) -> Result<(String, Arc<AtomicU32>)> {
-        let polls = Arc::new(AtomicU32::new(0));
-        let counted = polls.clone();
-
-        let app = Router::new().route(
-            "/auth/poll",
-            post(move || async move {
-                counted.fetch_add(1, Ordering::SeqCst);
-                Json(answer)
-            }),
-        );
-
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let origin = format!("http://{}", listener.local_addr()?);
-        spawn(async move {
-            if let Err(error) = serve(listener, app).await {
-                eprintln!("the poll server stopped: {error}");
-            }
-        });
-        Ok((origin, polls))
-    }
-
-    /// A new attempt whose browser sheet the user already closed.
-    #[cfg(not_wasm)]
-    fn closed_attempt() -> u64 {
-        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
-        CLOSED.store(attempt, Ordering::SeqCst);
-        attempt
-    }
-
-    /// The 3 tests of the wait move the attempt number, so they share the
-    /// lock of the session file, which the second one writes.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn a_closed_sheet_ends_the_wait_after_1_more_poll() -> Result<()> {
-        let (server, polls) = poll_server(json!({ "status": "pending" })).await?;
-        let attempt = closed_attempt();
-        let started = now();
-
-        let waited = wait_for_login(&server, "verifier", attempt).await;
-
-        assert!(matches!(waited, Waited::Closed));
-        assert_eq!(polls.load(Ordering::SeqCst), 1);
-        // It did not sleep until the next poll was due.
-        assert!(now() - started < f64::from(POLL_SECONDS));
-        Ok(())
-    }
-
-    /// The user finished the login and closed the sheet before the next
-    /// poll. That is a login, not a cancel.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn a_login_done_before_the_sheet_was_closed_still_logs_in() -> Result<()> {
-        let user = json!({ "id": "1", "email": "a@b.c", "name": "A", "picture": null });
-        let (server, polls) =
-            poll_server(json!({ "status": "done", "token": "token-9", "user": user })).await?;
-        SessionStore::set_root(temp_dir().join("hilen-login-closed-sheet-test"));
-        let attempt = closed_attempt();
-
-        let Waited::Done(result) = wait_for_login(&server, "verifier", attempt).await else {
-            panic!("a finished login did not end the wait as done");
-        };
-
-        assert_eq!(result?.email, "a@b.c");
-        assert_eq!(SessionStore::load().as_deref(), Some("token-9"));
-        assert_eq!(polls.load(Ordering::SeqCst), 1);
-
-        SessionStore::clear()?;
-        Ok(())
-    }
-
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn a_cancel_ends_the_wait_with_no_poll() -> Result<()> {
-        let (server, polls) = poll_server(json!({ "status": "pending" })).await?;
-        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
-        Login::cancel();
-        let started = now();
-
-        let waited = wait_for_login(&server, "verifier", attempt).await;
-
-        assert!(matches!(waited, Waited::Cancelled));
-        assert_eq!(polls.load(Ordering::SeqCst), 0);
-        assert!(now() - started < f64::from(POLL_SECONDS));
-        Ok(())
-    }
-
-    #[test]
-    fn a_login_code_has_its_page_and_its_link() {
-        let code = login_code("https://app.example.com", "ABC234".to_owned());
-        assert_eq!(code.page, "https://app.example.com/auth/code");
-        assert_eq!(code.link, "https://app.example.com/auth/code?code=ABC234");
-    }
-
-    #[test]
-    fn verifier_is_fresh_every_time() -> Result<()> {
-        let first = new_verifier()?;
-        assert_eq!(first.len(), 64);
-        assert_ne!(first, new_verifier()?);
-        Ok(())
-    }
-
-    #[test]
-    fn challenge_is_the_sha256_of_the_verifier() {
-        // The known SHA-256 of "abc". The server checks a poll the same way.
-        assert_eq!(
-            challenge("abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    /// The session file is shared state, the same lock as the other tests
-    /// that move the storage root.
-    #[cfg(not_wasm)]
-    #[tokio::test]
-    #[serial(on_disk_root)]
-    async fn send_adds_the_session_token_and_sends_nothing_without_one() -> Result<()> {
-        let base_url = start_test_server().await;
-        let url = format!("{base_url}/header/authorization");
-        SessionStore::set_root(temp_dir().join("hilen-login-send-test"));
-
-        SessionStore::add("token-7", user("ann"))?;
-        let seen: Option<String> = Login::send(Call::get(&url)).await?;
-        assert_eq!(seen.as_deref(), Some("Bearer token-7"));
-
-        // A request that went out would get a 200 with no header in it.
-        SessionStore::clear()?;
-        let logged_out = Login::send::<Option<String>>(Call::get(&url)).await;
-        assert!(matches!(logged_out, Err(RequestError::Unauthorized)));
-
-        Ok(())
-    }
-}
+#[path = "client_test.rs"]
+mod test;

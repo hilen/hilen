@@ -9,8 +9,18 @@ through the `arboard` crate, iOS through `UIPasteboard`, Android through the
 - `Clipboard::set_text(text)` puts a text on the clipboard, a `Result`.
 - `Clipboard::get_text()` reads it back. Not in the browser, a page reads the clipboard
   only through a call that answers later, after a permission prompt.
-- `Clipboard::set_secret(text)` and `Clipboard::clear_if_holds(text)` copy a secret and
-  take it back, see their doc comments for what each platform does.
+- `Clipboard::set_secret(text, stay)` and `Clipboard::clear_if_holds(text)` copy a
+  secret and take it back, see their doc comments for what each platform does. `stay`
+  is a `Duration`. On iOS it goes in as `UIPasteboardOptionExpirationDate`, so the
+  system removes the copy also while the app is suspended or closed. The other
+  platforms have no such option, the app takes the copy back with `clear_if_holds`
+  from its own timer after the same time. A `TextField` that shows a secret copies it
+  for 60 seconds.
+- The test of the iOS options runs in a booted simulator: `cargo test -p hilen --lib
+  --target aarch64-apple-ios-sim --no-run`, then the test binary with `xcrun simctl
+  spawn <device> <binary> clipboard::ios`. A process started that way gets no
+  pasteboard, a call to it never returns, so the removal by the system has no test.
+  It was not seen on a device yet.
 - `Clipboard::get_image()` gives the picture in the clipboard as `Option<ClipboardImage>`,
   `None` when the clipboard holds no picture.
 - `Clipboard::set_image(&image)` puts a picture on the clipboard. Desktop only, an error

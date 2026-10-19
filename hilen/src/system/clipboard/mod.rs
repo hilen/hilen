@@ -14,6 +14,7 @@ mod ios;
 #[cfg(macos)]
 mod macos;
 
+use std::time::Duration;
 #[cfg(desktop)]
 use std::{
     borrow::Cow,
@@ -204,8 +205,10 @@ impl Clipboard {
 
     /// Puts a secret on the clipboard, like a password or a recovery
     /// phrase. The copy is marked so that it stays on this device and so
-    /// that clipboard managers leave it out of their history. Take it back
-    /// after some seconds with [`Clipboard::clear_if_holds`].
+    /// that clipboard managers leave it out of their history. `stay` is how
+    /// long it may stay there. Take it back after that time with
+    /// [`Clipboard::clear_if_holds`] from a timer of the app, iOS also
+    /// removes it by itself.
     ///
     /// What each platform does:
     ///
@@ -213,7 +216,8 @@ impl Clipboard {
     ///   send it to other devices, and it carries the
     ///   `org.nspasteboard.ConcealedType` marker that clipboard managers honor.
     /// - iOS: the copy stays on this device. iOS has no clipboard managers and
-    ///   no marker for them.
+    ///   no marker for them. The system removes the copy after `stay`, also
+    ///   while the app is suspended or closed and its timer does not run.
     /// - Windows: the copy stays out of the clipboard history and out of the
     ///   cloud clipboard, and clipboard managers are told to skip it.
     /// - Linux: the copy carries the `x-kde-passwordManagerHint` marker that
@@ -225,7 +229,9 @@ impl Clipboard {
     ///
     /// Every marker is a request. A clipboard manager that ignores the
     /// convention of its platform still records the text.
-    pub fn set_secret(text: &str) -> Result<()> {
+    pub fn set_secret(text: &str, stay: Duration) -> Result<()> {
+        log::debug!("a secret goes to the clipboard for {} seconds", stay.as_secs());
+
         #[cfg(desktop)]
         {
             if in_process() {
@@ -267,7 +273,7 @@ impl Clipboard {
 
         #[cfg(ios)]
         {
-            ios::set_secret(text);
+            ios::set_secret(text, stay);
             Ok(())
         }
 

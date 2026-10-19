@@ -281,6 +281,10 @@ void hilen_ios_text_end(void) {
     hilen_area.text = @"";
 }
 
+void hilen_ios_text_cover(bool covered) {
+    hilen_edited.hidden = covered;
+}
+
 // A hot build that is stopped stays loaded and runs no code again, see
 // docs/hot-reload.md. So nothing here may call into it any more.
 void hilen_ios_text_stop(void) {

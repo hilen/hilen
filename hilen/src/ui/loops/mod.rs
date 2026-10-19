@@ -244,7 +244,9 @@ pub(crate) fn step() {
         let place = places.next().flatten();
         let phase = phase_at(entry.view.__base_view().loop_clock, now);
 
-        if !entry.view.is_visible_on_screen() {
+        // A layer of a loop is over the frame, the privacy cover in the
+        // frame cannot hide it.
+        if !entry.view.is_visible_on_screen() || crate::ui::privacy_cover::shown() {
             #[cfg(apple)]
             entry.leave_layer();
             continue;

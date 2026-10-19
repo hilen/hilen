@@ -25,9 +25,13 @@ impl From<User> for UserInfo {
     }
 }
 
+/// `code` is the one time code that went back to the app at the end of the
+/// login. Only the login of a device with no keyboard has none.
 #[derive(Debug, Deserialize)]
 pub(crate) struct PollRequest {
     pub verifier: String,
+    #[serde(default)]
+    pub code:     Option<String>,
 }
 
 /// A device with no keyboard asks for a short code a person types on a
@@ -55,7 +59,19 @@ mod test {
     use anyhow::Result;
     use serde_json::{from_str, to_string};
 
-    use super::{CodeRequest, CodeResponse, PollResponse, UserInfo};
+    use super::{CodeRequest, CodeResponse, PollRequest, PollResponse, UserInfo};
+
+    #[test]
+    fn request_shapes() -> Result<()> {
+        let request: PollRequest = from_str(r#"{"verifier":"v","code":"c"}"#)?;
+        assert_eq!(
+            (request.verifier.as_str(), request.code.as_deref()),
+            ("v", Some("c"))
+        );
+        let request: PollRequest = from_str(r#"{"verifier":"v"}"#)?;
+        assert_eq!(request.code, None);
+        Ok(())
+    }
 
     #[test]
     fn code_shapes() -> Result<()> {

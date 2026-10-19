@@ -55,6 +55,9 @@ unsafe extern "C" {
     pub fn hilen_ios_text_set(text: *const c_char);
     pub fn hilen_ios_text_move(x: c_float, y: c_float, width: c_float, height: c_float);
     pub fn hilen_ios_text_end();
+    /// Hides the edited system field under the privacy cover, and shows it
+    /// again.
+    pub fn hilen_ios_text_cover(covered: bool);
     /// `moved` gets the top edge the screen keyboard moves to, in the
     /// pixels of the window, negative when it goes away, and the seconds
     /// the move takes.

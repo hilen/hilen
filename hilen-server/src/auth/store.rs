@@ -101,24 +101,49 @@ WHERE code = $1 AND created_at > unixepoch() - $2 * 60",
     )
 }
 
+/// A live short code leads to this challenge, so its login is one of a
+/// device with no keyboard.
+pub(crate) async fn has_code(db: &Db, challenge: &str, minutes: i32) -> Result<bool, sqlx::Error> {
+    let found: Option<(String,)> = on_db!(
+        db,
+        r"
+SELECT code FROM login_codes
+WHERE challenge = $1 AND created_at > now() - make_interval(mins => $2)",
+        r"
+SELECT code FROM login_codes
+WHERE challenge = $1 AND created_at > unixepoch() - $2 * 60",
+        |sql, pool| sqlx::query_as(sql).bind(challenge).bind(minutes).fetch_optional(pool).await
+    )?;
+    Ok(found.is_some())
+}
+
 /// Starts a login or starts it over. A reload of the page starts over. A
 /// challenge that already has its user is left alone, or a second person
 /// opening the same link could swap their account in under the app that is
-/// waiting for the first. False for such a finished login.
-pub(crate) async fn start_pending(db: &Db, challenge: &str, state: &str) -> Result<bool, sqlx::Error> {
+/// waiting for the first. False for such a finished login. `hand_back` is
+/// the text of a `HandBack`.
+pub(crate) async fn start_pending(
+    db: &Db,
+    challenge: &str,
+    state: &str,
+    hand_back: &str,
+) -> Result<bool, sqlx::Error> {
     let started = on_db!(
         db,
         r"
-INSERT INTO pending_logins (challenge, state) VALUES ($1, $2)
-ON CONFLICT (challenge) DO UPDATE SET state = EXCLUDED.state, created_at = now()
+INSERT INTO pending_logins (challenge, state, hand_back) VALUES ($1, $2, $3)
+ON CONFLICT (challenge) DO UPDATE
+SET state = EXCLUDED.state, hand_back = EXCLUDED.hand_back, created_at = now()
 WHERE pending_logins.user_id IS NULL",
         r"
-INSERT INTO pending_logins (challenge, state) VALUES ($1, $2)
-ON CONFLICT (challenge) DO UPDATE SET state = excluded.state, created_at = unixepoch()
+INSERT INTO pending_logins (challenge, state, hand_back) VALUES ($1, $2, $3)
+ON CONFLICT (challenge) DO UPDATE
+SET state = excluded.state, hand_back = excluded.hand_back, created_at = unixepoch()
 WHERE pending_logins.user_id IS NULL",
         |sql, pool| sqlx::query(sql)
             .bind(challenge)
             .bind(state)
+            .bind(hand_back)
             .execute(pool)
             .await
             .map(|done| done.rows_affected())
@@ -126,27 +151,42 @@ WHERE pending_logins.user_id IS NULL",
     Ok(started > 0)
 }
 
-/// A login waits for this `state` and is still in time.
-pub(crate) async fn is_waiting(db: &Db, state: &str, minutes: i32) -> Result<bool, sqlx::Error> {
-    let waiting: Option<(String,)> = on_db!(
+/// The challenge and the hand back of the login that waits for this `state`
+/// while it is still in time. A row of an engine before the hand back has
+/// none and comes back as `None`, its app cannot get the session anyway.
+pub(crate) async fn waiting(
+    db: &Db,
+    state: &str,
+    minutes: i32,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    on_db!(
         db,
         r"
-SELECT challenge FROM pending_logins
-WHERE state = $1 AND user_id IS NULL AND created_at > now() - make_interval(mins => $2)",
+SELECT challenge, hand_back FROM pending_logins
+WHERE state = $1 AND user_id IS NULL AND hand_back IS NOT NULL
+AND created_at > now() - make_interval(mins => $2)",
         r"
-SELECT challenge FROM pending_logins
-WHERE state = $1 AND user_id IS NULL AND created_at > unixepoch() - $2 * 60",
+SELECT challenge, hand_back FROM pending_logins
+WHERE state = $1 AND user_id IS NULL AND hand_back IS NOT NULL
+AND created_at > unixepoch() - $2 * 60",
         |sql, pool| sqlx::query_as(sql).bind(state).bind(minutes).fetch_optional(pool).await
-    )?;
-    Ok(waiting.is_some())
+    )
 }
 
-/// Google has answered, the login of this `state` has its user now.
-pub(crate) async fn finish_pending(db: &Db, state: &str, user_id: Uuid) -> Result<(), sqlx::Error> {
-    let both = "UPDATE pending_logins SET user_id = $2 WHERE state = $1";
+/// The provider has answered, the login of this `state` has its user now.
+/// `finish_hash` is the SHA-256 of the code that goes back to the app, `None`
+/// for the login of a device with no keyboard.
+pub(crate) async fn finish_pending(
+    db: &Db,
+    state: &str,
+    user_id: Uuid,
+    finish_hash: Option<&[u8]>,
+) -> Result<(), sqlx::Error> {
+    let both = "UPDATE pending_logins SET user_id = $2, finish_hash = $3 WHERE state = $1";
     on_db!(db, both, both, |sql, pool| sqlx::query(sql)
         .bind(state)
         .bind(user_id)
+        .bind(finish_hash)
         .execute(pool)
         .await
         .map(|_| ()))
@@ -154,23 +194,35 @@ pub(crate) async fn finish_pending(db: &Db, state: &str, user_id: Uuid) -> Resul
 
 /// Takes a finished login out and gives its user. Taking the row out is what
 /// makes the hand over happen once, two polls at the same moment cannot both
-/// get a session.
+/// get a session. The verifier alone is not enough: the poll also needs the
+/// code that went back to the app, `code_hash` is its SHA-256. Only the
+/// login of a device with no keyboard goes without one.
 pub(crate) async fn take_finished(
     db: &Db,
     challenge: &str,
+    code_hash: Option<&[u8]>,
     minutes: i32,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let finished: Option<(Uuid,)> = on_db!(
         db,
         r"
 DELETE FROM pending_logins
-WHERE challenge = $1 AND user_id IS NOT NULL AND created_at > now() - make_interval(mins => $2)
+WHERE challenge = $1 AND user_id IS NOT NULL
+AND (hand_back = 'code' OR finish_hash = $2)
+AND created_at > now() - make_interval(mins => $3)
 RETURNING user_id",
         r"
 DELETE FROM pending_logins
-WHERE challenge = $1 AND user_id IS NOT NULL AND created_at > unixepoch() - $2 * 60
+WHERE challenge = $1 AND user_id IS NOT NULL
+AND (hand_back = 'code' OR finish_hash = $2)
+AND created_at > unixepoch() - $3 * 60
 RETURNING user_id",
-        |sql, pool| sqlx::query_as(sql).bind(challenge).bind(minutes).fetch_optional(pool).await
+        |sql, pool| sqlx::query_as(sql)
+            .bind(challenge)
+            .bind(code_hash)
+            .bind(minutes)
+            .fetch_optional(pool)
+            .await
     )?;
     Ok(finished.map(|(user_id,)| user_id))
 }

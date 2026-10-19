@@ -11,6 +11,9 @@ mod layout;
 pub(crate) mod loops;
 mod modal_view;
 mod navigation_view;
+pub(crate) mod privacy_cover;
+#[cfg(feature = "ui-tests")]
+mod privacy_cover_test;
 mod screen_keyboard;
 mod selection_drawer;
 mod shadow;

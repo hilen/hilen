@@ -2,6 +2,7 @@
 
 #[cfg(not_wasm)]
 use std::thread;
+use std::time::Duration;
 
 #[cfg(not_wasm)]
 use anyhow::Error;
@@ -28,6 +29,10 @@ use crate::{
     window::{NamedKey, TextLayout},
     wipe::joined,
 };
+
+/// How long a copy of a shown secret may stay on the clipboard. iOS removes
+/// it after this time, see `Clipboard::set_secret`.
+const SECRET_COPY_STAYS: Duration = Duration::from_secs(60);
 
 // The entered text, the one the caret indexes, is read through `text`,
 // which borrows it. Nothing here copies it to read it, a copy of a secure
@@ -128,7 +133,7 @@ impl TextField {
         // A field that shows its secret copies it the way a secret is
         // copied, kept on this device and out of clipboard managers.
         let copied = if self.holds_secret() {
-            Clipboard::set_secret(selected)
+            Clipboard::set_secret(selected, SECRET_COPY_STAYS)
         } else {
             Clipboard::set_text(selected)
         };
