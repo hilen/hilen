@@ -57,6 +57,8 @@ pub mod audio;
 pub mod video;
 #[cfg(all(feature = "video", not(any(ffmpeg, wasm))))]
 compile_error!("the video feature is for desktop, iOS, tvOS and the browser for now, see docs/video.md");
+#[cfg(feature = "biometric")]
+pub mod biometric;
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth;
 pub mod bug_report;

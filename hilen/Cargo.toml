@@ -67,6 +67,10 @@ camera = [
   "dep:objc2-core-media",
   "dep:objc2-core-video",
 ]
+# A check of the finger or the face of the user, Touch ID and Face ID
+# through LocalAuthentication on macOS and iOS, see docs/biometric.md.
+# Every other system answers that the device cannot. Off by default.
+biometric = ["dep:futures-channel", "dep:objc2-local-authentication"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
@@ -265,12 +269,14 @@ windows-sys = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 linuxvideo = { workspace = true, optional = true }
 
-# tvOS has no camera, the camera module answers with an error there.
+# tvOS has no camera and no biometric check, those modules answer with an
+# error there.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 dispatch2 = { workspace = true, optional = true }
 objc2-av-foundation = { workspace = true, optional = true }
 objc2-core-media = { workspace = true, optional = true }
 objc2-core-video = { workspace = true, optional = true }
+objc2-local-authentication = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 block2 = { workspace = true }
