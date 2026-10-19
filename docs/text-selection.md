@@ -105,7 +105,8 @@ A press that turns into a drag of a scroll bar stops the selection it began,
 
 - No selection over a plain `ScrollView` or `Container`, only a table, a markdown view
   or a label.
-- No drag handles on a touch screen and no text cursor on hover.
+- No drag handles on a touch screen and no text cursor on hover. The handles are the
+  first entry of `docs/roadmap.md`.
 - The selection color is fixed and the menu texts are English.
 
 ## Tests

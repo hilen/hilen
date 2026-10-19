@@ -19,6 +19,94 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Scroll a subview of a scroll view into sight
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-19. Its sideways row of library tabs
+has to show the selected tab. When the window gets narrower, the row stays at its start
+and the selected tab is out of sight.
+
+- Current: `ScrollView::set_content_offset_x` in
+  `hilen/src/ui/views/containers/scrolling/scroll_view.rs` clamps the offset against the
+  frame the view has now. In a `size_changed` handler of the screen the frame of the
+  scroll view is still the old one, so a wide old frame clamps the offset to 0. The
+  `size_changed` event of the scroll view takes 1 subscriber, and the scroll view uses it
+  itself, so an app panics with `Event already has a subscriber` when it subscribes. No
+  call scrolls a subview into sight, and no event runs after layout.
+- Needed: a call on `ScrollView`, and `TableView`, that keeps a subview in sight, both
+  ways, like `scroll_to_row` keeps a row. It holds until the next layout, so it also
+  works right after a change of rules or a resize.
+- Blocks: the tab row of flixen after a window resize from wide to narrow.
+
+## A scroll view with no scroll bar
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-19. Its row of library tabs scrolls
+sideways on a phone, where 4 of 7 tabs do not fit. A bar under the tabs runs into the
+line that marks the selected tab, and a row of tabs on a phone shows no bar.
+
+- Current: `ScrollView::update_bar` and `update_bar_x` in
+  `hilen/src/ui/views/containers/scrolling/scroll_view.rs` show a bar whenever the
+  content is longer than the view. No call hides it, `scrolling.md` in the skill and
+  the docs name none.
+- Needed: a call on `ScrollView`, and on `TableView` through it, that turns the bars
+  off, each way on its own. The content still scrolls by drag, wheel and
+  `set_content_offset_x`. A view with the bars off has no grab area either.
+- Blocks: the sideways tab row of flixen, which shows a bar under its tabs until then.
+  Also the strip of recent posters there, which shows a bar under its captions.
+
+## Swipe back for a page inside a shell
+
+Found by shopping, `~/dev/apps/shopping`, on 2026-10-19. The user on an iPhone: "Why
+swipe to go back doesnt work?" Swipe back has to work in every app, on every screen
+that has a back arrow.
+
+- Current: `SwipeBack::set` in `hilen/src/ui/swipe_back.rs` works only for a screen
+  set with `UIManager::set_view`, the one on top of the app views. Its doc and
+  `docs/swipe-back.md` say a page inside a shell does not swipe. An app with a tab bar
+  or a sidebar keeps the bar and swaps the page in a `Container`, like
+  `shopping/app/src/ui/shell.rs`, `Shell::swap`, which opens a list as a `ListPage`
+  with a back arrow. That page has no way to swipe back.
+- Needed:
+  - A page swapped inside a container gives the engine the function that builds the
+    page below, the same one its back arrow calls, like `SwipeBack::set` does for a
+    whole screen. 1 line per page in an app.
+  - The swipe moves only the page inside its container. The bar of the shell, like a
+    tab bar at the bottom, stays where it is, as in a native iOS tab app.
+  - The same gesture rules as `SwipeBack`: the left edge of the page, 10 points right
+    first, release past half or a fling finishes, anything else slides back, no swipe
+    with a modal open, off where `UIManager::drag_scrolling` is off.
+  - A finished swipe makes the page below the page of the container, its setup runs
+    once, and the shell learns about it through a callback, so it can update its own
+    state like the selected tab.
+  - UI tests like those of `SwipeBack`: past half, a short swipe that slides back, a
+    fling, and that the bar did not move. Then the proof on a real iPhone.
+- Blocks: swipe back in shopping, and in every app with a tab bar or a sidebar.
+
+## Text selection on a touch screen, like native iOS
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-18, on an iPhone: "Long press just
+select 1 word, i want close to native ios select".
+
+- Current: a long press on a selectable label or markdown view takes the word under
+  the finger, `hit.unit(Granularity::Word)` in `hilen/src/ui/text_selection/mod.rs:374`.
+  Only the same finger, still down, moves the end of the selection, word by word. The
+  release opens the menu with Copy and Select All, `text_selection/menu.rs`. Once the
+  finger is up the selection cannot change, a tap drops it. `docs/text-selection.md`
+  says so under Limits: "No drag handles on a touch screen".
+- Needed: the way iOS does it, for `Label`, `MarkdownView` and a selection over the
+  rows of a table:
+  - 2 handles, a round knob with a line, at the start and the end of the selection.
+    Each one is dragged on its own after the finger was lifted, by characters, not
+    only by words. A handle dragged to the edge of a scroll view scrolls it.
+  - A magnifier over the finger while a handle or the long press moves.
+  - The menu stays over the selection after a handle moves and moves with it, Copy
+    and Select All as now.
+  - A double tap takes a word and a triple tap the paragraph, like a click on desktop.
+  - The handles and the menu follow the text when the list scrolls, and go away with
+    the selection.
+  - A UI test on the touch path: long press, lift, drag each handle, copy.
+- Blocks: banda on iPhone, where copying part of a reply of an agent is a daily need.
+  Every app with selectable text on a phone or a tablet.
+
 ## Swipe back from the left edge, like a native iOS app
 
 Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18, by the bug report SKAITYK-D
