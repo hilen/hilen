@@ -34,7 +34,7 @@ serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
 
-hilen = { workspace = true, features = ["audio", "inspect", "level", "ui-tests"] }
+hilen = { workspace = true, features = ["audio", "inspect", "level", "module-workers", "ui-tests"] }
 scene-test-suite = { workspace = true, optional = true }
 ui-test-suite = { workspace = true }
 

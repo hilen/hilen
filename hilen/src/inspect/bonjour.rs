@@ -45,7 +45,6 @@ unsafe extern "C" {
         callback: *const c_void,
         context: *mut c_void,
     ) -> i32;
-    #[cfg(hot)]
     fn DNSServiceRefDeallocate(service: *mut Service);
 }
 
@@ -56,6 +55,35 @@ static SERVICE: AtomicPtr<Service> = AtomicPtr::new(null_mut());
 /// Announces the inspect server of this app on the local network.
 #[cfg(apple)]
 pub(crate) fn announce(app_id: &str, app_name: &str, port: u16) -> Result<()> {
+    SERVICE.store(register(app_id, app_name, port)?, Ordering::Release);
+    Ok(())
+}
+
+/// An announce that ends when the value is dropped, for a tool that
+/// announces apps it serves, each for as long as it serves it.
+#[cfg(apple)]
+pub(crate) struct Held(*mut Service);
+
+// SAFETY: the reference goes back to the system only in `drop`, the system
+// does not tie it to a thread.
+#[cfg(apple)]
+unsafe impl Send for Held {}
+
+#[cfg(apple)]
+impl Drop for Held {
+    fn drop(&mut self) {
+        // SAFETY: made by `DNSServiceRegister`, given back once.
+        unsafe { DNSServiceRefDeallocate(self.0) };
+    }
+}
+
+#[cfg(apple)]
+pub(crate) fn announce_held(app_id: &str, app_name: &str, port: u16) -> Result<Held> {
+    Ok(Held(register(app_id, app_name, port)?))
+}
+
+#[cfg(apple)]
+fn register(app_id: &str, app_name: &str, port: u16) -> Result<*mut Service> {
     let name = CString::new(app_id)?;
     // The system wants the type alone, the domain is its own choice.
     let service_type = CString::new(SERVICE_TYPE.trim_end_matches(".local."))?;
@@ -84,8 +112,7 @@ pub(crate) fn announce(app_id: &str, app_name: &str, port: u16) -> Result<()> {
     if error != 0 {
         bail!("Bonjour did not take the inspect service, error {error}");
     }
-    SERVICE.store(service, Ordering::Release);
-    Ok(())
+    Ok(service)
 }
 
 /// Takes the app off the network.

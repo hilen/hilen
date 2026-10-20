@@ -3,6 +3,10 @@
 //! is set, the app dials out to the server that served the page, same origin,
 //! at `/hilen-inspect`. The protocol stays the same request in, response out
 //! JSON, one WebSocket text message per frame instead of a length prefix.
+//!
+//! An app installed on a TV opens from a file, it has no server to dial and
+//! no query. Its dev build bakes the address in, `HILEN_INSPECT_URL`, and
+//! dials it at every start and again whenever the socket closes.
 
 use std::{
     hint::black_box,
@@ -24,7 +28,15 @@ use crate::{
         InspectService, MARKER,
         protocol::{AppCommand, InspectorCommand},
     },
+    ui::UIManager,
 };
+
+/// The address the dev build of an installed app dials, set when it is
+/// compiled. See "An installed TV app" in `docs/inspect.md`.
+const BAKED_URL: Option<&str> = option_env!("HILEN_INSPECT_URL");
+/// A baked address is dialed again this long after its socket closed, the
+/// tunnel to it can come up after the app.
+const REDIAL_MS: i32 = 3000;
 
 /// Lives on the main thread, where the socket's JS callbacks fire.
 static SOCKET: MainLock<Option<WebSocket>> = MainLock::new();
@@ -44,22 +56,8 @@ pub(crate) fn is_open() -> bool {
 pub(crate) fn start_if_requested() {
     black_box(MARKER);
 
-    if !crate::web::query_flag("hilen_inspect") {
+    let Some(url) = BAKED_URL.map(str::to_string).or_else(page_url) else {
         return;
-    }
-
-    let location = web_sys::window().expect("Failed to get browser window").location();
-    let protocol = location.protocol().expect("Failed to get location protocol");
-    let host = location.host().expect("Failed to get location host");
-    let scheme = if protocol == "https:" { "wss" } else { "ws" };
-    let url = format!("{scheme}://{host}/hilen-inspect");
-
-    let socket = match WebSocket::new(&url) {
-        Ok(socket) => socket,
-        Err(err) => {
-            log::error!("Failed to open inspect socket at {url}: {err:?}");
-            return;
-        }
     };
 
     let (sender, receiver) = channel::<InspectorCommand>();
@@ -84,6 +82,32 @@ pub(crate) fn start_if_requested() {
         }
     });
 
+    dial(url);
+}
+
+/// The server that served the page, when the url asks for the inspector.
+fn page_url() -> Option<String> {
+    if !crate::web::query_flag("hilen_inspect") {
+        return None;
+    }
+    let location = web_sys::window().expect("Failed to get browser window").location();
+    let protocol = location.protocol().expect("Failed to get location protocol");
+    let host = location.host().expect("Failed to get location host");
+    let scheme = if protocol == "https:" { "wss" } else { "ws" };
+    Some(format!("{scheme}://{host}/hilen-inspect"))
+}
+
+/// Opens the socket. A baked address is dialed again after a failure.
+fn dial(url: String) {
+    let socket = match WebSocket::new(&url) {
+        Ok(socket) => socket,
+        Err(err) => {
+            log::error!("Failed to open inspect socket at {url}: {err:?}");
+            redial(url);
+            return;
+        }
+    };
+
     let onmessage = Closure::<dyn FnMut(MessageEvent)>::new(|event: MessageEvent| {
         let Some(text) = event.data().as_string() else {
             log::error!("Inspect socket received a non text frame");
@@ -107,18 +131,55 @@ pub(crate) fn start_if_requested() {
     let onopen = Closure::<dyn FnMut()>::new(|| {
         OPEN.store(true, Ordering::Relaxed);
         log::info!("Inspect socket connected");
+        hello();
     });
     socket.set_onopen(Some(onopen.as_ref().unchecked_ref()));
     onopen.forget();
 
-    let onclose = Closure::<dyn FnMut()>::new(|| {
-        OPEN.store(false, Ordering::Relaxed);
-        log::warn!("Inspect socket closed");
+    // A failed dial closes too, so a baked address that is not up yet is
+    // tried again every few seconds. Only the close of an open socket says
+    // so, the tries would fill the log.
+    let onclose = Closure::<dyn FnMut()>::new(move || {
+        if OPEN.swap(false, Ordering::Relaxed) {
+            log::warn!("Inspect socket closed");
+        }
+        redial(url.clone());
     });
     socket.set_onclose(Some(onclose.as_ref().unchecked_ref()));
     onclose.forget();
 
     SOCKET.set(Some(socket));
+}
+
+/// Dials a baked address again after a pause. A page that dials its own
+/// server stays closed, its driver opens the page again.
+fn redial(url: String) {
+    if BAKED_URL.is_none() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let again = Closure::once_into_js(move || dial(url));
+    if let Err(err) =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(again.unchecked_ref(), REDIAL_MS)
+    {
+        log::error!("Failed to plan the next inspect dial: {err:?}");
+    }
+}
+
+/// Tells the other side which app this is, by its id and the title of the
+/// page, so a bridge can list it like a native app.
+fn hello() {
+    let name = web_sys::window()
+        .and_then(|window| window.document())
+        .map(|document| document.title())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "page".to_string());
+    push(AppCommand::Hello {
+        app_id: UIManager::app_instance_id().to_string(),
+        name,
+    });
 }
 
 /// Sends a frame the driver did not request, the test autorun delivers its

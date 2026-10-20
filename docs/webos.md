@@ -120,8 +120,9 @@ script adds it with `["ldr"]`, what an extension without it means.
 
 The remote debugger of the TV is the console there: `ares-inspect --device tv --app <id>`
 opens the DevTools protocol on port 9998 of the TV, a page and its `console` are read
-over its websocket. The inspector of hilen does not reach a packaged app, it dials the
-origin of the page and a file has none.
+over its websocket. With root on the TV the port listens already, `ssh -L
+19998:127.0.0.1:9998` reaches it. A packaged app reaches the inspector of hilen only
+as a dev package, see "An installed TV app" in [inspect.md](inspect.md).
 
 ## Size of a browser build
 

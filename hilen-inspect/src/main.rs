@@ -5,6 +5,7 @@ mod hot;
 mod input;
 mod reach;
 mod speed;
+mod web_bridge;
 
 use std::{
     env::{current_dir, temp_dir},
@@ -63,6 +64,9 @@ async fn main() -> Result<()> {
 
     if let Command::Devices = cli.command {
         return device::print(cli.device.as_deref()).await;
+    }
+    if let Command::WebBridge { port, tunnel, bind } = cli.command {
+        return web_bridge::run(port, tunnel, bind).await;
     }
 
     // Held until the command ends, a long run keeps its way to the device.

@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 use hilen::{
     gm::color::Color,
-    inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest},
+    inspect::protocol::{AppCommand, Client, InspectorCommand, PAGE_PORT, UIRequest},
 };
 use serde_json::{json, to_string_pretty};
 
@@ -27,6 +27,22 @@ pub(super) enum Command {
     Devices,
     /// Print which library the hot loader on the network runs
     HotStatus,
+    /// Take apps that run as a page, like a dev package on an LG TV, and
+    /// list them like native apps until stopped. Every other command then
+    /// reaches them. See "An installed TV app" in docs/inspect.md
+    WebBridge {
+        /// The port the pages dial
+        #[arg(long, default_value_t = PAGE_PORT)]
+        port:   u16,
+        /// An ssh destination, like root@192.168.0.155, to keep a reverse
+        /// tunnel to, so a page there dials 127.0.0.1 and lands here
+        #[arg(long)]
+        tunnel: Option<String>,
+        /// The own address ssh sends from, for a machine whose default
+        /// route does not reach the device
+        #[arg(long)]
+        bind:   Option<String>,
+    },
     /// Send a library and the assets of an app to the hot loader on the
     /// network and wait until the loader runs it
     HotSend {
@@ -280,7 +296,11 @@ pub(super) enum Command {
 
 pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
     match command {
-        Command::Apps | Command::Devices | Command::HotStatus | Command::HotSend { .. } => unreachable!(),
+        Command::Apps
+        | Command::Devices
+        | Command::HotStatus
+        | Command::HotSend { .. }
+        | Command::WebBridge { .. } => unreachable!(),
         Command::Ui => {
             let (scale, root) = get_ui(client).await?;
             println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);

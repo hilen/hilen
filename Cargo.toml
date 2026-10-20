@@ -239,7 +239,9 @@ usvg = { version = "0.48", default-features = false }
 uuid = "1.28"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
-wasm_thread = "0.3"
+# A worker starts as a classic script unless the `module-workers` feature of
+# hilen asks for a module, see that feature.
+wasm_thread = { version = "0.3", default-features = false }
 web-sys = { version = "0.3", features = [
     "AddEventListenerOptions",
     "BinaryType",

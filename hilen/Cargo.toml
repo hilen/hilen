@@ -21,7 +21,14 @@ checks = []
 default = ["checks"]
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
-inspect = ["discovery", "dep:if-addrs"]
+# The frame record packs its frames as QOI, which the browser build leaves out
+# of its image formats.
+inspect = ["discovery", "dep:if-addrs", "image/qoi"]
+# A worker thread of an atomics wasm build starts as an ES module, for a page
+# whose own script is a module, like the one trunk builds by default. A page
+# with a classic script, like a packaged webOS app, needs classic workers,
+# Chromium 79 starts no module worker at all.
+module-workers = ["wasm_thread/es_modules"]
 # Find devices on the local network by the service they announce, see
 # `hilen/src/discovery`. The system Bonjour service on macOS, iOS and tvOS,
 # mdns-sd on Windows, Linux and Android. Off by default.

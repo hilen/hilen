@@ -56,7 +56,7 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `record-start`, `record-stop`, `frames`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `devices`, and `hot-status` and `hot-send`
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `devices`, `web-bridge`, and `hot-status` and `hot-send`
   for the loader on a device, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   `--addr <host>` or the variable `HILEN_INSPECT_ADDR` names the device, a name or an ip,
@@ -383,6 +383,39 @@ goes out as a `Log` frame while the socket is open, from the logger in
 to send says nothing, a log line about it would forward itself without end. Panics
 POST to `/te-panic` on the page origin from the panic hook through a sync XHR,
 which delivers before the wasm instance dies and works from workers too.
+
+## An installed TV app
+
+An app installed on an LG TV opens from a file. It has no server to dial and no query
+to read, and the TV can not open a connection to the m1 Mac, it times out. So its dev
+package dials `127.0.0.1` of the TV itself, and an ssh reverse tunnel carries that to
+the Mac.
+
+- `make webos-dev` of the `build` repo builds the package with `hilen/inspect`, the
+  atomics wasm, and `HILEN_INSPECT_URL=ws://127.0.0.1:7436/hilen-inspect`. That address
+  is baked in with `option_env!`, `web_transport.rs` dials it at every start and again
+  3 seconds after the socket closes, so the tunnel may come up after the app. The
+  script refuses to run with `HILEN_RELEASE` set, the package carries the inspector.
+- `hilen-inspect web-bridge --tunnel root@192.168.0.155 --bind 192.168.0.11` takes
+  pages on `PAGE_PORT`, 7436, and keeps `ssh -R` to the TV open. `--bind` is the own
+  address ssh sends from, the wired route of that Mac does not reach the TV. The code
+  is `hilen-inspect/src/web_bridge.rs`.
+- A page says `Hello` with its app id and the title of the page right after its
+  socket opens. The bridge then opens a normal inspect port for it and announces it
+  through `protocol::announce`, the same as an app, so `apps`, `find`, `tap`,
+  `screenshot` and the inspector reach it with no change. A request goes to the page
+  as 1 WebSocket message and its answer comes back as 1 frame. `HotBytes` and `Speed`
+  carry raw bytes and are refused.
+- The `Log` frames of the page are printed by the bridge and kept in
+  `hilen-inspect-page-<app id>.log` in the temp folder.
+- The worker of the inspector is a classic script there. Chromium 79 starts no
+  module worker, `Failed to construct 'Worker': Module scripts are not supported on
+  DedicatedWorker yet`, so `wasm_thread` runs with no default features and the
+  `module-workers` feature of hilen turns modules on, for a module page like the
+  demo of the browser test lane.
+- Proven on an LG C1 on 2026-10-20: `apps` listed the installed Flixen package, `find`
+  read its tree, `screenshot` gave 3840x2160, and its log came in live. A `tap` was not
+  tried there.
 
 ## Edit log
 

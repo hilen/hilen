@@ -300,7 +300,8 @@ impl MainScreen {
             | AppCommand::HotFiles(_)
             | AppCommand::TestResults { .. }
             | AppCommand::FailureScreenshot { .. }
-            | AppCommand::Log { .. } => {}
+            | AppCommand::Log { .. }
+            | AppCommand::Hello { .. } => {}
         }
     }
 }

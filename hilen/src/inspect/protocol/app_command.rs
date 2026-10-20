@@ -45,6 +45,12 @@ pub enum AppCommand {
         level:   String,
         message: String,
     },
+    /// Pushed by a page right after its socket opens, so a bridge that
+    /// serves it to the tools can announce it like a native app.
+    Hello {
+        app_id: String,
+        name:   String,
+    },
     /// Unix seconds of when the app's Rust code was compiled, see
     /// `hilen/build.rs`.
     BuildTime(u64),
