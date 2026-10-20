@@ -264,6 +264,11 @@ pub(super) enum Command {
         #[arg(long, default_value_t = 3)]
         seconds: u32,
     },
+    /// Log the app into a dev account of its backend, with no password. The
+    /// backend needs the dev-login feature of hilen-server. A new email makes
+    /// a new account, the same email logs back into it. The app shows the
+    /// account at its next start
+    DevLogin { email: String },
     /// Close the app the way closing its window does and wait until its
     /// process is gone. Desktop only.
     Quit {
@@ -304,6 +309,14 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::BuildTime => build_time(client).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
+        Command::DevLogin { email } => {
+            let AppCommand::LoggedIn { id, email } =
+                send(client, InspectorCommand::DevLogin { email }).await?
+            else {
+                bail!("Unexpected response to dev-login");
+            };
+            println!("logged in as {email}, user {id}, the app shows it at its next start");
+        }
         Command::Edits => {
             let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
                 bail!("Unexpected response to edits");

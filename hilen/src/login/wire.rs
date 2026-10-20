@@ -22,6 +22,14 @@ pub(crate) struct CodeRequest<'a> {
     pub provider:  &'a str,
 }
 
+/// The login of a dev account, `POST /auth/dev` of a backend built with the
+/// `dev-login` feature. The answer is a finished `PollResponse`.
+#[cfg(feature = "inspect")]
+#[derive(Debug, Serialize)]
+pub(crate) struct DevRequest<'a> {
+    pub email: &'a str,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct CodeResponse {
     pub code: String,

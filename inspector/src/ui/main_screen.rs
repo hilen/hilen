@@ -294,6 +294,7 @@ impl MainScreen {
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)
             | AppCommand::StartTime(_)
+            | AppCommand::LoggedIn { .. }
             | AppCommand::Speed { .. }
             | AppCommand::Hot { .. }
             | AppCommand::HotFiles(_)

@@ -9,14 +9,30 @@ use serde_json::from_slice;
 pub(crate) enum Provider {
     Google,
     Apple,
+    /// The login of a dev server, see `dev.rs`.
+    #[cfg(feature = "dev-login")]
+    Dev,
 }
 
 impl Provider {
-    /// The text in the `provider` column.
+    /// The text in the `provider` column. `dev` is the name of a dev
+    /// account, `login_user` keeps such users away from every other one.
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Google => "google",
             Self::Apple => "apple",
+            #[cfg(feature = "dev-login")]
+            Self::Dev => "dev",
+        }
+    }
+
+    /// A first login through this provider finds a user of the same email.
+    /// A dev login never does, it makes its own account.
+    pub(crate) const fn joins_by_email(self) -> bool {
+        match self {
+            Self::Google | Self::Apple => true,
+            #[cfg(feature = "dev-login")]
+            Self::Dev => false,
         }
     }
 }

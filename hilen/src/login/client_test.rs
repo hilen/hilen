@@ -98,6 +98,64 @@ async fn account_server() -> Result<Arc<Mutex<Vec<String>>>> {
     Ok(logouts)
 }
 
+/// Stands in for a backend, with `/auth/dev` only when `dev_login` is set,
+/// like a server built with or without the `dev-login` feature.
+#[cfg(all(not_wasm, feature = "inspect"))]
+async fn dev_server(dev_login: bool) -> Result<()> {
+    let mut app = Router::new();
+    if dev_login {
+        app = app.route(
+            "/auth/dev",
+            post(|Json(body): Json<Value>| async move {
+                let email = body["email"].as_str().unwrap_or_default().to_owned();
+                Json(json!({
+                    "status": "done",
+                    "token": format!("token-{email}"),
+                    "user": { "id": "dev-1", "email": email, "name": email, "picture": null },
+                }))
+            }),
+        );
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    Login::set_server(format!("http://{}", listener.local_addr()?));
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the dev server stopped: {error}");
+        }
+    });
+    Ok(())
+}
+
+#[cfg(all(not_wasm, feature = "inspect"))]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn a_dev_login_keeps_its_session_like_any_login() -> Result<()> {
+    dev_server(true).await?;
+    fresh_root("hilen-login-dev-test")?;
+
+    let user = super::dev_login("dev1@test").await?;
+    assert_eq!(user.email, "dev1@test");
+    assert_eq!(Login::token().as_deref(), Some("token-dev1@test"));
+    assert_eq!(Login::active_user(), Some(user));
+    Ok(())
+}
+
+#[cfg(all(not_wasm, feature = "inspect"))]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn a_server_with_no_dev_login_gives_no_session() -> Result<()> {
+    dev_server(false).await?;
+    fresh_root("hilen-login-no-dev-test")?;
+
+    let error = super::dev_login("dev1@test")
+        .await
+        .expect_err("a server with no dev login has no session to give");
+    assert!(error.to_string().contains("dev-login"), "{error}");
+    assert_eq!(Login::token(), None);
+    Ok(())
+}
+
 #[cfg(not_wasm)]
 fn account_ids() -> Vec<String> {
     Login::accounts().into_iter().map(|user| user.id).collect()

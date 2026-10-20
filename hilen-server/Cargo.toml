@@ -9,6 +9,12 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `POST /auth/dev`, a login with no password into accounts it makes itself,
+# for a dev server. Never in the build of a server with real users, see
+# `src/auth/dev.rs`.
+dev-login = []
+
 [dependencies]
 anyhow                      = { workspace = true }
 axum                        = { workspace = true }

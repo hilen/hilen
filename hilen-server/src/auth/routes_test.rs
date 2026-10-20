@@ -480,3 +480,23 @@ async fn the_apple_routes_are_not_there_without_the_config() -> Result<()> {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     Ok(())
 }
+
+/// The login with no password is not in a build without `dev-login`, the
+/// build every server with real users runs.
+#[cfg(not(feature = "dev-login"))]
+#[tokio::test]
+async fn the_dev_login_is_not_there_without_the_feature() -> Result<()> {
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let response = app
+        .oneshot(
+            request("POST", "/auth/dev")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"email":"ana@example.com"}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}

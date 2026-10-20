@@ -180,6 +180,28 @@ user can have a Google and an Apple row. `store::login_user` runs a login: a kno
 identity logs into its user, a new identity whose email already belongs to a user joins
 that user, anything else makes a new user. Both providers hand out verified emails only.
 An Apple account with a hidden email has a relay address and becomes a user of its own.
+A user with a `dev` identity is left out of that email join, see the next section.
+
+## The dev login
+
+A dev server, a backend for testing an app with no Google account, logs in with no
+password. It exists only in a server built with the `dev-login` cargo feature of
+`hilen-server`, the code is `hilen-server/src/auth/dev.rs`. A build without the feature
+has no `/auth/dev` route at all, so no config line can turn it on for a server with real
+users. `the_dev_login_is_not_there_without_the_feature` pins that, and the server logs a
+warning at start when it is built with the feature.
+
+- `POST /auth/dev` with `{"email": "..."}` answers like a finished poll, the token and
+  the user. The email is trimmed and lowercased.
+- The first login of an email makes a new user with a `dev` identity, its subject is the
+  email. The next login of that email logs back into it.
+- A dev login never joins a user of the same email, `Provider::joins_by_email`. And a
+  Google or Apple login never joins a user that has a `dev` identity. So the route
+  reaches only the accounts it made itself. `dev_test.rs` pins both ways.
+
+The client half is `Login::dev(email, done)`, only in a build with the `inspect`
+feature. `hilen-inspect dev-login <email>` calls it in a running app. The session is
+kept like after any login, and the app sees it at its next start.
 
 The second migration moves `users.google_sub` into `identities`. SQLite cannot drop a
 UNIQUE column, so its file builds `users` again with foreign keys off and runs outside a

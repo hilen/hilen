@@ -255,6 +255,12 @@ impl InspectService {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
             InspectorCommand::Quit => Self::quit(),
+            #[cfg(feature = "login")]
+            InspectorCommand::DevLogin { email } => Self::dev_login(email),
+            #[cfg(not(feature = "login"))]
+            InspectorCommand::DevLogin { .. } => {
+                AppCommand::Error("App built without the login feature".into())
+            }
             // The TCP transport runs it on the connection and never asks here.
             InspectorCommand::Speed { .. } => {
                 AppCommand::Error("The speed test needs a TCP connection to the app".into())
@@ -299,6 +305,30 @@ impl InspectService {
                 Self::lay_out_covered();
                 Self::process_ui_command(ui)
             }
+        }
+    }
+
+    /// Blocks the inspector worker until the server answered, the main
+    /// thread keeps drawing.
+    #[cfg(feature = "login")]
+    fn dev_login(email: String) -> AppCommand {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+        let (send, recv) = std::sync::mpsc::channel();
+        crate::deps::hreads::on_main(move || {
+            crate::login::Login::dev(email, move |result| {
+                // The worker gave up after `WAIT` when nobody listens.
+                send.send(result).ok();
+            });
+        });
+
+        match recv.recv_timeout(WAIT) {
+            Ok(Ok(user)) => AppCommand::LoggedIn {
+                id:    user.id,
+                email: user.email,
+            },
+            Ok(Err(error)) => AppCommand::Error(format!("{error:#}")),
+            Err(error) => AppCommand::Error(format!("The dev login gave no answer: {error}")),
         }
     }
 

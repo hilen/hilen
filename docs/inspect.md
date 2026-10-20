@@ -56,7 +56,7 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `record-start`, `record-stop`, `frames`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `devices`, and `hot-status` and `hot-send`
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `devices`, and `hot-status` and `hot-send`
   for the loader on a device, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   `--addr <host>` or the variable `HILEN_INSPECT_ADDR` names the device, a name or an ip,
@@ -75,6 +75,10 @@ Two clients exist:
   the connection and gave no answer`. `hot-send` needs `--device`, `--addr` or `--app`,
   see [hot-reload.md](hot-reload.md).
   The agent workflow lives in the maintainer's skill files outside this repo.
+
+`dev-login <email>` logs an app with the `login` feature into a dev account of its
+backend, with no password. The backend needs the `dev-login` feature of `hilen-server`,
+see "The dev login" in [login.md](login.md). The app shows the account at its next start.
 
 `hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact
 view id, exact visible text, then exact label field name like `save_button` or

@@ -47,8 +47,10 @@ const PENDING_MINUTES: i32 = 10;
 /// - `GET /auth/me` is the user of a session.
 /// - `POST /auth/logout` ends a session.
 /// - `POST /auth/delete` removes the user of a session for good.
+/// - `POST /auth/dev` logs into a dev account with no password, only in a build
+///   with the `dev-login` feature, see `dev.rs`.
 pub fn auth_routes<S>(state: AuthState) -> Router<S> {
-    Router::new()
+    let router = Router::new()
         .route("/auth/google", get(start_google))
         .route("/auth/google/callback", get(google_callback))
         .route("/auth/apple", get(start_apple))
@@ -58,8 +60,10 @@ pub fn auth_routes<S>(state: AuthState) -> Router<S> {
         .route("/auth/poll", post(poll))
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
-        .route("/auth/delete", post(delete))
-        .with_state(state)
+        .route("/auth/delete", post(delete));
+    #[cfg(feature = "dev-login")]
+    let router = crate::auth::dev::add_route(router);
+    router.with_state(state)
 }
 
 #[derive(Deserialize)]

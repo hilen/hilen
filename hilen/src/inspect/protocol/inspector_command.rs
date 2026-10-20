@@ -19,6 +19,12 @@ pub enum InspectorCommand {
     },
     GetBuildTime,
     GetStartTime,
+    /// Logs the app into a dev account of its backend, with no password,
+    /// see `Login::dev`. The answer is `LoggedIn`. An app with no `login`
+    /// feature answers with an error.
+    DevLogin {
+        email: String,
+    },
     /// Closes the app the way closing its window does. Desktop only, a
     /// phone or a browser page has no such exit.
     Quit,

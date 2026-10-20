@@ -50,6 +50,11 @@ pub enum AppCommand {
     BuildTime(u64),
     /// Unix seconds of when this app process started.
     StartTime(u64),
+    /// The user of a dev login.
+    LoggedIn {
+        id:    String,
+        email: String,
+    },
     /// The end of a run of the speed test: the bytes the app got or sent,
     /// and how long that took on its side.
     Speed {

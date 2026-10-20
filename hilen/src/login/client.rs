@@ -286,6 +286,42 @@ impl Login {
     }
 }
 
+#[cfg(feature = "inspect")]
+impl Login {
+    /// Logs into a dev account with no password, on a backend built with
+    /// the `dev-login` feature of `hilen-server`. A new email makes a new
+    /// account there, the same email logs back into it, and no Google or
+    /// Apple user is ever reached. The session is kept like after any login,
+    /// the app sees it at its next start. Only an app with `inspect` has it,
+    /// `hilen-inspect dev-login` calls it.
+    pub fn dev(email: impl ToString, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        let email = email.to_string();
+        spawn(async move {
+            let result = dev_login(&email).await;
+            on_main(move || done(result));
+        });
+    }
+}
+
+#[cfg(feature = "inspect")]
+async fn dev_login(email: &str) -> Result<LoginUser> {
+    use crate::login::wire::DevRequest;
+
+    let call = Call::post(format!("{}/auth/dev", server()?)).body(DevRequest { email });
+    match call.send::<PollResponse>().await {
+        Ok(PollResponse::Done { token, user }) => {
+            log::info!("dev login done for user {}", user.id);
+            SessionStore::add(&token, user.clone())?;
+            Ok(user)
+        }
+        Ok(PollResponse::Pending) => bail!("the server gave no session for the dev login"),
+        Err(error) => {
+            log::warn!("the dev login of {email} failed: {error}");
+            bail!("the dev login failed, a server needs the dev-login feature for it: {error}")
+        }
+    }
+}
+
 #[cfg(feature = "ui-tests")]
 impl Login {
     /// Puts another server in and hands the old one back, for a test that has

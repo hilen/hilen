@@ -268,12 +268,22 @@ WHERE provider = $1 AND subject = $2",
 
             user_id
         } else {
-            let same_email: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT id FROM users WHERE lower(email) = lower($1) ORDER BY created_at LIMIT 1",
-            )
-            .bind(&identity.email)
-            .fetch_optional(&mut *transaction)
-            .await?;
+            // A dev account is never joined, so a Google or Apple login on
+            // a dev server never lands in an account made with no password.
+            let same_email: Option<(Uuid,)> = if identity.provider.joins_by_email() {
+                sqlx::query_as(
+                    r"
+SELECT id FROM users
+WHERE lower(email) = lower($1)
+AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.provider = 'dev')
+ORDER BY created_at LIMIT 1",
+                )
+                .bind(&identity.email)
+                .fetch_optional(&mut *transaction)
+                .await?
+            } else {
+                None
+            };
 
             let user_id = if let Some((user_id,)) = same_email {
                 user_id
@@ -312,7 +322,8 @@ WHERE provider = $1 AND subject = $2",
 /// too when the provider sent them. A new identity whose email already belongs
 /// to a user joins that user, so a person with Google and Apple on one email
 /// is one user. Every email here is verified by its provider. A new user with
-/// no name is named by the email.
+/// no name is named by the email. A dev account joins nobody and nobody joins
+/// it, its email is not verified by anyone.
 pub(crate) async fn login_user(db: &Db, identity: &Identity) -> Result<Uuid> {
     Ok(match db {
         Db::Postgres(pool) => login_user_on!(pool, identity),
