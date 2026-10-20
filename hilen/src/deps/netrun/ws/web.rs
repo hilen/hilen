@@ -7,7 +7,10 @@ use web_sys::{
     wasm_bindgen::{JsCast, closure::Closure},
 };
 
-use crate::deps::netrun::ws::WsEvent;
+use crate::deps::netrun::{
+    transport::{TransportSocket, transport_for},
+    ws::WsEvent,
+};
 
 type Callback = Rc<RefCell<dyn FnMut(WsEvent)>>;
 
@@ -33,9 +36,11 @@ fn send_now(socket: &web_sys::WebSocket, message: &Queued) {
 /// on the main thread. Dropping the handle detaches the callbacks and
 /// closes the socket without a Closed event.
 pub struct WebSocket {
-    socket:   Option<web_sys::WebSocket>,
-    handlers: Option<Handlers>,
-    pending:  Pending,
+    socket:      Option<web_sys::WebSocket>,
+    handlers:    Option<Handlers>,
+    pending:     Pending,
+    /// A URL with a transport of the app goes there, see `transport`.
+    transported: Option<Box<dyn TransportSocket>>,
 }
 
 struct Handlers {
@@ -50,6 +55,17 @@ impl WebSocket {
         let url = url.to_string();
         let callback: Callback = Rc::new(RefCell::new(on_event));
         let pending: Pending = Rc::default();
+
+        if let Some(transport) = transport_for(&url) {
+            let callback = callback.clone();
+            let socket = transport.socket(url, Box::new(move |event| emit(&callback, event)));
+            return Self {
+                socket: None,
+                handlers: None,
+                pending,
+                transported: Some(socket),
+            };
+        }
 
         let socket = match web_sys::WebSocket::new(&url) {
             Ok(socket) => {
@@ -68,6 +84,7 @@ impl WebSocket {
                     socket: None,
                     handlers: None,
                     pending,
+                    transported: None,
                 };
             }
         };
@@ -134,16 +151,25 @@ impl WebSocket {
             socket: Some(socket),
             handlers: Some(handlers),
             pending,
+            transported: None,
         }
     }
 
     pub fn send(&self, message: impl ToString) {
+        if let Some(socket) = &self.transported {
+            socket.send(message.to_string());
+            return;
+        }
         self.queue(Queued::Text(message.to_string()));
     }
 
     /// Sends a binary message. It keeps its place among the text
     /// messages sent before and after it.
     pub fn send_bytes(&self, bytes: impl Into<Vec<u8>>) {
+        if let Some(socket) = &self.transported {
+            socket.send_bytes(bytes.into());
+            return;
+        }
         self.queue(Queued::Bytes(bytes.into()));
     }
 
@@ -161,6 +187,10 @@ impl WebSocket {
     }
 
     pub fn close(&self) {
+        if let Some(socket) = &self.transported {
+            socket.close();
+            return;
+        }
         let Some(socket) = &self.socket else {
             return;
         };

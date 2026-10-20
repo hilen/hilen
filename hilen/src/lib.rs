@@ -136,7 +136,7 @@ pub use crate::{
 pub mod net {
     #[cfg(not_wasm)]
     pub use crate::deps::netrun::secret::*;
-    pub use crate::deps::netrun::{Function, System, local_ip, rest::*, ws::*};
+    pub use crate::deps::netrun::{Function, System, local_ip, rest::*, transport::*, ws::*};
 }
 
 pub mod dispatch {

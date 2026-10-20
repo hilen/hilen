@@ -12,16 +12,13 @@ workspace = true
 [features]
 # `DeviceKey`, the device half of a hand over a server cannot read.
 device-key = ["dep:base64", "dep:hkdf", "dep:x25519-dalek"]
-# `SecretStore` keeps its secrets in the credential store of the system, the
-# Keychain on a Mac and on iOS, the Credential Manager on Windows, the Secret
-# Service on Linux and the Keystore on Android. Without it they go into a
-# sealed file like the session.
+# `SecretStore` keeps its secrets in the credential store of a phone, the
+# Keychain on iOS and the Keystore on Android. Desktop and the browser keep
+# them in a sealed file like the session, also with it.
 keychain = [
   "dep:keyring-core",
   "dep:keyring-store-android",
   "dep:keyring-store-apple",
-  "dep:keyring-store-linux",
-  "dep:keyring-store-windows",
 ]
 
 [dependencies]
@@ -39,20 +36,12 @@ x25519-dalek = { workspace = true, optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 keyring-core = { workspace = true, optional = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
-keyring-store-apple = { workspace = true, optional = true, features = ["keychain", "protected"] }
-
 # The sealed files of tvOS are entries of the user defaults. iOS reads the
 # keychain group of a shared secret from its Info.plist.
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
-objc2            = { workspace = true }
-objc2-foundation = { workspace = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-keyring-store-windows = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-keyring-store-linux = { workspace = true, optional = true }
+keyring-store-apple = { workspace = true, optional = true, features = ["protected"] }
+objc2               = { workspace = true }
+objc2-foundation    = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 keyring-store-android = { workspace = true, optional = true }

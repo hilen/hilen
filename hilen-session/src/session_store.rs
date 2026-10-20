@@ -70,12 +70,11 @@ static CHANGE: Mutex<()> = Mutex::new(());
 /// The login sessions of this app on this device, several people can be
 /// logged in at once and 1 of them is active.
 ///
-/// With the `keychain` feature the list lives in the credential store of the
-/// system through `SecretStore`, on iOS and tvOS as an entry that never
-/// leaves the device. So a copy of the data folder or of a phone backup holds
-/// no session. A sealed file of an older engine moves in at the first load
-/// and is deleted, so an update logs nobody out. Without the feature, in a
-/// browser, and where the system has no credential store, the list is a file
+/// With the `keychain` feature the list lives in the credential store of a
+/// phone through `SecretStore`, on iOS and tvOS as an entry that never leaves
+/// the device. So a phone backup holds no session. A sealed file of an older
+/// engine moves in at the first load and is deleted, so an update logs nobody
+/// out. On desktop, in a browser, and without the feature, the list is a file
 /// sealed with AES-256-GCM under the key of `session_key.rs`.
 ///
 /// Nothing else in the engine or in an app touches the stored bytes, so where

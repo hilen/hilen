@@ -10,14 +10,23 @@ use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config, tungstenite::Message,
 };
 
-use crate::deps::netrun::ws::WsEvent;
+use crate::deps::netrun::{
+    transport::{TransportSocket, transport_for},
+    ws::WsEvent,
+};
 
 type WriteHalf = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
 /// The tokio side of the client. The connection lives on a spawned task,
-/// the handle only feeds it commands, so `send` never blocks.
+/// the handle only feeds it commands, so `send` never blocks. A URL with a
+/// transport of the app goes to that transport instead.
 pub struct WebSocket {
-    commands: UnboundedSender<Command>,
+    link: Link,
+}
+
+enum Link {
+    Network(UnboundedSender<Command>),
+    Transport(Box<dyn TransportSocket>),
 }
 
 enum Command {
@@ -28,30 +37,54 @@ enum Command {
 
 impl WebSocket {
     pub fn connect(url: impl ToString, on_event: impl FnMut(WsEvent) + Send + 'static) -> Self {
+        let url = url.to_string();
+        if let Some(transport) = transport_for(&url) {
+            return Self {
+                link: Link::Transport(transport.socket(url, Box::new(on_event))),
+            };
+        }
+
         let (commands, receiver) = unbounded_channel();
 
-        crate::deps::hreads::spawn(run(url.to_string(), receiver, on_event));
+        crate::deps::hreads::spawn(run(url, receiver, on_event));
 
-        Self { commands }
+        Self {
+            link: Link::Network(commands),
+        }
     }
 
     pub fn send(&self, message: impl ToString) {
-        if self.commands.send(Command::Send(message.to_string())).is_err() {
-            warn!("WebSocket message dropped, the connection is gone");
+        match &self.link {
+            Link::Network(commands) => {
+                if commands.send(Command::Send(message.to_string())).is_err() {
+                    warn!("WebSocket message dropped, the connection is gone");
+                }
+            }
+            Link::Transport(socket) => socket.send(message.to_string()),
         }
     }
 
     /// Sends a binary message. It keeps its place among the text
     /// messages sent before and after it.
     pub fn send_bytes(&self, bytes: impl Into<Vec<u8>>) {
-        if self.commands.send(Command::SendBytes(bytes.into())).is_err() {
-            warn!("WebSocket bytes dropped, the connection is gone");
+        match &self.link {
+            Link::Network(commands) => {
+                if commands.send(Command::SendBytes(bytes.into())).is_err() {
+                    warn!("WebSocket bytes dropped, the connection is gone");
+                }
+            }
+            Link::Transport(socket) => socket.send_bytes(bytes.into()),
         }
     }
 
     pub fn close(&self) {
-        if self.commands.send(Command::Close).is_err() {
-            debug!("WebSocket close skipped, the connection is gone");
+        match &self.link {
+            Link::Network(commands) => {
+                if commands.send(Command::Close).is_err() {
+                    debug!("WebSocket close skipped, the connection is gone");
+                }
+            }
+            Link::Transport(socket) => socket.close(),
         }
     }
 }

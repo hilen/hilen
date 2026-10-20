@@ -85,8 +85,7 @@ from a tap, `cancel`, `renew` and `revoke`.
   `https://www.googleapis.com/auth/drive.appdata` for it. A sign in with the
   main account on another device reads the file and has every account.
 - The main account is read from the `SecretStore` once per run and kept in
-  memory. A read of the Keychain can make macOS ask the user, so it must not
-  happen per call.
+  memory.
 - On a device the linked accounts are in memory only. `sync` reads the file,
   merges it with what the device knows and writes it back when the file was
   behind. Call it at launch when `main()` is some.
@@ -139,12 +138,11 @@ test is `Google account buttons look`.
 
 `hilen_session::SecretStore`, re-exported as `hilen::store::SecretStore`, keeps
 1 named secret. With the `keychain` feature of `hilen-session`, which
-`google-access` turns on, it is in the credential store of the system: the
-Keychain on a Mac through the login keychain, the protected store on iOS, the
-Credential Manager on Windows, the Secret Service on Linux, the Keystore on
-Android. They come from the `keyring-core` crates. In a browser, without the
-feature, and on a Linux with no Secret Service it is a file sealed like the
-session, with a warning in the log for the last case.
+`google-access` turns on, it is in the credential store of a phone: the
+protected store on iOS and the Keystore on Android. They come from the
+`keyring-core` crates. On desktop, in a browser, and without the feature it is a
+file sealed like the session. A desktop never asks its credential store, see
+"Where the sessions are kept" in [login.md](login.md).
 
 - The engine files the secrets under the name of the data folder, the project
   name on desktop.
@@ -154,14 +152,7 @@ session, with a warning in the log for the last case.
 - The `secrets` feature brings `SecretStore` alone, for an app with no Google
   access.
 - `SecretStore::keep_in_files()` is for tests, a test must not ask the real
-  credential store. 1 ignored test does, see `secret_store.rs`.
-- Windows takes about 2500 bytes per secret.
-- macOS lets the program that made a Keychain entry read it with no dialog, and
-  it knows a program by its code signature. A release signed with a Developer ID
-  keeps its signature over updates and never asks. A debug build is a new
-  program after every rebuild and would ask for the Keychain password each time,
-  so the engine calls `keep_in_files()` in a debug build of an app with
-  `google-access`. A debug and a release build so do not share a sign in.
+  credential store.
 
 ## Tests
 

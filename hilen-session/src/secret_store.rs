@@ -4,23 +4,23 @@ use anyhow::Result;
 
 use crate::session_store::{open, platform, seal};
 
-/// When set, every store keeps its secret in a sealed file. For tests and
-/// for a tool that runs where the credential store of the system must not be
-/// asked, like a build machine with no user logged in.
-static FILES_ONLY: AtomicBool = AtomicBool::new(false);
+/// A desktop keeps its secrets in sealed files. A Mac ties the right to read
+/// a Keychain entry to the signature of the binary, so every new build of an
+/// app asked for the password of the login keychain.
+const FILES_BY_DEFAULT: bool = cfg!(not(mobile));
+
+/// When set, every store keeps its secret in a sealed file. Also for tests
+/// and for a tool that runs where the credential store of the system must not
+/// be asked, like a build machine with no user logged in.
+static FILES_ONLY: AtomicBool = AtomicBool::new(FILES_BY_DEFAULT);
 
 /// One secret of this app on this device under a name, like the refresh token
 /// of an account.
 ///
-/// With the `keychain` feature it lives in the credential store of the
-/// system: the Keychain on a Mac and on iOS, the Credential Manager on
-/// Windows, the Secret Service on Linux, the Keystore on Android. Other
-/// users of the machine and other apps do not get it from there. Without the
-/// feature, in a browser, and when the system has no credential store, a
-/// Linux with no Secret Service, it is a file sealed like the session of
-/// `SessionStore`.
-///
-/// Windows takes about 2500 bytes per secret, keep one small.
+/// With the `keychain` feature it lives in the credential store of a phone,
+/// the Keychain on iOS and the Keystore on Android, other apps do not get it
+/// from there. On desktop, in a browser, and without the feature it is a file
+/// sealed like the session of `SessionStore`.
 pub struct SecretStore {
     name:        &'static str,
     #[cfg(all(feature = "keychain", target_os = "ios"))]
@@ -99,8 +99,8 @@ impl SecretStore {
         FILES_ONLY.store(true, Ordering::SeqCst);
     }
 
-    /// From now on the secrets go to the credential store again, a mock in
-    /// memory in a test.
+    /// From now on the secrets go to the credential store, a mock in memory
+    /// in a test.
     #[cfg(all(test, feature = "keychain"))]
     pub(crate) fn use_credential_store() {
         FILES_ONLY.store(false, Ordering::SeqCst);
@@ -165,8 +165,12 @@ impl SecretStore {
 mod keychain {
     use std::sync::{LazyLock, Mutex, PoisonError};
 
+    #[cfg(not(mobile))]
+    use anyhow::bail;
     use anyhow::{Result, anyhow};
-    use keyring_core::{Entry, Error, set_default_store};
+    #[cfg(any(mobile, test))]
+    use keyring_core::set_default_store;
+    use keyring_core::{Entry, Error};
 
     static SERVICE: Mutex<Option<String>> = Mutex::new(None);
 
@@ -179,29 +183,26 @@ mod keychain {
         *SERVICE.lock().unwrap_or_else(PoisonError::into_inner) = Some(service);
     }
 
-    fn start() -> keyring_core::Result<()> {
-        // A test asks the store of the machine it runs on only when it says
-        // so, a build machine may have none or show a dialog.
+    fn start() -> Result<()> {
+        // A test asks for the real store only when it says so, a build
+        // machine may have none or show a dialog.
         #[cfg(test)]
         if !REAL.load(std::sync::atomic::Ordering::SeqCst) {
             set_default_store(keyring_core::mock::Store::new()?);
             return Ok(());
         }
 
-        #[cfg(target_os = "macos")]
-        let store = keyring_store_apple::keychain::Store::new()?;
-        // The protected store wants an app with a bundle id, which an iOS app
-        // always is and a bare `cargo run` binary on a Mac is not.
+        #[cfg(not(mobile))]
+        bail!("a desktop keeps its secrets in sealed files");
+
         #[cfg(any(target_os = "ios", target_os = "tvos"))]
         let store = keyring_store_apple::protected::Store::new()?;
-        #[cfg(target_os = "windows")]
-        let store = keyring_store_windows::Store::new()?;
-        #[cfg(target_os = "linux")]
-        let store = keyring_store_linux::Store::new()?;
         #[cfg(target_os = "android")]
         let store = keyring_store_android::Store::new()?;
 
+        #[cfg(mobile)]
         set_default_store(store);
+        #[cfg(mobile)]
         Ok(())
     }
 
@@ -373,30 +374,22 @@ mod test {
         STORE.clear()
     }
 
-    /// Asks the real credential store of this machine. Not for a build
-    /// machine, a Mac may show a dialog:
-    /// `cargo test -p hilen-session --features keychain -- --ignored`
-    #[cfg(feature = "keychain")]
+    /// A desktop app that asked the Keychain made a Mac ask for the password
+    /// of the login keychain after each new build.
+    #[cfg(all(feature = "keychain", not(mobile)))]
     #[test]
-    #[ignore = "asks the real credential store of the system"]
-    fn the_real_credential_store_keeps_a_secret() -> Result<()> {
+    #[serial]
+    fn a_desktop_never_asks_the_credential_store() -> Result<()> {
         use std::sync::atomic::Ordering;
 
-        static REAL: SecretStore = SecretStore::new("real-store-test");
-
-        super::FILES_ONLY.store(false, Ordering::SeqCst);
-        super::keychain::REAL.store(true, Ordering::SeqCst);
+        super::FILES_ONLY.store(super::FILES_BY_DEFAULT, Ordering::SeqCst);
+        SessionStore::set_root(temp_dir().join("hilen-secret-test-desktop"));
         SecretStore::set_service("hilen-session-test");
-        SessionStore::set_root(temp_dir().join("hilen-secret-test-real"));
 
-        REAL.clear()?;
-        assert_eq!(REAL.load(), None);
-        REAL.save("kept by the system")?;
-        assert_eq!(REAL.load().as_deref(), Some("kept by the system"));
-        // Nothing went to a file, the system has it.
-        assert_eq!(platform::read("real-store-test.secret")?, None);
-        REAL.clear()?;
-        assert_eq!(REAL.load(), None);
-        Ok(())
+        assert!(!STORE.in_credential_store());
+        STORE.save("kept in a file")?;
+        assert!(platform::read("test-account.secret")?.is_some());
+        assert_eq!(STORE.load().as_deref(), Some("kept in a file"));
+        STORE.clear()
     }
 }

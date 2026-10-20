@@ -8,7 +8,10 @@ use thiserror::Error;
 
 use crate::deps::{
     hreads::now,
-    netrun::rest::{Method, client::shared_client},
+    netrun::{
+        rest::{Method, client::shared_client},
+        transport::{TransportRequest, transport_for},
+    },
 };
 
 /// Why a request gave no parsed answer.
@@ -28,6 +31,9 @@ pub enum RequestError {
     /// The request did not reach the server, or its answer did not arrive.
     #[error("failed to send the request: {0}")]
     Send(#[from] reqwest::Error),
+    /// A transport of the app did not carry the request, see `transport`.
+    #[error("the transport did not carry the request: {0}")]
+    Transport(String),
     #[error("failed to write the request body: {0}")]
     Body(#[source] JsonError),
     #[error("failed to parse {expected} from {body}: {source}")]
@@ -45,7 +51,7 @@ impl RequestError {
         match self {
             Self::Unauthorized => Some(StatusCode::UNAUTHORIZED),
             Self::Status { status, .. } => Some(*status),
-            Self::Send(_) | Self::Body(_) | Self::Parse { .. } => None,
+            Self::Send(_) | Self::Transport(_) | Self::Body(_) | Self::Parse { .. } => None,
         }
     }
 }
@@ -148,32 +154,28 @@ impl Call {
         };
         let started = now();
 
-        let client = shared_client();
-        let mut request = match method {
-            Method::Get => client.get(&url),
-            Method::Post => client.post(&url),
-            Method::Put => client.put(&url),
-            Method::Patch => client.patch(&url),
-            Method::Delete => client.delete(&url),
-        };
-
-        let has_content_type = headers.keys().any(|key| key.eq_ignore_ascii_case("content-type"));
-        for (key, value) in headers {
-            request = request.header(key, value);
-        }
-        if let Some((content_type, body)) = body {
-            if !has_content_type {
-                request = request.header("content-type", content_type);
+        let mut headers = headers;
+        let body = body.map(|(content_type, body)| {
+            if !headers.keys().any(|key| key.eq_ignore_ascii_case("content-type")) {
+                headers.insert("content-type".to_owned(), content_type.to_owned());
             }
-            request = request.body(body);
-        }
+            body
+        });
 
-        let answer = async {
-            let response = request.send().await?;
-            let status = response.status();
-            Ok::<_, reqwest::Error>((status, response.text().await?))
-        }
-        .await;
+        let answer = if let Some(transport) = transport_for(&url) {
+            transport
+                .request(TransportRequest {
+                    method,
+                    url: url.clone(),
+                    headers,
+                    body,
+                })
+                .await
+                .map(|answer| (answer.status, answer.body))
+                .map_err(RequestError::Transport)
+        } else {
+            send_to_network(method, &url, headers, body).await.map_err(RequestError::from)
+        };
 
         // The body is not logged, a login request carries a secret in it.
         let millis = (now() - started) * 1000.0;
@@ -181,7 +183,7 @@ impl Call {
             Ok(answer) => answer,
             Err(error) => {
                 debug!("{method} {url} failed in {millis:.0} ms: {error}");
-                return Err(error.into());
+                return Err(error);
             }
         };
         debug!("{method} {url}: {status} in {millis:.0} ms");
@@ -195,6 +197,32 @@ impl Call {
 
         parse(&body)
     }
+}
+
+async fn send_to_network(
+    method: Method,
+    url: &str,
+    headers: BTreeMap<String, String>,
+    body: Option<Vec<u8>>,
+) -> Result<(StatusCode, String), reqwest::Error> {
+    let client = shared_client();
+    let mut request = match method {
+        Method::Get => client.get(url),
+        Method::Post => client.post(url),
+        Method::Put => client.put(url),
+        Method::Patch => client.patch(url),
+        Method::Delete => client.delete(url),
+    };
+    for (key, value) in headers {
+        request = request.header(key, value);
+    }
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+
+    let response = request.send().await?;
+    let status = response.status();
+    Ok((status, response.text().await?))
 }
 
 fn parse<Out: DeserializeOwned>(body: &str) -> Result<Out, RequestError> {

@@ -33,7 +33,7 @@ use tower::ServiceExt;
 use crate::{
     Db,
     auth::{
-        User,
+        User, create_session,
         identity::{Identity, Provider},
         migrate,
         session::{self, hash, new_token},
@@ -328,7 +328,7 @@ async fn a_new_user_with_no_name_is_named_by_the_email(db: Db) -> Result<()> {
 
 async fn a_token_alone_finds_its_user(db: Db) -> Result<()> {
     let user_id = store::login_user(&db, &identity("Ana")).await?;
-    let token = session::create(&db, user_id).await?;
+    let token = create_session(&db, user_id).await?;
 
     let user = user_of_token(&db, &token).await?.expect("a live token has its user");
     assert_eq!(

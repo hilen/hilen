@@ -114,8 +114,6 @@ keepawake = "0.6"
 keyring-core = "1.0"
 keyring-store-android = { package = "android-native-keyring-store", version = "1" }
 keyring-store-apple = { package = "apple-native-keyring-store", version = "1" }
-keyring-store-linux = { package = "zbus-secret-service-keyring-store", version = "1", features = ["crypto-rust"] }
-keyring-store-windows = { package = "windows-native-keyring-store", version = "1" }
 kira = "0.12"
 # backtrace 0.3.76, which sentry brings in, calls 4 dyld functions that libc
 # 0.2.190 declares only for macOS, so an iOS build fails. Free the pin when

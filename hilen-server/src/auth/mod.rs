@@ -80,6 +80,13 @@ pub async fn user_of_token(db: &Db, token: &str) -> Result<Option<User>, sqlx::E
     session::user_of(db, token).await
 }
 
+/// A new session of a user this server knows, for a device that logs in
+/// another way than through a provider, like with a pairing code. The answer
+/// is the token, it goes only to that device. A logout ends it like any other.
+pub async fn create_session(db: &Db, user_id: sqlx::types::Uuid) -> Result<String> {
+    session::create(db, user_id).await
+}
+
 /// One Google client of the type "Web application" per app. Its allowed
 /// redirect address is [`AuthConfig::redirect_uri`]. Apple is optional, see
 /// [`AppleConfig`].

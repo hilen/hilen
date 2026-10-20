@@ -108,6 +108,10 @@ nothing new.
 - A login by `start` or `start_with_code` is added with `SessionStore::add` and becomes
   active. A login of a user who is in the list already gets the new token in the old
   place.
+- A device that logs in another way, like with a pairing code over a connection its
+  server opened, gets its token from `hilen_server::auth::create_session(db, user_id)`
+  on the server. The app keeps it with `SessionStore::add(token, user)`, and from then on
+  it is a session like any other.
 - `load`, `token()`, `send` and `current_user` work on the active session, so an app
   with 1 login needs no change. `clear` and `logout` drop only the active session, and
   none of the others becomes active by itself, an app shows its profiles then.
@@ -212,12 +216,18 @@ re-exports it as `hilen::store::SessionStore` with the `login` feature, and
 with no engine calls `set_root` itself with the same folder.
 
 With the `keychain` feature of `hilen-session`, which the `secrets` feature of `hilen`
-turns on, the list lives in the credential store of the system through `SecretStore`,
-under the name `session`. On iOS and tvOS the entry is `AfterFirstUnlockThisDeviceOnly`,
-so a backup that goes to another phone holds no session. A copy of the data folder holds
-none either. The rest of this section is the sealed file, which stays for a build
-without the feature, the browser, a system with no credential store like a Linux with no
-Secret Service, and a debug build, which keeps every secret in files, see `app_starter.rs`.
+turns on, the list lives in the credential store of a phone through `SecretStore`,
+under the name `session`, the Keychain on iOS and tvOS and the Keystore on Android. On
+iOS and tvOS the entry is `AfterFirstUnlockThisDeviceOnly`, so a backup that goes to
+another phone holds no session. The rest of this section is the sealed file, which stays
+for desktop, the browser and a build without the feature.
+
+A desktop never asks the credential store of its system, `FILES_BY_DEFAULT` in
+`secret_store.rs`. A Mac ties the right to read a Keychain entry to the signature of the
+binary. An app built by hand is signed only ad hoc, so each build is a new program to
+macOS and asked for the password of the login keychain at its first start. That ran from
+`b94ccc55` on 2026-10-19 until the next day. A login that went into the Keychain then is
+not read back, the user logs in once more.
 
 - A sealed file of an engine before the credential store moves in at the first load and
   is deleted, so an update logs nobody out. A bare token of an engine with 1 login moves
@@ -225,15 +235,14 @@ Secret Service, and a debug build, which keeps every secret in files, see `app_s
   next time.
 - Every write into the store also deletes a file that is still there, so an old list
   never comes back once the store is empty again.
-- Windows keeps about 2500 bytes per secret. That is a few sessions with their users.
 - A test never asks the store of its machine, `hilen-session` builds its tests with a
-  mock store in memory. `a_sealed_file_of_today_moves_into_the_credential_store` and
-  `a_bare_token_of_an_old_engine_moves_into_the_credential_store` run with
+  mock store in memory. `a_sealed_file_of_today_moves_into_the_credential_store`,
+  `a_bare_token_of_an_old_engine_moves_into_the_credential_store` and
+  `a_desktop_never_asks_the_credential_store` run with
   `cargo test -p hilen-session --features keychain`. A test of the engine that touches
   `SessionStore` calls `SecretStore::keep_in_files`, a workspace build has the feature
   on through `ui-test`.
-- Not proven on a device yet: the entry on a real iPhone, and the move on a Mac with an
-  installed release build.
+- Not proven on a device yet: the entry on a real iPhone.
 
 ## The session key
 

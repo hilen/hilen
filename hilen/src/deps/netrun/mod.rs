@@ -7,6 +7,7 @@ pub(crate) mod test_server;
 mod tests;
 #[cfg(not_wasm)]
 pub(crate) mod tls;
+pub mod transport;
 pub mod ws;
 
 pub use function::*;
