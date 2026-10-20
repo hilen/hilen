@@ -156,6 +156,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
   view, also over a scroll view that moves up and down. Read before touching
   `side_swipe.rs` or the order of the swipes in `input.rs`.
+- [docs/tab-shell.md](docs/tab-shell.md) — `TabShell`, a tab app with the bar at the
+  bottom, how its background reaches past the home bar with `UIManager::system_insets`,
+  and its tests. Read before touching `tab_shell/` or `system_insets`.
 - [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,

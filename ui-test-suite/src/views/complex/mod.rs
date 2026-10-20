@@ -40,4 +40,5 @@ mod number_view_design;
 mod point_view;
 mod question;
 mod radio_group;
+mod tab_shell;
 mod table_view_resize;

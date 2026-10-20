@@ -10,6 +10,7 @@ mod markdown;
 mod number_view;
 mod point_view;
 mod question;
+mod tab_shell;
 
 pub use alert::*;
 pub use alert_err::*;
@@ -26,3 +27,4 @@ pub use markdown::{MarkdownFonts, MarkdownListMarkers, MarkdownStyle, MarkdownVi
 pub use number_view::*;
 pub use point_view::PointView;
 pub use question::Question;
+pub use tab_shell::{TAB_BAR_HEIGHT, Tab, TabBar, TabColors, TabShell};

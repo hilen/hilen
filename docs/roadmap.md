@@ -19,6 +19,24 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A multiline label as wide as its own text wraps
+
+Found by shopping, `~/dev/apps/shopping`, on 2026-10-20. An item row sizes its quantity
+label to the text with `size_for_width(f32::MAX).width`, then asks the height at that
+width. `2 банки небольшие` measures 126.39 points wide, and at that width it breaks
+into 2 lines, in the measure and on the screen.
+
+- Current: `Label::size_for_width` in `hilen/src/ui/views/basic/label.rs` gives the
+  measured width plus `alignment_margin`, and wraps at `width - margin`, so the second
+  call wraps at exactly the measured width of the text. The font layout breaks the last
+  word there, the edge is not counted as room enough. The draw wraps at the frame width
+  the same way.
+- Needed: a text wraps at a width only when it is wider than that width. A label sized
+  to its own measure keeps 1 line, in `size_for_width` and in the draw. A unit test
+  pins it for left, right and center alignment and for a few texts and sizes.
+- Blocks: nothing today. Shopping moved its quantity to a full width line, where the
+  bug does not show. Any label sized to its own text still wraps a word too early.
+
 ## Scroll a subview of a scroll view into sight
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-19. Its sideways row of library tabs
@@ -62,9 +80,9 @@ that has a back arrow.
 - Current: `SwipeBack::set` in `hilen/src/ui/swipe_back.rs` works only for a screen
   set with `UIManager::set_view`, the one on top of the app views. Its doc and
   `docs/swipe-back.md` say a page inside a shell does not swipe. An app with a tab bar
-  or a sidebar keeps the bar and swaps the page in a `Container`, like
-  `shopping/app/src/ui/shell.rs`, `Shell::swap`, which opens a list as a `ListPage`
-  with a back arrow. That page has no way to swipe back.
+  or a sidebar keeps the bar and swaps the page in a `Container`. A tab app does it
+  through `TabShell::show_page`, like `shopping/app/src/ui/shell.rs`, which opens a
+  list as a `ListPage` with a back arrow. That page has no way to swipe back.
 - Needed:
   - A page swapped inside a container gives the engine the function that builds the
     page below, the same one its back arrow calls, like `SwipeBack::set` does for a

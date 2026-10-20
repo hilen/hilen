@@ -8,8 +8,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        ImageMode, ImageView, SideSwipe, SwipeBack, UIColor, UIManager, View, ViewData, ViewFrame,
-        ViewSubviews, WeakView, view::Setup,
+        ImageMode, ImageView, SideSwipe, SwipeBack, SystemInsets, UIColor, UIManager, View, ViewData,
+        ViewFrame, ViewSubviews, WeakView, view::Setup,
     },
     window::image::{NoImage, ToImage},
 };
@@ -261,6 +261,24 @@ impl RootView {
         }
         let size = self.screen.size();
         (0.0, 0.0, size.width, size.height).into()
+    }
+
+    /// The room between the app views and the edges of the screen, in the
+    /// points of the app views. On a phone that is the status bar and the
+    /// home bar. 0 on every side where the app views are the whole window,
+    /// on a TV, and on a test canvas.
+    pub(crate) fn system_insets(&self) -> SystemInsets {
+        if !Platform::IOS || Platform::TVOS || self.test_canvas.is_some() {
+            return SystemInsets::default();
+        }
+        let scale = 1.0 / crate::ui::UIManager::scale();
+        let (top, left) = (self.inner_pos.y, self.inner_pos.x);
+        SystemInsets {
+            top:    top * scale,
+            left:   left * scale,
+            bottom: (self.outer_size.height - top - self.inner_size.height).max(0.0) * scale,
+            right:  (self.outer_size.width - left - self.inner_size.width).max(0.0) * scale,
+        }
     }
 
     /// Where the app views start on the screen. A view added to them is

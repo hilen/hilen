@@ -31,6 +31,7 @@ mod switch_look;
 /// does nothing there.
 #[cfg(not_wasm)]
 mod system_font_fallback;
+mod tab_shell_screen_edge;
 mod title_frames;
 /// A phone and a page fill the screen, only a desktop window has an
 /// initial size.

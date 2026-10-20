@@ -45,6 +45,16 @@ static APP_READY: AtomicBool = AtomicBool::new(true);
 /// order the moment it becomes ready.
 static ON_APP_READY: Mutex<Vec<Box<dyn FnOnce() + Send>>> = Mutex::new(Vec::new());
 
+/// How far the screen goes past each edge of the app views, in points, see
+/// `UIManager::system_insets`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SystemInsets {
+    pub top:    f32,
+    pub left:   f32,
+    pub bottom: f32,
+    pub right:  f32,
+}
+
 pub struct UIManager {
     pub(crate) root_view: Own<RootView>,
 
@@ -344,6 +354,15 @@ impl UIManager {
     /// else it is the whole of the app views.
     pub fn safe_area() -> Rect {
         Self::root_view_static().safe_area()
+    }
+
+    /// The room between the app views and the edges of the screen, in their
+    /// points: the status bar and the home bar of a phone. A bar at the edge
+    /// of the app views, like the bar of a `TabShell`, paints this far past
+    /// it, so its color reaches the edge of the screen. 0 where the app
+    /// views are the whole window.
+    pub fn system_insets() -> SystemInsets {
+        Self::root_view_static().system_insets()
     }
 
     pub fn root_view() -> Weak<RootView> {
