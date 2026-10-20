@@ -19,6 +19,8 @@ mod selection_drawer;
 mod shadow;
 mod side_swipe;
 #[cfg(feature = "ui-tests")]
+mod side_swipe_slide_test;
+#[cfg(feature = "ui-tests")]
 mod side_swipe_test;
 mod style;
 mod swipe_back;

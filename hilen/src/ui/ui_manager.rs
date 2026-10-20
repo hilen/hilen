@@ -550,7 +550,11 @@ impl UIManager {
     }
 
     pub(crate) fn commit_animations() {
-        let mut animations = ANIMATIONS.lock();
+        // The steps and the finish handlers run with the list unlocked. A
+        // handler that starts the next animation, like the second leg of a
+        // slide, calls `add_animation`, which takes this lock, and froze the
+        // app while the list was still held.
+        let mut animations = std::mem::take(&mut *ANIMATIONS.lock());
 
         if animations.is_empty() {
             return;
@@ -568,7 +572,11 @@ impl UIManager {
             retain
         });
 
-        drop(animations);
+        // The ones started meanwhile go after the ones that ran.
+        let mut kept = ANIMATIONS.lock();
+        animations.append(&mut kept);
+        *kept = animations;
+        drop(kept);
 
         // An animation is live, so keep the loop drawing. This also fires once
         // after the last one finishes, so its settled and on_finish state

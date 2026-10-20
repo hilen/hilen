@@ -36,7 +36,12 @@ gets the swipe.
 
 ## Not proven yet
 
-The test runs on the desktop lane with drag scrolling on. On a real iPhone it was
-proven through banda on 2026-10-19. A sideways `ScrollView` inside a `ScrollView` that
+The test runs on the desktop lane with drag scrolling on. On a real iPhone the gesture
+was tried through banda on 2026-10-19, but not a swipe that changed the page: banda
+slides the next page in from the `on_finish` of the slide out, and that froze every app
+until 2026-10-20, `commit_animations` held the list of animations locked while it ran
+`on_finish`. `SideSwipeSlide` swipes and slides like banda, `AnimationFromFinish`
+starts an animation from `on_finish`. Both run in the smoke set and pass on the
+desktop and the iOS simulator lane. A sideways `ScrollView` inside a `ScrollView` that
 moves up and down did not scroll under a finger in a first draft of the test, which
 is likely the outer scroll that takes the finger first. That case is not checked.
