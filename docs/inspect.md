@@ -416,6 +416,12 @@ the Mac.
 - Proven on an LG C1 on 2026-10-20: `apps` listed the installed Flixen package, `find`
   read its tree, `screenshot` gave 3840x2160, and its log came in live. A `tap` was not
   tried there.
+- On 2026-10-21 a `screenshot` of a still screen on that TV never came back, and every
+  request after it waited behind it, until a key press drew a frame. On WebGL the copy
+  of the frame reaches the shot only when the device is polled, and a still page draws
+  no frame. The fix on the branch `still-page-screenshot` keeps the page drawing and
+  polling while a copy waits. It is not proven yet: the test `Shot of still page` also
+  passes without it in Firefox. The handoff is `docs/tv-emulator-handoff.md` of Flixen.
 
 ## Edit log
 

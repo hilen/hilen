@@ -73,7 +73,9 @@ see Human mode below.
 
 The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
 atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
-by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the
+by default, `BROWSER=firefox` switches. `--webgl` of the driver builds with the `webgl`
+feature and adds `hilen_webgl` to the page query, so the page draws on WebGL also where the
+browser has WebGPU, like a TV. A page has no env vars, so the autorun fires from the
 `hilen_run_tests` query flag and `hilen_test_only` narrows it the way `HILEN_TEST_ONLY` does natively.
 The report arrives over the inspect WebSocket instead of the console, and on failure the
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.

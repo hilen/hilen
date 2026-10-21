@@ -141,18 +141,25 @@ pub(crate) fn needs_render() -> bool {
     NEEDS_REDRAW.load(Ordering::Relaxed)
 }
 
-/// True while something must redraw every frame, a live animation or a loaded
-/// level. The loop keeps drawing while this holds, by the `Pacer` of the
-/// platform, then sleeps in Wait once it clears. A redraw requested from
-/// `about_to_wait` does not re-arm a loop already asleep in Wait, so a
-/// per-frame flag is not enough to keep continuous work drawing. The presence
-/// of the work is.
+/// True while something must redraw every frame, a live animation, a loaded
+/// level or a screen copy a page waits for. The loop keeps drawing while this
+/// holds, by the `Pacer` of the platform, then sleeps in Wait once it clears. A
+/// redraw requested from `about_to_wait` does not re-arm a loop already asleep
+/// in Wait, so a per-frame flag is not enough to keep continuous work drawing.
+/// The presence of the work is.
 pub(crate) fn continuous_render_active() -> bool {
     #[cfg(feature = "level")]
     let level_running = !crate::level::LevelManager::no_level();
     #[cfg(not(feature = "level"))]
     let level_running = false;
-    crate::ui::UIManager::has_live_animations() || crate::ui::loops::wants_frames() || level_running
+    #[cfg(wasm)]
+    let read_waiting = crate::window::state::reads_waiting();
+    #[cfg(not_wasm)]
+    let read_waiting = false;
+    crate::ui::UIManager::has_live_animations()
+        || crate::ui::loops::wants_frames()
+        || level_running
+        || read_waiting
 }
 
 /// The window is minimized, fully covered or on another desktop, so nothing
