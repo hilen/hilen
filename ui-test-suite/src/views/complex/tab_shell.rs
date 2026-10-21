@@ -4,7 +4,7 @@ use hilen::{
     gm::color::Color,
     refs::Weak,
     ui::{Label, Setup, Tab, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
-    ui_test::{check_colors, inject_touches},
+    ui_test::{check_colors, inject_touches, system_input::wait_until},
 };
 
 /// A color per page, so the open page shows in the pictures.
@@ -138,10 +138,10 @@ impl Setup for TabShellTest {
                 Tab::new("Friends", "tab_friends.svg"),
                 Tab::new("Account", "tab_account.svg"),
             ],
-            move |index, content| {
+            move |index| {
                 let mut test = self;
                 test.built.push(index);
-                let page = content.add_view::<Label>();
+                let page = Label::new();
                 page.set_text(format!("page {index}"))
                     .set_alignment(TextAlignment::Center)
                     .set_color(Color::hex(PAGE_COLORS[index]));
@@ -170,17 +170,32 @@ impl ViewTest for TabShellTest {
         open(view, 1)?;
 
         from_main(move || {
-            let page = view.shell.content().add_view::<Label>();
+            let page = Label::new();
             page.set_text("detail of page 1")
                 .set_alignment(TextAlignment::Center)
                 .set_color(Color::hex("#F4EED6"));
-            view.shell.show_page(page);
+            view.shell.navigation().push(page);
         });
-        wait_for_next_frame();
-        let (selected, pages) =
-            from_main(move || (view.shell.selected(), view.shell.content().subviews().len()));
+        wait_until("the detail page slid in", move || {
+            from_main(move || {
+                let stack = view.shell.navigation();
+                stack.subviews().len() == 2
+                    && stack.subviews().last().is_some_and(|top| top.x().abs() < f32::EPSILON)
+            })
+        })?;
+        let (selected, pages, stack) = from_main(move || {
+            (
+                view.shell.selected(),
+                view.shell.content().subviews().len(),
+                view.shell.navigation().subviews().len(),
+            )
+        });
         ensure!(selected == 1, "a detail page moved the mark to tab {selected}");
-        ensure!(pages == 1, "{pages} pages are in the shell after the detail page");
+        ensure!(
+            pages == 1,
+            "{pages} stacks are in the shell after the detail page"
+        );
+        ensure!(stack == 2, "the stack of the tab holds {stack} pages, not 2");
         check_colors(DETAIL_PAGE)?;
 
         let (built, opened) = from_main(move || (view.built.clone(), view.opened.clone()));

@@ -90,34 +90,6 @@ line that marks the selected tab, and a row of tabs on a phone shows no bar.
 - Blocks: the sideways tab row of flixen, which shows a bar under its tabs until then.
   Also the strip of recent posters there, which shows a bar under its captions.
 
-## Swipe back for a page inside a shell
-
-Found by shopping, `~/dev/apps/shopping`, on 2026-10-19. The user on an iPhone: "Why
-swipe to go back doesnt work?" Swipe back has to work in every app, on every screen
-that has a back arrow.
-
-- Current: `SwipeBack::set` in `hilen/src/ui/swipe_back.rs` works only for a screen
-  set with `UIManager::set_view`, the one on top of the app views. Its doc and
-  `docs/swipe-back.md` say a page inside a shell does not swipe. An app with a tab bar
-  or a sidebar keeps the bar and swaps the page in a `Container`. A tab app does it
-  through `TabShell::show_page`, like `shopping/app/src/ui/shell.rs`, which opens a
-  list as a `ListPage` with a back arrow. That page has no way to swipe back.
-- Needed:
-  - A page swapped inside a container gives the engine the function that builds the
-    page below, the same one its back arrow calls, like `SwipeBack::set` does for a
-    whole screen. 1 line per page in an app.
-  - The swipe moves only the page inside its container. The bar of the shell, like a
-    tab bar at the bottom, stays where it is, as in a native iOS tab app.
-  - The same gesture rules as `SwipeBack`: the left edge of the page, 10 points right
-    first, release past half or a fling finishes, anything else slides back, no swipe
-    with a modal open, off where `UIManager::drag_scrolling` is off.
-  - A finished swipe makes the page below the page of the container, its setup runs
-    once, and the shell learns about it through a callback, so it can update its own
-    state like the selected tab.
-  - UI tests like those of `SwipeBack`: past half, a short swipe that slides back, a
-    fling, and that the bar did not move. Then the proof on a real iPhone.
-- Blocks: swipe back in shopping, and in every app with a tab bar or a sidebar.
-
 ## Text selection on a touch screen, like native iOS
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-18, on an iPhone: "Long press just
@@ -144,36 +116,22 @@ select 1 word, i want close to native ios select".
 - Blocks: banda on iPhone, where copying part of a reply of an agent is a daily need.
   Every app with selectable text on a phone or a tablet.
 
-## Swipe back from the left edge, like a native iOS app
+## Swipe back from the left edge, the proof on a phone
 
 Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18, by the bug report SKAITYK-D
 from an iPhone: "Swipe to go back should work like in native ios app".
 
-- Current: no screen can be left by a swipe. Apps switch screens with
-  `UIManager::set_view`, which frees the old screen, and `NavigationView` is not used,
-  the skill calls it broken. Each pushed screen binds Escape to its own back function,
-  like `UIManager::keymap().add(self, NamedKey::Escape, go_back)` in
-  `skaityk/src/ui/category_view.rs`. `app_runner/window_events.rs` turns `GoBack` and
-  `BrowserBack` into Escape. Whether the Android system back gesture reaches that path
-  is not checked on a device.
+- Current: `NavigationView` owns every way back of a pushed page, the swipe, the
+  `BackButton`, Escape and the Android back, see `docs/navigation.md`. The UI tests
+  `Navigation swipe` and `Navigation shell swipe` pass on the desktop lane with drag
+  scrolling on. shopping swipes back in the iOS simulator. A real iPhone is not
+  checked, and the simulator is no proof. Whether the Android system back gesture
+  reaches Escape is not checked on a device.
 - Needed:
-  - A screen gives the engine the function that builds its back screen, the same one
-    its back arrow and Escape call. 1 line per screen in an app, `set_view` stays.
-  - A touch that starts at the left edge and moves right builds that screen under the
-    current one. The current screen follows the finger and the one below shows, like
-    the slide and the shadow of a native iOS pop.
-  - A release past half the width, or a fling to the right, finishes the switch with
-    the rest of the slide and the new screen becomes the root, like `set_view`. Any
-    other release slides the screen back and drops the one below.
-  - A scroll view, a table or a horizontal drag inside the screen does not start while
-    an edge swipe runs, and an edge swipe does not start inside a modal.
-  - Works on iPhone, iPad and Android. The Android system back runs the same back
-    function. Desktop and the browser keep the back arrow and Escape.
-  - A rebuilt back screen restores its own scroll place, the engine says so in the
-    views chapter of the skill.
-  - UI tests that drive a swipe past half, a short swipe that cancels and a fling,
-    then the proof on a real iPhone, see "The simulator is no proof".
-- Blocks: swipe back in skaityk, and in every app on hilen.
+  - The swipe, the back button and the drawing of the page below on a real iPhone,
+    with `make device`.
+  - The Android system back on a device pops the top page.
+- Blocks: the proof that swipe back works on a phone, in every app on hilen.
 
 ## The Sentry release names the version of Cargo.toml, not of hilen.toml
 

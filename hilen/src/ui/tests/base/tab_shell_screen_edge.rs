@@ -9,7 +9,7 @@ use crate::{
     gm::{LossyConvert, color::Color},
     ui::{
         DynamicColor, Label, Setup, Tab, TabColors, TabShell, TextAlignment, U8Color, UIManager, ViewData,
-        ViewSubviews, ViewTest, view,
+        ViewTest, view,
     },
     ui_test::{capture_screenshot, checkpoint},
 };
@@ -42,8 +42,8 @@ impl Setup for TabShellScreenEdge {
                 Tab::new("Lists", "tab_lists.svg"),
                 Tab::new("Friends", "tab_friends.svg"),
             ],
-            |_, content| {
-                let page = content.add_view::<Label>();
+            |_| {
+                let page = Label::new();
                 page.set_text("page").set_alignment(TextAlignment::Center).set_color(PAGE);
                 page
             },

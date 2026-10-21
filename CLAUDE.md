@@ -153,10 +153,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   project from the template, the remote as key events, the safe area an app asks for,
   stored data in the user defaults, video, and the upload. Never run on a real Apple
   TV. Read before touching platform cfg aliases, the winit pin, or anything tvOS.
-- [docs/swipe-back.md](docs/swipe-back.md) — `SwipeBack`, the swipe from the left edge that
-  leaves a screen set with `set_view`, the 2 layers of the root that hold the app views and
-  the screen under a swipe, and why the under one is a flat layer. Read before touching
-  `swipe_back.rs`, `root_view.rs` or the touch path in `input.rs`.
+- [docs/navigation.md](docs/navigation.md) — `NavigationView`, the stack that owns every
+  way back of a page: `push`, `pop`, the `BackButton`, Escape and the swipe from the left
+  edge, a stack in a shell, and why the page under a swipe is a flat layer. Read before
+  touching `navigation_view.rs`, `root_view.rs` or the touch path in `input.rs`.
 - [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
   view, also over a scroll view that moves up and down. Read before touching
   `side_swipe.rs` or the order of the swipes in `input.rs`.

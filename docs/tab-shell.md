@@ -30,11 +30,12 @@ browser, on a TV and on a test canvas.
 
 ## Pages
 
-`set_tabs` takes the tabs and a builder that adds the page of a tab to the container it
-gets. `select` builds the page of a tab, drops the page before, marks the tab and fires
-`changed`. `show_page` puts a page the app built in `content()` in place of the open one,
-the mark stays, like a detail page. A call from a view inside the open page waits 1
-frame, that view dies in the swap.
+`set_tabs` takes the tabs and a builder that makes the page of a tab. `select` builds
+the page of a tab as the first page of a new `NavigationView` in `content()`, drops the
+stack before, marks the tab and fires `changed`. A detail page is pushed on
+`navigation()`, the mark stays, and it goes back with its back button or a swipe, see
+[navigation.md](navigation.md). A call to `select` from a view inside the open page
+waits 1 frame, that view dies in the swap.
 
 ## Tests
 

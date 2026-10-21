@@ -1,6 +1,8 @@
 //! A tab app: the page on top and a bar of tabs at the bottom, like a
 //! native iOS tab app. The bar paints down to the edge of the screen, past
-//! the home bar of a phone, see `UIManager::system_insets`.
+//! the home bar of a phone, see `UIManager::system_insets`. The page of a
+//! tab is the first page of a `NavigationView`, a page pushed on it goes
+//! back with its back button or a swipe and the bar stays.
 
 mod bar;
 
@@ -9,9 +11,12 @@ use log::{debug, warn};
 pub use self::bar::TabBar;
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Own, Weak},
+        vents::Event,
+    },
     gm::color::Color,
-    ui::{Anchor, Container, DynamicColor, Setup, View, ViewData, ViewSubviews, view},
+    ui::{Anchor, Container, DynamicColor, NavigationView, Setup, View, ViewData, ViewSubviews, view},
 };
 
 /// The height of the bar above the home bar, the one of a native iOS tab bar.
@@ -56,13 +61,12 @@ impl Default for TabColors {
     }
 }
 
-/// Makes the page of a tab inside the container it gets, by the index of
-/// the tab.
-type PageBuilder = Box<dyn FnMut(usize, Weak<Container>) -> Weak<dyn View> + Send>;
+/// Makes the page of a tab, by the index of the tab.
+type PageBuilder = Box<dyn FnMut(usize) -> Own<dyn View> + Send>;
 
 /// The page of the open tab and the bar under it. A tap on a tab makes its
-/// page with the builder of `set_tabs` and drops the page before. The bar
-/// lives on, only the page is swapped.
+/// page with the builder of `set_tabs` and drops the stack before. The bar
+/// lives on, only the stack of the page is swapped.
 #[view]
 pub struct TabShell {
     /// The index of the tab that opened, after a tap or `select`.
@@ -70,7 +74,7 @@ pub struct TabShell {
 
     selected: usize,
     build:    Option<PageBuilder>,
-    page:     Option<Weak<dyn View>>,
+    stack:    Weak<NavigationView>,
 
     #[init]
     content: Container,
@@ -91,7 +95,7 @@ impl TabShell {
     pub fn set_tabs(
         mut self: Weak<Self>,
         tabs: Vec<Tab>,
-        build: impl FnMut(usize, Weak<Container>) -> Weak<dyn View> + Send + 'static,
+        build: impl FnMut(usize) -> Own<dyn View> + Send + 'static,
     ) {
         self.build = Some(Box::new(build));
         self.bar.set_tabs(tabs);
@@ -116,23 +120,24 @@ impl TabShell {
         debug!("tab {index} opens");
         self.selected = index;
         self.bar.mark(index);
-        let page = build(index, self.content);
+        let page = build(index);
         self.build = Some(build);
-        self.show_page(page);
+        if self.stack.is_ok() {
+            self.stack.remove_from_superview();
+        }
+        self.stack = self.content.add_subview(NavigationView::with_view(page));
+        self.stack.place().back();
         self.changed.trigger(index);
     }
 
-    /// Puts a page the app made in `content` in place of the open one, like
-    /// a detail page of a tab. The tab in the bar stays marked.
-    pub fn show_page(mut self: Weak<Self>, page: Weak<dyn View>) {
-        if let Some(mut old) = self.page.take() {
-            old.remove_from_superview();
-        }
-        page.place().back();
-        self.page = Some(page);
+    /// The stack of the open tab. A detail page of the tab is pushed on it,
+    /// the tab in the bar stays marked.
+    pub fn navigation(self: Weak<Self>) -> Weak<NavigationView> {
+        assert!(self.stack.is_ok(), "no tab is open, select one first");
+        self.stack
     }
 
-    /// Where a page of the app goes, for `show_page`.
+    /// Where the stack of the open tab sits.
     pub fn content(self: Weak<Self>) -> Weak<Container> {
         self.content
     }

@@ -3,11 +3,18 @@ use std::sync::mpsc::{Receiver, channel};
 use crate::{
     deps::{hreads::on_main, refs::Own},
     gm::Animation,
-    ui::{NavigationView, Touch, UIAnimation, UIManager, View, ViewData, ViewFrame, ViewSubviews},
+    ui::{
+        BackButton, NavigationView, Touch, UIAnimation, UIManager, View, ViewData, ViewFrame, ViewSubviews,
+    },
 };
 
 pub trait ViewController {
     fn navigation(&self) -> Weak<NavigationView>;
+    /// The way back of the pushed page this view is in, made by its
+    /// navigation stack. The page places it and sets its look, a tap on it
+    /// pops the page like the swipe from the left edge does. The first page
+    /// of a stack has none.
+    fn back_button(&self) -> Weak<BackButton>;
     fn present(self: Weak<Self>, view: Own<dyn View>) -> Receiver<()>;
 }
 
@@ -29,6 +36,10 @@ impl<T: ?Sized + View + 'static> ViewController for T {
         } else {
             self.superview().navigation()
         }
+    }
+
+    fn back_button(&self) -> Weak<BackButton> {
+        self.navigation().back_button_of(self.weak_view())
     }
 
     /// Present new view replacing and deallocating current one

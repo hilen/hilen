@@ -80,8 +80,8 @@ static PHASE: MainLock<Phase> = MainLock::new();
 /// scroll view with room to the side or a `CanvasView`, starts no swipe.
 /// It works where a finger drags the content, see
 /// `UIManager::drag_scrolling`, so on a phone and a tablet, never on a TV
-/// and not over an open modal. The swipe back from the left edge,
-/// `SwipeBack`, is asked first.
+/// and not over an open modal. The swipe back from the left edge of a
+/// `NavigationView` is asked first.
 pub struct SideSwipe;
 
 impl SideSwipe {

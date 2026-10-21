@@ -10,6 +10,10 @@ mod label_effect;
 mod layout;
 pub(crate) mod loops;
 mod modal_view;
+#[cfg(feature = "ui-tests")]
+mod navigation_shell_swipe_test;
+#[cfg(feature = "ui-tests")]
+mod navigation_swipe_test;
 mod navigation_view;
 pub(crate) mod privacy_cover;
 #[cfg(feature = "ui-tests")]
@@ -23,9 +27,6 @@ mod side_swipe_slide_test;
 #[cfg(feature = "ui-tests")]
 mod side_swipe_test;
 mod style;
-mod swipe_back;
-#[cfg(feature = "ui-tests")]
-mod swipe_back_test;
 #[cfg(feature = "ui-tests")]
 mod tests;
 mod text_field_constraint;
@@ -65,7 +66,6 @@ pub use self::{
     shadow::*,
     side_swipe::{SideSwipe, SideSwipeEnd, SideSwipeEvent},
     style::*,
-    swipe_back::SwipeBack,
     text_field_constraint::*,
     text_selection::TextSelection,
     theme::*,

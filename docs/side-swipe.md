@@ -29,8 +29,8 @@ gets the swipe.
 - A finger that comes down on a view that moves sideways by itself starts no swipe:
   a `ScrollView` with room to the side, a `CanvasView` and a `SceneView`. They answer
   `__moves_sideways` of `Scrollable`.
-- `Input` asks `SwipeBack` first, so a finger at the left edge of a screen that moves
-  right is the swipe back.
+- `Input` asks the swipe of `NavigationView` first, so a finger at the left edge of a
+  stack that moves right is the swipe back, see [navigation.md](navigation.md).
 - It runs where `UIManager::drag_scrolling` is on, never on tvOS and not while a modal
   or another overlay is open.
 

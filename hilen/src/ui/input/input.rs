@@ -16,7 +16,7 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, PinchInput, Scrollable, Setup, SideSwipe, SwipeBack,
+        Container, Cursor, Focus, LongPress, Mouse, NavigationView, PinchInput, Scrollable, Setup, SideSwipe,
         TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
         check_touch, depth_key, press_keeps_selection,
     },
@@ -237,8 +237,9 @@ impl Input {
             return true;
         }
 
-        // A swipe from the left edge takes the finger once it moves right.
-        if SwipeBack::swallow(&touch) {
+        // A swipe from the left edge of a navigation stack takes the finger
+        // once it moves right.
+        if NavigationView::swallow(&touch) {
             SideSwipe::reset();
             return true;
         }
