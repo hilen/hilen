@@ -13,24 +13,49 @@
 # the texture draws the whole quad as a rough metal. The origin is at
 # the middle of the quad, nothing else is in the file.
 
-import bpy, sys
+import sys
+from typing import Final
 
-dst = sys.argv[sys.argv.index("--") + 1]
+import bpy
 
-TEXELS = 64
-HALF_WIDTH = 2.0
-HALF_HEIGHT = 1.0
+TEXELS: Final = 64
+HALF_WIDTH: Final = 2.0
+HALF_HEIGHT: Final = 1.0
 # Linear light, what the exporter writes as the base color factor.
-BASE = (0.9, 0.35, 0.08, 1.0)
-METAL_ROUGHNESS = 0.15
-OCCLUDED = 0.25
+BASE: Final = (0.9, 0.35, 0.08, 1.0)
+METAL_ROUGHNESS: Final = 0.15
+OCCLUDED: Final = 0.25
 
 
-def orm_image():
-    """Red is the occlusion, green the roughness, blue the metallic."""
+def present[T](value: T | None, what: str) -> T:
+    if value is None:
+        msg = f"{what} is missing"
+        raise ValueError(msg)
+    return value
+
+
+def new_node[T: bpy.types.Node](tree: bpy.types.ShaderNodeTree, kind: type[T]) -> T:
+    node = tree.nodes.new(kind.__name__)
+    if not isinstance(node, kind):
+        msg = f"{kind.__name__} made a {type(node).__name__}"
+        raise TypeError(msg)
+    return node
+
+
+def principled(tree: bpy.types.ShaderNodeTree) -> bpy.types.ShaderNodeBsdfPrincipled:
+    node = tree.nodes["Principled BSDF"]
+    if not isinstance(node, bpy.types.ShaderNodeBsdfPrincipled):
+        msg = f"Principled BSDF is a {type(node).__name__}"
+        raise TypeError(msg)
+    return node
+
+
+# Red is the occlusion, green the roughness, blue the metallic.
+def orm_image() -> bpy.types.Image:
     image = bpy.data.images.new("MetalRough", TEXELS, TEXELS, alpha=False)
-    image.colorspace_settings.name = "Non-Color"
-    pixels = []
+    # The same as the colorspace name "Non-Color", which the stubs do not know.
+    present(image.colorspace_settings, "colorspace").is_data = True
+    pixels: list[float] = []
     # Blender rows run from the bottom up, the same way as the uv.
     for y in range(TEXELS):
         for x in range(TEXELS):
@@ -38,53 +63,68 @@ def orm_image():
             occlusion = OCCLUDED if y < TEXELS // 2 else 1.0
             roughness = METAL_ROUGHNESS if metal else 1.0
             pixels.extend((occlusion, roughness, 1.0 if metal else 0.0, 1.0))
-    image.pixels = pixels
+    image.pixels[:] = pixels
     image.pack()
     return image
 
 
-def occlusion_output():
-    """The node group the glTF exporter reads the occlusion from."""
+# The node group the glTF exporter reads the occlusion from. A new socket
+# is a float by default.
+def occlusion_output() -> bpy.types.ShaderNodeTree:
     group = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
-    group.interface.new_socket("Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
+    if not isinstance(group, bpy.types.ShaderNodeTree):
+        msg = f"the occlusion group is a {type(group).__name__}"
+        raise TypeError(msg)
+    present(group.interface, "group interface").new_socket("Occlusion", in_out="INPUT")
     return group
 
 
-def material(image):
+def material(image: bpy.types.Image) -> bpy.types.Material:
     mat = bpy.data.materials.new("MetalRough")
     mat.use_nodes = True
-    nodes, links = mat.node_tree.nodes, mat.node_tree.links
-    bsdf = nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = BASE
-    texture = nodes.new("ShaderNodeTexImage")
+    tree = present(mat.node_tree, "node tree")
+    links = tree.links
+    bsdf = present(principled(tree).inputs, "BSDF inputs")
+    bsdf["Base Color"].default_value[:] = BASE
+    texture = new_node(tree, bpy.types.ShaderNodeTexImage)
     texture.image = image
-    separate = nodes.new("ShaderNodeSeparateColor")
-    links.new(texture.outputs["Color"], separate.inputs["Color"])
-    links.new(separate.outputs["Green"], bsdf.inputs["Roughness"])
-    links.new(separate.outputs["Blue"], bsdf.inputs["Metallic"])
-    output = nodes.new("ShaderNodeGroup")
+    separate = new_node(tree, bpy.types.ShaderNodeSeparateColor)
+    channels = present(separate.outputs, "separate outputs")
+    links.new(
+        present(texture.outputs, "texture outputs")["Color"],
+        present(separate.inputs, "separate inputs")["Color"],
+    )
+    links.new(channels["Green"], bsdf["Roughness"])
+    links.new(channels["Blue"], bsdf["Metallic"])
+    output = new_node(tree, bpy.types.ShaderNodeGroup)
     output.node_tree = occlusion_output()
-    links.new(separate.outputs["Red"], output.inputs["Occlusion"])
+    links.new(channels["Red"], present(output.inputs, "group inputs")["Occlusion"])
     return mat
 
 
-bpy.ops.wm.read_factory_settings(use_empty=True)
+def main():
+    dst = sys.argv[sys.argv.index("--") + 1]
+    bpy.ops.wm.read_factory_settings(use_empty=True)
 
-mesh = bpy.data.meshes.new("Quad")
-# Blender is z up and its front is minus y, so the quad faces minus y.
-corners = [
-    (-HALF_WIDTH, 0.0, -HALF_HEIGHT),
-    (HALF_WIDTH, 0.0, -HALF_HEIGHT),
-    (HALF_WIDTH, 0.0, HALF_HEIGHT),
-    (-HALF_WIDTH, 0.0, HALF_HEIGHT),
-]
-mesh.from_pydata(corners, [], [(0, 1, 2, 3)])
-uv = mesh.uv_layers.new(name="UVMap")
-for loop, point in zip(uv.data, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]):
-    loop.uv = point
-mesh.materials.append(material(orm_image()))
-obj = bpy.data.objects.new("Quad", mesh)
-bpy.context.scene.collection.objects.link(obj)
+    mesh = bpy.data.meshes.new("Quad")
+    # Blender is z up and its front is minus y, so the quad faces minus y.
+    corners = [
+        (-HALF_WIDTH, 0.0, -HALF_HEIGHT),
+        (HALF_WIDTH, 0.0, -HALF_HEIGHT),
+        (HALF_WIDTH, 0.0, HALF_HEIGHT),
+        (-HALF_WIDTH, 0.0, HALF_HEIGHT),
+    ]
+    mesh.from_pydata(corners, [], [(0, 1, 2, 3)])
+    uv = mesh.uv_layers.new(name="UVMap")
+    for loop, point in zip(uv.data, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)], strict=True):
+        loop.uv = point
+    mesh.materials.append(material(orm_image()))
+    obj = bpy.data.objects.new("Quad", mesh)
+    present(bpy.context.scene, "scene").collection.objects.link(obj)
 
-bpy.ops.wm.save_as_mainfile(filepath=dst)
-print("SAVED", dst)
+    bpy.ops.wm.save_as_mainfile(filepath=dst)
+    print("SAVED", dst)
+
+
+if __name__ == "__main__":
+    main()

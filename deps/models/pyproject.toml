@@ -1,0 +1,46 @@
+# The Blender scripts that build and export the model fixtures. They run in
+# the Python that ships with Blender, never through uv. This project is only
+# here so ty and ruff check them, with the types of bpy from fake-bpy-module.
+[project]
+name = "hilen-models"
+version = "0.0.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "fake-bpy-module-5-2>=20260730",
+    "ruff>=0.17.1",
+    "ty>=0.0.90",
+]
+
+[tool.ruff]
+# Blender 5.2 ships Python 3.13.
+target-version = "py313"
+line-length = 100
+include = ["*.py"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Comments only for a why, no docstrings.
+    "D",
+    # Scripts print to the terminal.
+    "T201",
+    # Conflicts with `ruff format`.
+    "COM812",
+    # The scripts are not a package.
+    "INP001",
+    # No copyright headers.
+    "CPY001",
+]
+
+[tool.ruff.lint.flake8-annotations]
+# No `-> None`, like a Rust fn without a return type.
+suppress-none-returning = true
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+all = "error"

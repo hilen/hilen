@@ -10,49 +10,93 @@
 # uses, the old engine applied textures itself and those files carry the
 # image without a node.
 
-import bpy, os, sys
+import sys
+from collections.abc import Sequence
+from pathlib import Path
 
-src = sys.argv[sys.argv.index("--") + 1]
-dst = os.path.splitext(src)[0] + ".glb"
-bpy.ops.wm.open_mainfile(filepath=src)
+import bpy
 
-packed = [image for image in bpy.data.images if image.packed_file is not None]
-for material in bpy.data.materials:
-    if not material.use_nodes:
-        continue
-    nodes = material.node_tree.nodes
-    output = next((node for node in nodes if node.type == "OUTPUT_MATERIAL" and node.is_active_output), None)
-    if output is None:
-        continue
-    output.target = "ALL"
-    surface = output.inputs["Surface"]
-    if len(packed) != 1 or not surface.is_linked or any(node.type == "TEX_IMAGE" for node in nodes):
-        continue
-    shader = surface.links[0].from_node
+
+def present[T](value: T | None, what: str) -> T:
+    if value is None:
+        msg = f"{what} is missing"
+        raise ValueError(msg)
+    return value
+
+
+def new_node[T: bpy.types.Node](tree: bpy.types.ShaderNodeTree, kind: type[T]) -> T:
+    node = tree.nodes.new(kind.__name__)
+    if not isinstance(node, kind):
+        msg = f"{kind.__name__} made a {type(node).__name__}"
+        raise TypeError(msg)
+    return node
+
+
+def active_output(tree: bpy.types.ShaderNodeTree) -> bpy.types.ShaderNodeOutputMaterial | None:
+    for node in tree.nodes:
+        if isinstance(node, bpy.types.ShaderNodeOutputMaterial) and node.is_active_output:
+            return node
+    return None
+
+
+def link_packed_image(
+    tree: bpy.types.ShaderNodeTree, surface: bpy.types.NodeSocket, image: bpy.types.Image
+):
+    if not surface.is_linked or any(
+        isinstance(node, bpy.types.ShaderNodeTexImage) for node in tree.nodes
+    ):
+        return
+    shader = present(present(surface.links, "surface links")[0].from_node, "shader")
     color = shader.inputs.get("Base Color") or shader.inputs.get("Color")
     if color is None:
-        continue
-    texture = nodes.new("ShaderNodeTexImage")
-    texture.image = packed[0]
-    material.node_tree.links.new(texture.outputs["Color"], color)
+        return
+    texture = new_node(tree, bpy.types.ShaderNodeTexImage)
+    texture.image = image
+    tree.links.new(present(texture.outputs, "texture outputs")["Color"], color)
 
-bpy.ops.export_scene.gltf(
-    filepath=dst,
-    export_format="GLB",
-    export_apply=True,
-    export_animations=True,
-    export_skins=True,
-    export_morph=False,
-    export_cameras=False,
-    export_lights=False,
-    export_yup=True,
-    export_texcoords=True,
-    export_normals=True,
-    export_tangents=False,
-    export_materials="EXPORT",
-    # A png texture is megabytes in the repo, a jpeg a fraction of that.
-    export_image_format="JPEG",
-    export_jpeg_quality=85,
-    use_selection=False,
-)
-print("EXPORTED", dst, os.path.getsize(dst))
+
+def fix_material(material: bpy.types.Material, packed: Sequence[bpy.types.Image]):
+    tree = material.node_tree
+    if not material.use_nodes or tree is None:
+        return
+    output = active_output(tree)
+    if output is None:
+        return
+    output.target = "ALL"
+    if len(packed) == 1:
+        link_packed_image(tree, present(output.inputs, "output inputs")["Surface"], packed[0])
+
+
+def main():
+    src = Path(sys.argv[sys.argv.index("--") + 1])
+    dst = src.with_suffix(".glb")
+    bpy.ops.wm.open_mainfile(filepath=str(src))
+
+    packed = tuple(image for image in bpy.data.images if image.packed_file is not None)
+    for material in bpy.data.materials:
+        fix_material(material, packed)
+
+    bpy.ops.export_scene.gltf(
+        filepath=str(dst),
+        export_format="GLB",
+        export_apply=True,
+        export_animations=True,
+        export_skins=True,
+        export_morph=False,
+        export_cameras=False,
+        export_lights=False,
+        export_yup=True,
+        export_texcoords=True,
+        export_normals=True,
+        export_tangents=False,
+        export_materials="EXPORT",
+        # A png texture is megabytes in the repo, a jpeg a fraction of that.
+        export_image_format="JPEG",
+        export_jpeg_quality=85,
+        use_selection=False,
+    )
+    print("EXPORTED", dst, dst.stat().st_size)
+
+
+if __name__ == "__main__":
+    main()

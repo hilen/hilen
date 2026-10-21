@@ -131,6 +131,13 @@ ci:
 	cd build && uv run -q ruff check .
 	cd build && uv run -q ty check
 	cd build && uv run -q pytest -q
+	# The Blender scripts, typed with the stubs of fake-bpy-module.
+	cd deps/models && uv run -q ruff format --check .
+	cd deps/models && uv run -q ruff check .
+	cd deps/models && uv run -q ty check
+	# ty sees only the files of a project, a Python file anywhere else slips past it.
+	@if git ls-files '*.py' | grep -v '^deps/models/'; then \
+		echo "a Python file outside build and deps/models, ty does not check it"; exit 1; fi
 
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings
