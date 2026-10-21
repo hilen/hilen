@@ -78,6 +78,11 @@ camera = [
 # through LocalAuthentication on macOS and iOS, see docs/biometric.md.
 # Every other system answers that the device cannot. Off by default.
 biometric = ["dep:futures-channel", "dep:objc2-local-authentication"]
+# Remote notifications from APNs on iOS, the permission, the device token
+# and the tap on a push, see docs/push.md. Every other system answers that
+# it has no push. Off by default, an app with no push links no
+# UserNotifications and no call to register for it.
+push = ["dep:futures-channel", "dep:objc2-user-notifications"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
@@ -298,6 +303,7 @@ objc2-foundation = { workspace = true }
 objc2-media-player = { workspace = true }
 objc2-quartz-core = { workspace = true }
 objc2-ui-kit = { workspace = true }
+objc2-user-notifications = { workspace = true, optional = true }
 wgpu-hal = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]

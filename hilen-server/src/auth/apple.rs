@@ -3,24 +3,17 @@
 //! they are. `revoke` ends what Apple gave out, for a user who deletes the
 //! account.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use anyhow::{Context, Result, anyhow, bail};
-use base64::{
-    Engine,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
+use anyhow::{Context, Result, bail};
 use reqwest::{Client, Url};
-use ring::{
-    rand::SystemRandom,
-    signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair},
-};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, to_vec};
+use serde_json::from_str;
 
-use crate::auth::{
-    AppleConfig, AuthConfig,
-    identity::{Identity, Provider, claims_of},
+use crate::{
+    apple_key::{now, signed_token},
+    auth::{
+        AppleConfig, AuthConfig,
+        identity::{Identity, Provider, claims_of},
+    },
 };
 
 /// Who the client secret is for, the `aud` of its token.
@@ -115,19 +108,6 @@ async fn post_form(http: &Client, url: &str, fields: &[(&str, &str)]) -> Result<
     Ok(body)
 }
 
-fn now() -> Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("the clock is before 1970")?
-        .as_secs())
-}
-
-#[derive(Serialize)]
-struct SecretHeader<'a> {
-    alg: &'a str,
-    kid: &'a str,
-}
-
 #[derive(Serialize)]
 struct SecretClaims<'a> {
     iss: &'a str,
@@ -140,10 +120,6 @@ struct SecretClaims<'a> {
 /// Apple has no fixed client secret. It is a token the server signs with its
 /// Apple key, ES256, that says which team and which service id ask.
 fn client_secret(apple: &AppleConfig, now: u64) -> Result<String> {
-    let header = SecretHeader {
-        alg: "ES256",
-        kid: &apple.key_id,
-    };
     let claims = SecretClaims {
         iss: &apple.team_id,
         iat: now,
@@ -151,30 +127,7 @@ fn client_secret(apple: &AppleConfig, now: u64) -> Result<String> {
         aud: AUDIENCE,
         sub: &apple.service_id,
     };
-    let message = format!(
-        "{}.{}",
-        URL_SAFE_NO_PAD.encode(to_vec(&header)?),
-        URL_SAFE_NO_PAD.encode(to_vec(&claims)?)
-    );
-
-    let random = SystemRandom::new();
-    let key = EcdsaKeyPair::from_pkcs8(
-        &ECDSA_P256_SHA256_FIXED_SIGNING,
-        &key_bytes(&apple.private_key)?,
-        &random,
-    )
-    .map_err(|error| anyhow!("the Apple private key is not a P-256 key: {error}"))?;
-    let signature = key
-        .sign(&random, message.as_bytes())
-        .map_err(|error| anyhow!("the Apple client secret was not signed: {error}"))?;
-
-    Ok(format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature)))
-}
-
-/// The bytes inside the `.p8` file Apple hands out, a PEM text.
-fn key_bytes(pem: &str) -> Result<Vec<u8>> {
-    let base64: String = pem.lines().map(str::trim).filter(|line| !line.starts_with("-----")).collect();
-    STANDARD.decode(base64).context("the Apple private key is not a PEM text")
+    signed_token(&apple.private_key, &apple.key_id, &claims)
 }
 
 #[derive(Deserialize)]
@@ -261,17 +214,6 @@ fn name_of(user: &str) -> Option<String> {
     (!full.is_empty()).then_some(full)
 }
 
-/// A fresh key the way Apple hands one out, a PEM text.
-#[cfg(test)]
-pub(crate) fn test_key() -> Result<String> {
-    let document = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &SystemRandom::new())
-        .map_err(|error| anyhow!("no test key: {error}"))?;
-    Ok(format!(
-        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-        STANDARD.encode(document)
-    ))
-}
-
 #[cfg(test)]
 mod test {
     use anyhow::{Result, anyhow};
@@ -284,8 +226,11 @@ mod test {
         },
     };
 
-    use super::{auth_url, client_secret, identity_of, key_bytes, name_of, test_key};
-    use crate::auth::{AppleConfig, AuthConfig};
+    use super::{auth_url, client_secret, identity_of, name_of};
+    use crate::{
+        apple_key::{key_bytes, test_key},
+        auth::{AppleConfig, AuthConfig},
+    };
 
     fn apple(private_key: &str) -> AppleConfig {
         AppleConfig::new("com.example.web", "TEAM123456", "KEY1234567", private_key)

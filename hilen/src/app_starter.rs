@@ -175,7 +175,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         }
         crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
 
-        crate::system::links::install_platform_handlers();
+        crate::system::install_platform_handlers();
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
         run_app(event_loop, app);

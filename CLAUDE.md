@@ -51,7 +51,7 @@ report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `biometric` is a check of the finger or the face of the user, Touch ID and Face ID, see [docs/biometric.md](docs/biometric.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `video` is video
+with their shaders. `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `biometric` is a check of the finger or the face of the user, Touch ID and Face ID, see [docs/biometric.md](docs/biometric.md). `push` is remote notifications from APNs on iOS, see [docs/push.md](docs/push.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
 through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, the sound levels of a file for a waveform, a list of pieces played as 1 video with a volume per piece and music under it, and the export to an mp4 file with pictures and texts drawn over it, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `hot` is hot reload in the iOS and the Apple TV simulator, on a real iPhone and on a real Apple TV, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
@@ -121,6 +121,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/links.md](docs/links.md) — links that open the app: `Links::on_open`, the `[links]` table
   of `hilen.toml`, what each platform does, and `AppLinks` in `hilen-server` that serves the 2
   well-known files. Read before touching `hilen/src/system/links`, `app_links.rs` or a link flow.
+- [docs/push.md](docs/push.md) — the `push` feature: `Push::request`, `on_token` and `on_open`,
+  the `push` key of the `[ios]` table, the push methods of the iOS app delegate, and `Apns` in
+  `hilen-server` that sends through APNs. Read before touching `hilen/src/push`,
+  `hilen/src/system/ios_delegate.rs` or `hilen-server/src/push`.
 - [docs/widgets.md](docs/widgets.md) — a home screen widget and a Live Activity on iOS: the
   `[widget]` table of `hilen.toml`, the Swift folders of the app, the shared keychain group and
   `SecretStore::shared`. Read before touching `hilen-mobile/src/widget` or a widget of an app.

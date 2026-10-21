@@ -3,20 +3,13 @@
 //! `hilen-mobile` writes the associated domains entitlement and the scheme.
 //! iOS gives such a link to the delegate of the app, as
 //! `application:continueUserActivity:restorationHandler:` and
-//! `application:openURL:options:`.
+//! `application:openURL:options:`. The delegate is in `ios_delegate`.
 //!
-//! winit starts `UIApplicationMain` with no delegate, so the engine sets its
-//! own when the launch is over, in the notification of it. The link of a
-//! cold start is in that notification too. iOS may give the same link to the
-//! delegate again after it, that second copy is dropped.
+//! The link of a cold start is in the launch notification. iOS may give the
+//! same link to the delegate again after it, that second copy is dropped.
 
 use log::{debug, warn};
-use objc2::{
-    MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
-    rc::Retained,
-    runtime::{AnyObject, Bool, NSObject},
-    sel,
-};
+use objc2::{msg_send, rc::Retained, runtime::AnyObject};
 use objc2_foundation::{NSString, NSURL};
 
 use crate::deps::refs::main_lock::MainLock;
@@ -27,57 +20,31 @@ static LAUNCH_LINK: MainLock<Option<String>> = MainLock::new();
 
 const BROWSING_WEB: &str = "NSUserActivityTypeBrowsingWeb";
 
-define_class!(
-    // SAFETY: NSObject has no subclassing requirements and the class has no
-    // Drop.
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "HilenAppDelegate"]
-    struct AppDelegate;
-
-    impl AppDelegate {
-        #[unsafe(method(didFinishLaunching:))]
-        fn did_finish_launching(&self, notification: &AnyObject) {
-            // SAFETY: the shared application exists once it has launched.
-            let app: Retained<AnyObject> = unsafe { msg_send![class!(UIApplication), sharedApplication] };
-            let current: Option<Retained<AnyObject>> = unsafe { msg_send![&app, delegate] };
-            if current.is_some() {
-                warn!("the app has a delegate already, it gets no link");
-                return;
-            }
-            // SAFETY: the delegate property does not keep the object, and
-            // this one is never released, see `install`.
-            unsafe {
-                let _: () = msg_send![&app, setDelegate: self];
-            }
-
-            if let Some(url) = launch_link(notification) {
-                *LAUNCH_LINK.get_mut() = Some(url.clone());
-                super::receive(url, "the launch of iOS");
-            }
-        }
-
-        #[unsafe(method(application:openURL:options:))]
-        fn open_url(&self, _app: &AnyObject, url: &NSURL, _options: &AnyObject) -> Bool {
-            match url.absoluteString() {
-                Some(url) => take(url.to_string(), "openURL of iOS"),
-                None => warn!("iOS opened the app for a link with no text"),
-            }
-            Bool::YES
-        }
-
-        #[unsafe(method(application:continueUserActivity:restorationHandler:))]
-        fn continue_activity(&self, _app: &AnyObject, activity: &AnyObject, _restore: *mut AnyObject) -> Bool {
-            match activity_link(activity) {
-                Some(url) => {
-                    take(url, "a universal link of iOS");
-                    Bool::YES
-                }
-                None => Bool::NO,
-            }
-        }
+/// The launch is over, `notification` is the one of it.
+pub(crate) fn launched(notification: &AnyObject) {
+    if let Some(url) = launch_link(notification) {
+        *LAUNCH_LINK.get_mut() = Some(url.clone());
+        super::receive(url, "the launch of iOS");
     }
-);
+}
+
+pub(crate) fn open_url(url: &NSURL) {
+    match url.absoluteString() {
+        Some(url) => take(url.to_string(), "openURL of iOS"),
+        None => warn!("iOS opened the app for a link with no text"),
+    }
+}
+
+/// `false` for a user activity that is no link.
+pub(crate) fn continue_activity(activity: &AnyObject) -> bool {
+    match activity_link(activity) {
+        Some(url) => {
+            take(url, "a universal link of iOS");
+            true
+        }
+        None => false,
+    }
+}
 
 /// A link from the delegate, unless it is the one the launch gave already.
 fn take(url: String, source: &str) {
@@ -120,38 +87,5 @@ fn launch_link(notification: &AnyObject) -> Option<String> {
         let key = NSString::from_str("UIApplicationLaunchOptionsUserActivityKey");
         let activity: Option<Retained<AnyObject>> = msg_send![&activities, objectForKey: &*key];
         activity_link(&*activity?)
-    }
-}
-
-/// Runs before the event loop starts `UIApplicationMain`, on the main
-/// thread. A hot build runs in a loader app that launched long ago and has
-/// its own delegate, it gets no link.
-pub(crate) fn install() {
-    let Some(mtm) = MainThreadMarker::new() else {
-        warn!("the app delegate needs the main thread, the app gets no link");
-        return;
-    };
-    // SAFETY: nil before `UIApplicationMain`.
-    let running: Option<Retained<AnyObject>> = unsafe { msg_send![class!(UIApplication), sharedApplication] };
-    if running.is_some() {
-        debug!("the app runs inside another one, it gets no link");
-        return;
-    }
-    // SAFETY: `init` of NSObject, and the observer method takes 1 object,
-    // the notification.
-    unsafe {
-        let delegate: Retained<AppDelegate> = msg_send![AppDelegate::alloc(mtm), init];
-        let center: Retained<AnyObject> = msg_send![class!(NSNotificationCenter), defaultCenter];
-        let name = NSString::from_str("UIApplicationDidFinishLaunchingNotification");
-        let _: () = msg_send![
-            &center,
-            addObserver: &*delegate,
-            selector: sel!(didFinishLaunching:),
-            name: &*name,
-            object: None::<&AnyObject>
-        ];
-        // Neither the center nor the application keeps the delegate, and it
-        // has to answer for the whole life of the app.
-        std::mem::forget(delegate);
     }
 }

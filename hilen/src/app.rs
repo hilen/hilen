@@ -206,8 +206,8 @@ pub extern "Rust" fn hilen_app_build_time() -> u64 {
 }
 
 // An iOS app is a static library and always has `register_app!`, like
-// `hilen_create_app` above.
-#[cfg(ios)]
+// `hilen_create_app` above. Only the inspect service reads it.
+#[cfg(all(ios, feature = "inspect"))]
 unsafe extern "Rust" {
     pub(crate) safe fn hilen_app_build_time() -> u64;
 }

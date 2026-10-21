@@ -80,6 +80,8 @@ pub mod level;
 pub mod login;
 #[cfg(feature = "midi")]
 pub mod midi;
+#[cfg(feature = "push")]
+pub mod push;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;

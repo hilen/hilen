@@ -7,6 +7,8 @@ pub(crate) mod app_activity;
 #[cfg(feature = "login")]
 pub(crate) mod browser_sheet;
 mod clipboard;
+#[cfg(target_os = "ios")]
+mod ios_delegate;
 pub(crate) mod links;
 mod locale;
 mod media_session;
@@ -31,5 +33,13 @@ pub use screen_awake::ScreenAwake;
 #[cfg(mobile)]
 pub(crate) use screen_awake::keep_on_for_tests;
 pub use update_state::{UpdatePhase, UpdateState};
+
+/// Sets the handlers of the system that need the event loop, before the app
+/// handler runs: the app delegate of iOS for links and push. The call is
+/// empty elsewhere.
+pub(crate) fn install_platform_handlers() {
+    #[cfg(target_os = "ios")]
+    ios_delegate::install();
+}
 pub(crate) use updater::app_update_source;
 pub use updater::{DEFAULT_UPDATE_HOST, UpdateArtifact, UpdateInfo, UpdateManifest, UpdateSource, Updater};

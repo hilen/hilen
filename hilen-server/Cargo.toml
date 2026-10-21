@@ -26,6 +26,7 @@ hex                         = { workspace = true }
 metrics                     = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 mime_guess                  = { workspace = true }
+parking_lot                 = { workspace = true }
 project-proc                = { workspace = true }
 redis                       = { workspace = true }
 reqwest                     = { workspace = true }

@@ -27,7 +27,10 @@ use sha2::{Digest, Sha256};
 use tokio::{net::TcpListener, spawn};
 use tower::ServiceExt;
 
-use crate::auth::{AppleConfig, AuthConfig, AuthState, apple::test_key, auth_routes, store_test::sqlite};
+use crate::{
+    apple_key::test_key,
+    auth::{AppleConfig, AuthConfig, AuthState, auth_routes, store_test::sqlite},
+};
 
 #[derive(Serialize)]
 struct Tokens {

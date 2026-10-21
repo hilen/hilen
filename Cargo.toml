@@ -161,11 +161,12 @@ objc2-core-media = { version = "0.3", default-features = false, features = ["std
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDate", "NSDictionary", "NSError", "NSException", "NSProcessInfo", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDate", "NSDictionary", "NSError", "NSException", "NSJSONSerialization", "NSProcessInfo", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
 objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LABiometryType", "LAContext", "LAError"] }
 objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CALayer", "CAMediaTiming", "CATransaction", "objc2-core-foundation"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNUserNotificationCenter"] }
 open = "5.4"
 # Already in the build through sentry-contexts on Windows, the engine reads the
 # Windows version and edition from it for a Sentry event.

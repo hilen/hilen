@@ -11,7 +11,7 @@ mod android;
 #[cfg(desktop)]
 mod desktop;
 #[cfg(target_os = "ios")]
-mod ios;
+pub(crate) mod ios;
 #[cfg(macos)]
 mod macos;
 #[cfg(wasm)]
@@ -35,13 +35,6 @@ static ON_OPEN: UIEvent<OpenedLink> = UIEvent::const_new();
 
 /// Links that came while nobody listened, oldest first.
 static PENDING: Mutex<Vec<OpenedLink>> = Mutex::new(Vec::new());
-
-/// Sets the link handlers of the system that need the event loop, before the
-/// app handler runs. Only iOS has some, the call is empty elsewhere.
-pub(crate) fn install_platform_handlers() {
-    #[cfg(target_os = "ios")]
-    ios::install();
-}
 
 /// A link that opened the app.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -19,6 +19,25 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Push on Android, in a browser and on a desktop
+
+Found by shopping, `~/dev/apps/shopping`, on 2026-10-21. Shopping sends a push for a
+friend request, a shared list, an added item and a purchase.
+
+- Current: the `push` feature of `hilen` takes pushes from APNs on iOS only, see
+  `docs/push.md`. `Push::request` answers with an error on every other system, in
+  `hilen/src/push/none.rs`. `hilen-server/src/push` sends only to APNs.
+- Needed:
+  - Android: Firebase Cloud Messaging, the token, the permission of Android 13 and
+    newer, the tap, and an FCM sender in `hilen-server`. The `hilen-mobile` Android
+    project needs the Firebase setup.
+  - A browser: Web Push with a service worker and VAPID keys, and its sender.
+  - macOS: the same `UNUserNotificationCenter` and APNs as iOS, with the entitlement in
+    the Mac bundle.
+  - Windows and Linux: a desktop app runs only while it is open, so a push there is a
+    message the open app gets from its backend and shows as a system notification.
+- Blocks: push in shopping on every system but iOS.
+
 ## A multiline label as wide as its own text wraps
 
 Found by shopping, `~/dev/apps/shopping`, on 2026-10-20. An item row sizes its quantity
