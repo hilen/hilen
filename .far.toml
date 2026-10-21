@@ -1,0 +1,3 @@
+# Built per machine, so they must not travel. `make ci` runs from here, and
+# without this the .venv of the builder comes back with every run.
+skip = [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"]

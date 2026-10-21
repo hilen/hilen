@@ -41,6 +41,9 @@ jobs:
         with:
           tool: typos-cli@1.48.0,cargo-machete@0.9.2
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10
+
       - name: Run quality checks
         run: make ci
 
@@ -172,11 +175,11 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10
 
       - name: Run UI tests on the iOS simulator
-        run: rust ./build/ios/sim-test.rs
+        run: uv run -q --no-dev ./build/ios/sim-test.py
 
   build:
     name: Build
@@ -210,16 +213,16 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10
 
       - name: Build and test
         if: ${{ matrix.target.os != 'windows' }}
-        run: rust build/build.rs ${{ matrix.target.os }}
+        run: uv run -q --no-dev build/build.py ${{ matrix.target.os }}
 
       - name: Build and test Windows
         if: ${{ matrix.target.os == 'windows' }}
-        run: rust build/build.rs
+        run: uv run -q --no-dev build/build.py
 
   linux:
     name: Build Linux
@@ -255,8 +258,8 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10
 
       - name: Build
-        run: echo ${{ matrix.target.container }} && rust build/in_docker.rs ${{ matrix.target.container }}
+        run: echo ${{ matrix.target.container }} && uv run -q --no-dev build/in_docker.py ${{ matrix.target.container }}

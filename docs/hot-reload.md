@@ -45,7 +45,7 @@ Every start is fresh, the app opens on its first screen again.
 ## A release build
 
 Every hot library is a release build, in the simulator and on a device, since
-2026-10-11. `build_library` in `build/shared/src/hot.rs` passes `--release`, and the
+2026-10-11. `build_library` in `build/py/shared/hot.py` passes `--release`, and the
 library is `target/<target>/release/lib<app>.dylib`.
 
 - Why: a debug build of an app draws a frame several times slower. banda as a debug
@@ -90,8 +90,8 @@ library is `target/<target>/release/lib<app>.dylib`.
 - `hilen/native/ios/hilen_shell.m`, the 2 functions the engine takes from the
   header of the Xcode shell. Only a hot build compiles it, a normal build would
   have them twice.
-- The scripts, `build/ios/hot.rs`, `build/ios/hot-test.rs` and
-  `build/shared/src/hot.rs`. The builds run through `far` when it is installed,
+- The scripts, `build/ios/hot.py`, `build/ios/hot-test.py` and
+  `build/py/shared/hot.py`. The builds run through `far` when it is installed,
   the simulator is the one of the Mac the script runs on.
 
 ## Several apps in 1 loader
@@ -121,9 +121,6 @@ the loader for all of them, and the assets come from `HILEN_HOT_ROOT`.
 Proven on 2026-10-08 with `demo`, `skaityk` and `lendar`, all 3 built by the
 tool: 124 swaps in a row in 1 process, about 55 ms from the stop of one app to the start of the next.
 
-`make swap` needs rustscript 0.6.56 or newer. In an older one `PathBuf::push`
-did nothing, and the path to the engine came out empty.
-
 ## A real device
 
 1 loader app on a paired iPhone, iPad or Apple TV shows the demo and swaps to any
@@ -151,7 +148,7 @@ make device args=tv          # a word in front picks the device, here the Apple 
   has to be unlocked.
 - An app in front that answers the inspector and is no hot build gets the loader
   installed again by the script, which then sends the app, `Woke::Plain` in
-  `build/shared/src/device.rs`. On 2026-10-13 such an app sat on a phone, the send
+  `build/py/shared/device.py`. On 2026-10-13 such an app sat on a phone, the send
   waited 90 seconds on it and then blamed the lock screen. What that app was is not
   known, the install wrote over it. The path with the install was never run, only its
   parts are tested.
@@ -171,7 +168,7 @@ second session swapped its own app onto a phone in the middle of a test of anoth
 and 2 bugs looked like 1. `make device` takes a lock for the device, a file per device in
 `~/.cache/hilen/device-locks`, with the session id and the pid of the agent above the
 command, the nearest `claude` or `codex` process. The code is
-`build/shared/src/device_lock.rs`.
+`build/py/shared/device_lock.py`.
 
 - A swap or an install from another agent session that still runs is refused, and the
   error names the holder.
@@ -209,7 +206,7 @@ list. The tunnel leads to that device only, by cable and over Wi-Fi. It carries 
 IPv6, so the inspect server of an iOS or tvOS build listens on `::`, `ANY` in
 `hilen/src/inspect/inspect_service.rs`. A loader built before that is asked by the name
 of the device on the local network. The code is `hilen-inspect/src/device.rs` and
-`build/shared/src/device.rs`.
+`build/py/shared/device.py`.
 
 - `hilen-inspect devices` prints 1 line per paired device: the id, the kind, the name,
   the system with its version like `tvOS 26.3`, and the address an app answers at, `-`
@@ -253,7 +250,7 @@ for development and gives no promise for it.
 
 - The loader is a development build with the bundle id of `hilen.toml`,
   `vladas.test-engine`, so it takes the place of the TestFlight demo on the
-  phone. `build_device_loader` in `build/shared/src/hot.rs` builds it with
+  phone. `build_device_loader` in `build/py/shared/hot.py` builds it with
   `clang`, with no Xcode project. It takes the development profile Xcode once
   made for that id, puts it into the app and signs with the development
   certificate of the Mac. With no such profile, build the app for a phone in
@@ -373,7 +370,7 @@ What differs from a phone:
 The load test of 2026-10-10 on tvOS 26.3 gave the same answers as on a phone:
 no signature and an ad hoc signature are refused, a library signed with the
 development certificate loads. `make load-test` is that test as a script now,
-`build/ios/load-test.rs` with the app `hilen/native/ios/load_test.m`.
+`build/ios/load-test.py` with the app `hilen/native/ios/load_test.m`.
 
 - Pair the TV once. On the TV open Settings, Remotes and Devices, Remote App
   and Devices, and leave it open. On the Mac run `xcrun devicectl manage pair

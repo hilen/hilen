@@ -12,7 +12,7 @@ is a Mali-G51. The engine of a TV never updates, a firmware update keeps the sam
 ## The build
 
 `make webos-dist` builds the dist of the app for the TV, `make webos` also packs the
-app. Both are `build/web/webos.rs` and read the `[webos]` table of `hilen.toml`:
+app. Both are `build/web/webos.py` and read the `[webos]` table of `hilen.toml`:
 
 ```toml
 [webos]
@@ -76,8 +76,8 @@ color of the top left pixel of the icon, so the edge of a square icon does not s
 white for an icon with a clear corner. The same color goes into `iconColor` of
 `appinfo.json`. The launcher tile is taller than the icon and filled the rest with
 black without it, a square icon got black bars at the top and the bottom.
-`build/web/webos.rs` reads the pixel with `sips` or `magick`, the script runs on
-rustscript, which has no `png` crate.
+`build/web/webos.py` reads the pixel with `sips` or `magick`, so the script needs
+no png library.
 
 `RUSTFLAGS` in the environment replaces the `rustflags` of `.cargo/config.toml`, so the
 script says `--cfg tokio_unstable` again when the config has it. The demo sets

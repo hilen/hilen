@@ -28,7 +28,7 @@ not the `mdns-sd` crate. A real iPhone lets an app send multicast packets of its
 own only with an entitlement Apple gives on request, so the crate stays silent
 there with no error. The system announces for an app whose `Info.plist` has
 `NSLocalNetworkUsageDescription` and names `_hilen-inspect._tcp` in
-`NSBonjourServices`. `build/ios/build-project.rs` writes both keys when the built
+`NSBonjourServices`. `build/ios/build-project.py` writes both keys when the built
 library carries the server, and `hot_loader.plist` has them.
 
 On a Mac the system announces and finds apps too. The `mdns-sd` crate shares the
@@ -433,7 +433,7 @@ the only gate. Now four independent checks stand in the way, so one mistake is n
 - **Build block.** `hilen/build.rs` fails a build that has the feature while `HILEN_RELEASE`
   is set, with no override. The logic is in `hilen/src/inspect/release_guard.rs`, shared with
   its unit tests. `build/release/with-secrets.sh` sets the mark, and the release scripts
-  `mac.rs`, `linux.rs`, `win.rs` and `docker.rs` set it again on their own.
+  `mac.py`, `linux.py`, `win.py` and `py/shared/docker.py` set it again on their own.
 - **Runtime gate.** A build without debug assertions starts the listener only when
   `HILEN_INSPECT=1` is set at launch, and then logs a warning. A hot build is a release
   build that listens always, see "A release build" in [hot-reload.md](hot-reload.md). A release binary built by hand,
@@ -444,7 +444,7 @@ the only gate. Now four independent checks stand in the way, so one mistake is n
   listener in every build, `ALWAYS_ON_BUNDLE_ID`. It ships only through
   TestFlight, to be inspected on a phone. No other id may be added.
 - **File scan.** Every build with the module carries the `MARKER` bytes of
-  `hilen/src/inspect/mod.rs`, the start functions keep them alive. `build/shared/src/inspect.rs`
+  `hilen/src/inspect/mod.rs`, the start functions keep them alive. `build/py/shared/inspect.py`
   searches the built binary for them, and the release scripts stop before anything is signed,
   packed or copied to `dist`. The iOS and Android build paths run the same scan when
   `HILEN_RELEASE` is set, since their test builds carry the server on purpose.

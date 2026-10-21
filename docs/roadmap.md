@@ -611,7 +611,7 @@ and video landed on 2026-10-10 and run in the Apple TV simulator, see
 [tvos.md](tvos.md).
 
 - Current: the engine never ran on a real Apple TV. A tvOS build of the demo is in
-  TestFlight, version 1.0 build 1, sent by `build/tvos/flight.rs`. `make fly` never
+  TestFlight, version 1.0 build 1, sent by `build/tvos/flight.py`. `make fly` never
   ran as 1 command for both systems. In the simulator the remote drives the demo and
   its shell keeps inside `UIManager::safe_area()`. The hilen skill has no tvOS
   chapter. There is no tvOS lane of the UI suite, single tests run by hand with
@@ -620,7 +620,7 @@ and video landed on 2026-10-10 and run in the Apple TV simulator, see
   film played there with sound. Check 4K and HDR output, the frame rate, hardware
   decode named in the first frame log line, and the latent `statusBarFrame` trap of
   [tvos.md](tvos.md). 1 run of `make fly` that sends the iOS and the tvOS build. A
-  tvOS lane for the UI tests, like `build/ios/sim-test.rs`. A tvOS chapter in the
+  tvOS lane for the UI tests, like `build/ios/sim-test.py`. A tvOS chapter in the
   hilen skill.
 - Blocks: a tvOS release of any app.
 
@@ -1112,7 +1112,8 @@ phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
 
 - Current: proven on desktop and in Chrome only. The Back key code 461 is taken from
   the LG documents. The guard after a lost WebGL context has no reproduced failure.
-  The pack step of `make webos` waits on a RustScript fix, see webos.md.
+  The pack step of `make webos` waited on a RustScript fix. It runs on Python
+  now, a full pack is not checked yet.
 - Needed: an app driven with the remote on an LG C1, a film played there in a
   `VideoView`, a login with the code, and the UI suite on the TV with the Clipboard
   test no longer skipped. A lost context made on purpose with `WEBGL_lose_context`
@@ -1243,8 +1244,8 @@ D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
   frame is copied through system memory, 12 MB a frame, and plays at rate.
   Each `VideoView` keeps one frame image per source size for good, the
   managed image store never frees.
-- Needed: an archive for Linux and for the Intel Mac from `build/ffmpeg.rs`,
-  and for Windows on ARM from `build/ffmpeg-win.rs`. Linux needs `libva-dev`
+- Needed: an archive for Linux and for the Intel Mac from `build/ffmpeg.py`,
+  and for Windows on ARM from `build/ffmpeg-win.py`. Linux needs `libva-dev`
   and `nasm` in `build/setup.sh` and in the docker containers of the Linux CI
   job, and its TLS named in the script. Then the target tables widen to
   `desktop`. A person plays a real film on Windows, with sound, and reads

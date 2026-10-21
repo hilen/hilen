@@ -44,7 +44,7 @@ template files.
   entitlements in `mobile/iOS/<App>Widget/`, embedded into the app. Its version is the
   `version` of `hilen.toml`, App Store Connect refuses an extension whose version is
   not the one of its app.
-- The minimum of the extension is written in quotes. `build/ios/build-project.rs` of an
+- The minimum of the extension is written in quotes. `build/ios/build-project.py` of an
   app sets every unquoted `IPHONEOS_DEPLOYMENT_TARGET` to the minimum of the app, which
   is too old for WidgetKit.
 - `SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG` in the Debug builds, so the Swift can

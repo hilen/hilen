@@ -190,7 +190,7 @@ The same player as on desktop, with 3 things a phone adds.
   main thread for it. `Video slow sound` pins that.
 - The app has to link VideoToolbox, CoreMedia, CoreVideo, MediaPlayer and zlib. A
   static library cannot ask for them, so every xcodebuild call of the build scripts
-  passes them, `build/shared/src/ios.rs`, and the `hilen-mobile` template carries
+  passes them, `build/py/shared/ios.py`, and the `hilen-mobile` template carries
   them too.
 
 A player turns the screen with `Window::set_orientations` and hides the status bar
@@ -407,8 +407,8 @@ is published, `FFMPEG_DIR=$PWD/target/ffmpeg-dist`.
 To build a new archive, on the host it is for, or on a Mac for iOS:
 
 ```bash
-rust build/ffmpeg.rs                      # clones FFmpeg, configures, builds, dist/ffmpeg-<v>-<triple>.tar.gz
-rust build/ffmpeg.rs aarch64-apple-ios    # cross build for an iPhone, x86_64-apple-ios for the simulator, aarch64-apple-ios-sim for the arm64 one
+uv run build/ffmpeg.py                      # clones FFmpeg, configures, builds, dist/ffmpeg-<v>-<triple>.tar.gz
+uv run build/ffmpeg.py aarch64-apple-ios    # cross build for an iPhone, x86_64-apple-ios for the simulator, aarch64-apple-ios-sim for the arm64 one
 gh release create ffmpeg-<v>-<n> -R hilen/build dist/ffmpeg-*.tar.gz dist/ffmpeg-*.sha256
 ```
 
@@ -435,7 +435,7 @@ build needs `meson` and `ninja` for dav1d. Every target builds in a folder of it
 `target/ffmpeg-dist-<triple>`.
 
 The Windows archive is the one that is not built on its own host.
-`rust build/ffmpeg-win.rs` cross builds it in docker on any machine, with clang
+`uv run build/ffmpeg-win.py` cross builds it in docker on any machine, with clang
 in cl mode and the MSVC headers and libraries from
 [xwin](https://github.com/Jake-Shadle/xwin). That is the same kind of build the
 Windows release of an app is, so the archive links there, and it links with the

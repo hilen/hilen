@@ -31,7 +31,7 @@ make tvos-lib    # only the libs
 make fly         # uploads the tvOS build after the iOS one when hilen.toml has `tvos = true`
 ```
 
-tvOS is a tier 3 target with no prebuilt std, so `build/tvos/build-lib.rs` builds with
+tvOS is a tier 3 target with no prebuilt std, so `build/tvos/build-lib.py` builds with
 `-Z build-std=std,panic_abort`. There is no universal lib, the device and the simulator
 are both arm64, `aarch64-apple-tvos` and `aarch64-apple-tvos-sim`, and the project
 picks the lib by its sdk. `tvos_minimum_version` in `hilen.toml` sets the oldest tvOS,
@@ -63,7 +63,7 @@ xcrun simctl io <udid> screenshot <path>.png
 front of the launch runs UI tests in the app, like on the iOS simulator. There is no
 tvOS lane of the whole suite yet.
 
-`build/tvos/flight.rs` archives with no signing and lets the export sign for the store.
+`build/tvos/flight.py` archives with no signing and lets the export sign for the store.
 A signed archive wants a development profile, and Apple makes none for a team with no
 Apple TV registered. The upload needs the tvOS platform added to the app in App Store
 Connect first, altool otherwise says it cannot find the app for `TV_OS`.

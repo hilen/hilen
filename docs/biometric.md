@@ -70,13 +70,13 @@ in place of the prompt. The text comes from `hilen.toml`:
 usage = "Face ID confirms each payment you send."
 ```
 
-`build/ios/build-project.rs` writes it into the generated project, the same way as the
-`[camera]` text, see `build/shared/src/biometric.rs`. A Mac and Touch ID need no text.
+`build/ios/build-project.py` writes it into the generated project, the same way as the
+`[camera]` text, see `build/py/shared/biometric.py`. A Mac and Touch ID need no text.
 The hot loader of `make device` carries a text of its own, so a hot build can ask for
 Face ID too.
 
 The iOS link needs `-framework LocalAuthentication`. A static library cannot ask for a
-framework by itself, so it is in `LDFLAGS` of `build/shared/src/ios.rs`, which every
+framework by itself, so it is in `LDFLAGS` of `build/py/shared/ios.py`, which every
 `xcodebuild` of the build scripts passes.
 
 ## Tests

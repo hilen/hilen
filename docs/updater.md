@@ -39,7 +39,7 @@ if let Some(info) = check(&source).await? {
   engine, rustls on the ring provider. It installs that provider as the
   process default once, a second install changes nothing.
 - The release scripts sign a daemon binary like an app binary,
-  `rust build/release/sign.rs <file>` takes any file. A daemon listed in
+  `uv run build/release/sign.py <file>` takes any file. A daemon listed in
   `daemons` of the `[release]` table of `hilen.toml` is built, signed and
   given its own `<daemon>-updater.json` by the shared release workflow, the
   hilen skill chapter `updater.md` has the details.

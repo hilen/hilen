@@ -54,7 +54,7 @@ Every lane's full output is kept in `target/ui-test/<lane>.log` and each failure
 in `target/ui-test/failures/<lane>/<test>.txt`, listed at the end of the report, so a
 failed run is read back from disk, never run again to find out what broke. The dir is
 wiped at the start of every `make ui`.
-The simulator lane is `build/ios/sim-test.rs`, an iPhone 8 on iOS 16.4, the oldest device
+The simulator lane is `build/ios/sim-test.py`, an iPhone 8 on iOS 16.4, the oldest device
 this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
 and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
 the storyboard build fails and the whole lane reports `0 passed 0 failed`. See [ios.md](ios.md).
@@ -498,7 +498,7 @@ to itself reaches it. A test that types on a phone uses `ui_test::system_input`:
 ask it for a real tap on the screen or on a key. Everywhere else they inject, so one test
 runs on every platform.
 
-On iOS the helper is `SystemInput`, an XCUITest of the mobile project. `sim-test.rs`
+On iOS the helper is `SystemInput`, an XCUITest of the mobile project. `sim-test.py`
 builds it, starts it next to the app and passes its address in `HILEN_SYSTEM_INPUT`. The
 test sends one line per request over a local socket, `tap x y`, `type text`, `key return`,
 and gets `ok` back when the action is done. The lane turns "Connect Hardware Keyboard" of
@@ -580,7 +580,7 @@ Prompts land in the tab title, `Window::set_title` writes `document.title` on wa
 winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
 page once so key events reach the canvas, then ctrl advances the same way.
 
-The simulator lane has it too. `make ui-ios-human`, or `rust build/ios/sim-test.rs --human`,
+The simulator lane has it too. `make ui-ios-human`, or `uv run build/ios/sim-test.py --human`,
 passes `HILEN_HUMAN` into the app, the device spelling of `--human`, and always streams.
 Combine it with `HILEN_TEST_ONLY` to watch one test, `HILEN_TEST_ONLY="Font zoo" make
 ui-ios-human`. A phone has no window title and no ctrl key, so there every hold draws a

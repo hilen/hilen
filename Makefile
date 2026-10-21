@@ -11,7 +11,7 @@ scene:
 	cargo run -p scene-test
 
 ui:
-	rust ./build/ui-test.rs
+	uv run -q --no-dev ./build/ui-test.py
 
 uui:
 	cargo run -p ui-test --release -- --headless
@@ -24,13 +24,13 @@ smoke:
 	cargo run -p ui-test -- --headless --test-name $(SMOKE_TESTS)
 
 ui-ios:
-	rust ./build/ios/sim-test.rs
+	uv run -q --no-dev ./build/ios/sim-test.py
 
 ui-ios-human:
-	rust ./build/ios/sim-test.rs --human
+	uv run -q --no-dev ./build/ios/sim-test.py --human
 
 ui-ios-present:
-	rust ./build/ios/sim-test.rs --present
+	uv run -q --no-dev ./build/ios/sim-test.py --present
 
 # Hot reload in the iOS simulator: 2 builds of the `hot-test` app swapped in
 # one process, see docs/hot-reload.md.
@@ -38,14 +38,14 @@ ui-ios-present:
 # `make hot-test args="tv"` runs the lane in the Apple TV simulator.
 .PHONY: hot-test
 hot-test:
-	rust ./build/ios/hot-test.rs $(args)
+	uv run -q --no-dev ./build/ios/hot-test.py $(args)
 
 # Tells if a development build on the paired iPhone may load a library from
 # its data folder, `make load-test args="tv"` asks the paired Apple TV. See
 # "What iOS allows" in docs/hot-reload.md.
 .PHONY: load-test
 load-test:
-	rust ./build/ios/load-test.rs $(args)
+	uv run -q --no-dev ./build/ios/load-test.py $(args)
 
 ui-web-present:
 	bun build/web/drive.ts --browser $(BROWSER) --present --only "$(HILEN_TEST_ONLY)"
@@ -126,6 +126,11 @@ ci:
 	# demo turns `ui-tests` on, which hides what a plain GUI app compiles on wasm.
 	cargo clippy -p example-app --target wasm32-unknown-unknown --all-targets -- -D warnings
 	cargo machete
+	# The Python build scripts, see the python skill of thing.
+	cd build && uv run -q ruff format --check .
+	cd build && uv run -q ruff check .
+	cd build && uv run -q ty check
+	cd build && uv run -q pytest -q
 
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings
