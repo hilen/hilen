@@ -14,7 +14,7 @@ pub(super) enum LayoutMode {
 
 /// The exact inverse of `bump_z_position`, so a cell raised while its
 /// row was pinned returns to the depth the bump found it at.
-fn lower_z(view: WeakView, z: f32) {
+pub(super) fn lower_z(view: WeakView, z: f32) {
     view.__base_view().z_position += z;
     for sub in view.subviews() {
         lower_z(sub.weak(), z + UIManager::subview_z_offset());
@@ -156,7 +156,7 @@ impl TableView {
             let idx = view.tag();
             // A full reload recycles pinned cells too, so their content is
             // rebuilt through `setup_cell` like every other row's.
-            let keep_pinned = pinned.iter().any(|p| p.0 == idx);
+            let keep_pinned = pinned.iter().any(|p| p.0 == idx) || self.holds_row(idx);
             if !matches!(mode, LayoutMode::Full) && (keep_pinned || (idx >= first_index && idx < last_index))
             {
                 shown.push(idx);

@@ -16,9 +16,9 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, NavigationView, PinchInput, Scrollable, Setup, SideSwipe,
-        TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
-        check_touch, depth_key, press_keeps_selection,
+        Container, Cursor, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Scrollable, Setup,
+        SideSwipe, TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
+        ViewFrame, check_touch, depth_key, press_keeps_selection,
     },
     window::frame_control,
 };
@@ -111,6 +111,9 @@ impl Input {
         // A game's Escape gives the mouse back and nothing else sees it.
         if key == NamedKey::Escape && Cursor::captured() {
             Cursor::release();
+            return;
+        }
+        if key == NamedKey::Escape && RowDrag::escape() {
             return;
         }
         if Focus::on_key(key) {
@@ -240,6 +243,13 @@ impl Input {
         // A swipe from the left edge of a navigation stack takes the finger
         // once it moves right.
         if NavigationView::swallow(&touch) {
+            SideSwipe::reset();
+            RowDrag::reset();
+            return true;
+        }
+
+        // A held row of a table follows the finger.
+        if RowDrag::swallow(&touch) {
             SideSwipe::reset();
             return true;
         }

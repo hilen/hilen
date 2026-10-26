@@ -61,6 +61,42 @@ every step and compares the result with a full reload of the same data.
 `row_top(index)` gives where a row starts in the content, for a view that keeps a
 row at its place while the heights of other rows change, `LogView` does that.
 
+## Moving a row
+
+`set_row_moves(true)` lets the user drag a row to a new place. The gesture is
+`RowDrag` in `row_move.rs`, a global like `SideSwipe`: `Input` offers it every
+touch after the swipe back of a navigation stack and before the side swipe and
+the scrolls, and Escape before the key focus.
+
+- A finger that comes down on a row of such a table is watched. It lifts the row
+  after a hold of `HOLD`, 0.4 seconds, with no move of 10 points. Where drag
+  scrolling is off, a mouse, a move of 10 points up or down lifts it at once. Any
+  other move first ends the watch, so a quick finger drag scrolls and a tap selects.
+- The lift takes the finger from the views and the scroll, `cancel_touch` and
+  `release_scrolls`, and the long press. The cell is raised like a pinned sticky row,
+  with `sticky_raise`, and gets `Shadow::default()`. Its own shadow comes back on the
+  release.
+- `row_move` on the table holds the row, its place over the others and where the
+  finger holds it. `apply_row_move` runs after every layout and after every move: the
+  held cell is under the finger, clamped to the rows, and the rows between its old and
+  its new place move by its height and the spacing. The held cell is never recycled
+  while it scrolls out of view.
+- The new place is the count of the other rows whose middle is above the middle of
+  the held row. A tie goes to the side the row moved to, so the held row can reach
+  both ends.
+- A finger within 48 points of the top or the bottom edge scrolls the table, up to
+  14 points a frame at the very edge, on a timer while the finger rests there.
+- The release calls `TableData::move_row(from, to)` when the place changed, `to`
+  counted without the row, then `reload_data`. Escape, `RowDrag::reset` and a full
+  layout, a reload, put the row back with no call. After a reload the finger stays
+  with the gesture until it is up and reaches no view.
+- No lift on a sticky row, in a table of more than 1 column, on tvOS, over a modal,
+  or where touches are off.
+
+`Table row moves` pins it: a mouse drag down and up, Escape, a tap, a quick finger
+drag that scrolls, a finger hold, and a hold at the bottom edge that scrolls the
+table and puts the row last. Its colors pin the held row with its shadow.
+
 ## A sticky header view
 
 `add_sticky_header_view` adds a header view whose frame the table sets itself, so it

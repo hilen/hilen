@@ -1,5 +1,6 @@
 use super::{
     layout::{LayoutMode, sticky_raise},
+    row_move::RowMove,
     rows::{Rows, row_offsets},
 };
 use crate::{
@@ -75,6 +76,9 @@ pub struct TableView {
 
     /// The text of the cells can be selected, see `set_text_selectable`.
     pub(super) text_selectable: bool,
+
+    /// The row a finger holds up, see `set_row_moves`.
+    pub(super) row_move: Option<RowMove>,
 
     #[init]
     pub(super) scroll: ScrollView,
@@ -504,6 +508,10 @@ impl TableView {
             return;
         }
 
+        if matches!(mode, LayoutMode::Full) {
+            self.drop_row_move();
+        }
+
         if matches!(mode, LayoutMode::Full) || (self.variable_heights && self.row_offsets.is_empty()) {
             self.rebuild_row_offsets(number_of_cells);
             self.sticky_rows = if self.sticky_enabled {
@@ -515,6 +523,7 @@ impl TableView {
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);
+        self.apply_row_move();
         self.apply_sideways();
         self.place_sticky_header();
     }

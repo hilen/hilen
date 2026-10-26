@@ -8,8 +8,8 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        ImageMode, ImageView, NavigationView, SideSwipe, SystemInsets, UIColor, UIManager, View, ViewData,
-        ViewFrame, ViewSubviews, WeakView, view::Setup,
+        ImageMode, ImageView, NavigationView, RowDrag, SideSwipe, SystemInsets, UIColor, UIManager, View,
+        ViewData, ViewFrame, ViewSubviews, WeakView, view::Setup,
     },
     window::image::{NoImage, ToImage},
 };
@@ -68,6 +68,7 @@ impl RootView {
     pub(crate) fn clear_root(&mut self) {
         NavigationView::reset_swipe();
         SideSwipe::reset();
+        RowDrag::reset();
         self.screen.remove_all_subviews();
         self.place_screen();
     }

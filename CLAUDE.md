@@ -233,8 +233,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
 - [docs/table.md](docs/table.md) — `TableView` inside: what a layout keeps, the 3 layout
   modes, `reload_cell`, `load_new_cells` and `drop_first_cells`, and `set_keeps_end` of
-  `ScrollView` and `TableView`, a view at its end that stays there. Read before touching
-  `views/containers/table_view` or the offset code of `scrolling/scroll_view.rs`.
+  `ScrollView` and `TableView`, a view at its end that stays there, and `set_row_moves`, a
+  row dragged to a new place. Read before touching `views/containers/table_view`, the
+  `RowDrag` step in `input.rs` or the offset code of `scrolling/scroll_view.rs`.
 - [docs/code-editor.md](docs/code-editor.md): `CodeEditor`, the view that edits code, its
   lines in a table of rows, the gutter, color runs and marks per line set by the app, undo
   and redo by steps of lines, the keys and the menu. Read before touching

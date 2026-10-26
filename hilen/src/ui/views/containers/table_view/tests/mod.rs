@@ -9,6 +9,7 @@ mod long_table;
 mod margins;
 mod pinned_column;
 mod reload_cell;
+mod row_moves;
 mod scroll_to_bottom;
 mod scroll_to_row;
 mod set_content_offset;
