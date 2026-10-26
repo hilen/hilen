@@ -287,9 +287,18 @@ fn finger(view: Weak<TableRowMoves>) -> Result<()> {
     );
     let (.., moves, _) = state(view);
     ensure!(moves == "1>3;4>0;", "a quick finger drag moved {moves}");
-    // The fling of the quick drag runs on for a moment.
-    sleep(Duration::from_secs_f32(1.5));
-    wait_for_next_frame();
+    // The fling of the quick drag runs on for a moment, longer where frames
+    // are slow, like in the iOS simulator.
+    let mut last = f32::NAN;
+    for _ in 0..50 {
+        sleep(Duration::from_millis(100));
+        wait_for_next_frame();
+        let offset = from_main(move || view.table.content_offset());
+        if (offset - last).abs() < 0.01 {
+            break;
+        }
+        last = offset;
+    }
     from_main(move || {
         let mut table = view.table;
         table.set_content_offset(0);
