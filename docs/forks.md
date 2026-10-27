@@ -9,7 +9,8 @@ carries against upstream and how a fix goes upstream.
 
 Before a rebase, tag the old head of every fork, `pin-<date>`, and push the tag. Hilen
 pins `wgpu_text` by rev, and a rev that no branch reaches any more fails to fetch. The
-last rebase was on 2026-09-03, the old heads are `pin-2026-09-03`.
+last rebase of wgpu and winit was on 2026-09-03, the old heads are `pin-2026-09-03`.
+The last rebase of wgpu-text was on 2026-10-27, its old head is `pin-2026-10-27`.
 
 ## wgpu
 
@@ -68,33 +69,28 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 
 ## wgpu-text
 
-Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master at the v30.0.0
-release with 12 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
+Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master after the merge
+of #48, with 9 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
 limit, since the gradient commit. The examples do not build there, they still import
-`wgpu_text` and the crate is renamed. 3 commits are the upstream candidates, in the
-order they go upstream:
+`wgpu_text` and the crate is renamed.
 
-- Expose custom layout queueing and glyph bounds, `queue_custom_layout`,
-  `process_queued`, `glyph_bounds_custom_layout`, named after the `glyph_brush`
-  methods they wrap. Merged upstream as
-  [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-23,
+What upstream already has from us, so the fork no longer carries it:
+
+- Custom layout queueing and glyph bounds, `queue_custom_layout`, `process_queued`,
+  `glyph_bounds_custom_layout`, named after the `glyph_brush` methods they wrap. Merged
+  as [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-23,
   released in v30.0.1.
-- Several `queue` and `draw` calls per frame. The vertex buffer is bump allocated, a
-  plain `queue` or `process_queued` starts it over and `queue_append` or
-  `process_queued_append` writes after the earlier batch, so a forgotten call shows the
-  wrong text at once and never leaks. `Font::begin_frame` and its `first_batch` flag
-  pick the call in hilen. It answers
-  [Blatko1/wgpu-text#22](https://github.com/Blatko1/wgpu-text/issues/22) and
-  [Blatko1/wgpu-text#34](https://github.com/Blatko1/wgpu-text/issues/34).
-- Earlier batches keep their glyphs when the cache texture is full. A later batch
-  whose texture writes land on a glyph an earlier batch of the frame still draws
-  writes into a copy of the texture, and the next frame starts with a texture of
-  double size. Without it 2 labels at 72 pixels break on the default 256 by 256
-  texture, the reason the maintainer gave up on several draws in
-  [Blatko1/wgpu-text#17](https://github.com/Blatko1/wgpu-text/issues/17). See
-  [text.md](text.md).
+- Several `queue` and `draw` calls per frame, and earlier batches that keep their glyphs
+  when the cache texture is full. Merged as 1 commit,
+  [Blatko1/wgpu-text#48](https://github.com/Blatko1/wgpu-text/pull/48), on 2026-10-14,
+  not in a release yet. The vertex buffer is bump allocated, a plain `queue` or
+  `process_queued` starts it over and `queue_append` or `process_queued_append` writes
+  after the earlier batch. `Font::begin_frame` and its `first_batch` flag pick the call
+  in hilen. A later batch whose texture writes land on a glyph an earlier batch of the
+  frame still draws writes into a copy of the texture, and the next frame starts with a
+  texture of double size, see [text.md](text.md).
 
-2 more commits came from the LG TV, see [webos.md](webos.md):
+2 commits came from the LG TV, see [webos.md](webos.md):
 
 - The glyph cache forks from memory. The cache keeps its pixels, one byte a texel, and
   writes the forked texture from them. The texture to texture copy it replaced made the
@@ -104,10 +100,8 @@ order they go upstream:
   sample count and stem darkening, kept per thread. A brush per font used to build its
   own, about 1.2 seconds each on the TV.
 
-The last 2 of the upstream candidates went upstream together, 1 commit on the branch `multi-draw` on top of
-upstream v30.0.1, sent as
-[Blatko1/wgpu-text#48](https://github.com/Blatko1/wgpu-text/pull/48) on 2026-10-02.
-That commit has shorter comments than the 2 on `master`, the code does the same.
+These 2 build on #48 and are the next upstream candidates, together with
+`with_multithread` below.
 
 The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
 targets and hilen renders into plain Unorm since 2026-07-26, see
