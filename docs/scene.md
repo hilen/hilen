@@ -301,7 +301,15 @@ them by distance, a depth texture cannot be filtered and a comparison sampler do
 not work on iOS 12. Acne is held off by a slope scaled bias in the pass, a depth
 bias of one texel and a push of up to a texel and a half along the normal that
 fades as the surface turns to face the sun, so a floor under a high sun keeps its
-shadows against its posts. Translucent nodes receive but do not cast. A cut out
+shadows against its posts.
+
+The maps are built around the camera, not the world's origin. A cascade's view
+projection takes a point minus the camera's position, and both passes work out that
+offset with small numbers, see the next section. With world numbers, a few
+kilometers out the 32 bit floats lost about a millimeter, the bias of the fine map,
+and the ground shadowed itself in dots that grew the farther the camera went.
+`Terrain shadows` and the unit tests in `scene/shadow.rs` hold this. Translucent
+nodes receive but do not cast. A cut out
 node casts the shadow of what is drawn: its batches go through the cutout twins of
 the shadow pipelines, the only ones with a fragment stage, which read the same
 instance, vertex color and texel alpha and drop the same fragments.
@@ -361,6 +369,13 @@ that from a drag. While a player exists the camera looks out of its eyes.
 radius and the height for a smaller or bigger hero. `walk_keys` set to `WalkKeys::WasdOnly`
 leaves the arrow keys to the game. `teleport` puts the player
 somewhere at once with no fall left, the way a game respawns it.
+
+`motion` set to `Motion::Fly` makes the player fly, a jet or a free camera: no gravity, no jump, no
+snap to the ground and no step up ledges. `w` and `s` move it along its whole
+`direction`, the pitch included, `a` and `d` to the side, space straight up and ctrl
+straight down. It still slides along what it hits, also at 300 m/s into a hill.
+Back to `Motion::Walk`, it falls from where it is. The unit tests in `scene/player.rs` fly a
+player up, hold it still, stop it at a hill and drop it.
 
 `Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
 window, and reported as raw motion, which the player reads every step through
@@ -503,6 +518,14 @@ into the image of the view instead, see above. The UI draws at 0.5 and closer, a
 band costs about one and a half bits of depth precision, the camera near plane
 matters far more, keep it at 0.1 or above.
 
+Everything draws relative to the camera, so a world kilometers big keeps its
+millimeters far from its origin. `SceneUniform::view_proj` and `inv_view_proj` take
+a point minus the camera's position, built in 64 bit on the CPU. A vertex turns by
+its model first and adds the model's place minus the camera's after,
+`model_offset` in scene_common.wgsl, both small near the camera. A fragment gets
+its offset from the camera from `camera_offset`, and the world position is the
+camera plus that offset. Lines subtract the camera before their view projection.
+
 The sky draws first, one triangle with no depth test. `MeshPipeline` then does one
 instanced indexed draw per unit mesh and texture pair for the opaque nodes, and one
 draw per translucent node after them, back to front, blended and without a depth
@@ -538,9 +561,10 @@ line pipeline on the same view uniform, depth tested against the nodes, and sit 
 little outside their solid so the faces do not cut them.
 
 `show_wireframe` on the scene draws the edge of every triangle of every node as a
-white line over the scene. `Mesh::upload` builds an edge index buffer next to the
-triangle one, each edge of the triangles once, so the lines cost nothing on the CPU
-per frame. The wireframe pipelines are the mesh pipelines with a line list, made at
+white line over the scene. A mesh keeps its triangle indices and builds its edge
+index buffer the first time a wireframe draws it, each edge of the triangles once,
+so the lines cost nothing on the CPU per frame. Built at every upload they took a
+third of the main thread of a game that streams its ground. The wireframe pipelines are the mesh pipelines with a line list, made at
 the first frame that shows a wireframe. They use the same vertex entries and
 instances, so a model and a skinned mesh draw their edges where they stand. An edge
 lies on its own faces, so the fragment moves its depth 0.2 % of its distance toward
@@ -591,6 +615,11 @@ turned to full glow. `Cutout` quads of leaves over a wall, not cut, cut out, 2
 crossed that hide each other by depth and the masked `leaf_card.glb`, then the
 threshold lowered so the leaves grow, and `Cutout shadows` the same quads over a
 floor, a square shadow from the one not cut and leaf shadows from the rest.
+`Terrain shadows` is a streaming world as heavy as a game: 5 by 5 chunks of steep
+ground with 10 trees and 4 rocks each come and go around a flying jet, over a coarse
+ground and a sea 2400 m wide, under a day sky with shadows and fog. The test flies the
+jet to 4 places up to 19 km from the origin under 2 suns, and the shadows hold no dots
+anywhere. In `--present` the jet flies with `w`, space, ctrl, shift and a drag.
 `Scene in view` runs its scene in a tall `SceneView` next to a panel with a label
 over it, picks the ball with a tap, turns and zooms the camera, narrows the view
 and removes it. `Orthographic camera` shows 3 cubes at 3 depths as 3 squares of 1

@@ -34,7 +34,8 @@ impl Screenshot {
         *color
     }
 
-    pub(crate) fn save(&self, path: &Path) -> Result<()> {
+    /// Writes the picture to `path` as a png.
+    pub fn save(&self, path: &Path) -> Result<()> {
         let mut bytes = Vec::with_capacity(self.data.len() * 4);
 
         for color in &self.data {

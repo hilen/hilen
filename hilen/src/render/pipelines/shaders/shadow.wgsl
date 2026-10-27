@@ -3,8 +3,15 @@
 // out node goes through the `cutout` entries, which drop the fragments
 // the main pass drops, so it casts the shadow of what is drawn.
 
+// The view projection takes a point relative to `origin`, the camera, so
+// the numbers stay small far from the world's origin, see `ShadowCascade`.
+struct ShadowView {
+    view_proj: mat4x4<f32>,
+    origin: vec4<f32>,
+}
+
 @group(0) @binding(0)
-var<uniform> sun_view_proj: mat4x4<f32>;
+var<uniform> sun: ShadowView;
 
 // The part of `MeshInstance` a cut out fragment reads, the same buffer
 // and bind the main pass draws the opaque nodes with.
@@ -73,8 +80,11 @@ struct CutoutOutput {
 }
 
 fn place(pos: vec3<f32>, instance: Instance) -> vec4<f32> {
-    let model = mat4x4<f32>(instance.model0, instance.model1, instance.model2, instance.model3);
-    return sun_view_proj * model * vec4<f32>(pos, 1.0);
+    // The model's turn first, then its place minus the camera's, the way
+    // `model_offset` of the main pass keeps millimeters far out.
+    let turned = mat3x3<f32>(instance.model0.xyz, instance.model1.xyz, instance.model2.xyz) * pos;
+    let offset = turned + (instance.model3.xyz - sun.origin.xyz);
+    return sun.view_proj * vec4<f32>(offset, 1.0);
 }
 
 fn skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> vec3<f32> {

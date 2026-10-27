@@ -45,7 +45,7 @@ pub use self::{
     nodes::*,
     photo::{SceneDepth, ScenePhoto},
     playback::Playback,
-    player::{Player, WalkKeys},
+    player::{Motion, Player, WalkKeys},
     scene::{
         QueryHit, Scene, SceneBase, SceneCreation, SceneInternal, SceneSetup, SceneTemplates, TriangleHit,
     },

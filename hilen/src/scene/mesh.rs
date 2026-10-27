@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashSet},
     f32::consts::{PI, TAU},
+    sync::OnceLock,
 };
 
 use wgpu::{Buffer, BufferUsages};
@@ -33,10 +34,13 @@ pub struct Mesh {
     pub(crate) skin_buffer:   Option<Buffer>,
     pub(crate) index_buffer:  Buffer,
     pub(crate) index_count:   u32,
-    /// Every edge of the triangles once, as pairs of vertex indices,
-    /// what `SceneBase::show_wireframe` draws as lines.
-    pub(crate) edge_buffer:   Buffer,
-    pub(crate) edge_count:    u32,
+    /// The triangles again on the CPU, what the edges are made from.
+    indices:                  Vec<u16>,
+    /// Every edge of the triangles once, as pairs of vertex indices, and
+    /// their count, what `SceneBase::show_wireframe` draws as lines. Made
+    /// on the first wireframe draw, at every upload it took a third of the
+    /// main thread of a game that streams its ground.
+    edges:                    OnceLock<(Buffer, u32)>,
 }
 
 type Geometry = (Vec<Vertex3D>, Vec<u16>);
@@ -70,15 +74,26 @@ impl Mesh {
 
     pub(crate) fn upload(vertices: &[Vertex3D], indices: &[u16]) -> Self {
         let device = Window::device();
-        let edges = edges(indices);
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),
             skin_buffer:   None,
             index_buffer:  device.buffer(indices, BufferUsages::INDEX),
             index_count:   checked_usize_to_u32(indices.len()),
-            edge_buffer:   device.buffer(edges.as_slice(), BufferUsages::INDEX),
-            edge_count:    checked_usize_to_u32(edges.len()),
+            indices:       indices.to_vec(),
+            edges:         OnceLock::new(),
         }
+    }
+
+    /// The edge buffer and its index count, made the first time they are
+    /// asked for.
+    pub(crate) fn edges(&self) -> &(Buffer, u32) {
+        self.edges.get_or_init(|| {
+            let edges = edges(&self.indices);
+            (
+                Window::device().buffer(edges.as_slice(), BufferUsages::INDEX),
+                checked_usize_to_u32(edges.len()),
+            )
+        })
     }
 
     /// A mesh whose vertices follow the joints of a skin, `skin` is one

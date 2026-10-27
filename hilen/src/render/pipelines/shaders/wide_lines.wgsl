@@ -43,8 +43,8 @@ fn v_main(@builtin(vertex_index) index: u32, line: WideLine) -> LineOutput {
     var out: LineOutput;
     out.color = line.color;
 
-    var a = view.view_proj * vec4<f32>(pulled(line.start, line.width), 1.0);
-    var b = view.view_proj * vec4<f32>(pulled(line.end, line.width), 1.0);
+    var a = view.view_proj * vec4<f32>(pulled(line.start, line.width) - view.camera_pos.xyz, 1.0);
+    var b = view.view_proj * vec4<f32>(pulled(line.end, line.width) - view.camera_pos.xyz, 1.0);
 
     // A point behind the near plane has no place on the screen, the line
     // is cut there. Wholly behind it, the line is dropped.

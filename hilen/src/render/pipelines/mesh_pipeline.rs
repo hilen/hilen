@@ -444,6 +444,7 @@ impl MeshPipeline {
             self.shadow.draw(
                 encoder,
                 &view.sun_view_proj,
+                view.camera_pos,
                 &self.opaque_instances,
                 &batches,
                 instances_bind,
@@ -674,8 +675,9 @@ fn draw_edges(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipe
     } else {
         plain
     });
-    pass.set_index_buffer(mesh.edge_buffer.slice(..), IndexFormat::Uint16);
-    pass.draw_indexed(0..mesh.edge_count, 0, 0..count);
+    let (edges, edge_count) = mesh.edges();
+    pass.set_index_buffer(edges.slice(..), IndexFormat::Uint16);
+    pass.draw_indexed(0..*edge_count, 0, 0..count);
 }
 
 /// Picks the pipeline for the mesh out of a pipeline and its skinned

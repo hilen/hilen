@@ -66,6 +66,9 @@ mod scene_queries;
 #[cfg(not_wasm)]
 mod shadows;
 mod skybox;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
+mod terrain_shadows;
 mod textures;
 mod third_person_camera;
 mod transform_handle;

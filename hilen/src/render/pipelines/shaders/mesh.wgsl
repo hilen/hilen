@@ -100,7 +100,7 @@ fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, color: u32, instance:
     let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
 
     var out: VertexOutput;
-    out.pos = view.view_proj * model * vec4<f32>(pos, 1.0);
+    out.pos = view.view_proj * vec4<f32>(model_offset(model, pos), 1.0);
     out.uv = uv;
     out.normal = normalize(normal_matrix * normal);
     out.instance = instance.index;
@@ -270,9 +270,10 @@ struct CascadePoint {
     inside: f32,
 }
 
-fn cascade_place(layer: i32, p: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoint {
+// `offset` is the point from the camera, what the cascade maps take.
+fn cascade_place(layer: i32, offset: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoint {
     let texel = view.sun_texel[layer];
-    let pushed = p + n * texel * NORMAL_OFFSET * (1.0 - nol);
+    let pushed = offset + n * texel * NORMAL_OFFSET * (1.0 - nol);
     let clip = view.sun_view_proj[layer] * vec4<f32>(pushed, 1.0);
     let ndc = clip.xyz / clip.w;
     var point: CascadePoint;
@@ -289,13 +290,13 @@ fn cascade_place(layer: i32, p: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoi
 
 // The shadow of `p` in a cascade's map, blended into the next map that
 // holds the point when `p` sits in the edge band.
-fn cascade_blend(layer: i32, point: CascadePoint, p: vec3<f32>, n: vec3<f32>, nol: f32) -> f32 {
+fn cascade_blend(layer: i32, point: CascadePoint, offset: vec3<f32>, n: vec3<f32>, nol: f32) -> f32 {
     let shadow = cascade_shadow(layer, point.uv, point.depth);
     if point.inside >= 1.0 {
         return shadow;
     }
     for (var next = layer + 1; next < SHADOW_CASCADES; next++) {
-        let other = cascade_place(next, p, n, nol);
+        let other = cascade_place(next, offset, n, nol);
         if other.inside >= 0.0 {
             return mix(cascade_shadow(next, other.uv, other.depth), shadow, point.inside);
         }
@@ -310,7 +311,7 @@ fn cascade_blend(layer: i32, point: CascadePoint, p: vec3<f32>, n: vec3<f32>, no
 // and a little around it, so the last map does not hold what the near
 // ones do, and a pixel too coarse for every map that holds it keeps
 // the coarsest of those. Outside every map the sun reaches.
-fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
+fn sun_shadow(p: vec3<f32>, offset: vec3<f32>, n: vec3<f32>) -> f32 {
     if view.sun_color.w < 0.5 {
         return 1.0;
     }
@@ -320,7 +321,7 @@ fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
     var held = -1;
     var held_point: CascadePoint;
     for (var layer = 0; layer < SHADOW_CASCADES; layer++) {
-        let point = cascade_place(layer, p, n, nol);
+        let point = cascade_place(layer, offset, n, nol);
         if point.inside < 0.0 {
             continue;
         }
@@ -329,10 +330,10 @@ fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
             held_point = point;
             continue;
         }
-        return cascade_blend(layer, point, p, n, nol);
+        return cascade_blend(layer, point, offset, n, nol);
     }
     if held >= 0 {
-        return cascade_blend(held, held_point, p, n, nol);
+        return cascade_blend(held, held_point, offset, n, nol);
     }
     return 1.0;
 }
@@ -374,7 +375,8 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     let occlusion_texel = textureSample(occlusion_texture, occlusion_sampler, in.uv).r;
     let occlusion = 1.0 + instance.occlusion_strength * (occlusion_texel - 1.0);
 
-    let world_pos = world_position(in.pos);
+    let offset = camera_offset(in.pos);
+    let world_pos = view.camera_pos.xyz + offset;
 
     var s: Surface;
     s.normal = perturb_normal(normalize(in.normal), world_pos, in.uv, map);
@@ -401,7 +403,7 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     // or a lamp, as glTF asks.
     color *= occlusion;
 
-    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, normalize(in.normal));
+    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(in.normal));
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
         let light = lights[light_index(instance.lights, slot)];
@@ -470,7 +472,7 @@ const DEPTH_STEPS: f32 = 16777214.0;
 // as 3 bytes in red, green and blue. The full 24 bits, white, is left
 // for a pixel with nothing on it.
 fn depth_color(in: VertexOutput) -> vec4<f32> {
-    let along = max(dot(world_position(in.pos) - view.camera_pos.xyz, view.eye.xyz), 1e-6);
+    let along = max(dot(camera_offset(in.pos), view.eye.xyz), 1e-6);
     let part = saturate((log2(along) - DEPTH_LOG_NEAR) / (DEPTH_LOG_FAR - DEPTH_LOG_NEAR));
     let steps = u32(round(part * DEPTH_STEPS));
     let bytes = vec3<u32>(steps >> 16u, (steps >> 8u) & 255u, steps & 255u);

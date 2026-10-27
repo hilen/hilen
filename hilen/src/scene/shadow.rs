@@ -14,7 +14,10 @@ use crate::{
 /// One slice of the sun's shadow: the light's view projection into its
 /// layer of the shadow map, the world size of one texel of it, and the
 /// world length its depth range spans, what turns a world bias into a
-/// depth one.
+/// depth one. The view projection takes a point relative to the camera,
+/// the world point minus the camera's position. With world points 32 bit
+/// floats lost about a millimeter of depth a few kilometers out, the bias
+/// of the fine map, and the ground there shadowed itself in dots.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ShadowCascade {
     pub view_proj: Mat4,
@@ -75,7 +78,7 @@ pub(crate) fn sun_cascades(
         } else {
             slice
         };
-        cascade(sphere, scene, direction, sun.shadow_map_size)
+        cascade(sphere, scene, direction, sun.shadow_map_size, camera.position)
     })
 }
 
@@ -142,7 +145,7 @@ fn slice_sphere(camera: &Camera, aspect: f32, forward: Vec3, near: f32, far: f32
 /// depth range starts back at the scene's far side towards the sun,
 /// since anything of the scene between the slice and the sun casts
 /// into it.
-fn cascade(sphere: Sphere, scene: Sphere, direction: Vec3, map_size: u32) -> ShadowCascade {
+fn cascade(sphere: Sphere, scene: Sphere, direction: Vec3, map_size: u32, origin: Vec3) -> ShadowCascade {
     let texel = 2.0 * sphere.radius / map_size.lossy_convert();
     let up = light_up(direction);
     let light_space = look_at_mat4(Vec3::ZERO, direction, up);
@@ -156,7 +159,7 @@ fn cascade(sphere: Sphere, scene: Sphere, direction: Vec3, map_size: u32) -> Sha
     let center = light_space.inverse().transform_point3(snapped);
 
     let reach = (center.distance(scene.center) + scene.radius).max(sphere.radius);
-    let view = look_at_mat4(center - direction * reach, center, up);
+    let view = look_at_mat4(center - origin - direction * reach, center - origin, up);
     let radius = sphere.radius;
     let depth = reach + radius;
     let projection = orthographic(-radius, radius, -radius, radius, 0.0, depth);
@@ -206,10 +209,10 @@ mod test {
         }
     }
 
-    /// Whether `point` lands in the map, the texel its origin snapped
-    /// by allowed.
-    fn inside_map(cascade: &ShadowCascade, point: Vec3) -> bool {
-        let clip = cascade.view_proj.project_point3(point);
+    /// Whether `point` lands in the map of a camera at `origin`, the texel
+    /// its origin snapped by allowed.
+    fn inside_map(cascade: &ShadowCascade, origin: Vec3, point: Vec3) -> bool {
+        let clip = cascade.view_proj.project_point3(point - origin);
         let slack = 2.0 / f32::from(u16::try_from(MAP_SIZE).expect("test map size"));
         clip.x.abs() <= 1.0 + slack && clip.y.abs() <= 1.0 + slack && (0.0..=1.0).contains(&clip.z)
     }
@@ -274,7 +277,7 @@ mod test {
                     }
                     checked += 1;
                     assert!(
-                        inside_map(cascade, corner),
+                        inside_map(cascade, camera.position, corner),
                         "cascade {index} misses {corner:?} at depth {depth}"
                     );
                 }
@@ -318,6 +321,40 @@ mod test {
 
     // A small scene far from the camera is what the old single map
     // covered whole. Now the shadows start where the view enters the
+    // The maps are built around the camera, so a camera kilometers out
+    // gets the same numbers as one at the origin, but for the snap of each
+    // map to the world's texels. With world numbers the ground far out
+    // shadowed itself in dots.
+    #[test]
+    fn a_camera_far_out_gets_the_same_maps() {
+        let shift = Vec3::new(4000.0, 0.0, 3000.0);
+        let camera = low_camera();
+        let far = Camera {
+            position: camera.position + shift,
+            target: camera.target + shift,
+            ..camera
+        };
+        let field = field();
+        let moved = Bounds::of_points([field.min + shift, field.max + shift]);
+        let here = sun_cascades(&sun(), &camera, 1.0, field);
+        let there = sun_cascades(&sun(), &far, 1.0, moved);
+        let texel = 2.0 / f32::from(u16::try_from(MAP_SIZE).expect("test map size"));
+        for (a, b) in here.iter().zip(&there) {
+            let (a, b) = (a.view_proj, b.view_proj);
+            for axis in [0, 1, 2] {
+                assert!(
+                    a.col(axis).abs_diff_eq(b.col(axis), 1e-5),
+                    "{b:?} far out against {a:?}"
+                );
+            }
+            let moved = a.w_axis - b.w_axis;
+            assert!(
+                moved.x.abs() <= texel && moved.y.abs() <= texel && moved.z.abs() < 1e-3,
+                "{b:?} far out against {a:?}"
+            );
+        }
+    }
+
     // scene, so every cascade lies on the scene and the whole scene
     // still lands in the last map.
     #[test]
@@ -349,7 +386,7 @@ mod test {
             Vec3::new(bounds.max.x, bounds.min.y, bounds.max.z),
         ] {
             assert!(
-                cascades.iter().any(|cascade| inside_map(cascade, corner)),
+                cascades.iter().any(|cascade| inside_map(cascade, camera.position, corner)),
                 "{corner:?} lands in no map"
             );
         }
@@ -376,7 +413,7 @@ mod test {
         }
         assert!(capped[2].texel < whole[2].texel * 0.6);
         let ahead = camera.position + forward * 29.0;
-        assert!(inside_map(&capped[2], ahead));
+        assert!(inside_map(&capped[2], camera.position, ahead));
     }
 
     // A post outside the near slice but between it and the sun throws
@@ -388,10 +425,11 @@ mod test {
             direction: Vec3::new(-1.0, -0.4, 0.0),
             ..sun()
         };
-        let cascades = sun_cascades(&sun, &low_camera(), 1.0, field());
+        let camera = low_camera();
+        let cascades = sun_cascades(&sun, &camera, 1.0, field());
         // The far east edge of the field, the side the sun comes from.
         let caster = Vec3::new(40.0, 6.0, 25.0);
-        let clip = cascades[0].view_proj.project_point3(caster);
+        let clip = cascades[0].view_proj.project_point3(caster - camera.position);
         assert!(clip.z >= 0.0 && clip.z <= 1.0, "caster depth {}", clip.z);
     }
 
@@ -413,8 +451,8 @@ mod test {
             assert!((a.texel - b.texel).abs() < 1e-6);
             let half: f32 = MAP_SIZE.lossy_convert();
             let half = half / 2.0;
-            let from = a.view_proj.project_point3(point);
-            let to = b.view_proj.project_point3(point);
+            let from = a.view_proj.project_point3(point - camera.position);
+            let to = b.view_proj.project_point3(point - moved.position);
             for shift in [(from.x - to.x) * half, (from.y - to.y) * half] {
                 assert!(
                     (shift - shift.round()).abs() < 1e-2,

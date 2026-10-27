@@ -68,7 +68,9 @@ pub(crate) const SHADOW_CASCADES: usize = 3;
 const _: () = assert!(SHADOW_CASCADES <= 4);
 
 /// What every mesh of a frame shares. The vectors carry `xyz`, the
-/// fourth component is padding unless named. `camera_pos.w` is the
+/// fourth component is padding unless named. `view_proj` and
+/// `inv_view_proj` work with a point relative to the camera, see
+/// `model_offset` in `scene_common.wgsl`. `camera_pos.w` is the
 /// world height of the view one unit from the camera, twice the tangent
 /// of half the field of view, what a pixel's size on a surface comes
 /// from. `eye` is the unit direction the camera looks in, and its `w` the
@@ -77,8 +79,9 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 /// surface is that height over the pixels of the view. `sun_dir` is the
 /// direction the light travels, unit length. `sun_color`
 /// and `ambient` are linear light, the sun's times its intensity, and
-/// `sun_color.w` is 1 when the sun casts shadows, then `sun_view_proj` maps the
-/// world into each cascade's layer of the shadow map, `sun_texel` holds the
+/// `sun_color.w` is 1 when the sun casts shadows, then `sun_view_proj` maps a
+/// point relative to the camera into each cascade's layer of the shadow map,
+/// see `ShadowCascade`, `sun_texel` holds the
 /// world size of one texel of each and `sun_depth` one over the world length
 /// of each map's depth range, so a texel becomes a depth bias. `ambient.w` is
 /// 1 when a sky is bound, then `irradiance` holds its nine spherical

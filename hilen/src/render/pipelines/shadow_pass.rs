@@ -1,5 +1,6 @@
 use std::{array::from_fn, ops::Range};
 
+use bytemuck::{Pod, Zeroable};
 use wgpu::{
     BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer,
     BufferBindingType, BufferUsages, CommandEncoder, Extent3d, LoadOp, Operations, PipelineLayoutDescriptor,
@@ -9,7 +10,7 @@ use wgpu::{
 };
 
 use crate::{
-    gm::volume::Mat4,
+    gm::volume::{Mat4, Vec4},
     render::{
         SHADOW_CASCADES,
         buffer_helper::BufferHelper,
@@ -38,6 +39,15 @@ pub(crate) struct ShadowPass {
     map:      TextureView,
     /// Texels along each side of every layer.
     map_size: u32,
+}
+
+/// What a cascade's pass reads, see `ShadowView` in shadow.wgsl: the view
+/// projection of a point relative to `origin`, the camera.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ShadowView {
+    view_proj: Mat4,
+    origin:    Vec4,
 }
 
 struct Cascade {
@@ -78,7 +88,11 @@ impl ShadowPass {
 
         let map = shadow_map(device, map_size);
         let cascades = from_fn(|index| {
-            let view_proj = device.buffer(&Mat4::IDENTITY, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
+            let view = ShadowView {
+                view_proj: Mat4::IDENTITY,
+                origin:    Vec4::ZERO,
+            };
+            let view_proj = device.buffer(&view, BufferUsages::UNIFORM | BufferUsages::COPY_DST);
             Cascade {
                 bind: device.bind(&view_proj, &view_layout),
                 view_proj,
@@ -141,17 +155,22 @@ impl ShadowPass {
 
     /// Draws every cascade's layer, `batches` the opaque draws of the
     /// frame and `instances_bind` the mesh pipeline's bind over
-    /// `instances` and the joints they point at.
+    /// `instances` and the joints they point at. The view projections
+    /// take a point relative to `origin`, the camera.
     pub(crate) fn draw(
         &self,
         encoder: &mut CommandEncoder,
         view_projs: &[Mat4; SHADOW_CASCADES],
+        origin: Vec4,
         instances: &VecBuffer<MeshInstance>,
         batches: &[ShadowBatch],
         instances_bind: &BindGroup,
     ) {
         for (cascade, view_proj) in self.cascades.iter().zip(view_projs) {
-            cascade.view_proj.update(*view_proj);
+            cascade.view_proj.update(ShadowView {
+                view_proj: *view_proj,
+                origin,
+            });
 
             let mut pass = cascade.pass(encoder);
             pass.set_bind_group(0, &cascade.bind, &[]);

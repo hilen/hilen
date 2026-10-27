@@ -81,11 +81,27 @@ fn fragment_ndc(frag: vec4<f32>) -> vec3<f32> {
     );
 }
 
-// Where a fragment is in the world. Rebuilt here instead of carried
+// Where a fragment is from the camera. Rebuilt here instead of carried
 // from the vertex stage, an A7 draws nothing above eight components.
+// `inv_view_proj` maps to the camera's space with its origin on the
+// camera, so the numbers stay small a few kilometers out in the world.
+fn camera_offset(frag: vec4<f32>) -> vec3<f32> {
+    let offset = view.inv_view_proj * vec4<f32>(fragment_ndc(frag), 1.0);
+    return offset.xyz / offset.w;
+}
+
+// Where a fragment is in the world.
 fn world_position(frag: vec4<f32>) -> vec3<f32> {
-    let world = view.inv_view_proj * vec4<f32>(fragment_ndc(frag), 1.0);
-    return world.xyz / world.w;
+    return view.camera_pos.xyz + camera_offset(frag);
+}
+
+// Where a point of a model is from the camera, what `view_proj` takes:
+// the model's own turn first, then its place minus the camera's. Both
+// stay small near the camera, so a model kilometers out keeps its
+// millimeters, which the world numbers lost.
+fn model_offset(model: mat4x4<f32>, pos: vec3<f32>) -> vec3<f32> {
+    let turned = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz) * pos;
+    return turned + (model[3].xyz - view.camera_pos.xyz);
 }
 
 // The unit direction from `p` to the eye. An orthographic camera looks

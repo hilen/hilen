@@ -15,7 +15,7 @@ struct LineOutput {
 @vertex
 fn v_main(vertex: LineVertex) -> LineOutput {
     var out: LineOutput;
-    out.pos = view.view_proj * vec4<f32>(vertex.pos, 1.0);
+    out.pos = view.view_proj * vec4<f32>(vertex.pos - view.camera_pos.xyz, 1.0);
     out.color = vertex.color;
     return out;
 }

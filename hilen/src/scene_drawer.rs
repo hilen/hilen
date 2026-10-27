@@ -1,3 +1,4 @@
+use glam::DMat4;
 use wgpu::{
     CommandEncoder, CommandEncoderDescriptor, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureView, TextureViewDescriptor,
@@ -302,9 +303,13 @@ impl SceneDrawer {
             sun_depth[slot] = 1.0 / cascade.depth;
         }
 
+        // The camera's space with its origin on the camera, see
+        // `camera_offset` in scene_common.wgsl. Turned in 64 bit, the
+        // camera's own place cancels out exactly.
+        let relative = view_proj.as_dmat4() * DMat4::from_translation(camera.position.as_dvec3());
         let view = SceneUniform {
-            view_proj,
-            inv_view_proj: view_proj.inverse(),
+            view_proj: relative.as_mat4(),
+            inv_view_proj: relative.inverse().as_mat4(),
             sun_view_proj: cascades.map(|cascade| cascade.view_proj),
             camera_pos: camera.position.extend(2.0 * (camera.fov_y / 2.0).tan()),
             eye: camera.forward().extend(match camera.projection {

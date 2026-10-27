@@ -19,6 +19,27 @@ use crate::{
 /// short of it.
 const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.05;
 
+/// The highest ledge a walking player steps up on.
+const AUTOSTEP: Option<CharacterAutostep> = Some(CharacterAutostep {
+    max_height:             CharacterLength::Absolute(0.35),
+    min_width:              CharacterLength::Absolute(0.2),
+    include_dynamic_bodies: true,
+});
+/// How far down a walking player sticks to the ground it walks over.
+const SNAP_TO_GROUND: Option<CharacterLength> = Some(CharacterLength::Absolute(0.2));
+
+/// How a player moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    /// On the ground under gravity, with a jump and small steps.
+    Walk,
+    /// With no gravity, `w` and `s` along the full `direction`, the pitch
+    /// included, space straight up and ctrl straight down. It still
+    /// slides along what it hits. Back to `Walk`, it falls from where it
+    /// is.
+    Fly,
+}
+
 /// The keys that walk a player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WalkKeys {
@@ -30,7 +51,8 @@ pub enum WalkKeys {
 /// scene's colliders, with gravity, small steps, a jump and a push on the
 /// bodies it walks into. The scene camera looks out of its eyes, or with
 /// `third_person` over its shoulder. `w` `a` `s` `d` or the arrows walk,
-/// space jumps, the captured mouse or `look` turns.
+/// space jumps, the captured mouse or `look` turns. With `Motion::Fly` it
+/// flies where it looks, space lifts it and ctrl lowers it.
 pub struct Player {
     body:       RigidBodyHandle,
     collider:   ColliderHandle,
@@ -63,6 +85,8 @@ pub struct Player {
     /// Where the camera sits: out of the eyes while `None`, else behind
     /// the player over its shoulder.
     pub third_person: Option<ThirdPerson>,
+    /// Walks or flies.
+    pub motion:       Motion,
 
     vertical: f32,
     grounded: bool,
@@ -82,12 +106,8 @@ impl Player {
 
         let controller = KinematicCharacterController {
             offset: CharacterLength::Absolute(0.02),
-            autostep: Some(CharacterAutostep {
-                max_height:             CharacterLength::Absolute(0.35),
-                min_width:              CharacterLength::Absolute(0.2),
-                include_dynamic_bodies: true,
-            }),
-            snap_to_ground: Some(CharacterLength::Absolute(0.2)),
+            autostep: AUTOSTEP,
+            snap_to_ground: SNAP_TO_GROUND,
             ..KinematicCharacterController::default()
         };
 
@@ -106,6 +126,7 @@ impl Player {
             mouse: true,
             look_speed: 0.002,
             third_person: None,
+            motion: Motion::Walk,
             vertical: 0.0,
             grounded: false,
         }
@@ -186,13 +207,24 @@ impl Player {
             [KeyCode::KeyA, KeyCode::ArrowLeft],
             [KeyCode::KeyD, KeyCode::ArrowRight],
         );
+        if self.motion == Motion::Fly {
+            let up = Self::fly_up(
+                Keys::held(KeyCode::Space),
+                Keys::held(KeyCode::ControlLeft) || Keys::held(KeyCode::ControlRight),
+            );
+            let wish = self.direction() * forward + self.right() * right + Vec3::Y * up;
+            return (wish.normalize_or_zero(), false);
+        }
         let wish = (self.forward() * forward + self.right() * right).normalize_or_zero();
         (wish, Keys::held(KeyCode::Space))
     }
 
-    /// One physics step: walk, fall or jump, slide along what is hit,
-    /// push what can move, and hand the result to the kinematic body
-    /// the step then applies.
+    /// How a flying player climbs, 1 up, -1 down, 0 with both keys or none.
+    fn fly_up(space: bool, ctrl: bool) -> f32 {
+        f32::from(u8::from(space)) - f32::from(u8::from(ctrl))
+    }
+
+    /// One physics step from the mouse and the held keys, see `move_by`.
     pub(crate) fn step(&mut self, physics: &mut ScenePhysics, dt: f32) {
         if self.mouse {
             let motion = Cursor::take_motion();
@@ -200,8 +232,21 @@ impl Player {
         }
 
         let (wish, jump) = self.wish();
+        self.move_by(physics, dt, wish, jump);
+    }
 
-        if self.grounded {
+    /// Walk toward `wish`, fall or jump, or fly, slide along what is hit,
+    /// push what can move, and hand the result to the kinematic body the
+    /// physics step then applies.
+    fn move_by(&mut self, physics: &mut ScenePhysics, dt: f32, wish: Vec3, jump: bool) {
+        // Snapping to the ground would pull a player flying low down onto it.
+        let flying = self.motion == Motion::Fly;
+        self.controller.autostep = if flying { None } else { AUTOSTEP };
+        self.controller.snap_to_ground = if flying { None } else { SNAP_TO_GROUND };
+
+        if flying {
+            self.vertical = 0.0;
+        } else if self.grounded {
             self.vertical = if jump { self.jump_speed } else { 0.0 };
         } else {
             self.vertical += physics.gravity.y * dt;
@@ -247,7 +292,10 @@ impl Player {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::scene::{ColliderShape, Heightfield};
 
     fn test_player() -> Player {
         Player {
@@ -265,9 +313,105 @@ mod test {
             mouse:        false,
             look_speed:   0.002,
             third_person: None,
+            motion:       Motion::Walk,
             vertical:     0.0,
             grounded:     false,
         }
+    }
+
+    /// A player at `position` over flat ground at 0 that rises into a
+    /// wall 100 high from `z = -50` on.
+    fn over_ground(position: Vec3) -> (ScenePhysics, Player) {
+        let mut physics = ScenePhysics::default();
+        let field = Heightfield::from_fn(201, 201, 400.0, 400.0, |_, z| if z < -50.0 { 100.0 } else { 0.0 });
+        let ground = ColliderShape::Heightfield(Arc::new(field)).builder(1.0).build();
+        physics.sets.colliders.insert(ground);
+        let player = Player::make(&mut physics, position, 0.4, 1.8);
+        physics.update_physics(&[], DT);
+        (physics, player)
+    }
+
+    /// Steps of 1/60 s, so 60 is a second.
+    fn run(physics: &mut ScenePhysics, player: &mut Player, steps: usize, wish: Vec3) {
+        for _ in 0..steps {
+            player.move_by(physics, DT, wish, false);
+            physics.update_physics(&[], DT);
+        }
+    }
+
+    fn position(physics: &ScenePhysics, player: &Player) -> Vec3 {
+        Player::position_in(player.body, physics)
+    }
+
+    const DT: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn a_flying_player_rises_where_it_looks() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 10.0, 100.0));
+        player.motion = Motion::Fly;
+        player.speed = 10.0;
+        player.look(0.0, 0.5);
+        let wish = player.direction();
+        run(&mut physics, &mut player, 60, wish);
+        let at = position(&physics, &player);
+        assert!(
+            (at - Vec3::new(0.0, 10.0, 100.0) - wish * 10.0).length() < 0.1,
+            "{at}"
+        );
+    }
+
+    #[test]
+    fn space_lifts_a_flying_player_and_ctrl_lowers_it() {
+        assert_eq!(Player::fly_up(true, false), 1.0);
+        assert_eq!(Player::fly_up(false, true), -1.0);
+        assert_eq!(Player::fly_up(true, true), 0.0);
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 10.0, 100.0));
+        player.motion = Motion::Fly;
+        player.speed = 10.0;
+        run(
+            &mut physics,
+            &mut player,
+            30,
+            Vec3::Y * Player::fly_up(true, false),
+        );
+        assert!((position(&physics, &player).y - 15.0).abs() < 0.1);
+        run(
+            &mut physics,
+            &mut player,
+            60,
+            Vec3::Y * Player::fly_up(false, true),
+        );
+        assert!((position(&physics, &player).y - 5.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn a_flying_player_with_no_keys_holds_its_height() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 10.0, 100.0));
+        player.motion = Motion::Fly;
+        run(&mut physics, &mut player, 120, Vec3::ZERO);
+        assert!((position(&physics, &player).y - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_fast_flying_player_stops_at_a_hill() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 10.0, 100.0));
+        player.motion = Motion::Fly;
+        player.speed = 300.0;
+        run(&mut physics, &mut player, 120, Vec3::NEG_Z);
+        let at = position(&physics, &player);
+        assert!(at.z > -50.0 && at.z < -49.0, "{at}");
+        assert!((at.y - 10.0).abs() < 0.5, "{at}");
+    }
+
+    #[test]
+    fn a_player_that_stops_flying_falls() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 10.0, 100.0));
+        player.motion = Motion::Fly;
+        run(&mut physics, &mut player, 30, Vec3::ZERO);
+        player.motion = Motion::Walk;
+        run(&mut physics, &mut player, 180, Vec3::ZERO);
+        let at = position(&physics, &player);
+        assert!(at.y < 1.0 && player.grounded(), "{at}");
     }
 
     #[test]
