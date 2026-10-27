@@ -73,7 +73,17 @@ ground. `move_box` with `drop_through` falls through it, for a held Down key.
 
 `walk_box` moves a box like `move_box`, and a box standing on the ground that walks into
 a ledge at most `step_up` high climbs onto it, the way a Terraria player walks up one
-block without a jump. A ledge with no room above it for the box stays a wall.
+block without a jump. A ledge with no room above it for the box stays a wall. A box that
+walks off an edge lands at once on ground at most `step_up` lower, like Terraria's
+`StepDown`. Ground at most half a step lower is left to the fall, so a box drops onto
+it in small moves.
+
+`BoxMove::step` says how far `walk_box` lifted the box onto a ledge, or dropped it when
+negative, on top of the move itself. Every other move leaves it 0. Terraria draws its
+player `gfxOffY` away from the box after such a step and slides the picture back over a
+few ticks, and its camera follows the picture. A game that wants the same smooth step
+draws its actor and points its camera `-step` away from the box and slides that back
+to 0, skarvel does this in `src/sim/player.rs`.
 
 A kind can be framed like Terraria frames its blocks. `TileKind::with_frames` takes
 `TileFrames`, a list of image variations for each of the 16 `TileSides` shapes, the set

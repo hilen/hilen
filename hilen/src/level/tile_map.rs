@@ -77,6 +77,10 @@ pub struct BoxMove {
     pub wall:     bool,
     pub ceiling:  bool,
     pub floor:    bool,
+    /// How far `walk_box` lifted the box onto a ledge, or dropped it onto
+    /// lower ground when negative, on top of the move itself. A caller can
+    /// slide its picture after the box by this, like Terraria's `gfxOffY`.
+    pub step:     f32,
 }
 
 impl BoxMove {
@@ -339,7 +343,9 @@ impl TileMap {
     /// Moves a box like `move_box`, and a box standing on the ground that
     /// walks into a ledge at most `step_up` high climbs onto it, the way a
     /// Terraria player walks up one block without a jump. A ledge with no
-    /// room above it for the box stays a wall.
+    /// room above it for the box stays a wall. A box that walks off an edge
+    /// lands at once on ground at most `step_up` lower, like Terraria's
+    /// `StepDown`, and ground at most half a step lower is left to the fall.
     pub fn walk_box(
         &self,
         center: Point,
@@ -349,8 +355,11 @@ impl TileMap {
         step_up: f32,
     ) -> BoxMove {
         let moved = self.move_box(center, half, delta, drop_through);
-        if !moved.wall || step_up <= 0.0 || delta.y > 0.0 || !self.stands_on_solid(center, half) {
+        if step_up <= 0.0 || delta.y > 0.0 || !self.stands_on_solid(center, half) {
             return moved;
+        }
+        if !moved.wall {
+            return self.step_down(moved, half, step_up, drop_through);
         }
         let raised = self.move_box(center, half, Point::new(0.0, step_up), drop_through);
         if raised.ceiling {
@@ -371,6 +380,25 @@ impl TileMap {
             wall:     ahead.wall,
             ceiling:  false,
             floor:    settled.floor,
+            step:     settled.position.y - moved.position.y,
+        }
+    }
+
+    /// Lands a box that just walked off an edge on ground a little lower.
+    fn step_down(&self, moved: BoxMove, half: Point, step_up: f32, drop_through: bool) -> BoxMove {
+        if moved.floor || self.stands_on_solid(moved.position, half) {
+            return moved;
+        }
+        let probe = self.move_box(moved.position, half, Point::new(0.0, -step_up), drop_through);
+        let drop = moved.position.y - probe.position.y;
+        if !probe.floor || drop <= step_up / 2.0 {
+            return moved;
+        }
+        BoxMove {
+            position: probe.position,
+            floor: true,
+            step: -drop,
+            ..moved
         }
     }
 
@@ -664,6 +692,68 @@ mod test {
         );
         let blocked = walk(&map, start, 0.0);
         assert!(blocked.x < 6.0, "no step up, no climb: {blocked:?}");
+    }
+
+    /// The room with its floor 1 tile higher from x 0 to 4, the top at y 2.
+    fn raised_floor(rows: usize) -> TileMap {
+        let (mut map, stone) = room();
+        map.fill(0, 1, 4, rows, stone);
+        map
+    }
+
+    /// The moves of a box walking right from x 2.5 on the raised floor.
+    fn walk_moves(map: &TileMap, top: f32) -> Vec<BoxMove> {
+        let mut center = Point::new(2.5, top + HALF.y + EDGE);
+        (0..30)
+            .map(|_| {
+                let moved = map.walk_box(center, HALF, Point::new(0.1, -0.05), false, 1.0);
+                center = moved.position;
+                moved
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_climb_says_how_high_it_stepped() {
+        let (map, _) = room();
+        let mut center = Point::new(2.5, 1.0 + HALF.y + EDGE);
+        let mut steps = vec![];
+        for _ in 0..100 {
+            let moved = map.walk_box(center, HALF, Point::new(0.1, -0.05), false, 1.0);
+            center = moved.position;
+            steps.push(moved.step);
+        }
+        assert!(steps.iter().any(|step| (step - 1.0).abs() < 0.06), "{steps:?}");
+        assert!(
+            steps.iter().any(|step| (step + 1.0).abs() < 0.06),
+            "and down again: {steps:?}"
+        );
+    }
+
+    #[test]
+    fn a_walking_box_steps_down_a_one_tile_ledge() {
+        let moves = walk_moves(&raised_floor(1), 2.0);
+        let index = moves
+            .iter()
+            .position(|moved| moved.step < 0.0)
+            .expect("it steps down off the raised floor");
+        let down = moves[index];
+        assert!((down.step + 1.0).abs() < 0.06, "{down:?}");
+        assert!(down.floor, "{down:?}");
+        assert!(
+            (down.position.y - HALF.y - 1.0).abs() < 0.01,
+            "it stands on the floor: {down:?}"
+        );
+        assert!(moves[..index].iter().all(|moved| moved.position.y - HALF.y > 1.99));
+    }
+
+    #[test]
+    fn a_ledge_deeper_than_the_step_is_a_fall() {
+        let moves = walk_moves(&raised_floor(2), 3.0);
+        assert!(moves.iter().all(|moved| moved.step.abs() < f32::EPSILON));
+        let last = moves.last().expect("it walked");
+        let bottom = last.position.y - HALF.y;
+        assert!(bottom < 2.99 && bottom > 1.5, "it falls in small moves: {last:?}");
     }
 
     #[test]
