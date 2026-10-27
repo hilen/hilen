@@ -350,6 +350,7 @@ impl SceneDrawer {
     ) -> Vec<Vec3> {
         let mut translucent = vec![];
         let mut extent = vec![];
+        pipeline.wireframe = scene.show_wireframe;
 
         for node in scene.nodes() {
             let shape = node.shape();

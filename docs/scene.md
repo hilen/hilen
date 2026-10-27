@@ -7,6 +7,10 @@ with `MainLock` pipelines on `VecBuffer`. Physics is `rapier3d`, math is glam
 re-exported from `gm::volume`. The scene draws every frame while one is loaded,
 like a level.
 
+1 world unit is 1 meter. Gravity is 9.81 down, a speed is meters per second, a
+light's range and a camera's `near` and `far` are meters, and a depth photo reads
+meters. A model made in other units is fitted with `set_scale` on its node.
+
 ## Writing a scene
 
 ```rust
@@ -533,6 +537,16 @@ nothing for a plane, whose slab is the floor itself. The lines go through a smal
 line pipeline on the same view uniform, depth tested against the nodes, and sit a
 little outside their solid so the faces do not cut them.
 
+`show_wireframe` on the scene draws the edge of every triangle of every node as a
+white line over the scene. `Mesh::upload` builds an edge index buffer next to the
+triangle one, each edge of the triangles once, so the lines cost nothing on the CPU
+per frame. The wireframe pipelines are the mesh pipelines with a line list, made at
+the first frame that shows a wireframe. They use the same vertex entries and
+instances, so a model and a skinned mesh draw their edges where they stand. An edge
+lies on its own faces, so the fragment moves its depth 0.2 % of its distance toward
+the camera, depth bias is for triangles only in WebGPU. A hidden edge stays hidden,
+the edges of a translucent node show through it.
+
 ## Tests
 
 A scene test is a `#[scene]` with `impl SceneTest`, registered by a ctor into
@@ -556,7 +570,8 @@ a field hundreds of units long with the camera walking it, its middle check on
 the spot where a floor pixel too coarse for the maps holding it once fell through
 to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,
 the fog then pushed back and taken away, `Colliders` the wireframes off and on
-over a ball, a turned crate, the monkey and a prop without one, and `Mouse look` a
+over a ball, a turned crate, the monkey and a prop without one, `Wireframe` the
+edges of a ball, a crate, the monkey and a translucent ball off and on, and `Mouse look` a
 player turned by a stream of captured mouse motion onto a crate, then left alone
 by the same stream once Escape freed the mouse. `Code meshes` is a terrain split
 into parts under a knot, a lathed vase, a twisted star and a rock, all built in

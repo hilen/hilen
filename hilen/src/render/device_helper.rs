@@ -47,6 +47,9 @@ pub(crate) enum MeshDraw {
     Depth,
     /// Like `Cutout`, with the distance as the color.
     DepthCutout,
+    /// The edges of the mesh as lines in one color, drawn from its edge
+    /// buffer over the solid draw, see `SceneBase::show_wireframe`.
+    Wireframe,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -365,6 +368,7 @@ impl DeviceHelper for Device {
         draw: MeshDraw,
     ) -> RenderPipeline {
         let transparent = draw == MeshDraw::Translucent;
+        let wireframe = draw == MeshDraw::Wireframe;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -383,6 +387,7 @@ impl DeviceHelper for Device {
                     MeshDraw::Translucent => "f_main",
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
+                    MeshDraw::Wireframe => "f_wireframe",
                 }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
@@ -398,16 +403,20 @@ impl DeviceHelper for Device {
             }
             .into(),
             primitive:      PrimitiveState {
-                topology:           PrimitiveTopology::TriangleList,
+                topology:           if wireframe {
+                    PrimitiveTopology::LineList
+                } else {
+                    PrimitiveTopology::TriangleList
+                },
                 strip_index_format: None,
                 front_face:         FrontFace::Ccw,
-                cull_mode:          Some(wgpu::Face::Back),
+                cull_mode:          (!wireframe).then_some(wgpu::Face::Back),
                 polygon_mode:       PolygonMode::Fill,
                 unclipped_depth:    false,
                 conservative:       false,
             },
             depth_stencil:  DepthStencilState {
-                depth_write_enabled: Some(!transparent),
+                depth_write_enabled: Some(!transparent && !wireframe),
                 ..depth_stencil_state()
             }
             .into(),

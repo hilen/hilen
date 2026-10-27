@@ -66,6 +66,11 @@ pub struct SceneBase {
     /// slab is the floor itself and is not drawn. Off by default.
     pub show_colliders: bool,
 
+    /// Draws the edges of every triangle of every node as white lines
+    /// over the scene, depth tested so a hidden edge stays hidden. Off by
+    /// default.
+    pub show_wireframe: bool,
+
     pub(crate) physics: Option<ScenePhysics>,
 }
 

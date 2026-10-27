@@ -1204,7 +1204,8 @@ gate.
   shadow edges land a few pixels off, the depth precision of the shadow map is
   the lead. `Colliders` is off the browser lane too,
   SwiftShader draws the green collider lines in another shade, `#00ff60` where
-  a GPU blends `#1fd153`, the lines are not antialiased there. `Collider
+  a GPU blends `#1fd153`, the lines are not antialiased there. `Wireframe` is off
+  it for the same thin lines. `Collider
   shapes` and `Player walk` are off the browser lane as well. Both no longer
   check a picture, see [scene.md](scene.md), so the reason for their gates is
   gone, and neither was run on SwiftShader since. `Mouse look` is

@@ -74,6 +74,9 @@ mod triangle_picking;
 mod unlit;
 mod vertex_colors;
 mod view_points;
+/// The white edge lines, see `colliders`.
+#[cfg(not_wasm)]
+mod wireframe;
 
 /// Names this crate so a linker keeps it.
 ///

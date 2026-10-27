@@ -495,3 +495,26 @@ fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     return depth_color(in);
 }
+
+// An edge lies on the faces it borders, at their depth, so a line drawn
+// there loses to them on every other pixel. Each fragment moves this
+// share of its distance toward the camera. Near the far plane `1 - z`
+// shrinks like 1 over the distance, so the share stays the same at
+// every distance. Depth bias would do this, WebGPU allows it only for
+// triangles.
+const WIREFRAME_PULL: f32 = 0.002;
+// White, encoded like the frame, unlit and unfogged.
+const WIREFRAME_COLOR: vec4<f32> = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+
+struct WireframeOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn f_wireframe(in: VertexOutput) -> WireframeOutput {
+    var out: WireframeOutput;
+    out.color = WIREFRAME_COLOR;
+    out.depth = in.pos.z - WIREFRAME_PULL * (1.0 - in.pos.z);
+    return out;
+}

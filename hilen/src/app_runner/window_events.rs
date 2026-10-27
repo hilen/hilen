@@ -129,7 +129,7 @@ impl crate::window::WindowEvents for AppRunner {
         // After layout, so a row that replaced the dead hovered one
         // already has its frame when hover re-picks.
         #[cfg(any(desktop, wasm))]
-        Hover::refresh_dead();
+        Hover::refresh_gone();
         Focus::update();
     }
 

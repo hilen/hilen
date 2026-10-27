@@ -119,6 +119,12 @@ pub struct MeshPipeline {
     mesh_layout: PipelineLayout,
     mesh_shader: ShaderModule,
 
+    /// Whether this frame draws the edges of every node over it, see
+    /// `SceneBase::show_wireframe`. The pipelines are made at the first
+    /// such frame, like the depth ones.
+    pub(crate) wireframe: bool,
+    wireframe_pipelines:  Option<[RenderPipeline; 2]>,
+
     /// Debug lines in world space, the collider wireframes, drawn after
     /// every node and depth tested against them.
     lines_pipeline: RenderPipeline,
@@ -261,6 +267,8 @@ impl Default for MeshPipeline {
             depth: None,
             mesh_layout,
             mesh_shader,
+            wireframe: false,
+            wireframe_pipelines: None,
             lines_pipeline,
             lines: VecBuffer::default(),
             wide_tested,
@@ -483,6 +491,16 @@ impl MeshPipeline {
             return;
         }
 
+        if self.wireframe && self.wireframe_pipelines.is_none() {
+            self.wireframe_pipelines = Some(mesh_pipelines(
+                Window::device(),
+                "mesh_wireframe",
+                &self.mesh_layout,
+                &self.mesh_shader,
+                MeshDraw::Wireframe,
+            ));
+        }
+
         self.draw_batches(render_pass, frame, false);
 
         // Before the translucent nodes, which blend over a line behind
@@ -589,7 +607,13 @@ impl MeshPipeline {
             // zero, an A7 cannot draw from a base instance. The `index`
             // attribute still names the real slot for the fragment stage.
             render_pass.set_vertex_buffer(1, self.opaque_instances.elements(batch.drawn.clone()));
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..batch.drawn.end - batch.drawn.start);
+            let count = batch.drawn.end - batch.drawn.start;
+            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..count);
+            if let (Some(wireframe), false) = (&self.wireframe_pipelines, depth)
+                && self.wireframe
+            {
+                draw_edges(render_pass, &key.mesh, wireframe, count);
+            }
         }
     }
 
@@ -633,8 +657,25 @@ impl MeshPipeline {
             let start = range.start + u64::try_from(i).expect("node count fits u64") * stride;
             render_pass.set_vertex_buffer(1, self.transparent.buffer().slice(start..range.end));
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..1);
+            if let Some(wireframe) = &self.wireframe_pipelines
+                && self.wireframe
+            {
+                draw_edges(render_pass, &key.mesh, wireframe, 1);
+            }
         }
     }
+}
+
+/// Draws the edges of `count` instances of the mesh whose vertex and
+/// instance buffers are set, see `MeshDraw::Wireframe`.
+fn draw_edges(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipeline; 2], count: u32) {
+    pass.set_pipeline(if mesh.skin_buffer.is_some() {
+        skinned
+    } else {
+        plain
+    });
+    pass.set_index_buffer(mesh.edge_buffer.slice(..), IndexFormat::Uint16);
+    pass.draw_indexed(0..mesh.edge_count, 0, 0..count);
 }
 
 /// Picks the pipeline for the mesh out of a pipeline and its skinned

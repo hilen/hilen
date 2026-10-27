@@ -3,7 +3,7 @@ use std::mem::replace;
 #[cfg(any(desktop, wasm))]
 use crate::gm::flat::Point;
 #[cfg(any(desktop, wasm))]
-use crate::ui::{TouchStack, UIManager};
+use crate::ui::{TouchStack, UIManager, ViewData};
 use crate::{
     deps::refs::main_lock::MainLock,
     ui::{CursorIcon, Tooltip, ViewSubviews, WeakView},
@@ -67,16 +67,17 @@ impl Hover {
         Self::set_hovered(WeakView::default());
     }
 
-    /// The hovered view can die without a cursor event: a rebuild
-    /// replaces the rows under a stationary cursor. Runs after the
-    /// deleted views drain each frame and re-picks under the last
-    /// cursor position, so the replacement row gets its enter without
-    /// waiting for a mouse move, like CSS hover. A no-op while the
-    /// hovered view is alive or there is none.
+    /// The hovered view can die or hide without a cursor event: a
+    /// rebuild replaces the rows under a stationary cursor, a key hides
+    /// the panel the cursor rests on. Runs after the deleted views drain
+    /// each frame and re-picks under the last cursor position, so the
+    /// view now under the cursor gets its enter and the tooltip of the
+    /// gone one goes, without waiting for a mouse move, like CSS hover.
+    /// A no-op while the hovered view is alive and shown or there is none.
     #[cfg(any(desktop, wasm))]
-    pub(crate) fn refresh_dead() {
+    pub(crate) fn refresh_gone() {
         let old = *HOVERED;
-        if !old.was_initialized() || old.is_ok() {
+        if !old.was_initialized() || (old.is_ok() && !old.is_hidden_in_tree()) {
             return;
         }
         Self::update(UIManager::cursor_position());
@@ -99,7 +100,7 @@ impl Hover {
         }
 
         if !old_alive && !new.is_ok() {
-            // Drop a dead pointer, so `refresh_dead` stops re-picking
+            // Drop a dead pointer, so `refresh_gone` stops re-picking
             // once nothing sits under the cursor. The dead view can be
             // the one whose custom cursor is still applied, so the
             // cursor resets even though no hover event fires.

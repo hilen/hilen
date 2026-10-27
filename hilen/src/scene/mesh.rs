@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     f32::consts::{PI, TAU},
 };
 
@@ -33,6 +33,10 @@ pub struct Mesh {
     pub(crate) skin_buffer:   Option<Buffer>,
     pub(crate) index_buffer:  Buffer,
     pub(crate) index_count:   u32,
+    /// Every edge of the triangles once, as pairs of vertex indices,
+    /// what `SceneBase::show_wireframe` draws as lines.
+    pub(crate) edge_buffer:   Buffer,
+    pub(crate) edge_count:    u32,
 }
 
 type Geometry = (Vec<Vertex3D>, Vec<u16>);
@@ -66,11 +70,14 @@ impl Mesh {
 
     pub(crate) fn upload(vertices: &[Vertex3D], indices: &[u16]) -> Self {
         let device = Window::device();
+        let edges = edges(indices);
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),
             skin_buffer:   None,
             index_buffer:  device.buffer(indices, BufferUsages::INDEX),
             index_count:   checked_usize_to_u32(indices.len()),
+            edge_buffer:   device.buffer(edges.as_slice(), BufferUsages::INDEX),
+            edge_count:    checked_usize_to_u32(edges.len()),
         }
     }
 
@@ -83,6 +90,26 @@ impl Mesh {
             ..Self::upload(vertices, indices)
         }
     }
+}
+
+/// The edges of the triangles of `indices` as a line list, an edge two
+/// triangles share only once. A mesh that has no triangle still gets
+/// one degenerate pair, a buffer of 0 bytes cannot be bound.
+fn edges(indices: &[u16]) -> Vec<u16> {
+    let mut seen = HashSet::new();
+    let mut edges = vec![];
+    for triangle in indices.as_chunks::<3>().0 {
+        for (from, to) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (triangle[from], triangle[to]);
+            if seen.insert((a.min(b), a.max(b))) {
+                edges.extend([a, b]);
+            }
+        }
+    }
+    if edges.is_empty() {
+        edges.extend([0, 0]);
+    }
+    edges
 }
 
 fn index(i: usize) -> u16 {
