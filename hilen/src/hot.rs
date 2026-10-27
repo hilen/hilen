@@ -23,6 +23,8 @@ use winit::platform::ios::release_classes;
 
 #[cfg(sound)]
 use crate::audio::manager::stop as stop_audio;
+#[cfg(all(feature = "camera", target_os = "ios"))]
+use crate::camera::apple::delegates_alive;
 #[cfg(feature = "level")]
 use crate::level::LevelManager;
 #[cfg(feature = "scene")]
@@ -165,11 +167,16 @@ pub extern "C" fn hilen_stopped() -> c_int {
     if !release_classes() {
         return 0;
     }
+    #[cfg(all(feature = "camera", target_os = "ios"))]
+    if delegates_alive() {
+        return 0;
+    }
 
     // The layer of the surface is a sublayer of the winit view, so it is
     // gone when that view is. The picker delegates went in `hilen_stop`.
     for class in CLASSES.iter().filter_map(|name| AnyClass::get(name)) {
-        // SAFETY: the class was made at run time and has no object left.
+        // SAFETY: the class was made at run time and has no object left,
+        // the camera delegates are counted above.
         unsafe { objc_disposeClassPair(from_ref(class).cast_mut().cast()) };
     }
 

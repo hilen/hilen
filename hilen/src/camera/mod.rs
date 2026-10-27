@@ -31,7 +31,7 @@ mod frame;
 mod photo;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-mod apple;
+pub(crate) mod apple;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use apple as system;
 

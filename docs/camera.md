@@ -47,6 +47,11 @@ usage = "Takes photos of the object on the turntable."
   macOS 13 and iOS 16 and later, HEVC where the camera has it, all 3 locks. With no
   usage text the engine gives an error, since iOS and a packaged Mac app would stop
   the app. The live picture on an iPhone is turned upright for a phone held up.
+  When the camera opens on iOS, the log says whether it straightens its pictures by
+  itself, the geometric distortion correction of AVFoundation, which Apple turns on by
+  default where a camera has it. Whether the 1x lens of an iPhone has it is not checked
+  yet. A hot build waits at its stop until the delegates of the camera are gone, see
+  "The stop" in [hot-reload.md](hot-reload.md).
 - Android: the NDK camera, JPEG at the largest size. Focus locks with 1 auto focus
   trigger, exposure and white balance have their own lock switches. The permission is
   asked through the activity, the answer is read when the app gets its focus back,
@@ -72,6 +77,8 @@ Camera`, showed its live picture upright in a `CameraView`, locked exposure and 
 balance, and took over 100 JPEG photos of 8064 x 6048 from code, about 1 every 3
 seconds with the work of the app between them. A hot loader installed before the
 camera came had no `NSCameraUsageDescription`, `make device args=install` fixed it.
+On 2026-10-27 turnscan swapped 2 times in a row on that iPhone with the camera open,
+each swap about 2.3 seconds.
 The hardware code of macOS, Android, Windows, Linux and the browser is not proven
 with a real camera. The browser lane leaves the test out: the page stopped
 answering in it after the camera opened, about 1 run in 3 on 2026-10-17, also on

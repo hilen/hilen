@@ -3,7 +3,15 @@
 //! the photo output takes the photo at full resolution. Every call on the
 //! session runs on 1 serial queue, the way Apple asks for it.
 
-use std::{path::Path, ptr::from_ref, slice, sync::Arc};
+use std::{
+    path::Path,
+    ptr::from_ref,
+    slice,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use anyhow::{Error, Result, anyhow};
 use block2::RcBlock;
@@ -44,6 +52,17 @@ use crate::camera::{
 };
 
 const USAGE_KEY: &str = "NSCameraUsageDescription";
+
+/// The delegates of this build that are alive. The session drops them on its
+/// queue some time after the camera closed, and a hot build deletes their
+/// classes at its stop, so the stop waits until this is 0.
+static DELEGATES: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a delegate of a camera of this build is still alive.
+#[cfg(target_os = "ios")]
+pub(crate) fn delegates_alive() -> bool {
+    DELEGATES.load(Ordering::Acquire) > 0
+}
 
 pub(super) struct System;
 
@@ -263,6 +282,13 @@ impl Parts {
         }
         unsafe { session.commitConfiguration() };
         unsafe { session.startRunning() };
+        #[cfg(target_os = "ios")]
+        debug!(
+            "camera {} straightens its pictures: supported {}, on {}",
+            device.name,
+            unsafe { camera.isGeometricDistortionCorrectionSupported() },
+            unsafe { camera.isGeometricDistortionCorrectionEnabled() }
+        );
 
         Ok(Self {
             device: camera,
@@ -335,7 +361,7 @@ impl Drop for Parts {
         debug!(
             "capture session of {} stopped after {} frames",
             unsafe { self.device.localizedName() },
-            self.frames.ivars().count()
+            self.frames.ivars().slot.count()
         );
     }
 }
@@ -437,7 +463,7 @@ define_class!(
     // Drop.
     #[unsafe(super(NSObject))]
     #[name = "HilenCameraFrames"]
-    #[ivars = FrameSlot]
+    #[ivars = FrameIvars]
     struct FrameDelegate;
 
     unsafe impl NSObjectProtocol for FrameDelegate {}
@@ -451,21 +477,38 @@ define_class!(
             _connection: &AVCaptureConnection,
         ) {
             if let Some((rgba, width, height)) = bgra_frame(sample) {
-                self.ivars().put(rgba, width, height);
+                self.ivars().slot.put(rgba, width, height);
             }
         }
     }
 );
 
 impl FrameDelegate {
-    fn new(frames: FrameSlot) -> Retained<Self> {
-        let this = Self::alloc().set_ivars(frames);
+    fn new(slot: FrameSlot) -> Retained<Self> {
+        DELEGATES.fetch_add(1, Ordering::AcqRel);
+        let this = Self::alloc().set_ivars(FrameIvars { slot });
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+struct FrameIvars {
+    slot: FrameSlot,
+}
+
+impl Drop for FrameIvars {
+    fn drop(&mut self) {
+        DELEGATES.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
 struct PhotoIvars {
     done: Mutex<Option<Done<Photo>>>,
+}
+
+impl Drop for PhotoIvars {
+    fn drop(&mut self) {
+        DELEGATES.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 define_class!(
@@ -500,6 +543,7 @@ define_class!(
 
 impl PhotoDelegate {
     fn new(done: Done<Photo>) -> Retained<Self> {
+        DELEGATES.fetch_add(1, Ordering::AcqRel);
         let this = Self::alloc().set_ivars(PhotoIvars {
             done: Mutex::new(Some(done)),
         });
@@ -523,4 +567,25 @@ fn photo_of(photo: &AVCapturePhoto) -> Result<Photo> {
         width: u32::try_from(size.width)?,
         height: u32::try_from(size.height)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+
+    use super::{DELEGATES, FrameDelegate, PhotoDelegate};
+    use crate::camera::frame::FrameSlot;
+
+    /// A hot build deletes the classes of the delegates at its stop, a
+    /// delegate that is not counted crashed a swap on an iPhone.
+    #[test]
+    fn a_delegate_is_counted_while_it_lives() {
+        let before = DELEGATES.load(Ordering::Acquire);
+        let frames = FrameDelegate::new(FrameSlot::default());
+        let photo = PhotoDelegate::new(Box::new(drop));
+        assert_eq!(DELEGATES.load(Ordering::Acquire), before + 2);
+        drop(frames);
+        drop(photo);
+        assert_eq!(DELEGATES.load(Ordering::Acquire), before);
+    }
 }

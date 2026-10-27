@@ -438,6 +438,14 @@ thread work, the window with its surface, the event loop, Sentry and the tokio
 runtime. `hilen_stopped` then answers 1 once the Objective-C classes are
 deleted, the loader asks every 50 ms.
 
+The camera is not on that list. A closed camera drops its capture session on
+its own queue, where `stopRunning` blocks, about 120 ms after the stop on an
+iPhone. Until then the session still holds the delegates `HilenCameraFrames`
+and `HilenCameraPhoto`. Their classes are deleted only once
+`camera::apple::delegates_alive` says none is left, a delegate released in a
+deleted class ended the process with signal 11 on every swap of turnscan
+before 2026-10-27.
+
 ## No rayon
 
 The global rayon pool has no shutdown, each generation would leave 10 sleeping
