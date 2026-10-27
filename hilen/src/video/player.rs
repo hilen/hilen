@@ -84,11 +84,19 @@ impl Default for Counters {
 #[derive(Default)]
 struct Queue {
     /// The decoder reached the end of the current generation.
-    eof:          bool,
+    eof:              bool,
     /// A seek while paused shows its target frame once it arrives.
-    seek_pending: bool,
+    seek_pending:     bool,
     /// At least one frame reached the screen.
-    shown:        bool,
+    shown:            bool,
+    /// The newest frame of an older seek that came while a seek waits
+    /// paused. It shows until the frame of the newest seek is there, so a
+    /// drag that seeks on every move shows where it is on the way.
+    scrub:            Option<VideoFrame>,
+    /// The seek generation of the frame on the screen. Only a frame of a
+    /// newer seek can be a scrub picture, the frames of the place that was
+    /// left are not.
+    shown_generation: u32,
 }
 
 /// How playback moves along the stream.
@@ -415,6 +423,16 @@ impl Player {
             Message::Frame(frame) => {
                 if frame.generation == self.generation {
                     self.pending.push_back(frame);
+                } else if !self.playing
+                    && self.queue.seek_pending
+                    && frame.generation > self.queue.shown_generation
+                    && self
+                        .queue
+                        .scrub
+                        .as_ref()
+                        .is_none_or(|scrub| frame.generation > scrub.generation)
+                {
+                    self.queue.scrub = Some(frame);
                 }
             }
             Message::Cue(cue) => {
@@ -491,6 +509,12 @@ impl Player {
         if self.flow.buffering {
             return None;
         }
+        if !self.playing && self.queue.seek_pending && self.pending.is_empty() {
+            let frame = self.queue.scrub.take()?;
+            self.queue.shown_generation = frame.generation;
+            self.queue.shown = true;
+            return (self.upload == Upload::Gpu).then(|| self.show(&frame));
+        }
         let front = self.pending.front()?.pts;
         let now = self.position();
         let interval = self.info.as_ref().map_or(0.0, |info| 1.0 / info.frame_rate);
@@ -526,6 +550,8 @@ impl Player {
         self.counters.presented += 1;
         self.queue.shown = true;
         self.queue.seek_pending = false;
+        self.queue.shown_generation = frame.generation;
+        self.queue.scrub = None;
         self.flow.due = frame.pts + interval;
         image
     }

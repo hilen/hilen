@@ -55,6 +55,39 @@ impl Playing {
             }
         }
     }
+
+    /// `reach` for a scrub. When a newer seek waits and a frame on the way
+    /// is there, it stops and that frame is the first one, the nearest
+    /// place it got to. A stop ends it at once. False when it did not reach
+    /// its own frame.
+    fn reach_near(&mut self, news: &mut dyn FnMut() -> News) -> Result<bool, Error> {
+        loop {
+            match self.reader.step()? {
+                Step::Done(picture) => {
+                    self.first = picture;
+                    return Ok(true);
+                }
+                Step::More => match news() {
+                    News::Stop => return Ok(false),
+                    News::Seek if self.reader.has_skipped() => {
+                        self.first = self.reader.take_skipped();
+                        return Ok(false);
+                    }
+                    News::Seek | News::None => {}
+                },
+            }
+        }
+    }
+}
+
+/// What came for the decode thread while it works.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum News {
+    None,
+    /// A newer seek waits.
+    Seek,
+    /// A stop came or the player is gone.
+    Stop,
 }
 
 /// The answer to `give_up` of work that always runs to its end.
@@ -137,8 +170,34 @@ impl<'a> Pieces<'a> {
     /// The next picture is the one at these seconds of the list. `give_up`
     /// is asked after every step of the decode up to that frame, true ends
     /// the seek there. False when it ended that way, the caller then has a
-    /// newer seek to run.
+    /// newer seek to run. The decode thread scrubs, the tests seek exact.
+    #[cfg(test)]
     pub(crate) fn seek(&mut self, seconds: f64, give_up: &mut dyn FnMut() -> bool) -> Result<bool, Error> {
+        let reached = self.seek_by(seconds, |playing| playing.reach(give_up))?;
+        if !reached {
+            debug!("video: seek to {seconds:.2} s of the list given up, a newer one waits");
+        }
+        Ok(reached)
+    }
+
+    /// A seek of a drag. With no newer seek it lands on its frame like
+    /// `seek`. When a newer one comes on the way, the next picture is the
+    /// frame it got to, so the drag shows a picture near the place in the
+    /// time the decoder needs for its first frame, not for the exact one.
+    /// False when it ended that way or on a stop.
+    pub(crate) fn scrub(&mut self, seconds: f64, news: &mut dyn FnMut() -> News) -> Result<bool, Error> {
+        let reached = self.seek_by(seconds, |playing| playing.reach_near(news))?;
+        if !reached {
+            debug!("video: seek to {seconds:.2} s of the list shows a frame on the way, a newer one waits");
+        }
+        Ok(reached)
+    }
+
+    fn seek_by(
+        &mut self,
+        seconds: f64,
+        reach: impl FnOnce(&mut Playing) -> Result<bool, Error>,
+    ) -> Result<bool, Error> {
         let Some((index, place)) = self.list.locate(seconds) else {
             return Ok(true);
         };
@@ -159,12 +218,10 @@ impl<'a> Pieces<'a> {
             }
             None => self.open(index, place)?,
         };
-        let reached = playing.reach(give_up)?;
+        let reached = reach(&mut playing)?;
         self.current = Some(playing);
         if reached {
             debug!("video: seek to {seconds:.2} s of the list, piece {index} at {place:.2} s");
-        } else {
-            debug!("video: seek to {seconds:.2} s of the list given up, a newer one waits");
         }
         Ok(reached)
     }
@@ -293,9 +350,8 @@ impl<'a> Pieces<'a> {
 }
 
 /// The commands that wait for the decode thread of a list. Of the seeks
-/// only the newest is kept. A seek of a list decodes up to its frame, and
-/// the player drops every frame of a seek that is not its newest, so the
-/// decode of an older seek would only hold the newest one back.
+/// only the newest is kept. A seek of a list decodes up to its frame, so
+/// a seek that waits behind a newer one would only hold the newer one back.
 struct Waiting<'a> {
     commands: &'a Receiver<Command>,
     /// The generation and the seconds of the newest seek not run yet.
@@ -343,6 +399,17 @@ impl<'a> Waiting<'a> {
         }
     }
 
+    fn news_now(&mut self) -> News {
+        self.drain();
+        if self.stop {
+            News::Stop
+        } else if self.seek.is_some() {
+            News::Seek
+        } else {
+            News::None
+        }
+    }
+
     /// A seek or a stop is there, so the work in hand is of no use.
     fn news(&mut self) -> bool {
         self.drain();
@@ -360,25 +427,28 @@ impl<'a> Waiting<'a> {
     }
 }
 
-/// Runs the newest seek that waits, and only that one. A seek that a newer
-/// one overtakes while it decodes is given up for it. True when the list
-/// was moved to another place.
+/// Runs the newest seek that waits, and only that one. When a newer seek
+/// comes while it decodes, it ends at the first frame it has on the way,
+/// and that frame goes out before the newer seek starts. The player shows
+/// it while it waits for the newer one. So a drag that seeks on every move
+/// shows a picture near the pointer all along, and the last seek of the
+/// drag lands on its exact frame. A seek given up for each newer one with
+/// no frame showed nothing until the drag ended. True when the list was
+/// moved to another place.
 fn seek_newest(pieces: &mut Pieces, waiting: &mut Waiting, generation: &mut u32) -> Result<bool, Error> {
-    let mut moved = false;
-    while !waiting.stop
-        && let Some((new, seconds)) = waiting.seek.take()
-    {
-        let dropped = take(&mut waiting.dropped);
-        if dropped > 0 {
-            debug!("video: seek {new} of the list is the newest, {dropped} older ones were dropped");
-        }
-        *generation = new;
-        moved = true;
-        if !pieces.seek(seconds, &mut || waiting.news())? {
-            waiting.dropped += 1;
-        }
+    if waiting.stop {
+        return Ok(false);
     }
-    Ok(moved)
+    let Some((new, seconds)) = waiting.seek.take() else {
+        return Ok(false);
+    };
+    let dropped = take(&mut waiting.dropped);
+    if dropped > 0 {
+        debug!("video: seek {new} of the list is the newest, {dropped} older ones were dropped");
+    }
+    *generation = new;
+    pieces.scrub(seconds, &mut || waiting.news_now())?;
+    Ok(true)
 }
 
 /// The decode thread of a list, the twin of `run` of a file.
@@ -714,6 +784,41 @@ mod test {
             assert!(decoded <= 30, "{decoded} frames were decoded for 1 picture");
             assert_eq!(next_ramp_index(pieces), 52);
             assert_eq!(next_ramp_index(pieces), 53);
+        });
+    }
+
+    /// The drag of a slider: a newer seek comes while a seek decodes. The
+    /// running seek ends at the first frame it has on the way, from its
+    /// keyframe up to its place, and that picture goes out before the
+    /// newer seek runs. A seek given up for every newer one showed no
+    /// picture until the drag ended. The last seek, with none after it,
+    /// lands on its exact frame.
+    #[test]
+    fn a_running_seek_shows_a_frame_on_the_way_before_a_newer_one() {
+        with_ramp_list(|pieces, _| {
+            let (commands, receiver) = channel();
+            commands.send(seek_to_frame(1, 55)).expect("the queue takes commands");
+            let mut waiting = Waiting::new(&receiver);
+            waiting.drain();
+            // It waits in the queue while seek 1 decodes.
+            commands.send(seek_to_frame(2, 25)).expect("the queue takes commands");
+
+            let mut generation = 0;
+            assert!(seek_newest(pieces, &mut waiting, &mut generation).expect("the list seeks"));
+            assert_eq!(generation, 1);
+            // The fixture has a keyframe a second, frame 30 is the one
+            // before frame 55.
+            let on_the_way = next_ramp_index(pieces);
+            assert!(
+                (30..55).contains(&on_the_way),
+                "frame {on_the_way} is not on the way"
+            );
+            assert!(waiting.seek.is_some(), "the newer seek still waits");
+
+            waiting.drain();
+            assert!(seek_newest(pieces, &mut waiting, &mut generation).expect("the list seeks"));
+            assert_eq!(generation, 2);
+            assert_eq!(next_ramp_index(pieces), 25);
         });
     }
 

@@ -5,8 +5,13 @@
 //! in the middle, and `ab_glyph` fills the same outlines the glyph atlas of
 //! a label holds.
 
-use std::sync::LazyLock;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex, PoisonError},
+};
 
+use anyhow::{Context, Result, anyhow};
 use rustybuzz::{Face, UnicodeBuffer, shape};
 use wgpu_text::glyph_brush::ab_glyph::{
     Font as AbGlyphFont, FontRef, Glyph, GlyphId, OutlinedGlyph, PxScale, ScaleFont, point,
@@ -22,10 +27,9 @@ use crate::{
     window::DEFAULT_FONT_DATA,
 };
 
-/// The font a `Label` has by default, for the outlines and for shaping. A
-/// `Font` of the engine cannot be used here, it belongs to the main thread
-/// and to a window.
-struct TextFace {
+/// A font for the outlines and for shaping. A `Font` of the engine cannot
+/// be used here, it belongs to the main thread and to a window.
+pub(crate) struct TextFace {
     outlines: FontRef<'static>,
     shaping:  Face<'static>,
     /// Turns pixels per em into the `PxScale` of `ab_glyph`, see
@@ -33,17 +37,45 @@ struct TextFace {
     em_scale: f32,
 }
 
-static FACE: LazyLock<TextFace> = LazyLock::new(|| {
-    let outlines = FontRef::try_from_slice(DEFAULT_FONT_DATA).expect("the built in font has outlines");
-    let shaping = Face::from_slice(DEFAULT_FONT_DATA, 0).expect("the built in font shapes");
-    let units_per_em = outlines.units_per_em().expect("the built in font has units per em");
-    let em_scale = outlines.height_unscaled() / units_per_em;
-    TextFace {
-        outlines,
-        shaping,
-        em_scale,
+impl TextFace {
+    fn new(data: &'static [u8]) -> Result<Self> {
+        let outlines = FontRef::try_from_slice(data)?;
+        let shaping = Face::from_slice(data, 0).ok_or_else(|| anyhow!("the font does not shape"))?;
+        let units_per_em = outlines.units_per_em().ok_or_else(|| anyhow!("the font has no units per em"))?;
+        Ok(Self {
+            em_scale: outlines.height_unscaled() / units_per_em,
+            outlines,
+            shaping,
+        })
     }
-});
+}
+
+/// The font a `Label` has by default.
+pub(super) static FACE: LazyLock<TextFace> =
+    LazyLock::new(|| TextFace::new(DEFAULT_FONT_DATA).expect("the built in font has outlines and shapes"));
+
+/// The faces of font files by their path. A face borrows its bytes for the
+/// whole run, so each file is read and kept once, an app that builds its
+/// overlays again on every edit reads nothing new.
+static FILES: LazyLock<Mutex<HashMap<PathBuf, (&'static Path, &'static TextFace)>>> =
+    LazyLock::new(Mutex::default);
+
+/// The path and the face of a font file, read on the first call for its
+/// path.
+pub(super) fn face_of_file(path: &Path) -> Result<(&'static Path, &'static TextFace)> {
+    let mut files = FILES.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(known) = files.get(path) {
+        return Ok(*known);
+    }
+    let data = std::fs::read(path).with_context(|| format!("the font {}", path.display()))?;
+    let face = TextFace::new(Vec::leak(data)).with_context(|| format!("the font {}", path.display()))?;
+    let known: (&'static Path, &'static TextFace) = (
+        Box::leak(path.to_path_buf().into_boxed_path()),
+        Box::leak(Box::new(face)),
+    );
+    files.insert(path.to_path_buf(), known);
+    Ok(known)
+}
 
 /// The glyphs of a text on their baselines, and the box of its lines.
 struct Laid {
@@ -53,9 +85,9 @@ struct Laid {
 
 /// Lays `text` out at `em` pixels per em with the middle of its lines at
 /// `middle`.
-fn lay_out(text: &str, em: f32, middle: Point) -> Laid {
-    let scale = PxScale::from(em * FACE.em_scale);
-    let scaled = FACE.outlines.as_scaled(scale);
+fn lay_out(face: &TextFace, text: &str, em: f32, middle: Point) -> Laid {
+    let scale = PxScale::from(em * face.em_scale);
+    let scaled = face.outlines.as_scaled(scale);
     let per_unit = scaled.scale_factor().horizontal;
     let pixels = |units: i32| -> f32 {
         let units: f32 = units.lossy_convert();
@@ -72,7 +104,7 @@ fn lay_out(text: &str, em: f32, middle: Point) -> Laid {
     for line in lines {
         let mut buffer = UnicodeBuffer::new();
         buffer.push_str(line);
-        let shaped = shape(&FACE.shaping, &[], buffer);
+        let shaped = shape(&face.shaping, &[], buffer);
         let line_width: f32 = shaped.glyph_positions().iter().map(|place| pixels(place.x_advance)).sum();
         let mut x = middle.x - line_width / 2.0;
         for (info, place) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
@@ -94,17 +126,17 @@ fn lay_out(text: &str, em: f32, middle: Point) -> Laid {
 
 /// The box the lines of `text` take at `em` pixels per em: the widest line
 /// and the height from the top of the first line to the bottom of the last.
-pub(super) fn measure(text: &str, em: f32) -> Size {
-    lay_out(text, em, Point::default()).size
+pub(super) fn measure(face: &TextFace, text: &str, em: f32) -> Size {
+    lay_out(face, text, em, Point::default()).size
 }
 
 /// The text as premultiplied pixels in `color`, with the middle of its
 /// lines at `middle` of the frame. None for a text that draws no glyph.
-pub(super) fn raster(text: &str, em: f32, middle: Point, color: Color) -> Option<Layer> {
-    let outlines: Vec<OutlinedGlyph> = lay_out(text, em, middle)
+pub(super) fn raster(face: &TextFace, text: &str, em: f32, middle: Point, color: Color) -> Option<Layer> {
+    let outlines: Vec<OutlinedGlyph> = lay_out(face, text, em, middle)
         .glyphs
         .into_iter()
-        .filter_map(|glyph| FACE.outlines.outline_glyph(glyph))
+        .filter_map(|glyph| face.outlines.outline_glyph(glyph))
         .collect();
 
     let boxes = outlines.iter().map(OutlinedGlyph::px_bounds);

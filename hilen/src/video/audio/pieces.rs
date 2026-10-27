@@ -7,7 +7,11 @@
 
 mod music;
 
-use std::{ptr::null, sync::Arc};
+use std::{
+    f64::consts::{FRAC_PI_2, PI},
+    ptr::null,
+    sync::Arc,
+};
 
 use ffmpeg_next::{
     ChannelLayout, Error, Packet, codec, decoder,
@@ -23,7 +27,7 @@ use kira::{Frame, sound::streaming::Decoder};
 use crate::{
     gm::LossyConvert,
     video::{
-        VideoSource,
+        VideoPiece, VideoSource,
         audio::{SPEEDS, TAIL, drain, pieces::music::MusicSound, push_samples, tempo_graph},
         count_to_f64,
         source::{Interrupt, PieceList},
@@ -70,6 +74,8 @@ pub(crate) struct FileSound {
     eof:       bool,
     /// The sample of the file the next `read` starts at.
     at:        usize,
+    /// Samples the sound of the file lasts, 0 when the file does not say.
+    length:    usize,
 }
 
 impl FileSound {
@@ -81,10 +87,18 @@ impl FileSound {
         };
         let index = stream.index();
         let time_base: f64 = stream.time_base().into();
+        let length = if stream.duration() > 0 {
+            let ticks: f64 = stream.duration().lossy_convert();
+            samples(ticks * time_base)
+        } else {
+            let micros: f64 = input.duration().max(0).lossy_convert();
+            samples(micros / 1_000_000.0)
+        };
         let context = codec::context::Context::from_parameters(stream.parameters())?;
         let decoder = context.decoder().audio()?;
         let resampler = resampler(&decoder)?;
         Ok(Some(Self {
+            length,
             source: source.clone(),
             input,
             stream: index,
@@ -291,6 +305,94 @@ fn amplify(frames: &mut [Frame], gain: f32) {
     }
 }
 
+/// Fades the sound of a piece in at its start and out at its end, in a
+/// straight line. `frames` start `from` samples into the piece, which is
+/// `length` samples long.
+fn fade(frames: &mut [Frame], from: usize, length: usize, piece: &VideoPiece) {
+    let fade_in = samples(piece.sound_fade_in);
+    let fade_out = samples(piece.sound_fade_out);
+    if fade_in == 0 && fade_out == 0 {
+        return;
+    }
+    for (offset, frame) in frames.iter_mut().enumerate() {
+        let at = from + offset;
+        let left = length.saturating_sub(at);
+        let mut factor = 1.0_f32;
+        if at < fade_in {
+            let part: f32 = (seconds(at) / seconds(fade_in)).lossy_convert();
+            factor = factor.min(part);
+        }
+        if left <= fade_out && fade_out > 0 {
+            let part: f32 = (seconds(left) / seconds(fade_out)).lossy_convert();
+            factor = factor.min(part);
+        }
+        if factor < 1.0 {
+            frame.left *= factor;
+            frame.right *= factor;
+        }
+    }
+}
+
+/// The gain of a sound that comes in at sample `at` of `window` samples, on
+/// the equal power curve of a crossfade.
+fn rise(at: usize, window: usize) -> f32 {
+    let part = (seconds(at) / seconds(window.max(1))).clamp(0.0, 1.0);
+    (part * FRAC_PI_2).sin().lossy_convert()
+}
+
+/// The gain of a sound that goes out at sample `at` of `window` samples.
+fn fall(at: usize, window: usize) -> f32 {
+    let part = (seconds(at) / seconds(window.max(1))).clamp(0.0, 1.0);
+    (part * FRAC_PI_2).cos().lossy_convert()
+}
+
+/// A sound that comes in from silence at sample `at` of `window` samples, on
+/// a raised cosine. It starts and ends gently, so the sound neither jumps in
+/// nor stops short.
+fn soft_rise(at: usize, window: usize) -> f32 {
+    let part = (seconds(at) / seconds(window.max(1))).clamp(0.0, 1.0);
+    ((1.0 - (part * PI).cos()) / 2.0).lossy_convert()
+}
+
+/// A sound that goes out to silence at sample `at` of `window` samples.
+fn soft_fall(at: usize, window: usize) -> f32 {
+    let part = (seconds(at) / seconds(window.max(1))).clamp(0.0, 1.0);
+    f64::midpoint(1.0, (part * PI).cos()).lossy_convert()
+}
+
+/// Which side of a cut has sound in its file beyond the cut.
+#[derive(Clone, Copy)]
+struct Sides {
+    /// The piece before the cut has sound past its end.
+    after:  bool,
+    /// The piece after the cut has sound before its start.
+    before: bool,
+}
+
+/// Multiplies every frame by its gain.
+fn shape(frames: &mut [Frame], gain: impl Fn(usize) -> f32) {
+    for (index, frame) in frames.iter_mut().enumerate() {
+        let gain = gain(index);
+        frame.left *= gain;
+        frame.right *= gain;
+    }
+}
+
+/// Adds `theirs` to `frames`, each at its gain, cut flat at full scale.
+fn mix(frames: &mut [Frame], theirs: &[Frame], gain: impl Fn(usize) -> f32) {
+    for (index, (frame, their)) in frames.iter_mut().zip(theirs).enumerate() {
+        let gain = gain(index);
+        frame.left = (frame.left + their.left * gain).clamp(-1.0, 1.0);
+        frame.right = (frame.right + their.right * gain).clamp(-1.0, 1.0);
+    }
+}
+
+/// A sample count as a signed number, for a place before the start of a
+/// file.
+fn signed(count: usize) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
+}
+
 /// The file that is open, for the piece that is read.
 struct Open {
     piece: usize,
@@ -304,9 +406,18 @@ pub(crate) struct PiecesSound {
     /// The sample of the list every piece starts at, and the whole length
     /// as one more entry.
     starts: Vec<usize>,
+    /// Half the crossfade of every cut in samples, the cut after piece `i`
+    /// is entry `i`. 0 where the next piece goes on in the same file.
+    halves: Vec<usize>,
+    /// Which side of every cut has sound beyond it, found on the first
+    /// read near the cut.
+    sides:  Vec<Option<Sides>>,
     /// The sample of the list the next read gives.
     at:     usize,
     open:   Option<Open>,
+    /// The file of the piece on the other side of a cut, read while the 2
+    /// sounds overlap.
+    other:  Option<Open>,
     /// The file of the music of the list, not opened for a list with none.
     music:  MusicSound,
     /// How fast the sound plays, see `AudioDecoder`.
@@ -321,6 +432,22 @@ impl PiecesSound {
     /// Opens no file, the first read does, on the thread that reads.
     pub(crate) fn new(list: &Arc<PieceList>, speed: f64, reads: Interrupt) -> Result<Self, Error> {
         let starts = (0..=list.pieces().len()).map(|index| samples(list.start_of(index))).collect();
+        let halves = list
+            .pieces()
+            .windows(2)
+            .map(|pair| {
+                let (this, next) = (&pair[0], &pair[1]);
+                // The sound goes on with no seam there, an overlap would
+                // only add the same sound to itself.
+                let goes_on = this.source.same_as(&next.source) && (next.start - this.end).abs() < 1e-6;
+                if goes_on {
+                    0
+                } else {
+                    samples((this.crossfade / 2.0).min(this.duration() / 2.0).min(next.duration() / 2.0))
+                }
+            })
+            .collect();
+        let sides = vec![None; list.pieces().len().saturating_sub(1)];
         let speed = speed.clamp(SPEEDS.0, SPEEDS.1);
         let tempo = if (speed - 1.0).abs() < f64::EPSILON {
             None
@@ -331,8 +458,11 @@ impl PiecesSound {
             list: Arc::clone(list),
             reads,
             starts,
+            halves,
+            sides,
             at: 0,
             open: None,
+            other: None,
             music: MusicSound::default(),
             speed,
             tempo,
@@ -356,7 +486,41 @@ impl PiecesSound {
         let Some(piece) = self.starts[1..].iter().position(|end| self.at < *end) else {
             return Ok(Vec::new());
         };
-        let left = self.starts[piece + 1] - self.at;
+        let length = self.starts[piece + 1] - self.starts[piece];
+        let inside = self.at - self.starts[piece];
+        let head_cut = piece.checked_sub(1);
+        let tail_cut = (piece + 1 < self.list.pieces().len()).then_some(piece);
+        let head_sides = head_cut.map(|cut| self.cut_sides(cut)).transpose()?;
+        let tail_sides = tail_cut.map(|cut| self.cut_sides(cut)).transpose()?;
+        let head_half = head_cut.map_or(0, |cut| self.halves[cut]);
+        let tail_half = tail_cut.map_or(0, |cut| self.halves[cut]);
+        // A side that overlaps fades over half the crossfade on each side
+        // of the cut. A side with no sound beyond the cut fades over the
+        // whole crossfade on its own side, so it does not drop off.
+        let own = |half: usize, beyond: bool| {
+            if half == 0 {
+                0
+            } else if beyond {
+                half
+            } else {
+                (2 * half).min(length / 2)
+            }
+        };
+        let head = head_sides.map_or(0, |sides| own(head_half, sides.before));
+        let tail = tail_sides.map_or(0, |sides| own(tail_half, sides.after));
+        let tail_from = length - tail;
+        // A read stays in 1 part of the piece, so 1 rule holds for all of
+        // it: the head, the middle, the tail, and in a long head or tail the
+        // half next to the cut where the other sound overlaps.
+        let marks = [
+            head_half.min(head),
+            head,
+            tail_from,
+            tail_from + tail.saturating_sub(tail_half),
+            length,
+        ];
+        let part_end = marks.into_iter().filter(|mark| *mark > inside).min().unwrap_or(length);
+        let left = part_end - inside;
         let place = samples(self.list.pieces()[piece].start) + self.at - self.starts[piece];
         self.open_at(piece, place)?;
 
@@ -366,11 +530,117 @@ impl PiecesSound {
             None => vec![Frame::ZERO; left.min(SILENCE)],
         };
         amplify(&mut frames, self.list.gain(piece));
+        fade(&mut frames, inside, length, &self.list.pieces()[piece]);
+        let list = Arc::clone(&self.list);
+        let pieces = list.pieces();
+        if let Some(sides) = head_sides
+            && inside < head
+        {
+            // The cut is at the start of this piece. Its sound fades in from
+            // before the cut when its file has sound there, else from the cut
+            // on a soft curve.
+            shape(&mut frames, |index| {
+                let at = inside + index;
+                if sides.before {
+                    rise(head_half + at, 2 * head_half)
+                } else {
+                    soft_rise(at, head)
+                }
+            });
+            // The piece before plays on past its end and fades out, when its
+            // file has the sound for it.
+            if sides.after && inside < head_half {
+                let end = samples(pieces[piece - 1].end);
+                let theirs = self.read_other(piece - 1, signed(end + inside), frames.len())?;
+                let gain = list.gain(piece - 1);
+                mix(&mut frames, &theirs, |index| {
+                    gain * fall(head_half + inside + index, 2 * head_half)
+                });
+            }
+        } else if let Some(sides) = tail_sides
+            && tail > 0
+            && inside >= tail_from
+        {
+            // The cut is at the end of this piece. Its sound fades out on
+            // past the cut when its file has sound there, else up to the cut
+            // on a soft curve.
+            let into = inside - tail_from;
+            shape(&mut frames, |index| {
+                let at = into + index;
+                if sides.after {
+                    fall(at, 2 * tail_half)
+                } else {
+                    soft_fall(at, tail)
+                }
+            });
+            // The next piece starts before its start and fades in over the
+            // last half of the crossfade before the cut, when its file has
+            // the sound for it.
+            let early_from = tail - tail_half;
+            if sides.before && into >= early_from {
+                let along = into - early_from;
+                let next_start = samples(pieces[piece + 1].start);
+                let place = signed(next_start - tail_half + along);
+                let theirs = self.read_other(piece + 1, place, frames.len())?;
+                let gain = list.gain(piece + 1);
+                mix(&mut frames, &theirs, |index| {
+                    gain * rise(along + index, 2 * tail_half)
+                });
+            }
+        }
         if let Some(music) = self.list.music() {
             let total = self.starts[self.starts.len() - 1];
             self.music.mix(music, &mut frames, self.at, total, &self.reads)?;
         }
         self.at += frames.len();
+        Ok(frames)
+    }
+
+    /// Which side of the cut after a piece has sound beyond the cut, read
+    /// once per cut. The file of the piece before is opened for its length.
+    fn cut_sides(&mut self, cut: usize) -> Result<Sides, Error> {
+        if let Some(sides) = self.sides[cut] {
+            return Ok(sides);
+        }
+        let half = self.halves[cut];
+        let list = Arc::clone(&self.list);
+        let (this, next) = (&list.pieces()[cut], &list.pieces()[cut + 1]);
+        let after = half > 0
+            && FileSound::open(&this.source, &self.reads)?
+                .is_some_and(|file| file.length >= samples(this.end) + half);
+        let sides = Sides {
+            after,
+            before: half > 0 && samples(next.start) >= half,
+        };
+        self.sides[cut] = Some(sides);
+        Ok(sides)
+    }
+
+    /// `count` frames of the file of a piece from its sample `place` on. A
+    /// place before the start of the file, or past its end, is silence.
+    fn read_other(&mut self, piece: usize, place: i64, count: usize) -> Result<Vec<Frame>, Error> {
+        let list = Arc::clone(&self.list);
+        let source = &list.pieces()[piece].source;
+        let mut file = match self.other.take() {
+            Some(open) if open.piece == piece => open.file,
+            Some(Open { file: Some(file), .. }) if file.source.same_as(source) => Some(file),
+            _ => FileSound::open(source, &self.reads)?,
+        };
+        let silent = usize::try_from(place.saturating_neg()).unwrap_or(0).min(count);
+        let mut frames = vec![Frame::ZERO; silent];
+        if let Some(file) = &mut file
+            && count > 0
+        {
+            let start = usize::try_from(place.max(0)).unwrap_or(0);
+            if file.at != start {
+                file.seek(start)?;
+            }
+            while frames.len() < count {
+                frames.extend(file.read(count - frames.len())?);
+            }
+        }
+        frames.resize(count, Frame::ZERO);
+        self.other = Some(Open { piece, file });
         Ok(frames)
     }
 
@@ -550,6 +820,111 @@ mod test {
                 frame.left
             );
         }
+    }
+
+    /// A piece with sound fades starts in silence, reaches its full sound
+    /// after the fade in, and falls to silence at its end. The piece after
+    /// it with no fades plays at once at its full sound.
+    #[test]
+    fn a_piece_fades_its_sound_in_and_out() {
+        let mut sound = sound(
+            [ramp(1.0, 1.25).with_sound_fades(0.05, 0.1), ramp(1.0, 1.25)],
+            1.0,
+        );
+        let frames = all(&mut sound);
+        assert_eq!(frames.len(), 24_000);
+        // 0.05 seconds is 2400 samples, 0.1 seconds 4800.
+        assert!(
+            frames[0].left.abs() < 1e-6,
+            "the first sample is {}",
+            frames[0].left
+        );
+        let half_in = ramp_at(48_000 + 1_200) * 0.5;
+        assert!(
+            (frames[1_200].left - half_in).abs() < 1e-4,
+            "{} against {half_in}",
+            frames[1_200].left
+        );
+        assert_ramp(
+            &frames[2_400..12_000 - 4_800],
+            48_000 + 2_400,
+            "between the fades",
+        );
+        let half_out = ramp_at(48_000 + 12_000 - 2_400) * 0.5;
+        assert!((frames[12_000 - 2_400].left - half_out).abs() < 1e-4);
+        assert!(frames[11_999].left.abs() < ramp_at(48_000 + 11_999).abs() * 0.001);
+        assert_ramp(&frames[12_000..], 48_000, "the piece with no fades");
+
+        // A fade longer than half the piece is cut to half.
+        let long = ramp(1.0, 1.25).with_sound_fades(1.0, 1.0);
+        assert!((long.sound_fade_in - 0.125).abs() < 1e-9 && (long.sound_fade_out - 0.125).abs() < 1e-9);
+    }
+
+    /// 2 pieces from 2 places of a file with a crossfade of 0.1 seconds,
+    /// 2400 samples on each side of the cut. The first piece plays on past
+    /// its end and fades out, the second starts before its start and fades
+    /// in, both at 0.707 at the cut. Outside the overlap each plays alone.
+    #[test]
+    fn a_crossfade_overlaps_the_sounds_at_a_cut() {
+        let mut crossed = sound([ramp(0.25, 0.5).with_crossfade(0.1), ramp(1.0, 1.25)], 1.0);
+        let frames = all(&mut crossed);
+        assert_eq!(frames.len(), 24_000);
+        assert_ramp(&frames[..12_000 - 2_400], 12_000, "the first piece alone");
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        let at_cut = half * (ramp_at(48_000) + ramp_at(24_000));
+        assert!(
+            (frames[12_000].left - at_cut).abs() < 1e-3,
+            "{} against {at_cut}",
+            frames[12_000].left
+        );
+        let before_cut = half * (ramp_at(24_000 - 1) + ramp_at(48_000 - 1));
+        assert!(
+            (frames[11_999].left - before_cut).abs() < 1e-3,
+            "{} against {before_cut}",
+            frames[11_999].left
+        );
+        assert_ramp(
+            &frames[12_000 + 2_400..],
+            48_000 + 2_400,
+            "the second piece alone",
+        );
+
+        // A piece that ends where its file ends, then one that starts where
+        // its file starts: no sound beyond the cut on either side. The
+        // first fades out over the whole crossfade up to the cut, 4800
+        // samples, and the second fades in over as long from it, both on a
+        // raised cosine that is at a half in its middle.
+        let mut dipped = sound([ramp(1.75, 2.0).with_crossfade(0.1), ramp(0.0, 0.25)], 1.0);
+        let frames = all(&mut dipped);
+        assert_eq!(frames.len(), 24_000);
+        assert_ramp(&frames[..12_000 - 4_800], 84_000, "the first piece alone");
+        let half_out = 0.5 * ramp_at(84_000 + 12_000 - 2_400);
+        assert!(
+            (frames[12_000 - 2_400].left - half_out).abs() < 1e-3,
+            "{}",
+            frames[12_000 - 2_400].left
+        );
+        assert!(
+            frames[11_999].left.abs() < 1e-3,
+            "the first piece is out at the cut: {}",
+            frames[11_999].left
+        );
+        assert!(
+            frames[12_000].left.abs() < 1e-6,
+            "the second piece starts silent: {}",
+            frames[12_000].left
+        );
+        let half_in = 0.5 * ramp_at(2_400);
+        assert!(
+            (frames[12_000 + 2_400].left - half_in).abs() < 1e-3,
+            "{}",
+            frames[12_000 + 2_400].left
+        );
+        assert_ramp(&frames[12_000 + 4_800..], 4_800, "the second piece alone");
+
+        // A piece that goes on in the same file gets no overlap.
+        let mut played_on = sound([ramp(0.25, 0.5).with_crossfade(0.1), ramp(0.5, 0.75)], 1.0);
+        assert_ramp(&all(&mut played_on), 12_000, "1 file played on");
     }
 
     /// The end of the fixture is 0.8 loud. At a gain of 2 the part over half

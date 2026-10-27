@@ -72,7 +72,10 @@ mod test {
     };
 
     use crate::video::{
-        VideoMusic, VideoPiece, VideoPieces, VideoSource, player::Player, test_fixture, test_wav,
+        VideoMusic, VideoPiece, VideoPieces, VideoSource,
+        decoder::{Matrix, Message, Transfer, VideoFrame},
+        player::{Player, Upload},
+        test_fixture, test_wav,
     };
 
     /// A player of these pieces, once its decode thread has looked at the
@@ -144,5 +147,80 @@ mod test {
         assert!((same.position() - 1.5).abs() < 1e-9, "{}", same.position());
         let shorter = old.replaced_by(VideoSource::from_pieces([ramp(0.5)]));
         assert!((shorter.position() - 0.5).abs() < 1e-9, "{}", shorter.position());
+    }
+
+    /// A frame of the decode thread, of no picture.
+    fn frame(generation: u32, pts: f64) -> VideoFrame {
+        VideoFrame {
+            generation,
+            pts,
+            width: 2,
+            height: 2,
+            y: vec![16; 4],
+            y_stride: 2,
+            uv: vec![128; 2],
+            uv_stride: 2,
+            ten_bit: false,
+            full_range: false,
+            matrix: Matrix::Bt709,
+            transfer: Transfer::Sdr,
+            hardware: false,
+        }
+    }
+
+    /// A drag of a slider over a paused list: a seek comes on every move,
+    /// and the frame of the newest one is never there yet. The frame of an
+    /// older seek shows meanwhile, the frames of the place that was left do
+    /// not, and the frame of the newest seek ends the scrub.
+    #[test]
+    fn a_paused_scrub_shows_the_frames_of_older_seeks() {
+        let mut player = player([VideoPiece::new(test_fixture("ramp.mp4"), 0.0, 2.0)]);
+        player.upload = Upload::Off;
+        let mut events = Vec::new();
+        let left = player.generation;
+        player.queue.shown = true;
+        player.queue.shown_generation = left;
+        player.seek_to(0.5);
+        let older = player.generation;
+        player.seek_to(1.0);
+        let newest = player.generation;
+
+        player.handle(Message::Frame(frame(left, 0.1)), &mut events);
+        let _ = player.present();
+        assert_eq!(
+            player.queue.shown_generation, left,
+            "a frame of the place that was left showed"
+        );
+
+        player.handle(Message::Frame(frame(older, 0.5)), &mut events);
+        let _ = player.present();
+        assert_eq!(player.queue.shown_generation, older);
+        assert!(
+            player.queue.seek_pending,
+            "the newest seek still waits for its frame"
+        );
+
+        player.handle(Message::Frame(frame(newest, 1.0)), &mut events);
+        let _ = player.present();
+        assert_eq!(player.queue.shown_generation, newest);
+        assert!(!player.queue.seek_pending);
+        assert!(events.is_empty());
+    }
+
+    /// While a list plays, the frames of an older seek are dropped as
+    /// before, the clock runs on and only the newest place is shown.
+    #[test]
+    fn a_playing_list_shows_no_frame_of_an_older_seek() {
+        let mut player = player([VideoPiece::new(test_fixture("ramp.mp4"), 0.0, 2.0)]);
+        player.upload = Upload::Off;
+        player.seek_to(0.5);
+        let older = player.generation;
+        player.seek_to(1.0);
+        // Set by hand, a play would start a sound, and that wants the main
+        // thread.
+        player.playing = true;
+        let mut events = Vec::new();
+        player.handle(Message::Frame(frame(older, 0.5)), &mut events);
+        assert!(player.queue.scrub.is_none());
     }
 }

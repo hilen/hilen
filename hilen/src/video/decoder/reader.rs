@@ -133,6 +133,16 @@ impl Reader {
         Ok(())
     }
 
+    /// The last frame a seek skipped on the way to its place, none before
+    /// the first one came out of the decoder.
+    pub(crate) fn take_skipped(&mut self) -> Option<Picture> {
+        self.skipped.take()
+    }
+
+    pub(crate) fn has_skipped(&self) -> bool {
+        self.skipped.is_some()
+    }
+
     /// The next `next` gives the frame at these seconds with no seek, the
     /// frames up to it are decoded and skipped. For a place a little ahead
     /// of the last frame, where a seek would go back to a keyframe.

@@ -17,6 +17,7 @@ use image::{
     imageops::{FilterType, resize},
     load_from_memory,
 };
+use text::TextFace;
 
 use crate::{
     filesystem::read_bytes,
@@ -44,7 +45,31 @@ impl Debug for Pixels {
 #[derive(Debug, Clone, PartialEq)]
 enum Content {
     Picture(Arc<Pixels>),
-    Text { text: String, color: Color },
+    Text {
+        text:  String,
+        color: Color,
+        /// None is the font a `Label` has by default.
+        font:  Option<FontFile>,
+    },
+}
+
+/// A font from a file for a text overlay, told apart by its path.
+#[derive(Clone, Copy)]
+struct FontFile {
+    path: &'static Path,
+    face: &'static TextFace,
+}
+
+impl PartialEq for FontFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Debug for FontFile {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the font {}", self.path.display())
+    }
 }
 
 /// Pixels ready to go onto a frame: premultiplied RGBA, `width` wide, with
@@ -142,7 +167,28 @@ impl VideoOverlay {
         Self::new(Content::Text {
             text:  text.into(),
             color: color.into(),
+            font:  None,
         })
+    }
+
+    /// The same text overlay in the font of a file, a `ttf` or an `otf`.
+    /// The file is read on the first call for its path and kept for the
+    /// whole run. A preview gets the same lines from a `Label` with
+    /// `Font::with_variations(path, bytes, &[])` of that file. A picture
+    /// overlay stays as it is.
+    pub fn with_font_file(mut self, path: impl AsRef<Path>) -> Result<Self> {
+        let (path, face) = text::face_of_file(path.as_ref())?;
+        if let Content::Text { font, .. } = &mut self.content {
+            *font = Some(FontFile { path, face });
+        }
+        Ok(self)
+    }
+
+    fn face(&self) -> &'static TextFace {
+        match &self.content {
+            Content::Text { font: Some(font), .. } => font.face,
+            _ => &text::FACE,
+        }
     }
 
     /// The same overlay with its middle at this place, see `center`.
@@ -202,7 +248,7 @@ impl VideoOverlay {
                 let picture_height: f32 = pixels.height.lossy_convert();
                 Size::new(height * width / picture_height, height)
             }
-            Content::Text { text, .. } => text::measure(text, self.text_size(frame)),
+            Content::Text { text, .. } => text::measure(self.face(), text, self.text_size(frame)),
         };
         Rect::new(
             self.center.x * frame.width - size.width / 2.0,
@@ -252,9 +298,9 @@ impl VideoOverlay {
                     rgba,
                 })
             }
-            Content::Text { text, color } => {
+            Content::Text { text, color, .. } => {
                 let middle = Point::new(self.center.x * frame.width, self.center.y * frame.height);
-                text::raster(text, self.text_size(frame), middle, *color)
+                text::raster(self.face(), text, self.text_size(frame), middle, *color)
             }
         }
     }
@@ -330,6 +376,35 @@ mod test {
         let two = VideoOverlay::text("Railroads\nmade in kutreel", WHITE).with_size(0.1);
         let both = two.rect(Size::new(640.0, 360.0));
         assert!(both.height() > small.height() * 1.9 && both.width() > small.width());
+    }
+
+    /// A text in the font of a file is measured and drawn with that font.
+    /// The mono font of the engine has wider letters than Roboto.
+    #[test]
+    fn a_text_in_a_font_file_takes_that_font() {
+        let mono = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/window/text/fonts/RobotoMono.ttf"
+        );
+        let frame = Size::new(640.0, 360.0);
+        let plain = VideoOverlay::text("Railroads", WHITE).with_size(0.1);
+        let in_mono = plain.clone().with_font_file(mono).expect("the font file reads");
+        assert!(
+            in_mono.rect(frame).width() > plain.rect(frame).width() * 1.05,
+            "mono {} against {}",
+            in_mono.rect(frame).width(),
+            plain.rect(frame).width()
+        );
+        assert_ne!(in_mono, plain);
+        assert_eq!(
+            in_mono,
+            plain.clone().with_font_file(mono).expect("the font file reads again")
+        );
+        let layer = in_mono.layer(Size::new(640, 360)).expect("the text draws");
+        assert!(layer.rgba.chunks(4).any(|pixel| pixel[3] > 200), "no glyph pixel");
+
+        let missing = VideoOverlay::text("Railroads", WHITE).with_font_file("/no/such/font.ttf");
+        assert!(missing.is_err());
     }
 
     #[test]

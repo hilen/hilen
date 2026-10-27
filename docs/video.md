@@ -313,7 +313,14 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   frame its time in the list, and it opens the next piece and decodes up to its
   first frame while the queue is full. A piece that goes on in the same file
   up to a second ahead is read on with no seek. The sound is 1 kira decoder
-  over all pieces, `audio/pieces.rs`, at 48000 Hz, so a cut has no gap. A piece
+  over all pieces, `audio/pieces.rs`, at 48000 Hz, so a cut has no gap.
+  `VideoPiece::with_sound_fades(fade_in, fade_out)` raises the sound of a piece
+  from silence and lowers it back on a raised cosine, cut to half the piece.
+  `with_crossfade(seconds)` overlaps its sound with the next piece at the cut,
+  half the time on each side on an equal power curve. A side whose file has no
+  sound past the cut fades over the whole time on its own side instead, and a
+  piece that goes on in the same file gets no crossfade. The picture is not
+  changed. A piece
   with no sound track is silence, a list with no sound track at all has no
   sound and follows the engine clock. `set_pieces` on a view that plays a list
   keeps the position and the picture, the state does not go through loading.
@@ -327,11 +334,14 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   after the sound kira already holds.
   A seek of a list decodes up to its exact frame, so it costs far more than a
   seek of a file. Of the seeks that wait only the newest runs, `Waiting` in
-  `decoder/pieces.rs`, and a seek that runs gives up within 1 step of the
-  decode when a newer seek or a stop comes, `Reader::step` in
-  `decoder/reader.rs`. So a slider that seeks on every move of the mouse shows
-  the newest place as fast as 1 seek takes. A seek into another piece still
-  opens its file again.
+  `decoder/pieces.rs`. When a newer seek comes while one decodes, the running
+  seek ends at the first frame it has on the way, from its keyframe up to its
+  place, and that frame goes out before the newer seek starts. A stop ends it
+  at once. The player shows that frame while a seek waits paused. So a slider
+  that seeks on every move of the mouse shows a picture near the pointer all
+  along, and the last seek of the drag lands on its exact frame. A drag of a
+  real ruler, the one of kutreel, is not proven yet, see the roadmap. A seek
+  into another piece still opens its file again.
 - Music under a list. `VideoPieces::new(pieces).with_music(VideoMusic::new(
   source).with_volume(0.5).with_start(12.0).with_fade_in(1.0).with_fade_out(
   3.0))` goes where a list of pieces goes, into `set_pieces` and into
@@ -362,8 +372,10 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   of the list, and a fade in and out. A picture keeps its alpha. A text is
   drawn on the thread of the export, `overlay/text.rs`, with Roboto Regular
   and the layout numbers of a `Label`, so the file looks like a label of the
-  same size over the preview. It has no other font, no fallback fonts, no
-  wrap and no outline. `rect`, `text_size` and `opacity` give an app what its
+  same size over the preview. `with_font_file(path)` draws it in the font of a
+  `ttf` or `otf` file instead, read once per path for the whole run, and a
+  preview gets the same lines from a `Label` with `Font::with_variations` of
+  that file. It has no fallback fonts, no wrap and no outline. `rect`, `text_size` and `opacity` give an app what its
   preview needs to draw the same overlay. The blend is in the YUV of the
   file, `export/overlays.rs` and `deps/pixels/src/overlay.rs`, and is wrong
   on an HDR list. The matrix and the range of the first picture are

@@ -18,13 +18,24 @@ use crate::video::{
 /// that starts there.
 #[derive(Clone)]
 pub struct VideoPiece {
-    pub source: VideoSource,
-    pub start:  f64,
-    pub end:    f64,
+    pub source:         VideoSource,
+    pub start:          f64,
+    pub end:            f64,
     /// What the sound of the piece is multiplied by. 1 is the sound of the
     /// source, 2 is twice as loud, 0 is silence. A sample that goes past
     /// full scale is cut flat. The picture is not changed.
-    pub gain:   f32,
+    pub gain:           f32,
+    /// Seconds the sound of the piece rises from silence at its start and
+    /// falls to silence at its end, so a cut to another sound does not
+    /// click or jump. 0 is a hard cut. The music of the list is not faded.
+    pub sound_fade_in:  f64,
+    pub sound_fade_out: f64,
+    /// Seconds the sound of this piece and the sound of the next one
+    /// overlap at the cut between them. This one plays on past its end and
+    /// fades out, the next one starts before its start and fades in, half
+    /// the time on each side of the cut. 0 is a hard cut. The picture is
+    /// not changed, and the last piece has no cut after it.
+    pub crossfade:      f64,
 }
 
 impl VideoPiece {
@@ -34,7 +45,28 @@ impl VideoPiece {
             start,
             end,
             gain: 1.0,
+            sound_fade_in: 0.0,
+            sound_fade_out: 0.0,
+            crossfade: 0.0,
         }
+    }
+
+    /// The same piece with its sound crossfaded into the next piece over
+    /// these seconds, see `crossfade`.
+    #[must_use]
+    pub fn with_crossfade(mut self, seconds: f64) -> Self {
+        self.crossfade = seconds.max(0.0);
+        self
+    }
+
+    /// The same piece with its sound faded in at the start and out at the
+    /// end, in seconds. A fade longer than half the piece is cut to half.
+    #[must_use]
+    pub fn with_sound_fades(mut self, fade_in: f64, fade_out: f64) -> Self {
+        let half = self.duration() / 2.0;
+        self.sound_fade_in = fade_in.clamp(0.0, half);
+        self.sound_fade_out = fade_out.clamp(0.0, half);
+        self
     }
 
     /// The same piece with its sound multiplied by `gain`.
@@ -116,6 +148,9 @@ impl PieceList {
             mine.source.same_as(&theirs.source)
                 && mine.start.to_bits() == theirs.start.to_bits()
                 && mine.end.to_bits() == theirs.end.to_bits()
+                && mine.sound_fade_in.to_bits() == theirs.sound_fade_in.to_bits()
+                && mine.sound_fade_out.to_bits() == theirs.sound_fade_out.to_bits()
+                && mine.crossfade.to_bits() == theirs.crossfade.to_bits()
         };
         let same_music = match (&self.music, &other.music) {
             (None, None) => true,
