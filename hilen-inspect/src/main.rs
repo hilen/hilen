@@ -281,8 +281,18 @@ async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
     }
 }
 
-async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize) -> Result<()> {
-    send(client, UIRequest::Drag { from, to, steps }.into()).await?;
+async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize, step_ms: u32) -> Result<()> {
+    send(
+        client,
+        UIRequest::Drag {
+            from,
+            to,
+            steps,
+            step_ms,
+        }
+        .into(),
+    )
+    .await?;
     println!("ok");
     Ok(())
 }

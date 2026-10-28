@@ -164,13 +164,17 @@ pub(super) enum Command {
     /// Drag with the left button held, window points, for drag driven
     /// behavior like selecting text
     Drag {
-        from_x: f32,
-        from_y: f32,
-        to_x:   f32,
-        to_y:   f32,
+        from_x:  f32,
+        from_y:  f32,
+        to_x:    f32,
+        to_y:    f32,
         /// Moved events between begin and end
         #[arg(long, default_value_t = 8)]
-        steps:  usize,
+        steps:   usize,
+        /// Milliseconds between 2 touches, like 16 for a real pointer. 0
+        /// sends all of them in 1 frame
+        #[arg(long, default_value_t = 0)]
+        step_ms: u32,
     },
     /// Wheel scroll at the window center, or at a view with --at.
     /// Positive dy scrolls toward the top of the content.
@@ -365,7 +369,8 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             to_x,
             to_y,
             steps,
-        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
+            step_ms,
+        } => drag(client, (from_x, from_y), (to_x, to_y), steps, step_ms).await?,
         Command::ScrollTo { query } => scroll_to(client, &query).await?,
         Command::Resize { width, height } => {
             send(client, UIRequest::Resize { width, height }.into()).await?;

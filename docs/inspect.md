@@ -107,8 +107,11 @@ Hover works on desktop and web; touch-only platforms return an error.
 space coordinates and a `visible`, `hidden` or `offscreen` status, `--all` includes the
 last two. A view outside every parent that clips its subviews, a row scrolled out of a
 list, is `offscreen` even inside the window. `wait <query> [--timeout]` polls until a visible view matches. `drag <from_x>
-<from_y> <to_x> <to_y> [--steps N]` holds the left button from one window point to
+<from_y> <to_x> <to_y> [--steps N] [--step-ms MS]` holds the left button from one window point to
 another through the real input pipeline, for drag driven behavior like selecting text.
+With no `--step-ms` every touch lands in 1 frame. `--step-ms 16` sends them 16 ms apart
+like a real pointer, with frames and other threads running between the moves, the way
+to see a video scrub that seeks on every move.
 `scroll <dy>
 [--at view]` injects a wheel scroll at the window center or a view's center, `scroll-to
 <query>` scrolls the list that clips the target, or the window with none, until the

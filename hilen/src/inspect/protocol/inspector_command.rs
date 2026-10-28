@@ -175,12 +175,15 @@ pub enum UIRequest {
     },
     /// A left drag from one window point to another: began, moved steps
     /// and ended through the real input pipeline. Window coordinates in
-    /// points. For drag driven behavior like selecting text.
+    /// points. For drag driven behavior like selecting text. Above 0,
+    /// `step_ms` is the time between 2 touches, 0 sends all at once.
     Drag {
-        from:  (f32, f32),
-        to:    (f32, f32),
+        from:    (f32, f32),
+        to:      (f32, f32),
         #[serde(default)]
-        steps: usize,
+        steps:   usize,
+        #[serde(default)]
+        step_ms: u32,
     },
     /// A wheel scroll aimed at a view's center, or at the window center
     /// with no view. It lands on the deepest scroll view under that

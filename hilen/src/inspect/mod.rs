@@ -4,6 +4,7 @@ pub mod protocol;
 
 #[cfg(any(apple, test))]
 mod bonjour;
+mod drag;
 mod edit_log;
 mod frames;
 mod hold;

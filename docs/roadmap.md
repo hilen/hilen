@@ -19,27 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A scrub of a list shows no picture until the pointer stops
-
-Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-26, at hilen `f4218d8`. A drag on
-its time ruler seeks the preview on every move of the pointer, and the preview stays
-on the old picture for the whole drag. It changes only when the mouse button is let go.
-
-- Current: `seek_newest` in `hilen/src/video/decoder/pieces.rs` gives up a running seek
-  of a list as soon as a newer one waits, `pieces.seek(seconds, &mut || waiting.news())`.
-  A seek of a list decodes up to its exact frame, which takes longer than the 16 ms
-  between 2 moves of the pointer. So under a steady drag every seek is given up and none
-  shows a picture. The log of 1 drag over 40 steps on 1080p h264 at 60 frames per second
-  has only `video: seek 539 of the list is the newest, 40 older ones were dropped`, then
-  1 `seek to 35.82 s` after the drop. `docs/video.md` says such a slider "shows the newest
-  place as fast as 1 seek takes", which is not what happens.
-- Needed: while seeks come one after another, a picture shows at least as often as 1
-  seek takes. For example a running seek ends and shows its frame before the newest one
-  starts, or a scrub shows the key frame before the seek reaches the exact frame. A unit
-  test that sends a seek every 16 ms for 1 s and counts the pictures that came, and a
-  drag of the ruler of kutreel with a look at its `video:` log lines.
-- Blocks: a live picture while scrubbing the ruler of kutreel.
-
 ## Push on Android, in a browser and on a desktop
 
 Found by shopping, `~/dev/apps/shopping`, on 2026-10-21. Shopping sends a push for a
