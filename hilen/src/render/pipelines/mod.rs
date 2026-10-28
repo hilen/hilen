@@ -78,9 +78,9 @@ pub(crate) type UIShadowPipeline =
 pub use background_pipeline::BackgroundPipeline;
 pub(crate) use lab_pipeline::LabPipeline;
 #[cfg(feature = "scene")]
-pub(crate) use mesh_pipeline::MeshKey;
-#[cfg(feature = "scene")]
 pub use mesh_pipeline::MeshPipeline;
+#[cfg(feature = "scene")]
+pub(crate) use mesh_pipeline::{MeshKey, Reach};
 #[cfg(feature = "scene")]
 pub(crate) use picture_pipeline::PicturePipeline;
 #[cfg(feature = "level")]

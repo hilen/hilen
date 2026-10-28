@@ -392,6 +392,12 @@ straight down. It still slides along what it hits, also at 300 m/s into a hill.
 Back to `Motion::Walk`, it falls from where it is. The unit tests in `scene/player.rs` fly a
 player up, hold it still, stop it at a hill and drop it.
 
+`steer` set to a direction moves the player from code in place of the keys, for an
+autopilot or a player a test drives. It moves the same way a held key does, at `speed`
+along the direction and with every collision. A walking player takes it level, a flying
+one takes it whole, so a climb or a sink is in the direction. `None` gives the keys back.
+`teleport` every frame is no way to drive a player, the next physics step puts it back.
+
 `Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
 window, and reported as raw motion, which the player reads every step through
 `Cursor::take_motion` and turns by `look_speed` radians per unit. Escape frees the
@@ -579,6 +585,19 @@ see `render/bind_cache.rs`. Indices are 16 bit so every lane
 draws them. Back faces are culled, so every primitive is wound counter clockwise
 seen from outside, pinned by unit tests on the geometry.
 
+Each pass leaves out the opaque nodes it cannot see. A node keeps the sphere around it,
+its center and the length of its half extents, and `prepare` loads 1 range of instances
+per pass into each batch: 1 for the camera and 1 for each cascade of the sun. A pass
+draws only its own range and skips a batch whose range is empty. The test is against the
+same view projection the GPU clips with, `render/frustum.rs`, so a node it leaves out
+would have drawn no pixel, and the picture stays the same. A cascade tests its own box,
+so a node behind the camera still casts its shadow into the view, the scene test
+`Shadow out of view` pins that and fails when a cascade culls by the camera. A skinned
+part and a part of a playing clip are never left out, their rest bounds do not hold the
+pose. Translucent nodes are not culled. `HILEN_CULL=0` in the env draws every node in
+every pass, the A/B for a measurement. In geblings, standing in a forest with the sun
+held still, a headless frame went from 2.43 ms to 1.44 ms.
+
 Colors are encoded sRGB like the whole frame, see [colors.md](colors.md). The
 shader decodes, lights in linear, tonemaps and encodes at the end of the fragment.
 Textures and the sky cube hold encoded bytes too and are decoded after the sample.
@@ -709,6 +728,5 @@ the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): culling nodes outside a
-cascade's box on the CPU so a short shadow distance also cuts the shadow passes on
-a big level. A scene in a view is above, and only 1 scene runs at a time.
+The remaining deliveries are in [roadmap.md](roadmap.md). A scene in a view is above,
+and only 1 scene runs at a time.

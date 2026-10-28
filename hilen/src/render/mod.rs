@@ -12,6 +12,8 @@ mod buffer_helper;
 pub mod data;
 mod device_helper;
 #[cfg(feature = "scene")]
+pub(crate) mod frustum;
+#[cfg(feature = "scene")]
 pub(crate) use device_helper::DeviceHelper;
 pub(crate) use device_helper::{PipelineShape, WithSamples, depth_stencil_state};
 mod pipelines;

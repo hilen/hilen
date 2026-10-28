@@ -1160,9 +1160,6 @@ planned with it.
 
 - The offscreen linear pass with real HDR that `colors.md` sketches, if a scene
   ever needs it.
-- The shadow passes draw every opaque node into every cascade, the GPU clips
-  what lies outside a map. Culling nodes against each cascade's box on the CPU
-  would make a short shadow distance cut the passes' cost on a big level.
 
 ## 3D scene on WebGL2
 

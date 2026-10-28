@@ -56,7 +56,7 @@ Two clients exist:
   app's protocol, reinstall and retry. Commands: `apps`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `record-start`, `record-stop`, `frames`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
-  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `devices`, `web-bridge`, and `hot-status` and `hot-send`
+  `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `app`, `devices`, `web-bridge`, and `hot-status` and `hot-send`
   for the loader on a device, see [hot-reload.md](hot-reload.md). The last discovery is cached in the temp dir, so repeat calls
   connect instantly and fall back to a fresh mDNS browse when the cached address is dead.
   `--addr <host>` or the variable `HILEN_INSPECT_ADDR` names the device, a name or an ip,
@@ -335,6 +335,31 @@ never sees stale frames. Failures (unknown view id, bad rule index, view without
 reply with `Error(String)` instead of being silently ignored. All UI access happens on the
 main thread via `from_main`. Responses hold `Own` pointers, so the transport hands them to
 the main thread for dropping (see [refs.md](refs.md)).
+
+## Commands of the app
+
+`hilen-inspect app <name> [args...]` runs a command that the app itself registered and
+prints its answer. It is for tools and agents: a test flight that a profile needs, a
+state to set up before a screenshot, a value to read out. The app registers 1 handler with
+`hilen::app_commands::register`, a closure of the name and the arguments that returns
+the answer text or an error:
+
+```rust
+world.register_commands(); // inside, hilen::app_commands::register(move |name, args| ...)
+```
+
+- The handler runs on the main thread, through `from_main`, so it can touch views and
+  the scene. Register it on the main thread, a later call replaces it.
+- `register` is in every build, the app needs no `cfg` for the `inspect` feature. A build
+  with no inspect server never calls the handler.
+- An app with no handler answers with an error that says so.
+- The protocol is `InspectorCommand::App { name, args }`, the answer `AppCommand::Answer`.
+  The code is `hilen/src/app_commands.rs`.
+
+Held keys through `hold` are no way to drive a test flight. The game reads them at a frame
+rate the tool does not know, and the same keys gave a walk into a tree, a climb into the
+sky and a flight through a forest. geblings has the first user, an autopilot, see
+`docs/autopilot.md` there.
 
 ## Speed test
 

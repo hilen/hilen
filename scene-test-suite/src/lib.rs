@@ -69,6 +69,9 @@ mod scene_picture_clear;
 mod scene_queries;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]
+mod shadow_out_of_view;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
 mod shadows;
 mod skybox;
 /// Shadow edges on `SwiftShader`, see `animations`.

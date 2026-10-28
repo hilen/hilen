@@ -13,7 +13,7 @@ use crate::{
         volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
     },
     render::{
-        MeshKey, MeshPipeline, PicturePipeline, SceneUniform,
+        MeshKey, MeshPipeline, PicturePipeline, Reach, SceneUniform,
         data::{MeshInstance, WideLine},
     },
     scene::{
@@ -134,10 +134,16 @@ struct NodeDraws<'a> {
     translucent: &'a mut Vec<(f32, MeshKey, MeshInstance)>,
     lights:      LightPick,
     distance:    f32,
+    /// The sphere around the node, what a pass that cannot see it leaves
+    /// out by.
+    reach:       Reach,
 }
 
 impl NodeDraws<'_> {
-    fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joint_base: u32) {
+    /// `posed` is a draw that can leave its node's sphere, a skinned part
+    /// or a part of a playing clip, the rest bounds do not hold its pose,
+    /// so every pass draws it.
+    fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joint_base: u32, posed: bool) {
         if material.fade <= 0.0 {
             return;
         }
@@ -156,7 +162,7 @@ impl NodeDraws<'_> {
         if !cutout && material.color.a < 1.0 {
             self.translucent.push((self.distance, key, instance));
         } else {
-            self.pipeline.add(key, instance);
+            self.pipeline.add(key, instance, (!posed).then_some(self.reach));
         }
     }
 
@@ -211,6 +217,7 @@ impl NodeDraws<'_> {
                 model_matrix * transform,
                 part.material.unwrap_or(material),
                 joint_base,
+                part.skin.is_some() || posed.is_some(),
             );
         }
     }
@@ -377,6 +384,10 @@ impl SceneDrawer {
                 translucent: &mut translucent,
                 lights: pick_lights(center, reach, &scene.lights),
                 distance: camera.position.distance_squared(center),
+                reach: Reach {
+                    center,
+                    radius: reach,
+                },
             };
 
             match shape {
@@ -385,7 +396,7 @@ impl SceneDrawer {
                 }
                 _ => {
                     if let Some(mesh) = node.mesh {
-                        draws.push(mesh, model_matrix, node.material, 0);
+                        draws.push(mesh, model_matrix, node.material, 0, false);
                     }
                 }
             }

@@ -301,6 +301,12 @@ impl InspectService {
             | InspectorCommand::HotChunk { .. }
             | InspectorCommand::HotBytes { .. }
             | InspectorCommand::HotSwap { .. } => AppCommand::Error("This app is not a hot build".into()),
+            InspectorCommand::App { name, args } => {
+                match from_main(move || crate::app_commands::run(&name, &args)) {
+                    Ok(text) => AppCommand::Answer(text),
+                    Err(err) => AppCommand::Error(err),
+                }
+            }
             InspectorCommand::UI(ui) => {
                 Self::lay_out_covered();
                 Self::process_ui_command(ui)

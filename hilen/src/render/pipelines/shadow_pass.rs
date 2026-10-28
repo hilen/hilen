@@ -60,7 +60,8 @@ struct Cascade {
 /// for a cut out batch, the bind over its textures.
 pub(crate) struct ShadowBatch<'a> {
     pub key:      &'a MeshKey,
-    pub range:    Range<u32>,
+    /// The instances each cascade draws, only the ones in its box.
+    pub ranges:   [Range<u32>; SHADOW_CASCADES],
     pub textures: Option<BindGroup>,
 }
 
@@ -166,7 +167,7 @@ impl ShadowPass {
         batches: &[ShadowBatch],
         instances_bind: &BindGroup,
     ) {
-        for (cascade, view_proj) in self.cascades.iter().zip(view_projs) {
+        for (index, (cascade, view_proj)) in self.cascades.iter().zip(view_projs).enumerate() {
             cascade.view_proj.update(ShadowView {
                 view_proj: *view_proj,
                 origin,
@@ -177,6 +178,10 @@ impl ShadowPass {
             pass.set_bind_group(1, instances_bind, &[]);
 
             for batch in batches {
+                let range = &batch.ranges[index];
+                if range.is_empty() {
+                    continue;
+                }
                 let pipelines = match &batch.textures {
                     Some(textures) => {
                         pass.set_bind_group(2, textures, &[]);
@@ -185,12 +190,8 @@ impl ShadowPass {
                     None => &self.plain,
                 };
                 set_mesh(&mut pass, &batch.key.mesh, pipelines);
-                pass.set_vertex_buffer(1, instances.elements(batch.range.clone()));
-                pass.draw_indexed(
-                    0..batch.key.mesh.index_count,
-                    0,
-                    0..batch.range.end - batch.range.start,
-                );
+                pass.set_vertex_buffer(1, instances.elements(range.clone()));
+                pass.draw_indexed(0..batch.key.mesh.index_count, 0, 0..range.end - range.start);
             }
         }
     }

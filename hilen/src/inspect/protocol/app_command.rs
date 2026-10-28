@@ -76,6 +76,8 @@ pub enum AppCommand {
         raw:     bool,
     },
     HotFiles(Vec<HotFileRepr>),
+    /// What a command of the app answered.
+    Answer(String),
     UI(UIResponse),
 }
 

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{array::from_fn, ops::Range};
 
 use indexmap::IndexMap;
 use plat::Platform;
@@ -24,6 +24,7 @@ use crate::{
         buffer_helper::BufferHelper,
         data::{LineVertex, MeshInstance, MeshLight, WideLine},
         device_helper::{DeviceHelper, MeshDraw},
+        frustum::{self, Frustum},
         pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
         vec_buffer::VecBuffer,
@@ -83,21 +84,43 @@ pub(super) type InstancesKey = (StorageKey, StorageKey);
 /// dead one is bound as its plain stand in.
 pub(super) type TexturesKey = (bool, bool, bool, bool);
 
+/// The passes an opaque instance draws in, the camera's first, then
+/// every cascade of the sun.
+const PASSES: usize = 1 + SHADOW_CASCADES;
+
+/// Where a node is, the sphere around it in world space. A node with
+/// none is drawn in every pass.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Reach {
+    pub center: Vec3,
+    pub radius: f32,
+}
+
 /// One instanced draw: the instances of a mesh and texture pair. They
 /// wait on the CPU until `prepare` copies every batch into the one opaque
 /// buffer, one upload per frame, where a buffer per batch cost a staging
-/// buffer per batch. `drawn` is where they landed in it.
+/// buffer per batch. `drawn` is where they landed in it, a range per
+/// pass with only the instances that pass can see. Every pass drew every
+/// node before, and a streamed world sent its whole ring of distant
+/// trees through the camera and 3 cascades, most of them out of all 4.
 #[derive(Default)]
 struct Batch {
-    pending: Vec<MeshInstance>,
-    drawn:   Range<u32>,
+    pending: Vec<(MeshInstance, Option<Reach>)>,
+    drawn:   [Range<u32>; PASSES],
     frame:   u64,
 }
 
 impl Batch {
-    /// Whether `prepare` loaded this batch on `frame`.
+    /// The instances `prepare` loaded on `frame` for `pass`, none when it
+    /// loaded none.
+    fn drawn_in(&self, frame: u64, pass: usize) -> Option<Range<u32>> {
+        let range = &self.drawn[pass];
+        (self.frame == frame && !range.is_empty()).then(|| range.clone())
+    }
+
+    /// Whether `prepare` loaded any instance of this batch on `frame`.
     fn loaded(&self, frame: u64) -> bool {
-        self.frame == frame && !self.drawn.is_empty()
+        (0..PASSES).any(|pass| self.drawn_in(frame, pass).is_some())
     }
 }
 
@@ -309,8 +332,10 @@ impl Default for MeshPipeline {
 }
 
 impl MeshPipeline {
-    pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance) {
-        self.instances.entry(key).or_default().pending.push(instance);
+    /// An opaque instance, left out of the passes whose view misses
+    /// `reach`, drawn in all of them with none.
+    pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance, reach: Option<Reach>) {
+        self.instances.entry(key).or_default().pending.push((instance, reach));
     }
 
     /// Translucent nodes draw in the order they are added, so add them
@@ -380,20 +405,37 @@ impl MeshPipeline {
         self.joints.load();
 
         let frame = Window::render_frame();
+        let camera = view.camera_pos.truncate();
+        let views: [Frustum; PASSES] = from_fn(|pass| match pass {
+            0 => Frustum::of(view.view_proj),
+            cascade => Frustum::of(view.sun_view_proj[cascade - 1]),
+        });
+        let passes = if shadows { PASSES } else { 1 };
+        let cull = frustum::enabled();
         for batch in self.instances.values_mut() {
             // A batch nothing added to draws nothing. Its range can still be
             // from this same frame number, a picture is drawn between two
             // frames and the scene on screen loaded the frame before it.
+            batch.drawn = Default::default();
             if batch.pending.is_empty() {
-                batch.drawn = 0..0;
                 continue;
             }
-            let start = self.opaque_instances.pending();
-            for mut instance in batch.pending.drain(..) {
-                instance.index = self.opaque_instances.pending();
-                self.opaque_instances.push(instance);
+            for (pass, frustum) in views.iter().enumerate().take(passes) {
+                let start = self.opaque_instances.pending();
+                for (instance, reach) in &batch.pending {
+                    // The view projections take a point relative to the
+                    // camera, see `SceneUniform`.
+                    if cull && reach.is_some_and(|reach| !frustum.holds(reach.center - camera, reach.radius))
+                    {
+                        continue;
+                    }
+                    let mut instance = *instance;
+                    instance.index = self.opaque_instances.pending();
+                    self.opaque_instances.push(instance);
+                }
+                batch.drawn[pass] = start..self.opaque_instances.pending();
             }
-            batch.drawn = start..self.opaque_instances.pending();
+            batch.pending.clear();
             batch.frame = frame;
         }
         if !self.opaque_instances.is_empty() {
@@ -434,7 +476,7 @@ impl MeshPipeline {
                 });
                 batches.push(ShadowBatch {
                     key,
-                    range: batch.drawn.clone(),
+                    ranges: from_fn(|cascade| batch.drawn[1 + cascade].clone()),
                     textures,
                 });
             }
@@ -466,7 +508,7 @@ impl MeshPipeline {
         let lines = self.lines.frame() == frame && self.lines.has_loaded();
         let tested = self.tested_lines.frame() == frame && self.tested_lines.has_loaded();
         let on_top = self.on_top_lines.frame() == frame && self.on_top_lines.has_loaded();
-        let no_nodes = !self.instances.values().any(|batch| batch.loaded(frame))
+        let no_nodes = !self.instances.values().any(|batch| batch.drawn_in(frame, 0).is_some())
             && !translucent
             && !lines
             && !tested
@@ -575,7 +617,7 @@ impl MeshPipeline {
         });
         render_pass.set_bind_group(2, lights_bind, &[]);
 
-        if self.instances.values().any(|batch| batch.loaded(frame)) {
+        if self.instances.values().any(|batch| batch.drawn_in(frame, 0).is_some()) {
             let instances_bind = opaque_bind(
                 &mut self.opaque_bind,
                 &self.instances_layout,
@@ -585,7 +627,11 @@ impl MeshPipeline {
             render_pass.set_bind_group(1, instances_bind, &[]);
         }
 
-        for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
+        for (key, drawn) in self
+            .instances
+            .iter()
+            .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?)))
+        {
             let textures_bind = textures_bind(
                 &mut self.textures,
                 &self.textures_layout,
@@ -610,8 +656,8 @@ impl MeshPipeline {
             // The slice starts at the batch, so the draw starts at instance
             // zero, an A7 cannot draw from a base instance. The `index`
             // attribute still names the real slot for the fragment stage.
-            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(batch.drawn.clone()));
-            let count = batch.drawn.end - batch.drawn.start;
+            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(drawn.clone()));
+            let count = drawn.end - drawn.start;
             render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..count);
             if let (Some(wireframe), false) = (&self.wireframe_pipelines, depth)
                 && self.wireframe
@@ -626,7 +672,7 @@ impl MeshPipeline {
     /// frame number must not draw the picture's nodes again.
     pub(crate) fn forget_frame(&mut self) {
         for batch in self.instances.values_mut() {
-            batch.drawn = 0..0;
+            batch.drawn = Default::default();
         }
         self.transparent.forget();
         self.transparent_keys.clear();

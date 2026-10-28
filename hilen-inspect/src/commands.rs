@@ -285,6 +285,14 @@ pub(super) enum Command {
     /// a new account, the same email logs back into it. The app shows the
     /// account at its next start
     DevLogin { email: String },
+    /// Run a command of the app itself, one it registered with
+    /// `hilen::app_commands::register`, like a test flight of a game, and
+    /// print its answer
+    App {
+        name: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Close the app the way closing its window does and wait until its
     /// process is gone. Desktop only.
     Quit {
@@ -329,6 +337,12 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::BuildTime => build_time(client).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
+        Command::App { name, args } => {
+            let AppCommand::Answer(text) = send(client, InspectorCommand::App { name, args }).await? else {
+                bail!("Unexpected response to app");
+            };
+            println!("{text}");
+        }
         Command::DevLogin { email } => {
             let AppCommand::LoggedIn { id, email } =
                 send(client, InspectorCommand::DevLogin { email }).await?

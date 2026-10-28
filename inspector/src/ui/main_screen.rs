@@ -301,7 +301,8 @@ impl MainScreen {
             | AppCommand::TestResults { .. }
             | AppCommand::FailureScreenshot { .. }
             | AppCommand::Log { .. }
-            | AppCommand::Hello { .. } => {}
+            | AppCommand::Hello { .. }
+            | AppCommand::Answer(_) => {}
         }
     }
 }

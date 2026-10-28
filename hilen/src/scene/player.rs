@@ -87,6 +87,12 @@ pub struct Player {
     pub third_person: Option<ThirdPerson>,
     /// Walks or flies.
     pub motion:       Motion,
+    /// A move asked for by code in place of the keys, an autopilot or a
+    /// player a test drives. It goes the same way as a held key does, at
+    /// `speed` along its direction and with every collision, a walking
+    /// player takes it level. The tools once held keys through the
+    /// inspector for a test flight and got a different flight every run.
+    pub steer:        Option<Vec3>,
 
     vertical: f32,
     grounded: bool,
@@ -127,6 +133,7 @@ impl Player {
             look_speed: 0.002,
             third_person: None,
             motion: Motion::Walk,
+            steer: None,
             vertical: 0.0,
             grounded: false,
         }
@@ -187,6 +194,14 @@ impl Player {
     /// The walk the held keys ask for, unit length or zero, and whether
     /// a jump is asked for.
     fn wish(&self) -> (Vec3, bool) {
+        if let Some(steer) = self.steer {
+            let steer = if self.motion == Motion::Fly {
+                steer
+            } else {
+                Vec3::new(steer.x, 0.0, steer.z)
+            };
+            return (steer.normalize_or_zero(), false);
+        }
         if !self.keyboard {
             return (Vec3::ZERO, false);
         }
@@ -314,9 +329,25 @@ mod test {
             look_speed:   0.002,
             third_person: None,
             motion:       Motion::Walk,
+            steer:        None,
             vertical:     0.0,
             grounded:     false,
         }
+    }
+
+    #[test]
+    fn a_steer_moves_the_player_in_place_of_the_keys() {
+        let mut player = test_player();
+        assert_eq!(player.wish(), (Vec3::ZERO, false));
+
+        player.steer = Some(Vec3::new(3.0, 4.0, 0.0));
+        let (wish, jump) = player.wish();
+        assert!((wish - Vec3::X).length() < 1e-6, "a walk is level: {wish}");
+        assert!(!jump);
+
+        player.motion = Motion::Fly;
+        let (wish, _) = player.wish();
+        assert!((wish - Vec3::new(0.6, 0.8, 0.0)).length() < 1e-6, "{wish}");
     }
 
     /// A player at `position` over flat ground at 0 that rises into a

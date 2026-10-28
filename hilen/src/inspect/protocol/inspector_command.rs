@@ -107,6 +107,12 @@ pub enum InspectorCommand {
         library: String,
         root:    Option<String>,
     },
+    /// A command of the app itself, see `hilen::app_commands`. The answer
+    /// is `Answer` with its text.
+    App {
+        name: String,
+        args: Vec<String>,
+    },
     UI(UIRequest),
 }
 
