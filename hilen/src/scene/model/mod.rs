@@ -121,6 +121,8 @@ impl Model {
                     emissive:               0.0,
                     unlit:                  material.unlit,
                     cutout:                 material.cutout,
+                    fade:                   1.0,
+                    fade_flip:              false,
                 }),
             })
             .collect();

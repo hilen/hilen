@@ -138,17 +138,22 @@ struct NodeDraws<'a> {
 
 impl NodeDraws<'_> {
     fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joint_base: u32) {
+        if material.fade <= 0.0 {
+            return;
+        }
+        // A fading node leaves out pixels, the cutout pipelines do that.
+        let cutout = material.cutout.is_some() || material.fade < 1.0;
         let key = MeshKey {
             mesh,
             texture: material.texture,
             normal_map: material.normal_map,
             metallic_roughness_map: material.metallic_roughness_map,
             occlusion_map: material.occlusion_map,
-            cutout: material.cutout.is_some(),
+            cutout,
         };
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
         // A cut out node is solid where it is drawn, whatever its alpha.
-        if material.cutout.is_none() && material.color.a < 1.0 {
+        if !cutout && material.color.a < 1.0 {
             self.translucent.push((self.distance, key, instance));
         } else {
             self.pipeline.add(key, instance);

@@ -105,6 +105,20 @@ impl TextureRawData {
     }
 }
 
+#[cfg(feature = "scene")]
+impl TextureRawData {
+    /// The levels of `into_levels` with the alpha of every smaller level
+    /// raised so a cutout at `threshold` covers as much as at full size,
+    /// see `hilen_pixels::keep_coverage`.
+    pub(crate) fn into_cutout_levels(self, threshold: u8) -> TextureLevels {
+        let mut levels = self.into_levels();
+        if levels.channels == 4 {
+            hilen_pixels::keep_coverage(&mut levels.levels, threshold);
+        }
+        levels
+    }
+}
+
 impl Texture {
     pub(crate) const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 

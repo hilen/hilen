@@ -41,6 +41,9 @@ const COMMON: &str = include_str!("shaders/scene_common.wgsl");
 const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
 const SHADOW: &str = include_str!("shaders/shadow.wgsl");
+/// The dither of a fading node, prepended to the mesh and the shadow
+/// shaders.
+const FADE: &str = include_str!("shaders/fade.wgsl");
 const LINES: &str = include_str!("shaders/lines.wgsl");
 const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
 
@@ -66,8 +69,8 @@ pub(crate) struct MeshKey {
     pub normal_map:             Option<Weak<Image>>,
     pub metallic_roughness_map: Option<Weak<Image>>,
     pub occlusion_map:          Option<Weak<Image>>,
-    /// Whether the material has a cutout. The threshold is the
-    /// instance's own.
+    /// Whether the material has a cutout or a fade below 1. The threshold
+    /// and the fade are the instance's own.
     pub cutout:                 bool,
 }
 
@@ -207,11 +210,11 @@ impl Default for MeshPipeline {
 
         // The common part reads the cascade count, one source for both.
         let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}");
-        let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{MESH}"));
+        let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{FADE}\n{MESH}"));
         let sky_shader = shader(device, "sky_shader", format!("{common}\n{SKY}"));
         let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
         let wide_shader = shader(device, "wide_lines_shader", format!("{common}\n{WIDE_LINES}"));
-        let shadow_shader = shader(device, "shadow_shader", SHADOW.to_string());
+        let shadow_shader = shader(device, "shadow_shader", format!("{FADE}\n{SHADOW}"));
 
         let view_layout = view_layout(device);
         let instances_layout = instances_layout(device);

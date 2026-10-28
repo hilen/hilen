@@ -18,7 +18,7 @@ use crate::{
         color::Color,
         volume::{Mat4, Quat, Ray, Shape3, Vec3},
     },
-    scene::{ColliderShape, Material, NodeData, Playback, SceneManager, ToCollider},
+    scene::{ColliderShape, Material, NodeData, Playback, SceneManager, ToCollider, fade::FadeRun},
 };
 
 pub trait Node: Deref<Target = NodeData> + DerefMut {
@@ -184,6 +184,18 @@ pub trait NodeTemplates {
     /// Cuts the node out by its alpha, fragments under `threshold` are
     /// not drawn, see `Material::cutout`.
     fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self;
+    /// How much of the node draws, 1 whole and 0 nothing, in a dither
+    /// pattern, see `Material::fade`. Stops a running fade.
+    fn set_fade(&mut self, fade: impl ToF32) -> &mut Self;
+    /// Runs the fade from where it is to `fade` over `seconds` of scene
+    /// time, like a new tree fading in from 0 to 1. Right away for no
+    /// time.
+    fn fade_to(&mut self, fade: impl ToF32, seconds: impl ToF32) -> &mut Self;
+    /// Keeps the other share of the dither pattern, for the node a cross
+    /// fade takes away, see `Material::fade_flip`.
+    fn set_fade_flip(&mut self, flip: bool) -> &mut Self;
+    /// Whether a fade of `fade_to` still runs.
+    fn is_fading(&self) -> bool;
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self;
     fn set_restitution(&mut self, _: f32, _: CoefficientCombineRule) -> &mut Self;
     fn set_position(&mut self, _: impl Into<Vec3>) -> &mut Self;
@@ -264,6 +276,30 @@ impl<T: ?Sized + Node> NodeTemplates for T {
     fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self {
         self.material.cutout = Some(threshold.to_f32());
         self
+    }
+
+    fn set_fade(&mut self, fade: impl ToF32) -> &mut Self {
+        self.material.fade = fade.to_f32();
+        self.fade_run = None;
+        self
+    }
+
+    fn fade_to(&mut self, fade: impl ToF32, seconds: impl ToF32) -> &mut Self {
+        let fade = fade.to_f32();
+        self.fade_run = FadeRun::new(self.material.fade, fade, seconds.to_f32());
+        if self.fade_run.is_none() {
+            self.material.fade = fade;
+        }
+        self
+    }
+
+    fn set_fade_flip(&mut self, flip: bool) -> &mut Self {
+        self.material.fade_flip = flip;
+        self
+    }
+
+    fn is_fading(&self) -> bool {
+        self.fade_run.is_some()
     }
 
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self {

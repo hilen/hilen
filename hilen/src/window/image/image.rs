@@ -8,6 +8,8 @@ use wgpu::{
     TextureViewDimension,
 };
 
+#[cfg(feature = "scene")]
+use crate::window::image::TextureLevels;
 use crate::{
     deps::{
         hreads::from_main,
@@ -255,6 +257,16 @@ impl Image {
         let texture = Texture::from_raw_data(TextureRawData { data, size, channels }, &name);
         let image = Self::from_texture(&texture, None);
         Image::store_with_name::<Infallible>(&name, || Ok(image)).unwrap()
+    }
+
+    /// An image of `levels`, every mip level given, stored under `name` in
+    /// place of an image of that name.
+    #[cfg(feature = "scene")]
+    pub(crate) fn from_levels(levels: TextureLevels, name: &str) -> Weak<Image> {
+        Image::free_with_name(name);
+        let texture = Texture::from_levels(levels, name);
+        let image = Self::from_texture(&texture, None);
+        Image::store_with_name::<Infallible>(name, || Ok(image)).unwrap()
     }
 
     /// A blank image whose texture is also a render target, for a video frame

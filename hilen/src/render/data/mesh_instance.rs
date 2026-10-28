@@ -48,8 +48,12 @@ pub(crate) struct MeshInstance {
     /// 1 for a node drawn with no light, see `Material::unlit`. A float
     /// so it takes a word of the padding the struct already had.
     pub unlit:              f32,
-    /// Rounds the struct up to a multiple of 16 bytes, the std430 size.
-    pub padding:            [f32; 2],
+    /// The share of the node drawn, see `Material::fade`. It and the flag
+    /// below fill the padding that rounded the struct up to 16 bytes.
+    pub fade:               f32,
+    /// 1 for a node that keeps the other share of the dither, see
+    /// `Material::fade_flip`.
+    pub fade_flip:          f32,
 }
 
 impl MeshInstance {
@@ -74,7 +78,8 @@ impl MeshInstance {
             cutout: material.cutout.unwrap_or(0.0),
             occlusion_strength: material.occlusion_strength,
             unlit: if material.unlit { 1.0 } else { 0.0 },
-            padding: [0.0; 2],
+            fade: material.fade,
+            fade_flip: if material.fade_flip { 1.0 } else { 0.0 },
         }
     }
 }
@@ -138,6 +143,9 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, emissive), 168);
         assert_eq!(offset_of!(MeshInstance, cutout), 172);
         assert_eq!(offset_of!(MeshInstance, occlusion_strength), 176);
+        assert_eq!(offset_of!(MeshInstance, unlit), 180);
+        assert_eq!(offset_of!(MeshInstance, fade), 184);
+        assert_eq!(offset_of!(MeshInstance, fade_flip), 188);
         assert_eq!(size_of::<MeshInstance>(), 192);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);

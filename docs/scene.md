@@ -264,6 +264,21 @@ vertex color's times the texel's, is under the threshold is not drawn. The rest 
 solid: depth written, batched with the opaque nodes, lit and shadowed the same, even
 with a color alpha below one. The edge is hard, a pixel is in or out.
 
+`fade` draws a share of a node, 1 all of it and 0 none, for a level of detail or a
+new tree that should not pop: `set_fade(0.4)`, or `fade_to(1.0, 0.3)` to run it over
+0.3 s of scene time, stepped with the clips in `SceneBase::update_physics`. Below 1
+the node goes through the cutout pipelines, and `faded_out` of `fade.wgsl`, put in
+front of the mesh and the shadow shaders, drops every fragment whose 4 by 4 ordered
+dither threshold, in pixels of the target, is over the fade. The rest is solid with
+depth like a cut out node, and the shadow pass drops the same share in texels of
+the map, so the shadow is as thin as the node. A fade of 0 is not drawn at all, 1
+draws as a node that never faded. `set_fade_flip(true)` keeps the other share of the
+pattern: a node fading in and a flipped one fading out at the same place, with fades
+that add up to 1, cover every pixel once, a cross fade with no hole. The fade and the
+flip fill the 2 words of padding `MeshInstance` had, its size stays 192 bytes. Each
+comparison in `faded_out` sits in its own parentheses, a bare `a < b, c > d` in WGSL
+parses as a template list.
+
 The shading is the Filament mobile model: Lambert diffuse, GGX, the fast height
 correlated Smith visibility and the Schlick Fresnel. A scene has one `sun`, a
 directional light, plus any number of point and spot `lights`. Every node is drawn
@@ -459,6 +474,20 @@ targets are kept for the next picture of the same size. 50 pictures of 256
 pixels take about 18 ms of CPU time in a debug build and 12 ms in release on an
 M series Mac, models and textures are managed and load once.
 
+A picture has 1 level, so drawn much smaller than its size it picks scattered
+texels and flickers. `SceneManager::mipped_picture(scene, name, size, background,
+cutout)` draws the scene through the photo path, reads the pixels back and builds
+every level on the CPU with `hilen_pixels::mip_chain`, an atlas of far trees for
+example. A native GPU is waited for in the call and the image made on the calling
+thread, call it on the main one. A browser gives the pixels after a frame of the
+loop, so the result is a future to `spawn`. With a `cutout` threshold,
+`keep_coverage` scales the alpha of every smaller level so the share of texels at or
+over the threshold stays that of the full size, found by halving a scale in steps of
+1/256 and taking the side of a step nearer to it. A plain box filter thins far leaves to
+nothing. The image is stored under `name`, a second call replaces it. A 1024 pixel
+atlas of 64 trees takes about 1.4 s in release, most of it the read back and the
+levels.
+
 ## Photos
 
 `SceneManager::photo(camera, size, background)` draws the running scene through
@@ -615,6 +644,12 @@ turned to full glow. `Cutout` quads of leaves over a wall, not cut, cut out, 2
 crossed that hide each other by depth and the masked `leaf_card.glb`, then the
 threshold lowered so the leaves grow, and `Cutout shadows` the same quads over a
 floor, a square shadow from the one not cut and leaf shadows from the rest.
+`Node fade` cubes over a wall at fades 0, 1/4, 1/2, 3/4 and 1, a blue and a flipped
+red cube at a half each at the same place with no wall between, and a cube that runs
+`fade_to` from 0 to 1 and stays whole. `Fade shadows` 3 cubes over a floor at 1, a
+half and 0 under a sun that casts, a whole shadow, a dithered one and none. `Mipped
+picture` the same picture of a tree of balls on cut out quads at full size, a
+quarter and a 16th, plain on top and mipped below.
 `Terrain shadows` is a streaming world as heavy as a game: 5 by 5 chunks of steep
 ground with 10 trees and 4 rocks each come and go around a flying jet, over a coarse
 ground and a sea 2400 m wide, under a day sky with shadows and fog. The test flies the

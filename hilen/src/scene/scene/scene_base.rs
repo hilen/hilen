@@ -87,13 +87,14 @@ impl SceneBase {
         self.physics = ScenePhysics::default().into();
     }
 
-    /// One step of the scene's time: the playing clips move on, the
+    /// One step of the scene's time: the playing clips and fades move on, the
     /// colliders of attached nodes go where their parents carry them, then
     /// the physics, when the scene has any.
     pub fn update_physics(&mut self, frame_time: f32) {
         let physics = self.physics.is_some();
         for node in &mut self.nodes {
             node.advance_animation(frame_time);
+            node.advance_fade(frame_time);
             if physics {
                 follow_parent(&mut **node);
             }

@@ -138,6 +138,33 @@ impl SceneManager {
         SceneDrawer::picture(&*scene, name, size.into(), background.into())
     }
 
+    /// Draws `scene` once into an image of `size` pixels like `picture`,
+    /// with every mip level, so it stays calm drawn far smaller than its
+    /// size, like a baked atlas of far trees. The picture is read back
+    /// once and its levels made on the CPU. `cutout` is the threshold a
+    /// node cuts the image out at: the alpha of each smaller level keeps
+    /// the share of covered texels of the full size, so far leaves do not
+    /// thin out, see `hilen_pixels::keep_coverage`. The image is stored
+    /// under `name`, a second call replaces it. A native GPU is waited for
+    /// in this call and the image made on the calling thread, call it on
+    /// the main one. A browser gives the pixels after a frame of the loop,
+    /// so `spawn` the future there.
+    pub fn mipped_picture<T: Scene + 'static>(
+        scene: T,
+        name: &str,
+        size: impl Into<Size<u32>>,
+        background: impl Into<Color>,
+        cutout: Option<f32>,
+    ) -> impl Future<Output = Result<Weak<Image>>> {
+        let scene = Own::new(scene);
+        scene.__internal_setup();
+        assert!(
+            !scene.has_physics(),
+            "A scene picture has no physics. Build its scene of Prop nodes and leave needs_physics off."
+        );
+        photo::take_mipped(&*scene, name.to_string(), size.into(), background.into(), cutout)
+    }
+
     /// Draws the running scene once through `camera` into a picture of
     /// `size` pixels and gives its pixels, a photo from a camera that
     /// stands in the scene, like a phone on a rig. The scene, its own

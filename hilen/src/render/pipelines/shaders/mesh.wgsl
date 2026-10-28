@@ -16,6 +16,8 @@ struct MeshInstance {
     cutout: f32,
     occlusion_strength: f32,
     unlit: f32,
+    fade: f32,
+    fade_flip: f32,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -447,13 +449,15 @@ fn f_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(lit(in).rgb, 1.0);
 }
 
-// A cut out node, see `Material::cutout`. Its own entry, so a plain
-// opaque draw carries no discard. The discard comes after every sample,
-// the derivatives of a dropped fragment are not to be trusted.
+// A cut out node, see `Material::cutout`, or a fading one, see
+// `Material::fade`. Its own entry, so a plain opaque draw carries no
+// discard. The discard comes after every sample, the derivatives of a
+// dropped fragment are not to be trusted.
 @fragment
 fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = lit(in);
-    if color.a < instances[in.instance].cutout {
+    let instance = instances[in.instance];
+    if color.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
     return vec4<f32>(color.rgb, 1.0);
@@ -492,7 +496,8 @@ fn f_depth(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
-    if coverage(in) < instances[in.instance].cutout {
+    let instance = instances[in.instance];
+    if coverage(in) < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
     return depth_color(in);

@@ -4,15 +4,19 @@ use log::{debug, warn};
 use wgpu::{BufferAsyncError, COPY_BYTES_PER_ROW_ALIGNMENT, MapMode};
 
 use crate::{
+    deps::refs::Weak,
     gm::{
         LossyConvert,
         color::{Color, U8Color},
         flat::Size,
     },
-    scene::{Camera, SceneManager},
+    scene::{Camera, Scene, SceneManager},
     scene_drawer::{Fill, SceneDrawer},
     time::Instant,
-    window::Window,
+    window::{
+        Window,
+        image::{Image, TextureRawData},
+    },
 };
 
 /// The pixels of a scene photo, see `SceneManager::photo`.
@@ -113,29 +117,12 @@ pub(crate) fn take_depth(camera: Camera, size: Size<u32>) -> impl Future<Output 
 
 fn take_filled(camera: Camera, size: Size<u32>, fill: Fill) -> impl Future<Output = Result<ScenePhoto>> {
     let started = Instant::now();
-    #[cfg(not_wasm)]
-    let photo = send(camera, size, fill).and_then(|(buffer, mut mapped)| {
-        Window::device().poll(wgpu::PollType::wait_indefinitely())?;
-        mapped
-            .try_recv()
-            .context("the photo was dropped before the GPU gave it back")?
-            .context("the GPU did not give the photo back after the wait")?
-            .map_err(|err| anyhow!("the photo could not be read from the GPU: {err}"))?;
-        read(&buffer, size)
-    });
-    #[cfg(wasm)]
     let sent = send(camera, size, fill);
+    #[cfg(not_wasm)]
+    let photo = sent.and_then(|(buffer, mapped)| wait(&buffer, mapped, size));
     async move {
         #[cfg(wasm)]
-        let photo = async {
-            let (buffer, mapped) = sent?;
-            mapped
-                .await
-                .context("the photo was dropped before the GPU gave it back")?
-                .map_err(|err| anyhow!("the photo could not be read from the GPU: {err}"))?;
-            read(&buffer, size)
-        }
-        .await;
+        let photo = wait(sent, size).await;
         match &photo {
             Ok(_) => debug!(
                 "scene photo of {}x{} read back in {} ms",
@@ -149,9 +136,92 @@ fn take_filled(camera: Camera, size: Size<u32>, fill: Fill) -> impl Future<Outpu
     }
 }
 
-/// Draws the photo, copies it into a buffer and asks for the buffer.
+/// Draws `scene` once into an image of `size` pixels with every mip level,
+/// see `SceneManager::mipped_picture`. A native GPU is waited for here and
+/// the image made at once, on the thread that asked, a browser gives the
+/// pixels back after a frame of the loop.
+pub(crate) fn take_mipped(
+    scene: &dyn Scene,
+    name: String,
+    size: Size<u32>,
+    background: Color,
+    cutout: Option<f32>,
+) -> impl Future<Output = Result<Weak<Image>>> + use<> {
+    let started = Instant::now();
+    let sent = send_scene(scene, &scene.camera, size, Fill::Light(background));
+    #[cfg(not_wasm)]
+    let image = sent
+        .and_then(|(buffer, mapped)| wait(&buffer, mapped, size))
+        .map(|photo| mipped_image(photo, &name, cutout));
+    async move {
+        #[cfg(wasm)]
+        let image = wait(sent, size).await.map(|photo| mipped_image(photo, &name, cutout));
+        match &image {
+            Ok(_) => debug!(
+                "mipped picture {name} of {}x{} made in {} ms",
+                size.width,
+                size.height,
+                started.elapsed().as_millis()
+            ),
+            Err(err) => warn!(
+                "mipped picture {name} of {}x{} failed: {err}",
+                size.width, size.height
+            ),
+        }
+        image
+    }
+}
+
+/// The image of a picture read back, with its levels built on the CPU.
+fn mipped_image(photo: ScenePhoto, name: &str, cutout: Option<f32>) -> Weak<Image> {
+    let raw = TextureRawData {
+        data:     photo.rgba,
+        size:     photo.size,
+        channels: 4,
+    };
+    let levels = match cutout {
+        Some(cutout) => raw.into_cutout_levels((cutout.clamp(0.0, 1.0) * 255.0).round().lossy_convert()),
+        None => raw.into_levels(),
+    };
+    Image::from_levels(levels, name)
+}
+
+#[cfg(not_wasm)]
+fn wait(buffer: &wgpu::Buffer, mut mapped: Mapped, size: Size<u32>) -> Result<ScenePhoto> {
+    Window::device().poll(wgpu::PollType::wait_indefinitely())?;
+    mapped
+        .try_recv()
+        .context("the photo was dropped before the GPU gave it back")?
+        .context("the GPU did not give the photo back after the wait")?
+        .map_err(|err| anyhow!("the photo could not be read from the GPU: {err}"))?;
+    read(buffer, size)
+}
+
+#[cfg(wasm)]
+async fn wait(sent: Result<(wgpu::Buffer, Mapped)>, size: Size<u32>) -> Result<ScenePhoto> {
+    let (buffer, mapped) = sent?;
+    mapped
+        .await
+        .context("the photo was dropped before the GPU gave it back")?
+        .map_err(|err| anyhow!("the photo could not be read from the GPU: {err}"))?;
+    read(&buffer, size)
+}
+
+/// Draws the running scene, copies it into a buffer and asks for the
+/// buffer.
 fn send(camera: Camera, size: Size<u32>, fill: Fill) -> Result<(wgpu::Buffer, Mapped)> {
     ensure!(!SceneManager::no_scene(), "no scene runs to take a photo of");
+    send_scene(SceneManager::scene(), &camera, size, fill)
+}
+
+/// Draws `scene` through `camera`, copies it into a buffer and asks for
+/// the buffer.
+fn send_scene(
+    scene: &dyn Scene,
+    camera: &Camera,
+    size: Size<u32>,
+    fill: Fill,
+) -> Result<(wgpu::Buffer, Mapped)> {
     ensure!(
         size.width > 0 && size.height > 0,
         "a scene photo needs a size, got {}x{}",
@@ -175,7 +245,7 @@ fn send(camera: Camera, size: Size<u32>, fill: Fill) -> Result<(wgpu::Buffer, Ma
         limits.max_buffer_size
     );
 
-    let buffer = SceneDrawer::photo(SceneManager::scene(), &camera, size, fill);
+    let buffer = SceneDrawer::photo(scene, camera, size, fill);
 
     let (sender, mapped) = oneshot::channel();
     buffer.slice(..).map_async(MapMode::Read, move |result| {

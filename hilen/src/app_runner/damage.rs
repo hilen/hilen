@@ -34,12 +34,12 @@ pub(super) fn of_frame() -> Damage {
 fn draws_outside_views() -> bool {
     // A scene in a `SceneView` draws into the image of that view.
     #[cfg(feature = "scene")]
-    if !crate::scene::SceneManager::no_scene() && crate::scene::SceneManager::host().is_none() {
-        return true;
-    }
+    let scene = !crate::scene::SceneManager::no_scene() && crate::scene::SceneManager::host().is_none();
+    #[cfg(not(feature = "scene"))]
+    let scene = false;
     #[cfg(feature = "level")]
-    if !crate::level::LevelManager::no_level() {
-        return true;
-    }
-    false
+    let level = !crate::level::LevelManager::no_level();
+    #[cfg(not(feature = "level"))]
+    let level = false;
+    scene || level
 }

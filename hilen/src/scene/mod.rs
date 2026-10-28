@@ -3,6 +3,7 @@ mod collider_lines;
 mod collider_shape;
 mod day_night_sky;
 mod event_handler;
+mod fade;
 mod fog;
 mod handle;
 mod light;

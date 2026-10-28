@@ -32,6 +32,9 @@ mod cutout;
 #[cfg(not_wasm)]
 mod cutout_shadows;
 mod day_and_night;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
+mod fade_shadows;
 /// The same bits as on desktop in the browser, the picture fails on
 /// `SwiftShader`, see docs/roadmap.md.
 #[cfg(not_wasm)]
@@ -42,11 +45,13 @@ mod leaves;
 mod lights;
 mod materials;
 mod metal_roughness;
+mod mipped_picture;
 mod models;
 /// Mouse capture needs a mouse, and a browser grants pointer lock only
 /// after a real click, which no test can inject.
 #[cfg(desktop)]
 mod mouse_look;
+mod node_fade;
 mod node_parenting;
 mod orthographic_camera;
 mod picking;

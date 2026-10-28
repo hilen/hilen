@@ -52,6 +52,17 @@ pub struct Material {
     /// lit and casting the shadow of what is left. `None` draws every
     /// fragment. `Material::CUTOUT` is the usual threshold.
     pub cutout:                 Option<f32>,
+    /// How much of the node draws, 1 all of it and 0 none. Below 1 the
+    /// node leaves out its pixels in a 4 by 4 ordered dither pattern and
+    /// the rest draws solid, with depth, casting the shadow of what is
+    /// left, so a level of detail or a new tree fades in without the sort
+    /// a translucent node needs. `NodeTemplates::fade_to` runs it over
+    /// time.
+    pub fade:                   f32,
+    /// Draws the other share of the dither pattern. A node fading in and a
+    /// flipped one fading out at the same place, with fades that add up to
+    /// 1, cover every pixel once, a cross fade with no hole.
+    pub fade_flip:              bool,
 }
 
 impl Material {
@@ -74,6 +85,8 @@ impl Default for Material {
             emissive:               0.0,
             unlit:                  false,
             cutout:                 None,
+            fade:                   1.0,
+            fade_flip:              false,
         }
     }
 }

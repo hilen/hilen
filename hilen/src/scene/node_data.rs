@@ -3,7 +3,7 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{ColliderShape, Line3, Material, Mesh, Node, Playback},
+    scene::{ColliderShape, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
 };
 
 #[derive(Educe)]
@@ -33,6 +33,9 @@ pub struct NodeData {
     /// The clip of the model playing on this node, see
     /// `NodeTemplates::play`. Without one a model draws at rest.
     pub(crate) playback: Option<Playback>,
+
+    /// The fade running on the node, see `NodeTemplates::fade_to`.
+    pub(crate) fade_run: Option<FadeRun>,
 
     pub tag: u32,
 
@@ -78,6 +81,18 @@ impl NodeData {
         };
         if let (Some(playback), true) = (self.playback.as_mut(), model.is_ok()) {
             playback.advance(dt, model.clips()[playback.clip].duration);
+        }
+    }
+
+    /// Moves the running fade on by `dt` seconds of scene time.
+    pub(crate) fn advance_fade(&mut self, dt: f32) {
+        let Some(run) = self.fade_run else {
+            return;
+        };
+        let (fade, done) = run.step(self.material.fade, dt);
+        self.material.fade = fade;
+        if done {
+            self.fade_run = None;
         }
     }
 }

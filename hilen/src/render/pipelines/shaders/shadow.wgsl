@@ -32,6 +32,8 @@ struct MeshInstance {
     cutout: f32,
     occlusion_strength: f32,
     unlit: f32,
+    fade: f32,
+    fade_flip: f32,
 }
 
 @group(1) @binding(0)
@@ -125,13 +127,15 @@ fn v_cutout_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> Cut
     return cutout(skinned(vertex, instance, skin), vertex, instance);
 }
 
-// The alpha `f_cutout` of the mesh shader tests, term by term.
+// The alpha and the fade `f_cutout` of the mesh shader tests, term by
+// term. The fade dithers in texels of the shadow map, so a fading node
+// casts a shadow as thin as the node.
 @fragment
 fn f_cutout(in: CutoutOutput) {
     let instance = instances[in.instance];
     let texel = textureSample(base_texture, base_sampler, in.uv);
     let alpha = instance.color.a * unpack4x8unorm(in.color).a * texel.a;
-    if alpha < instance.cutout {
+    if alpha < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
 }
