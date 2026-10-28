@@ -46,6 +46,9 @@ pub fn platforms() {
 
         tvos:    { target_os = "tvos" },
 
+        // a real iPhone, iPad or Apple TV, not the simulator
+        device_ios: { all(any(target_os = "ios", target_os = "tvos"), not(target_abi = "sim")) },
+
         macos:   { target_os = "macos" },
         linux:   { target_os = "linux" },
         win:     { target_os = "windows" },

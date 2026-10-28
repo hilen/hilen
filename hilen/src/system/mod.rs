@@ -1,5 +1,6 @@
 //! Access to OS services that are not part of the window: the clipboard,
-//! links, browser history and the system locale.
+//! links, browser history, the system locale and where the build was
+//! installed from.
 
 #[cfg(android)]
 pub(crate) mod android_jni;
@@ -7,6 +8,7 @@ pub(crate) mod app_activity;
 #[cfg(feature = "login")]
 pub(crate) mod browser_sheet;
 mod clipboard;
+mod install_source;
 #[cfg(target_os = "ios")]
 mod ios_delegate;
 pub(crate) mod links;
@@ -20,6 +22,7 @@ mod updater;
 
 pub use app_activity::AppActivity;
 pub use clipboard::{Clipboard, ClipboardImage};
+pub use install_source::{InstallSource, install_source};
 pub use links::{Links, OpenedLink};
 pub use locale::{language_code, locale};
 #[cfg(tvos)]
