@@ -51,12 +51,16 @@ pub struct NavigationView {
 /// one, the holder of that page is a flat layer, so the top
 /// page drawn after it covers all of it. A later sibling draws behind the
 /// subviews of an earlier one otherwise. A flat layer has to clip.
+type PageAction = Box<dyn FnMut() + Send>;
+
 #[view]
 struct PageHolder {
-    covered: bool,
+    covered:   bool,
     /// How far right of its place a swipe moved it. The layout keeps it, a
     /// page placed with `back` alone would jump back.
-    shift:   f32,
+    shift:     f32,
+    on_pop:    Vec<PageAction>,
+    on_return: Vec<PageAction>,
 }
 
 impl Setup for PageHolder {
@@ -194,6 +198,42 @@ impl NavigationView {
     /// The back button of the page that holds `view`. A page asks for it
     /// with `back_button()` of `ViewController`.
     pub(crate) fn back_button_of(self: Weak<Self>, view: WeakView) -> Weak<BackButton> {
+        let page = self.pushed_page_of(view).page();
+        if let Some(button) = page.subviews().iter().find_map(|sub| sub.weak_view().downcast::<BackButton>())
+        {
+            return button;
+        }
+        let mut button = BackButton::new();
+        button.nav = self;
+        page.add_subview(button)
+    }
+
+    /// `action` runs when the pushed page that holds `view` leaves the
+    /// stack. A page asks for it with `on_pop()` of `ViewController`.
+    pub(crate) fn on_pop_of(self: Weak<Self>, view: WeakView, action: PageAction) {
+        let mut holder = self.pushed_page_of(view);
+        holder.on_pop.push(action);
+    }
+
+    /// `action` runs each time the page that holds `view` is on top again.
+    /// A page asks for it with `on_return()` of `ViewController`.
+    pub(crate) fn on_return_of(self: Weak<Self>, view: WeakView, action: PageAction) {
+        let (mut holder, _) = self.page_of(view);
+        holder.on_return.push(action);
+    }
+
+    fn pushed_page_of(self: Weak<Self>, view: WeakView) -> Weak<PageHolder> {
+        let (holder, index) = self.page_of(view);
+        assert!(
+            index > 0,
+            "{} is the first page of its stack, it has no page to go back to",
+            holder.page().label()
+        );
+        holder
+    }
+
+    /// The holder of the page that holds `view`, and its place in the stack.
+    fn page_of(self: Weak<Self>, view: WeakView) -> (Weak<PageHolder>, usize) {
         let mut page = view;
         while page.superview().is_ok() && page.superview().superview().raw() != self.raw() {
             page = *page.superview();
@@ -202,18 +242,7 @@ impl NavigationView {
         let Some(index) = index else {
             panic!("{} is not in a page of this navigation stack", view.label());
         };
-        assert!(
-            index > 0,
-            "{} is the first page of its stack, it has no page to go back to",
-            page.label()
-        );
-        if let Some(button) = page.subviews().iter().find_map(|sub| sub.weak_view().downcast::<BackButton>())
-        {
-            return button;
-        }
-        let mut button = BackButton::new();
-        button.nav = self;
-        page.add_subview(button)
+        (self.holder(index), index)
     }
 
     fn add_page(self: Weak<Self>, mut view: Own<dyn View>) -> Weak<PageHolder> {
@@ -246,11 +275,23 @@ impl NavigationView {
     }
 
     /// The top page is gone, the page below is the top one, in its place.
+    /// Every way back ends here, a swipe that slides back never does.
     fn drop_top(self: Weak<Self>, mut top: Weak<PageHolder>) {
-        let below = self.below();
+        let mut below = self.below();
         below.set_covered(false);
         below.set_shift(0.0);
+        // The page is still alive while its actions run, they may read it.
+        for mut action in take(&mut top.on_pop) {
+            action();
+        }
         top.remove_from_superview();
+        // An action may add another one, it stays for the next return.
+        let mut actions = take(&mut below.on_return);
+        for action in &mut actions {
+            action();
+        }
+        actions.append(&mut below.on_return);
+        below.on_return = actions;
     }
 }
 

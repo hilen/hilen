@@ -15,6 +15,14 @@ pub trait ViewController {
     /// pops the page like the swipe from the left edge does. The first page
     /// of a stack has none.
     fn back_button(&self) -> Weak<BackButton>;
+    /// Runs `action` when the pushed page this view is in leaves its stack,
+    /// by the swipe, the back button, Escape or the Android back. The page
+    /// is still alive while it runs. A swipe that slides back runs nothing.
+    /// The first page of a stack never leaves, it panics there.
+    fn on_pop(&self, action: impl FnMut() + Send + 'static);
+    /// Runs `action` each time the page this view is in is on top again,
+    /// after the page over it left the stack.
+    fn on_return(&self, action: impl FnMut() + Send + 'static);
     fn present(self: Weak<Self>, view: Own<dyn View>) -> Receiver<()>;
 }
 
@@ -40,6 +48,14 @@ impl<T: ?Sized + View + 'static> ViewController for T {
 
     fn back_button(&self) -> Weak<BackButton> {
         self.navigation().back_button_of(self.weak_view())
+    }
+
+    fn on_pop(&self, action: impl FnMut() + Send + 'static) {
+        self.navigation().on_pop_of(self.weak_view(), Box::new(action));
+    }
+
+    fn on_return(&self, action: impl FnMut() + Send + 'static) {
+        self.navigation().on_return_of(self.weak_view(), Box::new(action));
     }
 
     /// Present new view replacing and deallocating current one

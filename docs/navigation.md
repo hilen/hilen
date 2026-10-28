@@ -18,6 +18,22 @@ So no page can go back by a tap and not by a swipe.
 - `UIManager::set_view` stays for a switch with no way back, like the login to the
   main screen.
 
+## When a page leaves and when it shows again
+
+A page that is pushed keeps living under the next push, so it does not get a new
+`setup` when it is on top again. 2 calls of `ViewController` tell a page about it:
+
+- `self.on_pop(action)` runs `action` when the pushed page leaves its stack, by any of
+  the 4 ways back. The page is still alive while it runs. The first page of a stack
+  never leaves, the call panics there.
+- `self.on_return(action)` runs `action` each time the page is on top again, after the
+  page over it left. A page reloads here what the page over it may have changed.
+
+Both run in `drop_top`, which every way back ends in. A swipe that slides back never
+reaches it, so it runs neither. A switch with `UIManager::set_view` drops every page
+with no pop, so it runs neither too. `NavigationEvents` in `navigation_events_test.rs`
+counts both for Escape, the back button, a full swipe and a swipe let go before half.
+
 ## The back button
 
 The stack makes a `BackButton` for each pushed page. A page gets it with

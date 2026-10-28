@@ -11,6 +11,8 @@ mod layout;
 pub(crate) mod loops;
 mod modal_view;
 #[cfg(feature = "ui-tests")]
+mod navigation_events_test;
+#[cfg(feature = "ui-tests")]
 mod navigation_shell_swipe_test;
 #[cfg(feature = "ui-tests")]
 mod navigation_swipe_test;
