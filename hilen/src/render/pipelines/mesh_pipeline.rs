@@ -22,7 +22,7 @@ use crate::{
         SHADOW_CASCADES, SceneUniform,
         bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
-        data::{LineVertex, MeshInstance, MeshLight, WideLine},
+        data::{GrassBlade, LineVertex, MeshInstance, MeshLight, WideLine},
         device_helper::{DeviceHelper, MeshDraw},
         frustum::{self, Frustum},
         pipelines::shadow_pass::{ShadowBatch, ShadowPass},
@@ -60,6 +60,22 @@ pub(super) const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
     MeshInstance::VERTEX_LAYOUT,
     SkinVertex::VERTEX_LAYOUT,
 ];
+/// The blade mesh and the blades of a grass patch.
+const GRASS_LAYOUTS: &[wgpu::VertexBufferLayout] = &[Vertex3D::VERTEX_LAYOUT, GrassBlade::VERTEX_LAYOUT];
+
+/// One patch of grass this frame, see `scene::Grass`: its blades drawn
+/// as instances of a mesh part, the instance its fragments read the
+/// material and the lights from, and the matrix `v_grass` reads.
+pub(crate) struct GrassDraw {
+    pub key:      MeshKey,
+    pub blades:   Buffer,
+    /// The first blades of the buffer that are drawn, the far ones are
+    /// gone, see `v_grass`.
+    pub count:    u32,
+    pub slot:     u32,
+    pub instance: MeshInstance,
+    pub patch:    Mat4,
+}
 
 /// What one instanced draw shares: the mesh, the four textures and the
 /// pipeline, a cut out node draws through its own.
@@ -137,6 +153,8 @@ pub struct MeshPipeline {
     cutout:      [RenderPipeline; 2],
     translucent: [RenderPipeline; 2],
     sky:         RenderPipeline,
+    /// The grass, `f_grass` from the `v_grass` vertex entry.
+    grass:       RenderPipeline,
 
     /// The opaque and the cut out pipelines of a depth photo, made at the
     /// first one from the layout and the shader of the nodes, so an app
@@ -200,6 +218,15 @@ pub struct MeshPipeline {
     /// The joint matrices of every skinned node of the frame, one run
     /// per node and skin, indexed by the instance's `joint_base`.
     joints: VecBuffer<Mat4>,
+
+    /// The grass patches of the frame waiting for `prepare`, then the
+    /// ones it loaded, with 1 instance and 1 matrix per patch slot in the
+    /// buffers of the grass bind.
+    grass_pending:   Vec<GrassDraw>,
+    grass_drawn:     Vec<GrassDraw>,
+    grass_instances: VecBuffer<MeshInstance>,
+    grass_patches:   VecBuffer<Mat4>,
+    grass_bind:      Option<CachedBind<InstancesKey>>,
 
     /// The point and spot lights of the frame, indexed by every
     /// instance's light list.
@@ -276,6 +303,7 @@ impl Default for MeshPipeline {
             MeshDraw::Translucent,
         );
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
+        let grass = grass_pipeline(device, &mesh_layout, &mesh_shader);
         // The lines bind only the view, the sky's layout.
         let [lines_pipeline, wide_tested, wide_on_top] =
             line_pipelines(device, &sky_layout, &lines_shader, &wide_shader);
@@ -290,6 +318,7 @@ impl Default for MeshPipeline {
             cutout,
             translucent,
             sky,
+            grass,
             depth: None,
             mesh_layout,
             mesh_shader,
@@ -320,6 +349,11 @@ impl Default for MeshPipeline {
             transparent_keys: vec![],
             transparent_bind: None,
             joints: VecBuffer::default(),
+            grass_pending: vec![],
+            grass_drawn: vec![],
+            grass_instances: VecBuffer::default(),
+            grass_patches: VecBuffer::default(),
+            grass_bind: None,
             lights_layout,
             lights: VecBuffer::default(),
             lights_bind: None,
@@ -344,6 +378,12 @@ impl MeshPipeline {
         instance.index = self.transparent.pending();
         self.transparent.push(instance);
         self.transparent_keys.push(key);
+    }
+
+    /// A grass patch, drawn in the camera's pass only. Grass casts no
+    /// shadow, it is too thin to show in the maps and doubles the cost.
+    pub(crate) fn add_grass(&mut self, draw: GrassDraw) {
+        self.grass_pending.push(draw);
     }
 
     pub(crate) fn add_light(&mut self, light: MeshLight) {
@@ -441,6 +481,7 @@ impl MeshPipeline {
         if !self.opaque_instances.is_empty() {
             self.opaque_instances.load();
         }
+        self.load_grass();
         if self.transparent.is_empty() {
             self.transparent.forget();
         } else {
@@ -509,6 +550,7 @@ impl MeshPipeline {
         let tested = self.tested_lines.frame() == frame && self.tested_lines.has_loaded();
         let on_top = self.on_top_lines.frame() == frame && self.on_top_lines.has_loaded();
         let no_nodes = !self.instances.values().any(|batch| batch.drawn_in(frame, 0).is_some())
+            && self.grass_drawn.is_empty()
             && !translucent
             && !lines
             && !tested
@@ -548,6 +590,7 @@ impl MeshPipeline {
         }
 
         self.draw_batches(render_pass, frame, false);
+        self.draw_grass(render_pass);
 
         // Before the translucent nodes, which blend over a line behind
         // them.
@@ -674,11 +717,70 @@ impl MeshPipeline {
         for batch in self.instances.values_mut() {
             batch.drawn = Default::default();
         }
+        self.grass_drawn.clear();
         self.transparent.forget();
         self.transparent_keys.clear();
         self.lines.forget();
         self.tested_lines.forget();
         self.on_top_lines.forget();
+    }
+
+    /// Fills the grass buffers from the patches added this frame, the
+    /// instance and the matrix of each at its slot. The slots stay with
+    /// a patch while it lives, its blades name theirs.
+    fn load_grass(&mut self) {
+        self.grass_drawn = std::mem::take(&mut self.grass_pending);
+        let Some(last) = self.grass_drawn.iter().map(|draw| draw.slot).max() else {
+            return;
+        };
+        let slots = last as usize + 1;
+        let mut instances = vec![bytemuck::Zeroable::zeroed(); slots];
+        let mut patches = vec![Mat4::ZERO; slots];
+        for draw in &self.grass_drawn {
+            let slot = draw.slot as usize;
+            instances[slot] = draw.instance;
+            instances[slot].index = draw.slot;
+            patches[slot] = draw.patch;
+        }
+        for (instance, patch) in instances.into_iter().zip(patches) {
+            self.grass_instances.push(instance);
+            self.grass_patches.push(patch);
+        }
+        self.grass_instances.load();
+        self.grass_patches.load();
+    }
+
+    /// Draws the grass patches `prepare` loaded, after the opaque nodes,
+    /// whose binds of group 0 and 2 they share.
+    fn draw_grass(&mut self, render_pass: &mut RenderPass) {
+        if self.grass_drawn.is_empty() {
+            return;
+        }
+        let bind = cached(
+            &mut self.grass_bind,
+            (
+                StorageKey::of(&self.grass_instances),
+                StorageKey::of(&self.grass_patches),
+            ),
+            || instances_bind(&self.instances_layout, &self.grass_instances, &self.grass_patches),
+        );
+        render_pass.set_bind_group(1, bind, &[]);
+        let stride = GrassBlade::VERTEX_LAYOUT.array_stride;
+        for draw in self.grass_drawn.iter().filter(|draw| draw.key.mesh.is_ok()) {
+            let textures_bind = textures_bind(
+                &mut self.textures,
+                &self.textures_layout,
+                &draw.key,
+                &self.white,
+                &self.flat_normal,
+            );
+            render_pass.set_bind_group(3, textures_bind, &[]);
+            render_pass.set_pipeline(&self.grass);
+            render_pass.set_vertex_buffer(0, draw.key.mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(draw.key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
+            render_pass.set_vertex_buffer(1, draw.blades.slice(..u64::from(draw.count) * stride));
+            render_pass.draw_indexed(0..draw.key.mesh.index_count, 0, 0..draw.count);
+        }
     }
 
     fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
@@ -807,6 +909,18 @@ fn mesh_pipelines(
             draw,
         ),
     ]
+}
+
+/// The grass, `v_grass` into `f_grass` of the mesh shader.
+fn grass_pipeline(device: &wgpu::Device, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
+    device.mesh_pipeline(
+        "grass_pipeline",
+        layout,
+        shader,
+        GRASS_LAYOUTS,
+        "v_grass",
+        MeshDraw::Grass,
+    )
 }
 
 fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {

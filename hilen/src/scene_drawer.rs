@@ -15,6 +15,7 @@ use crate::{
     render::{
         MeshKey, MeshPipeline, PicturePipeline, Reach, SceneUniform,
         data::{MeshInstance, WideLine},
+        frustum::Frustum,
     },
     scene::{
         Camera, DayNightSky, LightPick, Line3, Material, Mesh, Model, Node, Playback, Projection, Scene,
@@ -319,6 +320,17 @@ impl SceneDrawer {
         // `camera_offset` in scene_common.wgsl. Turned in 64 bit, the
         // camera's own place cancels out exactly.
         let relative = view_proj.as_dmat4() * DMat4::from_translation(camera.position.as_dvec3());
+        let frustum = Frustum::of(relative.as_mat4());
+        for grass in &scene.grass {
+            grass.push_draws(pipeline, camera.position, &frustum, &scene.lights);
+        }
+        let wind = Vec3::new(scene.wind.direction.x, 0.0, scene.wind.direction.z).normalize_or_zero();
+        let grass_push = scene
+            .grass_pusher
+            .map_or(Vec4::ZERO, |feet| (feet - camera.position).extend(1.0));
+        let grass_trail = scene
+            .grass_trail
+            .map_or(Vec4::ZERO, |trail| (trail - camera.position).extend(0.0));
         let view = SceneUniform {
             view_proj: relative.as_mat4(),
             inv_view_proj: relative.inverse().as_mat4(),
@@ -350,6 +362,9 @@ impl SceneDrawer {
             sky_moon,
             sky_params,
             irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
+            grass_wind: Vec4::new(wind.x, wind.z, scene.wind.strength, 0.0),
+            grass_push,
+            grass_trail,
         };
 
         pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);

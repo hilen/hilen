@@ -133,6 +133,133 @@ fn v_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> VertexOutp
     return place(pos, normal, vertex.uv, vertex.color, instance);
 }
 
+// One blade of a grass patch, see `GrassBlade`.
+struct Blade {
+    @location(3) place: vec4<f32>,
+    @location(4) size: f32,
+    @location(5) tint: u32,
+    @location(6) slot: u32,
+    @location(7) normal: u32,
+}
+
+// How much of the ground's normal a blade's normal takes. Lit by its own
+// face a thin blade flips from bright to dark as it turns, lit nearly
+// like the ground under it a field reads as 1 surface.
+const GRASS_UP: f32 = 0.7;
+// The units around the player's trail that grass leans away in.
+const GRASS_PUSH_REACH: f32 = 1.0;
+// Grass closer to the camera than this is not drawn, so a blade never
+// fills the view.
+const GRASS_NEAR: f32 = 2.0;
+
+// A blade of a grass patch with its wind and push. The patch draws
+// through its own bind of group 1:
+// `instances` holds 1 instance per patch slot, read by the fragment stage
+// as for any node, and `joints` 1 matrix per slot, see `Grass`. Its first
+// column is the fade: where blades thin out from, the length of the
+// thinning, 1 over the band a blade shrinks over and the blade count. The
+// second is the 4 phases of the sway, the third the sway distance, the
+// push distance and 1 over the height of a full bend, the last the
+// patch's origin.
+@vertex
+fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> VertexOutput {
+    let field = joints[blade.slot];
+    let fade = field[0];
+    let phases = field[1];
+    let sway = field[2];
+    let root = (field[3].xyz - view.camera_pos.xyz) + blade.place.xyz;
+
+    // The blades of a patch lie in random order, so the first ones stay
+    // the farthest out and the field thins evenly. Each shrinks away over
+    // a band before its own distance, so none pops.
+    let share = 1.0 - f32(rank) / fade.w;
+    let gone = fade.x + share * fade.y;
+    let grown = saturate((gone - length(root)) * fade.z);
+
+    let local = vertex.pos * blade.size * grown;
+    let turn = vec2<f32>(cos(blade.place.w), sin(blade.place.w));
+    var pos = vec3<f32>(turn.x * local.x + turn.y * local.z, local.y, turn.x * local.z - turn.y * local.x);
+
+    // The turn that takes straight up onto the ground's normal, so a blade
+    // stands out of a slope. Its columns are where x, y and z go.
+    let flat = unpack2x16snorm(blade.normal);
+    let rise = sqrt(max(1.0 - dot(flat, flat), 0.0));
+    let k = 1.0 / (1.0 + rise);
+    let tilt = mat3x3<f32>(
+        vec3<f32>(1.0 - flat.x * flat.x * k, -flat.x, -flat.x * flat.y * k),
+        vec3<f32>(flat.x, rise, flat.y),
+        vec3<f32>(-flat.x * flat.y * k, -flat.y, 1.0 - flat.y * flat.y * k),
+    );
+
+    var bent = tilt * pos;
+    let rest = length(bent);
+    // How much a point bends, its height in the mesh over the height of a
+    // full bend, a straight line, so the root stays.
+    let bend = saturate(vertex.pos.y * sway.z);
+
+    // The wind: a steady lean along it and a gust, a wave running along
+    // the wind times 3 sines across and along it.
+    let wind = view.grass_wind.xy;
+    let strength = view.grass_wind.z;
+    let world = field[3].xz + blade.place.xz + bent.xz;
+    let across = dot(world, vec2<f32>(-wind.y, wind.x));
+    let along = dot(world, wind);
+    let wave = vec3<f32>(across, across, along) * vec3<f32>(-0.3, -0.432, -0.2);
+    let gust = sin(phases.x + wave.z);
+    let waves = sin(phases.yzw + wave);
+    let rough = abs(2.0 * waves.x * waves.y) * 0.75 + 0.25;
+    let wind3 = vec3<f32>(wind.x, 0.0, wind.y);
+    let swing = wind3 * (gust * waves.z * sway.x * bend * strength * rough);
+    let steady = wind3 * (sway.x * bend * strength * 0.4);
+    var shift = swing * 0.5 + steady;
+    shift.y -= 0.5 * length(shift.xz);
+    bent += shift;
+
+    // The push: within reach of the line from where the feet were to
+    // where they are, so a walk leaves a trail, out from the player and
+    // down, only above the feet.
+    if view.grass_push.w > 0.5 {
+        let point = root + bent;
+        let feet = view.grass_push.xyz;
+        let from_feet = point.xz - feet.xz;
+        let trail = view.grass_trail.xz - feet.xz;
+        let trail_length = length(trail);
+        var apart = length(from_feet);
+        if trail_length >= 0.01 {
+            let back = trail / trail_length;
+            let behind = dot(back, from_feet);
+            if behind > trail_length {
+                apart = length(view.grass_trail.xz - point.xz);
+            } else if behind >= 0.0 {
+                apart = abs(dot(vec2<f32>(back.y, -back.x), from_feet));
+            }
+        }
+        let push = (1.0 - min(apart / GRASS_PUSH_REACH, 1.0)) * bend * sway.y;
+        let out_of_way = root.xz - feet.xz;
+        let away = out_of_way / max(length(out_of_way), 1e-4);
+        if feet.y < point.y {
+            bent += vec3<f32>(away.x * push, -push, away.y * push);
+        }
+    }
+
+    // Every point keeps its distance from the root, so a blade swings as
+    // if hinged there and never stretches.
+    let reach = length(bent);
+    if reach > 1e-5 {
+        bent *= rest / reach;
+    }
+
+    let n = vec3<f32>(turn.x * vertex.normal.x + turn.y * vertex.normal.z, vertex.normal.y, turn.x * vertex.normal.z - turn.y * vertex.normal.x);
+
+    var out: VertexOutput;
+    out.pos = view.view_proj * vec4<f32>(root + bent, 1.0);
+    out.uv = vertex.uv;
+    out.normal = normalize(mix(tilt * n, tilt[1], GRASS_UP));
+    out.instance = blade.slot;
+    out.color = pack4x8unorm(unpack4x8unorm(vertex.color) * unpack4x8unorm(blade.tint));
+    return out;
+}
+
 // The Filament mobile model: Lambert diffuse, GGX distribution, the
 // fast height correlated Smith visibility and the Schlick Fresnel.
 // `roughness` is the perceptual one squared.
@@ -458,6 +585,17 @@ fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = lit(in);
     let instance = instances[in.instance];
     if color.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return vec4<f32>(color.rgb, 1.0);
+}
+
+// A blade of grass, cut out like `f_cutout`, and dropped near the camera.
+@fragment
+fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
+    let color = lit(in);
+    let instance = instances[in.instance];
+    if color.a < instance.cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
         discard;
     }
     return vec4<f32>(color.rgb, 1.0);

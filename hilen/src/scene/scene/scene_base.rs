@@ -13,8 +13,8 @@ use crate::{
         volume::{Ray, Vec3},
     },
     scene::{
-        Camera, DayNightSky, Fog, Light, Line3, Node, Player, Scene, SceneManager, Sky, Sun, TransformHandle,
-        follow_parent, scene::scene_physics::ScenePhysics,
+        Camera, DayNightSky, Fog, Grass, Light, Line3, Node, Player, Scene, SceneManager, Sky, Sun,
+        TransformHandle, Wind, follow_parent, scene::scene_physics::ScenePhysics,
     },
     ui::UIManager,
 };
@@ -47,6 +47,15 @@ pub struct SceneBase {
     /// The first person player, see `add_player`. While one exists the
     /// camera follows its eyes.
     pub player:        Option<Player>,
+
+    /// Fields of grass that grow around the player, see `Grass`.
+    pub grass:               Vec<Grass>,
+    /// The wind that leans and sways the grass.
+    pub wind:                Wind,
+    /// The player's feet this frame, what the grass leans away from, and
+    /// where they were a moment ago, which leaves a trail in the grass.
+    pub(crate) grass_pusher: Option<Vec3>,
+    pub(crate) grass_trail:  Option<Vec3>,
 
     /// Lines in the world, axes or a floor grid, see `Line3`. A node
     /// carries the lines of its own space in its own `lines`.
@@ -91,6 +100,10 @@ impl SceneBase {
     /// colliders of attached nodes go where their parents carry them, then
     /// the physics, when the scene has any.
     pub fn update_physics(&mut self, frame_time: f32) {
+        let wind = self.wind;
+        for grass in &mut self.grass {
+            grass.advance(frame_time, wind);
+        }
         let physics = self.physics.is_some();
         for node in &mut self.nodes {
             node.advance_animation(frame_time);
@@ -107,6 +120,29 @@ impl SceneBase {
         }
         physics.update_physics(&self.nodes, frame_time);
         self.follow_player();
+    }
+
+    /// Grows the grass around the player, or around the camera with no
+    /// player, once a frame after its steps, see `Grass`.
+    pub fn update_grass(&mut self) {
+        let player = self.player.as_ref().zip(self.physics.as_ref()).map(|(player, physics)| {
+            (
+                player.eye(physics) - Vec3::Y * player.eye_height,
+                player.eye_height,
+            )
+        });
+        // The eye sits 0.15 under the top of the capsule, so the feet are
+        // that far and the eye height again under the center.
+        self.grass_pusher = player.map(|(center, eye)| center - Vec3::Y * (eye + 0.15));
+        // The trail moves a 20th of the way to the feet a frame.
+        self.grass_trail = match (self.grass_trail, self.grass_pusher) {
+            (Some(trail), Some(feet)) => Some(trail.lerp(feet, 0.05)),
+            (_, feet) => feet,
+        };
+        let center = player.map_or(self.camera.position, |(center, _)| center);
+        for grass in &mut self.grass {
+            grass.update(center);
+        }
     }
 
     /// Puts the camera where the player's view wants it: out of its eyes,

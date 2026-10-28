@@ -50,6 +50,9 @@ pub(crate) enum MeshDraw {
     /// The edges of the mesh as lines in one color, drawn from its edge
     /// buffer over the solid draw, see `SceneBase::show_wireframe`.
     Wireframe,
+    /// Like `Cutout`, and nothing within 2 units of the camera, see
+    /// `f_grass` in mesh.wgsl.
+    Grass,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -388,6 +391,7 @@ impl DeviceHelper for Device {
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
                     MeshDraw::Wireframe => "f_wireframe",
+                    MeshDraw::Grass => "f_grass",
                 }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {

@@ -20,6 +20,9 @@ struct SceneUniform {
     sky_moon: vec4<f32>,
     sky_params: vec4<f32>,
     irradiance: array<vec4<f32>, 9>,
+    grass_wind: vec4<f32>,
+    grass_push: vec4<f32>,
+    grass_trail: vec4<f32>,
 }
 
 @group(0) @binding(0)

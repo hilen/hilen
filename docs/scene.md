@@ -544,6 +544,65 @@ at the first depth photo, an app that takes none does not wait for them. The sce
 test `Depth photo of scene` checks the distance of a cube face, 2 floor points and
 the sky against the camera, then a plain photo and the screen after it.
 
+## Grass
+
+`SceneBase::grass` holds fields of grass that grow around the player, or
+around the camera with no player, `scene/grass.rs`. `Grass::new(model,
+ground)` takes the mesh of 1 clump and a function that answers what grows at
+a point of the ground: a `GrassSpot` with the height, the ground's normal,
+which the clump stands along, and a tint, or none for no grass there. The
+field grows in square patches, `patch_size` 10 by default, the nearest
+first, and asks `ground` at most `spots_per_frame` times a frame, so a
+streamed world grows its grass over a few frames. A patch out of reach goes.
+`regrow` and `regrow_around` let patches grow again after the ground or the
+answer of `ground` changed, a chunk that loaded or a floor built on it. The
+same seed and the same cell give the same blades, and every random draw is
+taken for every spot, so a hole in a field leaves the blades around it in
+place.
+
+A patch is 1 vertex buffer of `GrassBlade`s, 32 bytes each: the root from
+the patch's origin, the turn about up, the scale, the tint, the ground's
+normal as 2 snorm16 and the patch's slot. Each frame the CPU culls whole
+patches by their sphere and sends 1 `MeshInstance` and 1 matrix per patch,
+in a slot the patch keeps while it lives, a blade names its slot since an
+A7 cannot draw from a base instance. Each patch is 1 instanced draw of
+`v_grass` and `f_grass` in mesh.wgsl, after the opaque nodes. The fragment
+is lit, shadowed and fogged like a node through the same `lit`, cuts out by
+the material's `cutout` and drops everything within 2 units of the camera,
+so a blade never fills the view. Grass casts no shadow.
+
+Up to `thin_from` every blade is drawn, to `distance` they go 1 by 1. The
+blades of a patch lie in random order and blade `rank` is gone past
+`thin_from + (1 - rank / count) * (distance - thin_from)`, shrinking away over
+the last 15 percent of that, so the edge of a field has no line and no
+blade pops. The CPU leaves out the blades already gone at a patch's nearest
+point.
+
+`Wind` on the scene, a direction on the ground and a strength from 0 to 1,
+moves every field. A point bends by its height in the mesh over
+`bend_height`, a straight line from 0 at the root. The wind leans it along
+the wind by `0.4 * sway_distance * strength` times that bend, and a gust
+swings it, a wave running along the wind times 3 sines across and along it.
+`Grass::advance` runs the 4 phases on with the scene's time and keeps each
+under a full turn, so the sway never jumps however long a scene runs. The
+player pushes grass within 1 unit of the line from where its feet were a
+moment ago to where they are, so a walk leaves a trail, out from the player
+and down by `push_distance`, only above its feet. After the wind and the
+push every point is put back at its distance from the root, so a blade
+swings as if hinged there and never stretches.
+
+`Grass::blade` and `Grass::tuft` build simple blade meshes. A clump of cards
+cut out of a texture of thin blades in its alpha looks far better from a
+distance: `Image::from_cutout_data` makes such a texture from RGBA bytes
+with mip levels that keep the share of texels over the cutout, a box filter
+thins far blades to nothing. Give the cards normals straight up, so a field
+is lit like the ground under it.
+
+The scene test `Grass field` grows a field of wide blades with a bare square
+and a tinted half, leans it in the wind after an exact count of steps, and
+grows it again 300 m away. The unit tests in `scene/grass.rs` hold the
+planting, the ring order, the thinning count and the meshes.
+
 ## How it draws
 
 A scene over the whole root area draws in the main render pass, before the level

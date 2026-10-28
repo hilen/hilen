@@ -259,6 +259,21 @@ impl Image {
         Image::store_with_name::<Infallible>(&name, || Ok(image)).unwrap()
     }
 
+    /// An image of RGBA `data` for a material cut out at `cutout`, see
+    /// `Material::cutout`. Its smaller mip levels keep the share of texels
+    /// over the threshold, a plain box filter thins far blades of grass
+    /// or leaves to nothing, see `hilen_pixels::keep_coverage`.
+    #[cfg(feature = "scene")]
+    pub fn from_cutout_data(data: Vec<u8>, name: &str, size: Size<u32>, cutout: f32) -> Weak<Image> {
+        let threshold = crate::gm::LossyConvert::lossy_convert((cutout.clamp(0.0, 1.0) * 255.0).round());
+        let raw = TextureRawData {
+            data,
+            size,
+            channels: 4,
+        };
+        Self::from_levels(raw.into_cutout_levels(threshold), name)
+    }
+
     /// An image of `levels`, every mip level given, stored under `name` in
     /// place of an image of that name.
     #[cfg(feature = "scene")]

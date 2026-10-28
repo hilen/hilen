@@ -5,6 +5,7 @@ mod day_night_sky;
 mod event_handler;
 mod fade;
 mod fog;
+mod grass;
 mod handle;
 mod light;
 mod line;
@@ -36,6 +37,7 @@ pub use self::{
     collider_shape::{ColliderShape, Heightfield},
     day_night_sky::DayNightSky,
     fog::Fog,
+    grass::{Grass, GrassSpot, Wind},
     handle::{HandleDrag, HandleMode, HandlePart, HandleSnap, TransformHandle},
     light::{Light, LightKind, Sun},
     line::{AXIS_COLORS, Line3},

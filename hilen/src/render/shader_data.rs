@@ -93,7 +93,10 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 /// it reaches, see `Fog::height`. `sky_sun.w` is 1 when a `DayNightSky`
 /// is drawn, then `sky_sun` and `sky_moon` hold the directions to the sun
 /// and the moon, `sky_moon.w` the night and `sky_params` the sunset glow,
-/// the twinkle phase and the star seed.
+/// the twinkle phase and the star seed. `grass_wind` is the wind over the
+/// grass, its unit direction on x and z and its strength, see `Wind`.
+/// `grass_push` is the player's feet from the camera and 1 when there is a
+/// player, `grass_trail` where its feet were a moment ago, see `v_grass`.
 #[cfg(feature = "scene")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
@@ -122,6 +125,9 @@ pub struct SceneUniform {
     pub sky_moon:      crate::gm::volume::Vec4,
     pub sky_params:    crate::gm::volume::Vec4,
     pub irradiance:    [crate::gm::volume::Vec4; 9],
+    pub grass_wind:    crate::gm::volume::Vec4,
+    pub grass_push:    crate::gm::volume::Vec4,
+    pub grass_trail:   crate::gm::volume::Vec4,
 }
 
 #[cfg(all(test, feature = "scene"))]
@@ -131,6 +137,6 @@ mod scene_test {
     #[test]
     fn scene_view_is_a_uniform() {
         assert_eq!(size_of::<SceneUniform>() % 16, 0);
-        assert_eq!(size_of::<SceneUniform>(), 672);
+        assert_eq!(size_of::<SceneUniform>(), 720);
     }
 }

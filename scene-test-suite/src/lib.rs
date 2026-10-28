@@ -41,6 +41,7 @@ mod fade_shadows;
 mod fog;
 mod geometry;
 mod glow;
+mod grass;
 mod leaves;
 mod lights;
 mod materials;

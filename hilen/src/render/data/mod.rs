@@ -1,5 +1,7 @@
 mod clip_view;
 #[cfg(feature = "scene")]
+mod grass_blade;
+#[cfg(feature = "scene")]
 mod line_vertex;
 #[cfg(feature = "scene")]
 mod mesh_instance;
@@ -20,6 +22,8 @@ mod ui_shadow_instance;
 mod wide_line;
 
 pub(crate) use clip_view::*;
+#[cfg(feature = "scene")]
+pub(crate) use grass_blade::*;
 #[cfg(feature = "scene")]
 pub(crate) use line_vertex::*;
 #[cfg(feature = "scene")]
