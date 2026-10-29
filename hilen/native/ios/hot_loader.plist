@@ -30,6 +30,8 @@
     </array>
     <key>NSCameraUsageDescription</key>
     <string>The app under development uses the camera.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>The app under development hears the microphone.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>The app under development checks your face.</string>
     <key>UILaunchScreen</key>

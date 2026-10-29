@@ -3,7 +3,7 @@ mod editing;
 mod system_field;
 mod taken_keys;
 
-use std::mem::take;
+use std::{mem::take, ops::Range};
 
 use ui_proc::view;
 use zeroize::Zeroizing;
@@ -444,6 +444,19 @@ impl TextField {
     /// text set by `set_text`.
     pub fn insert_text(&self, text: &str) {
         weak_from_ref(self).insert(text);
+    }
+
+    /// Where the caret is, a byte offset into `text()`.
+    pub fn caret(&self) -> usize {
+        self.caret.min(self.text().len())
+    }
+
+    /// Puts `text` in the place of the bytes `range` of the text and leaves
+    /// the caret after it, so dictation can swap the words it put in for a
+    /// newer guess. An end past the text is cut to the text, an edge inside
+    /// a char moves back to the start of that char.
+    pub fn replace_range(&self, range: Range<usize>, text: &str) {
+        weak_from_ref(self).replace(range, text);
     }
 
     pub fn clear(&self) -> &Self {

@@ -2,7 +2,7 @@
 
 #[cfg(not_wasm)]
 use std::thread;
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 #[cfg(not_wasm)]
 use anyhow::Error;
@@ -369,6 +369,20 @@ impl TextField {
 
     /// Shows typed text without moving the caret, unlike `set_text`
     /// which puts the caret at the end.
+    pub(super) fn replace(mut self: Weak<Self>, range: Range<usize>, text: &str) {
+        let accepted = self.constraint.as_ref().map(|constraint| constraint.filter(text));
+        let replaced = accepted.as_ref().map_or(text, |accepted| accepted.as_str());
+
+        let current = self.text();
+        let end = current.floor_char_boundary(range.end);
+        let start = current.floor_char_boundary(range.start.min(end));
+        let edited = joined(&[&current[..start], replaced, &current[end..]]);
+
+        self.anchor = None;
+        self.caret = start + replaced.len();
+        self.commit(edited);
+    }
+
     fn commit(mut self: Weak<Self>, text: Zeroizing<String>) {
         let caret = self.caret;
         self.replace_text(text);

@@ -19,6 +19,22 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Speech to text on Android and in a browser
+
+Found by banda, `~/dev/apps/banda`, on 2026-10-29. The `speech` feature hears the
+microphone on macOS, iOS, Windows and Linux, see `docs/speech.md`.
+
+- Current: `Dictation::start` answers `SpeechError::Unsupported` on Android and in a
+  browser, `hilen/src/speech/none.rs`. `SpeechModels::download` refuses in a browser.
+- Needed:
+  - Android: the `RECORD_AUDIO` permission in the manifest from the `[speech]` table
+    and its ask at run time through the activity, like the camera. cpal has an
+    Android host. sherpa-onnx links shared libs there, they go into the jniLibs.
+  - A browser: `getUserMedia` for the samples and the wasm build of sherpa-onnx, and
+    the models in the storage of the page.
+  - Languages other than English, the streaming Zipformer models of other languages.
+- Blocks: the mic button of banda on an Android phone and on the web.
+
 ## Push on Android, in a browser and on a desktop
 
 Found by shopping, `~/dev/apps/shopping`, on 2026-10-21. Shopping sends a push for a

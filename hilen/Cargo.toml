@@ -74,6 +74,11 @@ camera = [
   "dep:objc2-core-media",
   "dep:objc2-core-video",
 ]
+# Speech to text from the microphone, see docs/speech.md. The microphone
+# through cpal and the streaming and offline recognizers of sherpa-onnx, on
+# macOS, iOS, Windows and Linux. Android and a browser answer that they have
+# none yet. Off by default, an app with no speech links neither.
+speech = ["dep:cpal", "dep:sherpa-onnx", "dep:objc2-avf-audio"]
 # A check of the finger or the face of the user, Touch ID and Face ID
 # through LocalAuthentication on macOS and iOS, see docs/biometric.md.
 # Every other system answers that the device cannot. Off by default.
@@ -277,6 +282,11 @@ wgpu-hal = { workspace = true }
 nokhwa = { workspace = true, optional = true, features = ["input-msmf"] }
 os_info = { workspace = true }
 windows-sys = { workspace = true }
+
+# The systems where `speech` hears the microphone and recognizes it.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "tvos")))'.dependencies]
+cpal = { workspace = true, optional = true }
+sherpa-onnx = { workspace = true, optional = true }
 
 # Pure Rust, nokhwa on Linux needs libclang and the kernel headers to build.
 [target.'cfg(target_os = "linux")'.dependencies]
