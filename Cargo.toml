@@ -101,6 +101,7 @@ gloo-timers = { version = "0.4", features = ["futures"] }
 futures-channel = "0.3"
 futures-util = "0.3"
 getrandom = "0.4"
+half = "2.7"
 hex = "0.4"
 hkdf = "0.13"
 if-addrs = "0.15"
@@ -166,6 +167,7 @@ objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDate", "NSDictionary", "NSError", "NSException", "NSJSONSerialization", "NSProcessInfo", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
 objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LABiometryType", "LAContext", "LAError"] }
 objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLCaptureManager", "MTLDevice"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CALayer", "CAMediaTiming", "CATransaction", "objc2-core-foundation"] }
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNUserNotificationCenter"] }

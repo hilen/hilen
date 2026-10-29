@@ -357,6 +357,19 @@ impl State {
         target
     }
 
+    /// The surface cannot be sampled, so a frame that has to read itself
+    /// back renders into an intermediate scene texture and is copied to the
+    /// surface at the end. The headless offscreen texture is sampleable as
+    /// is. Frames that do not sample skip all of this and render straight
+    /// to the target. A pending read forces the scene texture path where
+    /// the surface cannot be copied, the readback copies the scene texture
+    /// instead.
+    fn needs_sampling(read_back: bool) -> bool {
+        AppHandler::current().te_window_events.needs_sampleable_frame()
+            || (!crate::window::SURFACE_COPY && read_back)
+            || kept::keeps_through_scene()
+    }
+
     pub(crate) fn render(&mut self) {
         #[cfg(desktop)]
         if Window::is_resizing() {
@@ -382,6 +395,7 @@ impl State {
         };
 
         Window::next_render_frame();
+        super::gpu_capture::begin_frame();
 
         let recorder = frame_control::frame_reader();
         let read_back = recorder.is_some() || self.read_display_request.borrow().is_some();
@@ -407,17 +421,7 @@ impl State {
         #[cfg(feature = "bench")]
         self.ensure_gpu_timer();
 
-        // The surface cannot be sampled, so a frame that has to read
-        // itself back renders into an intermediate scene texture and
-        // is copied to the surface at the end. The headless offscreen
-        // texture is sampleable as is. Frames that do not sample skip
-        // all of this and render straight to the target.
-        let needs_sampling = AppHandler::current().te_window_events.needs_sampleable_frame();
-
-        // A pending read forces the scene texture path where the surface
-        // cannot be copied, the readback copies the scene texture instead.
-        let needs_sampling = needs_sampling || (!crate::window::SURFACE_COPY && read_back);
-        let needs_sampling = needs_sampling || kept::keeps_through_scene();
+        let needs_sampling = Self::needs_sampling(read_back);
 
         if needs_sampling && surface_texture.is_some() {
             self.ensure_scene_texture(target_size);
@@ -497,6 +501,7 @@ impl State {
             }
             Window::queue().present(surface_texture);
         }
+        super::gpu_capture::end_frame();
 
         // After the work timer closes and the frame is presented, so resolving
         // and the blocking readback never inflate the CPU measurement.

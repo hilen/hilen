@@ -48,8 +48,11 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
             return Vec3::new(translation.x, translation.y, translation.z);
         }
         if let Some(handle) = self.collider_handle() {
-            let translation = SceneManager::get_collider(handle).translation();
-            return Vec3::new(translation.x, translation.y, translation.z) - self.collider_offset();
+            let collider = SceneManager::get_collider(handle);
+            let (translation, rotation) = (collider.translation(), collider.rotation());
+            let rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
+            return Vec3::new(translation.x, translation.y, translation.z)
+                - rotation * self.collider_offset();
         }
         self.position
     }
@@ -181,6 +184,8 @@ pub trait NodeTemplates {
     fn set_emissive(&mut self, _: impl ToF32) -> &mut Self;
     /// Draws the node with no light on it, see `Material::unlit`.
     fn set_unlit(&mut self, unlit: bool) -> &mut Self;
+    /// Reflects like moon dust, see `Material::dust`.
+    fn set_dust(&mut self, dust: bool) -> &mut Self;
     /// Cuts the node out by its alpha, fragments under `threshold` are
     /// not drawn, see `Material::cutout`.
     fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self;
@@ -268,6 +273,11 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         self
     }
 
+    fn set_dust(&mut self, dust: bool) -> &mut Self {
+        self.material.dust = dust;
+        self
+    }
+
     fn set_unlit(&mut self, unlit: bool) -> &mut Self {
         self.material.unlit = unlit;
         self
@@ -320,8 +330,9 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         if self.rigid_handle().is_some() {
             self.rigid_body_mut().set_position(Pose3::from_translation(pos), true);
         } else if self.collider_handle().is_some() {
-            let offset = self.collider_offset();
-            self.collider_mut().set_position(Pose3::from_translation(pos + offset));
+            let rotation = self.rotation;
+            let offset = rotation * self.collider_offset();
+            self.collider_mut().set_position(Pose3::from_parts(pos + offset, rotation));
         }
         self.position = pos;
         follow_parent(self);
@@ -332,7 +343,11 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         if self.rigid_handle().is_some() {
             self.rigid_body_mut().set_rotation(rotation, true);
         } else if self.collider_handle().is_some() {
-            self.collider_mut().set_rotation(rotation);
+            // An offset collider, the box around a model's bounds, turns
+            // with the node about its origin, not about its own middle.
+            let offset = rotation * self.collider_offset();
+            let position = self.position;
+            self.collider_mut().set_position(Pose3::from_parts(position + offset, rotation));
         }
         self.rotation = rotation;
         follow_parent(self);
@@ -432,13 +447,13 @@ fn refit_collider<T: ?Sized + Node>(node: &mut T) {
     let shape = node.collider_shape().0.make_collider(node.collider_scale).shape;
     let offset = node.collider_offset();
     let body = node.rigid_handle().is_some();
-    let position = node.position;
+    let (position, rotation) = (node.position, node.rotation);
     let collider = node.collider_mut();
     collider.set_shape(shape);
     if body {
         collider.set_position_wrt_parent(Pose3::from_translation(offset));
     } else {
-        collider.set_position(Pose3::from_translation(position + offset));
+        collider.set_position(Pose3::from_parts(position + rotation * offset, rotation));
     }
 }
 

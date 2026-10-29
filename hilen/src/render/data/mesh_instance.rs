@@ -22,7 +22,8 @@ pub(crate) struct MeshInstance {
     pub model:              Mat4,
     /// The inverse transpose of the model's rotation and scale, what a
     /// normal transforms by when the scale is not uniform. Three vec4
-    /// rows, the fourth component is padding.
+    /// rows. The fourth component of the first is 1 for `Material::dust`,
+    /// of the others padding.
     pub normal:             [Vec4; 3],
     pub color:              Color,
     pub metallic:           f32,
@@ -62,7 +63,7 @@ impl MeshInstance {
         Self {
             model,
             normal: [
-                normal.x_axis.extend(0.0),
+                normal.x_axis.extend(if material.dust { 1.0 } else { 0.0 }),
                 normal.y_axis.extend(0.0),
                 normal.z_axis.extend(0.0),
             ],
@@ -147,6 +148,19 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, fade), 184);
         assert_eq!(offset_of!(MeshInstance, fade_flip), 188);
         assert_eq!(size_of::<MeshInstance>(), 192);
+    }
+
+    #[test]
+    fn dust_rides_in_the_padding_of_the_first_normal_row() {
+        let dust = Material {
+            dust: true,
+            ..Material::default()
+        };
+        let instance = MeshInstance::new(Mat4::IDENTITY, dust, LightPick::default(), 0);
+        assert_eq!(instance.normal[0].w, 1.0);
+        assert_eq!(instance.normal[1].w, 0.0);
+        let plain = MeshInstance::new(Mat4::IDENTITY, Material::default(), LightPick::default(), 0);
+        assert_eq!(plain.normal[0].w, 0.0);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);
     }

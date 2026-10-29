@@ -46,6 +46,13 @@ pub struct Material {
     /// scan carries its light in its texture already. The fog still
     /// covers it.
     pub unlit:                  bool,
+    /// Reflects like the dust of a moon, by the Lommel-Seeliger law in
+    /// place of Lambert's: brightness goes with `2 cos i / (cos i +
+    /// cos e)`, `i` the angle to the light and `e` to the eye. Lit from
+    /// behind the eye a dusty ball is flat and bright to its edge, a full
+    /// moon, where a Lambert ball darkens. Facing the light and the eye
+    /// both laws give the same brightness, so dust fits next to the rest.
+    pub dust:                   bool,
     /// Cuts the shape of the alpha out of the node, leaves on a quad: a
     /// fragment whose alpha, the color's times the texel's, is under
     /// this is not drawn at all, and the rest draws solid, with depth,
@@ -84,6 +91,7 @@ impl Default for Material {
             occlusion_strength:     1.0,
             emissive:               0.0,
             unlit:                  false,
+            dust:                   false,
             cutout:                 None,
             fade:                   1.0,
             fade_flip:              false,

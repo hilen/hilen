@@ -1,3 +1,5 @@
+use std::array::from_fn;
+
 use glam::DMat4;
 use wgpu::{
     CommandEncoder, CommandEncoderDescriptor, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
@@ -10,7 +12,7 @@ use crate::{
         LossyConvert,
         color::{Color, WHITE},
         flat::Size,
-        volume::{Bounds, Mat4, Shape3, Vec3, Vec4},
+        volume::{Bounds, Mat3, Mat4, Quat, Shape3, Vec3, Vec4},
     },
     render::{
         MeshKey, MeshPipeline, PicturePipeline, Reach, SceneUniform,
@@ -18,8 +20,8 @@ use crate::{
         frustum::Frustum,
     },
     scene::{
-        Camera, DayNightSky, LightPick, Line3, Material, Mesh, Model, Node, Playback, Projection, Scene,
-        SceneManager, collider_lines, pick_lights, sun_cascades,
+        Atmosphere, Camera, DayNightSky, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh, Model, Node,
+        Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights, sun_cascades,
     },
     ui::{UIManager, ui_drawer::set_viewport},
     window::{
@@ -103,12 +105,12 @@ impl PictureTargets {
 
 const COLLIDER_COLOR: Color = Color::hex("#00ff60");
 
-/// The scene owns this band of the frame's shared depth buffer. The UI
-/// draws at 0.5 and closer, a level sprite at 0.85, so the UI stays in
-/// front of any scene and a level can share the frame. The band costs
-/// about one and a half bits of depth precision, the near plane of the
-/// camera matters far more.
-const DEPTH_BAND: (f32, f32) = (0.6, 1.0);
+/// The scene draws in the whole depth range, reversed. The frame's depth
+/// buffer is the UI's too, so the scene fills it with 0 before it draws
+/// and with 1 after, and the UI over it tests depth as before, see
+/// `MeshPipeline::fill_depth`. A band of the range lost the reversed
+/// depth its gain: floats are dense only near 0.
+const DEPTH_BAND: (f32, f32) = (0.0, 1.0);
 
 /// What a picture of the scene holds.
 #[derive(Debug, Clone, Copy)]
@@ -296,6 +298,14 @@ impl SceneDrawer {
         let sun_color = sun.color.linear();
         let ambient = scene.ambient.linear();
         let sky = scene.sky.as_ref();
+        let space = scene.space_sky;
+        let air = space.and_then(|space| space.atmosphere);
+        pipeline.air.update(air.as_ref());
+        let sun_light = Vec3::new(sun_color.r, sun_color.g, sun_color.b) * sun.intensity;
+        let air_ambient = air.and_then(|air| {
+            let to_sun = -sun.direction.normalize_or_zero();
+            pipeline.air.ambient(&air, camera.position - air.center, to_sun)
+        });
         let fog = scene.fog;
         let [sky_sun, sky_moon, sky_params] = DayNightSky::shader_data(scene.day_night_sky.as_ref());
         let fog_color = fog.map_or(Vec4::ZERO, |fog| {
@@ -324,7 +334,9 @@ impl SceneDrawer {
         for grass in &scene.grass {
             grass.push_draws(pipeline, camera.position, &frustum, &scene.lights);
         }
-        let wind = Vec3::new(scene.wind.direction.x, 0.0, scene.wind.direction.z).normalize_or_zero();
+        // Each field of grass lays the wind onto its own ground, see
+        // `v_grass`.
+        let wind = scene.wind.direction.normalize_or_zero();
         let grass_push = scene
             .grass_pusher
             .map_or(Vec4::ZERO, |feet| (feet - camera.position).extend(1.0));
@@ -351,7 +363,7 @@ impl SceneDrawer {
                 ambient.r,
                 ambient.g,
                 ambient.b,
-                f32::from(u8::from(sky.is_some())),
+                f32::from(u8::from(sky.is_some() || air_ambient.is_some())),
             ),
             viewport: Vec4::new(area.width, area.height, depth.0, depth.1 - depth.0),
             sun_texel,
@@ -361,10 +373,24 @@ impl SceneDrawer {
             sky_sun,
             sky_moon,
             sky_params,
-            irradiance: sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
-            grass_wind: Vec4::new(wind.x, wind.z, scene.wind.strength, 0.0),
+            irradiance: match air_ambient {
+                Some(coefficients) => coefficients.map(|c| (c * sun_light).extend(0.0)),
+                None => sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
+            },
+            grass_wind: wind.extend(scene.wind.strength),
             grass_push,
             grass_trail,
+            occluders: occluder_balls(scene, camera),
+            transmit: occluder_colors(scene),
+            occlusion: Vec4::new(
+                scene.occluders.len().min(MAX_OCCLUDERS).lossy_convert(),
+                sun.angular_radius,
+                0.0,
+                0.0,
+            ),
+            air: air_data(air.as_ref(), camera),
+            space: space_data(space.as_ref()),
+            stars: star_turn(space.as_ref()),
         };
 
         pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);
@@ -460,11 +486,17 @@ impl SceneDrawer {
         pass.set_viewport(0.0, 0.0, area.width, area.height, DEPTH_BAND.0, DEPTH_BAND.1);
 
         let scene = SceneManager::scene();
-        MESH.get_mut().draw(
+        let pipeline = MESH.get_mut();
+        pipeline.fill_depth(pass, true);
+        pipeline.draw(
             pass,
             scene.sky.as_ref(),
-            scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
+            scene.sky.is_some()
+                || scene.day_night_sky.is_some()
+                || scene.space_sky.is_some()
+                || scene.fog.is_some(),
         );
+        pipeline.fill_depth(pass, false);
 
         set_viewport(pass, UIManager::window_resolution());
     }
@@ -580,7 +612,8 @@ impl SceneDrawer {
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                     view:        &targets.depth.view,
                     depth_ops:   Some(Operations {
-                        load:  LoadOp::Clear(1.0),
+                        // The far end of the scene's reversed depth.
+                        load:  LoadOp::Clear(0.0),
                         store: StoreOp::Discard,
                     }),
                     stencil_ops: Some(Operations {
@@ -597,7 +630,10 @@ impl SceneDrawer {
                 Fill::Light(_) => MESH.get_mut().draw(
                     &mut pass,
                     scene.sky.as_ref(),
-                    scene.sky.is_some() || scene.day_night_sky.is_some() || scene.fog.is_some(),
+                    scene.sky.is_some()
+                        || scene.day_night_sky.is_some()
+                        || scene.space_sky.is_some()
+                        || scene.fog.is_some(),
                 ),
                 Fill::Depth => MESH.get_mut().draw_depth(&mut pass, scene.sky.as_ref()),
             }
@@ -605,4 +641,59 @@ impl SceneDrawer {
 
         PICTURE.get_mut().draw(encoder, &targets.bind.bind, target);
     }
+}
+
+/// The occluders from the camera with their radii, for `light_through`.
+fn occluder_balls(scene: &dyn Scene, camera: &Camera) -> [Vec4; MAX_OCCLUDERS] {
+    from_fn(|index| {
+        scene.occluders.get(index).map_or(Vec4::ZERO, |occluder| {
+            (occluder.center - camera.position).extend(occluder.radius)
+        })
+    })
+}
+
+/// The light each occluder lets through, in linear light.
+fn occluder_colors(scene: &dyn Scene) -> [Vec4; MAX_OCCLUDERS] {
+    from_fn(|index| {
+        scene.occluders.get(index).map_or(Vec4::ZERO, |occluder| {
+            let light = occluder.transmit.linear();
+            Vec4::new(light.r, light.g, light.b, 0.0)
+        })
+    })
+}
+
+/// The air in the 6 vectors `atmosphere.wgsl` reads, its center from the
+/// camera, all 0 with no air.
+fn air_data(air: Option<&Atmosphere>, camera: &Camera) -> [Vec4; 6] {
+    air.map_or([Vec4::ZERO; 6], |air| {
+        [
+            (air.center - camera.position).extend(air.ground_radius),
+            air.rayleigh_scattering.extend(air.top_radius),
+            air.mie_scattering.extend(air.rayleigh_height),
+            air.mie_extinction.extend(air.mie_height),
+            air.ozone_absorption.extend(air.ozone_center),
+            Vec4::new(air.ozone_width, air.mie_g, air.ground_albedo, 1.0),
+        ]
+    })
+}
+
+fn space_data(space: Option<&SpaceSky>) -> Vec4 {
+    space.map_or(Vec4::ZERO, |space| {
+        Vec4::new(
+            1.0,
+            space.star_brightness,
+            space.star_seed,
+            f32::from(u8::from(space.sun_disc)),
+        )
+    })
+}
+
+/// The turn from the world to the stars' own axes.
+fn star_turn(space: Option<&SpaceSky>) -> [Vec4; 3] {
+    let turn = Mat3::from_quat(space.map_or(Quat::IDENTITY, |space| space.stars).inverse());
+    [
+        turn.x_axis.extend(0.0),
+        turn.y_axis.extend(0.0),
+        turn.z_axis.extend(0.0),
+    ]
 }

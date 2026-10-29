@@ -5,12 +5,12 @@ use rapier3d::{
     dynamics::RigidBodyHandle,
     geometry::ColliderHandle,
     pipeline::QueryFilter,
-    prelude::{ColliderBuilder, RigidBodyBuilder},
+    prelude::{ColliderBuilder, Pose3, RigidBodyBuilder},
 };
 
 use crate::{
-    gm::volume::Vec3,
-    scene::{SceneManager, ThirdPerson, scene::ScenePhysics},
+    gm::volume::{Quat, Vec3},
+    scene::{SceneManager, ThirdPerson, WorldMove, scene::ScenePhysics},
     ui::{Cursor, Keys},
     window::KeyCode,
 };
@@ -94,6 +94,7 @@ pub struct Player {
     /// inspector for a test flight and got a different flight every run.
     pub steer:        Option<Vec3>,
 
+    frame:    Quat,
     vertical: f32,
     grounded: bool,
 }
@@ -134,6 +135,7 @@ impl Player {
             third_person: None,
             motion: Motion::Walk,
             steer: None,
+            frame: Quat::IDENTITY,
             vertical: 0.0,
             grounded: false,
         }
@@ -145,22 +147,48 @@ impl Player {
         self.pitch = (self.pitch + pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
 
+    /// Where the player's own y points, against the pull of gravity, see
+    /// `frame`. Y while gravity is the scene's uniform 9.81 down.
+    pub fn up(&self) -> Vec3 {
+        self.frame * Vec3::Y
+    }
+
+    /// The turn from the world's axes to the player's own, which `yaw`
+    /// and `pitch` are measured in. Every step it turns by the least
+    /// turn that puts its y against the pull at the player, so a walk
+    /// round a planet keeps its heading, the way a compass needle is
+    /// carried along. With no pull, in space, it keeps its turn.
+    pub fn frame(&self) -> Quat {
+        self.frame
+    }
+
     /// Where the player looks, unit length.
     pub fn direction(&self) -> Vec3 {
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
-        Vec3::new(sin_yaw * cos_pitch, sin_pitch, -cos_yaw * cos_pitch)
+        self.frame * Vec3::new(sin_yaw * cos_pitch, sin_pitch, -cos_yaw * cos_pitch)
     }
 
-    fn forward(&self) -> Vec3 {
+    /// Level ahead of where the player looks, unit length.
+    pub fn forward(&self) -> Vec3 {
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
-        Vec3::new(sin_yaw, 0.0, -cos_yaw)
+        self.frame * Vec3::new(sin_yaw, 0.0, -cos_yaw)
     }
 
     /// Level and to the right of where the player looks, unit length.
     pub fn right(&self) -> Vec3 {
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
-        Vec3::new(cos_yaw, 0.0, sin_yaw)
+        self.frame * Vec3::new(cos_yaw, 0.0, sin_yaw)
+    }
+
+    /// Turns the frame by the least turn that puts its y against `pull`.
+    fn stand_against(&mut self, pull: Vec3) {
+        // Below this the pull has no direction worth following.
+        if pull.length_squared() < 1e-8 {
+            return;
+        }
+        let turn = Quat::from_rotation_arc(self.up(), -pull.normalize());
+        self.frame = (turn * self.frame).normalize();
     }
 
     /// The center of the capsule.
@@ -182,13 +210,25 @@ impl Player {
         self.vertical = 0.0;
     }
 
+    /// Moves the capsule with the rest of the scene and turns its frame
+    /// along, so the view stays on what it looked at, see
+    /// `SceneBase::move_world`. The fall or the jump goes on.
+    pub(crate) fn move_world(&mut self, physics: &mut ScenePhysics, world: WorldMove) {
+        self.frame = world.rotation(self.frame);
+        let pose = Pose3::from_parts(world.point(Self::position_in(self.body, physics)), self.frame);
+        let body = &mut physics.sets.rigid_bodies[self.body];
+        body.set_position(pose, false);
+        body.set_next_kinematic_position(pose);
+        self.steer = self.steer.map(|steer| world.direction(steer));
+    }
+
     pub(crate) fn position_in(body: RigidBodyHandle, physics: &ScenePhysics) -> Vec3 {
         let translation = physics.sets.rigid_bodies[body].translation();
         Vec3::new(translation.x, translation.y, translation.z)
     }
 
     pub(crate) fn eye(&self, physics: &ScenePhysics) -> Vec3 {
-        Self::position_in(self.body, physics) + Vec3::Y * self.eye_height
+        Self::position_in(self.body, physics) + self.up() * self.eye_height
     }
 
     /// The walk the held keys ask for, unit length or zero, and whether
@@ -198,7 +238,7 @@ impl Player {
             let steer = if self.motion == Motion::Fly {
                 steer
             } else {
-                Vec3::new(steer.x, 0.0, steer.z)
+                steer - self.up() * steer.dot(self.up())
             };
             return (steer.normalize_or_zero(), false);
         }
@@ -227,7 +267,7 @@ impl Player {
                 Keys::held(KeyCode::Space),
                 Keys::held(KeyCode::ControlLeft) || Keys::held(KeyCode::ControlRight),
             );
-            let wish = self.direction() * forward + self.right() * right + Vec3::Y * up;
+            let wish = self.direction() * forward + self.right() * right + self.up() * up;
             return (wish.normalize_or_zero(), false);
         }
         let wish = (self.forward() * forward + self.right() * right).normalize_or_zero();
@@ -259,12 +299,16 @@ impl Player {
         self.controller.autostep = if flying { None } else { AUTOSTEP };
         self.controller.snap_to_ground = if flying { None } else { SNAP_TO_GROUND };
 
+        let pull = physics.gravity_at(Self::position_in(self.body, physics));
+        self.stand_against(pull);
+        let up = self.up();
+        self.controller.up = up;
         if flying {
             self.vertical = 0.0;
         } else if self.grounded {
             self.vertical = if jump { self.jump_speed } else { 0.0 };
         } else {
-            self.vertical += physics.gravity.y * dt;
+            self.vertical += pull.dot(up) * dt;
         }
         // A rising player is off the ground. Snapping it back, or reading it
         // as grounded while it is still within the controller's offset of
@@ -274,7 +318,7 @@ impl Player {
             self.controller.snap_to_ground = None;
         }
 
-        let desired = wish * self.speed * dt + Vec3::Y * self.vertical * dt;
+        let desired = wish * self.speed * dt + up * self.vertical * dt;
         let filter = QueryFilter::default().exclude_rigid_body(self.body);
         let shape = physics.sets.colliders[self.collider].shared_shape().clone();
 
@@ -286,7 +330,10 @@ impl Player {
                 &physics.sets.colliders,
                 filter,
             );
-            let pose = *physics.sets.colliders[self.collider].position();
+            // The capsule stands along the frame, also in the first step
+            // after the frame turned.
+            let at = physics.sets.colliders[self.collider].translation();
+            let pose = Pose3::from_parts(Vec3::new(at.x, at.y, at.z), self.frame);
             self.controller.move_shape(dt, &queries, &*shape, &pose, desired, |collision| {
                 collisions.push(collision);
             })
@@ -308,7 +355,7 @@ impl Player {
 
         let body = &mut physics.sets.rigid_bodies[self.body];
         let next = body.translation() + movement.translation;
-        body.set_next_kinematic_translation(next);
+        body.set_next_kinematic_position(Pose3::from_parts(next, self.frame));
     }
 }
 
@@ -337,6 +384,7 @@ mod test {
             third_person: None,
             motion:       Motion::Walk,
             steer:        None,
+            frame:        Quat::IDENTITY,
             vertical:     0.0,
             grounded:     false,
         }
@@ -367,6 +415,95 @@ mod test {
         let player = Player::make(&mut physics, position, 0.4, 1.8);
         physics.update_physics(&[], DT);
         (physics, player)
+    }
+
+    const PLANET: f32 = 50.0;
+
+    /// A ball planet of radius 50 at the origin that pulls 9.81 on its
+    /// ground, and a player standing on its top with nothing else pulling.
+    fn on_a_planet() -> (ScenePhysics, Player) {
+        let mut physics = ScenePhysics::default();
+        physics.gravity = Vec3::ZERO;
+        physics.wells = vec![crate::scene::GravityWell::with_surface_gravity(
+            Vec3::ZERO,
+            PLANET,
+            9.81,
+        )];
+        physics.sets.colliders.insert(ColliderBuilder::ball(PLANET).build());
+        let mut player = Player::make(&mut physics, Vec3::new(0.0, PLANET + 0.95, 0.0), 0.4, 1.8);
+        player.keyboard = false;
+        player.mouse = false;
+        physics.update_physics(&[], SUBSTEP);
+        (physics, player)
+    }
+
+    /// Walking ahead for 10 s at 4 m/s goes 40 m round the planet, 0.8
+    /// radians, on its ground the whole way, on 1 great circle, the up
+    /// turning to stay against the pull.
+    #[test]
+    fn a_player_walks_round_a_planet() {
+        let (mut physics, mut player) = on_a_planet();
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        assert!(player.grounded(), "the player stands on the planet");
+        for _ in 0..SUBSTEPS_A_SECOND * 10 {
+            let ahead = player.forward();
+            player.move_by(&mut physics, SUBSTEP, ahead, false);
+            physics.update_physics(&[], SUBSTEP);
+            let at = position(&physics, &player);
+            assert!(
+                (at.length() - PLANET - 0.9).abs() < 0.1,
+                "the capsule left the ground, its middle {} from the center",
+                at.length()
+            );
+        }
+        let at = position(&physics, &player);
+        let walked = at.angle_between(Vec3::Y);
+        assert!((walked - 0.8).abs() < 0.08, "walked {walked} radians round");
+        assert!(at.x.abs() < 0.05, "the walk left its great circle, x {}", at.x);
+        assert!(
+            player.up().angle_between(at) < 0.01,
+            "the up {} is not against the pull",
+            player.up()
+        );
+        assert!(player.forward().dot(player.up()).abs() < 1e-4, "ahead is level");
+        assert!(player.grounded());
+    }
+
+    #[test]
+    fn a_world_move_turns_the_frame_and_keeps_the_view() {
+        let (mut physics, mut player) = on_a_planet();
+        player.look(0.4, -0.2);
+        let (look, up) = (player.direction(), player.up());
+        let world = WorldMove {
+            turn:  Quat::from_rotation_x(0.7) * Quat::from_rotation_z(-0.3),
+            shift: Vec3::new(5.0, -20.0, 8.0),
+        };
+        player.move_world(&mut physics, world);
+        assert!((player.direction() - world.direction(look)).length() < 1e-5);
+        assert!((player.up() - world.direction(up)).length() < 1e-5);
+    }
+
+    /// A player 50 above a well whose pull there is 4 falls 2 in 1 second.
+    #[test]
+    fn a_player_falls_toward_a_well() {
+        let mut physics = ScenePhysics::default();
+        physics.gravity = Vec3::ZERO;
+        physics.wells = vec![crate::scene::GravityWell::with_surface_gravity(
+            Vec3::new(0.0, -10_000.0, 0.0),
+            10_000.0,
+            4.0,
+        )];
+        let start = Vec3::new(0.0, 50.0, 0.0);
+        let mut player = Player::make(&mut physics, start, 0.4, 1.8);
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let fallen = start.y - position(&physics, &player).y;
+        assert!((fallen - 2.0).abs() < 0.1, "fell {fallen} in 1 s");
     }
 
     /// Steps of 1/60 s, so 60 is a second.

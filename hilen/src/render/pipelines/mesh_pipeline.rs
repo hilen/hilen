@@ -8,9 +8,12 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureView,
 };
 
-use super::mesh_binds::{
-    instances_bind, instances_layout, opaque_bind, plain_texture, storage_bind, textures_bind,
-    textures_layout, view_bind, view_layout,
+use super::{
+    air_textures::AirTextures,
+    mesh_binds::{
+        instances_bind, instances_layout, opaque_bind, plain_texture, storage_bind, textures_bind,
+        textures_layout, view_bind, view_layout,
+    },
 };
 use crate::{
     deps::refs::Weak,
@@ -23,7 +26,7 @@ use crate::{
         bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
         data::{GrassBlade, LineVertex, MeshInstance, MeshLight, WideLine},
-        device_helper::{DeviceHelper, MeshDraw},
+        device_helper::{DeviceHelper, MeshDraw, SCENE_DEPTH_COMPARE},
         frustum::{self, Frustum},
         pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
@@ -47,6 +50,8 @@ const SHADOW: &str = include_str!("shaders/shadow.wgsl");
 const FADE: &str = include_str!("shaders/fade.wgsl");
 const LINES: &str = include_str!("shaders/lines.wgsl");
 const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
+const DEPTH_FILL: &str = include_str!("shaders/depth_fill.wgsl");
+const ATMOSPHERE: &str = include_str!("shaders/atmosphere.wgsl");
 
 const LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[LineVertex::VERTEX_LAYOUT];
 const WIDE_LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[WideLine::VERTEX_LAYOUT];
@@ -75,6 +80,8 @@ pub(crate) struct GrassDraw {
     pub slot:     u32,
     pub instance: MeshInstance,
     pub patch:    Mat4,
+    /// The turn of the field's axes, see `Grass::turn`.
+    pub turn:     Mat4,
 }
 
 /// What one instanced draw shares: the mesh, the four textures and the
@@ -92,7 +99,7 @@ pub(crate) struct MeshKey {
 }
 
 /// The sky cube, its sampler and the shadow map a view bind holds.
-pub(super) type ViewKey = (TextureView, Sampler, TextureView);
+pub(super) type ViewKey = (TextureView, Sampler, TextureView, TextureView, TextureView);
 /// The instance range and the joint range an instances bind holds.
 pub(super) type InstancesKey = (StorageKey, StorageKey);
 /// Whether the base texture, the normal map, the metallic roughness map
@@ -153,6 +160,11 @@ pub struct MeshPipeline {
     cutout:      [RenderPipeline; 2],
     translucent: [RenderPipeline; 2],
     sky:         RenderPipeline,
+    /// Fill the depth of the viewport with the far end of the scene's
+    /// reversed depth before the scene, and with 1 after it, see
+    /// `fill_depth`.
+    depth_far:   RenderPipeline,
+    depth_near:  RenderPipeline,
     /// The grass, `f_grass` from the `v_grass` vertex entry.
     grass:       RenderPipeline,
 
@@ -184,12 +196,14 @@ pub struct MeshPipeline {
 
     /// The frame's view, the sky cube it lights and reflects, and the
     /// sun's shadow map.
-    view_layout: BindGroupLayout,
-    view_buffer: Buffer,
+    view_layout:    BindGroupLayout,
+    view_buffer:    Buffer,
     /// Bound when the scene has no sky.
-    black_sky:   Sky,
+    black_sky:      Sky,
     /// The view bind over the sky and the map last drawn with.
-    view_bind:   Option<CachedBind<ViewKey>>,
+    view_bind:      Option<CachedBind<ViewKey>>,
+    /// The tables of the scene's air, see `scene::Atmosphere`.
+    pub(crate) air: AirTextures,
 
     /// The sun's depth passes, which cannot bind the map they draw, so
     /// they carry the light's matrices on their own.
@@ -259,7 +273,7 @@ impl Default for MeshPipeline {
         let device = Window::device();
 
         // The common part reads the cascade count, one source for both.
-        let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}");
+        let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}\n{ATMOSPHERE}");
         let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{FADE}\n{MESH}"));
         let sky_shader = shader(device, "sky_shader", format!("{common}\n{SKY}"));
         let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
@@ -287,22 +301,13 @@ impl Default for MeshPipeline {
             immediate_size:     0,
         });
 
-        let opaque = mesh_pipelines(device, "mesh", &mesh_layout, &mesh_shader, MeshDraw::Opaque);
-        let cutout = mesh_pipelines(
-            device,
-            "mesh_cutout",
-            &mesh_layout,
-            &mesh_shader,
-            MeshDraw::Cutout,
-        );
-        let translucent = mesh_pipelines(
-            device,
-            "mesh_translucent",
-            &mesh_layout,
-            &mesh_shader,
-            MeshDraw::Translucent,
-        );
+        let draws =
+            |label: &str, draw: MeshDraw| mesh_pipelines(device, label, &mesh_layout, &mesh_shader, draw);
+        let opaque = draws("mesh", MeshDraw::Opaque);
+        let cutout = draws("mesh_cutout", MeshDraw::Cutout);
+        let translucent = draws("mesh_translucent", MeshDraw::Translucent);
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
+        let [depth_far, depth_near] = depth_fill_pipelines(device);
         let grass = grass_pipeline(device, &mesh_layout, &mesh_shader);
         // The lines bind only the view, the sky's layout.
         let [lines_pipeline, wide_tested, wide_on_top] =
@@ -333,7 +338,10 @@ impl Default for MeshPipeline {
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
+            depth_far,
+            depth_near,
             view_bind: None,
+            air: AirTextures::new(),
             shadow: ShadowPass::new(
                 device,
                 &shadow_shader,
@@ -543,6 +551,15 @@ impl MeshPipeline {
 
     /// Draws the frame. `background` draws the sky pass first, for a
     /// sky or for fog filling in behind everything without one.
+    /// A scene shares the frame's depth buffer with the UI, which tests
+    /// plain depth from a clear of 1. Before the scene the viewport's depth
+    /// becomes 0, the far end of the scene's reversed depth, and after it
+    /// 1 again, so the UI over the scene draws as before.
+    pub(crate) fn fill_depth(&self, render_pass: &mut RenderPass, far: bool) {
+        render_pass.set_pipeline(if far { &self.depth_far } else { &self.depth_near });
+        render_pass.draw(0..3, 0..1);
+    }
+
     pub(crate) fn draw(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>, background: bool) {
         let frame = Window::render_frame();
         let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
@@ -564,17 +581,21 @@ impl MeshPipeline {
         let shadow_map = self.shadow.map();
         let view_bind = cached(
             &mut self.view_bind,
-            (sky.view.clone(), sky.sampler.clone(), shadow_map.clone()),
-            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map),
+            (
+                sky.view.clone(),
+                sky.sampler.clone(),
+                shadow_map.clone(),
+                self.air.transmittance.clone(),
+                self.air.multi.clone(),
+            ),
+            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map, &self.air),
         );
         render_pass.set_bind_group(0, view_bind, &[]);
 
-        if background {
-            render_pass.set_pipeline(&self.sky);
-            render_pass.draw(0..3, 0..1);
-        }
-
         if no_nodes {
+            if background {
+                self.draw_sky(render_pass);
+            }
             self.transparent_keys.clear();
             return;
         }
@@ -591,6 +612,13 @@ impl MeshPipeline {
 
         self.draw_batches(render_pass, frame, false);
         self.draw_grass(render_pass);
+
+        // After the opaque nodes, so the sky shades only the pixels they
+        // left at the far depth. Its march through the air is the dearest
+        // shader of a frame, a planet seen from space hides half the sky.
+        if background {
+            self.draw_sky(render_pass);
+        }
 
         // Before the translucent nodes, which blend over a line behind
         // them.
@@ -619,6 +647,11 @@ impl MeshPipeline {
         }
     }
 
+    fn draw_sky(&self, render_pass: &mut RenderPass) {
+        render_pass.set_pipeline(&self.sky);
+        render_pass.draw(0..3, 0..1);
+    }
+
     /// Draws the opaque and the cut out nodes of the frame with their
     /// distance from the camera as the color, see
     /// `SceneManager::depth_photo`. The sky, the translucent nodes and the
@@ -645,8 +678,14 @@ impl MeshPipeline {
         let shadow_map = self.shadow.map();
         let view_bind = cached(
             &mut self.view_bind,
-            (sky.view.clone(), sky.sampler.clone(), shadow_map.clone()),
-            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map),
+            (
+                sky.view.clone(),
+                sky.sampler.clone(),
+                shadow_map.clone(),
+                self.air.transmittance.clone(),
+                self.air.multi.clone(),
+            ),
+            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map, &self.air),
         );
         render_pass.set_bind_group(0, view_bind, &[]);
         self.draw_batches(render_pass, frame, true);
@@ -726,8 +765,9 @@ impl MeshPipeline {
     }
 
     /// Fills the grass buffers from the patches added this frame, the
-    /// instance and the matrix of each at its slot. The slots stay with
-    /// a patch while it lives, its blades name theirs.
+    /// instance and the 2 matrices of each at its slot, the patch's and
+    /// its field's turn. The slots stay with a patch while it lives, its
+    /// blades name theirs.
     fn load_grass(&mut self) {
         self.grass_drawn = std::mem::take(&mut self.grass_pending);
         let Some(last) = self.grass_drawn.iter().map(|draw| draw.slot).max() else {
@@ -735,15 +775,18 @@ impl MeshPipeline {
         };
         let slots = last as usize + 1;
         let mut instances = vec![bytemuck::Zeroable::zeroed(); slots];
-        let mut patches = vec![Mat4::ZERO; slots];
+        let mut patches = vec![Mat4::ZERO; slots * 2];
         for draw in &self.grass_drawn {
             let slot = draw.slot as usize;
             instances[slot] = draw.instance;
             instances[slot].index = draw.slot;
-            patches[slot] = draw.patch;
+            patches[slot * 2] = draw.patch;
+            patches[slot * 2 + 1] = draw.turn;
         }
-        for (instance, patch) in instances.into_iter().zip(patches) {
+        for instance in instances {
             self.grass_instances.push(instance);
+        }
+        for patch in patches {
             self.grass_patches.push(patch);
         }
         self.grass_instances.load();
@@ -861,7 +904,7 @@ fn line_pipelines(
             "lines_pipeline",
             layout,
             lines,
-            CompareFunction::Less,
+            SCENE_DEPTH_COMPARE,
             PrimitiveTopology::LineList,
             LINE_LAYOUTS,
         ),
@@ -869,7 +912,7 @@ fn line_pipelines(
             "wide_lines_tested",
             layout,
             wide,
-            CompareFunction::Less,
+            SCENE_DEPTH_COMPARE,
             PrimitiveTopology::TriangleList,
             WIDE_LINE_LAYOUTS,
         ),
@@ -921,6 +964,19 @@ fn grass_pipeline(device: &wgpu::Device, layout: &PipelineLayout, shader: &Shade
         "v_grass",
         MeshDraw::Grass,
     )
+}
+
+/// The 2 passes that write the far end of the scene's depth before it
+/// draws and the near end after, see `fill_depth`.
+fn depth_fill_pipelines(device: &wgpu::Device) -> [RenderPipeline; 2] {
+    let fill_shader = shader(device, "depth_fill_shader", DEPTH_FILL.to_string());
+    let fill_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label:              "depth_fill_layout".into(),
+        bind_group_layouts: &[],
+        immediate_size:     0,
+    });
+    [("depth_far", "v_far"), ("depth_near", "v_near")]
+        .map(|(label, entry)| device.depth_fill_pipeline(label, &fill_layout, &fill_shader, entry))
 }
 
 fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {

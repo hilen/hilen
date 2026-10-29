@@ -71,6 +71,13 @@ pub(crate) trait WithSamples {
     fn with_samples(samples: u32) -> Self;
 }
 
+/// A scene draws with its depth reversed, 1 at the near plane and 0 far
+/// away, where 32 bit floats are densest, so a blade of grass 0.1 from
+/// the eye and a moon 300 km off share 1 depth buffer. See
+/// `Camera::projection`. The shadow maps keep their own plain depth.
+#[cfg(feature = "scene")]
+pub(crate) const SCENE_DEPTH_COMPARE: CompareFunction = CompareFunction::Greater;
+
 pub(crate) fn depth_stencil_state() -> DepthStencilState {
     DepthStencilState {
         format:              Texture::DEPTH_FORMAT,
@@ -184,6 +191,17 @@ pub(crate) trait DeviceHelper {
     /// and no depth write, drawn before the nodes cover it.
     #[cfg(feature = "scene")]
     fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
+
+    /// One triangle over the viewport that writes the depth of
+    /// `vertex_entry` of the depth fill shader and no color.
+    #[cfg(feature = "scene")]
+    fn depth_fill_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_entry: &str,
+    ) -> RenderPipeline;
 
     /// The sun's depth pass into the shadow map, no color target and a
     /// slope scaled bias against acne. `fragment_entry` is the stage
@@ -421,6 +439,7 @@ impl DeviceHelper for Device {
             },
             depth_stencil:  DepthStencilState {
                 depth_write_enabled: Some(!transparent && !wireframe),
+                depth_compare: Some(SCENE_DEPTH_COMPARE),
                 ..depth_stencil_state()
             }
             .into(),
@@ -492,6 +511,59 @@ impl DeviceHelper for Device {
     }
 
     #[cfg(feature = "scene")]
+    fn depth_fill_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_entry: &str,
+    ) -> RenderPipeline {
+        self.create_render_pipeline(&RenderPipelineDescriptor {
+            label:          label.into(),
+            layout:         layout.into(),
+            vertex:         VertexState {
+                module:              shader,
+                entry_point:         vertex_entry.into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers:             &[],
+            },
+            fragment:       FragmentState {
+                module:              shader,
+                entry_point:         "f_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[ColorTargetState {
+                    format:     surface_texture_format(),
+                    blend:      None,
+                    write_mask: ColorWrites::empty(),
+                }
+                .into()],
+            }
+            .into(),
+            primitive:      PrimitiveState {
+                topology:           PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face:         FrontFace::Ccw,
+                cull_mode:          None,
+                polygon_mode:       PolygonMode::Fill,
+                unclipped_depth:    false,
+                conservative:       false,
+            },
+            depth_stencil:  DepthStencilState {
+                depth_compare: Some(CompareFunction::Always),
+                ..depth_stencil_state()
+            }
+            .into(),
+            multisample:    MultisampleState {
+                count:                     msaa_sample_count(),
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            },
+            cache:          None,
+            multiview_mask: None,
+        })
+    }
+
+    #[cfg(feature = "scene")]
     fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -523,9 +595,10 @@ impl DeviceHelper for Device {
                 unclipped_depth:    false,
                 conservative:       false,
             },
+            // Only where no node drew, the depth still at its far end of 0.
             depth_stencil:  DepthStencilState {
                 depth_write_enabled: Some(false),
-                depth_compare: Some(CompareFunction::Always),
+                depth_compare: Some(CompareFunction::Equal),
                 ..depth_stencil_state()
             }
             .into(),

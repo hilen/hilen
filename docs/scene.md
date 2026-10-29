@@ -281,9 +281,12 @@ parses as a template list.
 
 The shading is the Filament mobile model: Lambert diffuse, GGX, the fast height
 correlated Smith visibility and the Schlick Fresnel. A scene has one `sun`, a
-directional light, plus any number of point and spot `lights`. Every node is drawn
-with the nearest eight lights whose range reaches it, picked on the CPU each frame
-and packed into the instance as indices into one storage buffer of lights. A
+directional light, plus any number of point, spot and directional `lights`.
+`Light::directional(direction)` is a second sun, the moon at night, and
+`angular_radius` gives it a disc for the occluders, see Planets and space. Every
+node is drawn with the nearest eight lights whose range reaches it, picked on the
+CPU each frame, a directional light first since it reaches everything, and packed
+into the instance as indices into one storage buffer of lights. A
 light's intensity is the brightness of a white matte surface facing it, one unit
 away for a point or spot, so the Lambert term carries no `1 / pi` and the specular
 one a `pi`.
@@ -353,6 +356,58 @@ drawn in place of the cube `sky`, which still lights the scene when both are set
 fog blends it at the horizon the same way. It lights nothing itself, the game moves
 `sun` and `ambient` with it. Its values reach the sky shader as three vectors of
 `SceneUniform`.
+
+## Planets and space
+
+A planet is a sphere in the scene, and the engine keeps it there with its own
+math in 32 bit floats around the camera. A game keeps its true places in 64 bit
+and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
+
+- `move_world(WorldMove { turn, shift })` moves and turns everything of the scene
+  by 1 rigid move in 1 call: every node with its speed and spin, the player, the
+  camera, the gravity and its wells, the sun, the lights, the occluders, the turn
+  of the stars, the lines, the wind, the handle and the frames of the grass, in
+  `scene/scene/scene_move.rs`. A game calls it when the player gets far from the
+  origin, so the floats stay fine. An offset collider turns with its wall. The
+  scene test `Moved world` checks a scene before and after a move.
+- `set_wells` puts `GravityWell`s, point masses with a `gm` and a `radius`, in
+  place of the 1 uniform gravity, `scene/gravity.rs`. `gravity_at` sums their pull
+  at a point. Every awake dynamic body gets that pull as an impulse each substep.
+- The player's up follows the pull. `Player::frame` is the least turn that puts
+  its y against the pull, and `up`, `forward` and `right` come from it, so a walk,
+  a jump, a fall, a flight, the eyes and the third person pivot work on any side of
+  a planet. `Planet walk` walks a player round a small planet.
+- `occluders` holds up to 4 `Occluder` balls, a center, a radius and a `transmit`
+  color, black by default. Each pixel, and each step of the air, works out what
+  share of a light's disc each ball hides, `light_through` in `atmosphere.wgsl`.
+  That 1 test gives the night side with its soft edge, a solar eclipse under the
+  moon, a lunar eclipse in the planet's shadow and the shadow of a planet on its
+  air. A ball is skipped by a cheap cosine bound where the disc lies wholly past its
+  edge or wholly behind it, where the full test gives exactly 0 or 1. `Night and
+  eclipse` and `Moonlight` check them.
+- `space_sky` with a `SpaceSky` draws the sky of a world in space in place of `sky`
+  and `day_night_sky`: the stars, turned by `stars`, the sun's disc of
+  `Sun::angular_radius`, and with an `Atmosphere` the air, from the ground and from
+  space. `Atmosphere::earth` is Earth's air, `Atmosphere::scaled` shrinks it to a
+  small planet with the same colors from the ground. The air is Hillaire 2020: 2
+  tables built on the CPU in `scene/atmosphere.rs` when the shape of the air
+  changes, the transmittance and the multiple scattering, uploaded as half floats
+  by `render/pipelines/air_textures.rs`. The sky marches 24 steps a pixel, the
+  haze over a surface 8, in place of the fog, and the ambient light comes from the
+  air on the CPU. A step over 8.75 heights of both hazes and over the ozone is
+  skipped, under 1 color step, and a step in full shadow only dims what lies behind
+  it. `Planet sky` shows the sky from the ground at noon, at sunset, at night and
+  from 60 km out.
+- `Material::dust`, `set_dust`, reflects by the Lommel-Seeliger law of moon dust, so
+  a full moon is flat and bright to its edge. `Moon dust` checks it.
+- `Grass::origin` and `Grass::turn` put a field on the side of a planet, the field
+  works in its own axes, `to_field` and `to_world`. `Grass on a planet side` grows
+  one on a slope of a ball.
+
+A planet from space in a window of 4096 by 2304 took 39 to 48 ms of GPU work a
+frame on an M1 Pro, 90 percent of it the air. Drawing the sky after the opaque nodes
+and the 3 skips above brought it to 9.6 ms with no pixel moved by more than 1
+color step, measured with Metal System Trace in geblings on 2026-10-29.
 
 ## Picking
 
@@ -622,11 +677,13 @@ planting, the ring order, the thinning count and the meshes.
 ## How it draws
 
 A scene over the whole root area draws in the main render pass, before the level
-and the UI, into the viewport depth band 0.6 to 1.0. A scene in a `SceneView` draws
-into the image of the view instead, see above. The UI draws at 0.5 and closer, a level sprite at
-0.85, so the UI stays in front of any scene and a level can share the frame. The
-band costs about one and a half bits of depth precision, the camera near plane
-matters far more, keep it at 0.1 or above.
+and the UI. A scene in a `SceneView` draws into the image of the view instead, see
+above. The depth is reversed, 1 on the near plane and 0 at `far`, where 32 bit
+floats are densest, compared with `Greater`, and `Camera::far` may be
+`f32::INFINITY` for no far plane, so a stone 1 m away and a moon 300 km away share
+1 frame. The scene draws in the whole depth range, so `MeshPipeline::fill_depth`
+writes 0 over the viewport before it and 1 after it, and the UI over it tests depth
+as before, `depth_fill.wgsl`. `Near and far` checks both ends.
 
 Everything draws relative to the camera, so a world kilometers big keeps its
 millimeters far from its origin. `SceneUniform::view_proj` and `inv_view_proj` take
@@ -636,9 +693,11 @@ its model first and adds the model's place minus the camera's after,
 its offset from the camera from `camera_offset`, and the world position is the
 camera plus that offset. Lines subtract the camera before their view projection.
 
-The sky draws first, one triangle with no depth test. `MeshPipeline` then does one
-instanced indexed draw per unit mesh and texture pair for the opaque nodes, and one
-draw per translucent node after them, back to front, blended and without a depth
+`MeshPipeline` does one instanced indexed draw per unit mesh and texture pair for
+the opaque nodes, then the grass, then the sky, one triangle at the far depth of 0
+with an `Equal` test, so it shades only the pixels no node covers. The air makes
+the sky the dearest shader of a frame, drawn first it ran under the whole planet.
+Then one draw per translucent node, back to front, blended and without a depth
 write. A cut out node is an opaque batch of its own, `MeshKey::cutout`, drawn
 through pipelines whose fragment entry `f_cutout` discards, so a plain opaque draw
 carries no discard. An opaque node writes alpha 1 through `f_opaque`, the alpha of
@@ -672,6 +731,13 @@ part and a part of a playing clip are never left out, their rest bounds do not h
 pose. Translucent nodes are not culled. `HILEN_CULL=0` in the env draws every node in
 every pass, the A/B for a measurement. In geblings, standing in a forest with the sun
 held still, a headless frame went from 2.43 ms to 1.44 ms.
+
+`GpuCapture::frames(count, path)` captures the GPU work of the next frames into a
+`.gputrace` file that Xcode replays with the time of every pass and draw,
+`window/gpu_capture.rs`. Metal only, and the app must start with
+`METAL_CAPTURE_ENABLED=1`. Metal System Trace in Instruments times whole command
+buffers only, and a headless run lowers the GPU clock to its free frame rate, so
+only a run in a window in front, with the GPU full, measures a shader's cost.
 
 Colors are encoded sRGB like the whole frame, see [colors.md](colors.md). The
 shader decodes, lights in linear, tonemaps and encodes at the end of the fragment.
@@ -743,7 +809,9 @@ red cube at a half each at the same place with no wall between, and a cube that 
 `fade_to` from 0 to 1 and stays whole. `Fade shadows` 3 cubes over a floor at 1, a
 half and 0 under a sun that casts, a whole shadow, a dithered one and none. `Mipped
 picture` the same picture of a tree of balls on cut out quads at full size, a
-quarter and a 16th, plain on top and mipped below.
+quarter and a 16th, plain on top and mipped below. `Moved world`, `Planet walk`,
+`Near and far`, `Moonlight`, `Night and eclipse`, `Grass on a planet side`, `Moon
+dust` and `Planet sky` are in Planets and space above.
 `Terrain shadows` is a streaming world as heavy as a game: 5 by 5 chunks of steep
 ground with 10 trees and 4 rocks each come and go around a flying jet, over a coarse
 ground and a sea 2400 m wide, under a day sky with shadows and fog. The test flies the

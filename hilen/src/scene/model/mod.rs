@@ -120,6 +120,7 @@ impl Model {
                     occlusion_strength:     material.occlusion_strength,
                     emissive:               0.0,
                     unlit:                  material.unlit,
+                    dust:                   false,
                     cutout:                 material.cutout,
                     fade:                   1.0,
                     fade_flip:              false,

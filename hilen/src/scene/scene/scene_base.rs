@@ -13,8 +13,9 @@ use crate::{
         volume::{Ray, Vec3},
     },
     scene::{
-        Camera, DayNightSky, Fog, Grass, Light, Line3, Node, Player, Scene, SceneManager, Sky, Sun,
-        TransformHandle, Wind, follow_parent, scene::scene_physics::ScenePhysics,
+        Camera, DayNightSky, Fog, Grass, GravityWell, Light, Line3, Node, Occluder, Player, Scene,
+        SceneManager, Sky, SpaceSky, Sun, TransformHandle, Wind, follow_parent,
+        scene::scene_physics::ScenePhysics,
     },
     ui::UIManager,
 };
@@ -35,6 +36,9 @@ pub struct SceneBase {
     /// The point and spot lights. A node is drawn with the nearest
     /// eight of those in reach of it.
     pub lights:        Vec<Light>,
+    /// Balls that hide the sun and the directional lights, a planet and
+    /// its moon, see `Occluder`. The first 4 count.
+    pub occluders:     Vec<Occluder>,
     /// Drawn behind everything and reflected by every surface. With a
     /// sky the flat `ambient` is not used, the sky lights the scene.
     pub sky:           Option<Sky>,
@@ -42,6 +46,9 @@ pub struct SceneBase {
     /// `DayNightSky`. It is drawn in place of `sky`, which still lights
     /// the scene when both are set.
     pub day_night_sky: Option<DayNightSky>,
+    /// The sky of a planet or a moon in space, with air or without, see
+    /// `SpaceSky`. Drawn in place of `sky` and `day_night_sky`.
+    pub space_sky:     Option<SpaceSky>,
     /// Distance fog over every surface, none by default.
     pub fog:           Option<Fog>,
     /// The first person player, see `add_player`. While one exists the
@@ -127,19 +134,20 @@ impl SceneBase {
     pub fn update_grass(&mut self) {
         let player = self.player.as_ref().zip(self.physics.as_ref()).map(|(player, physics)| {
             (
-                player.eye(physics) - Vec3::Y * player.eye_height,
+                player.eye(physics) - player.up() * player.eye_height,
                 player.eye_height,
+                player.up(),
             )
         });
         // The eye sits 0.15 under the top of the capsule, so the feet are
         // that far and the eye height again under the center.
-        self.grass_pusher = player.map(|(center, eye)| center - Vec3::Y * (eye + 0.15));
+        self.grass_pusher = player.map(|(center, eye, up)| center - up * (eye + 0.15));
         // The trail moves a 20th of the way to the feet a frame.
         self.grass_trail = match (self.grass_trail, self.grass_pusher) {
             (Some(trail), Some(feet)) => Some(trail.lerp(feet, 0.05)),
             (_, feet) => feet,
         };
-        let center = player.map_or(self.camera.position, |(center, _)| center);
+        let center = player.map_or(self.camera.position, |(center, ..)| center);
         for grass in &mut self.grass {
             grass.update(center);
         }
@@ -152,11 +160,11 @@ impl SceneBase {
         let (Some(player), Some(physics)) = (&self.player, &self.physics) else {
             return;
         };
-        let direction = player.direction();
+        let (direction, up) = (player.direction(), player.up());
         let position = match &player.third_person {
             None => player.eye(physics),
             Some(rig) => {
-                let pivot = player.eye(physics) - Vec3::Y * player.eye_height + Vec3::Y * rig.pivot_height;
+                let pivot = player.eye(physics) + up * (rig.pivot_height - player.eye_height);
                 let reach = rig.reach(direction, player.right());
                 let ray = Ray {
                     origin:    pivot,
@@ -168,6 +176,7 @@ impl SceneBase {
         };
         self.camera.position = position;
         self.camera.target = position + direction;
+        self.camera.up = up;
     }
 
     /// A first person player standing at `position`, a capsule 1.8
@@ -251,7 +260,17 @@ impl SceneBase {
 }
 
 pub trait SceneTemplates {
+    /// The same pull everywhere, 9.81 down by default.
     fn set_gravity(&mut self, g: impl Into<Vec3>);
+    /// Masses that pull every body and the player toward their centers, a
+    /// planet and its moon, on top of the uniform gravity. A round world
+    /// sets the uniform gravity to zero.
+    fn set_wells(&mut self, wells: Vec<GravityWell>);
+    /// The wells, moved with the scene by `move_world`.
+    fn wells(&self) -> &[GravityWell];
+    /// The pull of gravity at `point`, the uniform part and every well.
+    /// Zero for a scene with no physics.
+    fn gravity_at(&self, point: impl Into<Vec3>) -> Vec3;
 }
 
 impl<T: ?Sized + Scene> SceneTemplates for T {
@@ -259,5 +278,21 @@ impl<T: ?Sized + Scene> SceneTemplates for T {
         if let Some(physics) = self.physics.as_mut() {
             physics.gravity = g.into();
         }
+    }
+
+    fn set_wells(&mut self, wells: Vec<GravityWell>) {
+        if let Some(physics) = self.physics.as_mut() {
+            physics.wells = wells;
+        }
+    }
+
+    fn wells(&self) -> &[GravityWell] {
+        self.physics.as_ref().map_or(&[], |physics| &physics.wells)
+    }
+
+    fn gravity_at(&self, point: impl Into<Vec3>) -> Vec3 {
+        self.physics
+            .as_ref()
+            .map_or(Vec3::ZERO, |physics| physics.gravity_at(point.into()))
     }
 }

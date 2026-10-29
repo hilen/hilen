@@ -163,11 +163,19 @@ const GRASS_NEAR: f32 = 2.0;
 // patch's origin.
 @vertex
 fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> VertexOutput {
-    let field = joints[blade.slot];
+    // 2 matrices a patch: its numbers, and the turn of its field's own
+    // axes, which everything below works in until the end.
+    let field = joints[blade.slot * 2u];
+    let turn4 = joints[blade.slot * 2u + 1u];
+    let field_turn = mat3x3<f32>(turn4[0].xyz, turn4[1].xyz, turn4[2].xyz);
+    let to_field = transpose(field_turn);
     let fade = field[0];
     let phases = field[1];
     let sway = field[2];
-    let root = (field[3].xyz - view.camera_pos.xyz) + blade.place.xyz;
+    // The middle of the patch from the camera, and its place in the field.
+    let patch_middle = field[3].xyz - view.camera_pos.xyz;
+    let patch_in_field = vec2<f32>(field[3].w, sway.w);
+    let root = patch_middle + field_turn * blade.place.xyz;
 
     // The blades of a patch lie in random order, so the first ones stay
     // the farthest out and the field thins evenly. Each shrinks away over
@@ -199,9 +207,11 @@ fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> 
 
     // The wind: a steady lean along it and a gust, a wave running along
     // the wind times 3 sines across and along it.
-    let wind = view.grass_wind.xy;
-    let strength = view.grass_wind.z;
-    let world = field[3].xz + blade.place.xz + bent.xz;
+    // The wind laid onto the field's ground.
+    let wind_flat = (to_field * view.grass_wind.xyz).xz;
+    let wind = select(vec2<f32>(0.0), normalize(wind_flat), dot(wind_flat, wind_flat) > 1e-8);
+    let strength = view.grass_wind.w;
+    let world = patch_in_field + blade.place.xz + bent.xz;
     let across = dot(world, vec2<f32>(-wind.y, wind.x));
     let along = dot(world, wind);
     let wave = vec3<f32>(across, across, along) * vec3<f32>(-0.3, -0.432, -0.2);
@@ -219,23 +229,24 @@ fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> 
     // where they are, so a walk leaves a trail, out from the player and
     // down, only above the feet.
     if view.grass_push.w > 0.5 {
-        let point = root + bent;
-        let feet = view.grass_push.xyz;
+        let point = blade.place.xyz + bent;
+        let feet = to_field * (view.grass_push.xyz - patch_middle);
+        let trail_end = (to_field * (view.grass_trail.xyz - patch_middle)).xz;
         let from_feet = point.xz - feet.xz;
-        let trail = view.grass_trail.xz - feet.xz;
+        let trail = trail_end - feet.xz;
         let trail_length = length(trail);
         var apart = length(from_feet);
         if trail_length >= 0.01 {
             let back = trail / trail_length;
             let behind = dot(back, from_feet);
             if behind > trail_length {
-                apart = length(view.grass_trail.xz - point.xz);
+                apart = length(trail_end - point.xz);
             } else if behind >= 0.0 {
                 apart = abs(dot(vec2<f32>(back.y, -back.x), from_feet));
             }
         }
         let push = (1.0 - min(apart / GRASS_PUSH_REACH, 1.0)) * bend * sway.y;
-        let out_of_way = root.xz - feet.xz;
+        let out_of_way = blade.place.xz - feet.xz;
         let away = out_of_way / max(length(out_of_way), 1e-4);
         if feet.y < point.y {
             bent += vec3<f32>(away.x * push, -push, away.y * push);
@@ -252,9 +263,9 @@ fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> 
     let n = vec3<f32>(turn.x * vertex.normal.x + turn.y * vertex.normal.z, vertex.normal.y, turn.x * vertex.normal.z - turn.y * vertex.normal.x);
 
     var out: VertexOutput;
-    out.pos = view.view_proj * vec4<f32>(root + bent, 1.0);
+    out.pos = view.view_proj * vec4<f32>(root + field_turn * bent, 1.0);
     out.uv = vertex.uv;
-    out.normal = normalize(mix(tilt * n, tilt[1], GRASS_UP));
+    out.normal = normalize(field_turn * mix(tilt * n, tilt[1], GRASS_UP));
     out.instance = blade.slot;
     out.color = pack4x8unorm(unpack4x8unorm(vertex.color) * unpack4x8unorm(blade.tint));
     return out;
@@ -333,6 +344,8 @@ struct Surface {
     f0: vec3<f32>,
     f90: f32,
     roughness: f32,
+    // 1 for `Material::dust`.
+    dust: f32,
 }
 
 // Light arriving from `to_light` with `radiance`, both already scaled
@@ -352,7 +365,9 @@ fn shade(s: Surface, to_light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
     let v = v_smith_ggx_fast(s.nov, nol, s.roughness);
     let f = f_schlick(s.f0, s.f90, loh);
 
-    return (s.diffuse + PI * d * v * f) * radiance * nol;
+    // Lommel-Seeliger for dust, 1 where Lambert is 1, see `Material::dust`.
+    let diffuse_light = select(nol, 2.0 * nol / (nol + s.nov), s.dust > 0.5);
+    return (s.diffuse * diffuse_light + PI * d * v * f * nol) * radiance;
 }
 
 // How much the sun reaches a point of a cascade's map, 0 in shadow and
@@ -471,6 +486,10 @@ fn sun_shadow(p: vec3<f32>, offset: vec3<f32>, n: vec3<f32>) -> f32 {
 // taking over from `fog_range.x` units away over the length of its
 // fade. Linear light, the fog color is tonemapped with the rest.
 fn fogged(color: vec3<f32>, p: vec3<f32>) -> vec3<f32> {
+    // The air's haze stands in for the fog.
+    if has_air() {
+        return air_haze(color, p - view.camera_pos.xyz);
+    }
     if view.fog_color.w < 0.5 {
         return color;
     }
@@ -515,13 +534,16 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     s.f0 = mix(vec3<f32>(0.04), base, metallic);
     s.f90 = saturate(dot(s.f0, vec3<f32>(50.0 * 0.33)));
     s.roughness = perceptual * perceptual;
+    s.dust = instance.normal0.w;
 
     var color: vec3<f32>;
     if view.ambient.w > 0.5 {
         // The sky lights the diffuse through its harmonics and the
         // reflection through the mip that matches the roughness.
         let reflected = reflect(-s.to_eye, s.normal);
-        let specular = sky_radiance(reflected, perceptual * 5.0);
+        // The air has no cube to reflect, its 9 numbers stand in, a
+        // blurred sky.
+        let specular = select(sky_radiance(reflected, perceptual * 5.0), sky_irradiance(reflected), has_air());
         color = sky_irradiance(s.normal) * s.diffuse + specular * env_brdf(s.f0, perceptual, s.nov);
     } else {
         // A flat ambient stands in for a sky. Its diffuse is the Lambert
@@ -532,10 +554,20 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     // or a lamp, as glTF asks.
     color *= occlusion;
 
-    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(in.normal));
+    let to_sun = -view.sun_dir.xyz;
+    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(in.normal))
+        * light_through(offset, to_sun, view.occlusion.y) * air_light_at(offset, to_sun);
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
         let light = lights[light_index(instance.lights, slot)];
+        if light.position.w < 0.0 {
+            // Directional, full strength from everywhere a ball does not
+            // hide it.
+            let to_light = light.position.xyz;
+            let through = light_through(offset, to_light, light.direction.w) * air_light_at(offset, to_light);
+            color += shade(s, to_light, light.color.rgb * through);
+            continue;
+        }
 
         let to_light = light.position.xyz - world_pos;
         let distance2 = max(dot(to_light, to_light), 1e-4);
@@ -643,9 +675,9 @@ fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // An edge lies on the faces it borders, at their depth, so a line drawn
 // there loses to them on every other pixel. Each fragment moves this
-// share of its distance toward the camera. Near the far plane `1 - z`
-// shrinks like 1 over the distance, so the share stays the same at
-// every distance. Depth bias would do this, WebGPU allows it only for
+// share of its distance toward the camera. The reversed depth shrinks
+// like 1 over the distance, so a share of it is the same share of the
+// distance. Depth bias would do this, WebGPU allows it only for
 // triangles.
 const WIREFRAME_PULL: f32 = 0.002;
 // White, encoded like the frame, unlit and unfogged.
@@ -660,6 +692,6 @@ struct WireframeOutput {
 fn f_wireframe(in: VertexOutput) -> WireframeOutput {
     var out: WireframeOutput;
     out.color = WIREFRAME_COLOR;
-    out.depth = in.pos.z - WIREFRAME_PULL * (1.0 - in.pos.z);
+    out.depth = min(in.pos.z * (1.0 + WIREFRAME_PULL), 1.0);
     return out;
 }

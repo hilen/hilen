@@ -105,6 +105,16 @@ pub struct Grass {
     phases:              [f32; 4],
     pub seed:            u64,
     pub spots_per_frame: u32,
+    /// Where the field's own axes sit in the world: a point of the field
+    /// lands on `origin + turn * point`. The patches lie on the field's x
+    /// and z, `ground` answers in them, and a blade stands along the
+    /// field's y tilted to the ground's normal given in them. A game on a
+    /// round planet sets them to the ground near the player, its y away
+    /// from the center, and gives the curve as heights: over the 40 m a
+    /// field reaches, a planet of 20 km drops 4 cm. `move_world` moves
+    /// them along. The world's own axes by default.
+    pub origin:          Vec3,
+    pub turn:            Quat,
 
     ground:  Box<dyn Fn(f32, f32) -> Option<GrassSpot>>,
     patches: FxHashMap<(i32, i32), Patch>,
@@ -116,8 +126,10 @@ struct Patch {
     blades: Option<Buffer>,
     count:  u32,
     slot:   Slot,
+    /// The middle of the patch, in the field's axes.
     origin: Vec3,
-    /// The sphere around every blade, what the camera culls it by.
+    /// The sphere around every blade, what the camera culls it by, its
+    /// center in the field's axes.
     center: Vec3,
     radius: f32,
 }
@@ -146,6 +158,8 @@ impl Grass {
             phases: [0.0; 4],
             seed: 0,
             spots_per_frame: 2048,
+            origin: Vec3::ZERO,
+            turn: Quat::IDENTITY,
             ground: Box::new(ground),
             patches: FxHashMap::default(),
         }
@@ -184,6 +198,7 @@ impl Grass {
     /// Lets the patches that touch the circle at `center` grow again, like
     /// after a floor was built there.
     pub fn regrow_around(&mut self, center: Vec3, radius: f32) {
+        let center = self.to_field(center);
         let size = self.patch_size;
         self.patches.retain(|&cell, _| nearest_distance(center, cell, size) > radius);
     }
@@ -199,7 +214,18 @@ impl Grass {
 
     /// Drops the patches out of reach of `center` and grows the missing
     /// ones nearest first, until the frame's spots run out.
+    /// A world point in the field's own axes.
+    pub fn to_field(&self, world: Vec3) -> Vec3 {
+        self.turn.inverse() * (world - self.origin)
+    }
+
+    /// A point of the field in the world.
+    pub fn to_world(&self, field: Vec3) -> Vec3 {
+        self.origin + self.turn * field
+    }
+
     pub(crate) fn update(&mut self, center: Vec3) {
+        let center = self.to_field(center);
         let size = self.patch_size;
         let keep = self.distance + size;
         self.patches.retain(|&cell, _| nearest_distance(center, cell, size) <= keep);
@@ -281,7 +307,9 @@ impl Grass {
             let Some(blades) = &patch.blades else {
                 continue;
             };
-            let offset = patch.center - camera;
+            let world_center = self.to_world(patch.center);
+            let world_origin = self.to_world(patch.origin);
+            let offset = world_center - camera;
             if cull && !view.holds(offset, patch.radius) {
                 continue;
             }
@@ -290,19 +318,21 @@ impl Grass {
             if count == 0 {
                 continue;
             }
-            let model = Mat4::from_translation(patch.origin);
+            let model = Mat4::from_rotation_translation(self.turn, world_origin);
             let instance = MeshInstance::new(
                 model,
                 self.material,
-                pick_lights(patch.center, patch.radius, lights),
+                pick_lights(world_center, patch.radius, lights),
                 0,
             );
             let fade = Vec4::new(self.thin_from, length, 1.0 / shrink, patch.count.lossy_convert());
+            // The 4th numbers of the sway and the place carry the patch's
+            // place in the field, which the gusts run over.
             let sway = Vec4::new(
                 self.sway_distance,
                 self.push_distance,
                 1.0 / self.bend_height.max(1e-4),
-                0.0,
+                patch.origin.z,
             );
             for part in &self.model.parts {
                 pipeline.add_grass(GrassDraw {
@@ -318,7 +348,13 @@ impl Grass {
                     count,
                     slot: patch.slot.0,
                     instance,
-                    patch: Mat4::from_cols(fade, Vec4::from(self.phases), sway, patch.origin.extend(1.0)),
+                    patch: Mat4::from_cols(
+                        fade,
+                        Vec4::from(self.phases),
+                        sway,
+                        world_origin.extend(patch.origin.x),
+                    ),
+                    turn: Mat4::from_quat(self.turn),
                 });
             }
         }
@@ -533,6 +569,18 @@ mod test {
                 tint:   WHITE,
             })
         }
+    }
+
+    /// A field turned onto the side of a planet: its y points along the
+    /// world's x, so a point 2 up in the field lies 2 along x in the world.
+    #[test]
+    fn a_field_has_its_own_axes() {
+        let mut grass = field(flat());
+        grass.origin = Vec3::new(100.0, 0.0, 5.0);
+        grass.turn = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2);
+        let world = grass.to_world(Vec3::new(0.0, 2.0, 3.0));
+        assert!((world - Vec3::new(102.0, 0.0, 8.0)).length() < 1e-4, "{world}");
+        assert!((grass.to_field(world) - Vec3::new(0.0, 2.0, 3.0)).length() < 1e-4);
     }
 
     #[test]

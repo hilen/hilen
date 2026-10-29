@@ -12,6 +12,7 @@ pub(crate) mod frame_ring;
 #[cfg(feature = "inspect")]
 pub(crate) mod frame_step;
 mod fullscreen;
+mod gpu_capture;
 #[cfg(desktop)]
 mod icon;
 pub mod image;
@@ -51,6 +52,7 @@ pub(crate) use self::redraw::{
 };
 pub use self::{
     app_handler::AppHandler,
+    gpu_capture::GpuCapture,
     msaa::{msaa_sample_count, set_msaa_sample_count},
     orientation::Orientations,
     placement::*,

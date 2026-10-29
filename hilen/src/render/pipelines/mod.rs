@@ -8,6 +8,8 @@ use crate::render::{
     pipelines::{pipeline_type::PipelineType, rect_pipeline::RectPipeline},
 };
 
+#[cfg(feature = "scene")]
+mod air_textures;
 #[cfg(feature = "level")]
 mod background_pipeline;
 mod lab_pipeline;

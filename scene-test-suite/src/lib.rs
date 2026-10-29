@@ -42,20 +42,27 @@ mod fog;
 mod geometry;
 mod glow;
 mod grass;
+mod grass_on_a_planet;
 mod leaves;
 mod lights;
 mod materials;
 mod metal_roughness;
 mod mipped_picture;
 mod models;
+mod moon_dust;
+mod moonlight;
 /// Mouse capture needs a mouse, and a browser grants pointer lock only
 /// after a real click, which no test can inject.
 #[cfg(desktop)]
 mod mouse_look;
+mod near_and_far;
+mod night_and_eclipse;
 mod node_fade;
 mod node_parenting;
 mod orthographic_camera;
 mod picking;
+mod planet_sky;
+mod planet_walk;
 /// The same bits as on desktop in the browser, the picture fails on
 /// `SwiftShader`, see docs/roadmap.md.
 #[cfg(not_wasm)]
@@ -89,6 +96,7 @@ mod view_points;
 /// The white edge lines, see `colliders`.
 #[cfg(not_wasm)]
 mod wireframe;
+mod world_move;
 
 /// Names this crate so a linker keeps it.
 ///

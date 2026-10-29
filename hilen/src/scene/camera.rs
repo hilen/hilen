@@ -1,13 +1,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use glam::camera::rh::{
-    proj::directx::{orthographic, perspective},
+    proj::directx::{orthographic, perspective, perspective_infinite_reverse},
     view::look_at_mat4,
 };
 
 use crate::gm::{
     flat::{Point, Size},
-    volume::{Mat4, Ray, Vec3},
+    volume::{Mat4, Ray, Vec3, Vec4},
 };
 
 /// Orbiting stops this close to straight up or down, where the up vector
@@ -81,13 +81,28 @@ impl Camera {
         (self.target - self.position).normalize_or(Vec3::NEG_Z)
     }
 
-    /// Depth lands in 0 to 1, what wgpu expects.
+    /// Depth lands in 0 to 1 reversed, 1 on the near plane and 0 at `far`,
+    /// where 32 bit floats are densest, so the far away keeps its depth
+    /// steps about as fine for its size as the near. A perspective camera
+    /// with a `far` of `f32::INFINITY` has no far plane, a planet and its
+    /// moon 300 km off fit 1 view. An orthographic one needs a finite
+    /// `far`.
     pub fn projection(&self, aspect: f32) -> Mat4 {
         match self.projection {
-            Projection::Perspective => perspective(self.fov_y, aspect, self.near, self.far),
+            Projection::Perspective if self.far.is_infinite() => {
+                perspective_infinite_reverse(self.fov_y, aspect, self.near)
+            }
+            Projection::Perspective => reverse_depth(perspective(self.fov_y, aspect, self.near, self.far)),
             Projection::Orthographic { height } => {
                 let half = height / 2.0;
-                orthographic(-half * aspect, half * aspect, -half, half, self.near, self.far)
+                reverse_depth(orthographic(
+                    -half * aspect,
+                    half * aspect,
+                    -half,
+                    half,
+                    self.near,
+                    self.far,
+                ))
             }
         }
     }
@@ -120,14 +135,17 @@ impl Camera {
         let x = point.x / area.width * 2.0 - 1.0;
         let y = 1.0 - point.y / area.height * 2.0;
         let inverse = self.view_projection(area.width / area.height).inverse();
-        let far = inverse.project_point3(Vec3::new(x, y, 1.0));
-        let origin = match self.projection {
-            Projection::Perspective => self.position,
-            Projection::Orthographic { .. } => inverse.project_point3(Vec3::new(x, y, 0.0)),
-        };
-        Ray {
-            origin,
-            direction: (far - origin).normalize_or(Vec3::NEG_Z),
+        // The depth is reversed, the near plane is at 1.
+        let on_near = inverse.project_point3(Vec3::new(x, y, 1.0));
+        match self.projection {
+            Projection::Perspective => Ray {
+                origin:    self.position,
+                direction: (on_near - self.position).normalize_or(Vec3::NEG_Z),
+            },
+            Projection::Orthographic { .. } => Ray {
+                origin:    on_near,
+                direction: self.forward(),
+            },
         }
     }
 
@@ -193,11 +211,83 @@ impl Camera {
     }
 }
 
+/// `projection` with its depth turned round: z becomes w minus z, so the
+/// near plane lands on 1 and the far one on 0.
+fn reverse_depth(projection: Mat4) -> Mat4 {
+    Mat4::from_cols(
+        Vec4::X,
+        Vec4::Y,
+        Vec4::new(0.0, 0.0, -1.0, 0.0),
+        Vec4::new(0.0, 0.0, 1.0, 1.0),
+    ) * projection
+}
+
 #[cfg(test)]
 mod test {
     use std::f32::consts::TAU;
 
     use super::*;
+
+    /// The depth a point straight ahead at `distance` lands on.
+    fn depth_at(camera: &Camera, distance: f32) -> f32 {
+        let ahead = camera.position + camera.forward() * distance;
+        camera.view_projection(1.0).project_point3(ahead).z
+    }
+
+    #[test]
+    fn the_depth_is_reversed_from_the_near_plane_to_the_far_one() {
+        let camera = Camera::default();
+        assert!((depth_at(&camera, camera.near) - 1.0).abs() < 1e-5);
+        assert!(depth_at(&camera, camera.far).abs() < 1e-5);
+        let flat = Camera::orthographic(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, 4.0);
+        assert!((depth_at(&flat, flat.near) - 1.0).abs() < 1e-5);
+        assert!(depth_at(&flat, flat.far).abs() < 1e-5);
+    }
+
+    /// With no far plane a moon 300 km off still lands in the depth range,
+    /// and 2 points 1 m apart there get depths 32 bit floats tell apart.
+    #[test]
+    fn with_no_far_plane_the_far_away_keeps_fine_depth() {
+        let camera = Camera {
+            far: f32::INFINITY,
+            ..Camera::default()
+        };
+        let moon = depth_at(&camera, 300_000.0);
+        assert!(moon > 0.0 && moon < 1e-5, "{moon}");
+        assert!(
+            depth_at(&camera, 299_999.0) > moon,
+            "1 m nearer is a larger depth"
+        );
+        assert!((depth_at(&camera, camera.near) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_ray_through_the_middle_goes_where_the_camera_looks() {
+        let area = Size::new(800.0, 600.0);
+        for camera in [
+            Camera::default(),
+            Camera {
+                far: f32::INFINITY,
+                ..Camera::default()
+            },
+        ] {
+            let ray = camera.ray(Point::new(400.0, 300.0), area);
+            assert_eq!(ray.origin, camera.position);
+            assert!(
+                (ray.direction - camera.forward()).length() < 1e-4,
+                "{:?}",
+                ray.direction
+            );
+        }
+        let flat = Camera::orthographic(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, 4.0);
+        let ray = flat.ray(Point::new(400.0, 300.0), area);
+        assert!(
+            (ray.origin - Vec3::new(0.0, 0.0, 10.0 - flat.near)).length() < 1e-4,
+            "{:?}",
+            ray.origin
+        );
+        assert!((ray.direction - Vec3::NEG_Z).length() < 1e-6);
+    }
 
     #[test]
     fn orbit_keeps_the_radius_and_a_full_turn_comes_back() {

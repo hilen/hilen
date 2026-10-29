@@ -128,6 +128,22 @@ pub struct SceneUniform {
     pub grass_wind:    crate::gm::volume::Vec4,
     pub grass_push:    crate::gm::volume::Vec4,
     pub grass_trail:   crate::gm::volume::Vec4,
+    /// Each occluder's center as an offset from the camera and its
+    /// radius in w, see `Occluder`.
+    pub occluders:     [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
+    /// The linear light each lets through at full cover.
+    pub transmit:      [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
+    /// How many occluders count, and the sun's angular radius.
+    pub occlusion:     crate::gm::volume::Vec4,
+    /// The air of a `SpaceSky`: its center from the camera and the ground
+    /// radius, then the coefficients and heights, the last w 1 when there
+    /// is air, see `atmosphere.wgsl`.
+    pub air:           [crate::gm::volume::Vec4; 6],
+    /// 1 for a space sky, the stars' brightness and seed, 1 for the sun's
+    /// disc.
+    pub space:         crate::gm::volume::Vec4,
+    /// The turn from the world to the stars' own axes, its 3 columns.
+    pub stars:         [crate::gm::volume::Vec4; 3],
 }
 
 #[cfg(all(test, feature = "scene"))]
@@ -137,6 +153,6 @@ mod scene_test {
     #[test]
     fn scene_view_is_a_uniform() {
         assert_eq!(size_of::<SceneUniform>() % 16, 0);
-        assert_eq!(size_of::<SceneUniform>(), 720);
+        assert_eq!(size_of::<SceneUniform>(), 1024);
     }
 }

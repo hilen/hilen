@@ -2,10 +2,12 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::gm::volume::Vec4;
 
-/// One point or spot light as the mesh shader reads it. `position.w` is
-/// one over the range squared, `direction.w` and `color.w` the scale
-/// and offset of the cone term, and `color.rgb` linear light times the
-/// intensity. See `Light::mesh_light`.
+/// One point, spot or directional light as the mesh shader reads it.
+/// `position.w` is one over the range squared, `direction.w` and
+/// `color.w` the scale and offset of the cone term, and `color.rgb`
+/// linear light times the intensity. A directional light has -1 in
+/// `position.w` and the unit vector toward the light in `position.xyz`.
+/// See `Light::mesh_light`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, Zeroable, Pod)]
 pub(crate) struct MeshLight {

@@ -23,6 +23,12 @@ struct SceneUniform {
     grass_wind: vec4<f32>,
     grass_push: vec4<f32>,
     grass_trail: vec4<f32>,
+    occluders: array<vec4<f32>, 4>,
+    transmit: array<vec4<f32>, 4>,
+    occlusion: vec4<f32>,
+    air: array<vec4<f32>, 6>,
+    space: vec4<f32>,
+    stars: array<vec4<f32>, 3>,
 }
 
 @group(0) @binding(0)
