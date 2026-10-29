@@ -166,6 +166,7 @@ fn expand(stream: TokenStream, kind: &Kind) -> TokenStream {
                 for _ in 0..steps {
                     object.update(dt);
                     object.update_physics(dt);
+                    object.after_physics(dt);
                 }
                 #frame_end
             }

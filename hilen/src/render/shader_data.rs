@@ -133,7 +133,8 @@ pub struct SceneUniform {
     pub occluders:     [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
     /// The linear light each lets through at full cover.
     pub transmit:      [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
-    /// How many occluders count, and the sun's angular radius.
+    /// How many occluders count, the sun's angular radius, the glare of a
+    /// `SpaceSky` round it and the brightness of its air.
     pub occlusion:     crate::gm::volume::Vec4,
     /// The air of a `SpaceSky`: its center from the camera and the ground
     /// radius, then the coefficients and heights, the last w 1 when there

@@ -233,8 +233,9 @@ struct AirLight {
 // The light the air sends back along `dir` to `origin`, relative to the
 // center, for a sun of 1 toward `to_sun`, and how much of what lies
 // behind gets through, up to `limit`, in `steps` steps. In the units of
-// a scene, pi times radiance, with the ground lit where the ray ends on
-// it. `from_camera` is `origin` from the camera, where the occluders are.
+// a scene, pi times radiance, the air alone with no ground, see
+// `air_ground`. `from_camera` is `origin` from the camera, where the
+// occluders are.
 fn air_march(origin: vec3<f32>, dir: vec3<f32>, to_sun: vec3<f32>, limit: f32, steps: u32, from_camera: vec3<f32>) -> AirLight {
     var out: AirLight;
     out.light = vec3<f32>(0.0);
@@ -273,14 +274,21 @@ fn air_march(origin: vec3<f32>, dir: vec3<f32>, to_sun: vec3<f32>, limit: f32, s
         }
         out.through *= step_through;
     }
-    out.light *= PI;
-    if span.ground {
-        let p = origin + dir * span.end;
-        let shade = light_through(from_camera + dir * span.end, to_sun, sun_size);
-        let lit = max(dot(normalize(p), to_sun), 0.0) * view.air[5].z;
-        out.light += out.through * air_sun_at(p, to_sun) * shade * lit;
-    }
+    // `view.occlusion.w` is `SpaceSky::air_brightness`.
+    out.light *= PI * view.occlusion.w;
     return out;
+}
+
+// The sunlit ground of the air at `p`, relative to the center, for a
+// sun of 1 toward `to_sun`, with `from_camera` the same point from the
+// camera. Only the sky adds it, where its ray ends on the ball. A
+// surface over the ground stands for the ground itself, and a sea drawn
+// as flat triangles sags under the ball, so its haze would end on the
+// ball too and turn pale with this light.
+fn air_ground(p: vec3<f32>, to_sun: vec3<f32>, from_camera: vec3<f32>) -> vec3<f32> {
+    let shade = light_through(from_camera, to_sun, view.occlusion.y);
+    let lit = max(dot(normalize(p), to_sun), 0.0) * view.air[5].z;
+    return air_sun_at(p, to_sun) * shade * lit;
 }
 
 // The haze of the air between the camera and a point `offset` from it

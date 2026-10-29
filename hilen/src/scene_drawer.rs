@@ -300,6 +300,7 @@ impl SceneDrawer {
         let sky = scene.sky.as_ref();
         let space = scene.space_sky;
         let air = space.and_then(|space| space.atmosphere);
+        let air_brightness = space.map_or(1.0, |space| space.air_brightness);
         pipeline.air.update(air.as_ref());
         let sun_light = Vec3::new(sun_color.r, sun_color.g, sun_color.b) * sun.intensity;
         let air_ambient = air.and_then(|air| {
@@ -374,7 +375,7 @@ impl SceneDrawer {
             sky_moon,
             sky_params,
             irradiance: match air_ambient {
-                Some(coefficients) => coefficients.map(|c| (c * sun_light).extend(0.0)),
+                Some(coefficients) => coefficients.map(|c| (c * sun_light * air_brightness).extend(0.0)),
                 None => sky.map_or([Vec4::ZERO; 9], |sky| sky.irradiance),
             },
             grass_wind: wind.extend(scene.wind.strength),
@@ -385,8 +386,8 @@ impl SceneDrawer {
             occlusion: Vec4::new(
                 scene.occluders.len().min(MAX_OCCLUDERS).lossy_convert(),
                 sun.angular_radius,
-                0.0,
-                0.0,
+                space.as_ref().map_or(0.0, |space| space.sun_glare),
+                air_brightness,
             ),
             air: air_data(air.as_ref(), camera),
             space: space_data(space.as_ref()),

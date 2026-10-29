@@ -388,7 +388,13 @@ and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
 - `space_sky` with a `SpaceSky` draws the sky of a world in space in place of `sky`
   and `day_night_sky`: the stars, turned by `stars`, the sun's disc of
   `Sun::angular_radius`, and with an `Atmosphere` the air, from the ground and from
-  space. `Atmosphere::earth` is Earth's air, `Atmosphere::scaled` shrinks it to a
+  space. `sun_glare` puts a glare round the sun, a core that falls with the square of
+  the angle and a wide dim halo, dimmed by the share of the sun the occluders hide, on
+  the sky only. `air_brightness` scales the light of the air, the sky, the haze and the
+  sky's light in the shade, for ground colors picked for a sun of 1. Both are opt in,
+  0 and 1 by default. `Sun glare` checks the glare and its loss behind a ball. The
+  stars come from an integer hash of their cell, a `sin` hash of large numbers moved
+  every star with any change of the shader. `Atmosphere::earth` is Earth's air, `Atmosphere::scaled` shrinks it to a
   small planet with the same colors from the ground. The air is Hillaire 2020: 2
   tables built on the CPU in `scene/atmosphere.rs` when the shape of the air
   changes, the transmittance and the multiple scattering, uploaded as half floats
@@ -396,8 +402,11 @@ and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
   haze over a surface 8, in place of the fog, and the ambient light comes from the
   air on the CPU. A step over 8.75 heights of both hazes and over the ozone is
   skipped, under 1 color step, and a step in full shadow only dims what lies behind
-  it. `Planet sky` shows the sky from the ground at noon, at sunset, at night and
-  from 60 km out.
+  it. Only the sky adds the sunlit ground of the air where its ray ends on the
+  ground ball, the haze over a surface never does, the surface stands for the ground.
+  A sea at the ground radius drawn as flat triangles sags under the ball and was lit
+  pale by it. `Sea under air` holds a coarse sea from 60 km to its own color. `Planet
+  sky` shows the sky from the ground at noon, at sunset, at night and from 60 km out.
 - `Material::dust`, `set_dust`, reflects by the Lommel-Seeliger law of moon dust, so
   a full moon is flat and bright to its edge. `Moon dust` checks it.
 - `Grass::origin` and `Grass::turn` put a field on the side of a planet, the field
@@ -478,7 +487,10 @@ player looks. Every step a ray from the pivot to that spot pulls the camera to
 `margin` in front of the first collider on the way, never closer than
 `min_distance`. Nodes in `skip` are looked through, like a swing's hitbox. The
 player is no node, so a game draws its body itself and moves it to
-`Player::position` in the scene's `update`.
+`Player::position` in the scene's `after_physics`, which runs right after each
+physics step, once the player and the camera moved. Moved in `update` the body lags 1
+step of travel behind the camera, 25 m at 6 km/s. `Ride with player` flies a player at
+6 km/s and holds a box placed there to 1 cm of its place from the camera.
 
 ## Meshes from code
 

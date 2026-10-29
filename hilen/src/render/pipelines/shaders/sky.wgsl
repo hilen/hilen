@@ -14,8 +14,16 @@ fn v_main(@builtin(vertex_index) index: u32) -> SkyOutput {
     return out;
 }
 
+// A number from 0 to 1 for a cell of whole numbers. It works on the
+// integers, `sin` of a large number differs from 1 GPU and 1 build to the
+// next, and moved every star when anything else in the shader changed.
 fn star_hash(p: vec3<f32>) -> f32 {
-    return fract(sin(dot(p, vec3<f32>(127.1, 311.7, 74.7))) * 43758.5453123);
+    let cell = bitcast<vec3<u32>>(vec3<i32>(round(p)));
+    var h = cell.x * 73856093u ^ cell.y * 19349663u ^ cell.z * 83492791u;
+    h = h * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    return f32(h >> 8u) / 16777216.0;
 }
 
 // The `DayNightSky` in this direction, in linear light: a gradient that
@@ -109,12 +117,13 @@ fn space_sky(dir: vec3<f32>) -> vec3<f32> {
     if has_air() {
         let origin = -view.air[0].xyz;
         let air = air_march(origin, dir, to_sun, 1e30, 24u, vec3<f32>(0.0));
-        light = air.light * view.sun_color.rgb;
         through = air.through;
         let span = air_span(origin, dir, 1e30);
         if span.hit && span.ground {
-            return light;
+            let ground = air_ground(origin + dir * span.end, to_sun, dir * span.end);
+            return (air.light + through * ground) * view.sun_color.rgb;
         }
+        light = air.light * view.sun_color.rgb;
     }
     if view.space.y > 0.0 {
         let turn = mat3x3<f32>(view.stars[0].xyz, view.stars[1].xyz, view.stars[2].xyz);
@@ -133,7 +142,22 @@ fn space_sky(dir: vec3<f32>) -> vec3<f32> {
             light += view.sun_color.rgb * through * limb * 8.0;
         }
     }
+    if view.occlusion.z > 0.0 {
+        light += sun_glare(dir, to_sun) * through;
+    }
     return light;
+}
+
+// The glare round the sun seen in direction `dir`: a core that falls with
+// the square of the angle in sun radii and a halo that fades over about
+// 15 radii, both dimmed by the share of the sun the occluders hide.
+fn sun_glare(dir: vec3<f32>, to_sun: vec3<f32>) -> vec3<f32> {
+    let size = max(view.occlusion.y, 1e-4);
+    let apart = atan2(length(cross(dir, to_sun)), dot(dir, to_sun));
+    let radii = max(apart / size, 1.0);
+    let fall = 0.25 / (radii * radii) + 0.02 * exp(-(radii - 1.0) / 15.0);
+    let shown = light_through(vec3<f32>(0.0), to_sun, size);
+    return view.sun_color.rgb * shown * view.occlusion.z * fall;
 }
 
 // The sky in this direction, and with fog the fog color at the horizon

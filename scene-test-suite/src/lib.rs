@@ -68,6 +68,7 @@ mod planet_walk;
 #[cfg(not_wasm)]
 mod player_walk;
 mod primitives;
+mod ride_with_player;
 mod scene_in_view;
 mod scene_leaves_keys;
 mod scene_lines;
@@ -75,6 +76,7 @@ mod scene_photo;
 mod scene_picture;
 mod scene_picture_clear;
 mod scene_queries;
+mod sea_under_air;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]
 mod shadow_out_of_view;
@@ -82,6 +84,7 @@ mod shadow_out_of_view;
 #[cfg(not_wasm)]
 mod shadows;
 mod skybox;
+mod sun_glare;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]
 mod terrain_shadows;

@@ -6,6 +6,11 @@ pub trait LevelSetup {
     /// Called once per physics step, `dt` is that step in seconds.
     fn update(&mut self, dt: f32);
 
+    /// Called right after each physics step, once the bodies moved, `dt`
+    /// is the same step. What follows a body is placed here, so it is
+    /// drawn from the same step.
+    fn after_physics(&mut self, dt: f32);
+
     fn on_key_pressed(&mut self, _: char);
 
     fn on_gyro_changed(&mut self, _: GyroData);
@@ -23,6 +28,8 @@ impl<T: Level + 'static> LevelSetup for T {
     default fn setup(&mut self) {}
 
     default fn update(&mut self, _: f32) {}
+
+    default fn after_physics(&mut self, _: f32) {}
 
     default fn on_key_pressed(&mut self, _: char) {}
 
