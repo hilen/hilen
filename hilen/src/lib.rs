@@ -86,10 +86,10 @@ pub mod push;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;
-#[cfg(feature = "speech")]
-pub mod speech;
 #[cfg(any(feature = "login", feature = "google-access"))]
 mod sign_in_button;
+#[cfg(feature = "speech")]
+pub mod speech;
 pub mod store;
 pub mod system;
 pub mod ui;

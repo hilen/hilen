@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use anyhow::{Context, Result, anyhow, ensure};
 use futures_channel::oneshot;
+use image::{ColorType::Rgba8, save_buffer};
 use log::{debug, warn};
 use wgpu::{BufferAsyncError, COPY_BYTES_PER_ROW_ALIGNMENT, MapMode};
 
@@ -37,6 +40,13 @@ impl ScenePhoto {
         let at = usize::try_from(y * self.size.width + x).ok()? * 4;
         let [red, green, blue, alpha] = self.rgba.get(at..at + 4)?.try_into().ok()?;
         Some(U8Color::rgba(red, green, blue, alpha))
+    }
+
+    /// Writes the photo to `path` as a png with its alpha, so a photo
+    /// whose sky was cut away by its depth photo keeps a clear sky.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        save_buffer(path, &self.rgba, self.size.width, self.size.height, Rgba8)
+            .with_context(|| format!("writing a scene photo to {}", path.display()))
     }
 }
 
@@ -283,7 +293,22 @@ fn read(buffer: &wgpu::Buffer, size: Size<u32>) -> Result<ScenePhoto> {
 
 #[cfg(test)]
 mod tests {
+    use std::{env::temp_dir, fs::remove_file, process::id};
+
     use super::*;
+
+    #[test]
+    fn a_saved_photo_keeps_its_alpha() {
+        let photo = ScenePhoto {
+            size: Size::new(2, 1),
+            rgba: vec![10, 20, 30, 0, 40, 50, 60, 255],
+        };
+        let path = temp_dir().join(format!("hilen photo alpha {}.png", id()));
+        photo.save(&path).expect("the photo saves");
+        let back = image::open(&path).expect("the png opens").to_rgba8();
+        remove_file(&path).expect("the test png goes away");
+        assert_eq!(back.into_raw(), photo.rgba);
+    }
 
     /// What `depth_color` in `mesh.wgsl` writes for `meters`.
     fn bytes_of(meters: f32) -> (u8, u8, u8) {

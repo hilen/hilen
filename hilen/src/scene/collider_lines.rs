@@ -1,5 +1,7 @@
 use std::f32::consts::{PI, TAU};
 
+use glam::IVec3;
+
 use crate::{
     gm::{
         LossyConvert,
@@ -76,6 +78,27 @@ pub(crate) fn collider_lines(
             // The straight part runs between the caps of a capsule.
             let reach = height * scale * INFLATE / 2.0 - if capsule { radius } else { 0.0 };
             upright(&mut lines, &place, radius, reach.max(0.0), capsule);
+        }
+        ColliderShape::TriMesh(mesh) => {
+            let place = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, center);
+            let at = |i: u32| {
+                place.transform_point3(mesh.vertices[usize::try_from(i).expect("a u32 index fits usize")].pos)
+            };
+            for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+                lines.extend([(at(a), at(b)), (at(b), at(c)), (at(c), at(a))]);
+            }
+        }
+        ColliderShape::Voxels { size, cells } => {
+            for cell in cells.iter() {
+                let middle = (IVec3::from(*cell).as_vec3() + 0.5) * *size * scale;
+                let model = Mat4::from_scale_rotation_translation(
+                    Vec3::splat(size * scale * INFLATE),
+                    rotation,
+                    center + rotation * middle,
+                );
+                let corners = BOX_CORNERS.map(|corner| model.transform_point3(corner));
+                lines.extend(BOX_EDGES.map(|(from, to)| (corners[from], corners[to])));
+            }
         }
         ColliderShape::Heightfield(field) => {
             let place = Mat4::from_rotation_translation(rotation, center);

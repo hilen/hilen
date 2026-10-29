@@ -383,7 +383,14 @@ that from a drag. While a player exists the camera looks out of its eyes.
 `add_player` makes a capsule 1.8 tall and 0.7 wide, `add_player_sized` takes the
 radius and the height for a smaller or bigger hero. `walk_keys` set to `WalkKeys::WasdOnly`
 leaves the arrow keys to the game. `teleport` puts the player
-somewhere at once with no fall left, the way a game respawns it.
+somewhere at once with no fall left, the way a game respawns it. A rising player is
+never grounded and never snapped down, so a jump is not ended in its first step while
+the capsule is still within the controller's offset of the ground.
+
+A scene steps by the real time of its frames, measured on `frame_seconds`, at most
+1/15 s a frame, each frame in `PHYSICS_SUBSTEPS` parts. A fixed step of 1/60 s a frame
+ran the whole scene in slow motion under 60 frames a second. A stepped scene test keeps
+the fixed 1/60 s, so its frames stay exact.
 
 `motion` set to `Motion::Fly` makes the player fly, a jet or a free camera: no gravity, no jump, no
 snap to the ground and no step up ledges. `w` and `s` move it along its whole
@@ -437,11 +444,17 @@ sRGB decode of 255 lands a hair under it in f32 and moved pixels of every mesh.
 ## Colliders, queries and parents
 
 A node collides as its drawn shape until `set_collider(ColliderShape, offset)`
-puts on a box, ball, capsule, cylinder or heightfield. `Heightfield` is a grid of
+puts on a box, ball, capsule, cylinder, heightfield, triangle mesh or voxels.
+`Heightfield` is a grid of
 heights, row by row along +x, rows stepping along +z, centered on the node, and
 `Heightfield::mesh` builds the matching ground cut along the same diagonal rapier
-cuts each cell, so what is drawn is what bodies rest on. `show_colliders` draws
-every kind, a heightfield as a coarse grid.
+cuts each cell, so what is drawn is what bodies rest on. `cut_hole(row, column)`
+takes the ground out of 1 cell, in the collider and in the mesh, so a cave mesh can
+take its place. `TriMesh` collides as the triangles of a `MeshData`, with shared
+corners merged and the inner edges fixed so a body does not catch on them. 2
+triangle mesh shapes are equal only when they share 1 mesh. `Voxels` are cubes of
+1 size at integer cells. `show_colliders` draws every kind, a heightfield as a
+coarse grid, a triangle mesh as its edges and voxels as their cubes.
 
 `cast_ray`, `cast_shape` and `overlapping` on the scene answer what a ray or a
 swept or placed shape meets, as a `QueryHit` with the node, the distance, the
@@ -529,6 +542,9 @@ for the next photo, which is not measured on a phone yet. The scene tests
 `Photo of scene` and `Photo of scene in view` check 6 known pixels of a big
 photo, take 24 small ones on a full turn, and check that the screen is the same
 before and after.
+
+`ScenePhoto::save(path)` writes a photo to a png with its alpha, so a photo whose pixels
+a depth photo cut away keeps them clear. `Screenshot::save` writes every pixel opaque.
 
 `SceneManager::depth_photo(camera, size)` draws the same way and gives a
 `SceneDepth`, the distance in meters from the camera to the surface under every

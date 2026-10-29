@@ -114,14 +114,14 @@ mod text_field_font;
 mod text_field_image_paste;
 /// Types through the system input, so it runs on a phone too.
 mod text_field_insert;
-/// Types through the system input, so it runs on a phone too.
-mod text_field_replace_range;
 /// Enters and clears text programmatically, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_color;
 /// Reads the text of empty and filled fields, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_text;
+/// Types through the system input, so it runs on a phone too.
+mod text_field_replace_range;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_submit;

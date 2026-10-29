@@ -266,6 +266,13 @@ impl Player {
         } else {
             self.vertical += physics.gravity.y * dt;
         }
+        // A rising player is off the ground. Snapping it back, or reading it
+        // as grounded while it is still within the controller's offset of
+        // the ground, ends every jump in its first step.
+        let rising = self.vertical > 0.0;
+        if rising {
+            self.controller.snap_to_ground = None;
+        }
 
         let desired = wish * self.speed * dt + Vec3::Y * self.vertical * dt;
         let filter = QueryFilter::default().exclude_rigid_body(self.body);
@@ -285,8 +292,8 @@ impl Player {
             })
         };
 
-        self.grounded = movement.grounded;
-        if movement.grounded && self.vertical < 0.0 {
+        self.grounded = movement.grounded && !rising;
+        if self.grounded && self.vertical < 0.0 {
             self.vertical = 0.0;
         }
 
@@ -375,6 +382,94 @@ mod test {
     }
 
     const DT: f32 = 1.0 / 60.0;
+
+    /// The steps the scene really takes, a frame of 1/60 s in
+    /// `PHYSICS_SUBSTEPS` parts, and how many make a second.
+    const SUBSTEP: f32 = DT / 4.0;
+    const SUBSTEPS_A_SECOND: usize = 240;
+
+    #[test]
+    fn a_walking_player_keeps_its_speed_in_substeps() {
+        assert_eq!(
+            crate::scene::SceneBase::PHYSICS_SUBSTEPS,
+            4,
+            "the substep of these tests"
+        );
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 0.95, 100.0));
+        for _ in 0..240 {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let start = position(&physics, &player);
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::NEG_Z, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let walked = start.z - position(&physics, &player).z;
+        assert!(
+            (walked - player.speed).abs() < 0.2,
+            "walked {walked} m in 1 s at {} m/s",
+            player.speed
+        );
+    }
+
+    /// Ground at 0 with bumps of a few centimeters every half meter, like
+    /// the land of a game.
+    fn over_bumps(position: Vec3) -> (ScenePhysics, Player) {
+        let mut physics = ScenePhysics::default();
+        let field = Heightfield::from_fn(801, 801, 400.0, 400.0, |x, z| {
+            0.04 * (x * 3.1).sin() * (z * 2.7).cos() + 0.02 * (x * 7.3 + z * 5.9).sin()
+        });
+        let ground = ColliderShape::Heightfield(Arc::new(field)).builder(1.0).build();
+        physics.sets.colliders.insert(ground);
+        let player = Player::make(&mut physics, position, 0.4, 1.8);
+        physics.update_physics(&[], DT);
+        (physics, player)
+    }
+
+    #[test]
+    fn a_walking_player_keeps_its_speed_over_bumps() {
+        let (mut physics, mut player) = over_bumps(Vec3::new(0.0, 0.95, 100.0));
+        for _ in 0..240 {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let start = position(&physics, &player);
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::NEG_Z, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let walked = start.z - position(&physics, &player).z;
+        assert!(
+            (walked - player.speed).abs() < 0.3,
+            "walked {walked} m in 1 s at {} m/s",
+            player.speed
+        );
+    }
+
+    #[test]
+    fn a_jump_lands_in_the_time_its_speed_gives() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 0.95, 100.0));
+        for _ in 0..240 {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, true);
+        physics.update_physics(&[], SUBSTEP);
+        let mut steps: u16 = 1;
+        while !player.grounded && steps < 2000 {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+            steps += 1;
+        }
+        let air = f32::from(steps) * SUBSTEP;
+        let expected = 2.0 * player.jump_speed / -physics.gravity.y;
+        assert!(
+            (air - expected).abs() < 0.1,
+            "in the air {air} s, a jump of {} m/s takes {expected} s",
+            player.jump_speed
+        );
+    }
 
     #[test]
     fn a_flying_player_rises_where_it_looks() {

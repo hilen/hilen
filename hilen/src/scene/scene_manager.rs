@@ -10,11 +10,13 @@ use rapier3d::{
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
     gm::{
+        LossyConvert,
         color::Color,
         flat::{Point, Size},
     },
     scene::{Camera, Scene, SceneDepth, ScenePhoto, SceneView, photo, scene::ScenePhysics},
     scene_drawer::SceneDrawer,
+    time::frame_seconds,
     ui::{UIManager, ViewFrame},
     window::image::Image,
 };
@@ -26,8 +28,14 @@ static SELF: MainLock<SceneManager> = MainLock::new();
 #[derive(Educe)]
 #[educe(Default)]
 pub struct SceneManager {
+    /// The step of a stepped scene test, which must not depend on how
+    /// fast the machine draws.
     #[educe(Default = 1.0 / 60.0)]
     update_interval: f32,
+
+    /// The frame time of the last update, what the next step is measured
+    /// from. `None` before the first update of a scene.
+    last_update: Option<f64>,
 
     scene: Option<Own<dyn Scene>>,
 
@@ -52,18 +60,51 @@ impl SceneManager {
         }
 
         if Self::no_scene() || SELF.paused {
+            // The time held does not pass in the scene.
+            SELF.get_mut().last_update = None;
             return;
         }
 
         #[cfg(feature = "scene-tests")]
         match &mut SELF.get_mut().steps_left {
             Some(0) => return,
-            Some(left) => *left -= 1,
+            Some(left) => {
+                *left -= 1;
+                Self::scene().__internal_update(SELF.update_interval);
+                return;
+            }
             None => {}
         }
 
-        Self::scene().__internal_update(*Self::update_interval());
+        let Some(step) = Self::step(frame_seconds()) else {
+            return;
+        };
+        Self::scene().__internal_update(step);
     }
+
+    /// The scene time since the last update, the real time of the frames.
+    /// A fixed step per update ran the whole scene slower on a machine
+    /// that draws fewer frames than 60 a second, a player walked at half
+    /// its speed at 30. `None` when no time went by, a second update in 1
+    /// frame.
+    fn step(now: f64) -> Option<f32> {
+        let s = SELF.get_mut();
+        let step = match s.last_update {
+            Some(last) => step_between(last, now),
+            None => s.update_interval,
+        };
+        s.last_update = Some(now);
+        (step > 0.0).then_some(step)
+    }
+}
+
+/// The longest step of the scene. Under 15 frames a second it slows down
+/// rather than taking steps a fast body passes through a wall in.
+const MAX_STEP: f32 = 1.0 / 15.0;
+
+fn step_between(last: f64, now: f64) -> f32 {
+    let between: f32 = (now - last).lossy_convert();
+    between.clamp(0.0, MAX_STEP)
 }
 
 impl SceneManager {
@@ -84,6 +125,7 @@ impl SceneManager {
         let weak = scene.weak();
         // The host is known before the setup, which may ask for the area.
         s.host = host;
+        s.last_update = None;
         s.scene = Some(scene);
         s.scene.as_ref().unwrap().__internal_setup();
         weak
@@ -306,8 +348,17 @@ impl SceneManager {
     pub(crate) fn takes_keys() -> bool {
         SELF.scene.as_ref().is_some_and(|scene| scene.__internal_takes_keys())
     }
+}
 
-    pub(crate) fn update_interval() -> &'static mut f32 {
-        &mut SELF.get_mut().update_interval
+#[cfg(test)]
+mod step_test {
+    use super::*;
+
+    #[test]
+    fn a_scene_steps_by_the_time_its_frames_take() {
+        assert!((step_between(10.0, 10.0 + 1.0 / 30.0) - 1.0 / 30.0).abs() < 1e-6);
+        assert!((step_between(10.0, 10.0 + 1.0 / 120.0) - 1.0 / 120.0).abs() < 1e-6);
+        assert_eq!(step_between(10.0, 12.0), MAX_STEP, "a hitch takes 1 short step");
+        assert_eq!(step_between(10.0, 9.0), 0.0);
     }
 }
