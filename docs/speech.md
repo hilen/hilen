@@ -63,6 +63,15 @@ usage = "Turns what you say into text."
 - On iOS the audio session is set to play and record before the microphone opens.
 - sherpa-onnx links its prebuilt static libraries, the crate downloads them for
   the target at build time.
+- On iOS `sherpa-onnx-sys` links only the dynamic `SherpaOnnxC.framework`, and
+  the engine is a staticlib there, which carries no dynamic library. So the link
+  of the app found no `SherpaOnnx` symbol, on the simulator and on a device.
+  `hilen/build_speech.rs` downloads the static xcframeworks of the same release
+  of sherpa-onnx and of its onnxruntime, checks their sha256, takes the slice of
+  the target with `lipo -thin` and links both into the crate. They are cached in
+  `target/hilen-speech-ios`. A newer pin of `sherpa-onnx` needs the 2 urls and
+  sums there changed with it. The app links `-lc++` and CoreML for them, through
+  `LDFLAGS` of `build/py/shared/ios.py`.
 
 ## Per platform
 
@@ -76,5 +85,12 @@ usage = "Turns what you say into text."
 Unit tests of the transcript, the capitals, the mono mix, the model sizes and
 urls, a file of the wrong size, and the download into a file. The UI test `Text
 field replace range` for `TextField::caret` and `replace_range`. Clippy is clean
-with `speech` for macOS, iOS and Linux. Not proven yet: a real microphone on any
-system.
+with `speech` for macOS, iOS and Linux. On 2026-10-29 banda with `speech` linked
+in Xcode for the x86_64 simulator and for an arm64 device, the app binary holds
+the `SherpaOnnx` and `OrtGetApiBase` code. Not proven yet: a real microphone on
+any system, a start of the app on iOS, and an archive or upload.
+
+A hot build, `make hot` and `make device`, is a dynamic library that rustc
+links. It gets the static code too, but `sherpa-onnx-sys` still adds a load of
+`@rpath/SherpaOnnxC.framework`, which the loader app does not have, though no
+symbol is taken from it. A hot build with `speech` is not proven to load.

@@ -6,6 +6,8 @@ use std::{
 
 include!("src/inspect/release_guard.rs");
 
+mod build_speech;
+
 fn main() {
     plat::platforms();
     stamp_build_time();
@@ -15,6 +17,7 @@ fn main() {
     compile_tvos_dispatch();
     hot_cfg();
     sound_cfg();
+    build_speech::link();
 }
 
 /// `sound` is where the `audio` module is built: the `audio` feature, or
