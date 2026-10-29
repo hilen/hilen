@@ -39,10 +39,11 @@ pub(super) fn list() -> Result<Vec<CameraDevice>> {
             let capabilities = device.capabilities()?;
             let captures = capabilities.device_capabilities().contains(CapabilityFlags::VIDEO_CAPTURE);
             Ok(captures.then(|| CameraDevice {
-                id:       device.path().map_or_default(|path| path.display().to_string()),
-                name:     capabilities.card().to_string(),
-                position: CameraPosition::External,
-                lens:     CameraLens::Unknown,
+                id:            device.path().map_or_default(|path| path.display().to_string()),
+                name:          capabilities.card().to_string(),
+                position:      CameraPosition::External,
+                lens:          CameraLens::Unknown,
+                near_focus_mm: None,
             }))
         });
         match described {

@@ -28,12 +28,12 @@ use ndk_sys::{
     ACameraManager_getCameraIdList, ACameraManager_openCamera, ACameraMetadata, ACameraMetadata_const_entry,
     ACameraMetadata_const_entry__bindgen_ty_1, ACameraMetadata_free, ACameraMetadata_getConstEntry,
     ACameraOutputTarget, ACameraOutputTarget_create, ACameraOutputTarget_free, ACaptureRequest,
-    ACaptureRequest_addTarget, ACaptureRequest_free, ACaptureRequest_setEntry_u8, ACaptureSessionOutput,
-    ACaptureSessionOutput_create, ACaptureSessionOutput_free, ACaptureSessionOutputContainer,
-    ACaptureSessionOutputContainer_add, ACaptureSessionOutputContainer_create,
-    ACaptureSessionOutputContainer_free, AIMAGE_FORMATS, acamera_metadata_enum_acamera_control_af_mode,
-    acamera_metadata_enum_acamera_control_af_trigger, acamera_metadata_enum_acamera_lens_facing,
-    acamera_metadata_tag, camera_status_t,
+    ACaptureRequest_addTarget, ACaptureRequest_free, ACaptureRequest_setEntry_i32,
+    ACaptureRequest_setEntry_u8, ACaptureSessionOutput, ACaptureSessionOutput_create,
+    ACaptureSessionOutput_free, ACaptureSessionOutputContainer, ACaptureSessionOutputContainer_add,
+    ACaptureSessionOutputContainer_create, ACaptureSessionOutputContainer_free, AIMAGE_FORMATS,
+    acamera_metadata_enum_acamera_control_af_mode, acamera_metadata_enum_acamera_control_af_trigger,
+    acamera_metadata_enum_acamera_lens_facing, acamera_metadata_tag, camera_status_t,
 };
 use parking_lot::Mutex;
 
@@ -41,9 +41,10 @@ use crate::{
     camera::{
         CameraDevice, CameraError, CameraFrame, CameraLens, CameraLocks, CameraPosition, Photo, PhotoFormat,
         backend::{Backend, Done, Session},
-        frame::{FrameSlot, Plane, turn, yuv420_to_rgba},
+        frame::{FrameSlot, Plane, sensor_point, turn, yuv420_to_rgba},
     },
     deps::hreads::from_main,
+    gm::{LossyConvert, flat::Point},
     system::{
         AppActivity,
         android_jni::{clear_exception, with_activity},
@@ -285,7 +286,14 @@ fn devices() -> Result<Vec<CameraDevice>> {
             .floats(acamera_metadata_tag::ACAMERA_LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
             .first()
             .copied();
-        found.push((id, position, focal));
+        // In diopters, 1 over meters. 0 is a lens with a fixed focus.
+        let near = metadata
+            .floats(acamera_metadata_tag::ACAMERA_LENS_INFO_MINIMUM_FOCUS_DISTANCE)
+            .first()
+            .copied()
+            .filter(|diopters| *diopters > 0.0)
+            .map(|diopters| (1000.0 / diopters).round().lossy_convert());
+        found.push((id, position, focal, near));
     }
 
     // Android names no lens. The first back camera is the main one, a
@@ -293,11 +301,11 @@ fn devices() -> Result<Vec<CameraDevice>> {
     // the telephoto.
     let main = found
         .iter()
-        .find(|(_, position, _)| *position == CameraPosition::Back)
-        .and_then(|(_, _, focal)| *focal);
+        .find(|(_, position, _, _)| *position == CameraPosition::Back)
+        .and_then(|(_, _, focal, _)| *focal);
     Ok(found
         .into_iter()
-        .map(|(id, position, focal)| {
+        .map(|(id, position, focal, near)| {
             let lens = match (main, focal, position) {
                 (Some(main), Some(focal), CameraPosition::Back) if focal < main * 0.8 => {
                     CameraLens::UltraWide
@@ -319,17 +327,20 @@ fn devices() -> Result<Vec<CameraDevice>> {
                 id,
                 position,
                 lens,
+                near_focus_mm: near,
             }
         })
         .collect())
 }
 
-/// What the camera can lock.
+/// What the camera can lock, and where it can focus and meter.
 #[derive(Clone, Copy)]
 struct Can {
     focus:         bool,
     exposure:      bool,
     white_balance: bool,
+    focus_region:  bool,
+    expose_region: bool,
 }
 
 /// The parts of the live picture and the photo the callbacks of the
@@ -346,6 +357,11 @@ struct AndroidSession {
     shared:    Arc<Shared>,
     can:       Can,
     locks:     CameraLocks,
+    /// The pixels of the sensor a region is in, x, y, width and height.
+    active:    [i32; 4],
+    /// Where the camera focuses and meters, x, y, x and y of the far corner,
+    /// and the weight. None leaves it to the camera.
+    region:    Option<[i32; 5]>,
     // Dropped last, after the session and the device are closed.
     manager:   Manager,
     device:    *mut ACameraDevice,
@@ -384,6 +400,8 @@ impl AndroidSession {
             photo_size,
         )
         .ok_or_else(|| anyhow!("camera {} gives no YUV picture", device.name))?;
+        // How many regions it takes for exposure, white balance and focus.
+        let regions = metadata.ints(acamera_metadata_tag::ACAMERA_CONTROL_MAX_REGIONS);
         let can = Can {
             focus:         metadata
                 .bytes(acamera_metadata_tag::ACAMERA_CONTROL_AF_AVAILABLE_MODES)
@@ -394,6 +412,12 @@ impl AndroidSession {
                 == Some(&1),
             white_balance: metadata.bytes(acamera_metadata_tag::ACAMERA_CONTROL_AWB_LOCK_AVAILABLE).first()
                 == Some(&1),
+            focus_region:  regions.get(2).is_some_and(|count| *count > 0),
+            expose_region: regions.first().is_some_and(|count| *count > 0),
+        };
+        let active = match metadata.ints(acamera_metadata_tag::ACAMERA_SENSOR_INFO_ACTIVE_ARRAY_SIZE)[..] {
+            [x, y, width, height, ..] => [x, y, width, height],
+            _ => [0; 4],
         };
         let orientation = metadata
             .ints(acamera_metadata_tag::ACAMERA_SENSOR_ORIENTATION)
@@ -419,6 +443,8 @@ impl AndroidSession {
             shared,
             can,
             locks: CameraLocks::NONE,
+            active,
+            region: None,
             manager,
             device: null_mut(),
             container: null_mut(),
@@ -543,6 +569,24 @@ impl AndroidSession {
                     u8::try_from(trigger.0)?,
                 )?;
             }
+            if let Some(region) = self.region {
+                let tags = [
+                    (
+                        self.can.focus_region,
+                        acamera_metadata_tag::ACAMERA_CONTROL_AF_REGIONS,
+                    ),
+                    (
+                        self.can.expose_region,
+                        acamera_metadata_tag::ACAMERA_CONTROL_AE_REGIONS,
+                    ),
+                ];
+                for (_, tag) in tags.iter().filter(|(can, _)| *can) {
+                    check(
+                        unsafe { ACaptureRequest_setEntry_i32(request, tag.0, 5, region.as_ptr()) },
+                        "a request region",
+                    )?;
+                }
+            }
             set(acamera_metadata_tag::ACAMERA_JPEG_QUALITY, JPEG_QUALITY)
         })();
         match built {
@@ -633,6 +677,40 @@ impl Session for AndroidSession {
             exposure:      locks.exposure && self.can.exposure,
             white_balance: locks.white_balance && self.can.white_balance,
         }));
+    }
+
+    /// A free focus keeps focusing by itself, now at the region. A locked one
+    /// focuses once at the region and holds there. The NDK gives no sign when
+    /// the focus ends, so this answers when the request is sent.
+    fn focus_at(&mut self, point: Point, done: Done<bool>) {
+        let [x, y, width, height] = self.active;
+        if !(self.can.focus && self.can.focus_region) || width <= 0 || height <= 0 {
+            done(Ok(false));
+            return;
+        }
+        let point = sensor_point(point, self.shared.quarters);
+        let at_x: i32 = x + (point.x * width.lossy_convert()).lossy_convert();
+        let at_y: i32 = y + (point.y * height.lossy_convert()).lossy_convert();
+        let half = width.min(height) / 10;
+        self.region = Some([
+            (at_x - half).max(x),
+            (at_y - half).max(y),
+            (at_x + half).min(x + width - 1),
+            (at_y + half).min(y + height - 1),
+            1000,
+        ]);
+        let result = self.repeat().and_then(|()| {
+            if self.locks.focus {
+                self.capture(
+                    ACameraDevice_request_template::TEMPLATE_PREVIEW,
+                    self.preview,
+                    Some(acamera_metadata_enum_acamera_control_af_trigger::ACAMERA_CONTROL_AF_TRIGGER_START),
+                )
+            } else {
+                Ok(())
+            }
+        });
+        done(result.map(|()| true));
     }
 }
 

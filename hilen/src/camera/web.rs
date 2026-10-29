@@ -185,6 +185,7 @@ fn describe(id: String, name: String) -> CameraDevice {
         name,
         position,
         lens,
+        near_focus_mm: None,
     }
 }
 

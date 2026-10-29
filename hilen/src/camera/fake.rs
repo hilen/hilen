@@ -8,11 +8,14 @@ use image::ExtendedColorType;
 use log::debug;
 use parking_lot::Mutex;
 
-use crate::camera::{
-    CameraDevice, CameraError, CameraLens, CameraLocks, CameraPosition, Photo, PhotoFormat,
-    backend::{Backend, Done, Session},
-    frame::FrameSlot,
-    photo::encode_jpeg,
+use crate::{
+    camera::{
+        CameraDevice, CameraError, CameraLens, CameraLocks, CameraPosition, Photo, PhotoFormat,
+        backend::{Backend, Done, Session},
+        frame::FrameSlot,
+        photo::encode_jpeg,
+    },
+    gm::flat::Point,
 };
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -22,6 +25,7 @@ struct State {
     picture: Option<Picture>,
     refuse:  bool,
     locks:   CameraLocks,
+    focus:   Option<Point>,
     open:    Vec<FrameSlot>,
 }
 
@@ -31,6 +35,7 @@ impl State {
             picture: None,
             refuse:  false,
             locks:   CameraLocks::NONE,
+            focus:   None,
             open:    Vec::new(),
         }
     }
@@ -81,12 +86,18 @@ impl FakeCamera {
         STATE.lock().locks
     }
 
+    /// The point the last `focus_at` focused at.
+    pub fn focus_point() -> Option<Point> {
+        STATE.lock().focus
+    }
+
     fn device() -> CameraDevice {
         CameraDevice {
-            id:       Self::ID.to_string(),
-            name:     "Fake camera".to_string(),
-            position: CameraPosition::Back,
-            lens:     CameraLens::Wide,
+            id:            Self::ID.to_string(),
+            name:          "Fake camera".to_string(),
+            position:      CameraPosition::Back,
+            lens:          CameraLens::Wide,
+            near_focus_mm: Some(100),
         }
     }
 }
@@ -158,6 +169,11 @@ impl Session for FakeSession {
     fn set_locks(&mut self, locks: CameraLocks, done: Done<CameraLocks>) {
         STATE.lock().locks = locks;
         done(Ok(locks));
+    }
+
+    fn focus_at(&mut self, point: Point, done: Done<bool>) {
+        STATE.lock().focus = Some(point);
+        done(Ok(true));
     }
 }
 

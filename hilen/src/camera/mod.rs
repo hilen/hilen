@@ -87,15 +87,19 @@ pub use self::{
     frame::CameraFrame,
     photo::{Photo, PhotoFormat},
 };
+use crate::gm::flat::Point;
 
 /// A camera of the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CameraDevice {
     /// The same for the same camera while the app runs.
-    pub id:       String,
-    pub name:     String,
-    pub position: CameraPosition,
-    pub lens:     CameraLens,
+    pub id:            String,
+    pub name:          String,
+    pub position:      CameraPosition,
+    pub lens:          CameraLens,
+    /// How near the camera focuses, in mm. None where the system does not
+    /// say, like for a webcam or in a browser.
+    pub near_focus_mm: Option<u32>,
 }
 
 /// Where a camera looks from.
@@ -246,6 +250,28 @@ impl Camera {
             self.inner.device.name
         );
         Ok(held)
+    }
+
+    /// Focuses once at `point` of the live picture, from 0 at its top left
+    /// to 1 at its bottom right, and meters the exposure there too. Answers
+    /// when the focus is done, `false` for a camera with no focus point,
+    /// like a webcam. A focus lock after it holds that focus.
+    pub async fn focus_at(&self, point: Point) -> Result<bool> {
+        let point = Point::new(point.x.clamp(0.0, 1.0), point.y.clamp(0.0, 1.0));
+        let (done, answer) = reply();
+        self.inner.session.lock().focus_at(point, done);
+        let focused = answer.await.inspect_err(|err| {
+            error!(
+                "camera {} failed to focus at {point:?}: {err:#}",
+                self.inner.device.name
+            );
+        })?;
+        info!(
+            "camera {} focus at {point:?}: {}",
+            self.inner.device.name,
+            if focused { "done" } else { "it has no focus point" }
+        );
+        Ok(focused)
     }
 
     /// The newest picture of the live stream, at most `CameraFrame::MAX_SIDE`

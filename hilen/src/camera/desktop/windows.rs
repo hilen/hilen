@@ -20,10 +20,11 @@ pub(super) fn list() -> Result<Vec<CameraDevice>> {
     Ok(cameras
         .into_iter()
         .map(|camera| CameraDevice {
-            id:       camera.index().as_string(),
-            name:     camera.human_name(),
-            position: CameraPosition::External,
-            lens:     CameraLens::Unknown,
+            id:            camera.index().as_string(),
+            name:          camera.human_name(),
+            position:      CameraPosition::External,
+            lens:          CameraLens::Unknown,
+            near_focus_mm: None,
         })
         .collect())
 }

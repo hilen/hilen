@@ -154,6 +154,7 @@ objc2-av-foundation = { version = "0.3", default-features = false, features = [
   "AVVideoSettings",
   "block2",
   "dispatch2",
+  "objc2-core-foundation",
   "objc2-core-media",
   "objc2-core-video",
 ] }

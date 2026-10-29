@@ -9,8 +9,10 @@ use std::{
     slice,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
+    thread::{sleep, spawn},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Error, Result, anyhow};
@@ -31,6 +33,7 @@ use objc2_av_foundation::{
     AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureWhiteBalanceMode, AVMediaType, AVMediaTypeVideo,
     AVVideoCodecKey, AVVideoCodecTypeHEVC, AVVideoCodecTypeJPEG,
 };
+use objc2_core_foundation::CGPoint;
 use objc2_core_media::{CMSampleBuffer, CMVideoDimensions};
 use objc2_core_video::{
     CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight, CVPixelBufferGetWidth,
@@ -45,13 +48,22 @@ use parking_lot::Mutex;
 
 #[cfg(target_os = "ios")]
 use crate::camera::frame::turn;
-use crate::camera::{
-    CameraDevice, CameraError, CameraLens, CameraLocks, CameraPosition, Photo, PhotoFormat,
-    backend::{Backend, Done, Session},
-    frame::FrameSlot,
+use crate::{
+    camera::{
+        CameraDevice, CameraError, CameraLens, CameraLocks, CameraPosition, Photo, PhotoFormat,
+        backend::{Backend, Done, Session},
+        frame::{FrameSlot, sensor_point},
+    },
+    gm::flat::Point,
 };
 
 const USAGE_KEY: &str = "NSCameraUsageDescription";
+/// The quarter turns of the live picture, see `bgra_frame`.
+const QUARTERS: u32 = if cfg!(target_os = "ios") { 1 } else { 0 };
+/// A focus starts some frames after the call, and ends within this.
+const FOCUS_START: Duration = Duration::from_millis(150);
+const FOCUS_LONGEST: Duration = Duration::from_secs(2);
+const FOCUS_POLL: Duration = Duration::from_millis(30);
 
 /// The delegates of this build that are alive. The session drops them on its
 /// queue some time after the camera closed, and a hot build deletes their
@@ -203,11 +215,18 @@ fn describe(device: &AVCaptureDevice) -> CameraDevice {
     } else {
         CameraLens::Unknown
     };
+    // iOS 15 and macOS 12 tell it, -1 when they do not know.
+    let near_focus_mm = device
+        .respondsToSelector(sel!(minimumFocusDistance))
+        .then(|| unsafe { device.minimumFocusDistance() })
+        .and_then(|mm| u32::try_from(mm).ok())
+        .filter(|mm| *mm > 0);
     CameraDevice {
         id: unsafe { device.uniqueID() }.to_string(),
         name: unsafe { device.localizedName() }.to_string(),
         position,
         lens,
+        near_focus_mm,
     }
 }
 
@@ -353,6 +372,42 @@ impl Parts {
         unsafe { device.unlockForConfiguration() };
         Ok(held)
     }
+
+    /// Starts 1 focus at `point` of the sensor and meters the exposure
+    /// there. False when the camera has neither point.
+    fn focus_at(&self, point: Point) -> Result<bool> {
+        let device = &self.device;
+        let focus = unsafe { device.isFocusPointOfInterestSupported() }
+            && unsafe { device.isFocusModeSupported(AVCaptureFocusMode::AutoFocus) };
+        let exposure = unsafe { device.isExposurePointOfInterestSupported() };
+        if !focus && !exposure {
+            return Ok(false);
+        }
+        let point = CGPoint::new(f64::from(point.x), f64::from(point.y));
+        unsafe { device.lockForConfiguration() }.map_err(|err| ns_error(&err))?;
+        // A point does nothing until its mode is set again.
+        if focus {
+            unsafe { device.setFocusPointOfInterest(point) };
+            unsafe { device.setFocusMode(AVCaptureFocusMode::AutoFocus) };
+        }
+        if exposure {
+            unsafe { device.setExposurePointOfInterest(point) };
+            // A locked exposure meters once at the point and locks again.
+            let mode = match unsafe { device.exposureMode() } {
+                AVCaptureExposureMode::Locked => AVCaptureExposureMode::AutoExpose,
+                mode => mode,
+            };
+            if unsafe { device.isExposureModeSupported(mode) } {
+                unsafe { device.setExposureMode(mode) };
+            }
+        }
+        unsafe { device.unlockForConfiguration() };
+        Ok(focus)
+    }
+
+    fn adjusting_focus(&self) -> bool {
+        unsafe { self.device.isAdjustingFocus() }
+    }
 }
 
 impl Drop for Parts {
@@ -413,6 +468,45 @@ impl Session for AppleSession {
     fn set_locks(&mut self, locks: CameraLocks, done: Done<CameraLocks>) {
         let parts = self.parts.clone();
         self.queue.exec_async(move || done(parts.set_locks(locks)));
+    }
+
+    fn focus_at(&mut self, point: Point, done: Done<bool>) {
+        let parts = self.parts.clone();
+        let queue = self.queue.clone();
+        self.queue.exec_async(move || {
+            match parts.focus_at(sensor_point(point, QUARTERS)) {
+                // The wait asks the queue, it must not hold it.
+                Ok(true) => {
+                    spawn(move || {
+                        wait_for_focus(&parts, &queue);
+                        done(Ok(true));
+                    });
+                }
+                answer => done(answer),
+            }
+        });
+    }
+}
+
+/// Waits until the camera ends the focus it started, at most
+/// `FOCUS_LONGEST`.
+fn wait_for_focus(parts: &Arc<Parts>, queue: &DispatchQueue) {
+    let started = Instant::now();
+    loop {
+        sleep(FOCUS_POLL);
+        let adjusting = Arc::new(AtomicBool::new(true));
+        let asked = parts.clone();
+        let answer = adjusting.clone();
+        queue.exec_sync(move || answer.store(asked.adjusting_focus(), Ordering::Release));
+        let waited = started.elapsed();
+        if waited >= FOCUS_START && !adjusting.load(Ordering::Acquire) {
+            debug!("the focus ended after {} ms", waited.as_millis());
+            return;
+        }
+        if waited >= FOCUS_LONGEST {
+            debug!("the focus still moves after {} ms", waited.as_millis());
+            return;
+        }
     }
 }
 

@@ -7,6 +7,8 @@ use image::{ImageBuffer, Rgba, imageops::thumbnail};
 use log::warn;
 use parking_lot::Mutex;
 
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos", test))]
+use crate::gm::flat::Point;
 use crate::{gm::flat::Size, window::image::fitted_size};
 
 /// A picture of the live stream of a camera, RGBA with 4 bytes a pixel.
@@ -153,6 +155,19 @@ fn yuv(luma: u8, blue: u8, red: u8) -> [u8; 4] {
 #[cfg(any(target_os = "android", target_os = "windows", target_os = "linux", test))]
 fn clamp(value: i32) -> u8 {
     u8::try_from(value.clamp(0, 255)).unwrap_or(u8::MAX)
+}
+
+/// The point of the picture of the sensor under `point` of the picture that
+/// `turn` turned by `quarters`, both from 0 to 1. A focus point goes to the
+/// camera in the coordinates of its sensor.
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos", test))]
+pub(super) fn sensor_point(point: Point, quarters: u32) -> Point {
+    match quarters % 4 {
+        0 => point,
+        1 => Point::new(point.y, 1.0 - point.x),
+        2 => Point::new(1.0 - point.x, 1.0 - point.y),
+        _ => Point::new(1.0 - point.y, point.x),
+    }
 }
 
 /// RGBA turned clockwise by `quarters` quarter turns. A phone sensor lies

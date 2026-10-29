@@ -2,10 +2,13 @@ use image::{GenericImageView, load_from_memory};
 use pollster::block_on;
 use serial_test::serial;
 
-use crate::camera::{
-    Camera, CameraDevice, CameraError, CameraFrame, CameraLens, CameraLocks, CameraPosition, FakeCamera,
-    PhotoFormat,
-    frame::{FrameSlot, Plane, turn, yuv420_to_rgba, yuyv_to_rgba},
+use crate::{
+    camera::{
+        Camera, CameraDevice, CameraError, CameraFrame, CameraLens, CameraLocks, CameraPosition, FakeCamera,
+        PhotoFormat,
+        frame::{FrameSlot, Plane, sensor_point, turn, yuv420_to_rgba, yuyv_to_rgba},
+    },
+    gm::{LossyConvert, flat::Point},
 };
 
 #[test]
@@ -37,6 +40,56 @@ fn a_picture_turns_clockwise() {
     let (turned, width, height) = turn(&picture, 2, 1, 3);
     assert_eq!((width, height), (1, 2));
     assert_eq!(turned, [blue, red].concat());
+}
+
+/// Every pixel of a turned picture holds where it came from on the sensor,
+/// and `sensor_point` finds that place again from the middle of the pixel.
+#[test]
+fn a_point_turns_back_to_the_sensor() {
+    let (width, height) = (5_u8, 3_u8);
+    let sensor: Vec<u8> = (0..height)
+        .flat_map(|row| (0..width).flat_map(move |column| [column, row, 0, 255]))
+        .collect();
+    for quarters in 0..4 {
+        let (turned, turned_width, turned_height) =
+            turn(&sensor, usize::from(width), usize::from(height), quarters);
+        for row in 0..turned_height {
+            for column in 0..turned_width {
+                let at = (row * turned_width + column) * 4;
+                let point = Point::new(
+                    (column.lossy_convert() + 0.5) / turned_width.lossy_convert(),
+                    (row.lossy_convert() + 0.5) / turned_height.lossy_convert(),
+                );
+                let back = sensor_point(point, quarters);
+                let found: (u8, u8) = (
+                    (back.x * f32::from(width)).lossy_convert(),
+                    (back.y * f32::from(height)).lossy_convert(),
+                );
+                assert_eq!(
+                    found,
+                    (turned[at], turned[at + 1]),
+                    "{quarters} quarters, pixel {column} {row}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[serial]
+fn the_fake_camera_focuses_at_a_point() {
+    FakeCamera::install();
+    let devices = block_on(Camera::devices()).unwrap();
+    assert_eq!(devices[0].near_focus_mm, Some(100));
+    let camera = block_on(Camera::open(&devices[0])).unwrap();
+
+    assert!(block_on(camera.focus_at(Point::new(0.25, 0.75))).unwrap());
+    assert_eq!(FakeCamera::focus_point(), Some(Point::new(0.25, 0.75)));
+
+    // A point off the picture is held to its edge.
+    assert!(block_on(camera.focus_at(Point::new(-1.0, 3.0))).unwrap());
+    assert_eq!(FakeCamera::focus_point(), Some(Point::new(0.0, 1.0)));
+    FakeCamera::remove();
 }
 
 /// A picture of 1 color.
@@ -91,10 +144,11 @@ fn a_refused_camera_is_a_clear_error() {
 
     FakeCamera::refuse_access(false);
     let missing = CameraDevice {
-        id:       "gone".to_string(),
-        name:     "Gone".to_string(),
-        position: CameraPosition::Unknown,
-        lens:     CameraLens::Unknown,
+        id:            "gone".to_string(),
+        name:          "Gone".to_string(),
+        position:      CameraPosition::Unknown,
+        lens:          CameraLens::Unknown,
+        near_focus_mm: None,
     };
     let err = block_on(Camera::open(&missing)).err().unwrap();
     assert_eq!(

@@ -28,6 +28,13 @@ spawn(async move {
 - `set_locks(CameraLocks::ALL | NONE)` locks or frees focus, exposure and white
   balance, so a series of photos looks the same. It answers with the locks the
   camera really holds.
+- `focus_at(point)` focuses once at a point of the live picture, from 0 at its top
+  left to 1 at its bottom right, and meters the exposure there. It answers when the
+  focus is done, `false` for a camera with no focus point, like a webcam or a
+  browser. A focus lock after it holds that focus. The point goes to the sensor
+  turned back the way `frame()` turned the picture.
+- `CameraDevice::near_focus_mm` is how near the camera focuses, none where the system
+  does not say.
 - `frame()` is the newest live picture, at most 1280 on its longest side.
   `CameraView` shows it, `set_camera(Some(camera))`.
 - A refusal is `CameraError::Refused`, a missing usage text `CameraError::NoUsageText`.
@@ -49,13 +56,22 @@ usage = "Takes photos of the object on the turntable."
   the app. The live picture on an iPhone is turned upright for a phone held up.
   When the camera opens on iOS, the log says whether it straightens its pictures by
   itself, the geometric distortion correction of AVFoundation, which Apple turns on by
-  default where a camera has it. Whether the 1x lens of an iPhone has it is not checked
-  yet. A hot build waits at its stop until the delegates of the camera are gone, see
-  "The stop" in [hot-reload.md](hot-reload.md).
+  default where a camera has it. The 1x lens of an iPhone 16 Pro Max does not have it,
+  its log on 2026-10-29 says `supported false, on false`. `focus_at` sets the focus
+  and exposure points of interest with the auto focus mode, then asks the camera every
+  30 ms whether it still focuses, at most 2 seconds. A locked exposure meters once at
+  the point and locks again. `near_focus_mm` is `minimumFocusDistance`, on iOS 15 and
+  macOS 12 and later. A hot build waits at its stop until the delegates of the camera
+  are gone, see "The stop" in [hot-reload.md](hot-reload.md).
 - Android: the NDK camera, JPEG at the largest size. Focus locks with 1 auto focus
   trigger, exposure and white balance have their own lock switches. The permission is
   asked through the activity, the answer is read when the app gets its focus back,
-  and no question within 2 seconds counts as a refusal.
+  and no question within 2 seconds counts as a refusal. `focus_at` puts a focus and
+  an exposure region of a fifth of the short side around the point into every
+  request. A free focus keeps focusing by itself at the region, a locked one gets 1
+  more trigger there. The NDK gives no sign when a focus ends, so it answers when the
+  request is sent. `near_focus_mm` comes from the minimum focus distance in diopters.
+  None of this is compiled or run for Android yet.
 - Windows: a webcam through nokhwa, the next picture of the stream at its highest
   resolution. Locks do not work there, nokhwa cannot switch a setting from automatic,
   a warning says so and no lock is held.
@@ -78,7 +94,9 @@ balance, and took over 100 JPEG photos of 8064 x 6048 from code, about 1 every 3
 seconds with the work of the app between them. A hot loader installed before the
 camera came had no `NSCameraUsageDescription`, `make device args=install` fixed it.
 On 2026-10-27 turnscan swapped 2 times in a row on that iPhone with the camera open,
-each swap about 2.3 seconds.
+each swap about 2.3 seconds. On 2026-10-29 turnscan focused that iPhone at a tap with
+`focus_at`, the focus ended after 162 ms. Unit tests turn a point back through every
+quarter turn of the picture and focus the fake camera.
 The hardware code of macOS, Android, Windows, Linux and the browser is not proven
 with a real camera. The browser lane leaves the test out: the page stopped
 answering in it after the camera opened, about 1 run in 3 on 2026-10-17, also on

@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::camera::{CameraDevice, CameraLocks, Photo, PhotoFormat, frame::FrameSlot};
+use crate::{
+    camera::{CameraDevice, CameraLocks, Photo, PhotoFormat, frame::FrameSlot},
+    gm::flat::Point,
+};
 
 /// How a backend answers. It may call it on any thread, once.
 pub(super) type Done<T> = Box<dyn FnOnce(Result<T>) + Send>;
@@ -22,6 +25,12 @@ pub(super) trait Session: Send {
 
     /// Answers with the locks the camera holds after the call.
     fn set_locks(&mut self, locks: CameraLocks, done: Done<CameraLocks>);
+
+    /// Focuses once at `point` of the live picture, from 0 to 1, and answers
+    /// when the focus is done. A camera with no focus point answers `false`.
+    fn focus_at(&mut self, _point: Point, done: Done<bool>) {
+        done(Ok(false));
+    }
 
     /// A backend that has to fetch a picture into its `FrameSlot`, rather
     /// than get one pushed by the system, fetches it here. A browser does.
