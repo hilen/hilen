@@ -63,6 +63,7 @@ mod scale;
 mod selection;
 mod styles;
 mod text_occlusion;
+mod touch_high_priority;
 mod touch_order;
 mod touch_stack;
 mod transition;

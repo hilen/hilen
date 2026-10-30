@@ -26,6 +26,12 @@ pub trait ViewTouch {
     fn is_hover_within(&self) -> bool;
     fn enable_touch(&self) -> &Self;
     fn enable_touch_low_priority(&self) -> &Self;
+    /// Takes its touches before every view of its layer that turned its
+    /// touch on with `enable_touch`, whenever that view did. For a view that
+    /// floats over content that makes new touch views while it is shown,
+    /// like a round button over a list that grows. The newest view of this
+    /// tier comes first within it.
+    fn enable_touch_high_priority(&self) -> &Self;
     fn enable_hover(&self) -> &Self;
     /// Makes this view take a pinch, see `touch().pinch`.
     fn enable_pinch(&self) -> &Self;
@@ -73,6 +79,11 @@ impl<T: ?Sized + View> ViewTouch for T {
 
     fn enable_touch_low_priority(&self) -> &Self {
         TouchStack::enable_for_low_priority(self.weak_view());
+        self
+    }
+
+    fn enable_touch_high_priority(&self) -> &Self {
+        TouchStack::enable_for_high_priority(self.weak_view());
         self
     }
 

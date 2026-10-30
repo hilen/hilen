@@ -52,6 +52,10 @@ A view with `ViewBase::flat_depth` counts as one flat layer at its own depth.
   layer they are inside, then by their own. Hover, the wheel and the pinch pick the
   front view with it. A began touch skips a view inside a flat layer when another touch
   view lies over that layer at the point, `TouchStack::covered`.
+- A touch does not pick by depth. It goes to the view that turned its touch on last,
+  after the tier of `enable_touch_high_priority`, which comes before all of them, see
+  `TouchLayer::views`. A view raised with `bump_z_position` over content that makes new
+  touch views, like a button over a list that grows, needs that tier too.
 
 ## Pinch
 

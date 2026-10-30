@@ -58,25 +58,33 @@ impl TouchLayer {
         self.scrolls.push(view);
     }
 
+    /// A view already in the high priority tier stays there, so a `Button`
+    /// whose `on_tap` turns its touch on again keeps its tier.
     pub fn add(&mut self, view: WeakView) {
-        if self.listeners.iter().any(|l| l.raw() == view.raw()) {
+        if self.is_listed(view) {
             return;
         }
         self.listeners.push(view);
     }
 
     pub(crate) fn add_low_priority(&mut self, view: WeakView) {
-        if self.listeners.iter().any(|l| l.raw() == view.raw()) {
+        if self.is_listed(view) {
             return;
         }
         self.listeners.insert(0, view);
     }
 
+    /// A plain listener that turns high priority on moves to the tier.
     pub(crate) fn add_high_priority(&mut self, view: WeakView) {
+        self.listeners.retain(|l| l.raw() != view.raw());
         if self.high_priority.iter().any(|l| l.raw() == view.raw()) {
             return;
         }
         self.high_priority.push(view);
+    }
+
+    fn is_listed(&self, view: WeakView) -> bool {
+        self.listeners.iter().chain(&self.high_priority).any(|l| l.raw() == view.raw())
     }
 
     pub(crate) fn add_hover(&mut self, view: WeakView) {

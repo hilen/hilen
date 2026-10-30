@@ -43,7 +43,7 @@ impl Setup for SplitHandle {
         // The grab zone overlaps both panels, whose content registers
         // touch and hover later. The high priority tiers keep the divider
         // winning inside its strip regardless of registration order.
-        TouchStack::enable_for_high_priority(self.weak_view());
+        self.enable_touch_high_priority();
         TouchStack::enable_hover_high_priority(self.weak_view());
         self.__base_view().hover_cursor = Some(CursorIcon::ColResize);
 

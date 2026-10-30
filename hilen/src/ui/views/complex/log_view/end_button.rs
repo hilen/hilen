@@ -1,10 +1,7 @@
 use crate::{
     self as hilen,
     deps::{refs::Weak, vents::Event},
-    ui::{
-        ImageView, Setup, Shadow, TouchStack, UIColor, UIImages, View, ViewCallbacks, ViewData, ViewTouch,
-        view,
-    },
+    ui::{ImageView, Setup, Shadow, UIColor, UIImages, ViewCallbacks, ViewData, ViewTouch, view},
 };
 
 pub(super) const BUTTON_SIZE: f32 = 32.0;
@@ -48,7 +45,7 @@ impl Setup for LogEndButton {
 
         // In front of the rows of the log, a row that is made later would
         // take the touch of a plain touch view under it.
-        TouchStack::enable_for_high_priority(self.weak_view());
+        self.enable_touch_high_priority();
         self.touch().up_inside.sub(self, move || self.tapped.trigger(()));
     }
 }
