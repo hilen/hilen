@@ -19,6 +19,10 @@ mod key;
 mod layer;
 #[cfg(apple)]
 mod on_layer;
+#[cfg(apple)]
+mod shared;
+#[cfg(feature = "ui-tests")]
+mod shared_test;
 #[cfg(feature = "ui-tests")]
 mod test;
 
@@ -216,9 +220,32 @@ pub(crate) fn wants_frames() -> bool {
     WANTS_FRAMES.load(Ordering::Relaxed)
 }
 
+/// The longest step in seconds since the last read, for the test of the
+/// shared pictures.
+#[cfg(all(apple, feature = "ui-tests"))]
+static LONGEST_STEP: MainLock<f64> = MainLock::new();
+
+/// The longest step in seconds since the last call, then a new count.
+#[cfg(all(apple, feature = "ui-tests"))]
+pub(crate) fn longest_step() -> f64 {
+    take(LONGEST_STEP.get_mut())
+}
+
 /// Once a frame, after the layout. Puts every loop on a layer or on the
 /// frame path and poses the ones on the frame path for this frame.
 pub(crate) fn step() {
+    #[cfg(all(apple, feature = "ui-tests"))]
+    let started = crate::monotonic::monotonic_seconds();
+    step_entries();
+    #[cfg(all(apple, feature = "ui-tests"))]
+    {
+        let took = crate::monotonic::monotonic_seconds() - started;
+        let longest = LONGEST_STEP.get_mut();
+        *longest = longest.max(took);
+    }
+}
+
+fn step_entries() {
     let mut entries = take(LOOPS.get_mut());
     if entries.is_empty() {
         WANTS_FRAMES.store(false, Ordering::Relaxed);
@@ -280,5 +307,6 @@ pub(crate) fn stop_all() {
             layer.leave_with_view();
         }
     }
+    shared::clear();
     WANTS_FRAMES.store(false, Ordering::Relaxed);
 }

@@ -3,18 +3,23 @@
 
 use std::{
     ops::Deref,
+    rc::Rc,
     sync::{
         OnceLock,
         atomic::{AtomicU8, Ordering},
     },
 };
 
-use anyhow::{Result, ensure};
+use anyhow::{Result, anyhow, ensure};
 use log::{debug, warn};
 
 #[cfg(feature = "ui-tests")]
 use super::LOOPS;
-use super::{Entry, fit, flipbook, key, layer::Layer};
+use super::{
+    Entry, fit, flipbook, key,
+    layer::{Layer, Pictures},
+    shared::{self, SharedPictures},
+};
 #[cfg(feature = "ui-tests")]
 use crate::ui::WeakView;
 use crate::{
@@ -23,7 +28,7 @@ use crate::{
         LossyConvert,
         flat::{Rect, Size},
     },
-    ui::{UIDrawer, UIManager, ViewData, ViewFrame},
+    ui::{UIDrawer, UIManager, ViewData, ViewFrame, damage::PaintKey},
     window::{Window, frame_control},
 };
 
@@ -79,22 +84,27 @@ pub(super) struct Place {
 }
 
 pub(super) struct LayerPath {
-    own:      Option<OwnPictures>,
-    layer:    Option<Layer>,
+    own:       Option<OwnPictures>,
+    layer:     Option<Layer>,
+    /// The set of pictures the layer shows. Held here, so the set stays for
+    /// other loops of the same content while this one lives.
+    shown_set: Option<Rc<SharedPictures>>,
+    /// A set the loop waits for: the content it is of, and the set.
+    waiting:   Option<(u64, Rc<SharedPictures>)>,
     /// The content the pictures in the layer were made of.
-    built:    Option<u64>,
+    built:     Option<u64>,
     /// The content in the frame before, and how many frames in a row had it.
-    seen:     Option<u64>,
-    stable:   u32,
+    seen:      Option<u64>,
+    stable:    u32,
     /// Pictures of this content could not be made.
-    failed:   Option<u64>,
-    restless: u32,
-    warned:   bool,
+    failed:    Option<u64>,
+    restless:  u32,
+    warned:    bool,
     /// The layer shows the loop now.
-    shown:    bool,
+    shown:     bool,
     /// How many times the pictures were made.
     #[cfg(feature = "ui-tests")]
-    builds:   u32,
+    builds:    u32,
 }
 
 impl LayerPath {
@@ -102,6 +112,8 @@ impl LayerPath {
         Self {
             own,
             layer: None,
+            shown_set: None,
+            waiting: None,
             built: None,
             seen: None,
             stable: 0,
@@ -294,13 +306,23 @@ impl Entry {
         }
         path.restless = 0;
 
-        match self.build(place, content) {
-            Ok(()) => self.show_layer(place, phase),
+        let result = self.pictures(place, content).and_then(|pictures| match pictures {
+            Some(pictures) => self.build(place, content, pictures).map(|()| true),
+            None => Ok(false),
+        });
+        match result {
+            Ok(true) => self.show_layer(place, phase),
+            // The GPU draws the pictures, the frame shows the loop until then.
+            Ok(false) => {
+                self.leave_layer();
+                false
+            }
             Err(error) => {
                 debug!(
                     "{}: its loop stays on the frame path: {error:#}",
                     self.view.view_label()
                 );
+                self.layer.waiting = None;
                 self.layer.failed = Some(content);
                 self.leave_layer();
                 false
@@ -308,25 +330,73 @@ impl Entry {
         }
     }
 
-    /// Makes the pictures of the loop and puts them into its layer.
-    fn build(&mut self, place: Place, content: u64) -> Result<()> {
-        let samples = self.samples();
-
-        let frames = match &self.layer.own {
-            Some(own) if place.own => {
-                let frames = (own.frames)()?;
-                ensure!(
-                    frames.pixels.len() == samples.len(),
-                    "{} own pictures for {} change times",
-                    frames.pixels.len(),
-                    samples.len()
-                );
-                frames
+    /// The pictures of `content` once they are there. The first loop of a
+    /// content starts their draw, the others wait for the same set.
+    fn pictures(&mut self, place: Place, content: u64) -> Result<Option<Rc<SharedPictures>>> {
+        let set = match &self.layer.waiting {
+            Some((waited, set)) if *waited == content => set.clone(),
+            _ => {
+                let samples = self.samples();
+                let key = self.shared_key(content, place, &samples);
+                let set = match shared::find(key) {
+                    Some(set) => set,
+                    None => self.start_pictures(key, place, &samples)?,
+                };
+                self.layer.waiting = Some((content, set.clone()));
+                set
             }
-            _ => flipbook::draw(self.view, place.pixels, &samples, &mut self.pose)?,
         };
+        if set.pictures()?.is_none() {
+            return Ok(None);
+        }
+        self.layer.waiting = None;
+        Ok(Some(set))
+    }
 
-        let mut key_times: Vec<f64> = samples.iter().map(|phase| f64::from(*phase)).collect();
+    /// The key of a set of pictures. 2 loops with the same content at
+    /// phase 0 can still differ at other phases, so the content at 2 more
+    /// phases is in it, with the phases of the pictures and where the view
+    /// sits in its first pixel.
+    fn shared_key(&mut self, content: u64, place: Place, samples: &[f32]) -> u64 {
+        let mut key = PaintKey::default();
+        key.hash(&content);
+        for phase in samples {
+            key.pod(phase);
+        }
+        let origin = self.view.__base_view().__absolute_frame.origin * UIManager::scale();
+        key.pod(&(origin.x - place.layer.x())).pod(&(origin.y - place.layer.y()));
+        for third in [1, 2] {
+            let phase = samples[samples.len() * third / 3];
+            (self.pose)(phase);
+            UIDrawer::update_subtree(self.view);
+            key.hash(&key::content(self.view.deref(), place.pixels, place.own));
+        }
+        key.finish()
+    }
+
+    /// The draw of the pictures goes out, or the own pictures of the view
+    /// are taken.
+    fn start_pictures(&mut self, key: u64, place: Place, samples: &[f32]) -> Result<Rc<SharedPictures>> {
+        if let Some(own) = &self.layer.own
+            && place.own
+        {
+            let frames = (own.frames)()?;
+            ensure!(
+                frames.pixels.len() == samples.len(),
+                "{} own pictures for {} change times",
+                frames.pixels.len(),
+                samples.len()
+            );
+            return Ok(shared::ready(key, Pictures::new(&frames)?));
+        }
+        let drawing = flipbook::draw(self.view, place.pixels, samples, &mut self.pose)?;
+        Ok(shared::drawing(key, drawing))
+    }
+
+    /// Puts the pictures of `set` into the layer of the loop.
+    fn build(&mut self, place: Place, content: u64, set: Rc<SharedPictures>) -> Result<()> {
+        let pictures = set.pictures()?.ok_or_else(|| anyhow!("the pictures are not there yet"))?;
+        let mut key_times: Vec<f64> = self.samples().iter().map(|phase| f64::from(*phase)).collect();
         key_times.push(1.0);
 
         let layer = match self.layer.layer.take() {
@@ -334,13 +404,15 @@ impl Entry {
             None => Layer::new()?,
         };
         let layer = self.layer.layer.insert(layer);
-        layer.set_pictures(&frames, key_times, self.period)?;
+        let count = pictures.len();
+        layer.set_pictures(pictures, key_times, self.period);
+        self.layer.shown_set = Some(set);
 
         debug!(
-            "{}: its loop shows {} pictures of {:?} on a layer",
+            "{}: its loop shows {count} pictures of {} by {} pixels on a layer",
             self.view.view_label(),
-            frames.pixels.len(),
-            frames.size
+            place.pixels.width(),
+            place.pixels.height()
         );
 
         self.layer.built = Some(content);
@@ -382,16 +454,29 @@ impl Entry {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LayerState {
     /// The rect of the layer in the points of the window view.
-    pub(crate) frame:    Rect,
-    pub(crate) pictures: usize,
+    pub(crate) frame:       Rect,
+    pub(crate) pictures:    usize,
     /// The keyframe animation is on the layer.
-    pub(crate) animated: bool,
+    pub(crate) animated:    bool,
     /// The layer would show its pictures upside down.
-    pub(crate) flipped:  bool,
+    pub(crate) flipped:     bool,
     /// The y axis of the layer under it goes down.
-    pub(crate) y_down:   bool,
+    pub(crate) y_down:      bool,
     /// How many times the pictures of the loop were made.
-    pub(crate) builds:   u32,
+    pub(crate) builds:      u32,
+    /// Which set of pictures the layer shows, the same for loops that share 1.
+    pub(crate) pictures_id: usize,
+}
+
+/// The color of 1 pixel of the first picture of the layer of `view`, red,
+/// green and blue from 0 to 255, at a point of the picture in pixels.
+#[cfg(feature = "ui-tests")]
+pub(crate) fn first_picture_pixel(view: WeakView, x: u32, y: u32) -> Option<[u8; 3]> {
+    let entry = LOOPS.get_mut().iter().find(|entry| entry.view.addr() == view.addr())?;
+    let first = &entry.layer.layer.as_ref()?.shown_pictures()?.first;
+    let at = usize::try_from((y * first.width + x) * 4).ok()?;
+    let bgra = first.pixels.get(at..at + 4)?;
+    Some([bgra[2], bgra[1], bgra[0]])
 }
 
 /// The layer of the loop of `view` while it shows the loop.

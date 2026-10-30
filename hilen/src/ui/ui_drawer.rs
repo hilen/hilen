@@ -774,7 +774,13 @@ fn is_picture(view: &dyn View) -> bool {
 }
 
 fn scissor(pass: &mut RenderPass, rect: Rect<u32>) {
-    pass.set_scissor_rect(rect.x(), rect.y(), rect.width(), rect.height());
+    let (x, y) = frame::target_origin();
+    pass.set_scissor_rect(
+        rect.x().saturating_sub(x),
+        rect.y().saturating_sub(y),
+        rect.width(),
+        rect.height(),
+    );
 }
 
 /// Map the clip space of what comes next onto `area` at the frame origin,

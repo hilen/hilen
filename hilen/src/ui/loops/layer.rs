@@ -7,9 +7,12 @@
 //! own to delete at its stop, see `docs/hot-reload.md`. Every call is old
 //! enough for iOS 12.
 
-use std::ptr::{NonNull, from_ref, null};
+use std::{
+    ptr::{NonNull, from_ref, null},
+    rc::Rc,
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use objc2::{msg_send, rc::Retained, runtime::AnyObject};
 use objc2_core_foundation::{CFData, CFIndex, CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
@@ -38,7 +41,8 @@ pub(super) struct Layer {
     layer:     Retained<CALayer>,
     /// The y axis of the root layer goes down, as in the window.
     y_down:    bool,
-    images:    Vec<CFRetained<CGImage>>,
+    /// The pictures it shows, maybe the same set as other layers show.
+    pictures:  Option<Rc<Pictures>>,
     key_times: Vec<f64>,
     period:    f64,
     /// Where the layer is, in the pixels of the window.
@@ -85,7 +89,7 @@ impl Layer {
             root,
             layer,
             y_down,
-            images: vec![],
+            pictures: None,
             key_times: vec![],
             period: 1.0,
             rect: None,
@@ -95,39 +99,15 @@ impl Layer {
 
     /// The pictures and their times, from 0 to 1 with 1 more time than
     /// pictures, the end of the last one.
-    pub(super) fn set_pictures(
-        &mut self,
-        frames: &RawFrames,
-        key_times: Vec<f64>,
-        period: f64,
-    ) -> Result<()> {
-        // SAFETY: a constant of Core Graphics.
-        let space =
-            CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB })).context("no sRGB color space")?;
-        let info = match frames.order {
-            PixelOrder::BgraPremultiplied => {
-                CGBitmapInfo(CGImageByteOrderInfo::Order32Little.0 | CGImageAlphaInfo::PremultipliedFirst.0)
-            }
-            PixelOrder::Rgba => CGBitmapInfo(CGImageAlphaInfo::Last.0),
-        };
-        let width = usize::try_from(frames.size.width)?;
-        let height = usize::try_from(frames.size.height)?;
-
-        let images = frames
-            .pixels
-            .iter()
-            .map(|pixels| image(pixels, width, height, &space, info))
-            .collect::<Result<Vec<_>>>()?;
-        let first = images.first().context("a loop with no pictures")?;
+    pub(super) fn set_pictures(&mut self, pictures: Rc<Pictures>, key_times: Vec<f64>, period: f64) {
         transaction(|| {
             // SAFETY: a CGImage is what `contents` takes.
-            unsafe { self.layer.setContents(Some(object(first))) };
+            unsafe { self.layer.setContents(Some(object(&pictures.images[0]))) };
         });
 
-        self.images = images;
+        self.pictures = Some(pictures);
         self.key_times = key_times;
         self.period = period;
-        Ok(())
     }
 
     /// Puts the layer over `rect`, in the pixels of the window.
@@ -156,7 +136,10 @@ impl Layer {
 
     /// Shows the pictures in a loop, `offset` seconds into it.
     pub(super) fn start(&self, offset: f64) {
-        let values: Vec<&AnyObject> = self.images.iter().map(|image| object(image)).collect();
+        let Some(pictures) = &self.pictures else {
+            return;
+        };
+        let values: Vec<&AnyObject> = pictures.images.iter().map(|image| object(image)).collect();
         let values = NSArray::from_slice(&values);
         let times: Vec<Retained<NSNumber>> =
             self.key_times.iter().map(|time| NSNumber::numberWithDouble(*time)).collect();
@@ -189,23 +172,29 @@ impl Layer {
     }
 
     #[cfg(feature = "ui-tests")]
+    pub(super) fn shown_pictures(&self) -> Option<&Rc<Pictures>> {
+        self.pictures.as_ref()
+    }
+
+    #[cfg(feature = "ui-tests")]
     pub(super) fn state(&self) -> super::on_layer::LayerState {
         let frame = self.layer.frame();
         let narrow = |value: f64| -> f32 { value.lossy_convert() };
         // SAFETY: the key is a string, the answer an animation or nil.
         let animation = unsafe { self.layer.animationForKey(&NSString::from_str(ANIMATION)) };
         super::on_layer::LayerState {
-            frame:    Rect::new(
+            frame:       Rect::new(
                 narrow(frame.origin.x),
                 narrow(frame.origin.y),
                 narrow(frame.size.width),
                 narrow(frame.size.height),
             ),
-            pictures: self.images.len(),
-            animated: animation.is_some() && !self.layer.isHidden(),
-            flipped:  self.layer.contentsAreFlipped(),
-            y_down:   self.y_down,
-            builds:   0,
+            pictures:    self.pictures.as_ref().map_or(0, |pictures| pictures.images.len()),
+            animated:    animation.is_some() && !self.layer.isHidden(),
+            flipped:     self.layer.contentsAreFlipped(),
+            y_down:      self.y_down,
+            builds:      0,
+            pictures_id: self.pictures.as_ref().map_or(0, |pictures| Rc::as_ptr(pictures).addr()),
         }
     }
 }
@@ -226,6 +215,58 @@ impl Drop for Layer {
         if !self.stays {
             transaction(|| self.layer.removeFromSuperlayer());
         }
+    }
+}
+
+/// A set of pictures as images of Core Graphics. The layers of the loops
+/// that show the same content share 1 set, see `shared.rs`.
+pub(super) struct Pictures {
+    /// At least 1.
+    images:           Vec<CFRetained<CGImage>>,
+    /// The pixels of the first picture, for a test to read.
+    #[cfg(feature = "ui-tests")]
+    pub(super) first: RawFirst,
+}
+
+/// The first picture as bytes, for a test.
+#[cfg(feature = "ui-tests")]
+pub(super) struct RawFirst {
+    pub(super) pixels: Vec<u8>,
+    pub(super) width:  u32,
+}
+
+impl Pictures {
+    pub(super) fn new(frames: &RawFrames) -> Result<Self> {
+        // SAFETY: a constant of Core Graphics.
+        let space =
+            CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB })).context("no sRGB color space")?;
+        let info = match frames.order {
+            PixelOrder::BgraPremultiplied => {
+                CGBitmapInfo(CGImageByteOrderInfo::Order32Little.0 | CGImageAlphaInfo::PremultipliedFirst.0)
+            }
+            PixelOrder::Rgba => CGBitmapInfo(CGImageAlphaInfo::Last.0),
+        };
+        let width = usize::try_from(frames.size.width)?;
+        let height = usize::try_from(frames.size.height)?;
+
+        let images = frames
+            .pixels
+            .iter()
+            .map(|pixels| image(pixels, width, height, &space, info))
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(!images.is_empty(), "a loop with no pictures");
+        Ok(Self {
+            images,
+            #[cfg(feature = "ui-tests")]
+            first: RawFirst {
+                pixels: frames.pixels[0].clone(),
+                width:  frames.size.width,
+            },
+        })
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.images.len()
     }
 }
 

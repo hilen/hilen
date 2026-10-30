@@ -1,6 +1,8 @@
 //! One frame of the view tree: the whole window, or only the regions that
 //! changed since the frame before, see `ui::damage`.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use super::{BLUR_DRAWER, DrawContext, UIDrawer, scissor};
 use crate::{
     gm::{
@@ -16,6 +18,18 @@ use crate::{
     },
     window::{RenderFrame, image::Svg},
 };
+
+/// The pixel of the window at the top left of the texture the passes draw
+/// into, x in the high 32 bits. It is not 0 only while a picture of a loop
+/// draws into a texture of its own size.
+static TARGET_ORIGIN: AtomicU64 = AtomicU64::new(0);
+
+/// The pixel of the window at the top left of the texture drawn into.
+pub(super) fn target_origin() -> (u32, u32) {
+    let origin = TARGET_ORIGIN.load(Ordering::Relaxed);
+    let half = |bits: u64| u32::try_from(bits & u64::from(u32::MAX)).unwrap_or_default();
+    (half(origin >> 32), half(origin))
+}
 
 /// Farther than every view, the root sits at `UIManager::ROOT_VIEW_Z_OFFSET`.
 const FILL_Z: f32 = 0.999;
@@ -95,12 +109,27 @@ impl UIDrawer {
     }
 
     /// Draws 1 view and its subviews alone, at their place in the window,
-    /// cut at `region`. A picture of a loop for a layer of the system, see
-    /// `ui::loops`. The frame starts clear, so what is behind the view is
-    /// not in it.
+    /// cut at `region`, into a texture of the size of `region`. A picture
+    /// of a loop for a layer of the system, see `ui::loops`. The frame
+    /// starts clear, so what is behind the view is not in it.
     #[cfg(apple)]
     pub(crate) fn draw_subtree(render_frame: &mut RenderFrame, view: &dyn View, region: Rect<u32>) {
-        Self::draw_region(render_frame, view, region, UIManager::window_resolution(), false);
+        let resolution = UIManager::window_resolution();
+        // The clip space of the whole window moves so that the region lands
+        // at the corner of the texture, and every scissor moves with it.
+        // A texture of the window size cost a clear and a resolve of the
+        // whole window per picture, 145 of them took up to 1 s of the GPU.
+        TARGET_ORIGIN.store(
+            (u64::from(region.x()) << 32) | u64::from(region.y()),
+            Ordering::Relaxed,
+        );
+        let left: f32 = region.x().lossy_convert();
+        let top: f32 = region.y().lossy_convert();
+        render_frame
+            .pass()
+            .set_viewport(-left, -top, resolution.width, resolution.height, 0.0, 1.0);
+        Self::draw_region(render_frame, view, region, resolution, false);
+        TARGET_ORIGIN.store(0, Ordering::Relaxed);
     }
 
     /// Draws every view under `root` that has pixels in `region`, cut at
