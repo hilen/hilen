@@ -711,15 +711,20 @@ fn f_smooth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
 }
 
-// A blade of grass, cut out and dropped near the camera.
+// The blades of grass that stay, cut out and dropped near the camera. The
+// color it returns goes nowhere, `f_grass` lights them, see
+// `MeshDraw::GrassDepth`.
 @fragment
-fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
-    let surface = sampled(in);
-    let instance = instances[in.instance];
-    if surface.alpha < instance.cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
+fn f_grass_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    if coverage(in) < instances[in.instance].cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
         discard;
     }
-    return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
+    return vec4<f32>(0.0);
+}
+
+@fragment
+fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade_sampled(sampled(in), in.instance).rgb, 1.0);
 }
 
 // The 24 bits a depth photo has for a distance, spread on a log scale

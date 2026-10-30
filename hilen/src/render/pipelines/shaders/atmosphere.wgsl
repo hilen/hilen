@@ -169,7 +169,19 @@ fn air_light_at(offset: vec3<f32>, to_light: vec3<f32>) -> vec3<f32> {
     }
     let p = offset - view.air[0].xyz;
     let r = length(p);
-    return air_transmittance_at(r, dot(p, to_light) / r);
+    let mu = dot(p, to_light) / r;
+    let top = view.air[1].w;
+    // The table only holds points inside the air. Past its top the light
+    // comes clean, unless its line goes through the air on the way here,
+    // then it is what the air lets through from where that line enters.
+    if r > top {
+        let closest = r * r * (1.0 - mu * mu);
+        if mu >= 0.0 || closest >= top * top {
+            return vec3<f32>(1.0);
+        }
+        return air_transmittance_at(top, -sqrt(1.0 - closest / (top * top)));
+    }
+    return air_transmittance_at(r, mu);
 }
 
 fn rayleigh_phase(cos: f32) -> f32 {

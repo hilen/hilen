@@ -120,20 +120,18 @@ pub(super) fn mesh_pipelines(
     ]
 }
 
-/// The grass, `v_grass` into `f_grass` of the mesh shader.
-pub(super) fn grass_pipeline(
+/// The grass of the mesh shader from `v_grass`, the depth of its blades
+/// and then their light.
+pub(super) fn grass_pipelines(
     device: &wgpu::Device,
     layout: &PipelineLayout,
     shader: &ShaderModule,
-) -> RenderPipeline {
-    device.mesh_pipeline(
-        "grass_pipeline",
-        layout,
-        shader,
-        GRASS_LAYOUTS,
-        "v_grass",
-        MeshDraw::Grass,
-    )
+) -> [RenderPipeline; 2] {
+    [
+        ("grass_depth_pipeline", MeshDraw::GrassDepth),
+        ("grass_pipeline", MeshDraw::Grass),
+    ]
+    .map(|(label, draw)| device.mesh_pipeline(label, layout, shader, GRASS_LAYOUTS, "v_grass", draw))
 }
 
 /// The 2 passes that write the far end of the scene's depth before it

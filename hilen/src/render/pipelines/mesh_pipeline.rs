@@ -11,7 +11,7 @@ use wgpu::{
 };
 
 use self::builders::{
-    SmoothPipelines, depth_fill_pipelines, grass_pipeline, line_pipelines, mesh_pipelines, shader,
+    SmoothPipelines, depth_fill_pipelines, grass_pipelines, line_pipelines, mesh_pipelines, shader,
 };
 use super::{
     air_textures::AirTextures,
@@ -164,8 +164,9 @@ pub struct MeshPipeline {
     /// `fill_depth`.
     depth_far:    RenderPipeline,
     depth_near:   RenderPipeline,
-    /// The grass, `f_grass` from the `v_grass` vertex entry.
-    grass:        RenderPipeline,
+    /// The grass from the `v_grass` vertex entry: `f_grass_depth` leaves the
+    /// depth of the blades on top and `f_grass` lights only those.
+    grass:        [RenderPipeline; 2],
 
     /// The opaque and the cut out pipelines of a depth photo, made at the
     /// first one from the layout and the shader of the nodes, so an app
@@ -313,7 +314,7 @@ impl Default for MeshPipeline {
         let translucent = draws("mesh_translucent", MeshDraw::Translucent);
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
         let [depth_far, depth_near] = depth_fill_pipelines(device);
-        let grass = grass_pipeline(device, &mesh_layout, &mesh_shader);
+        let grass = grass_pipelines(device, &mesh_layout, &mesh_shader);
         // The lines bind only the view, the sky's layout.
         let [lines_pipeline, wide_tested, wide_on_top] =
             line_pipelines(device, &sky_layout, &lines_shader, &wide_shader);
@@ -732,20 +733,22 @@ impl MeshPipeline {
         );
         render_pass.set_bind_group(1, bind, &[]);
         let stride = GrassBlade::VERTEX_LAYOUT.array_stride;
-        for draw in self.grass_drawn.iter().filter(|draw| draw.key.mesh.is_ok()) {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                &draw.key,
-                &self.white,
-                &self.flat_normal,
-            );
-            render_pass.set_bind_group(3, textures_bind, &[]);
-            render_pass.set_pipeline(&self.grass);
-            render_pass.set_vertex_buffer(0, draw.key.mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(draw.key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
-            render_pass.set_vertex_buffer(1, draw.blades.slice(..u64::from(draw.count) * stride));
-            render_pass.draw_indexed(0..draw.key.mesh.index_count, 0, 0..draw.count);
+        for pipeline in &self.grass {
+            render_pass.set_pipeline(pipeline);
+            for draw in self.grass_drawn.iter().filter(|draw| draw.key.mesh.is_ok()) {
+                let textures_bind = textures_bind(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    &draw.key,
+                    &self.white,
+                    &self.flat_normal,
+                );
+                render_pass.set_bind_group(3, textures_bind, &[]);
+                render_pass.set_vertex_buffer(0, draw.key.mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(draw.key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(1, draw.blades.slice(..u64::from(draw.count) * stride));
+                render_pass.draw_indexed(0..draw.key.mesh.index_count, 0, 0..draw.count);
+            }
         }
     }
 }

@@ -53,8 +53,11 @@ pub(crate) enum MeshDraw {
     /// The edges of the mesh as lines in one color, drawn from its edge
     /// buffer over the solid draw, see `SceneBase::show_wireframe`.
     Wireframe,
-    /// Like `Cutout`, and nothing within 2 units of the camera, see
-    /// `f_grass` in mesh.wgsl.
+    /// Like `CutoutDepth`, and nothing within 2 units of the camera, see
+    /// `f_grass_depth` in mesh.wgsl. Blades overlap many times over a pixel
+    /// and each would pay for its light without this.
+    GrassDepth,
+    /// The light of the grass, only on the depth `GrassDepth` left.
     Grass,
     /// `Opaque`, `Cutout`, `Translucent` and `DepthCutout` for a mesh whose
     /// colors fade, the fragment entries that take `v_smooth`.
@@ -418,6 +421,7 @@ impl DeviceHelper for Device {
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
                     MeshDraw::Wireframe => "f_wireframe",
+                    MeshDraw::GrassDepth => "f_grass_depth",
                     MeshDraw::Grass => "f_grass",
                     MeshDraw::SmoothOpaque => "f_smooth_opaque",
                     MeshDraw::SmoothCutout => "f_smooth_cutout",
@@ -432,7 +436,7 @@ impl DeviceHelper for Device {
                     } else {
                         BlendState::REPLACE
                     }),
-                    write_mask: if draw == MeshDraw::CutoutDepth {
+                    write_mask: if matches!(draw, MeshDraw::CutoutDepth | MeshDraw::GrassDepth) {
                         ColorWrites::empty()
                     } else {
                         ColorWrites::ALL
@@ -455,8 +459,10 @@ impl DeviceHelper for Device {
                 conservative:       false,
             },
             depth_stencil:  DepthStencilState {
-                depth_write_enabled: Some(!transparent && !wireframe && draw != MeshDraw::Cutout),
-                depth_compare: Some(if draw == MeshDraw::Cutout {
+                depth_write_enabled: Some(
+                    !transparent && !wireframe && !matches!(draw, MeshDraw::Cutout | MeshDraw::Grass),
+                ),
+                depth_compare: Some(if matches!(draw, MeshDraw::Cutout | MeshDraw::Grass) {
                     CompareFunction::Equal
                 } else {
                     SCENE_DEPTH_COMPARE

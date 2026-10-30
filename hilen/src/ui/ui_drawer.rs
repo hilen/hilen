@@ -1,3 +1,5 @@
+#[cfg(feature = "scene")]
+mod behind_views;
 mod frame;
 
 use std::{

@@ -7,7 +7,7 @@ use wgpu::{
 };
 
 use crate::{
-    deps::refs::{Weak, main_lock::MainLock},
+    deps::refs::{Weak, main_lock::MainLock, manage::DataManager},
     gm::{
         LossyConvert,
         color::{Color, WHITE},
@@ -23,7 +23,10 @@ use crate::{
         Atmosphere, Camera, DayNightSky, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh, Model, Node,
         Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights, sun_cascades,
     },
-    ui::{UIManager, ui_drawer::set_viewport},
+    ui::{
+        UIManager,
+        ui_drawer::{UIDrawer, set_viewport},
+    },
     window::{
         Window,
         image::{Image, ImageBind, Texture},
@@ -42,6 +45,10 @@ static VIEW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 /// The RGBA texture a photo is read back from, kept for the next photo
 /// of the same size, see `SceneManager::photo`.
 static PHOTO: MainLock<Option<Texture>> = MainLock::new();
+/// The picture of a scene over the whole window at a render scale under 1,
+/// see `SceneManager::set_render_scale`, and the targets of its size.
+static WINDOW_PICTURE: MainLock<Option<Weak<Image>>> = MainLock::new();
+static WINDOW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 
 /// Drops what is built for a sample count. Each part is made again when
 /// it is next used.
@@ -49,6 +56,7 @@ pub(crate) fn drop_pipelines() {
     MESH.clear();
     PICTURE_TARGETS.clear();
     VIEW_TARGETS.clear();
+    WINDOW_TARGETS.clear();
 }
 
 /// The targets of `size` in `slot`, made again for another size.
@@ -266,6 +274,22 @@ impl SceneDrawer {
             return;
         }
 
+        if let Some(size) = Self::window_picture_size() {
+            let image = Self::window_picture(size);
+            let targets = targets_of(WINDOW_TARGETS.get_mut(), size);
+            let scene = SceneManager::scene();
+            Self::draw_into(
+                scene,
+                &scene.camera,
+                image.view(),
+                size,
+                targets,
+                Fill::Light(Window::clear_color()),
+                encoder,
+            );
+            return;
+        }
+
         let scene = SceneManager::scene();
         Self::gather(
             scene,
@@ -274,6 +298,41 @@ impl SceneDrawer {
             DEPTH_BAND,
             encoder,
         );
+    }
+
+    /// The pixels of the picture of a scene over the whole window, `None`
+    /// when it draws straight into the frame.
+    fn window_picture_size() -> Option<Size<u32>> {
+        let scale = SceneManager::render_scale();
+        if scale >= 1.0 {
+            return None;
+        }
+        let area = UIManager::render_area();
+        let size: Size<u32> = Size::new(
+            (area.width * scale).round().lossy_convert(),
+            (area.height * scale).round().lossy_convert(),
+        );
+        (size.width > 0 && size.height > 0).then_some(size)
+    }
+
+    /// The image of `size` pixels, made again when the size changed.
+    fn window_picture(size: Size<u32>) -> Weak<Image> {
+        let slot = WINDOW_PICTURE.get_mut();
+        if let Some(image) = slot.as_ref().filter(|image| image.is_ok() && image.size == size) {
+            return *image;
+        }
+        Self::free_window_picture();
+        let image = Image::render_target(&format!("scene-window-{}x{}", size.width, size.height), size);
+        *WINDOW_PICTURE.get_mut() = Some(image);
+        image
+    }
+
+    /// Frees the picture of a stopped scene, it holds a window of pixels.
+    pub(crate) fn free_window_picture() {
+        if let Some(image) = WINDOW_PICTURE.get_mut().take().filter(Weak::is_ok) {
+            image.free();
+        }
+        WINDOW_TARGETS.clear();
     }
 
     /// Gathers the nodes of `scene` seen through `camera` into the
@@ -480,6 +539,13 @@ impl SceneDrawer {
 
     pub fn draw(pass: &mut RenderPass) {
         if SceneManager::no_scene() || SceneManager::host().is_some() {
+            return;
+        }
+
+        if Self::window_picture_size().is_some() {
+            if let Some(image) = *WINDOW_PICTURE.get_mut() {
+                UIDrawer::draw_behind_views(pass, image);
+            }
             return;
         }
 

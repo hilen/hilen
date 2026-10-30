@@ -40,7 +40,7 @@ pub use self::scene_test::step_scene;
 pub use self::{
     atmosphere::Atmosphere,
     camera::{Camera, Projection},
-    collider_shape::{ColliderShape, Heightfield},
+    collider_shape::{BuiltTriMesh, ColliderShape, Heightfield},
     convex_hull::ConvexHull,
     day_night_sky::DayNightSky,
     fog::Fog,
@@ -51,7 +51,7 @@ pub use self::{
     line::{AXIS_COLORS, Line3},
     material::Material,
     mesh::Mesh,
-    model::{Clip, MeshData, Model},
+    model::{Clip, MeshData, Model, PreparedMesh},
     node_data::NodeData,
     nodes::*,
     occluder::Occluder,

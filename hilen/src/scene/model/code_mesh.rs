@@ -21,7 +21,30 @@ pub struct MeshData {
     pub indices:  Vec<u32>,
 }
 
+/// A mesh made ready to upload. Getting there splits it and checks it, which
+/// takes ms for a big mesh, so a worker thread can do it with this and leave
+/// only the upload to `Model::from_prepared`.
+pub struct PreparedMesh(ModelSource);
+
+impl PreparedMesh {
+    /// Any thread.
+    pub fn new(mesh: MeshData) -> Self {
+        Self(mesh_source(mesh, Colors::Flat))
+    }
+
+    /// Any thread, like `Model::from_smooth_mesh`.
+    pub fn smooth(mesh: MeshData) -> Self {
+        Self(mesh_source(mesh, Colors::Smooth))
+    }
+}
+
 impl Model {
+    /// `from_mesh` for a mesh prepared ahead of time.
+    pub fn from_prepared(name: &str, mesh: PreparedMesh) -> Weak<Model> {
+        let Ok(model) = Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh.0)));
+        model
+    }
+
     /// A model of geometry built in code, stored under `name` like a
     /// loaded file, so `Model::get(name)` returns it too and every node
     /// of it draws the same buffers. When `name` is already stored that

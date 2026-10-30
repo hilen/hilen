@@ -7,7 +7,7 @@ use crate::{
         LossyConvert,
         volume::{Mat4, Quat, Vec3},
     },
-    scene::ColliderShape,
+    scene::{ColliderShape, MeshData},
 };
 
 /// A shown collider is drawn a little larger than its solid, so its
@@ -81,12 +81,11 @@ pub(crate) fn collider_lines(
         }
         ColliderShape::TriMesh(mesh) => {
             let place = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, center);
-            let at = |i: u32| {
-                place.transform_point3(mesh.vertices[usize::try_from(i).expect("a u32 index fits usize")].pos)
-            };
-            for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
-                lines.extend([(at(a), at(b)), (at(b), at(c)), (at(c), at(a))]);
-            }
+            triangle_lines(&mut lines, mesh, &place);
+        }
+        ColliderShape::Built(built) => {
+            let place = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, center);
+            triangle_lines(&mut lines, built.mesh(), &place);
         }
         ColliderShape::ConvexHull(hull) => {
             // Bigger from its own middle, its origin can lie anywhere.
@@ -131,6 +130,15 @@ pub(crate) fn collider_lines(
 
 /// Which of `count` grid points get a line, evenly spread and always the
 /// last one, so the far rim is outlined too.
+fn triangle_lines(lines: &mut Vec<(Vec3, Vec3)>, mesh: &MeshData, place: &Mat4) {
+    let at = |i: u32| {
+        place.transform_point3(mesh.vertices[usize::try_from(i).expect("a u32 index fits usize")].pos)
+    };
+    for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+        lines.extend([(at(a), at(b)), (at(b), at(c)), (at(c), at(a))]);
+    }
+}
+
 fn grid_lines(count: usize) -> Vec<usize> {
     let mut picked: Vec<usize> = (0..count).step_by((count / HEIGHTFIELD_LINES).max(1)).collect();
     if picked.last() != Some(&(count - 1)) {

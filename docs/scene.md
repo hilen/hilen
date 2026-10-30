@@ -413,6 +413,11 @@ and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
   works in its own axes, `to_field` and `to_world`. `Grass on a planet side` grows
   one on a slope of a ball.
 
+A point past the top of the air gets the light clean in `air_light_at`, unless its line
+to the light goes through the air, then it gets what the air lets through from where that
+line enters. The table of the air holds only points inside it, so a moon read from it came
+out orange. `Light past the air` holds a white ball grey.
+
 A planet from space in a window of 4096 by 2304 took 39 to 48 ms of GPU work a
 frame on an M1 Pro, 90 percent of it the air. Drawing the sky after the opaque nodes
 and the 3 skips above brought it to 9.6 ms with no pixel moved by more than 1
@@ -710,6 +715,13 @@ is lit, shadowed and fogged like a node through the same `lit`, cuts out by
 the material's `cutout` and drops everything within 2 units of the camera,
 so a blade never fills the view. Grass casts no shadow.
 
+Grass draws in 2 passes, like a cut out node. `MeshDraw::GrassDepth` writes only the depth
+of the blades that stay, through `f_grass_depth`, which has the discard, then
+`MeshDraw::Grass` lights them through `f_grass` with an `Equal` depth test. Blades overlap
+many times over a pixel, and in geblings on the ground at 3072 by 1728 they added about 20
+ms of fragment work with 1 lit pass each, measured with Metal System Trace with Time
+Profiler on, on 2026-10-30.
+
 Up to `thin_from` every blade is drawn, to `distance` they go 1 by 1. The
 blades of a patch lie in random order and blade `rank` is gone past
 `thin_from + (1 - rank / count) * (distance - thin_from)`, shrinking away over
@@ -771,8 +783,8 @@ the solid nodes and twice: `MeshDraw::CutoutDepth` writes only the depth of the
 fragments that stay, through `f_cutout_depth`, which has the only discard, then
 `MeshDraw::Cutout` lights them through `f_opaque` with an `Equal` depth test, so
 layers of quads light a pixel once. The position is `@invariant` for that test. A
-mesh with fading colors keeps 1 draw, `f_smooth_cutout`, and grass too, `f_grass`,
-both drop a fragment before its light. A near to far order of the cut out batches
+mesh with fading colors keeps 1 draw, `f_smooth_cutout`, it drops a fragment before
+its light. A near to far order of the cut out batches
 gave nothing on an M1 Pro on 2026-10-30, 10.6 to 10.7 frame ms with and without it,
 so there is none. An opaque node writes alpha 1 through `f_opaque`, the alpha of
 its texture would leave a hole in a scene picture. Every opaque batch lands in one instance buffer with one upload per frame. A
@@ -814,6 +826,22 @@ held still, a headless frame went from 2.43 ms to 1.44 ms.
 `METAL_CAPTURE_ENABLED=1`. Metal System Trace in Instruments times whole command
 buffers only, and a headless run lowers the GPU clock to its free frame rate, so
 only a run in a window in front, with the GPU full, measures a shader's cost.
+
+`SceneManager::set_render_scale(share)` draws a scene over the whole window at that
+share of the width and the height of its pixels, into an image `SceneDrawer` keeps, the
+route of a `SceneView`. `UIDrawer::draw_behind_views` stretches it over the frame before
+any view, so a see through view blends over the scene. Queued with the views it would come
+after their rects. The views stay sharp, and what shows where nothing draws is the
+window's clear color, as without a scale. `stop_scene` sets it back to 1, a scene in a
+`SceneView` ignores it. `Render scale` holds the colors at 1 and at 0.5. In geblings at
+4096 by 2304 on an M1 Pro, 22 ms of GPU work a frame held only 45 fps, 3328 by 1872 took
+16.3 ms and held 60, measured with Metal System Trace on 2026-10-30.
+
+A stream of ground can do its slow work on a worker. `BuiltTriMesh::new` builds a triangle
+mesh collider on any thread, `ColliderShape::Built` puts it on a node at no cost. A node of
+another scale builds its own from the mesh. Those trees and edge fixes took 51 percent of
+the main thread in a flight over geblings. `PreparedMesh::new` and `smooth` split and check
+a mesh on any thread and leave only the upload to `Model::from_prepared`.
 
 Colors are encoded sRGB like the whole frame, see [colors.md](colors.md). The
 shader decodes, lights in linear, tonemaps and encodes at the end of the fragment.

@@ -45,6 +45,7 @@ mod glow;
 mod grass;
 mod grass_on_a_planet;
 mod leaves;
+mod light_past_the_air;
 mod lights;
 mod materials;
 mod metal_roughness;
@@ -69,6 +70,7 @@ mod planet_walk;
 #[cfg(not_wasm)]
 mod player_walk;
 mod primitives;
+mod render_scale;
 mod ride_with_player;
 mod scene_in_view;
 mod scene_leaves_keys;

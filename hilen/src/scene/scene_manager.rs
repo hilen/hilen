@@ -46,6 +46,10 @@ pub struct SceneManager {
     /// Holds the scene's time, see `set_paused`.
     paused: bool,
 
+    /// See `set_render_scale`.
+    #[educe(Default = 1.0)]
+    render_scale: f32,
+
     /// Steps a stepped scene test may still take, see `set_stepped`.
     /// `None` runs free, one step per turn of the main loop.
     #[cfg(feature = "scene-tests")]
@@ -101,6 +105,8 @@ impl SceneManager {
 /// The longest step of the scene. Under 15 frames a second it slows down
 /// rather than taking steps a fast body passes through a wall in.
 const MAX_STEP: f32 = 1.0 / 15.0;
+/// A quarter of the width and the height, a sixteenth of the pixels.
+const MIN_RENDER_SCALE: f32 = 0.25;
 
 fn step_between(last: f64, now: f64) -> f32 {
     let between: f32 = (now - last).lossy_convert();
@@ -265,10 +271,26 @@ impl SceneManager {
         photo::take_depth(camera, size.into())
     }
 
+    /// Draws a scene over the whole window at this share of the width and
+    /// the height of its pixels, and stretches the picture over the window.
+    /// The cost of a lit pixel is most of a frame on a big screen, so this is
+    /// the strongest lever on the GPU, for a softer picture. The views over
+    /// the scene stay sharp. 1 by default, a scene in a `SceneView` ignores
+    /// it. `stop_scene` sets it back to 1.
+    pub fn set_render_scale(scale: f32) {
+        SELF.get_mut().render_scale = scale.clamp(MIN_RENDER_SCALE, 1.0);
+    }
+
+    pub fn render_scale() -> f32 {
+        SELF.render_scale
+    }
+
     pub fn stop_scene() {
         let s = SELF.get_mut();
         s.scene = None;
         s.host = None;
+        s.render_scale = 1.0;
+        SceneDrawer::free_window_picture();
         #[cfg(feature = "scene-tests")]
         {
             s.steps_left = None;

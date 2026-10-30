@@ -12,7 +12,10 @@ use log::{debug, error};
 
 use self::parse::{ModelSource, parse_glb};
 pub(crate) use self::rig::Rig;
-pub use self::{code_mesh::MeshData, rig::Clip};
+pub use self::{
+    code_mesh::{MeshData, PreparedMesh},
+    rig::Clip,
+};
 use crate::{
     deps::{
         hreads::from_main,

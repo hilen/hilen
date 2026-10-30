@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    fmt::{self, Debug, Formatter},
+    sync::Arc,
+};
 
 use glam::IVec3;
 use log::warn;
@@ -39,6 +42,8 @@ pub enum ColliderShape {
     /// The triangles of a mesh, for ground of any shape like a cave.
     /// The mesh must hold at least 1 triangle.
     TriMesh(Arc<MeshData>),
+    /// A triangle mesh whose collider is built already, see `BuiltTriMesh`.
+    Built(Arc<BuiltTriMesh>),
     /// The smallest convex solid around a list of points, a body of any
     /// shape that falls and lands. Unlike a triangle mesh it has an inside,
     /// so it works on a moving body.
@@ -74,6 +79,7 @@ impl PartialEq for ColliderShape {
             ) => radius == other_radius && height == other_height,
             (Self::Heightfield(a), Self::Heightfield(b)) => a == b,
             (Self::TriMesh(a), Self::TriMesh(b)) => Arc::ptr_eq(a, b),
+            (Self::Built(a), Self::Built(b)) => Arc::ptr_eq(a, b),
             (Self::ConvexHull(a), Self::ConvexHull(b)) => a == b,
             (
                 Self::Voxels { size, cells },
@@ -111,7 +117,7 @@ impl ColliderShape {
                 let (low, high) = field.height_range();
                 Vec3::new(field.width / 2.0, (high - low) / 2.0, field.depth / 2.0)
             }
-            Self::TriMesh(_) | Self::ConvexHull(_) | Self::Voxels { .. } => {
+            Self::TriMesh(_) | Self::Built(_) | Self::ConvexHull(_) | Self::Voxels { .. } => {
                 let (low, high) = self.bounds();
                 (high - low) / 2.0
             }
@@ -122,10 +128,8 @@ impl ColliderShape {
     /// from the node's origin.
     pub(crate) fn bounds(&self) -> (Vec3, Vec3) {
         match self {
-            Self::TriMesh(mesh) => mesh.vertices.iter().fold(
-                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
-                |(low, high), vertex| (low.min(vertex.pos), high.max(vertex.pos)),
-            ),
+            Self::TriMesh(mesh) => mesh_bounds(mesh),
+            Self::Built(built) => mesh_bounds(built.mesh()),
             Self::ConvexHull(hull) => hull.bounds(),
             Self::Voxels { size, cells } => {
                 let (low, high) = cells.iter().fold((IVec3::MAX, IVec3::MIN), |(low, high), &cell| {
@@ -172,6 +176,7 @@ impl ColliderShape {
                 ColliderBuilder::new(SharedShape::new(shape))
             }
             Self::TriMesh(mesh) => trimesh(mesh, scale),
+            Self::Built(built) => built.builder(scale),
             Self::ConvexHull(hull) => hull.builder(scale),
             Self::Voxels { size, cells } => {
                 let cells: Vec<IVec3> = cells.iter().map(|&cell| IVec3::from(cell)).collect();
@@ -179,6 +184,53 @@ impl ColliderShape {
             }
         }
     }
+}
+
+/// A triangle mesh with its collider built ahead of time. The search tree
+/// and the fix of the inner edges take 10s of ms for a chunk of ground, a
+/// stutter on the main thread, so a stream of ground makes this on a worker
+/// and `ColliderShape::Built` puts it on a node at no cost. A node of
+/// another scale builds its own from the mesh.
+#[derive(Clone)]
+pub struct BuiltTriMesh {
+    mesh:  Arc<MeshData>,
+    shape: SharedShape,
+}
+
+impl BuiltTriMesh {
+    /// Any thread. The mesh must hold at least 1 triangle.
+    pub fn new(mesh: Arc<MeshData>) -> Self {
+        let shape = trimesh(&mesh, 1.0).shape;
+        Self { mesh, shape }
+    }
+
+    pub fn mesh(&self) -> &MeshData {
+        &self.mesh
+    }
+
+    fn builder(&self, scale: f32) -> ColliderBuilder {
+        if scale.to_bits() == 1.0_f32.to_bits() {
+            ColliderBuilder::new(self.shape.clone())
+        } else {
+            trimesh(&self.mesh, scale)
+        }
+    }
+}
+
+impl Debug for BuiltTriMesh {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        formatter
+            .debug_struct("BuiltTriMesh")
+            .field("triangles", &(self.mesh.indices.len() / 3))
+            .finish_non_exhaustive()
+    }
+}
+
+fn mesh_bounds(mesh: &MeshData) -> (Vec3, Vec3) {
+    mesh.vertices.iter().fold(
+        (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+        |(low, high), vertex| (low.min(vertex.pos), high.max(vertex.pos)),
+    )
 }
 
 /// The triangles with their shared corners merged and the edges inside
@@ -361,6 +413,28 @@ mod test {
         assert_eq!(field.point(3, 2), (2.0, 3.0));
         assert!((field.height(1, 2) - (2.0 - 10.0)).abs() < 1e-5);
         assert_eq!(field.height_range(), (-32.0, 32.0));
+    }
+
+    #[test]
+    fn a_built_mesh_collides_like_its_mesh_at_any_scale() {
+        let corner = |x: f32, z: f32| Vertex3D::new(Vec3::new(x, 1.0, z), Vec3::Y, Point::default());
+        let mesh = Arc::new(MeshData {
+            vertices: vec![
+                corner(-2.0, -3.0),
+                corner(-2.0, 3.0),
+                corner(2.0, 3.0),
+                corner(2.0, -3.0),
+            ],
+            indices:  vec![0, 1, 2, 0, 2, 3],
+        });
+        let built = ColliderShape::Built(Arc::new(BuiltTriMesh::new(Arc::clone(&mesh))));
+        let plain = ColliderShape::TriMesh(mesh);
+        for scale in [1.0, 2.0] {
+            let got = built.builder(scale).shape.compute_local_aabb();
+            let want = plain.builder(scale).shape.compute_local_aabb();
+            assert_eq!((got.mins, got.maxs), (want.mins, want.maxs));
+        }
+        assert_eq!(built.bounds(), plain.bounds());
     }
 
     // Rapier reads the grid a column at a time with rows along z. A row
