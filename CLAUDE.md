@@ -261,6 +261,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   against upstream, which commits are upstream candidates, and the recipe for sending a
   fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
   opening an upstream PR.
+- [docs/consoles.md](docs/consoles.md) — what Xbox, PS5 and Switch would take, a native
+  game build, an app on Xbox as a UWP shell around the wasm build, and what is not
+  checked. Read before planning any console work or gamepad input.
 
 Docs should be concise.
 

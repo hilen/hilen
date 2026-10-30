@@ -1304,3 +1304,13 @@ Small remainders not worth their own entry.
   holds on one GPU only. A sample mask of all ones in the SDF pipelines would
   make the alpha the only coverage, it moves every fractional edge on every
   platform, so it needs a re-record of the suite.
+
+## Game consoles
+
+The lowest priority, nothing asks for it yet. The research is in [consoles.md](consoles.md).
+
+- Current: no gamepad input, no console target, and no web shell for an Xbox app. On a
+  console the engine has no window layer and no `wgpu` backend it can use as it is.
+- Needed: gamepad input through the key focus first. Then a UWP shell around the wasm
+  build for an app on Xbox, and a private native layer for a game on Xbox, Switch and PS5.
+- Blocks: any app or game on a console.
