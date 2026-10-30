@@ -292,10 +292,11 @@ fn air_ground(p: vec3<f32>, to_sun: vec3<f32>, from_camera: vec3<f32>) -> vec3<f
 }
 
 // The haze of the air between the camera and a point `offset` from it
-// over `color`, in 8 steps.
+// over `color`, in 2 steps. Every lit pixel runs this, 8 steps took 57
+// percent of a frame at 500 m on an M1 Pro.
 fn air_haze(color: vec3<f32>, offset: vec3<f32>) -> vec3<f32> {
     let distance = length(offset);
     let dir = offset / max(distance, 1e-6);
-    let air = air_march(-view.air[0].xyz, dir, -view.sun_dir.xyz, distance, 8u, vec3<f32>(0.0));
+    let air = air_march(-view.air[0].xyz, dir, -view.sun_dir.xyz, distance, 2u, vec3<f32>(0.0));
     return color * air.through + air.light * view.sun_color.rgb;
 }

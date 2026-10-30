@@ -154,17 +154,18 @@ impl Batch {
 /// the joint matrices its instance points at.
 pub struct MeshPipeline {
     /// Each a pipeline and its skinned twin.
-    opaque:      [RenderPipeline; 2],
-    cutout:      [RenderPipeline; 2],
-    translucent: [RenderPipeline; 2],
-    sky:         RenderPipeline,
+    opaque:       [RenderPipeline; 2],
+    cutout:       [RenderPipeline; 2],
+    cutout_depth: [RenderPipeline; 2],
+    translucent:  [RenderPipeline; 2],
+    sky:          RenderPipeline,
     /// Fill the depth of the viewport with the far end of the scene's
     /// reversed depth before the scene, and with 1 after it, see
     /// `fill_depth`.
-    depth_far:   RenderPipeline,
-    depth_near:  RenderPipeline,
+    depth_far:    RenderPipeline,
+    depth_near:   RenderPipeline,
     /// The grass, `f_grass` from the `v_grass` vertex entry.
-    grass:       RenderPipeline,
+    grass:        RenderPipeline,
 
     /// The opaque and the cut out pipelines of a depth photo, made at the
     /// first one from the layout and the shader of the nodes, so an app
@@ -308,6 +309,7 @@ impl Default for MeshPipeline {
             |label: &str, draw: MeshDraw| mesh_pipelines(device, label, &mesh_layout, &mesh_shader, draw);
         let opaque = draws("mesh", MeshDraw::Opaque);
         let cutout = draws("mesh_cutout", MeshDraw::Cutout);
+        let cutout_depth = draws("mesh_cutout_depth", MeshDraw::CutoutDepth);
         let translucent = draws("mesh_translucent", MeshDraw::Translucent);
         let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
         let [depth_far, depth_near] = depth_fill_pipelines(device);
@@ -324,6 +326,7 @@ impl Default for MeshPipeline {
         Self {
             opaque,
             cutout,
+            cutout_depth,
             translucent,
             sky,
             grass,

@@ -418,6 +418,12 @@ frame on an M1 Pro, 90 percent of it the air. Drawing the sky after the opaque n
 and the 3 skips above brought it to 9.6 ms with no pixel moved by more than 1
 color step, measured with Metal System Trace in geblings on 2026-10-29.
 
+`air_haze` runs for every lit pixel, so it is the dearest part of a lit node. In
+geblings at 500 m by day in a window of 2880 by 1872 on an M1 Pro, 8 steps took 41.9
+ms of fragment work a frame, 4 steps 29.5 ms, 2 steps 16.4 ms and no haze 17.8 ms,
+measured with Metal System Trace on 2026-10-30. It takes 2 steps. Haze per vertex
+would need 6 more components, more than an A7 draws, see below.
+
 ## Picking
 
 A touch that no view takes falls through to the scene, the way a level gets one.
@@ -760,9 +766,15 @@ the opaque nodes, then the grass, then the sky, one triangle at the far depth of
 with an `Equal` test, so it shades only the pixels no node covers. The air makes
 the sky the dearest shader of a frame, drawn first it ran under the whole planet.
 Then one draw per translucent node, back to front, blended and without a depth
-write. A cut out node is an opaque batch of its own, `MeshKey::cutout`, drawn
-through pipelines whose fragment entry `f_cutout` discards, so a plain opaque draw
-carries no discard. An opaque node writes alpha 1 through `f_opaque`, the alpha of
+write. A cut out node is an opaque batch of its own, `MeshKey::cutout`, drawn after
+the solid nodes and twice: `MeshDraw::CutoutDepth` writes only the depth of the
+fragments that stay, through `f_cutout_depth`, which has the only discard, then
+`MeshDraw::Cutout` lights them through `f_opaque` with an `Equal` depth test, so
+layers of quads light a pixel once. The position is `@invariant` for that test. A
+mesh with fading colors keeps 1 draw, `f_smooth_cutout`, and grass too, `f_grass`,
+both drop a fragment before its light. A near to far order of the cut out batches
+gave nothing on an M1 Pro on 2026-10-30, 10.6 to 10.7 frame ms with and without it,
+so there is none. An opaque node writes alpha 1 through `f_opaque`, the alpha of
 its texture would leave a hole in a scene picture. Every opaque batch lands in one instance buffer with one upload per frame. A
 buffer per batch cost a staging buffer per batch every frame. The instance carries the
 model matrix, the inverse transpose for normals and its own index in the buffer, see

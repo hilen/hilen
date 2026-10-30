@@ -36,8 +36,11 @@ pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::D
 pub(crate) enum MeshDraw {
     /// Replaces the target and writes depth.
     Opaque,
-    /// The same, after dropping the fragments under the material's
-    /// cutout, see `Material::cutout`.
+    /// The depth alone of the fragments that stay of a cut out node, see
+    /// `Material::cutout`. Far trees are layers of quads, a fragment only
+    /// pays for its light in `Cutout`, once it is known to be on top.
+    CutoutDepth,
+    /// The light of a cut out node, only on the depth `CutoutDepth` left.
     Cutout,
     /// Blends over what is drawn and leaves the depth alone, so the
     /// nodes behind it stay visible through it.
@@ -409,8 +412,8 @@ impl DeviceHelper for Device {
             fragment:       FragmentState {
                 module:              shader,
                 entry_point:         Some(match draw {
-                    MeshDraw::Opaque => "f_opaque",
-                    MeshDraw::Cutout => "f_cutout",
+                    MeshDraw::CutoutDepth => "f_cutout_depth",
+                    MeshDraw::Opaque | MeshDraw::Cutout => "f_opaque",
                     MeshDraw::Translucent => "f_main",
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
@@ -429,7 +432,11 @@ impl DeviceHelper for Device {
                     } else {
                         BlendState::REPLACE
                     }),
-                    write_mask: ColorWrites::ALL,
+                    write_mask: if draw == MeshDraw::CutoutDepth {
+                        ColorWrites::empty()
+                    } else {
+                        ColorWrites::ALL
+                    },
                 }
                 .into()],
             }
@@ -448,8 +455,12 @@ impl DeviceHelper for Device {
                 conservative:       false,
             },
             depth_stencil:  DepthStencilState {
-                depth_write_enabled: Some(!transparent && !wireframe),
-                depth_compare: Some(SCENE_DEPTH_COMPARE),
+                depth_write_enabled: Some(!transparent && !wireframe && draw != MeshDraw::Cutout),
+                depth_compare: Some(if draw == MeshDraw::Cutout {
+                    CompareFunction::Equal
+                } else {
+                    SCENE_DEPTH_COMPARE
+                }),
                 ..depth_stencil_state()
             }
             .into(),

@@ -89,8 +89,10 @@ struct SkinVertex {
 // the storage buffers, the world position is rebuilt from the depth,
 // only the index of the instance comes along, and the vertex color
 // comes packed and flat, one per triangle.
+// Invariant, a cut out node is drawn twice and the second draw tests its
+// depth for equal.
 struct VertexOutput {
-    @builtin(position) pos: vec4<f32>,
+    @invariant @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) instance: u32,
@@ -525,17 +527,41 @@ fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
 }
 
 // The lit color of a fragment and its alpha.
-fn lit(in: VertexOutput) -> vec4<f32> {
-    return lit_tinted(in.pos, in.uv, in.normal, in.instance, unpack4x8unorm(in.color));
+// What the textures say about a fragment. Everything with a derivative is
+// in here, so a node can drop a fragment after this and pay for no light,
+// see `f_grass`. The discard comes after every sample, the derivatives of a
+// dropped fragment are not to be trusted.
+struct Sampled {
+    base:       vec3<f32>,
+    alpha:      f32,
+    metallic:   f32,
+    perceptual: f32,
+    occlusion:  f32,
+    offset:     vec3<f32>,
+    world_pos:  vec3<f32>,
+    flat:       vec3<f32>,
+    normal:     vec3<f32>,
+}
+
+fn sampled(in: VertexOutput) -> Sampled {
+    return sample_maps(in.pos, in.uv, in.normal, in.instance, unpack4x8unorm(in.color));
 }
 
 // A smooth mesh has no uv, so it reads the first texel of each map.
+fn sampled_smooth(in: SmoothOutput) -> Sampled {
+    return sample_maps(in.pos, vec2<f32>(0.0), in.normal, in.instance, in.color);
+}
+
+fn lit(in: VertexOutput) -> vec4<f32> {
+    return shade_sampled(sampled(in), in.instance);
+}
+
 fn lit_smooth(in: SmoothOutput) -> vec4<f32> {
-    return lit_tinted(in.pos, vec2<f32>(0.0), in.normal, in.instance, in.color);
+    return shade_sampled(sampled_smooth(in), in.instance);
 }
 
 // `tint` is the vertex color, encoded sRGB like every color.
-fn lit_tinted(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>) -> vec4<f32> {
+fn sample_maps(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>) -> Sampled {
     let instance = instances[index];
     let texel = textureSample(base_texture, base_sampler, uv);
     var map = textureSample(normal_texture, normal_sampler, uv).xyz * 2.0 - 1.0;
@@ -556,9 +582,21 @@ fn lit_tinted(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint
 
     let offset = camera_offset(pos);
     let world_pos = view.camera_pos.xyz + offset;
+    let flat = normalize(normal);
+    let bent = perturb_normal(flat, world_pos, uv, map);
+    return Sampled(base, alpha, metallic, perceptual, occlusion, offset, world_pos, flat, bent);
+}
+
+fn shade_sampled(in: Sampled, index: u32) -> vec4<f32> {
+    let instance = instances[index];
+    let base = in.base;
+    let metallic = in.metallic;
+    let perceptual = in.perceptual;
+    let offset = in.offset;
+    let world_pos = in.world_pos;
 
     var s: Surface;
-    s.normal = perturb_normal(normalize(normal), world_pos, uv, map);
+    s.normal = in.normal;
     s.to_eye = to_eye_of(world_pos);
     s.nov = max(dot(s.normal, s.to_eye), 1e-4);
     s.diffuse = base * (1.0 - metallic);
@@ -583,10 +621,10 @@ fn lit_tinted(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint
     }
     // Occlusion darkens only the light from all around, never the sun
     // or a lamp, as glTF asks.
-    color *= occlusion;
+    color *= in.occlusion;
 
     let to_sun = -view.sun_dir.xyz;
-    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(normal))
+    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, in.flat)
         * light_through(offset, to_sun, view.occlusion.y) * air_light_at(offset, to_sun);
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
@@ -623,7 +661,7 @@ fn lit_tinted(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint
     // need every fragment to take the same path.
     color = select(color, base, instance.unlit > 0.5);
 
-    return vec4<f32>(encode(fogged(color, world_pos)), alpha);
+    return vec4<f32>(encode(fogged(color, world_pos)), in.alpha);
 }
 
 // A translucent node, blended by its alpha.
@@ -641,16 +679,15 @@ fn f_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // A cut out node, see `Material::cutout`, or a fading one, see
 // `Material::fade`. Its own entry, so a plain opaque draw carries no
-// discard. The discard comes after every sample, the derivatives of a
-// dropped fragment are not to be trusted.
+// discard. The color it returns goes nowhere, `f_opaque` lights what
+// stays, see `MeshDraw::CutoutDepth`.
 @fragment
-fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color = lit(in);
+fn f_cutout_depth(in: VertexOutput) -> @location(0) vec4<f32> {
     let instance = instances[in.instance];
-    if color.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+    if coverage(in) < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
-    return vec4<f32>(color.rgb, 1.0);
+    return vec4<f32>(0.0);
 }
 
 // The 3 entries above for a mesh with fading colors.
@@ -666,23 +703,23 @@ fn f_smooth_opaque(in: SmoothOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn f_smooth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
-    let color = lit_smooth(in);
+    let surface = sampled_smooth(in);
     let instance = instances[in.instance];
-    if color.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+    if surface.alpha < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
-    return vec4<f32>(color.rgb, 1.0);
+    return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
 }
 
-// A blade of grass, cut out like `f_cutout`, and dropped near the camera.
+// A blade of grass, cut out and dropped near the camera.
 @fragment
 fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color = lit(in);
+    let surface = sampled(in);
     let instance = instances[in.instance];
-    if color.a < instance.cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
+    if surface.alpha < instance.cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
         discard;
     }
-    return vec4<f32>(color.rgb, 1.0);
+    return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
 }
 
 // The 24 bits a depth photo has for a distance, spread on a log scale

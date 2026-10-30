@@ -4,7 +4,7 @@
 use wgpu::RenderPass;
 
 use super::{
-    MeshPipeline,
+    MeshKey, MeshPipeline,
     builders::{mesh_pipelines, smooth_pipeline},
     draw_edges, set_mesh,
 };
@@ -19,6 +19,30 @@ use crate::{
     scene::Sky,
     window::Window,
 };
+
+/// The rounds of `draw_batches`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Round {
+    /// Every node, with its distance as the color.
+    Photo,
+    /// Every node but the cut out ones of the next 2 rounds.
+    Solid,
+    CutoutDepth,
+    CutoutColor,
+}
+
+impl Round {
+    /// A mesh with fading colors draws its cut out node in 1 go,
+    /// `f_smooth_cutout`.
+    fn holds(self, key: &MeshKey) -> bool {
+        let twice = key.cutout && !key.mesh.smooth_colors;
+        match self {
+            Self::Photo => true,
+            Self::Solid => !twice,
+            Self::CutoutDepth | Self::CutoutColor => twice,
+        }
+    }
+}
 
 impl MeshPipeline {
     /// Draws the opaque and the cut out nodes of the frame with their
@@ -87,56 +111,64 @@ impl MeshPipeline {
             render_pass.set_bind_group(1, instances_bind, &[]);
         }
 
-        for (key, drawn) in self
-            .instances
-            .iter()
-            .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?)))
-        {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                key,
-                &self.white,
-                &self.flat_normal,
-            );
+        // Solid first, its depth spares the cut out nodes behind it.
+        let rounds: &[Round] = if depth {
+            &[Round::Photo]
+        } else {
+            &[Round::Solid, Round::CutoutDepth, Round::CutoutColor]
+        };
+        for &round in rounds {
+            for (key, drawn) in self
+                .instances
+                .iter()
+                .filter(|(key, _)| round.holds(key))
+                .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?)))
+            {
+                let textures_bind = textures_bind(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    key,
+                    &self.white,
+                    &self.flat_normal,
+                );
 
-            render_pass.set_bind_group(3, textures_bind, &[]);
-            let pipelines = match (&self.depth, depth) {
-                (Some([plain, cutout]), true) => {
-                    if key.cutout {
-                        cutout
-                    } else {
-                        plain
+                render_pass.set_bind_group(3, textures_bind, &[]);
+                let pipelines = match round {
+                    Round::Photo => {
+                        let [plain, cutout] = self.depth.as_ref().expect("made before the photo draws");
+                        if key.cutout { cutout } else { plain }
+                    }
+                    Round::Solid => &self.opaque,
+                    Round::CutoutDepth => &self.cutout_depth,
+                    Round::CutoutColor => &self.cutout,
+                };
+                set_mesh(render_pass, &key.mesh, pipelines);
+                if key.mesh.smooth_colors {
+                    let smooth = self.smooth.as_ref().expect("made when the node was added");
+                    let pipeline = match (depth, key.cutout) {
+                        (false, false) => Some(&smooth.opaque),
+                        (false, true) => Some(&smooth.cutout),
+                        // `f_depth` reads only the position, the plain pipeline
+                        // set above draws this mesh the same.
+                        (true, false) => None,
+                        (true, true) => self.smooth_depth_cutout.as_ref(),
+                    };
+                    if let Some(pipeline) = pipeline {
+                        render_pass.set_pipeline(pipeline);
                     }
                 }
-                _ if key.cutout => &self.cutout,
-                _ => &self.opaque,
-            };
-            set_mesh(render_pass, &key.mesh, pipelines);
-            if key.mesh.smooth_colors {
-                let smooth = self.smooth.as_ref().expect("made when the node was added");
-                let pipeline = match (depth, key.cutout) {
-                    (false, false) => Some(&smooth.opaque),
-                    (false, true) => Some(&smooth.cutout),
-                    // `f_depth` reads only the position, the plain pipeline
-                    // set above draws this mesh the same.
-                    (true, false) => None,
-                    (true, true) => self.smooth_depth_cutout.as_ref(),
-                };
-                if let Some(pipeline) = pipeline {
-                    render_pass.set_pipeline(pipeline);
+                // The slice starts at the batch, so the draw starts at instance
+                // zero, an A7 cannot draw from a base instance. The `index`
+                // attribute still names the real slot for the fragment stage.
+                render_pass.set_vertex_buffer(1, self.opaque_instances.elements(drawn.clone()));
+                let count = drawn.end - drawn.start;
+                render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..count);
+                if let (Some(wireframe), false) = (&self.wireframe_pipelines, depth)
+                    && self.wireframe
+                    && round != Round::CutoutDepth
+                {
+                    draw_edges(render_pass, &key.mesh, wireframe, count);
                 }
-            }
-            // The slice starts at the batch, so the draw starts at instance
-            // zero, an A7 cannot draw from a base instance. The `index`
-            // attribute still names the real slot for the fragment stage.
-            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(drawn.clone()));
-            let count = drawn.end - drawn.start;
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..count);
-            if let (Some(wireframe), false) = (&self.wireframe_pipelines, depth)
-                && self.wireframe
-            {
-                draw_edges(render_pass, &key.mesh, wireframe, count);
             }
         }
     }
