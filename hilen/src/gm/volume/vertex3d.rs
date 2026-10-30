@@ -12,6 +12,7 @@ pub struct Vertex3D {
     /// color. White leaves the material as it is. A triangle takes one
     /// color, the shader passes it flat from one of its corners, since an
     /// A7 has no room left for another blended value, see docs/ios.md.
+    /// `Model::from_smooth_mesh` fades it across the triangle instead.
     pub color:  U8Color,
 }
 

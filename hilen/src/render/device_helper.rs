@@ -53,6 +53,12 @@ pub(crate) enum MeshDraw {
     /// Like `Cutout`, and nothing within 2 units of the camera, see
     /// `f_grass` in mesh.wgsl.
     Grass,
+    /// `Opaque`, `Cutout`, `Translucent` and `DepthCutout` for a mesh whose
+    /// colors fade, the fragment entries that take `v_smooth`.
+    SmoothOpaque,
+    SmoothCutout,
+    SmoothTranslucent,
+    SmoothDepthCutout,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -388,7 +394,7 @@ impl DeviceHelper for Device {
         vertex_entry: &str,
         draw: MeshDraw,
     ) -> RenderPipeline {
-        let transparent = draw == MeshDraw::Translucent;
+        let transparent = matches!(draw, MeshDraw::Translucent | MeshDraw::SmoothTranslucent);
         let wireframe = draw == MeshDraw::Wireframe;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -410,6 +416,10 @@ impl DeviceHelper for Device {
                     MeshDraw::DepthCutout => "f_depth_cutout",
                     MeshDraw::Wireframe => "f_wireframe",
                     MeshDraw::Grass => "f_grass",
+                    MeshDraw::SmoothOpaque => "f_smooth_opaque",
+                    MeshDraw::SmoothCutout => "f_smooth_cutout",
+                    MeshDraw::SmoothTranslucent => "f_smooth_main",
+                    MeshDraw::SmoothDepthCutout => "f_smooth_depth_cutout",
                 }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {

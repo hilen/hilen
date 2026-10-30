@@ -107,6 +107,23 @@ fn cutout(pos: vec3<f32>, vertex: Vertex, instance: Instance) -> CutoutOutput {
     return out;
 }
 
+// A cut out mesh with fading colors, see `v_smooth` of the mesh shader.
+// It has no uv and its alpha fades. Two components.
+struct SmoothCutoutOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) @interpolate(flat) instance: u32,
+    @location(1) alpha: f32,
+}
+
+@vertex
+fn v_smooth_cutout(vertex: Vertex, instance: Instance) -> SmoothCutoutOutput {
+    var out: SmoothCutoutOutput;
+    out.pos = place(vertex.pos, instance);
+    out.instance = instance.index;
+    out.alpha = unpack4x8unorm(vertex.color).a;
+    return out;
+}
+
 @vertex
 fn v_main(vertex: Vertex, instance: Instance) -> @builtin(position) vec4<f32> {
     return place(vertex.pos, instance);
@@ -135,6 +152,16 @@ fn f_cutout(in: CutoutOutput) {
     let instance = instances[in.instance];
     let texel = textureSample(base_texture, base_sampler, in.uv);
     let alpha = instance.color.a * unpack4x8unorm(in.color).a * texel.a;
+    if alpha < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+}
+
+@fragment
+fn f_smooth_cutout(in: SmoothCutoutOutput) {
+    let instance = instances[in.instance];
+    let texel = textureSample(base_texture, base_sampler, vec2<f32>(0.0));
+    let alpha = instance.color.a * in.alpha * texel.a;
     if alpha < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }

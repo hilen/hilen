@@ -103,6 +103,7 @@ impl Model {
             .map(|part| ModelPart {
                 mesh:      Own::new(match &part.skin_vertices {
                     Some(skin) => Mesh::upload_skinned(&part.vertices, skin, &part.indices),
+                    None if part.smooth_colors => Mesh::upload_smooth(&part.vertices, &part.indices),
                     None => Mesh::upload(&part.vertices, &part.indices),
                 }),
                 transform: part.transform,

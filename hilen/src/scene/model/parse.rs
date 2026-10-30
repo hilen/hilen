@@ -48,6 +48,9 @@ pub(crate) struct PartSource {
     pub skin:          Option<usize>,
     /// None when the primitive has no material, the node's own applies.
     pub material:      Option<MaterialSource>,
+    /// Whether the color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub smooth_colors: bool,
 }
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
@@ -292,6 +295,7 @@ fn primitive_parts(
             node,
             skin: skin.map(|(index, _)| index),
             material,
+            smooth_colors: false,
         })
         .collect())
 }

@@ -4,6 +4,7 @@
 use std::num::NonZeroU64;
 
 use indexmap::IndexMap;
+use log::warn;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType, Sampler,
@@ -260,6 +261,14 @@ pub(super) fn make_textures_bind(
     white: &Texture,
     flat_normal: &Texture,
 ) -> BindGroup {
+    if key.mesh.smooth_colors
+        && (key.texture.is_some()
+            || key.normal_map.is_some()
+            || key.metallic_roughness_map.is_some()
+            || key.occlusion_map.is_some())
+    {
+        warn!("a mesh with fading colors has no uv, the maps of its material show only their first texel");
+    }
     let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
     let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
     let (metallic_roughness_view, metallic_roughness_sampler) =

@@ -118,7 +118,10 @@ mod test {
     fn a_mesh_from_code_keeps_its_triangle_order() {
         use crate::{
             gm::{flat::Point, volume::Vertex3D},
-            scene::{MeshData, model::code_mesh::mesh_source},
+            scene::{
+                MeshData,
+                model::code_mesh::{Colors, mesh_source},
+            },
         };
 
         let vertex = |x: f32, y: f32, z: f32| Vertex3D::new(Vec3::new(x, y, z), Vec3::Z, Point::default());
@@ -133,7 +136,7 @@ mod test {
             ],
             indices:  vec![0, 1, 2, 3, 4, 5],
         };
-        let triangles = of_parts(&mesh_source(mesh).parts);
+        let triangles = of_parts(&mesh_source(mesh, Colors::Flat).parts);
         assert_eq!(triangles.len(), 2);
         assert_eq!(triangles[1][0], Vec3::new(5.0, 0.0, -1.0));
     }

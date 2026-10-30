@@ -1,18 +1,23 @@
+mod batches;
+mod builders;
+
 use std::{array::from_fn, ops::Range};
 
 use indexmap::IndexMap;
 use plat::Platform;
 use wgpu::{
-    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CompareFunction, IndexFormat, PipelineLayout,
-    PipelineLayoutDescriptor, PrimitiveTopology, RenderPass, RenderPipeline, Sampler, ShaderModule,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureView,
+    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, IndexFormat, PipelineLayout,
+    PipelineLayoutDescriptor, RenderPass, RenderPipeline, Sampler, ShaderModule, ShaderStages, TextureView,
 };
 
+use self::builders::{
+    SmoothPipelines, depth_fill_pipelines, grass_pipeline, line_pipelines, mesh_pipelines, shader,
+};
 use super::{
     air_textures::AirTextures,
     mesh_binds::{
-        instances_bind, instances_layout, opaque_bind, plain_texture, storage_bind, textures_bind,
-        textures_layout, view_bind, view_layout,
+        instances_bind, instances_layout, opaque_bind, plain_texture, textures_bind, textures_layout,
+        view_bind, view_layout,
     },
 };
 use crate::{
@@ -26,7 +31,7 @@ use crate::{
         bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
         data::{GrassBlade, LineVertex, MeshInstance, MeshLight, WideLine},
-        device_helper::{DeviceHelper, MeshDraw, SCENE_DEPTH_COMPARE},
+        device_helper::{DeviceHelper, MeshDraw},
         frustum::{self, Frustum},
         pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
@@ -50,11 +55,7 @@ const SHADOW: &str = include_str!("shaders/shadow.wgsl");
 const FADE: &str = include_str!("shaders/fade.wgsl");
 const LINES: &str = include_str!("shaders/lines.wgsl");
 const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
-const DEPTH_FILL: &str = include_str!("shaders/depth_fill.wgsl");
 const ATMOSPHERE: &str = include_str!("shaders/atmosphere.wgsl");
-
-const LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[LineVertex::VERTEX_LAYOUT];
-const WIDE_LINE_LAYOUTS: &[wgpu::VertexBufferLayout] = &[WideLine::VERTEX_LAYOUT];
 
 /// The vertex buffers of a static draw and of a skinned one, which adds
 /// the joints and weights per vertex.
@@ -65,9 +66,6 @@ pub(super) const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
     MeshInstance::VERTEX_LAYOUT,
     SkinVertex::VERTEX_LAYOUT,
 ];
-/// The blade mesh and the blades of a grass patch.
-const GRASS_LAYOUTS: &[wgpu::VertexBufferLayout] = &[Vertex3D::VERTEX_LAYOUT, GrassBlade::VERTEX_LAYOUT];
-
 /// One patch of grass this frame, see `scene::Grass`: its blades drawn
 /// as instances of a mesh part, the instance its fragments read the
 /// material and the lights from, and the matrix `v_grass` reads.
@@ -171,9 +169,14 @@ pub struct MeshPipeline {
     /// The opaque and the cut out pipelines of a depth photo, made at the
     /// first one from the layout and the shader of the nodes, so an app
     /// that takes none does not wait for them at the start.
-    depth:       Option<[[RenderPipeline; 2]; 2]>,
-    mesh_layout: PipelineLayout,
-    mesh_shader: ShaderModule,
+    depth:               Option<[[RenderPipeline; 2]; 2]>,
+    /// The pipelines of a mesh whose colors fade, made at the first such
+    /// mesh. A cut out one takes the last in a depth photo, made with the
+    /// depth ones when there is such a mesh.
+    smooth:              Option<SmoothPipelines>,
+    smooth_depth_cutout: Option<RenderPipeline>,
+    mesh_layout:         PipelineLayout,
+    mesh_shader:         ShaderModule,
 
     /// Whether this frame draws the edges of every node over it, see
     /// `SceneBase::show_wireframe`. The pipelines are made at the first
@@ -325,6 +328,8 @@ impl Default for MeshPipeline {
             sky,
             grass,
             depth: None,
+            smooth: None,
+            smooth_depth_cutout: None,
             mesh_layout,
             mesh_shader,
             wireframe: false,
@@ -377,15 +382,27 @@ impl MeshPipeline {
     /// An opaque instance, left out of the passes whose view misses
     /// `reach`, drawn in all of them with none.
     pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance, reach: Option<Reach>) {
+        self.fit_smooth(&key);
         self.instances.entry(key).or_default().pending.push((instance, reach));
     }
 
     /// Translucent nodes draw in the order they are added, so add them
     /// back to front.
     pub(crate) fn add_transparent(&mut self, key: MeshKey, mut instance: MeshInstance) {
+        self.fit_smooth(&key);
         instance.index = self.transparent.pending();
         self.transparent.push(instance);
         self.transparent_keys.push(key);
+    }
+
+    /// Makes the pipelines of a mesh whose colors fade the first time
+    /// `key` draws one.
+    fn fit_smooth(&mut self, key: &MeshKey) {
+        if key.mesh.smooth_colors && self.smooth.is_none() {
+            let device = Window::device();
+            self.smooth = Some(SmoothPipelines::new(device, &self.mesh_layout, &self.mesh_shader));
+            self.shadow.make_smooth(device);
+        }
     }
 
     /// A grass patch, drawn in the camera's pass only. Grass casts no
@@ -652,103 +669,6 @@ impl MeshPipeline {
         render_pass.draw(0..3, 0..1);
     }
 
-    /// Draws the opaque and the cut out nodes of the frame with their
-    /// distance from the camera as the color, see
-    /// `SceneManager::depth_photo`. The sky, the translucent nodes and the
-    /// lines are no surface to measure, so they stay out.
-    pub(crate) fn draw_depth(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>) {
-        let frame = Window::render_frame();
-        self.transparent_keys.clear();
-        if !self.instances.values().any(|batch| batch.loaded(frame)) {
-            return;
-        }
-        if self.depth.is_none() {
-            let device = Window::device();
-            let pipelines = |name: &str, draw: MeshDraw| {
-                mesh_pipelines(device, name, &self.mesh_layout, &self.mesh_shader, draw)
-            };
-            self.depth = Some([
-                pipelines("mesh_depth", MeshDraw::Depth),
-                pipelines("mesh_depth_cutout", MeshDraw::DepthCutout),
-            ]);
-        }
-
-        // The sky of the frame, so the cached bind stays the frame's.
-        let sky = sky.unwrap_or(&self.black_sky);
-        let shadow_map = self.shadow.map();
-        let view_bind = cached(
-            &mut self.view_bind,
-            (
-                sky.view.clone(),
-                sky.sampler.clone(),
-                shadow_map.clone(),
-                self.air.transmittance.clone(),
-                self.air.multi.clone(),
-            ),
-            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map, &self.air),
-        );
-        render_pass.set_bind_group(0, view_bind, &[]);
-        self.draw_batches(render_pass, frame, true);
-    }
-
-    /// Draws every opaque and cut out batch loaded this `frame`, through
-    /// the depth pipelines when `depth` is set.
-    fn draw_batches(&mut self, render_pass: &mut RenderPass, frame: u64, depth: bool) {
-        let lights_bind = cached(&mut self.lights_bind, StorageKey::of(&self.lights), || {
-            storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights)
-        });
-        render_pass.set_bind_group(2, lights_bind, &[]);
-
-        if self.instances.values().any(|batch| batch.drawn_in(frame, 0).is_some()) {
-            let instances_bind = opaque_bind(
-                &mut self.opaque_bind,
-                &self.instances_layout,
-                &self.opaque_instances,
-                &self.joints,
-            );
-            render_pass.set_bind_group(1, instances_bind, &[]);
-        }
-
-        for (key, drawn) in self
-            .instances
-            .iter()
-            .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?)))
-        {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                key,
-                &self.white,
-                &self.flat_normal,
-            );
-
-            render_pass.set_bind_group(3, textures_bind, &[]);
-            let pipelines = match (&self.depth, depth) {
-                (Some([plain, cutout]), true) => {
-                    if key.cutout {
-                        cutout
-                    } else {
-                        plain
-                    }
-                }
-                _ if key.cutout => &self.cutout,
-                _ => &self.opaque,
-            };
-            set_mesh(render_pass, &key.mesh, pipelines);
-            // The slice starts at the batch, so the draw starts at instance
-            // zero, an A7 cannot draw from a base instance. The `index`
-            // attribute still names the real slot for the fragment stage.
-            render_pass.set_vertex_buffer(1, self.opaque_instances.elements(drawn.clone()));
-            let count = drawn.end - drawn.start;
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..count);
-            if let (Some(wireframe), false) = (&self.wireframe_pipelines, depth)
-                && self.wireframe
-            {
-                draw_edges(render_pass, &key.mesh, wireframe, count);
-            }
-        }
-    }
-
     /// Lets go of everything loaded this frame. A picture is drawn and
     /// submitted on its own, and the frame's draw that follows on the same
     /// frame number must not draw the picture's nodes again.
@@ -825,40 +745,6 @@ impl MeshPipeline {
             render_pass.draw_indexed(0..draw.key.mesh.index_count, 0, 0..draw.count);
         }
     }
-
-    fn draw_translucent(&mut self, render_pass: &mut RenderPass) {
-        let instances_bind = cached(
-            &mut self.transparent_bind,
-            (StorageKey::of(&self.transparent), StorageKey::of(&self.joints)),
-            || instances_bind(&self.instances_layout, &self.transparent, &self.joints),
-        );
-        render_pass.set_bind_group(1, instances_bind, &[]);
-
-        let range = self.transparent.range().clone();
-        let stride = MeshInstance::VERTEX_LAYOUT.array_stride;
-
-        for (i, key) in self.transparent_keys.drain(..).enumerate() {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                &key,
-                &self.white,
-                &self.flat_normal,
-            );
-            render_pass.set_bind_group(3, textures_bind, &[]);
-            set_mesh(render_pass, &key.mesh, &self.translucent);
-            // The draw starts at instance zero of a slice that begins at
-            // this node, its `index` attribute still names the real slot.
-            let start = range.start + u64::try_from(i).expect("node count fits u64") * stride;
-            render_pass.set_vertex_buffer(1, self.transparent.buffer().slice(start..range.end));
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..1);
-            if let Some(wireframe) = &self.wireframe_pipelines
-                && self.wireframe
-            {
-                draw_edges(render_pass, &key.mesh, wireframe, 1);
-            }
-        }
-    }
 }
 
 /// Draws the edges of `count` instances of the mesh whose vertex and
@@ -887,101 +773,4 @@ pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[R
     }
     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
     pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
-}
-
-/// A mesh pipeline and its skinned twin, the same shader from its two
-/// vertex entries.
-/// The thin lines, then the wide lines that are depth tested and the wide
-/// lines on top of everything.
-fn line_pipelines(
-    device: &wgpu::Device,
-    layout: &wgpu::PipelineLayout,
-    lines: &wgpu::ShaderModule,
-    wide: &wgpu::ShaderModule,
-) -> [RenderPipeline; 3] {
-    [
-        device.pipeline(
-            "lines_pipeline",
-            layout,
-            lines,
-            SCENE_DEPTH_COMPARE,
-            PrimitiveTopology::LineList,
-            LINE_LAYOUTS,
-        ),
-        device.pipeline(
-            "wide_lines_tested",
-            layout,
-            wide,
-            SCENE_DEPTH_COMPARE,
-            PrimitiveTopology::TriangleList,
-            WIDE_LINE_LAYOUTS,
-        ),
-        device.pipeline(
-            "wide_lines_on_top",
-            layout,
-            wide,
-            CompareFunction::Always,
-            PrimitiveTopology::TriangleList,
-            WIDE_LINE_LAYOUTS,
-        ),
-    ]
-}
-
-fn mesh_pipelines(
-    device: &wgpu::Device,
-    name: &str,
-    layout: &wgpu::PipelineLayout,
-    shader: &wgpu::ShaderModule,
-    draw: MeshDraw,
-) -> [RenderPipeline; 2] {
-    [
-        device.mesh_pipeline(
-            &format!("{name}_pipeline"),
-            layout,
-            shader,
-            STATIC_LAYOUTS,
-            "v_main",
-            draw,
-        ),
-        device.mesh_pipeline(
-            &format!("{name}_skinned_pipeline"),
-            layout,
-            shader,
-            SKINNED_LAYOUTS,
-            "v_skinned",
-            draw,
-        ),
-    ]
-}
-
-/// The grass, `v_grass` into `f_grass` of the mesh shader.
-fn grass_pipeline(device: &wgpu::Device, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
-    device.mesh_pipeline(
-        "grass_pipeline",
-        layout,
-        shader,
-        GRASS_LAYOUTS,
-        "v_grass",
-        MeshDraw::Grass,
-    )
-}
-
-/// The 2 passes that write the far end of the scene's depth before it
-/// draws and the near end after, see `fill_depth`.
-fn depth_fill_pipelines(device: &wgpu::Device) -> [RenderPipeline; 2] {
-    let fill_shader = shader(device, "depth_fill_shader", DEPTH_FILL.to_string());
-    let fill_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label:              "depth_fill_layout".into(),
-        bind_group_layouts: &[],
-        immediate_size:     0,
-    });
-    [("depth_far", "v_far"), ("depth_near", "v_near")]
-        .map(|(label, entry)| device.depth_fill_pipeline(label, &fill_layout, &fill_shader, entry))
-}
-
-fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {
-    device.create_shader_module(ShaderModuleDescriptor {
-        label:  label.into(),
-        source: ShaderSource::Wgsl(source.into()),
-    })
 }

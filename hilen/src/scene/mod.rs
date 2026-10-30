@@ -2,6 +2,7 @@ mod atmosphere;
 mod camera;
 mod collider_lines;
 mod collider_shape;
+mod convex_hull;
 mod day_night_sky;
 mod event_handler;
 mod fade;
@@ -40,6 +41,7 @@ pub use self::{
     atmosphere::Atmosphere,
     camera::{Camera, Projection},
     collider_shape::{ColliderShape, Heightfield},
+    convex_hull::ConvexHull,
     day_night_sky::DayNightSky,
     fog::Fog,
     grass::{Grass, GrassSpot, Wind},

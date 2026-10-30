@@ -508,10 +508,34 @@ A7 lets cross from the vertex to the fragment, so `from_mesh` panics when the
 three corners of a triangle differ. A full channel passes as exactly one, the
 sRGB decode of 255 lands a hair under it in f32 and moved pixels of every mesh.
 
+`Model::from_smooth_mesh(name, MeshData)` takes the same data and fades the color
+across each triangle between its 3 corners, in encoded sRGB, alpha included, so 2
+colors of a mesh meet with no saw edge:
+
+```rust
+let ground = Model::from_smooth_mesh("dug ground", mesh);
+self.make_node::<Prop>(Shape3::Model(ground), Vec3::ZERO).set_color(Color::hex("#ffffff"));
+```
+
+Eight values is all an A7 has, so the room for the color comes from the uv. The
+entry `v_smooth` of `mesh.wgsl` passes the normal, 3 values, the index of the
+instance, 1, and the color, 4, and no uv. So `Vertex3D::uv` is not read, the
+texture and the maps of the material show only their first texel, a warning says
+so when the textures are bound, and a clump of `Grass` cannot be such a mesh, it
+panics. The choice is per mesh, a mesh from `from_mesh` draws as before through the same
+pipelines and pays a read of a flag per node and per batch. The pipelines of a smooth mesh, opaque,
+cut out and translucent, its cut out twin in the shadow pass, and its cut out
+depth photo pipeline are made at the first such mesh, so an app with none does not wait
+for them. A plain shadow, a plain depth photo and a wireframe read only the position,
+so they draw a smooth mesh through the pipelines of a flat one. `Smooth colors` holds
+each way of drawing it, the unit test `every_mesh_shader_stays_in_the_room_of_an_a7`
+counts the values of each shader.
+
 ## Colliders, queries and parents
 
 A node collides as its drawn shape until `set_collider(ColliderShape, offset)`
-puts on a box, ball, capsule, cylinder, heightfield, triangle mesh or voxels.
+puts on a box, ball, capsule, cylinder, heightfield, triangle mesh, convex hull or
+voxels.
 `Heightfield` is a grid of
 heights, row by row along +x, rows stepping along +z, centered on the node, and
 `Heightfield::mesh` builds the matching ground cut along the same diagonal rapier
@@ -521,7 +545,33 @@ take its place. `TriMesh` collides as the triangles of a `MeshData`, with shared
 corners merged and the inner edges fixed so a body does not catch on them. 2
 triangle mesh shapes are equal only when they share 1 mesh. `Voxels` are cubes of
 1 size at integer cells. `show_colliders` draws every kind, a heightfield as a
-coarse grid, a triangle mesh as its edges and voxels as their cubes.
+coarse grid, a triangle mesh and a convex hull as their edges and voxels as their
+cubes.
+
+`ConvexHull` is the smallest convex solid around a list of points, for a body of any
+shape that falls and lands, where a triangle mesh has no inside and a box leaves it
+hanging in the air:
+
+```rust
+let Some(hull) = ConvexHull::from_mesh(&lump) else {
+    return; // Flat, on 1 line, or too few points.
+};
+let mut body = self.make_node::<Body>(Shape3::Model(Model::from_mesh("lump", lump)), place);
+body.set_collider(ColliderShape::ConvexHull(Arc::new(hull)), Vec3::ZERO);
+```
+
+`from_points` and `from_mesh` answer `None` for points that make no solid: under 4
+different points, all on 1 line or 1 plane, so thin that the hull fills less than a
+millionth of the cube of its longest side, or a point that is not finite. So a
+`ColliderShape::ConvexHull` always holds a solid. Repeated points are merged first, a
+mesh repeats a corner per triangle. The points are in the space of the node, the mass
+and its center come from the solid, so the origin of the node can lie anywhere. A node
+scale so small that the hull falls apart in floats, like 0, makes it a ball of that
+size with a warning. The hull is parry's quickhull, `scene/convex_hull.rs`. `vertices`
+and `triangles` give the result, a mesh to draw that fits the collider exactly.
+`cast_ray`, `cast_shape` and `overlapping` meet it and take it, and `move_world` moves
+it like any other collider, `Convex hull collider` holds these on a real `Body` and a
+real `Wall`.
 
 `cast_ray`, `cast_shape` and `overlapping` on the scene answer what a ray or a
 swept or placed shape meets, as a `QueryHit` with the node, the distance, the
@@ -722,8 +772,10 @@ fragment reads the material and the light list from a storage binding at that
 index. Seven float components cross the vertex to fragment boundary, the uv, the
 normal, the flat index and the flat packed vertex color, and the world position is
 rebuilt from the depth. An A7
-draws nothing above eight, see [ios.md](ios.md). The cutout shadow pass carries
-four, the uv, the index and the color. Every mesh buffer loads once per
+draws nothing above eight, see [ios.md](ios.md). A mesh with fading colors carries
+eight, see Meshes from code. The cutout shadow pass carries
+four, the uv, the index and the color, two for a mesh with fading colors, the index
+and the alpha. Every mesh buffer loads once per
 frame, so the bind groups over the view, the lights, the instances and
 each key's textures are kept from frame to frame and remade only when a buffer
 grows, a count changes, the sky or the shadow map is replaced or an image dies,
@@ -800,7 +852,11 @@ edges of a ball, a crate, the monkey and a translucent ball off and on, and `Mou
 player turned by a stream of captured mouse motion onto a crate, then left alone
 by the same stream once Escape freed the mouse. `Code meshes` is a terrain split
 into parts under a knot, a lathed vase, a twisted star and a rock, all built in
-code, `Vertex colors` a camp of meshes colored face by face, `Collider shapes`
+code, `Vertex colors` a camp of meshes colored face by face, `Smooth colors` a flat
+quad with a saw line next to quads whose colors fade, unlit, cut out by a fading
+alpha, blended and dithered, with their shadows, their edges and a depth photo,
+`Convex hull collider` a lump that falls and rests on a triangle mesh, a pyramid
+wall that the queries meet, and the same answers after `move_world`, `Collider shapes`
 bodies of every collider shape resting on heightfield hills, `Scene queries`
 rays, a sweep and a hitbox against static walls, `Node parenting` a knight whose
 arm, sword and hitbox follow its swing, walk and growth, and `Third person

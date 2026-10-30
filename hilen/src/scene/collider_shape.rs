@@ -14,7 +14,7 @@ use crate::{
         flat::Point,
         volume::{Shape3, Vec3, Vertex3D},
     },
-    scene::MeshData,
+    scene::{ConvexHull, MeshData},
 };
 
 /// The solid a node collides with. By default it comes from the node's
@@ -39,6 +39,10 @@ pub enum ColliderShape {
     /// The triangles of a mesh, for ground of any shape like a cave.
     /// The mesh must hold at least 1 triangle.
     TriMesh(Arc<MeshData>),
+    /// The smallest convex solid around a list of points, a body of any
+    /// shape that falls and lands. Unlike a triangle mesh it has an inside,
+    /// so it works on a moving body.
+    ConvexHull(Arc<ConvexHull>),
     /// Cubes of side `size` at the integer `cells`, cell `[0, 0, 0]`
     /// centered at `size / 2` along each axis from the node's origin.
     Voxels {
@@ -70,6 +74,7 @@ impl PartialEq for ColliderShape {
             ) => radius == other_radius && height == other_height,
             (Self::Heightfield(a), Self::Heightfield(b)) => a == b,
             (Self::TriMesh(a), Self::TriMesh(b)) => Arc::ptr_eq(a, b),
+            (Self::ConvexHull(a), Self::ConvexHull(b)) => a == b,
             (
                 Self::Voxels { size, cells },
                 Self::Voxels {
@@ -106,7 +111,7 @@ impl ColliderShape {
                 let (low, high) = field.height_range();
                 Vec3::new(field.width / 2.0, (high - low) / 2.0, field.depth / 2.0)
             }
-            Self::TriMesh(_) | Self::Voxels { .. } => {
+            Self::TriMesh(_) | Self::ConvexHull(_) | Self::Voxels { .. } => {
                 let (low, high) = self.bounds();
                 (high - low) / 2.0
             }
@@ -121,6 +126,7 @@ impl ColliderShape {
                 (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
                 |(low, high), vertex| (low.min(vertex.pos), high.max(vertex.pos)),
             ),
+            Self::ConvexHull(hull) => hull.bounds(),
             Self::Voxels { size, cells } => {
                 let (low, high) = cells.iter().fold((IVec3::MAX, IVec3::MIN), |(low, high), &cell| {
                     (low.min(IVec3::from(cell)), high.max(IVec3::from(cell)))
@@ -166,6 +172,7 @@ impl ColliderShape {
                 ColliderBuilder::new(SharedShape::new(shape))
             }
             Self::TriMesh(mesh) => trimesh(mesh, scale),
+            Self::ConvexHull(hull) => hull.builder(scale),
             Self::Voxels { size, cells } => {
                 let cells: Vec<IVec3> = cells.iter().map(|&cell| IVec3::from(cell)).collect();
                 ColliderBuilder::voxels(Vec3::splat(size * scale), &cells)

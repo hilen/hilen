@@ -27,6 +27,7 @@ mod collider_shapes;
 /// docs/roadmap.md.
 #[cfg(not_wasm)]
 mod colliders;
+mod convex_hull_collider;
 mod cutout;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]
@@ -84,6 +85,7 @@ mod shadow_out_of_view;
 #[cfg(not_wasm)]
 mod shadows;
 mod skybox;
+mod smooth_colors;
 mod sun_glare;
 /// Shadow edges on `SwiftShader`, see `animations`.
 #[cfg(not_wasm)]

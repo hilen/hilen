@@ -34,6 +34,9 @@ pub struct Mesh {
     pub(crate) skin_buffer:   Option<Buffer>,
     pub(crate) index_buffer:  Buffer,
     pub(crate) index_count:   u32,
+    /// Whether the color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub(crate) smooth_colors: bool,
     /// The triangles again on the CPU, what the edges are made from.
     indices:                  Vec<u16>,
     /// Every edge of the triangles once, as pairs of vertex indices, and
@@ -79,8 +82,18 @@ impl Mesh {
             skin_buffer:   None,
             index_buffer:  device.buffer(indices, BufferUsages::INDEX),
             index_count:   checked_usize_to_u32(indices.len()),
+            smooth_colors: false,
             indices:       indices.to_vec(),
             edges:         OnceLock::new(),
+        }
+    }
+
+    /// A mesh whose color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub(crate) fn upload_smooth(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+        Self {
+            smooth_colors: true,
+            ..Self::upload(vertices, indices)
         }
     }
 

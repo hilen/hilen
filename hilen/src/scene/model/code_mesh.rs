@@ -30,12 +30,36 @@ impl Model {
     /// and its collider and picking box is the box around its vertices.
     /// Call it on the main thread, it uploads to the GPU.
     pub fn from_mesh(name: &str, mesh: MeshData) -> Weak<Model> {
-        let Ok(model) = Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh_source(mesh))));
+        let Ok(model) =
+            Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh_source(mesh, Colors::Flat))));
+        model
+    }
+
+    /// Like `from_mesh`, with colors that fade across a triangle between
+    /// its 3 corners, so a mesh of many colors has no saw edge between
+    /// them. The fade goes from corner to corner in encoded sRGB, alpha
+    /// included. A flat color and a uv cross to the fragment in the same
+    /// room an A7 allows, see docs/ios.md, so this mesh gives up its uv:
+    /// `Vertex3D::uv` is not read, and the texture and the maps of its
+    /// material show only their first texel, a warning says so. It cannot
+    /// be the clump of a `Grass`.
+    pub fn from_smooth_mesh(name: &str, mesh: MeshData) -> Weak<Model> {
+        let Ok(model) =
+            Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh_source(mesh, Colors::Smooth))));
         model
     }
 }
 
-pub(super) fn mesh_source(mesh: MeshData) -> ModelSource {
+/// How a mesh built in code draws its vertex colors.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Colors {
+    /// 1 color a triangle.
+    Flat,
+    /// Each triangle fades between its corners.
+    Smooth,
+}
+
+pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
     assert_eq!(
         mesh.indices.len() % 3,
         0,
@@ -54,10 +78,11 @@ pub(super) fn mesh_source(mesh: MeshData) -> ModelSource {
     // The color reaches the fragment flat from a corner the backend picks,
     // so corners that differ would draw a different color on each lane.
     assert!(
-        indices.as_chunks::<3>().0.iter().all(|&[a, b, c]| {
-            let color = mesh.vertices[a].color;
-            mesh.vertices[b].color == color && mesh.vertices[c].color == color
-        }),
+        colors == Colors::Smooth
+            || indices.as_chunks::<3>().0.iter().all(|&[a, b, c]| {
+                let color = mesh.vertices[a].color;
+                mesh.vertices[b].color == color && mesh.vertices[c].color == color
+            }),
         "the three corners of a triangle need one color"
     );
 
@@ -71,6 +96,7 @@ pub(super) fn mesh_source(mesh: MeshData) -> ModelSource {
             node: 0,
             skin: None,
             material: None,
+            smooth_colors: colors == Colors::Smooth,
         })
         .collect();
 
@@ -94,14 +120,17 @@ mod test {
 
     #[test]
     fn a_small_mesh_is_one_part_bounded_by_its_vertices() {
-        let source = mesh_source(MeshData {
-            vertices: vec![
-                vertex(-1.0, 0.0, 2.0),
-                vertex(3.0, 0.5, 2.0),
-                vertex(0.0, -2.0, -4.0),
-            ],
-            indices:  vec![0, 2, 1],
-        });
+        let source = mesh_source(
+            MeshData {
+                vertices: vec![
+                    vertex(-1.0, 0.0, 2.0),
+                    vertex(3.0, 0.5, 2.0),
+                    vertex(0.0, -2.0, -4.0),
+                ],
+                indices:  vec![0, 2, 1],
+            },
+            Colors::Flat,
+        );
         assert_eq!(source.parts.len(), 1);
         assert_eq!(source.parts[0].indices, vec![0, 2, 1]);
         assert!(source.parts[0].material.is_none());
@@ -130,10 +159,13 @@ mod test {
             .collect();
         let triangles = indices.len() / 3;
 
-        let source = mesh_source(MeshData {
-            vertices: vertices.clone(),
-            indices,
-        });
+        let source = mesh_source(
+            MeshData {
+                vertices: vertices.clone(),
+                indices,
+            },
+            Colors::Flat,
+        );
 
         assert!(source.parts.len() > 1);
         let drawn: usize = source.parts.iter().map(|part| part.indices.len() / 3).sum();
@@ -149,18 +181,38 @@ mod test {
     fn a_triangle_with_two_colors_panics() {
         let mut red = vertex(1.0, 0.0, 0.0);
         red.color = U8Color::const_rgb(255, 0, 0);
-        mesh_source(MeshData {
-            vertices: vec![vertex(0.0, 0.0, 0.0), red, vertex(0.0, 0.0, 1.0)],
-            indices:  vec![0, 2, 1],
-        });
+        mesh_source(
+            MeshData {
+                vertices: vec![vertex(0.0, 0.0, 0.0), red, vertex(0.0, 0.0, 1.0)],
+                indices:  vec![0, 2, 1],
+            },
+            Colors::Flat,
+        );
+    }
+
+    #[test]
+    fn a_smooth_mesh_takes_three_colors_on_a_triangle() {
+        let mut red = vertex(1.0, 0.0, 0.0);
+        red.color = U8Color::const_rgb(255, 0, 0);
+        let source = mesh_source(
+            MeshData {
+                vertices: vec![vertex(0.0, 0.0, 0.0), red, vertex(0.0, 0.0, 1.0)],
+                indices:  vec![0, 2, 1],
+            },
+            Colors::Smooth,
+        );
+        assert!(source.parts[0].smooth_colors);
     }
 
     #[test]
     #[should_panic(expected = "points past")]
     fn an_index_past_the_vertices_panics() {
-        mesh_source(MeshData {
-            vertices: vec![vertex(0.0, 0.0, 0.0)],
-            indices:  vec![0, 0, 1],
-        });
+        mesh_source(
+            MeshData {
+                vertices: vec![vertex(0.0, 0.0, 0.0)],
+                indices:  vec![0, 0, 1],
+            },
+            Colors::Flat,
+        );
     }
 }

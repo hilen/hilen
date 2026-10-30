@@ -3,10 +3,10 @@ use std::{array::from_fn, ops::Range};
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
     BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer,
-    BufferBindingType, BufferUsages, CommandEncoder, Extent3d, LoadOp, Operations, PipelineLayoutDescriptor,
-    RenderPass, RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, ShaderModule,
-    ShaderStages, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
-    TextureViewDescriptor, TextureViewDimension,
+    BufferBindingType, BufferUsages, CommandEncoder, Extent3d, LoadOp, Operations, PipelineLayout,
+    PipelineLayoutDescriptor, RenderPass, RenderPassDepthStencilAttachment, RenderPassDescriptor,
+    RenderPipeline, ShaderModule, ShaderStages, StoreOp, Texture, TextureDescriptor, TextureDimension,
+    TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::{
@@ -30,15 +30,20 @@ use crate::{
 pub(crate) struct ShadowPass {
     /// A pipeline and its skinned twin, depth only with no fragment
     /// stage.
-    plain:    [RenderPipeline; 2],
+    plain:         [RenderPipeline; 2],
     /// The same with the stage that drops what a cutout drops, so it
     /// binds the batch's textures too.
-    cutout:   [RenderPipeline; 2],
-    cascades: [Cascade; SHADOW_CASCADES],
+    cutout:        [RenderPipeline; 2],
+    /// The cutout of a mesh whose colors fade, made at the first such
+    /// mesh from the layout and the shader kept here.
+    smooth_cutout: Option<RenderPipeline>,
+    cutout_layout: PipelineLayout,
+    shader:        ShaderModule,
+    cascades:      [Cascade; SHADOW_CASCADES],
     /// Every layer at once, what the mesh shader reads.
-    map:      TextureView,
+    map:           TextureView,
     /// Texels along each side of every layer.
-    map_size: u32,
+    map_size:      u32,
 }
 
 /// What a cascade's pass reads, see `ShadowView` in shadow.wgsl: the view
@@ -132,9 +137,24 @@ impl ShadowPass {
                 ),
             ],
             cascades,
+            smooth_cutout: None,
+            cutout_layout,
+            shader: shader.clone(),
             map: map_view(&map),
             map_size,
         }
+    }
+
+    /// Makes the cutout pipeline of a mesh whose colors fade.
+    pub(crate) fn make_smooth(&mut self, device: &wgpu::Device) {
+        self.smooth_cutout = Some(device.shadow_pipeline(
+            "shadow_smooth_cutout_pipeline",
+            &self.cutout_layout,
+            &self.shader,
+            STATIC_LAYOUTS,
+            "v_smooth_cutout",
+            Some("f_smooth_cutout"),
+        ));
     }
 
     pub(crate) fn map(&self) -> &TextureView {
@@ -190,6 +210,14 @@ impl ShadowPass {
                     None => &self.plain,
                 };
                 set_mesh(&mut pass, &batch.key.mesh, pipelines);
+                // A plain batch writes only the depth of its position, the
+                // plain pipeline draws a smooth mesh the same.
+                if batch.textures.is_some()
+                    && batch.key.mesh.smooth_colors
+                    && let Some(smooth) = &self.smooth_cutout
+                {
+                    pass.set_pipeline(smooth);
+                }
                 pass.set_vertex_buffer(1, instances.elements(range.clone()));
                 pass.draw_indexed(0..batch.key.mesh.index_count, 0, 0..range.end - range.start);
             }

@@ -115,6 +115,28 @@ fn v_main(vertex: Vertex, instance: Instance) -> VertexOutput {
     return place(vertex.pos, vertex.normal, vertex.uv, vertex.color, instance);
 }
 
+// A mesh whose colors fade across a triangle, see
+// `Model::from_smooth_mesh`. The color takes 4 components where the flat
+// one takes 1, and the uv gives up its 2, so eight components cross the
+// stage boundary, all an A7 draws, see docs/ios.md.
+struct SmoothOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) normal: vec3<f32>,
+    @location(1) @interpolate(flat) instance: u32,
+    @location(2) color: vec4<f32>,
+}
+
+@vertex
+fn v_smooth(vertex: Vertex, instance: Instance) -> SmoothOutput {
+    let placed = place(vertex.pos, vertex.normal, vec2<f32>(0.0), vertex.color, instance);
+    var out: SmoothOutput;
+    out.pos = placed.pos;
+    out.normal = placed.normal;
+    out.instance = placed.instance;
+    out.color = unpack4x8unorm(vertex.color);
+    return out;
+}
+
 // The blend of the four joint matrices that move this vertex. A joint
 // turns and moves, it does not squash, so its upper left turns the
 // normal as it is.
@@ -504,30 +526,39 @@ fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
 
 // The lit color of a fragment and its alpha.
 fn lit(in: VertexOutput) -> vec4<f32> {
-    let instance = instances[in.instance];
-    let texel = textureSample(base_texture, base_sampler, in.uv);
-    var map = textureSample(normal_texture, normal_sampler, in.uv).xyz * 2.0 - 1.0;
+    return lit_tinted(in.pos, in.uv, in.normal, in.instance, unpack4x8unorm(in.color));
+}
+
+// A smooth mesh has no uv, so it reads the first texel of each map.
+fn lit_smooth(in: SmoothOutput) -> vec4<f32> {
+    return lit_tinted(in.pos, vec2<f32>(0.0), in.normal, in.instance, in.color);
+}
+
+// `tint` is the vertex color, encoded sRGB like every color.
+fn lit_tinted(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>) -> vec4<f32> {
+    let instance = instances[index];
+    let texel = textureSample(base_texture, base_sampler, uv);
+    var map = textureSample(normal_texture, normal_sampler, uv).xyz * 2.0 - 1.0;
     map = vec3<f32>(map.xy * instance.normal_scale, map.z);
 
-    let tint = unpack4x8unorm(in.color);
     // The decode of a full channel lands a hair under one in f32, which
     // moved pixels of every mesh when vertex colors came in, and white
     // is what every mesh without vertex colors carries.
     let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
     let base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb);
     let alpha = instance.color.a * tint.a * texel.a;
-    let metal_rough = textureSample(metallic_roughness_texture, metallic_roughness_sampler, in.uv);
+    let metal_rough = textureSample(metallic_roughness_texture, metallic_roughness_sampler, uv);
     let metallic = instance.metallic * metal_rough.b;
     // Below this a highlight collapses to a few pixels of noise.
     let perceptual = clamp(instance.roughness * metal_rough.g, 0.045, 1.0);
-    let occlusion_texel = textureSample(occlusion_texture, occlusion_sampler, in.uv).r;
+    let occlusion_texel = textureSample(occlusion_texture, occlusion_sampler, uv).r;
     let occlusion = 1.0 + instance.occlusion_strength * (occlusion_texel - 1.0);
 
-    let offset = camera_offset(in.pos);
+    let offset = camera_offset(pos);
     let world_pos = view.camera_pos.xyz + offset;
 
     var s: Surface;
-    s.normal = perturb_normal(normalize(in.normal), world_pos, in.uv, map);
+    s.normal = perturb_normal(normalize(normal), world_pos, uv, map);
     s.to_eye = to_eye_of(world_pos);
     s.nov = max(dot(s.normal, s.to_eye), 1e-4);
     s.diffuse = base * (1.0 - metallic);
@@ -555,7 +586,7 @@ fn lit(in: VertexOutput) -> vec4<f32> {
     color *= occlusion;
 
     let to_sun = -view.sun_dir.xyz;
-    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(in.normal))
+    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, normalize(normal))
         * light_through(offset, to_sun, view.occlusion.y) * air_light_at(offset, to_sun);
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
@@ -622,6 +653,27 @@ fn f_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(color.rgb, 1.0);
 }
 
+// The 3 entries above for a mesh with fading colors.
+@fragment
+fn f_smooth_main(in: SmoothOutput) -> @location(0) vec4<f32> {
+    return lit_smooth(in);
+}
+
+@fragment
+fn f_smooth_opaque(in: SmoothOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(lit_smooth(in).rgb, 1.0);
+}
+
+@fragment
+fn f_smooth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
+    let color = lit_smooth(in);
+    let instance = instances[in.instance];
+    if color.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return vec4<f32>(color.rgb, 1.0);
+}
+
 // A blade of grass, cut out like `f_cutout`, and dropped near the camera.
 @fragment
 fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -645,8 +697,8 @@ const DEPTH_STEPS: f32 = 16777214.0;
 // The distance from the camera to the fragment along the line of sight
 // as 3 bytes in red, green and blue. The full 24 bits, white, is left
 // for a pixel with nothing on it.
-fn depth_color(in: VertexOutput) -> vec4<f32> {
-    let along = max(dot(camera_offset(in.pos), view.eye.xyz), 1e-6);
+fn depth_color(pos: vec4<f32>) -> vec4<f32> {
+    let along = max(dot(camera_offset(pos), view.eye.xyz), 1e-6);
     let part = saturate((log2(along) - DEPTH_LOG_NEAR) / (DEPTH_LOG_FAR - DEPTH_LOG_NEAR));
     let steps = u32(round(part * DEPTH_STEPS));
     let bytes = vec3<u32>(steps >> 16u, (steps >> 8u) & 255u, steps & 255u);
@@ -661,7 +713,7 @@ fn coverage(in: VertexOutput) -> f32 {
 
 @fragment
 fn f_depth(in: VertexOutput) -> @location(0) vec4<f32> {
-    return depth_color(in);
+    return depth_color(in.pos);
 }
 
 @fragment
@@ -670,7 +722,20 @@ fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
     if coverage(in) < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
         discard;
     }
-    return depth_color(in);
+    return depth_color(in.pos);
+}
+
+// `f_depth_cutout` for a mesh with fading colors. A smooth node that is
+// not cut out needs no entry of its own, the plain `f_depth` reads only
+// the position.
+@fragment
+fn f_smooth_depth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let texel = textureSample(base_texture, base_sampler, vec2<f32>(0.0));
+    if instance.color.a * in.color.a * texel.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return depth_color(in.pos);
 }
 
 // An edge lies on the faces it borders, at their depth, so a line drawn

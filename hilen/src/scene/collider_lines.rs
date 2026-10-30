@@ -88,6 +88,14 @@ pub(crate) fn collider_lines(
                 lines.extend([(at(a), at(b)), (at(b), at(c)), (at(c), at(a))]);
             }
         }
+        ColliderShape::ConvexHull(hull) => {
+            // Bigger from its own middle, its origin can lie anywhere.
+            let (low, high) = hull.bounds();
+            let middle = (low + high) / 2.0;
+            let place = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, center);
+            let at = |point: Vec3| place.transform_point3(middle + (point - middle) * INFLATE);
+            lines.extend(hull.edges().into_iter().map(|(from, to)| (at(from), at(to))));
+        }
         ColliderShape::Voxels { size, cells } => {
             for cell in cells.iter() {
                 let middle = (IVec3::from(*cell).as_vec3() + 0.5) * *size * scale;
@@ -179,10 +187,10 @@ fn upright(lines: &mut Vec<(Vec3, Vec3)>, place: &Mat4, radius: f32, reach: f32,
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use std::{f32::consts::FRAC_PI_2, sync::Arc};
 
     use super::*;
-    use crate::scene::Heightfield;
+    use crate::scene::{ConvexHull, Heightfield};
 
     fn highest(lines: &[(Vec3, Vec3)]) -> f32 {
         lines.iter().flat_map(|(a, b)| [a.y, b.y]).fold(f32::NEG_INFINITY, f32::max)
@@ -216,6 +224,25 @@ mod test {
         let lines = collider_lines(&shape, Vec3::Y, Quat::IDENTITY, 1.0);
         assert_eq!(lines.len(), 2 * RING_SEGMENTS + 4);
         assert!((highest(&lines) - (1.0 + INFLATE)).abs() < 1e-4);
+    }
+
+    // A tetrahedron has 6 edges, each of its 4 faces shows 3 and shares them.
+    #[test]
+    fn a_hull_is_its_edges_once_in_the_world() {
+        let corners = [Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z];
+        let hull = ConvexHull::from_points(&corners).expect("a tetrahedron is a solid");
+        let shape = ColliderShape::ConvexHull(Arc::new(hull));
+        let place = Vec3::new(5.0, 0.0, 0.0);
+        let lines = collider_lines(&shape, place, Quat::from_rotation_z(FRAC_PI_2), 2.0);
+        assert_eq!(lines.len(), 6);
+        // Scaled by 2, then x goes to y, then moved. The lines sit a little
+        // outside the solid, so the top reaches a little past 2.
+        assert!(
+            (highest(&lines) - 2.0).abs() < 0.1,
+            "the top is at {}",
+            highest(&lines)
+        );
+        assert!(lines.iter().all(|(a, _)| (a.x - 5.0).abs() < 2.2));
     }
 
     // A dense terrain would bury the view in green, the grid stays coarse
