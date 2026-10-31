@@ -19,6 +19,20 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Open a file from the system, like Open With on a Mac
+
+Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. Pin
+`a1984183`.
+
+- Current: `_info_plist` in `build/release/mac.py` writes no `CFBundleDocumentTypes`, so a
+  bundle never shows in Open With. A grep of `hilen/src` finds no handler for a file that
+  the system hands to a running app, on a Mac that comes as an Apple Event, not as an
+  argument.
+- Needed: file types in `hilen.toml` that the release scripts write into the Mac plist, the
+  Windows registry entries of the installer and the Linux desktop entry. An `App` hook that
+  gets the paths, at the start and while the app runs.
+- Blocks: kutreel in Open With for a video file, and a double click on a file for any app.
+
 ## A push on a walking player from outside
 
 Found by geblings, `~/dev/games/geblings`, on 2026-10-31, for the current of a river. Pin
