@@ -2,7 +2,7 @@ use crate::{
     self as hilen,
     deps::{
         netrun::Function,
-        refs::{Own, Weak, weak_from_ref},
+        refs::{Own, Weak, main_lock::MainLock, weak_from_ref},
     },
     gm::{
         ToF32, Toggle,
@@ -10,9 +10,9 @@ use crate::{
         flat::{LineCap, LineJoin, Point, StrokeStyle, VectorPath},
     },
     ui::{
-        Button, CellRegistry, Container, DrawingView, ImageView, Label, Setup, Shadow, TableData, TableView,
-        TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData, ViewFrame,
-        ViewSubviews, ViewTouch, WeakView, struct_name, view,
+        Button, CellRegistry, Container, DrawingView, Focus, ImageView, Label, Setup, Shadow, TableData,
+        TableView, TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData,
+        ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
 };
 
@@ -31,6 +31,10 @@ const SCREEN_MARGIN: f32 = 8.0;
 /// the step between 2 modal layers, 0.005, so a list in a modal never
 /// draws over the modal above it.
 const PANEL_RAISE: f32 = 0.004;
+
+/// The drop down with its list open, a press outside closes it before another
+/// one opens.
+static OPEN: MainLock<Weak<DropDown>> = MainLock::new();
 
 /// What a `DropDown` shows. Like `TableData` for a table: the drop down
 /// owns no values, it only knows the index of the picked row.
@@ -162,6 +166,25 @@ impl DropDown {
         self.opened
     }
 
+    /// Closes the open list, true when there was one to close. The ring of a
+    /// remote goes back to its box, the rows it was on hide.
+    pub(crate) fn escape() -> bool {
+        let drop = *OPEN;
+        if drop.is_null()
+            || !drop.opened
+            || drop.is_hidden_in_tree()
+            || !TouchStack::key_reaches(drop.weak_view().raw())
+        {
+            return false;
+        }
+        let ring_shown = Focus::focused().is_ok();
+        drop.close();
+        if ring_shown {
+            Focus::set(drop.button.weak_view());
+        }
+        true
+    }
+
     /// Text color of the collapsed label and the default rows.
     pub fn set_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
         let color = color.into();
@@ -270,6 +293,7 @@ impl DropDown {
         // registered last. A sibling under the panel that turned its touch
         // on after this drop down would take the taps meant for the rows.
         TouchStack::raise_subtree(self.weak_view());
+        *OPEN.get_mut() = self;
     }
 
     /// The panel is as tall as its rows, up to the room the window has
@@ -320,6 +344,9 @@ impl DropDown {
 
     fn close(mut self: Weak<Self>) {
         self.opened = false;
+        if OPEN.raw() == self.raw() {
+            *OPEN.get_mut() = Weak::default();
+        }
         self.panel.set_hidden(true);
         if let Some(border) = self.idle_border {
             self.look().set_border_color(border);

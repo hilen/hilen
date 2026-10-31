@@ -16,9 +16,9 @@ use crate::{
     deps::refs::Weak,
     gm::{color::Color, flat::Point},
     ui::{
-        Container, Cursor, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Scrollable, Setup,
-        SideSwipe, TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData,
-        ViewFrame, check_touch, depth_key, press_keeps_selection,
+        Container, Cursor, DropDown, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag,
+        Scrollable, Setup, SideSwipe, TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents,
+        UIManager, ViewData, ViewFrame, check_touch, depth_key, press_keeps_selection,
     },
     window::frame_control,
 };
@@ -114,6 +114,11 @@ impl Input {
             return;
         }
         if key == NamedKey::Escape && RowDrag::escape() {
+            return;
+        }
+        // An open list goes first, Escape must not also close the modal it is
+        // in.
+        if key == NamedKey::Escape && DropDown::escape() {
             return;
         }
         if Focus::on_key(key) {

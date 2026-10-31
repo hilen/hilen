@@ -13,7 +13,10 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 - The views that can hold the ring are the touch views of the top touch layer. A
   `TableView` takes the taps of its cells itself, so each visible cell is a place of
   its own, known by its index, the cell views recycle.
-- The first key only shows the ring. A pointer that moves or presses hides it.
+- The first key only shows the ring. A pointer that presses hides it, and the next key
+  only brings it back. A pointer that only moves hides it too, but the next arrow moves
+  the ring on from where it was, a remote with a pointer moves it with a small move of
+  the hand. The test is `Key focus pointer`.
 - The gap along the move counts once, the gap across it 4 times, so a view straight
   ahead wins over a nearer one that sits diagonally.
 - A move with nothing ahead scrolls the scroll view the ring is in and looks again for
@@ -42,7 +45,9 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 
 Back is Escape. `back_as_escape` in `app_runner.rs` turns the `GoBack` and
 `BrowserBack` keys into Escape, and the Back key of an LG remote, key code 461, is read
-in `web.rs` before winit sees it. Escape closes a modal that has a cancel result and
+in `web.rs` before winit sees it. An open `DropDown` list takes Escape first and closes alone,
+`DropDown::escape`, the ring goes back to its box, the test is `Drop down escape`. Then
+Escape closes a modal that has a cancel result and
 pops a pushed `NavigationView` screen. A screen an app swaps in with
 `UIManager::set_view` binds Escape itself. While a modal, a menu or another touch layer
 is open, a key binding answers only when its view is inside the top layer or holds it,
@@ -101,6 +106,6 @@ with `Focus::set_enabled(false)`. The keymap takes Ctrl for Cmd on every system,
 binding that must not fire on Ctrl checks `Keys::modifiers().super_key()` itself.
 
 The tests are `Key focus`, `Key focus table`, `Key focus modal`, `Key focus long
-press` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
+press`, `Key focus pointer`, `Drop down escape` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
 of an Apple TV drives it in the simulator, see [tvos.md](tvos.md). The remote of a
 real TV was not tried yet, see [roadmap.md](roadmap.md).

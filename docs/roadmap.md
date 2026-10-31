@@ -19,6 +19,59 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A push on a walking player from outside
+
+Found by geblings, `~/dev/games/geblings`, on 2026-10-31, for the current of a river. Pin
+`31f6ce82`.
+
+- Current: `Player::move_by` in `hilen/src/scene/player.rs` makes its move only from the
+  wish, the gravity and the jump. `steer` takes the place of the keys, so a player steered
+  by a current can not walk. `teleport` skips every collision and resets the fall.
+- Needed: a general outside speed on `Player`, like `drift: Vec3` in units per second. It adds
+  to the keys in `move_by` before the character controller, so it keeps the collisions, the
+  steps and the fall. It stays set until the game changes it, and `move_world` turns it with
+  the scene as it does for `steer`. Works for wind, a conveyor and a river. A `cargo test`
+  proves that a player drifts with the keys up, is stopped by a wall and still walks.
+- Blocks: the current of a river that pushes the gebling.
+
+## A material that moves its texture along a flow
+
+Found by geblings, `~/dev/games/geblings`, on 2026-10-31, for rivers. Pin `31f6ce82`.
+
+- Current: `mesh.wgsl` and `scene_common.wgsl` have no time value, `Material` in
+  `hilen/src/scene/material.rs` has no flow and `Vertex3D` holds only a position, a normal,
+  a uv and a color. Moving a surface today means a new mesh per frame.
+- Needed: a material option that slides its texture and normal map by a time, along a
+  direction and speed per vertex, with 2 copies that blend in turn so the jump back never
+  shows, the flow maps of Vlachos 2010. Steep parts can fade to a second texture, for white
+  water. It must stay in the room of an A7, see the test
+  `every_mesh_shader_stays_in_the_room_of_an_a7`, or be left out there. Time in the frame
+  damage rules, see `docs/damage.md`. A UI test with a scene shows a surface moving in 2
+  directions.
+- Blocks: the moving look of rivers. Rivers in geblings can still change their paths, they
+  only stay still to the eye.
+
+## Back and the pointer with the ring of a TV remote
+
+Found by flixen, `~/dev/apps/flixen`, on 2026-10-31, on an LG C1 with keys sent over
+the DevTools port of the TV. Pin `31f6ce82`.
+
+- Current:
+  - Back or Escape with the list of a `DropDown` open in a modal closes the whole
+    modal. `DropDown` closes its list only on a touch outside, `drop_down.rs:397`, it
+    has no Escape binding and its `close` is private, so an app can not do it.
+  - A pointer that moves hides the ring, `Focus::pointer_used` in `focus.rs`. The next
+    arrow only shows the ring again and does not move it, `Focus::go`. On a TV with a
+    Magic Remote a small move of the hand costs a key press. What OK does while the
+    pointer of a Magic Remote shows was not checked with a real remote.
+- Needed:
+  - Escape closes an open `DropDown` list first and nothing else, the ring goes back to
+    its box. A UI test beside `Key focus modal`.
+  - An arrow after a pointer move hid the ring moves it from where it was. The first
+    key with no ring before it still only shows the ring. A UI test beside `Key focus`.
+- Blocks: the language picker of the subtitle search of flixen, and the subtitle menu
+  with a Magic Remote in the hand.
+
 ## Speech to text on Android and in a browser
 
 Found by banda, `~/dev/apps/banda`, on 2026-10-29. The `speech` feature hears the

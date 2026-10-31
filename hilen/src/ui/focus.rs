@@ -4,6 +4,8 @@
 //! hold the ring are the touch views of the top touch layer, and every
 //! visible cell of a table.
 
+use std::mem::take;
+
 use ui_proc::view;
 
 #[cfg(feature = "level")]
@@ -138,26 +140,29 @@ struct Candidate {
 
 #[derive(Default)]
 struct State {
-    target:   Option<Target>,
+    target:        Option<Target>,
     /// Where the ring was last, so a ring whose view died starts again
     /// from the same place.
-    rect:     Rect,
-    shown:    bool,
-    disabled: bool,
+    rect:          Rect,
+    shown:         bool,
+    /// A pointer that only moved hid the ring. A remote with a pointer moves
+    /// it with a small move of the hand, so the next arrow still counts.
+    pointer_moved: bool,
+    disabled:      bool,
     /// A move that scrolled and waits for the rows the scroll brings, with
     /// the frames it may still wait.
-    pending:  Option<(FocusDirection, u8)>,
-    ring:     Weak<FocusRing>,
-    color:    Option<UIColor>,
+    pending:       Option<(FocusDirection, u8)>,
+    ring:          Weak<FocusRing>,
+    color:         Option<UIColor>,
     /// A view that moves a selection of its own with the arrows and
     /// holds the keys for it, a list of files.
-    holder:   WeakView,
+    holder:        WeakView,
     /// Where the ring was in each touch layer, by the root of the layer.
     /// A modal that closes hands the ring back to the button that opened
     /// it.
-    layers:   Vec<(WeakView, Target)>,
+    layers:        Vec<(WeakView, Target)>,
     /// Where the touch of a held Enter began, none while Enter is up.
-    held:     Option<Point>,
+    held:          Option<Point>,
 }
 
 static STATE: MainLock<State> = MainLock::new();
@@ -218,6 +223,7 @@ impl Focus {
     pub fn hide() {
         let state = STATE.get_mut();
         state.shown = false;
+        state.pointer_moved = false;
         state.pending = None;
         if state.ring.is_ok() {
             state.ring.set_hidden(true);
@@ -259,8 +265,14 @@ impl Focus {
 
     /// A pointer that moves or presses takes over from the keys.
     pub(crate) fn pointer_used(touch: &Touch) {
-        if touch.id != FOCUS_TOUCH_ID && STATE.get_mut().shown {
+        if touch.id == FOCUS_TOUCH_ID {
+            return;
+        }
+        if STATE.get_mut().shown {
             Self::hide();
+            STATE.get_mut().pointer_moved = touch.is_moved();
+        } else if !touch.is_moved() {
+            STATE.get_mut().pointer_moved = false;
         }
     }
 
@@ -352,6 +364,10 @@ impl Focus {
         let current = state
             .target
             .and_then(|target| target.view().map(|view| (target, *view.absolute_frame())));
+
+        if take(&mut state.pointer_moved) && current.is_some() {
+            state.shown = true;
+        }
 
         // The first key only shows the ring, on the view it was on or on
         // the first one of the screen.

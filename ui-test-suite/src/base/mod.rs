@@ -32,6 +32,7 @@ mod key_focus;
 mod key_focus_long_press;
 mod key_focus_menu;
 mod key_focus_modal;
+mod key_focus_pointer;
 mod key_focus_table;
 mod keymap;
 mod keymap_combo;
