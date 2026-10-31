@@ -6,7 +6,7 @@
 use std::f32::consts::TAU;
 
 use bytemuck::cast_slice;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use wgpu::{Buffer, BufferUsages};
 
 use crate::{
@@ -118,6 +118,9 @@ pub struct Grass {
 
     ground:  Box<dyn Fn(f32, f32) -> Option<GrassSpot>>,
     patches: FxHashMap<(i32, i32), Patch>,
+    /// The patches to grow again. They draw until their new one is grown, so
+    /// a regrow never shows bare ground.
+    old:     FxHashSet<(i32, i32)>,
 }
 
 /// A grown patch. One with no blade keeps no buffer and is not grown
@@ -166,6 +169,7 @@ impl Grass {
             turn: Quat::IDENTITY,
             ground: Box::new(ground),
             patches: FxHashMap::default(),
+            old: FxHashSet::default(),
         }
     }
 
@@ -196,7 +200,7 @@ impl Grass {
 
     /// Lets every patch grow again, after the ground or `ground` changed.
     pub fn regrow(&mut self) {
-        self.patches.clear();
+        self.old.extend(self.patches.keys());
     }
 
     /// Lets the patches that touch the circle at `center` grow again, like
@@ -204,7 +208,11 @@ impl Grass {
     pub fn regrow_around(&mut self, center: Vec3, radius: f32) {
         let center = self.to_field(center);
         let size = self.patch_size;
-        self.patches.retain(|&cell, _| nearest_distance(center, cell, size) > radius);
+        let touched = self
+            .patches
+            .keys()
+            .filter(|&&cell| nearest_distance(center, cell, size) <= radius);
+        self.old.extend(touched);
     }
 
     /// Runs the sway on by `frame_time` seconds in `wind`, faster in a
@@ -233,6 +241,8 @@ impl Grass {
         let size = self.patch_size;
         let keep = self.distance + size;
         self.patches.retain(|&cell, _| nearest_distance(center, cell, size) <= keep);
+        let patches = &self.patches;
+        self.old.retain(|cell| patches.contains_key(cell));
 
         let middle: (i32, i32) = (
             (center.x / size).floor().lossy_convert(),
@@ -245,12 +255,14 @@ impl Grass {
                 return;
             }
             let cell = (middle.0 + dx, middle.1 + dz);
-            if self.patches.contains_key(&cell) || nearest_distance(center, cell, size) > self.distance {
+            let grown = self.patches.contains_key(&cell) && !self.old.contains(&cell);
+            if grown || nearest_distance(center, cell, size) > self.distance {
                 continue;
             }
             let patch = self.grow(cell);
             spots = spots.saturating_sub(self.spots_in_patch());
             self.patches.insert(cell, patch);
+            self.old.remove(&cell);
         }
     }
 
@@ -555,8 +567,12 @@ impl Drop for Slot {
 
 #[cfg(test)]
 mod test {
+    use std::{cell::Cell, rc::Rc};
+
+    use serial_test::serial;
+
     use super::*;
-    use crate::gm::color::WHITE;
+    use crate::{deps::hreads::set_current_thread_as_main, gm::color::WHITE};
 
     fn field(ground: impl Fn(f32, f32) -> Option<GrassSpot> + 'static) -> Grass {
         let mut grass = Grass::new(Weak::default(), ground);
@@ -585,6 +601,54 @@ mod test {
         let world = grass.to_world(Vec3::new(0.0, 2.0, 3.0));
         assert!((world - Vec3::new(102.0, 0.0, 8.0)).length() < 1e-4, "{world}");
         assert!((grass.to_field(world) - Vec3::new(0.0, 2.0, 3.0)).length() < 1e-4);
+    }
+
+    /// A regrow once dropped the patches at once and left bare ground until
+    /// they grew again, each dig of a game made the grass around it flicker.
+    #[test]
+    #[serial]
+    fn a_regrown_patch_stays_until_its_new_one_is_grown() {
+        set_current_thread_as_main();
+        let asked = Rc::new(Cell::new(0u32));
+        let counter = Rc::clone(&asked);
+        let mut grass = field(move |_, _| {
+            counter.set(counter.get() + 1);
+            None
+        });
+        grass.spots_per_frame = u32::MAX;
+        grass.update(Vec3::ZERO);
+        let patches = grass.patch_count();
+        assert!(patches > 2, "{patches}");
+
+        grass.spots_per_frame = grass.spots_in_patch();
+        grass.regrow();
+        assert_eq!(grass.patch_count(), patches);
+        asked.set(0);
+        grass.update(Vec3::ZERO);
+        assert_eq!(asked.get(), grass.spots_in_patch(), "1 patch a frame grows again");
+        assert_eq!(grass.patch_count(), patches, "the others still stand");
+        assert_eq!(grass.old.len(), patches - 1);
+
+        for _ in 1..patches {
+            grass.update(Vec3::ZERO);
+        }
+        assert!(grass.old.is_empty());
+        asked.set(0);
+        grass.update(Vec3::ZERO);
+        assert_eq!(asked.get(), 0, "all of them are new now");
+    }
+
+    #[test]
+    #[serial]
+    fn a_regrow_around_marks_only_the_patches_it_touches() {
+        set_current_thread_as_main();
+        let mut grass = field(|_, _| None);
+        grass.spots_per_frame = u32::MAX;
+        grass.update(Vec3::ZERO);
+        let patches = grass.patch_count();
+        grass.regrow_around(Vec3::ZERO, 1.0);
+        assert_eq!(grass.patch_count(), patches);
+        assert_eq!(grass.old.len(), 4, "the 4 patches that meet at the middle");
     }
 
     #[test]

@@ -699,8 +699,9 @@ field grows in square patches, `patch_size` 10 by default, the nearest
 first, and asks `ground` at most `spots_per_frame` times a frame, so a
 streamed world grows its grass over a few frames. A patch out of reach goes.
 `regrow` and `regrow_around` let patches grow again after the ground or the
-answer of `ground` changed, a chunk that loaded or a floor built on it. The
-same seed and the same cell give the same blades, and every random draw is
+answer of `ground` changed, a chunk that loaded or a floor built on it. An old
+patch draws until its new one is grown, nearest first, so a regrow shows no bare
+ground. The same seed and the same cell give the same blades, and every random draw is
 taken for every spot, so a hole in a field leaves the blades around it in
 place.
 
