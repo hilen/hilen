@@ -24,4 +24,4 @@ pub use shape3::Shape3;
 #[cfg(feature = "scene")]
 pub use skin_vertex::SkinVertex;
 #[cfg(feature = "scene")]
-pub use vertex3d::{FLOW_RANGE, Vertex3D, flow_texel};
+pub use vertex3d::{FLOW_RANGE, Vertex3D, flow_texel, water_texel};

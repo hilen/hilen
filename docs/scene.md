@@ -337,7 +337,9 @@ the color with its distance from the camera, untouched up to `start` and wholly 
 from `end` on, in linear light before the tonemap. The sky is fog colored at the
 horizon and clears with height, gone where the view rises past `height`, 0.4 by
 default, and without a sky the fog color fills the background, so fogged ground
-always meets fog above it.
+always meets fog above it. `Fog::around` is for a camera inside the fog, like water
+or smoke: the sky is fog color every way it looks. With an atmosphere the fog lies
+over its haze, `Fog over air` checks it.
 
 `sky` is a cube map, `Sky::gradient` for a smooth one and `Sky::from_faces` for six
 images. The skybox draws it behind everything and every surface reflects it: the
@@ -399,7 +401,7 @@ and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
   tables built on the CPU in `scene/atmosphere.rs` when the shape of the air
   changes, the transmittance and the multiple scattering, uploaded as half floats
   by `render/pipelines/air_textures.rs`. The sky marches 24 steps a pixel, the
-  haze over a surface 8, in place of the fog, and the ambient light comes from the
+  haze over a surface 8, a `fog` lies over that, and the ambient light comes from the
   air on the CPU. A step over 8.75 heights of both hazes and over the ozone is
   skipped, under 1 color step, and a step in full shadow only dims what lies behind
   it. Only the sky adds the sunlit ground of the air where its ray ends on the
@@ -550,6 +552,12 @@ the slow part on a worker. Every vertex comes from `Vertex3D::flowing`, with its
 place in `Material::flow_map`, a small image of `flow_texel`s in uv units a second, up to
 `FLOW_RANGE` each way. The node's material alone gives the color, the place takes the room
 of the vertex color, so the eight values of an A7 hold. It cannot be cut out.
+
+`water_texel` adds a look to a texel: blue is the depth, from `Material::shallow_color` at
+0 to the node's color at 1, and alpha the opposite of the foam, so the flat texel of a mesh
+with no flow map is deep water with no foam. Foam opens on the highest slopes of the normal
+map, so it runs with the ripples, and it needs a normal map. Neither takes a new value
+between the stages. `Water look` checks it. It did not run on an A7 yet.
 
 The surface is cut in a grid of 4 cells a uv unit, the directional flow of
 [Catlike Coding](https://catlikecoding.com/unity/tutorials/flow/directional-flow/). Each

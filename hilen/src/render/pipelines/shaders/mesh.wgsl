@@ -18,6 +18,7 @@ struct MeshInstance {
     unlit: f32,
     fade: f32,
     fade_flip: f32,
+    shallow: vec4<f32>,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -57,7 +58,8 @@ var metallic_roughness_sampler: sampler;
 var occlusion_texture: texture_2d<f32>;
 @group(3) @binding(7)
 var occlusion_sampler: sampler;
-// The flow of a flowing mesh in red and green, see `flow_texel`.
+// The flow of a flowing mesh in red and green, its depth in blue and the
+// opposite of its foam in alpha, see `water_texel`.
 @group(3) @binding(8)
 var flow_texture: texture_2d<f32>;
 @group(3) @binding(9)
@@ -156,6 +158,10 @@ const FLOW_FULL: f32 = 0.4;
 const FLOW_TILING: f32 = 1.5;
 // How strong the ripples of still water are, full flow is 1.
 const FLOW_CALM: f32 = 0.25;
+// How much ripple a point needs more than the share of foam it has left to
+// show white, how soft that edge is, and how white the foam is.
+const FOAM_EDGE: f32 = 0.2;
+const FOAM_WHITE: f32 = 0.9;
 
 @vertex
 fn v_flow(vertex: Vertex, instance: Instance) -> FlowOutput {
@@ -551,16 +557,15 @@ fn sun_shadow(p: vec3<f32>, offset: vec3<f32>, n: vec3<f32>) -> f32 {
 // taking over from `fog_range.x` units away over the length of its
 // fade. Linear light, the fog color is tonemapped with the rest.
 fn fogged(color: vec3<f32>, p: vec3<f32>) -> vec3<f32> {
-    // The air's haze stands in for the fog.
-    if has_air() {
-        return air_haze(color, p - view.camera_pos.xyz);
-    }
+    // The air's haze comes first, a fog then lies over it, the medium the
+    // camera itself stands in.
+    let hazed = select(color, air_haze(color, p - view.camera_pos.xyz), has_air());
     if view.fog_color.w < 0.5 {
-        return color;
+        return hazed;
     }
     let distance = length(p - view.camera_pos.xyz);
     let amount = saturate((distance - view.fog_range.x) * view.fog_range.y);
-    return mix(color, view.fog_color.rgb, amount);
+    return mix(hazed, view.fog_color.rgb, amount);
 }
 
 fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
@@ -641,9 +646,18 @@ fn sampled_flow(in: FlowOutput) -> Sampled {
     let base = a.base * weights.x + b.base * weights.y + c.base * weights.z + d.base * weights.w;
     let white = vec4<f32>(1.0);
     var out = sample_with_normal(in.pos, in.uv, in.normal, in.instance, white, vec3<f32>(slope, 1.0));
-    let color = instances[in.instance].color;
-    out.base = srgb_to_linear(color.rgb) * srgb_to_linear(base.rgb);
-    out.alpha = color.a * base.a;
+    let look = textureSampleLevel(flow_texture, flow_sampler, in.map, 0.0);
+    let instance = instances[in.instance];
+    let linear = mix(srgb_to_linear(instance.shallow.rgb), srgb_to_linear(instance.color.rgb), look.b);
+    out.base = linear * srgb_to_linear(base.rgb);
+    out.alpha = mix(instance.shallow.a, instance.color.a, look.b) * base.a;
+    // The foam opens where the ripples are the highest and runs with them. At
+    // no foam no ripple is high enough, so water with none stays as it was.
+    let foam = 1.0 - look.a;
+    let shown = smoothstep(1.0 - foam, 1.0 - foam + FOAM_EDGE, length(slope)) * saturate(foam * 4.0);
+    out.base = mix(out.base, vec3<f32>(FOAM_WHITE), shown);
+    out.alpha = mix(out.alpha, 1.0, shown);
+    out.perceptual = mix(out.perceptual, 1.0, shown);
     return out;
 }
 

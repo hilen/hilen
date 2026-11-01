@@ -121,6 +121,7 @@ impl Model {
                     metallic_roughness_map: material.metallic_roughness.map(|index| images[index]),
                     normal_map:             material.normal_map.map(|index| images[index]),
                     flow_map:               None,
+                    shallow_color:          None,
                     normal_scale:           material.normal_scale,
                     occlusion_map:          material.occlusion.map(|index| images[index]),
                     occlusion_strength:     material.occlusion_strength,

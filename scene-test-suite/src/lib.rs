@@ -41,6 +41,7 @@ mod fade_shadows;
 #[cfg(not_wasm)]
 mod flow;
 mod fog;
+mod fog_over_air;
 mod geometry;
 mod glow;
 mod grass;
@@ -101,6 +102,8 @@ mod triangle_picking;
 mod unlit;
 mod vertex_colors;
 mod view_points;
+#[cfg(not_wasm)]
+mod water_look;
 /// The white edge lines, see `colliders`.
 #[cfg(not_wasm)]
 mod wireframe;

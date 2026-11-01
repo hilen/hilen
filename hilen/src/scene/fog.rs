@@ -6,7 +6,7 @@ use crate::gm::color::Color;
 /// plane. The sky is fog colored at the horizon and clears with height,
 /// gone where the view direction rises past `height`, the sine of that
 /// elevation, so the fogged ground meets the sky. Without a sky the fog
-/// color fills the background.
+/// color fills the background. With an atmosphere it lies over the haze.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fog {
     pub color:  Color,
@@ -23,6 +23,15 @@ impl Fog {
             start,
             end,
             height: 0.4,
+        }
+    }
+
+    /// A fog the camera stands inside, like water or smoke: the sky is fog
+    /// color every way it looks, up as well.
+    pub fn around(color: Color, start: f32, end: f32) -> Self {
+        Self {
+            height: 1e6,
+            ..Self::new(color, start, end)
         }
     }
 

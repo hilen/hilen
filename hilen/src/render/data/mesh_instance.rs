@@ -55,6 +55,8 @@ pub(crate) struct MeshInstance {
     /// 1 for a node that keeps the other share of the dither, see
     /// `Material::fade_flip`.
     pub fade_flip:          f32,
+    /// See `Material::shallow_color`, `color` when it has none.
+    pub shallow:            Color,
 }
 
 impl MeshInstance {
@@ -81,6 +83,7 @@ impl MeshInstance {
             unlit: if material.unlit { 1.0 } else { 0.0 },
             fade: material.fade,
             fade_flip: if material.fade_flip { 1.0 } else { 0.0 },
+            shallow: material.shallow_color.unwrap_or(material.color),
         }
     }
 }
@@ -147,7 +150,8 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, unlit), 180);
         assert_eq!(offset_of!(MeshInstance, fade), 184);
         assert_eq!(offset_of!(MeshInstance, fade_flip), 188);
-        assert_eq!(size_of::<MeshInstance>(), 192);
+        assert_eq!(offset_of!(MeshInstance, shallow), 192);
+        assert_eq!(size_of::<MeshInstance>(), 208);
     }
 
     #[test]

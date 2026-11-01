@@ -177,7 +177,7 @@ fn f_main(in: SkyOutput) -> @location(0) vec4<f32> {
     if space {
         color = space_sky(dir);
     }
-    if view.fog_color.w > 0.5 && !has_air() {
+    if view.fog_color.w > 0.5 {
         let amount = saturate(1.0 - dir.y / view.fog_range.z);
         let has_sky = view.ambient.w > 0.5 || day_night || space;
         color = select(view.fog_color.rgb, mix(color, view.fog_color.rgb, amount), has_sky);

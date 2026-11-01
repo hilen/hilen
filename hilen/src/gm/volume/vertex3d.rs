@@ -8,12 +8,21 @@ pub const FLOW_RANGE: f32 = 0.5;
 /// A texel of `Material::flow_map` for a flow in uv units a second, up to
 /// `FLOW_RANGE` each way.
 pub fn flow_texel(flow: Point) -> [u8; 4] {
+    water_texel(flow, 0.0, 1.0)
+}
+
+/// `flow_texel` with a look: `foam` from 0 for none to 1 for white water, and
+/// `depth` from 0 for the color of `Material::shallow_color` to 1 for the color
+/// of the material. Blue holds the depth and alpha the opposite of the foam, so
+/// the flat texel a mesh with no flow map reads is deep water with no foam.
+pub fn water_texel(flow: Point, foam: f32, depth: f32) -> [u8; 4] {
     let byte = |speed: f32| -> u8 {
         (((speed / FLOW_RANGE).clamp(-1.0, 1.0) * 0.5 + 0.5) * 255.0)
             .round()
             .lossy_convert()
     };
-    [byte(flow.x), byte(flow.y), 0, 255]
+    let share = |value: f32| -> u8 { (value.clamp(0.0, 1.0) * 255.0).round().lossy_convert() };
+    [byte(flow.x), byte(flow.y), share(depth), share(1.0 - foam)]
 }
 
 #[repr(C)]

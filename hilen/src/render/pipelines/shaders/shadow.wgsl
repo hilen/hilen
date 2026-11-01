@@ -34,6 +34,7 @@ struct MeshInstance {
     unlit: f32,
     fade: f32,
     fade_flip: f32,
+    shallow: vec4<f32>,
 }
 
 @group(1) @binding(0)

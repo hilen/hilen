@@ -26,8 +26,13 @@ pub struct Material {
     /// derivatives of the position and the uv.
     pub normal_map:             Option<Weak<Image>>,
     /// What a mesh from `Model::from_flowing_mesh` runs along, in red and
-    /// green, each texel from `flow_texel`. Other meshes do not read it.
+    /// green, each texel from `flow_texel`, or `water_texel` for its foam and
+    /// depth too. Other meshes do not read it.
     pub flow_map:               Option<Weak<Image>>,
+    /// The color of shallow water on a mesh from `Model::from_flowing_mesh`,
+    /// where the depth of `water_texel` is 0. `None` keeps `color` everywhere.
+    /// Other meshes do not read it.
+    pub shallow_color:          Option<Color>,
     /// How far the normal map tilts the normal, 1 as painted, more for
     /// deeper relief, the glTF normal scale.
     pub normal_scale:           f32,
@@ -90,6 +95,7 @@ impl Default for Material {
             metallic_roughness_map: None,
             normal_map:             None,
             flow_map:               None,
+            shallow_color:          None,
             normal_scale:           1.0,
             occlusion_map:          None,
             occlusion_strength:     1.0,
