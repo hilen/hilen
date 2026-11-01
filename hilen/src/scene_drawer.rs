@@ -166,6 +166,7 @@ impl NodeDraws<'_> {
             normal_map: material.normal_map,
             metallic_roughness_map: material.metallic_roughness_map,
             occlusion_map: material.occlusion_map,
+            flow_map: material.flow_map,
             cutout,
         };
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
@@ -451,6 +452,7 @@ impl SceneDrawer {
             air: air_data(air.as_ref(), camera),
             space: space_data(space.as_ref()),
             stars: star_turn(space.as_ref()),
+            flow: Vec4::new(scene.flow_time, 0.0, 0.0, 0.0),
         };
 
         pipeline.prepare(encoder, &view, sun.shadows, sun.shadow_map_size);

@@ -142,8 +142,8 @@ impl Grass {
     /// and gone at 40.
     pub fn new(model: Weak<Model>, ground: impl Fn(f32, f32) -> Option<GrassSpot> + 'static) -> Self {
         assert!(
-            !model.is_ok() || model.parts.iter().all(|part| !part.mesh.smooth_colors),
-            "a clump of grass passes its color flat, it cannot be a mesh with fading colors"
+            !model.is_ok() || model.parts.iter().all(|part| !part.mesh.smooth_colors && !part.mesh.flowing),
+            "a clump of grass passes its color flat, it cannot be a mesh with fading colors or a flow"
         );
         Self {
             model,
@@ -358,6 +358,7 @@ impl Grass {
                         normal_map:             self.material.normal_map,
                         metallic_roughness_map: self.material.metallic_roughness_map,
                         occlusion_map:          self.material.occlusion_map,
+                        flow_map:               None,
                         cutout:                 self.material.cutout.is_some(),
                     },
                     blades: blades.clone(),

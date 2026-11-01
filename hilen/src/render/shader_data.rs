@@ -145,6 +145,8 @@ pub struct SceneUniform {
     pub space:         crate::gm::volume::Vec4,
     /// The turn from the world to the stars' own axes, its 3 columns.
     pub stars:         [crate::gm::volume::Vec4; 3],
+    /// The clock of a flowing mesh in x, see `SceneBase::flow_time`.
+    pub flow:          crate::gm::volume::Vec4,
 }
 
 #[cfg(all(test, feature = "scene"))]
@@ -154,6 +156,6 @@ mod scene_test {
     #[test]
     fn scene_view_is_a_uniform() {
         assert_eq!(size_of::<SceneUniform>() % 16, 0);
-        assert_eq!(size_of::<SceneUniform>(), 1024);
+        assert_eq!(size_of::<SceneUniform>(), 1040);
     }
 }

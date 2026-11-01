@@ -1,6 +1,20 @@
 use bytemuck::{Pod, Zeroable};
 
-use crate::gm::{color::U8Color, flat::Point, volume::Vec3};
+use crate::gm::{LossyConvert, color::U8Color, flat::Point, volume::Vec3};
+
+/// The fastest flow of `flow_texel`, the same number in `mesh.wgsl`.
+pub const FLOW_RANGE: f32 = 0.5;
+
+/// A texel of `Material::flow_map` for a flow in uv units a second, up to
+/// `FLOW_RANGE` each way.
+pub fn flow_texel(flow: Point) -> [u8; 4] {
+    let byte = |speed: f32| -> u8 {
+        (((speed / FLOW_RANGE).clamp(-1.0, 1.0) * 0.5 + 0.5) * 255.0)
+            .round()
+            .lossy_convert()
+    };
+    [byte(flow.x), byte(flow.y), 0, 255]
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Zeroable, Pod)]
@@ -24,6 +38,24 @@ impl Vertex3D {
             normal,
             uv,
             color: U8Color::const_rgb(255, 255, 255),
+        }
+    }
+
+    /// A vertex of a mesh from `Model::from_flowing_mesh`, with `map` its
+    /// place in the node's `Material::flow_map`, from 0 to 1. The place takes
+    /// the room of the color. `uv` and `map` have to grow in step over the
+    /// mesh, 1 number of each to the other, the shader reads the ratio.
+    pub fn flowing(pos: Vec3, normal: Vec3, uv: Point, map: Point) -> Self {
+        let bytes = |at: f32| {
+            let number: u32 = (at.clamp(0.0, 1.0) * 65535.0).round().lossy_convert();
+            u16::try_from(number).expect("a place from 0 to 1 fits 16 bits").to_le_bytes()
+        };
+        let ([r, g], [b, a]) = (bytes(map.x), bytes(map.y));
+        Self {
+            pos,
+            normal,
+            uv,
+            color: U8Color { r, g, b, a },
         }
     }
 }

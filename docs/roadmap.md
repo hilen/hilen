@@ -33,38 +33,6 @@ Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from F
   gets the paths, at the start and while the app runs.
 - Blocks: kutreel in Open With for a video file, and a double click on a file for any app.
 
-## A push on a walking player from outside
-
-Found by geblings, `~/dev/games/geblings`, on 2026-10-31, for the current of a river. Pin
-`31f6ce82`.
-
-- Current: `Player::move_by` in `hilen/src/scene/player.rs` makes its move only from the
-  wish, the gravity and the jump. `steer` takes the place of the keys, so a player steered
-  by a current can not walk. `teleport` skips every collision and resets the fall.
-- Needed: a general outside speed on `Player`, like `drift: Vec3` in units per second. It adds
-  to the keys in `move_by` before the character controller, so it keeps the collisions, the
-  steps and the fall. It stays set until the game changes it, and `move_world` turns it with
-  the scene as it does for `steer`. Works for wind, a conveyor and a river. A `cargo test`
-  proves that a player drifts with the keys up, is stopped by a wall and still walks.
-- Blocks: the current of a river that pushes the gebling.
-
-## A material that moves its texture along a flow
-
-Found by geblings, `~/dev/games/geblings`, on 2026-10-31, for rivers. Pin `31f6ce82`.
-
-- Current: `mesh.wgsl` and `scene_common.wgsl` have no time value, `Material` in
-  `hilen/src/scene/material.rs` has no flow and `Vertex3D` holds only a position, a normal,
-  a uv and a color. Moving a surface today means a new mesh per frame.
-- Needed: a material option that slides its texture and normal map by a time, along a
-  direction and speed per vertex, with 2 copies that blend in turn so the jump back never
-  shows, the flow maps of Vlachos 2010. Steep parts can fade to a second texture, for white
-  water. It must stay in the room of an A7, see the test
-  `every_mesh_shader_stays_in_the_room_of_an_a7`, or be left out there. Time in the frame
-  damage rules, see `docs/damage.md`. A UI test with a scene shows a surface moving in 2
-  directions.
-- Blocks: the moving look of rivers. Rivers in geblings can still change their paths, they
-  only stay still to the eye.
-
 ## Back and the pointer with the ring of a TV remote
 
 Found by flixen, `~/dev/apps/flixen`, on 2026-10-31, on an LG C1 with keys sent over

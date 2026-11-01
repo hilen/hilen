@@ -25,6 +25,9 @@ pub struct Material {
     /// No tangents are needed, the shader builds the frame from the
     /// derivatives of the position and the uv.
     pub normal_map:             Option<Weak<Image>>,
+    /// What a mesh from `Model::from_flowing_mesh` runs along, in red and
+    /// green, each texel from `flow_texel`. Other meshes do not read it.
+    pub flow_map:               Option<Weak<Image>>,
     /// How far the normal map tilts the normal, 1 as painted, more for
     /// deeper relief, the glTF normal scale.
     pub normal_scale:           f32,
@@ -86,6 +89,7 @@ impl Default for Material {
             texture:                None,
             metallic_roughness_map: None,
             normal_map:             None,
+            flow_map:               None,
             normal_scale:           1.0,
             occlusion_map:          None,
             occlusion_strength:     1.0,

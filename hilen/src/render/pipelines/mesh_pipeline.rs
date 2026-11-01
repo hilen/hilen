@@ -11,7 +11,8 @@ use wgpu::{
 };
 
 use self::builders::{
-    SmoothPipelines, depth_fill_pipelines, grass_pipelines, line_pipelines, mesh_pipelines, shader,
+    FlowPipelines, SmoothPipelines, depth_fill_pipelines, grass_pipelines, line_pipelines, mesh_pipelines,
+    shader,
 };
 use super::{
     air_textures::AirTextures,
@@ -91,6 +92,7 @@ pub(crate) struct MeshKey {
     pub normal_map:             Option<Weak<Image>>,
     pub metallic_roughness_map: Option<Weak<Image>>,
     pub occlusion_map:          Option<Weak<Image>>,
+    pub flow_map:               Option<Weak<Image>>,
     /// Whether the material has a cutout or a fade below 1. The threshold
     /// and the fade are the instance's own.
     pub cutout:                 bool,
@@ -100,10 +102,10 @@ pub(crate) struct MeshKey {
 pub(super) type ViewKey = (TextureView, Sampler, TextureView, TextureView, TextureView);
 /// The instance range and the joint range an instances bind holds.
 pub(super) type InstancesKey = (StorageKey, StorageKey);
-/// Whether the base texture, the normal map, the metallic roughness map
-/// and the occlusion map of a key were alive when its bind was made, a
-/// dead one is bound as its plain stand in.
-pub(super) type TexturesKey = (bool, bool, bool, bool);
+/// Whether the base texture, the normal map, the metallic roughness map,
+/// the occlusion map and the flow map of a key were alive when its bind was
+/// made, a dead one is bound as its plain stand in.
+pub(super) type TexturesKey = (bool, bool, bool, bool, bool);
 
 /// The passes an opaque instance draws in, the camera's first, then
 /// every cascade of the sun.
@@ -177,6 +179,7 @@ pub struct MeshPipeline {
     /// depth ones when there is such a mesh.
     smooth:              Option<SmoothPipelines>,
     smooth_depth_cutout: Option<RenderPipeline>,
+    flow:                Option<FlowPipelines>,
     mesh_layout:         PipelineLayout,
     mesh_shader:         ShaderModule,
 
@@ -334,6 +337,7 @@ impl Default for MeshPipeline {
             depth: None,
             smooth: None,
             smooth_depth_cutout: None,
+            flow: None,
             mesh_layout,
             mesh_shader,
             wireframe: false,
@@ -406,6 +410,13 @@ impl MeshPipeline {
             let device = Window::device();
             self.smooth = Some(SmoothPipelines::new(device, &self.mesh_layout, &self.mesh_shader));
             self.shadow.make_smooth(device);
+        }
+        if key.mesh.flowing && self.flow.is_none() {
+            self.flow = Some(FlowPipelines::new(
+                Window::device(),
+                &self.mesh_layout,
+                &self.mesh_shader,
+            ));
         }
     }
 

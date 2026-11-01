@@ -157,6 +157,10 @@ impl MeshPipeline {
                         render_pass.set_pipeline(pipeline);
                     }
                 }
+                if key.mesh.flowing && !depth {
+                    let flow = self.flow.as_ref().expect("made when the node was added");
+                    render_pass.set_pipeline(&flow.opaque);
+                }
                 // The slice starts at the batch, so the draw starts at instance
                 // zero, an A7 cannot draw from a base instance. The `index`
                 // attribute still names the real slot for the fragment stage.
@@ -197,6 +201,10 @@ impl MeshPipeline {
             if key.mesh.smooth_colors {
                 let smooth = self.smooth.as_ref().expect("made when the node was added");
                 render_pass.set_pipeline(&smooth.translucent);
+            }
+            if key.mesh.flowing {
+                let flow = self.flow.as_ref().expect("made when the node was added");
+                render_pass.set_pipeline(&flow.translucent);
             }
             // The draw starts at instance zero of a slice that begins at
             // this node, its `index` attribute still names the real slot.

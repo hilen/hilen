@@ -36,6 +36,11 @@ impl PreparedMesh {
     pub fn smooth(mesh: MeshData) -> Self {
         Self(mesh_source(mesh, Colors::Smooth))
     }
+
+    /// Any thread, like `Model::from_flowing_mesh`.
+    pub fn flowing(mesh: MeshData) -> Self {
+        Self(mesh_source(mesh, Colors::Flow))
+    }
 }
 
 impl Model {
@@ -71,6 +76,20 @@ impl Model {
             Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh_source(mesh, Colors::Smooth))));
         model
     }
+
+    /// Like `from_mesh`, with a texture and a normal map that run along the
+    /// flow of `Material::flow_map`, the way a river runs with no new mesh per
+    /// frame. The surface is cut in a grid of overlapping cells, each turns
+    /// the map to its own flow, the directional flow of Catlike Coding, so a
+    /// ripple faces the way the water goes. Faster water has smaller and
+    /// stronger ripples. The vertices come from `Vertex3D::flowing`, so the
+    /// node's material alone gives the color. It cannot be cut out. See
+    /// `SceneBase::flow_time` for its clock.
+    pub fn from_flowing_mesh(name: &str, mesh: MeshData) -> Weak<Model> {
+        let Ok(model) =
+            Self::store_with_name::<Infallible>(name, || Ok(Self::upload(mesh_source(mesh, Colors::Flow))));
+        model
+    }
 }
 
 /// How a mesh built in code draws its vertex colors.
@@ -80,6 +99,8 @@ pub(super) enum Colors {
     Flat,
     /// Each triangle fades between its corners.
     Smooth,
+    /// No color, the bytes hold a place in the flow map.
+    Flow,
 }
 
 pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
@@ -101,7 +122,7 @@ pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
     // The color reaches the fragment flat from a corner the backend picks,
     // so corners that differ would draw a different color on each lane.
     assert!(
-        colors == Colors::Smooth
+        colors != Colors::Flat
             || indices.as_chunks::<3>().0.iter().all(|&[a, b, c]| {
                 let color = mesh.vertices[a].color;
                 mesh.vertices[b].color == color && mesh.vertices[c].color == color
@@ -120,6 +141,7 @@ pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
             skin: None,
             material: None,
             smooth_colors: colors == Colors::Smooth,
+            flowing: colors == Colors::Flow,
         })
         .collect();
 

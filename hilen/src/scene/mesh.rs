@@ -37,6 +37,9 @@ pub struct Mesh {
     /// Whether the color fades across a triangle, see
     /// `Model::from_smooth_mesh`.
     pub(crate) smooth_colors: bool,
+    /// Whether its texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub(crate) flowing:       bool,
     /// The triangles again on the CPU, what the edges are made from.
     indices:                  Vec<u16>,
     /// Every edge of the triangles once, as pairs of vertex indices, and
@@ -83,6 +86,7 @@ impl Mesh {
             index_buffer:  device.buffer(indices, BufferUsages::INDEX),
             index_count:   checked_usize_to_u32(indices.len()),
             smooth_colors: false,
+            flowing:       false,
             indices:       indices.to_vec(),
             edges:         OnceLock::new(),
         }
@@ -93,6 +97,15 @@ impl Mesh {
     pub(crate) fn upload_smooth(vertices: &[Vertex3D], indices: &[u16]) -> Self {
         Self {
             smooth_colors: true,
+            ..Self::upload(vertices, indices)
+        }
+    }
+
+    /// A mesh whose texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub(crate) fn upload_flowing(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+        Self {
+            flowing: true,
             ..Self::upload(vertices, indices)
         }
     }

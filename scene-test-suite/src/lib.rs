@@ -39,6 +39,7 @@ mod fade_shadows;
 /// The same bits as on desktop in the browser, the picture fails on
 /// `SwiftShader`, see docs/roadmap.md.
 #[cfg(not_wasm)]
+mod flow;
 mod fog;
 mod geometry;
 mod glow;

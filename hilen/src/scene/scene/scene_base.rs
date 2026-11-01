@@ -59,6 +59,13 @@ pub struct SceneBase {
     pub grass:               Vec<Grass>,
     /// The wind that leans and sways the grass.
     pub wind:                Wind,
+    /// The clock of a flowing mesh, in seconds, see
+    /// `Model::from_flowing_mesh`. It runs with the scene's time and wraps
+    /// at `FLOW_WRAP`, a whole number of the shader's turns, so the wrap
+    /// does not show and a long game keeps its precision.
+    pub flow_time:           f32,
+    /// Holds `flow_time` where it is, for a picture of a test.
+    pub flow_frozen:         bool,
     /// The player's feet this frame, what the grass leans away from, and
     /// where they were a moment ago, which leaves a trail in the grass.
     pub(crate) grass_pusher: Option<Vec3>,
@@ -93,6 +100,8 @@ pub struct SceneBase {
 impl SceneBase {
     /// Physics steps per frame, the same reasoning as `LevelBase`.
     pub const PHYSICS_SUBSTEPS: usize = 4;
+    /// `FLOW_PERIOD` of `mesh.wgsl` goes into this a whole number of times.
+    const FLOW_WRAP: f32 = 3600.0;
 
     pub fn has_physics(&self) -> bool {
         self.physics.is_some()
@@ -107,6 +116,9 @@ impl SceneBase {
     /// colliders of attached nodes go where their parents carry them, then
     /// the physics, when the scene has any.
     pub fn update_physics(&mut self, frame_time: f32) {
+        if !self.flow_frozen {
+            self.flow_time = (self.flow_time + frame_time) % Self::FLOW_WRAP;
+        }
         let wind = self.wind;
         for grass in &mut self.grass {
             grass.advance(frame_time, wind);

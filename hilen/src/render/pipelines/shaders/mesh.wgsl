@@ -57,6 +57,11 @@ var metallic_roughness_sampler: sampler;
 var occlusion_texture: texture_2d<f32>;
 @group(3) @binding(7)
 var occlusion_sampler: sampler;
+// The flow of a flowing mesh in red and green, see `flow_texel`.
+@group(3) @binding(8)
+var flow_texture: texture_2d<f32>;
+@group(3) @binding(9)
+var flow_sampler: sampler;
 
 struct Vertex {
     @location(0) pos: vec3<f32>,
@@ -126,6 +131,42 @@ struct SmoothOutput {
     @location(0) normal: vec3<f32>,
     @location(1) @interpolate(flat) instance: u32,
     @location(2) color: vec4<f32>,
+}
+
+// A mesh whose texture runs along a flow, see `Model::from_flowing_mesh`. The
+// place in the flow map takes the room of the flat color, so 2 values, the uv,
+// the normal and the index of the instance make the eight an A7 draws, see
+// docs/ios.md.
+struct FlowOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) @interpolate(flat) instance: u32,
+    @location(3) map: vec2<f32>,
+}
+
+// The fastest flow, `FLOW_RANGE` of `Vertex3D`.
+const FLOW_RANGE: f32 = 0.5;
+// The cells of the grid along 1 uv unit.
+const FLOW_CELLS: f32 = 4.0;
+// The flow in uv units a second where the ripples are the smallest and the
+// strongest.
+const FLOW_FULL: f32 = 0.4;
+// How many more ripples full flow has than still water.
+const FLOW_TILING: f32 = 1.5;
+// How strong the ripples of still water are, full flow is 1.
+const FLOW_CALM: f32 = 0.25;
+
+@vertex
+fn v_flow(vertex: Vertex, instance: Instance) -> FlowOutput {
+    let placed = place(vertex.pos, vertex.normal, vertex.uv, vertex.color, instance);
+    var out: FlowOutput;
+    out.pos = placed.pos;
+    out.uv = placed.uv;
+    out.normal = placed.normal;
+    out.instance = placed.instance;
+    out.map = unpack2x16unorm(vertex.color);
+    return out;
 }
 
 @vertex
@@ -552,6 +593,60 @@ fn sampled_smooth(in: SmoothOutput) -> Sampled {
     return sample_maps(in.pos, vec2<f32>(0.0), in.normal, in.instance, in.color);
 }
 
+struct FlowCell {
+    slope: vec2<f32>,
+    base:  vec4<f32>,
+}
+
+// 1 cell of the grid with its 1 flow, at `offset` among the 4 cells over a
+// point. It turns the maps around its own middle, so a mesh of many pieces
+// lines up however far its uv runs, and turning every pixel on its own would
+// tear the pattern where the flow bends. Read with the gradients of the whole
+// surface, the jump of the uv at the edge of a cell would pick a wrong mip.
+fn flow_cell(in: FlowOutput, map_per_uv: f32, offset: vec2<f32>) -> FlowCell {
+    let center = (floor(in.uv * FLOW_CELLS + offset * 0.5) + (1.0 - offset) * 0.5) / FLOW_CELLS;
+    let flow = (textureSampleLevel(flow_texture, flow_sampler, in.map + (center - in.uv) * map_per_uv, 0.0).xy * 2.0 - 1.0) * FLOW_RANGE;
+    let speed = length(flow);
+    let way = select(vec2<f32>(0.0, 1.0), flow / max(speed, 1e-4), speed > 1e-3);
+    let across = vec2<f32>(way.y, -way.x);
+    let share = saturate(speed / FLOW_FULL);
+    let tiling = 1.0 + share * FLOW_TILING;
+    let turn = mat2x2<f32>(across.x, way.x, across.y, way.y) * tiling;
+    // Whole uv units away a cell gets the same start, the pieces of a mesh fit.
+    // A start that grows evenly from cell to cell would slant the pattern.
+    var mixed = fract(fract(center).xyx * 97.0 * 0.1031);
+    mixed += dot(mixed, mixed.yzx + 33.33);
+    let start = fract((mixed.xx + mixed.yz) * mixed.zy);
+    let at = turn * (in.uv - center) + start - vec2<f32>(0.0, view.flow.x * speed * tiling);
+    let dx = turn * dpdx(in.uv);
+    let dy = turn * dpdy(in.uv);
+    let map = textureSampleGrad(normal_texture, normal_sampler, at, dx, dy).xy * 2.0 - 1.0;
+    var out: FlowCell;
+    out.slope = (across * map.x + way * map.y) * mix(FLOW_CALM, 1.0, share);
+    out.base = textureSampleGrad(base_texture, base_sampler, at, dx, dy);
+    return out;
+}
+
+// The 4 cells over a point, each has no weight at its edge, where the next
+// cell takes over. Averages flatten the ripples, the root brings them back.
+fn sampled_flow(in: FlowOutput) -> Sampled {
+    let map_per_uv = (length(dpdx(in.map)) + length(dpdy(in.map))) / max(length(dpdx(in.uv)) + length(dpdy(in.uv)), 1e-6);
+    let t = abs(2.0 * fract(in.uv * FLOW_CELLS) - 1.0);
+    let weights = vec4<f32>((1.0 - t.x) * (1.0 - t.y), t.x * (1.0 - t.y), (1.0 - t.x) * t.y, t.x * t.y);
+    let a = flow_cell(in, map_per_uv, vec2<f32>(0.0, 0.0));
+    let b = flow_cell(in, map_per_uv, vec2<f32>(1.0, 0.0));
+    let c = flow_cell(in, map_per_uv, vec2<f32>(0.0, 1.0));
+    let d = flow_cell(in, map_per_uv, vec2<f32>(1.0, 1.0));
+    let slope = (a.slope * weights.x + b.slope * weights.y + c.slope * weights.z + d.slope * weights.w) / max(length(weights), 1e-3);
+    let base = a.base * weights.x + b.base * weights.y + c.base * weights.z + d.base * weights.w;
+    let white = vec4<f32>(1.0);
+    var out = sample_with_normal(in.pos, in.uv, in.normal, in.instance, white, vec3<f32>(slope, 1.0));
+    let color = instances[in.instance].color;
+    out.base = srgb_to_linear(color.rgb) * srgb_to_linear(base.rgb);
+    out.alpha = color.a * base.a;
+    return out;
+}
+
 fn lit(in: VertexOutput) -> vec4<f32> {
     return shade_sampled(sampled(in), in.instance);
 }
@@ -562,10 +657,15 @@ fn lit_smooth(in: SmoothOutput) -> vec4<f32> {
 
 // `tint` is the vertex color, encoded sRGB like every color.
 fn sample_maps(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>) -> Sampled {
+    let map = textureSample(normal_texture, normal_sampler, uv).xyz * 2.0 - 1.0;
+    return sample_with_normal(pos, uv, normal, index, tint, map);
+}
+
+// `sample_maps` with the normal map already read.
+fn sample_with_normal(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>, read: vec3<f32>) -> Sampled {
     let instance = instances[index];
     let texel = textureSample(base_texture, base_sampler, uv);
-    var map = textureSample(normal_texture, normal_sampler, uv).xyz * 2.0 - 1.0;
-    map = vec3<f32>(map.xy * instance.normal_scale, map.z);
+    let map = vec3<f32>(read.xy * instance.normal_scale, read.z);
 
     // The decode of a full channel lands a hair under one in f32, which
     // moved pixels of every mesh when vertex colors came in, and white
@@ -709,6 +809,17 @@ fn f_smooth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
         discard;
     }
     return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
+}
+
+// The 2 entries of `f_main` and `f_opaque` for a mesh with a flow.
+@fragment
+fn f_flow_main(in: FlowOutput) -> @location(0) vec4<f32> {
+    return shade_sampled(sampled_flow(in), in.instance);
+}
+
+@fragment
+fn f_flow_opaque(in: FlowOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade_sampled(sampled_flow(in), in.instance).rgb, 1.0);
 }
 
 // The blades of grass that stay, cut out and dropped near the camera. The

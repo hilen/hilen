@@ -452,7 +452,9 @@ that only draws behind the views answers false in `SceneSetup::takes_keys`, see
 
 `add_player` puts a first person `Player` in a scene with physics: a capsule on
 rapier's kinematic character controller, with gravity, small steps, a jump on
-space and a push on the bodies it walks into. `w` `a` `s` `d` or the arrows walk it
+space and a push on the bodies it walks into. `Player::drift` is an outside speed that
+adds to the walk with every collision, for wind, a conveyor or a river, it stays until the
+game changes it. `w` `a` `s` `d` or the arrows walk it
 while held, read through `Keys::held`, and `look` turns it, the demo page calls
 that from a drag. While a player exists the camera looks out of its eyes.
 `add_player` makes a capsule 1.8 tall and 0.7 wide, `add_player_sized` takes the
@@ -541,6 +543,25 @@ for them. A plain shadow, a plain depth photo and a wireframe read only the posi
 so they draw a smooth mesh through the pipelines of a flat one. `Smooth colors` holds
 each way of drawing it, the unit test `every_mesh_shader_stays_in_the_room_of_an_a7`
 counts the values of each shader.
+
+`Model::from_flowing_mesh(name, MeshData)` runs the texture and the normal map along a
+flow, the way a river runs with no new mesh per frame, and `PreparedMesh::flowing` does
+the slow part on a worker. Every vertex comes from `Vertex3D::flowing`, with its uv and its
+place in `Material::flow_map`, a small image of `flow_texel`s in uv units a second, up to
+`FLOW_RANGE` each way. The node's material alone gives the color, the place takes the room
+of the vertex color, so the eight values of an A7 hold. It cannot be cut out.
+
+The surface is cut in a grid of 4 cells a uv unit, the directional flow of
+[Catlike Coding](https://catlikecoding.com/unity/tutorials/flow/directional-flow/). Each
+cell reads 1 flow at its middle and turns the maps to it around that middle, so a ripple
+faces the way the water goes, and 4 cells overlap over a pixel, each with no weight at its
+edge. A normal map for this has its crests across green. Faster water has smaller and
+stronger ripples, up to `FLOW_FULL` in `mesh.wgsl`. A pixel reads the flow map 4 times, the
+normal map 4 times and the texture 5 times. The clock is `SceneBase::flow_time`, it runs
+with the scene and `flow_frozen` holds it for a picture. A scene draws every frame, see
+`docs/damage.md`, so the clock needs no paint key. `uv` and the place in the map must
+grow in step over the mesh, the shader reads their ratio from the derivatives. Cells can
+show in a sharp reflection, a second grid at double the reads is the known answer.
 
 ## Colliders, queries and parents
 
@@ -893,7 +914,8 @@ edges of a ball, a crate, the monkey and a translucent ball off and on, and `Mou
 player turned by a stream of captured mouse motion onto a crate, then left alone
 by the same stream once Escape freed the mouse. `Code meshes` is a terrain split
 into parts under a knot, a lathed vase, a twisted star and a rock, all built in
-code, `Vertex colors` a camp of meshes colored face by face, `Smooth colors` a flat
+code, `Vertex colors` a camp of meshes colored face by face, `Flow` 2 surfaces with their
+clock held at 2 moments, 1 running right and 1 running down, `Smooth colors` a flat
 quad with a saw line next to quads whose colors fade, unlit, cut out by a fading
 alpha, blended and dithered, with their shadows, their edges and a depth photo,
 `Convex hull collider` a lump that falls and rests on a triangle mesh, a pyramid

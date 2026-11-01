@@ -29,6 +29,7 @@ struct SceneUniform {
     air: array<vec4<f32>, 6>,
     space: vec4<f32>,
     stars: array<vec4<f32>, 3>,
+    flow: vec4<f32>,
 }
 
 @group(0) @binding(0)

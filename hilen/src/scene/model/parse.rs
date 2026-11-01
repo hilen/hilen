@@ -51,6 +51,9 @@ pub(crate) struct PartSource {
     /// Whether the color fades across a triangle, see
     /// `Model::from_smooth_mesh`.
     pub smooth_colors: bool,
+    /// Whether its texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub flowing:       bool,
 }
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
@@ -296,6 +299,7 @@ fn primitive_parts(
             skin: skin.map(|(index, _)| index),
             material,
             smooth_colors: false,
+            flowing: false,
         })
         .collect())
 }

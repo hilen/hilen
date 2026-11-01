@@ -65,6 +65,10 @@ pub(crate) enum MeshDraw {
     SmoothCutout,
     SmoothTranslucent,
     SmoothDepthCutout,
+    /// `Opaque` and `Translucent` for a mesh whose texture slides along a
+    /// flow, the fragment entries that take `v_flow`.
+    FlowOpaque,
+    FlowTranslucent,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -400,7 +404,10 @@ impl DeviceHelper for Device {
         vertex_entry: &str,
         draw: MeshDraw,
     ) -> RenderPipeline {
-        let transparent = matches!(draw, MeshDraw::Translucent | MeshDraw::SmoothTranslucent);
+        let transparent = matches!(
+            draw,
+            MeshDraw::Translucent | MeshDraw::SmoothTranslucent | MeshDraw::FlowTranslucent
+        );
         let wireframe = draw == MeshDraw::Wireframe;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -427,6 +434,8 @@ impl DeviceHelper for Device {
                     MeshDraw::SmoothCutout => "f_smooth_cutout",
                     MeshDraw::SmoothTranslucent => "f_smooth_main",
                     MeshDraw::SmoothDepthCutout => "f_smooth_depth_cutout",
+                    MeshDraw::FlowOpaque => "f_flow_opaque",
+                    MeshDraw::FlowTranslucent => "f_flow_main",
                 }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {

@@ -43,6 +43,26 @@ impl SmoothPipelines {
     }
 }
 
+/// The pipelines of a mesh whose texture slides along a flow, see
+/// `Model::from_flowing_mesh`, made at the first such mesh. A plain shadow
+/// and a plain depth photo read only the position, they draw it the plain way.
+pub(super) struct FlowPipelines {
+    pub opaque:      RenderPipeline,
+    pub translucent: RenderPipeline,
+}
+
+impl FlowPipelines {
+    pub(super) fn new(device: &wgpu::Device, layout: &PipelineLayout, shader: &ShaderModule) -> Self {
+        let pipeline = |label: &str, draw: MeshDraw| {
+            device.mesh_pipeline(label, layout, shader, STATIC_LAYOUTS, "v_flow", draw)
+        };
+        Self {
+            opaque:      pipeline("mesh_flow_pipeline", MeshDraw::FlowOpaque),
+            translucent: pipeline("mesh_flow_translucent_pipeline", MeshDraw::FlowTranslucent),
+        }
+    }
+}
+
 /// A pipeline of a mesh whose colors fade, `v_smooth` into the fragment
 /// entry of `draw`.
 pub(super) fn smooth_pipeline(
@@ -181,6 +201,7 @@ mod test {
     fn every_mesh_shader_stays_in_the_room_of_an_a7() {
         assert_eq!(components(MESH, "VertexOutput"), 7);
         assert_eq!(components(MESH, "SmoothOutput"), 8);
+        assert_eq!(components(MESH, "FlowOutput"), 8);
         assert_eq!(components(SHADOW, "CutoutOutput"), 4);
         assert_eq!(components(SHADOW, "SmoothCutoutOutput"), 2);
     }

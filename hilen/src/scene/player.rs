@@ -93,6 +93,10 @@ pub struct Player {
     /// player takes it level. The tools once held keys through the
     /// inspector for a test flight and got a different flight every run.
     pub steer:        Option<Vec3>,
+    /// An outside speed in units per second, wind, a conveyor or a river.
+    /// It adds to the keys and to `steer`, with every collision, and stays
+    /// until the game changes it.
+    pub drift:        Vec3,
 
     frame:    Quat,
     vertical: f32,
@@ -135,6 +139,7 @@ impl Player {
             third_person: None,
             motion: Motion::Walk,
             steer: None,
+            drift: Vec3::ZERO,
             frame: Quat::IDENTITY,
             vertical: 0.0,
             grounded: false,
@@ -220,6 +225,7 @@ impl Player {
         body.set_position(pose, false);
         body.set_next_kinematic_position(pose);
         self.steer = self.steer.map(|steer| world.direction(steer));
+        self.drift = world.direction(self.drift);
     }
 
     pub(crate) fn position_in(body: RigidBodyHandle, physics: &ScenePhysics) -> Vec3 {
@@ -318,7 +324,7 @@ impl Player {
             self.controller.snap_to_ground = None;
         }
 
-        let desired = wish * self.speed * dt + up * self.vertical * dt;
+        let desired = (wish * self.speed + self.drift + up * self.vertical) * dt;
         let filter = QueryFilter::default().exclude_rigid_body(self.body);
         let shape = physics.sets.colliders[self.collider].shared_shape().clone();
 
@@ -384,6 +390,7 @@ mod test {
             third_person: None,
             motion:       Motion::Walk,
             steer:        None,
+            drift:        Vec3::ZERO,
             frame:        Quat::IDENTITY,
             vertical:     0.0,
             grounded:     false,
@@ -582,6 +589,73 @@ mod test {
             "walked {walked} m in 1 s at {} m/s",
             player.speed
         );
+    }
+
+    /// A settled player on flat ground, away from the wall.
+    fn settled() -> (ScenePhysics, Player) {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 0.95, 100.0));
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        (physics, player)
+    }
+
+    #[test]
+    fn a_drift_moves_a_player_with_the_keys_up() {
+        let (mut physics, mut player) = settled();
+        let start = position(&physics, &player);
+        player.drift = Vec3::new(2.0, 0.0, 0.0);
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let moved = position(&physics, &player) - start;
+        assert!((moved.x - 2.0).abs() < 0.1, "drifted {moved} in 1 s");
+        assert!(moved.y.abs() < 0.05, "the drift left the ground: {moved}");
+        assert!(player.grounded(), "a drift keeps the feet on the ground");
+    }
+
+    #[test]
+    fn a_drift_adds_to_a_walk() {
+        let (mut physics, mut player) = settled();
+        let start = position(&physics, &player);
+        player.drift = Vec3::new(2.0, 0.0, 0.0);
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::NEG_Z, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let moved = position(&physics, &player) - start;
+        assert!((moved.x - 2.0).abs() < 0.2, "the drift: {moved}");
+        assert!((moved.z + player.speed).abs() < 0.2, "the walk: {moved}");
+    }
+
+    #[test]
+    fn a_wall_stops_a_drift() {
+        let (mut physics, mut player) = over_ground(Vec3::new(0.0, 0.95, -45.0));
+        for _ in 0..SUBSTEPS_A_SECOND {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        player.drift = Vec3::new(0.0, 0.0, -10.0);
+        for _ in 0..SUBSTEPS_A_SECOND * 3 {
+            player.move_by(&mut physics, SUBSTEP, Vec3::ZERO, false);
+            physics.update_physics(&[], SUBSTEP);
+        }
+        let at = position(&physics, &player);
+        assert!(at.z > -50.0 && at.z < -48.0, "{at}");
+    }
+
+    #[test]
+    fn a_world_move_turns_the_drift() {
+        let (mut physics, mut player) = on_a_planet();
+        player.drift = Vec3::X;
+        let world = WorldMove {
+            turn:  Quat::from_rotation_y(0.7),
+            shift: Vec3::new(5.0, -20.0, 8.0),
+        };
+        player.move_world(&mut physics, world);
+        assert!((player.drift - world.direction(Vec3::X)).length() < 1e-5);
     }
 
     #[test]

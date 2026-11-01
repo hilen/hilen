@@ -107,6 +107,7 @@ impl Model {
                 mesh:      Own::new(match &part.skin_vertices {
                     Some(skin) => Mesh::upload_skinned(&part.vertices, skin, &part.indices),
                     None if part.smooth_colors => Mesh::upload_smooth(&part.vertices, &part.indices),
+                    None if part.flowing => Mesh::upload_flowing(&part.vertices, &part.indices),
                     None => Mesh::upload(&part.vertices, &part.indices),
                 }),
                 transform: part.transform,
@@ -119,6 +120,7 @@ impl Model {
                     texture:                material.texture.map(|index| images[index]),
                     metallic_roughness_map: material.metallic_roughness.map(|index| images[index]),
                     normal_map:             material.normal_map.map(|index| images[index]),
+                    flow_map:               None,
                     normal_scale:           material.normal_scale,
                     occlusion_map:          material.occlusion.map(|index| images[index]),
                     occlusion_strength:     material.occlusion_strength,

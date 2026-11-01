@@ -168,6 +168,8 @@ pub(super) fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
             sampler_entry(5),
             texture_entry(6, TextureViewDimension::D2),
             sampler_entry(7),
+            texture_entry(8, TextureViewDimension::D2),
+            sampler_entry(9),
         ],
     })
 }
@@ -249,6 +251,7 @@ pub(super) fn textures_bind<'a>(
         alive(&key.normal_map),
         alive(&key.metallic_roughness_map),
         alive(&key.occlusion_map),
+        alive(&key.flow_map),
     );
     cached(slot, alive_now, || {
         make_textures_bind(layout, key, white, flat_normal)
@@ -269,11 +272,16 @@ pub(super) fn make_textures_bind(
     {
         warn!("a mesh with fading colors has no uv, the maps of its material show only their first texel");
     }
+    if key.mesh.flowing && key.cutout {
+        warn!("a mesh with a flow cannot be cut out, its flow reads as a color there");
+    }
     let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
     let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
     let (metallic_roughness_view, metallic_roughness_sampler) =
         image_or(key.metallic_roughness_map.as_ref(), white);
     let (occlusion_view, occlusion_sampler) = image_or(key.occlusion_map.as_ref(), white);
+    // Half in red and green is no flow, like a flat normal.
+    let (flow_view, flow_sampler) = image_or(key.flow_map.as_ref(), flat_normal);
     Window::device().create_bind_group(&BindGroupDescriptor {
         label: Some("mesh_textures_bind"),
         layout,
@@ -309,6 +317,14 @@ pub(super) fn make_textures_bind(
             BindGroupEntry {
                 binding:  7,
                 resource: BindingResource::Sampler(occlusion_sampler),
+            },
+            BindGroupEntry {
+                binding:  8,
+                resource: BindingResource::TextureView(flow_view),
+            },
+            BindGroupEntry {
+                binding:  9,
+                resource: BindingResource::Sampler(flow_sampler),
             },
         ],
     })
