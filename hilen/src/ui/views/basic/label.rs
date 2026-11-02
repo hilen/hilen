@@ -597,7 +597,13 @@ impl Label {
     fn truncate_to(&self, width: f32) -> Option<Zeroizing<String>> {
         const ELLIPSIS: &str = "…";
 
-        let available = width - self.alignment_margin();
+        // A frame sized from `size_for_width` reaches here through sums like
+        // text plus inset minus inset, which can come back 1 bit short of
+        // the measure, and an exact compare then cut a text that fits.
+        // A hundredth of a point is far below a pixel.
+        const SLACK: f32 = 0.01;
+
+        let available = width - self.alignment_margin() + SLACK;
         let mut font = self.font();
         let mut fits = |text: &str| {
             let shaping = Shaping {

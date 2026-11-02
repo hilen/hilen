@@ -75,6 +75,8 @@ pub struct UIManager {
     scale_changed: UIEvent<f32>,
 
     on_drop_file:      UIEvent<PathBuf>,
+    #[cfg(wasm)]
+    on_drop_bytes:     UIEvent<crate::filesystem::PickedFile>,
     on_hover_file:     UIEvent<PathBuf>,
     on_hover_file_end: UIEvent,
 
@@ -276,6 +278,8 @@ impl UIManager {
             manual_scale: AtomicU32::new(0.0f32.to_bits()),
             scale_changed: UIEvent::default(),
             on_drop_file: UIEvent::default(),
+            #[cfg(wasm)]
+            on_drop_bytes: UIEvent::default(),
             on_hover_file: UIEvent::default(),
             on_hover_file_end: UIEvent::default(),
             draw_touches: false.into(),
@@ -509,6 +513,24 @@ impl UIManager {
         Self::get().on_hover_file_end.trigger(());
     }
 
+    #[cfg(wasm)]
+    pub(crate) fn trigger_drop_bytes(file: crate::filesystem::PickedFile) {
+        Self::get().on_drop_bytes.trigger(file);
+    }
+
+    /// A file was dropped on the page of a browser, read into memory. A page
+    /// gets no path, so `on_drop_file` is not called there. A drop of several
+    /// files calls this once per file. A dropped folder has no bytes and is
+    /// logged and left out, `Paths::pick_folder_bytes` takes a folder. Only
+    /// the browser has this call.
+    #[cfg(wasm)]
+    pub fn on_drop_bytes<T: ?Sized>(
+        subscriber: Weak<T>,
+        action: impl FnMut(crate::filesystem::PickedFile) + Send + 'static,
+    ) {
+        Self::get().on_drop_bytes.val(subscriber, action);
+    }
+
     /// A file or a folder was dropped on the window. A drop of several
     /// items calls this once per item, all in the same frame.
     pub fn on_drop_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
@@ -516,8 +538,9 @@ impl UIManager {
     }
 
     /// A file or a folder is held over the window, before a drop. Called
-    /// once per held item when it enters the window. Desktop only, no
-    /// other platform reports a hold.
+    /// once per held item when it enters the window. A browser reports 1 hold
+    /// with an empty path, a page gets no names before the drop. No other
+    /// platform reports a hold.
     pub fn on_hover_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
         Self::get().on_hover_file.val(subscriber, action);
     }

@@ -1,14 +1,18 @@
+#[cfg(wasm)]
+mod browser_field;
 mod editing;
 #[cfg(all(ios, not(tvos)))]
 mod system_field;
 mod taken_keys;
+#[cfg(any(wasm, test))]
+mod utf16;
 
 use std::{mem::take, ops::Range};
 
 use ui_proc::view;
 use zeroize::Zeroizing;
 
-#[cfg(all(ios, not(tvos)))]
+#[cfg(any(all(ios, not(tvos)), wasm))]
 use crate::ui::view::ViewCallbacks;
 use crate::{
     deps::{
@@ -169,6 +173,10 @@ impl Setup for TextField {
         if !selected {
             system_field::end();
         }
+        #[cfg(wasm)]
+        if !selected {
+            browser_field::end();
+        }
 
         self.is_editing = selected;
 
@@ -177,6 +185,8 @@ impl Setup for TextField {
             UIEvents::keyboard_input().val(self, move |key| self.on_char(key));
             #[cfg(all(ios, not(tvos)))]
             system_field::begin(self);
+            #[cfg(wasm)]
+            browser_field::begin(self);
         } else {
             UIEvents::keyboard_input().unsubscribe(self);
             UIEvents::keyboard_key().unsubscribe(self);
@@ -210,6 +220,15 @@ impl ViewCallbacks for TextField {
     fn update(&mut self) {
         if self.is_editing {
             system_field::follow(self);
+        }
+    }
+}
+
+#[cfg(wasm)]
+impl ViewCallbacks for TextField {
+    fn update(&mut self) {
+        if self.is_editing {
+            browser_field::follow(self);
         }
     }
 }
@@ -290,7 +309,8 @@ impl TextField {
     /// value is the copy of the caller, single typed characters pass
     /// through the window system and the event queue as they are, on iOS
     /// the system text field that owns the keyboard keeps its own copy,
-    /// and a shown text leaves glyphs behind like every drawn text, see
+    /// in a browser the element that takes the keys keeps its own copy, and
+    /// a shown text leaves glyphs behind like every drawn text, see
     /// `Label::set_secret`.
     pub fn set_secure(&self, secure: bool) -> &Self {
         if secure {
@@ -392,6 +412,10 @@ impl TextField {
         if self.is_editing {
             system_field::set_text(self.text());
         }
+        #[cfg(wasm)]
+        if self.is_editing {
+            browser_field::sync(self);
+        }
 
         self.changed.trigger(changed_to);
         self
@@ -404,11 +428,21 @@ impl TextField {
     }
 
     /// The user changed the text in the system field.
-    #[cfg(all(ios, not(tvos)))]
+    #[cfg(any(all(ios, not(tvos)), wasm))]
     pub(super) fn system_text_changed(&self, text: Zeroizing<String>) {
         if self.text() != text.as_str() {
             self.replace_text(text);
         }
+    }
+
+    /// The user moved the caret or the selection in the element of a browser,
+    /// or typed. The 2 are bytes of the entered text.
+    #[cfg(wasm)]
+    pub(super) fn system_selection_changed(self: Weak<Self>, anchor: usize, caret: usize) {
+        let mut this = self;
+        this.anchor = (anchor != caret).then_some(anchor);
+        this.caret = caret;
+        this.update_caret();
     }
 
     /// An editing session is open, the field has the keys.

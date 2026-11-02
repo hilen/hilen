@@ -13,6 +13,9 @@ mod cursor_capture;
 #[cfg(desktop)]
 mod cursor_hidden;
 mod dispatch;
+/// Only a page gets the bytes of a dropped file.
+#[cfg(wasm)]
+mod file_drop_browser;
 mod file_hover;
 mod global_styles;
 mod image_edges;

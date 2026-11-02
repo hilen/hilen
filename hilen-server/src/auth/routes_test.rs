@@ -10,12 +10,12 @@ use axum::{
     body::Body,
     extract::State,
     http::{
-        Request, StatusCode,
+        HeaderMap, Request, StatusCode,
         header::{AUTHORIZATION, CONTENT_TYPE, LOCATION},
         request::Builder,
     },
     response::Response,
-    routing::post,
+    routing::{get, post},
     serve,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -29,7 +29,7 @@ use tower::ServiceExt;
 
 use crate::{
     apple_key::test_key,
-    auth::{AppleConfig, AuthConfig, AuthState, auth_routes, store_test::sqlite},
+    auth::{AppleConfig, AuthConfig, AuthState, DiscordConfig, auth_routes, store_test::sqlite},
 };
 
 #[derive(Serialize)]
@@ -261,6 +261,117 @@ async fn the_app_that_started_the_login_gets_the_session_with_the_code() -> Resu
     let response = app.oneshot(request("GET", "/auth/done").body(Body::empty())?).await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text_of(response).await?.contains("You are signed in to Test App"));
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct AccessToken {
+    access_token: &'static str,
+}
+
+/// Starts a stand in for Discord that answers with `user`.
+async fn fake_discord(user: &'static str) -> Result<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let app = Router::new()
+        .route(
+            "/token",
+            post(|| async {
+                Json(AccessToken {
+                    access_token: "the access",
+                })
+            }),
+        )
+        .route(
+            "/user",
+            get(move |headers: HeaderMap| async move {
+                assert_eq!(
+                    headers.get("authorization").and_then(|value| value.to_str().ok()),
+                    Some("Bearer the access")
+                );
+                user
+            }),
+        );
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the stand in for Discord stopped: {error}");
+        }
+    });
+    Ok(origin)
+}
+
+async fn discord_app(user: &'static str) -> Result<Router> {
+    let origin = fake_discord(user).await?;
+    let mut discord = DiscordConfig::new("the client", "the secret");
+    discord.token_url = format!("{origin}/token");
+    discord.user_url = format!("{origin}/user");
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret").with_discord(discord);
+    let (_pool, db) = sqlite().await?;
+    Ok(auth_routes(AuthState::new(db, config)))
+}
+
+/// A person opens `link` and says yes at Discord.
+async fn log_in_at_discord(app: &Router, link: &str) -> Result<Response> {
+    let response = app.clone().oneshot(request("GET", link).body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER, "{link}");
+    let oauth_state = query_value(&location(&response)?, "state")?;
+    Ok(app
+        .clone()
+        .oneshot(
+            request(
+                "GET",
+                &format!("/auth/discord/callback?code=the+code&state={oauth_state}"),
+            )
+            .body(Body::empty())?,
+        )
+        .await?)
+}
+
+#[tokio::test]
+async fn a_discord_login_gives_the_app_its_session() -> Result<()> {
+    let app = discord_app(
+        r#"{"id":"228","username":"vladasz.","global_name":"Vladas","avatar":"abc","email":"ana@example.com","verified":true}"#,
+    )
+    .await?;
+    let verifier = "the secret of the app";
+
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+
+    assert_eq!(poll_status(&app, verifier, None).await?, "pending");
+    assert_eq!(poll_status(&app, verifier, Some(&code)).await?, "done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_discord_account_with_no_verified_email_gets_no_session() -> Result<()> {
+    let app = discord_app(r#"{"id":"228","username":"vladasz.","email":"ana@example.com","verified":false}"#)
+        .await?;
+    let verifier = "the secret of the app";
+
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+
+    assert!(text_of(response).await?.contains("Sign in did not work"));
+    assert_eq!(poll_status(&app, verifier, None).await?, "pending");
+    Ok(())
+}
+
+#[tokio::test]
+async fn discord_answers_404_when_it_is_not_set_up() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let link = format!("/auth/discord?challenge={}&port=40000", challenge_of("v"));
+
+    let response = app.oneshot(request("GET", &link).body(Body::empty())?).await?;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     Ok(())
 }
 

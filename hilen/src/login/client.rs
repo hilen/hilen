@@ -52,6 +52,8 @@ pub enum Provider {
     Google,
     /// The backend needs its Apple config, without it the page answers 404.
     Apple,
+    /// The backend needs its Discord config, without it the page answers 404.
+    Discord,
 }
 
 impl Provider {
@@ -60,6 +62,7 @@ impl Provider {
         match self {
             Self::Google => "google",
             Self::Apple => "apple",
+            Self::Discord => "discord",
         }
     }
 }

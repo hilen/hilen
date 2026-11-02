@@ -20,8 +20,8 @@ use crate::{
     },
     system::Clipboard,
     ui::{
-        Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
-        WeakView,
+        Container, Input, ScreenKeyboard, TextAlignment, TouchStack, UIManager, VerticalAlignment, View,
+        ViewSubviews, WeakView,
         selection_drawer::SELECTION_COLOR,
         text_selection::word_range,
         view::{ViewData, ViewFrame, ViewTouch},
@@ -142,8 +142,8 @@ impl TextField {
         }
     }
 
-    // A page cannot read the clipboard synchronously, so the browser has
-    // no paste shortcut.
+    // In a browser the element that takes the keys pastes by itself, see
+    // `browser_field`.
     #[cfg(not_wasm)]
     fn paste(self: Weak<Self>) {
         match Clipboard::get_text() {
@@ -194,7 +194,8 @@ impl TextField {
                 if self.multiline
                     && self.multiline_enter == MultilineEnter::Submit
                     && !shift
-                    && !Platform::MOBILE =>
+                    && !Platform::MOBILE
+                    && !ScreenKeyboard::on_this_device() =>
             {
                 let text = self.text().to_string();
                 self.submitted.trigger(text);
@@ -441,6 +442,11 @@ impl TextField {
     }
 
     pub(super) fn on_touch_ended(mut self: Weak<Self>) {
+        // A phone opens its keyboard only inside a user gesture, and the end
+        // of a tap is one in every browser.
+        #[cfg(wasm)]
+        super::browser_field::grab_focus();
+
         if self.anchor == Some(self.caret) {
             self.anchor = None;
             self.update_caret();
@@ -515,6 +521,9 @@ impl TextField {
             self.clear_selection_views();
             return;
         }
+
+        #[cfg(wasm)]
+        super::browser_field::sync(&self);
 
         let layout = self.layout();
         let (top, line_starts) = self.line_origins(&layout);

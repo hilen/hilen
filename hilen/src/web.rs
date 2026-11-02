@@ -55,6 +55,86 @@ pub(crate) fn install_pointer_lock_listener() {
     POINTER_LOCK_LISTENER.set(Some(listener));
 }
 
+type DropListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::DragEvent)>;
+
+static DROP_LISTENERS: MainLock<[DropListener; 3]> = MainLock::new();
+
+/// Files held over the page and dropped on it. Without this the browser opens
+/// a dropped file in place of the page. Only a drag with files is touched, a
+/// drag of a text in a text field stays with the browser.
+pub(crate) fn install_file_drop_listener() {
+    use std::{cell::Cell, path::PathBuf, rc::Rc};
+
+    use web_sys::{
+        DragEvent,
+        wasm_bindgen::{JsCast, closure::Closure},
+    };
+
+    use crate::{filesystem::picker::web::read_all, ui::UIManager, window::request_frame};
+
+    fn holds_files(event: &DragEvent) -> bool {
+        event
+            .data_transfer()
+            .is_some_and(|data| data.types().iter().any(|kind| kind.as_string().as_deref() == Some("Files")))
+    }
+
+    let window = web_sys::window().expect("Failed to get browser window");
+    let held = Rc::new(Cell::new(false));
+
+    let over = Closure::<dyn FnMut(DragEvent)>::new({
+        let held = held.clone();
+        move |event: DragEvent| {
+            if !holds_files(&event) {
+                return;
+            }
+            event.prevent_default();
+            if !held.replace(true) {
+                UIManager::trigger_hover_file(PathBuf::new());
+                request_frame();
+            }
+        }
+    });
+
+    // Fires for every element the drag leaves, only one with no next element
+    // left the page.
+    let left = Closure::<dyn FnMut(DragEvent)>::new({
+        let held = held.clone();
+        move |event: DragEvent| {
+            if event.related_target().is_none() && held.replace(false) {
+                UIManager::trigger_hover_file_end();
+                request_frame();
+            }
+        }
+    });
+
+    let dropped = Closure::<dyn FnMut(DragEvent)>::new(move |event: DragEvent| {
+        if !holds_files(&event) {
+            return;
+        }
+        event.prevent_default();
+        if held.replace(false) {
+            UIManager::trigger_hover_file_end();
+        }
+        let files = event.data_transfer().and_then(|data| data.files());
+        wasm_bindgen_futures::spawn_local(async move {
+            let files = read_all(files).await;
+            log::info!("{} files dropped on the page", files.len());
+            for file in files {
+                UIManager::trigger_drop_bytes(file);
+            }
+            request_frame();
+        });
+    });
+
+    for (name, listener) in [("dragover", &over), ("dragleave", &left), ("drop", &dropped)] {
+        window
+            .add_event_listener_with_callback(name, listener.as_ref().unchecked_ref())
+            .expect("Failed to install the file drop listener");
+    }
+
+    DROP_LISTENERS.set([over, left, dropped]);
+}
+
 static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
 
 /// The canvas winit put in the page, kept so a fatal GPU failure can take
@@ -98,9 +178,17 @@ pub(crate) fn context_lost() -> bool {
     CONTEXT_LOST.load(Ordering::Relaxed)
 }
 
+/// A phone or a tablet: its main pointer is a finger, so a text field brings
+/// up a screen keyboard.
+pub(crate) fn touch_is_main_input() -> bool {
+    web_sys::window()
+        .and_then(|window| window.match_media("(pointer: coarse)").ok().flatten())
+        .is_some_and(|query| query.matches())
+}
+
 /// Where the canvas sits in the page, in CSS pixels, with the CSS pixels
-/// one device pixel is. A `<video>` element is laid under a view with it.
-#[cfg(feature = "video")]
+/// one device pixel is. An element of the page is laid over or under a view
+/// with it.
 pub(crate) fn canvas_css_origin() -> (f64, f64, f64) {
     let ratio = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio());
     let Some(canvas) = CANVAS.get_mut().as_ref() else {
@@ -112,7 +200,6 @@ pub(crate) fn canvas_css_origin() -> (f64, f64, f64) {
 
 /// The canvas winit made, for an element that has to sit next to it in
 /// the page.
-#[cfg(feature = "video")]
 pub(crate) fn canvas() -> Option<web_sys::HtmlCanvasElement> {
     CANVAS.get_mut().clone()
 }

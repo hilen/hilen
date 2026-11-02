@@ -19,6 +19,62 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A label as wide as its measured text cuts its text
+
+Found by the site of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+
+- Current: fixed and not committed. A label whose frame is as wide as
+  `size_for_width` gives was cut, `Nexus` drew as `Nex…` in blackforge. The width it
+  gets back through sums like text plus inset minus inset came back 1 bit short of the
+  measure, and `Label::truncate_to` compared exactly. It now allows a slack of a
+  hundredth of a point, see `docs/text.md`. `Label fitted ellipsize` failed with 11
+  cut words before the fix and passes after it, on Linux, with 1 sample and on the Mac
+  builder. `Label ellipsize`, `Label ellipsize head` and `Label max lines` pass.
+- Needed: the proof in blackforge. Its pin moves to a hilen with the fix, and the mod
+  links and the Discord button of its home page show their whole text.
+- Blocks: every button and link of the blackforge site whose width follows its text.
+
+## Text entry in a browser, the proof on a real phone
+
+Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+
+- Current: while a `TextField` is edited in a browser, an invisible `<input>` or
+  `<textarea>` has the focus and lies over it, `text_field/browser_field.rs`. Paste, undo
+  and composed text come from the browser, and the engine still draws the text. `Text
+  field browser` passes in Chromium and Firefox on the browser lane, in Firefox with no
+  check of the way back from the canvas, a window under a bare Xvfb has no focus.
+  `ScreenKeyboard::on_this_device` asks `(pointer: coarse)` in a browser, and a resize of
+  the visual viewport goes to `ScreenKeyboard::moves_to`. No phone ran any of it. The
+  element takes no touches, so a long press offers no Paste on a phone, only the bar of
+  the keyboard does. No real input method was typed with, the test sends its events.
+- Needed: a run in Safari on an iPhone and Chrome on an Android phone: a tap opens the
+  keyboard, typing reaches the field, the field stays in view. A real input method on a
+  desktop. A long press with Paste on a phone.
+- Blocks: calling text entry done on a phone browser.
+
+## Pick several files or a folder in a browser, the proof with a real chooser
+
+Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+
+- Current: `Paths::pick_files_bytes` and `Paths::pick_folder_bytes` are there, a file of a
+  folder says where it lay in `PickedFile::folder`. A phone picks 1 file and no folder.
+  `UIManager::on_drop_bytes` gives the bytes of files dropped on a page, and `File drop
+  browser` passes in Chromium and Firefox. A dropped folder has no bytes and is left out.
+  A chooser needs a real click, no test opened one, on a desktop or in a browser.
+- Needed: both picks tried by hand or by a browser driver in a real chooser. A pick of
+  several files on a phone. A folder dropped on a page.
+- Blocks: calling the upload of a report folder proven.
+
+## Discord login, the proof against the real Discord
+
+Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+
+- Current: `/auth/discord`, `DiscordConfig`, `Provider::Discord` and `DiscordLoginButton`
+  are there. The route tests run against a stand in for Discord, so the answers of the
+  real one were not seen.
+- Needed: 1 login through a real Discord application.
+- Blocks: the sign in of the forum of blackforge.
+
 ## Open a file from the system, like Open With on a Mac
 
 Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. Pin

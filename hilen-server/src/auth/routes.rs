@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     AppError,
     auth::{
-        AppleConfig, AuthState, User, apple, google,
+        AppleConfig, AuthState, DiscordConfig, User, apple, discord, google,
         hand_back::HandBack,
         identity::{Identity, Provider},
         session::{self, hash},
@@ -35,6 +35,9 @@ const PENDING_MINUTES: i32 = 10;
 /// - `GET /auth/apple?challenge=` sends the browser on to Apple, 404 when the
 ///   config has no Apple part.
 /// - `POST /auth/apple/callback` is the form Apple posts on the way back.
+/// - `GET /auth/discord?challenge=` sends the browser on to Discord, 404 when
+///   the config has no Discord part.
+/// - `GET /auth/discord/callback` is where Discord sends it back.
 /// - `GET /auth/done` is the last page a person sees.
 /// - `POST /auth/code` gives a device with no keyboard a short code for its
 ///   login, 404 unless [`AuthConfig::with_code_login`] turned it on.
@@ -55,6 +58,8 @@ pub fn auth_routes<S>(state: AuthState) -> Router<S> {
         .route("/auth/google/callback", get(google_callback))
         .route("/auth/apple", get(start_apple))
         .route("/auth/apple/callback", post(apple_callback))
+        .route("/auth/discord", get(start_discord))
+        .route("/auth/discord/callback", get(discord_callback))
         .route("/auth/done", get(done_page))
         .route("/auth/code", post(make_code).get(code_page))
         .route("/auth/poll", post(poll))
@@ -94,6 +99,23 @@ async fn start_apple(
         apple,
         &oauth_state,
     )?))
+}
+
+async fn start_discord(
+    State(state): State<AuthState>,
+    Query(query): Query<StartQuery>,
+) -> Result<Redirect, AppError> {
+    let discord = discord_config(&state)?;
+    let oauth_state = start(&state, &query).await?;
+    Ok(Redirect::to(&discord::auth_url(
+        &state.config,
+        discord,
+        &oauth_state,
+    )?))
+}
+
+fn discord_config(state: &AuthState) -> Result<&DiscordConfig, AppError> {
+    state.config.discord.as_ref().ok_or(AppError::NotFound)
 }
 
 fn apple_config(state: &AuthState) -> Result<&AppleConfig, AppError> {
@@ -182,6 +204,10 @@ async fn make_code(
         "apple" => {
             apple_config(&state)?;
             Provider::Apple
+        }
+        "discord" => {
+            discord_config(&state)?;
+            Provider::Discord
         }
         _ => return Err(AppError::BadRequest("no such login provider".to_owned())),
     };
@@ -279,6 +305,26 @@ async fn apple_callback(State(state): State<AuthState>, Form(answer): Form<Apple
     )
     .await;
     outcome_page(&state, Provider::Apple, finished)
+}
+
+/// A person looks at the answer of this one too. Discord answers like Google,
+/// `error` is there when the user said no.
+async fn discord_callback(State(state): State<AuthState>, Query(answer): Query<GoogleAnswer>) -> Response {
+    let Ok(discord) = discord_config(&state) else {
+        return AppError::NotFound.into_response();
+    };
+    let (Some(code), Some(oauth_state)) = (answer.code, answer.state) else {
+        tracing::info!("discord login stopped: {:?}", answer.error);
+        return cancelled_page(&state);
+    };
+
+    let finished = finish(
+        &state,
+        &oauth_state,
+        discord::exchange(&state.http, &state.config, discord, &code),
+    )
+    .await;
+    outcome_page(&state, Provider::Discord, finished)
 }
 
 /// A login that has its user, with what goes back to its app.

@@ -4,7 +4,7 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::Event},
     login::{Login, LoginUser, Provider},
-    sign_in_button::{APPLE, GOOGLE, sign_in_button},
+    sign_in_button::{APPLE, DISCORD, GOOGLE, sign_in_button},
     ui::{
         Button, ImageView, Label, RingSpinner, Setup, TextAlignment, Theme, ViewCallbacks, ViewData,
         ViewTouch,
@@ -24,6 +24,13 @@ fn start_apple(
     closed: impl FnOnce() + Send + 'static,
 ) {
     Login::start_with_close(Provider::Apple, done, closed);
+}
+
+fn start_discord(
+    done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+    closed: impl FnOnce() + Send + 'static,
+) {
+    Login::start_with_close(Provider::Discord, done, closed);
 }
 
 sign_in_button!(
@@ -51,4 +58,17 @@ sign_in_button!(
     start_apple,
     Login::cancel,
     APPLE
+);
+
+sign_in_button!(
+    /// The whole Discord login as one view, the twin of [`GoogleLoginButton`].
+    /// It wants a frame about 240 by 40 points.
+    ///
+    /// `Login::set_server` has to be called before the first tap, and the
+    /// backend needs its Discord config.
+    DiscordLoginButton,
+    logged_in: LoginUser,
+    start_discord,
+    Login::cancel,
+    DISCORD
 );

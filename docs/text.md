@@ -166,6 +166,14 @@ the text that still wraps into the limit with the ellipsis after it, found by
 binary search over the layout and cached per width like the single line
 ellipsis. `size_for_width` then measures what is drawn.
 
+The single line ellipsis of `set_ellipsize` keeps the whole text when its measure
+is at most the frame width minus the inset plus a slack of a hundredth of a point.
+A button sizes its title from `size_for_width`, text plus inset, and the label then
+gets its own width back through sums like that minus the inset or the frame of the
+button minus its padding. Those can come back 1 bit short of the measure, and the
+exact compare cut `Nexus` to `Nex…` in a link of blackforge. `Label fitted
+ellipsize` pins it with many words in 4 faces and 5 sizes.
+
 `set_text_outline(color, width)` and `set_text_shadow(color, offset)` draw the
 same text again in 1 color behind the glyphs. `set_text_shadow_blur(radius)`
 makes the shadow soft. A hard shadow is a plain copy of the text through the

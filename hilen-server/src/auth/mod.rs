@@ -1,12 +1,13 @@
-//! Google and Apple login for an app backend. The engine client is
+//! Google, Apple and Discord login for an app backend. The engine client is
 //! `hilen::login`, the two halves only share the wire.
 //!
 //! An app never sends its user to a provider by itself. It opens
-//! `/auth/google?challenge=` or `/auth/apple?challenge=` of this server in the
-//! browser, this server runs the normal web login of that provider, gives a
-//! one time code back to the app that started it, and the app trades its
-//! verifier and that code at `/auth/poll` for its session token. The provider
-//! secrets stay here. How the code goes back is in `hand_back.rs`.
+//! `/auth/google?challenge=`, `/auth/apple?challenge=` or
+//! `/auth/discord?challenge=` of this server in the browser, this server runs
+//! the normal web login of that provider, gives a one time code back to the app
+//! that started it, and the app trades its verifier and that code at
+//! `/auth/poll` for its session token. The provider secrets stay here. How the
+//! code goes back is in `hand_back.rs`.
 //!
 //! ```ignore
 //! let db = build_db(&config.database_url).await?;
@@ -24,6 +25,7 @@ mod apple;
 mod dev;
 #[cfg(all(test, feature = "dev-login"))]
 mod dev_test;
+mod discord;
 mod google;
 pub(crate) mod hand_back;
 pub(crate) mod identity;
@@ -55,6 +57,9 @@ const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const APPLE_AUTH_URL: &str = "https://appleid.apple.com/auth/authorize";
 const APPLE_TOKEN_URL: &str = "https://appleid.apple.com/auth/token";
 const APPLE_REVOKE_URL: &str = "https://appleid.apple.com/auth/revoke";
+const DISCORD_AUTH_URL: &str = "https://discord.com/oauth2/authorize";
+const DISCORD_TOKEN_URL: &str = "https://discord.com/api/oauth2/token";
+const DISCORD_USER_URL: &str = "https://discord.com/api/users/@me";
 
 /// Creates and updates `users`, `identities`, `sessions` and `pending_logins`,
 /// on Postgres or on SQLite, each from its own files. The record of what ran
@@ -92,8 +97,8 @@ pub async fn create_session(db: &Db, user_id: sqlx::types::Uuid) -> Result<Strin
 }
 
 /// One Google client of the type "Web application" per app. Its allowed
-/// redirect address is [`AuthConfig::redirect_uri`]. Apple is optional, see
-/// [`AppleConfig`].
+/// redirect address is [`AuthConfig::redirect_uri`]. Apple and Discord are
+/// optional, see [`AppleConfig`] and [`DiscordConfig`].
 #[derive(Clone, Debug)]
 pub struct AuthConfig {
     /// For a person to read, on the page the browser ends on.
@@ -106,6 +111,8 @@ pub struct AuthConfig {
     pub google_token_url:     String,
     /// `None` leaves the Apple routes answering 404.
     pub apple:                Option<AppleConfig>,
+    /// `None` leaves the Discord routes answering 404.
+    pub discord:              Option<DiscordConfig>,
     /// The login of a device with no keyboard through a short code, off by
     /// default, see [`AuthConfig::with_code_login`].
     pub code_login:           bool,
@@ -126,6 +133,7 @@ impl AuthConfig {
             google_auth_url:      GOOGLE_AUTH_URL.to_owned(),
             google_token_url:     GOOGLE_TOKEN_URL.to_owned(),
             apple:                None,
+            discord:              None,
             code_login:           false,
         }
     }
@@ -149,8 +157,16 @@ impl AuthConfig {
         self
     }
 
+    /// Turns the Discord login on.
+    #[must_use]
+    pub fn with_discord(mut self, discord: DiscordConfig) -> Self {
+        self.discord = Some(discord);
+        self
+    }
+
     /// Reads `PUBLIC_ORIGIN`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
-    /// and the Apple names of [`AppleConfig::from_env`] when they are set.
+    /// and the names of [`AppleConfig::from_env`] and
+    /// [`DiscordConfig::from_env`] when they are set.
     pub fn from_env(app_name: &str) -> Result<Self> {
         let mut config = Self::new(
             app_name,
@@ -159,6 +175,7 @@ impl AuthConfig {
             env::var("GOOGLE_CLIENT_SECRET").context("GOOGLE_CLIENT_SECRET required")?,
         );
         config.apple = AppleConfig::from_env()?;
+        config.discord = DiscordConfig::from_env()?;
         Ok(config)
     }
 
@@ -167,9 +184,63 @@ impl AuthConfig {
         format!("{}/auth/google/callback", self.public_origin)
     }
 
+    /// The redirect to allow on the `OAuth2` page of the Discord application.
+    pub fn discord_redirect_uri(&self) -> String {
+        format!("{}/auth/discord/callback", self.public_origin)
+    }
+
     /// The return address to allow on the Apple service id.
     pub fn apple_redirect_uri(&self) -> String {
         format!("{}/auth/apple/callback", self.public_origin)
+    }
+}
+
+/// The login of Discord. It needs an application of the Discord developer
+/// portal with [`AuthConfig::discord_redirect_uri`] as a redirect of its
+/// `OAuth2` page. An account with no verified email cannot log in.
+#[derive(Clone)]
+pub struct DiscordConfig {
+    pub client_id:     String,
+    pub client_secret: String,
+    pub auth_url:      String,
+    pub token_url:     String,
+    pub user_url:      String,
+}
+
+impl DiscordConfig {
+    pub fn new(client_id: impl ToString, client_secret: impl ToString) -> Self {
+        Self {
+            client_id:     client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            auth_url:      DISCORD_AUTH_URL.to_owned(),
+            token_url:     DISCORD_TOKEN_URL.to_owned(),
+            user_url:      DISCORD_USER_URL.to_owned(),
+        }
+    }
+
+    /// Reads `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. `None` when the
+    /// first one is not set or empty, a compose file passes an unset name on
+    /// as an empty one. With it the secret is required.
+    pub fn from_env() -> Result<Option<Self>> {
+        let Some(client_id) = env::var("DISCORD_CLIENT_ID").ok().filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self::new(
+            client_id,
+            env::var("DISCORD_CLIENT_SECRET")
+                .context("DISCORD_CLIENT_SECRET required with DISCORD_CLIENT_ID")?,
+        )))
+    }
+}
+
+// Written by hand to keep the secret out of every log line.
+impl Debug for DiscordConfig {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DiscordConfig")
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
     }
 }
 

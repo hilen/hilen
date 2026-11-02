@@ -1,6 +1,7 @@
-//! The body of every sign in button, the Google and the Apple look. The login
-//! buttons of `login` and the account buttons of `google_access` are this one
-//! view written out per button by a macro, each with the call it starts.
+//! The body of every sign in button, the Google, the Apple and the Discord
+//! look. The login buttons of `login` and the account buttons of
+//! `google_access` are this one view written out per button by a macro, each
+//! with the call it starts.
 
 use crate::{gm::color::Color, ui::DynamicColor};
 
@@ -53,6 +54,25 @@ pub(crate) const APPLE: Look = Look {
     dark_mark:  (
         include_bytes!("login/apple_logo_black.svg"),
         "hilen_apple_logo_black.svg",
+    ),
+};
+
+// The color and the white mark of the Discord branding guidelines,
+// https://discord.com/branding, the same on a light and a dark screen.
+#[cfg(feature = "login")]
+pub(crate) const DISCORD: Look = Look {
+    fill:       DynamicColor::new(Color::hex("#5865f2"), Color::hex("#5865f2")),
+    border:     DynamicColor::new(Color::hex("#5865f2"), Color::hex("#5865f2")),
+    text:       DynamicColor::new(Color::hex("#ffffff"), Color::hex("#ffffff")),
+    faint_text: DynamicColor::new(Color::hex("#e0e3ff"), Color::hex("#e0e3ff")),
+    sign_in:    "Sign in with Discord",
+    light_mark: (
+        include_bytes!("login/discord_logo_white.svg"),
+        "hilen_discord_logo_white.svg",
+    ),
+    dark_mark:  (
+        include_bytes!("login/discord_logo_white.svg"),
+        "hilen_discord_logo_white.svg",
     ),
 };
 

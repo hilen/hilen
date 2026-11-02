@@ -2,14 +2,14 @@ use anyhow::{Result, anyhow};
 use log::{error, warn};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    Blob, BlobPropertyBag, File, HtmlElement, HtmlInputElement, Url,
-    js_sys::{Array, Promise, Uint8Array},
-    wasm_bindgen::JsCast,
+    Blob, BlobPropertyBag, File, FileList, HtmlElement, HtmlInputElement, Url,
+    js_sys::{Array, Promise, Reflect, Uint8Array},
+    wasm_bindgen::{JsCast, JsValue},
 };
 
 use crate::{
     deps::hreads::after,
-    filesystem::picker::{PickedFile, save::SavedFile},
+    filesystem::picker::{PickedFile, folder_of, save::SavedFile},
 };
 
 /// The link of a download is let go after this many seconds. A browser
@@ -84,11 +84,72 @@ pub(super) async fn pick(accept: &str) -> Option<PickedFile> {
     }
 }
 
+/// `accept` as in `pick`, every file with `folder` false. With it the chooser
+/// asks for a folder and gives each file in it.
+pub(super) async fn pick_many(accept: &str, folder: bool) -> Vec<PickedFile> {
+    match chosen_files(accept, folder).await {
+        Ok(files) => read_all(files).await,
+        Err(err) => {
+            error!("file chooser failed: {err}");
+            Vec::new()
+        }
+    }
+}
+
+/// Reads every file, one that fails is logged and left out.
+pub(crate) async fn read_all(files: Option<FileList>) -> Vec<PickedFile> {
+    let Some(files) = files else {
+        return Vec::new();
+    };
+    let mut picked = Vec::new();
+    for index in 0..files.length() {
+        let Some(file) = files.get(index) else {
+            continue;
+        };
+        match read(&file).await {
+            Ok(read) => picked.push(read.in_folder(folder_of(&relative_path(&file)))),
+            Err(err) => error!("picked file {} failed to read: {err}", file.name()),
+        }
+    }
+    picked
+}
+
+/// `web_sys` has no call for this property, every browser has it.
+fn relative_path(file: &File) -> String {
+    Reflect::get(file, &JsValue::from_str("webkitRelativePath"))
+        .ok()
+        .and_then(|path| path.as_string())
+        .unwrap_or_default()
+}
+
+async fn chosen_files(accept: &str, folder: bool) -> Result<Option<FileList>> {
+    let input = file_input(accept)?;
+    input.set_multiple(true);
+    if folder {
+        // No browser has a typed setter for it, the attribute works in all.
+        input
+            .set_attribute("webkitdirectory", "")
+            .map_err(|err| anyhow!("failed to ask for a folder: {err:?}"))?;
+    }
+    if !answered(&input).await {
+        return Ok(None);
+    }
+    Ok(input.files())
+}
+
 /// The input is never added to the page, a click on a detached input
 /// opens the chooser too. A browser older than the `cancel` event, Chrome
 /// 113 and Safari 16.4, never answers a cancel, so the future then stays
 /// pending.
 async fn chosen_file(accept: &str) -> Result<Option<File>> {
+    let input = file_input(accept)?;
+    if !answered(&input).await {
+        return Ok(None);
+    }
+    Ok(input.files().and_then(|files| files.get(0)))
+}
+
+fn file_input(accept: &str) -> Result<HtmlInputElement> {
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| anyhow!("no document"))?;
@@ -102,7 +163,11 @@ async fn chosen_file(accept: &str) -> Result<Option<File>> {
     if !accept.is_empty() {
         input.set_accept(accept);
     }
+    Ok(input)
+}
 
+/// Opens the chooser. True when the user picked, false on a cancel.
+async fn answered(input: &HtmlInputElement) -> bool {
     // A cancel rejects, so the await tells the two answers apart.
     let answered = Promise::new(&mut |resolve, reject| {
         input.set_onchange(Some(&resolve));
@@ -111,11 +176,7 @@ async fn chosen_file(accept: &str) -> Result<Option<File>> {
 
     input.click();
 
-    if JsFuture::from(answered).await.is_err() {
-        return Ok(None);
-    }
-
-    Ok(input.files().and_then(|files| files.get(0)))
+    JsFuture::from(answered).await.is_ok()
 }
 
 async fn read(file: &File) -> Result<PickedFile> {

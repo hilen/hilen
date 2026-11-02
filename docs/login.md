@@ -289,10 +289,32 @@ The build script of `hilen-session` prints `rerun-if-env-changed` for both names
 without the key after one with it rebuilds the crate, so an app run like `make run`
 without Infisical takes the development key again.
 
+## Discord
+
+`hilen-server/src/auth/discord.rs` and `DiscordLoginButton`, added on 2026-11-02 for the
+forum of blackforge. The flow is the one of Google, only the last step differs:
+Discord gives no id token, so `exchange` trades the code for an access token at
+`token_url` and reads the user at `user_url`, `/api/users/@me`, with the scopes
+`identify email`.
+
+- `AuthConfig::from_env` turns it on when `DISCORD_CLIENT_ID` is set and not empty,
+  then `DISCORD_CLIENT_SECRET` is required. A compose file passes an unset name on as an
+  empty one. Without it `/auth/discord` and its callback answer 404.
+- The redirect to allow on the OAuth2 page of the Discord application is
+  `AuthConfig::discord_redirect_uri`, `<PUBLIC_ORIGIN>/auth/discord/callback`.
+- A first login through a second provider finds its user by the email, so a Discord
+  account with no verified email is refused, `verified` of the user.
+- The name is the display name, `global_name`, else the user name. The picture is the
+  avatar on `cdn.discordapp.com`.
+- The button has the color of the Discord brand and its white mark on both themes.
+- `routes_test.rs` runs it against a stand in for Discord: a login that gives the app
+  its session, an account with no verified email, and a server with no Discord part.
+  `Discord login button look` pins the button. The real Discord was not asked yet.
+
 ## The buttons and their tests
 
-`GoogleLoginButton` and `AppleLoginButton` are one body in `login_button.rs`, written
-out twice by a macro with a `Look` each. A generic view would not do, it cannot sit in a
+`GoogleLoginButton`, `AppleLoginButton` and `DiscordLoginButton` are one body in
+`login_button.rs`, written out by a macro with a `Look` each. A generic view would not do, it cannot sit in a
 UI test. The Apple button is black on a light screen and white on a dark one, and swaps
 its logo in `theme_changed`.
 

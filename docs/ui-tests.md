@@ -71,6 +71,12 @@ simulator lane forwards it, `simctl` only passes `SIMCTL_CHILD_` prefixed variab
 app and the lane adds that prefix itself. `make ui-ios-human` is the watchable simulator run,
 see Human mode below.
 
+On the Linux builder `pc` the lane runs as a `far` job with `trunk` from nix and the GLX
+extension of Xvfb off, `far --on linux nix shell nixpkgs#trunk --command xvfb-run -a
+--server-args="-screen 0 1600x1500x24 -extension GLX" bun build/web/drive.ts --only
+"Name"`. With GLX on, Xvfb loads the EGL driver of the parked NVIDIA card and crashes
+before the browser starts, seen on 2026-11-02.
+
 The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
 atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
 by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the

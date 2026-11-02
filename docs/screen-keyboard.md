@@ -1,8 +1,10 @@
 # Screen keyboard
 
 What the engine does when the screen keyboard of a phone comes up. The code is
-`hilen/src/ui/screen_keyboard.rs`. Only iOS has a screen keyboard in the engine today,
-Android opens none, see [roadmap.md](roadmap.md).
+`hilen/src/ui/screen_keyboard.rs`. iOS and a browser on a touch device have a screen
+keyboard in the engine today, Android opens none, see [roadmap.md](roadmap.md). In a browser
+the keyboard comes from a hidden element of the page and its edge from the visual
+viewport, see [browser-text.md](browser-text.md).
 
 ## What an app gets
 

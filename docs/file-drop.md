@@ -21,8 +21,16 @@ A view that shows a "drop here" mark turns it on in `on_hover_file` and off in
 
 ## Platforms
 
-Only a desktop window reports a drop, and only a desktop window reports a hold. On every
-other platform the 3 actions are never called.
+A desktop window reports a hold and a drop with a path. A page in a browser gets no
+path. It reports 1 hold with an empty path, the end of the hold, and calls
+`UIManager::on_drop_bytes` with the name and the bytes of each dropped file, never
+`on_drop_file`. A dropped folder has no bytes there and is left out with a line in the
+log. The listeners are `install_file_drop_listener` in `hilen/src/web.rs`, they touch
+only a drag that holds files. On every other platform nothing is called.
+
+`File drop browser` in `ui-test-suite/src/base/file_drop_browser.rs` drops 2 made up
+files on the canvas on the browser lane, and a drag of a text that stays with the
+browser.
 
 ## Tests
 

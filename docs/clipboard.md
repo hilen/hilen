@@ -72,8 +72,9 @@ So the event fires on desktop only:
 - iOS: the system text field takes the keys and pastes by itself, see [ios.md](ios.md).
   It offers no paste for a picture, so nothing fires.
 - Android: `get_image` answers `None`.
-- Browser: there is no paste shortcut at all, the page cannot read the clipboard
-  at once.
+- Browser: the element of the page that takes the keys pastes a text by itself, see
+  [browser-text.md](browser-text.md). A picture fires nothing, the page cannot read the
+  clipboard at once.
 
 ## A text put in by the app
 

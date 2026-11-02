@@ -67,8 +67,15 @@ pub struct ScreenKeyboard;
 
 impl ScreenKeyboard {
     /// This device types on a screen keyboard, an iPhone or an iPad.
-    pub const fn on_this_device() -> bool {
-        cfg!(all(ios, not(tvos)))
+    pub fn on_this_device() -> bool {
+        #[cfg(wasm)]
+        {
+            crate::web::touch_is_main_input()
+        }
+        #[cfg(not(wasm))]
+        {
+            cfg!(all(ios, not(tvos)))
+        }
     }
 
     /// The top edge of the keyboard now, part way while it moves. `None`

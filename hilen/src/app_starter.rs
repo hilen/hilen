@@ -112,6 +112,17 @@ fn start_desktop_links(headless: bool) {
     }
 }
 
+/// What a page listens to in the browser, around the canvas.
+#[cfg(wasm)]
+fn install_page_listeners() {
+    crate::system::install_popstate_listener();
+    crate::system::links::receive_start_url();
+    crate::web::install_reload_shortcut_listener();
+    crate::web::install_pointer_lock_listener();
+    crate::web::install_file_drop_listener();
+    crate::web::install_tv_back_listener();
+}
+
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
@@ -167,11 +178,7 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         #[cfg(wasm)]
         {
             event_loop.set_control_flow(ControlFlow::Poll);
-            crate::system::install_popstate_listener();
-            crate::system::links::receive_start_url();
-            crate::web::install_reload_shortcut_listener();
-            crate::web::install_pointer_lock_listener();
-            crate::web::install_tv_back_listener();
+            install_page_listeners();
         }
         crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
 

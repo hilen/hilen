@@ -1,4 +1,4 @@
-//! Who a provider says the user is, the same shape for Google and Apple.
+//! Who a provider says the user is, the same shape for every provider.
 
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -9,6 +9,7 @@ use serde_json::from_slice;
 pub(crate) enum Provider {
     Google,
     Apple,
+    Discord,
     /// The login of a dev server, see `dev.rs`.
     #[cfg(feature = "dev-login")]
     Dev,
@@ -21,6 +22,7 @@ impl Provider {
         match self {
             Self::Google => "google",
             Self::Apple => "apple",
+            Self::Discord => "discord",
             #[cfg(feature = "dev-login")]
             Self::Dev => "dev",
         }
@@ -30,7 +32,7 @@ impl Provider {
     /// A dev login never does, it makes its own account.
     pub(crate) const fn joins_by_email(self) -> bool {
         match self {
-            Self::Google | Self::Apple => true,
+            Self::Google | Self::Apple | Self::Discord => true,
             #[cfg(feature = "dev-login")]
             Self::Dev => false,
         }

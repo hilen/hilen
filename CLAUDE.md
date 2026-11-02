@@ -23,7 +23,7 @@ through its `Db` type, Redis optional. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
 page requests at a running `trunk serve` for the dev loop. Its `auth` module is
-the server half of the Google and Apple login, see [docs/login.md](docs/login.md). Its
+the server half of the Google, Apple and Discord login, see [docs/login.md](docs/login.md). Its
 `prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
 the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
 route behind a Bearer token, since a stack with a public host has only one port
@@ -144,6 +144,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   CoreGraphics and the wgpu fork. Also the system text field an edited `TextField` becomes
   on an iPhone, and its native file inside the engine crate, and the image and file pickers. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
+- [docs/browser-text.md](docs/browser-text.md) — a `TextField` in a browser: the hidden
+  `<input>` that takes the keys, paste, undo, composed text and the keyboard of a phone,
+  and the 2 ways of the text between the element and the field. Read before touching
+  text entry on the wasm target.
 - [docs/screen-keyboard.md](docs/screen-keyboard.md) — the screen keyboard of a phone: the
   edited field that stays in view, `b_keyboard` for a view that rides on the keyboard,
   `ScreenKeyboard`, why `TextField::focus` does nothing on a phone, and the several
@@ -244,7 +248,7 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `LogData` trait, ANSI colors, the prefix column, follow the end, and why a row out of
   view gets its height from arithmetic and not from shaped text. Read before touching
   `views/complex/log_view` or putting a log into an app.
-- [docs/login.md](docs/login.md) — the Google and Apple login: the poll flow between `hilen::login` and
+- [docs/login.md](docs/login.md) — the Google, Apple and Discord login: the poll flow between `hilen::login` and
   `hilen_server::auth`, the way back of the one time code to the app that started the login, the
   sessions in the credential store, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
   `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how

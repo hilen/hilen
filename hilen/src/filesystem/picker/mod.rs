@@ -14,7 +14,7 @@ mod ios_document;
 mod ios_save;
 mod save;
 #[cfg(wasm)]
-mod web;
+pub(crate) mod web;
 
 use log::{debug, info};
 pub use save::SavedFile;
@@ -26,6 +26,10 @@ use crate::filesystem::Paths;
 pub struct PickedFile {
     /// The file name with its extension, without a folder.
     pub name:         String,
+    /// Where the file lay in a folder the user picked, starting with the
+    /// name of that folder, like `report/logs`. Empty for a file picked by
+    /// itself.
+    pub folder:       String,
     /// The MIME type, like `image/jpeg`.
     pub content_type: String,
     pub bytes:        Vec<u8>,
@@ -42,9 +46,17 @@ impl PickedFile {
 
         Self {
             name,
+            folder: String::new(),
             content_type,
             bytes,
         }
+    }
+
+    /// The file lay in the folder `folder` of a picked folder.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn in_folder(mut self, folder: String) -> Self {
+        self.folder = folder;
+        self
     }
 }
 
@@ -73,6 +85,14 @@ fn clean_extensions(extensions: &[&str]) -> Vec<String> {
         .map(|extension| extension.trim().trim_start_matches('.').to_lowercase())
         .filter(|extension| !extension.is_empty())
         .collect()
+}
+
+/// `report/logs/a.txt` lay in `report/logs`.
+#[cfg(any(wasm, test))]
+fn folder_of(relative_path: &str) -> String {
+    relative_path
+        .rsplit_once('/')
+        .map_or_else(String::new, |(folder, _)| folder.to_string())
 }
 
 /// The `accept` of a file input, like `.pdf,.txt`.
@@ -150,6 +170,44 @@ impl Paths {
         picked
     }
 
+    /// Lets the user pick any number of files and reads them. Empty when the
+    /// user cancels. A file that fails to read is logged and left out. The
+    /// rest is as in `pick_file_bytes`. A phone picks 1 file for now, its
+    /// system pickers are not asked for more.
+    pub async fn pick_files_bytes(title: &str, extensions: &[&str]) -> Vec<PickedFile> {
+        debug!("file picker for several files opens: {title} {extensions:?}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_files(title, &clean_extensions(extensions)).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many(&accept_of(&clean_extensions(extensions)), false).await;
+        #[cfg(not(any(desktop, wasm)))]
+        let picked: Vec<PickedFile> = Self::pick_file_bytes(title, extensions).await.into_iter().collect();
+
+        info!("{} files picked", picked.len());
+        picked
+    }
+
+    /// Lets the user pick a folder and reads every file in it, also in the
+    /// folders inside it, `PickedFile::folder` says where each lay. Empty when
+    /// the user cancels, and at once on a phone, which has no such chooser. A
+    /// file that fails to read is logged and left out. Everything is held in
+    /// memory. In a browser start it from a tap, like `pick_file_bytes`, and
+    /// the browser may ask the user whether the page may see the folder.
+    pub async fn pick_folder_bytes(title: &str) -> Vec<PickedFile> {
+        debug!("folder picker opens: {title}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_folder(title).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many("", true).await;
+        #[cfg(not(any(desktop, wasm)))]
+        let picked: Vec<PickedFile> = std::future::ready(Vec::new()).await;
+
+        info!("{} files of a folder picked", picked.len());
+        picked
+    }
+
     /// Lets the user pick one image and reads it. The photo library on a
     /// phone, the file dialog on desktop, the file chooser of the browser.
     /// `None` when the user cancels or the read fails, a failure is logged.
@@ -188,12 +246,19 @@ impl Paths {
 
 #[cfg(test)]
 mod tests {
-    use super::{PickedFile, accept_of, clean_extensions, mime_types};
+    use super::{PickedFile, accept_of, clean_extensions, folder_of, mime_types};
 
     const NONE: [String; 0] = [];
 
     fn cleaned(extensions: &[&str]) -> Vec<String> {
         clean_extensions(extensions)
+    }
+
+    #[test]
+    fn a_path_gives_its_folder() {
+        assert_eq!(folder_of("report/logs/a.txt"), "report/logs");
+        assert_eq!(folder_of("a.txt"), "");
+        assert_eq!(folder_of(""), "");
     }
 
     #[test]

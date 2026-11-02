@@ -20,6 +20,7 @@ mod label_effect_over_new_image;
 mod label_ellipsize;
 mod label_ellipsize_head;
 mod label_fit_text;
+mod label_fitted_ellipsize;
 mod label_font;
 mod label_font_runs;
 mod label_image;
@@ -94,6 +95,9 @@ mod tab_focus;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;
+/// Only a browser edits a field through an element of the page.
+#[cfg(wasm)]
+mod text_field_browser;
 /// Probes the caret the engine draws in a focused field. On an iPhone the
 /// system text field draws the caret, outside the engine frame, and
 /// [`screen_keyboard_look`] checks there that it follows the scale.
