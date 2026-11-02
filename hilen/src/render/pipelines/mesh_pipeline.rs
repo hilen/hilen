@@ -20,6 +20,7 @@ use super::{
         instances_bind, instances_layout, opaque_bind, plain_texture, textures_bind, textures_layout,
         view_bind, view_layout,
     },
+    sky_view::SkyView,
 };
 use crate::{
     deps::refs::Weak,
@@ -57,6 +58,7 @@ const FADE: &str = include_str!("shaders/fade.wgsl");
 const LINES: &str = include_str!("shaders/lines.wgsl");
 const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
 const ATMOSPHERE: &str = include_str!("shaders/atmosphere.wgsl");
+const SKY_VIEW: &str = include_str!("shaders/sky_view.wgsl");
 
 /// The vertex buffers of a static draw and of a skinned one, which adds
 /// the joints and weights per vertex.
@@ -212,6 +214,8 @@ pub struct MeshPipeline {
     view_bind:      Option<CachedBind<ViewKey>>,
     /// The tables of the scene's air, see `scene::Atmosphere`.
     pub(crate) air: AirTextures,
+    /// The air in every direction from the camera, what the sky reads.
+    sky_view:       SkyView,
 
     /// The sun's depth passes, which cannot bind the map they draw, so
     /// they carry the light's matrices on their own.
@@ -287,6 +291,7 @@ impl Default for MeshPipeline {
         let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
         let wide_shader = shader(device, "wide_lines_shader", format!("{common}\n{WIDE_LINES}"));
         let shadow_shader = shader(device, "shadow_shader", format!("{FADE}\n{SHADOW}"));
+        let sky_view_shader = shader(device, "sky_view_shader", format!("{common}\n{SKY_VIEW}"));
 
         let view_layout = view_layout(device);
         let instances_layout = instances_layout(device);
@@ -355,6 +360,7 @@ impl Default for MeshPipeline {
             depth_near,
             view_bind: None,
             air: AirTextures::new(),
+            sky_view: SkyView::new(device, &sky_view_shader),
             shadow: ShadowPass::new(
                 device,
                 &shadow_shader,
@@ -470,6 +476,7 @@ impl MeshPipeline {
         self.textures.retain(|key, _| key.mesh.is_ok());
 
         self.view_buffer.update(*view);
+        self.sky_view.draw(encoder, view, &self.view_buffer, &self.air);
 
         // A storage binding cannot be empty, and no instance indexes the
         // placeholder since every light count is zero then.
@@ -620,7 +627,16 @@ impl MeshPipeline {
                 self.air.transmittance.clone(),
                 self.air.multi.clone(),
             ),
-            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map, &self.air),
+            || {
+                view_bind(
+                    &self.view_layout,
+                    &self.view_buffer,
+                    sky,
+                    shadow_map,
+                    &self.air,
+                    &self.sky_view,
+                )
+            },
         );
         render_pass.set_bind_group(0, view_bind, &[]);
 
@@ -646,8 +662,7 @@ impl MeshPipeline {
         self.draw_grass(render_pass);
 
         // After the opaque nodes, so the sky shades only the pixels they
-        // left at the far depth. Its march through the air is the dearest
-        // shader of a frame, a planet seen from space hides half the sky.
+        // left at the far depth, a planet seen from space hides half the sky.
         if background {
             self.draw_sky(render_pass);
         }

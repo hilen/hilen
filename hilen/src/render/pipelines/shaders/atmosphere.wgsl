@@ -312,3 +312,87 @@ fn air_haze(color: vec3<f32>, offset: vec3<f32>) -> vec3<f32> {
     let air = air_march(-view.air[0].xyz, dir, -view.sun_dir.xyz, distance, 2u, vec3<f32>(0.0));
     return color * air.through + air.light * view.sun_color.rgb;
 }
+
+// The air of a `SpaceSky` seen from the camera along `dir`, for a sun of 1:
+// the light it sends and what gets through from behind it. Where the ray
+// ends on the ground the light holds the lit ground too, and nothing gets
+// through, so the stars and the sun add nothing there.
+struct AirSky {
+    light: vec3<f32>,
+    through: vec3<f32>,
+}
+
+fn air_sky(dir: vec3<f32>) -> AirSky {
+    let to_sun = -view.sun_dir.xyz;
+    let origin = -view.air[0].xyz;
+    let air = air_march(origin, dir, to_sun, 1e30, 24u, vec3<f32>(0.0));
+    var out: AirSky;
+    out.light = air.light;
+    out.through = air.through;
+    let span = air_span(origin, dir, 1e30);
+    if span.hit && span.ground {
+        out.light += air.through * air_ground(origin + dir * span.end, to_sun, dir * span.end);
+        out.through = vec3<f32>(0.0);
+    }
+    return out;
+}
+
+// The sky view table, Hillaire 2020: `air_sky` in every direction from the
+// camera, built once a frame by `SkyView`. A sky pixel reads it once, the
+// march of 24 steps per pixel was the dearest shader of a frame. Across
+// the width runs the turn around the camera's up, down the height the
+// angle from straight up. The upper half is the sky and the lower half the
+// ground, each with its rows crowded toward the horizon, where the light
+// changes the fastest.
+const SKY_VIEW_SIZE: vec2<f32> = vec2<f32>(512.0, 256.0);
+
+// The camera's up from the center and 2 ways across it, the same in the
+// pass that builds the table and in every read of it.
+fn sky_view_frame() -> mat3x3<f32> {
+    let up = normalize(-view.air[0].xyz);
+    let side = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(up.x) > 0.9);
+    let east = normalize(cross(side, up));
+    return mat3x3<f32>(east, cross(up, east), up);
+}
+
+// The angle from straight up to the horizon of the ground. Inside the
+// ground's ball no way ends on it, the line then lies at the level.
+fn sky_view_horizon() -> f32 {
+    let r = length(view.air[0].xyz);
+    return PI - asin(min(view.air[0].w / max(r, 1e-6), 1.0));
+}
+
+// Where `dir` lands in the table. A sky way stays in the upper half and a
+// ground way in the lower, so the filter never mixes the ground into the
+// sky at the horizon.
+fn sky_view_uv(dir: vec3<f32>) -> vec2<f32> {
+    let frame = sky_view_frame();
+    let local = transpose(frame) * dir;
+    let angle = acos(clamp(local.z, -1.0, 1.0));
+    let u = fract(atan2(local.y, local.x) / (2.0 * PI) + 1.0);
+    let horizon = sky_view_horizon();
+    let half_texel = 0.5 / SKY_VIEW_SIZE.y;
+    var v: f32;
+    if angle < horizon {
+        v = min(0.5 * (1.0 - sqrt(saturate(1.0 - angle / horizon))), 0.5 - half_texel);
+    } else {
+        v = max(0.5 + 0.5 * sqrt(saturate((angle - horizon) / max(PI - horizon, 1e-6))), 0.5 + half_texel);
+    }
+    return vec2<f32>(u, v);
+}
+
+// The way a texel of the table looks, the inverse of `sky_view_uv`.
+fn sky_view_dir(uv: vec2<f32>) -> vec3<f32> {
+    let horizon = sky_view_horizon();
+    var angle: f32;
+    if uv.y < 0.5 {
+        let x = 1.0 - 2.0 * uv.y;
+        angle = horizon * (1.0 - x * x);
+    } else {
+        let y = 2.0 * uv.y - 1.0;
+        angle = horizon + y * y * (PI - horizon);
+    }
+    let turn = uv.x * 2.0 * PI;
+    let local = vec3<f32>(sin(angle) * cos(turn), sin(angle) * sin(turn), cos(angle));
+    return sky_view_frame() * local;
+}

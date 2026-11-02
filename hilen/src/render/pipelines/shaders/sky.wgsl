@@ -1,3 +1,13 @@
+// The sky view table, see `SKY_VIEW_SIZE`, built for this frame when the
+// sky has air. Its sampler repeats across the width, the turn around the
+// camera's up goes on past a full circle.
+@group(0) @binding(6)
+var sky_view_light: texture_2d<f32>;
+@group(0) @binding(7)
+var sky_view_through: texture_2d<f32>;
+@group(0) @binding(8)
+var sky_view_sampler: sampler;
+
 
 struct SkyOutput {
     @builtin(position) pos: vec4<f32>,
@@ -115,15 +125,9 @@ fn space_sky(dir: vec3<f32>) -> vec3<f32> {
     var light = vec3<f32>(0.0);
     var through = vec3<f32>(1.0);
     if has_air() {
-        let origin = -view.air[0].xyz;
-        let air = air_march(origin, dir, to_sun, 1e30, 24u, vec3<f32>(0.0));
-        through = air.through;
-        let span = air_span(origin, dir, 1e30);
-        if span.hit && span.ground {
-            let ground = air_ground(origin + dir * span.end, to_sun, dir * span.end);
-            return (air.light + through * ground) * view.sun_color.rgb;
-        }
-        light = air.light * view.sun_color.rgb;
+        let uv = sky_view_uv(dir);
+        light = textureSampleLevel(sky_view_light, sky_view_sampler, uv, 0.0).rgb * view.sun_color.rgb;
+        through = textureSampleLevel(sky_view_through, sky_view_sampler, uv, 0.0).rgb;
     }
     if view.space.y > 0.0 {
         let turn = mat3x3<f32>(view.stars[0].xyz, view.stars[1].xyz, view.stars[2].xyz);

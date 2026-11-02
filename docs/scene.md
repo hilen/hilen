@@ -400,8 +400,8 @@ and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
   small planet with the same colors from the ground. The air is Hillaire 2020: 2
   tables built on the CPU in `scene/atmosphere.rs` when the shape of the air
   changes, the transmittance and the multiple scattering, uploaded as half floats
-  by `render/pipelines/air_textures.rs`. The sky marches 24 steps a pixel, the
-  haze over a surface 8, a `fog` lies over that, and the ambient light comes from the
+  by `render/pipelines/air_textures.rs`. The sky marches 24 steps per texel of
+  the sky view table, see below, the haze over a surface 2, a `fog` lies over that, and the ambient light comes from the
   air on the CPU. A step over 8.75 heights of both hazes and over the ozone is
   skipped, under 1 color step, and a step in full shadow only dims what lies behind
   it. Only the sky adds the sunlit ground of the air where its ray ends on the
@@ -424,6 +424,18 @@ A planet from space in a window of 4096 by 2304 took 39 to 48 ms of GPU work a
 frame on an M1 Pro, 90 percent of it the air. Drawing the sky after the opaque nodes
 and the 3 skips above brought it to 9.6 ms with no pixel moved by more than 1
 color step, measured with Metal System Trace in geblings on 2026-10-29.
+
+The sky reads the air from the sky view table of Hillaire 2020, `render/pipelines/sky_view.rs`.
+Once a frame, before the frame's pass, a pass of its own marches the 24 steps for each texel
+of a 512 by 256 table, the light of the air in red, green and blue and what gets through it.
+A sky pixel reads both at its direction, and adds the stars, the sun's disc and the glare
+itself, so they stay sharp. The table turns around the camera's up across its width and
+runs from straight up to straight down along its height. The upper half is the sky and the
+lower half the ground, the rows crowd toward the horizon, and a read stays inside its half,
+so the filter never mixes the ground into the sky. A ground texel lets nothing through.
+Only a frame with a `SpaceSky` with air builds it. In geblings at noon and in the
+afternoon, headless, the sky came out the same as with the march per pixel, only a few
+cells of 8 pixels moved. Its gain in a window was not measured yet.
 
 `air_haze` runs for every lit pixel, so it is the dearest part of a lit node. In
 geblings at 500 m by day in a window of 2880 by 1872 on an M1 Pro, 8 steps took 41.9

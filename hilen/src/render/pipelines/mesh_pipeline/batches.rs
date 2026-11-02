@@ -87,7 +87,16 @@ impl MeshPipeline {
                 self.air.transmittance.clone(),
                 self.air.multi.clone(),
             ),
-            || view_bind(&self.view_layout, &self.view_buffer, sky, shadow_map, &self.air),
+            || {
+                view_bind(
+                    &self.view_layout,
+                    &self.view_buffer,
+                    sky,
+                    shadow_map,
+                    &self.air,
+                    &self.sky_view,
+                )
+            },
         );
         render_pass.set_bind_group(0, view_bind, &[]);
         self.draw_batches(render_pass, frame, true);

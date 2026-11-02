@@ -14,6 +14,7 @@ use wgpu::{
 use super::{
     air_textures::AirTextures,
     mesh_pipeline::{InstancesKey, MeshKey, TexturesKey},
+    sky_view::SkyView,
 };
 use crate::{
     deps::refs::Weak,
@@ -31,7 +32,7 @@ use crate::{
 };
 
 /// The frame's view, the sky cube, the sun's shadow map, one layer per
-/// cascade, and the 2 tables of the air.
+/// cascade, the 2 tables of the air and the sky view table.
 pub(super) fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label:   "scene_view_layout".into(),
@@ -50,6 +51,9 @@ pub(super) fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
             sampler_entry(2),
             texture_entry(4, TextureViewDimension::D2),
             texture_entry(5, TextureViewDimension::D2),
+            texture_entry(6, TextureViewDimension::D2),
+            texture_entry(7, TextureViewDimension::D2),
+            sampler_entry(8),
             BindGroupLayoutEntry {
                 binding:    3,
                 visibility: ShaderStages::FRAGMENT,
@@ -70,6 +74,7 @@ pub(super) fn view_bind(
     sky: &Sky,
     shadow_map: &TextureView,
     air: &AirTextures,
+    sky_view: &SkyView,
 ) -> BindGroup {
     Window::device().create_bind_group(&BindGroupDescriptor {
         label: Some("scene_view_bind"),
@@ -98,6 +103,18 @@ pub(super) fn view_bind(
             BindGroupEntry {
                 binding:  5,
                 resource: BindingResource::TextureView(&air.multi),
+            },
+            BindGroupEntry {
+                binding:  6,
+                resource: BindingResource::TextureView(&sky_view.light),
+            },
+            BindGroupEntry {
+                binding:  7,
+                resource: BindingResource::TextureView(&sky_view.through),
+            },
+            BindGroupEntry {
+                binding:  8,
+                resource: BindingResource::Sampler(&sky_view.sampler),
             },
         ],
     })

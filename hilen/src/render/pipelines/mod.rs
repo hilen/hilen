@@ -27,6 +27,8 @@ mod polygon_pipeline;
 mod rect_pipeline;
 #[cfg(feature = "scene")]
 mod shadow_pass;
+#[cfg(feature = "scene")]
+mod sky_view;
 #[cfg(feature = "level")]
 mod terrain_pipeline;
 mod ui_backdrop_pipeline;
