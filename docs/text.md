@@ -374,6 +374,11 @@ in `hilen/src/ui/views/complex/markdown`.
   that is the default. A table drawn with box chars and no code fence around it
   stands only with it, and with a mono font. A view reads it when it gets its text.
   `Markdown line breaks` pins it.
+- `text_inset` of the style is the space between the left edge of the view and its
+  text, a paragraph, a heading, a list and a quote, and where the box of a code
+  block starts. `None` by default, the default inset of a `Label`. `Some(0.0)` puts
+  the text on the edge, under a label of the page that has inset 0. The code inside
+  its box keeps the default inset as its padding. `Markdown text inset` pins it.
 - The spacing is 3 values of the style. `block_gap` is the space between 2 blocks,
   10 by default, also inside a quote. `item_gap` is the space between 2 items of a
   list and between 2 blocks inside an item, 4 by default. `line_height` is the line

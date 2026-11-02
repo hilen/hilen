@@ -226,6 +226,7 @@ impl MarkdownView {
         let style = MarkdownStyle::current();
         let mut probe = self.add_view::<Label>();
         probe.set_alignment(TextAlignment::Left);
+        style.inset(probe);
         let margin = probe.text_inset();
         // A space at the end of a text measures as nothing, so the space
         // is taken from between 2 letters.
@@ -369,6 +370,7 @@ impl MarkdownView {
     ) -> Weak<Label> {
         let fonts = style.fonts();
         let label = self.add_view::<Label>();
+        style.inset(label);
         label
             .set_multiline(true)
             .set_text_size(size)
@@ -534,6 +536,7 @@ impl MarkdownView {
             .map(|item| {
                 let text = marker_text(item.marker)?;
                 let label = self.add_view::<Label>();
+                style.inset(label);
                 label
                     .set_text_size(style.text_size)
                     .set_alignment(if inline {

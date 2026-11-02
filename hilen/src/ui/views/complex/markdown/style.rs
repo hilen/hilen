@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::color::Color,
-    ui::{DynamicColor, UIColor, code_highlighter::Token},
+    ui::{DynamicColor, Label, UIColor, code_highlighter::Token},
     window::Font,
 };
 
@@ -38,6 +38,11 @@ pub struct MarkdownStyle {
     /// terminal shows a text. Markdown itself reads it as a space, and that
     /// is the default. A view reads it when it gets its text.
     pub keeps_line_breaks: bool,
+    /// The points between the left edge of the view and its text: a
+    /// paragraph, a heading, a list, a quote and the box of a code block.
+    /// The default inset of a `Label` when not set. The code inside its
+    /// box keeps that default as its padding.
+    pub text_inset:        Option<f32>,
     /// The text, unless the view has its own color.
     pub text:              UIColor,
     /// The text of a blockquote and the markers of a list.
@@ -111,6 +116,13 @@ impl MarkdownFonts {
 }
 
 impl MarkdownStyle {
+    /// Gives a label of the text the inset of the style, when it sets one.
+    pub(super) fn inset(&self, label: Weak<Label>) {
+        if let Some(inset) = self.text_inset {
+            label.set_text_inset(inset);
+        }
+    }
+
     pub const DEFAULT: Self = Self {
         text_size:         14.0,
         code_size:         13.0,
@@ -120,6 +132,7 @@ impl MarkdownStyle {
         list_markers:      MarkdownListMarkers::Column,
         line_height:       None,
         keeps_line_breaks: false,
+        text_inset:        None,
         text:              dynamic("#1a1d24", "#eceff4"),
         dim_text:          dynamic("#6b7280", "#9aa3b2"),
         link:              dynamic("#2f7df6", "#3d8bff"),

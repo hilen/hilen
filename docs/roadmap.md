@@ -19,6 +19,18 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The text inset of a MarkdownView
+
+Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+
+- Current: built. `MarkdownStyle::text_inset` sets the inset of the
+  text of a `MarkdownView`, 0 included, see `docs/text.md`. `Markdown text inset`
+  passes, and so do `Markdown spacing`, `Markdown inline markers` and `Markdown copy
+  buttons`.
+- Needed: the proof in blackforge. Its pin moves to a hilen with it, the forum sets
+  the style at its start, and the text of a post starts under its date.
+- Blocks: the posts of the blackforge forum, whose text should start under the date.
+
 ## A label as wide as its measured text cuts its text
 
 Found by the site of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
