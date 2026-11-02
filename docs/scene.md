@@ -85,6 +85,20 @@ measure in the frame of the view, and `view_point` gives points of the root view
 inside that frame. A touch outside the view never reaches the scene. Only 1 scene
 runs, so only 1 view shows a scene at a time.
 
+## A graph of z = f(x, y)
+
+`SurfacePlotView` is a view that draws `z = f(x, y)` as a surface over a
+square, over a floor grid with the 3 axes, in a `SceneView` of its own, so the
+drag turns the camera and the wheel zooms. Math z is up, the y of the scene,
+and math y runs away from the camera. `set_function` colors by height, blue
+low and red high. `set_colored_function` takes the height and a color of each
+point from 1 call, the modulus surface of a complex function is the case.
+`set_range(half)` is the square, `set_steps` the cells a side, 80 at the start.
+A value that is not finite leaves a hole, a height past twice the half width
+of the floor is cut flat. Every triangle has a back side, since back faces are
+culled. It runs the one scene of `SceneManager`, like any `SceneView`. The
+last surface model is not freed when the view goes away.
+
 ## Orthographic camera
 
 `Camera::projection` is `Projection::Perspective`, the default, or

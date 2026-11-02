@@ -19,22 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Plot 2D and 3D graphs
-
-Asked for on 2026-11-02, to draw math functions the way Desmos does.
-
-- Current: a grep of `hilen/src` finds no plot or graph view. An app has to build a graph
-  by hand, with `DrawingView` and `VectorPath::polyline` for a 2D line, `CanvasView` for
-  pan and zoom, and `Model::from_mesh` with `Line3::grid` and `Line3::axes` for a 3D
-  surface in a scene.
-- Needed:
-  - A 2D plot view that draws `y = f(x)` from a closure or from a list of points, with
-    axes, a grid, number labels and several curves in their own colors. Pan and zoom
-    sample a closure again for the range on screen. A UI test.
-  - A 3D plot view that draws `z = f(x, y)` as a surface, with axes, a grid and a camera
-    the user can turn and zoom, as a live scene inside a view. A scene test.
-- Blocks: a graph of a function or of data in any app, without the hand work above.
-
 ## Open a file from the system, like Open With on a Mac
 
 Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. Pin

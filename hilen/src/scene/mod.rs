@@ -29,6 +29,7 @@ mod sets;
 mod shadow;
 mod sky;
 mod space_sky;
+mod surface_plot;
 mod third_person;
 mod to_collider;
 
@@ -67,6 +68,7 @@ pub use self::{
     scene_view::SceneView,
     sky::Sky,
     space_sky::SpaceSky,
+    surface_plot::SurfacePlotView,
     third_person::ThirdPerson,
     to_collider::ToCollider,
 };
