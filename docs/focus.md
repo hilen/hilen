@@ -39,6 +39,9 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 - A `ContextMenu` panel takes touches for its padding and keeps the ring off itself, the
   ring walks its rows, test `Key focus menu`. Before, the arrow below a row went to the
   middle of the whole panel when a separator stood between the rows.
+- The ring that rests on a view with a tooltip shows it, after the delay of a resting
+  cursor, under the view, see `Tooltip::focus_changed`. It goes when the ring moves on
+  or hides, a tooltip of the cursor stays. The test is `Key focus tooltip`.
 - `view.set_key_focus(false)` keeps the ring off a view, a backdrop that takes
   touches. `view.set_focus_neighbor(direction, other)` names the next view by hand
   where the nearest one is wrong. `Focus::set(view)` puts the ring somewhere.

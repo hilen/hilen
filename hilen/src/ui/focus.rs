@@ -19,8 +19,8 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        Cursor, Input, NamedKey, Scrollable, Setup, TableView, Touch, TouchEvent, TouchStack, UIColor,
-        UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
+        Cursor, Input, NamedKey, Scrollable, Setup, TableView, Tooltip, Touch, TouchEvent, TouchStack,
+        UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
     },
     window::MouseButton,
 };
@@ -163,6 +163,8 @@ struct State {
     layers:        Vec<(WeakView, Target)>,
     /// Where the touch of a held Enter began, none while Enter is up.
     held:          Option<Point>,
+    /// The view whose tooltip the ring asked for, null while no ring shows.
+    tip:           WeakView,
 }
 
 static STATE: MainLock<State> = MainLock::new();
@@ -228,6 +230,18 @@ impl Focus {
         if state.ring.is_ok() {
             state.ring.set_hidden(true);
         }
+        Self::tip_for(WeakView::default());
+    }
+
+    /// The tooltip follows the ring. Called every frame, so only a change of
+    /// the view reaches the tooltip.
+    fn tip_for(view: WeakView) {
+        let state = STATE.get_mut();
+        if state.tip.raw() == view.raw() {
+            return;
+        }
+        state.tip = view;
+        Tooltip::focus_changed(view);
     }
 
     /// Gives the arrow keys and Enter to `view` until it lets go, is
@@ -453,8 +467,11 @@ impl Focus {
             if state.ring.is_ok() {
                 state.ring.set_hidden(true);
             }
+            Self::tip_for(WeakView::default());
             return;
         };
+        Self::tip_for(view);
+        let state = STATE.get_mut();
 
         if state.ring.is_null() {
             let mut ring = FocusRing::new();

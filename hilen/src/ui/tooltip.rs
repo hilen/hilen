@@ -23,6 +23,8 @@ const CORNER_RADIUS: f32 = 4.0;
 /// Below and to the right of the cursor, so the pointer does not cover
 /// the first letters.
 const CURSOR_OFFSET: Point = Point::new(12.0, 18.0);
+/// Under the view of the focus ring, clear of the ring around it.
+const RING_OFFSET: f32 = 8.0;
 
 /// What a view shows as its tooltip, set through `ViewTooltip`.
 pub enum TooltipContent {
@@ -36,14 +38,17 @@ struct State {
     pending: WeakView,
     /// The floating view on screen.
     shown:   WeakView,
+    /// The pending or shown tooltip is the one of the view under the focus
+    /// ring, not under the cursor.
+    of_ring: bool,
 }
 
 static STATE: MainLock<State> = MainLock::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// The one floating tooltip. Shows after the cursor rests on a view with
-/// a tooltip for `DELAY`, hides when the cursor leaves it or anything is
-/// pressed. Never takes touches, so it hides nothing under it.
+/// The one floating tooltip. Shows after the cursor or the focus ring rests
+/// on a view with a tooltip for `DELAY`, hides when it leaves the view or
+/// anything is pressed. Never takes touches, so it hides nothing under it.
 pub struct Tooltip;
 
 impl Tooltip {
@@ -61,7 +66,29 @@ impl Tooltip {
             return;
         }
 
-        STATE.get_mut().pending = view;
+        Self::wait_for(view, false);
+    }
+
+    /// The focus ring moved onto `view`, a null view when it hid.
+    pub(crate) fn focus_changed(view: WeakView) {
+        let state = STATE.get_mut();
+        // The cursor may rest on another view, its tooltip stays.
+        if !state.of_ring && view.is_null() {
+            return;
+        }
+        Self::hide();
+
+        if view.is_null() || view.__base_view().tooltip.is_none() {
+            return;
+        }
+
+        Self::wait_for(view, true);
+    }
+
+    fn wait_for(view: WeakView, of_ring: bool) {
+        let state = STATE.get_mut();
+        state.pending = view;
+        state.of_ring = of_ring;
         let generation = GENERATION.load(Ordering::Relaxed);
 
         after(Self::DELAY, move || Self::show_pending(generation));
@@ -78,13 +105,23 @@ impl Tooltip {
             return;
         }
 
-        Self::show(pending, UIManager::cursor_position());
+        if STATE.of_ring {
+            let frame = *pending.absolute_frame();
+            Self::show_at(pending, Point::new(frame.x(), frame.max_y() + RING_OFFSET), true);
+        } else {
+            Self::show(pending, UIManager::cursor_position());
+        }
     }
 
     /// `at` is an absolute screen position in points, the floating view
     /// opens a little below and right of it and slides back inside the
     /// screen when it would not fit.
     pub(crate) fn show(source: WeakView, at: Point) {
+        Self::show_at(source, at + CURSOR_OFFSET, false);
+    }
+
+    /// `corner` is where the top left corner of the floating view goes.
+    fn show_at(source: WeakView, corner: Point, of_ring: bool) {
         Self::hide();
 
         let Some(content) = &source.__base_view().tooltip else {
@@ -114,7 +151,7 @@ impl Tooltip {
         view.set_label("Tooltip");
 
         let (width, height) = size;
-        let at = at + CURSOR_OFFSET;
+        let at = corner;
 
         view.place().custom(move |rect: &mut Rect| {
             let screen = UIManager::root_view().frame().size;
@@ -123,7 +160,9 @@ impl Tooltip {
             *rect = Rect::new(x.round(), y.round(), width, height);
         });
 
-        STATE.get_mut().shown = view;
+        let state = STATE.get_mut();
+        state.shown = view;
+        state.of_ring = of_ring;
     }
 
     pub fn hide() {
@@ -131,6 +170,7 @@ impl Tooltip {
 
         let state = STATE.get_mut();
         state.pending = WeakView::default();
+        state.of_ring = false;
 
         let mut shown = state.shown;
         state.shown = WeakView::default();
