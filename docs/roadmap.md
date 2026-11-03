@@ -19,6 +19,82 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A width class for the window
+
+- Current: nothing in the engine says whether a window is narrow or wide. An app
+  compares the width of its root with its own constant, like `const WIDE: f32 = 700.0`
+  in `demo/src/interface/home_view.rs`, and every app would copy it.
+- Needed: `UIManager::width_class()` that gives narrow under 600 points, medium from 600
+  and wide from 840, an event when it changes, and the class printed by
+  `hilen-inspect tree`.
+- Blocks: every screen that changes its layout between a phone, an iPad and a desktop.
+
+## A shell with tabs when narrow and a sidebar when wide
+
+- Current: `TabShell` puts the bar of tabs at the bottom on every width. A sidebar is
+  app code, the demo and the file browser each have their own.
+- Needed: 1 shell that shows the tabs at the bottom when the window is narrow and a
+  sidebar on the left when it is medium or wide, with the same sections, names and
+  icons. A change of width keeps the open section and its pushed pages.
+- Blocks: 1 app that adapts from a phone to an iPad to a desktop window.
+
+## A list and its detail that adapt to the width
+
+- Current: `NavigationView` is a stack, and `SplitView` in
+  `ui/views/containers/split_view.rs` is "Three panels side by side" with dividers that
+  never fold.
+- Needed: a list and a detail side by side when wide, with the selected row kept
+  marked, and the detail pushed on a stack when narrow. A change of width moves the open
+  detail between the 2 forms.
+- Blocks: every list and detail screen on an iPad and a desktop.
+
+## Measure the look of a running app with the inspector
+
+- Current: `ViewRepr` in `inspect/protocol/ui/view.rs` carries the label, id, frame,
+  content offset, color, text, hidden, clips, placer and subviews. It has no text color,
+  text size, font, corner radius, border, and no mark of what can be tapped. The
+  inspector has no command to switch the theme, a check of dark needs a code edit.
+- Needed: those fields in `ViewRepr`, a `hilen-inspect theme light|dark|system`
+  command, and a `hilen-inspect audit` command that prints, as JSON, every tap target
+  under its size, text under its contrast, text that is cut, views that overlap, views
+  outside the window, and edges 1 to 3 points apart.
+- Blocks: measured reviews of the `ux` skill, which judge by eye until it lands.
+
+## A sheet and a popover
+
+- Current: `ModalView` is a box in the center, sized by `modal_size`. `ContextMenu` is
+  the only panel tied to the view that opened it. There is no sheet and no popover.
+- Needed: a sheet that comes from the bottom on a narrow window, closes with a swipe
+  down and asks first when work would be lost. A popover that points at the view that
+  opened it on a wide window and becomes a sheet on a narrow one.
+- Blocks: filters, pickers and short forms on an iPhone and an iPad.
+
+## Text that grows with the system text size
+
+- Current: the default label size is a fixed 16 points in `label.rs`, and
+  `UIManager::override_scale` scales the whole UI. Nothing reads the text size the
+  user set in iOS, called Dynamic Type, or the font scale of Android.
+- Needed: read that setting, give `UIManager::text_scale()` and an event when it changes,
+  and let text sizes follow it, with rows that grow to fit.
+- Blocks: readable text for users with a larger system text size.
+
+## Hover with a pointer on an iPad
+
+- Current: hover follows the cursor only under `#[cfg(any(desktop, wasm))]` in
+  `ui/input/input.rs`. A trackpad or a mouse on an iPad gives no hover.
+- Needed: hover from the iPad pointer, the same look as on a desktop.
+- Blocks: the hover look of every control on an iPad with a trackpad.
+
+## Keyboard shortcuts on an iPad
+
+- Current: nothing in the engine registers a `UIKeyCommand`. `docs/text.md` says the
+  arrows, Tab and Escape of a hardware keyboard on an iPhone or an iPad stay with the
+  system field. Whether a Cmd key of the keymap fires on an iPad outside a field is not
+  proven by any test.
+- Needed: the shortcuts of the keymap work on an iPad with a hardware keyboard and show
+  in the iPad menu bar.
+- Blocks: keyboard work on an iPad.
+
 ## An icon before each text of a drop down
 
 - Current: `TextDropDown` shows text only, and the default row of `DropDown` has no
