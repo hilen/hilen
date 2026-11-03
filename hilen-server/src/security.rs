@@ -86,7 +86,7 @@ impl PageCsp {
         Some(Self::for_html(&html))
     }
 
-    fn for_html(html: &str) -> Self {
+    pub(crate) fn for_html(html: &str) -> Self {
         let script_hashes = inline_scripts(html)
             .map(|script| format!("'sha256-{}'", STANDARD.encode(Sha256::digest(script.as_bytes()))))
             .collect::<Vec<_>>();

@@ -38,7 +38,10 @@ read, and the poll needs the code that came that way. The server half is
   `localStorage` of the origin of the server under `hilen-login-<challenge>`, and the
   page of the app reads it there. So the page and the server need 1 origin, the page
   served by `web_mount` of the same backend. `Login::start` gives an error on a page of
-  another origin.
+  another origin. The last page sends its own `Content-Security-Policy`, with the hash of
+  its script, in `page_with` of `routes.rs`. The policy of the web page, `PageCsp`,
+  allows only the scripts of `index.html` and would block the write, then the page
+  waits for good. `a_login_page_runs_its_own_script_under_a_page_policy` tests it.
 - The person who logged in holds the code, the one who made the link does not. A code
   goes with its own challenge only, it opens no other login.
 - A link with no way back is refused with a 400 before the provider is asked. An app of

@@ -1,10 +1,11 @@
 use axum::{
     Form, Json, Router,
     extract::{Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -419,7 +420,7 @@ fn hand_back_page(app: &str, finished: &Finished) -> Response {
         (HandBack::Page, Some(code)) => {
             // The key and the code are hex, nothing in them needs escaping.
             let script = format!(
-                r#"<script>try {{ localStorage.setItem("{}", "{code}"); }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}</script>"#,
+                r#"try {{ localStorage.setItem("{}", "{code}"); }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}"#,
                 HandBack::storage_key(&finished.challenge)
             );
             page_with(
@@ -522,11 +523,30 @@ pub(crate) fn page(app: &str, title: &str, text: &str) -> Response {
     page_with(app, title, text, "")
 }
 
-/// `page` with a script of the server at the end of the body.
+/// `page` with a script of the server at the end of the body, `script` is its
+/// text with no tag. The page brings its own policy: an app that serves a web
+/// page puts the policy of that page on every html answer, which allows only
+/// the scripts of its own page, so the hand back of a login never ran.
 fn page_with(app: &str, title: &str, text: &str, script: &str) -> Response {
     let (app, title, text) = (escape(app), escape(title), escape(text));
+    let scripts = if script.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " script-src 'sha256-{}';",
+            STANDARD.encode(Sha256::digest(script.as_bytes()))
+        )
+    };
+    let policy = format!(
+        "default-src 'none'; style-src 'unsafe-inline';{scripts} base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    );
+    let script = if script.is_empty() {
+        String::new()
+    } else {
+        format!("<script>{script}</script>")
+    };
 
-    Html(format!(
+    let mut response = Html(format!(
         r#"<!doctype html>
 <html lang="en">
 <head>
@@ -544,7 +564,11 @@ p {{ color: #5f6368; margin: 0; }}
 <body><main><h1>{title}</h1><p>{text}</p></main>{script}</body>
 </html>"#
     ))
-    .into_response()
+    .into_response();
+    if let Ok(value) = HeaderValue::from_str(&policy) {
+        response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, value);
+    }
+    response
 }
 
 /// The page with the field for the short code. `note` says why the last try
@@ -593,7 +617,7 @@ fn escape(text: &str) -> String {
 
 #[cfg(test)]
 mod test {
-    use super::{CODE_ALPHABET, CODE_LENGTH, escape, is_challenge, new_code, typed_code};
+    use super::{CODE_ALPHABET, CODE_LENGTH, escape, is_challenge, new_code, page_with, typed_code};
 
     #[test]
     fn a_code_is_6_of_the_alphabet() -> anyhow::Result<()> {
@@ -617,6 +641,38 @@ mod test {
         assert!(!is_challenge(&"a1".repeat(31)));
         assert!(!is_challenge(&"zz".repeat(32)));
         assert!(!is_challenge(""));
+    }
+
+    // The failure this prevents: a backend that serves a web page put the
+    // policy of that page on the hand back page of a login, its script never
+    // ran, and the page waited for the login for good.
+    #[tokio::test]
+    async fn a_login_page_runs_its_own_script_under_a_page_policy() -> anyhow::Result<()> {
+        use axum::{Router, body::Body, http::Request, routing::get};
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use sha2::{Digest, Sha256};
+        use tower::ServiceExt;
+
+        let script = r#"localStorage.setItem("k", "v");"#;
+        let routes = Router::new().route(
+            "/done",
+            get(move || async move { page_with("App", "Done", "Close it.", script) }),
+        );
+        let page_policy = crate::PageCsp::for_html("<html><script>boot()</script></html>");
+        let app = crate::security::base(page_policy.layer(routes));
+        let answer = app.oneshot(Request::get("/done").body(Body::empty())?).await?;
+        let csp = answer.headers()[axum::http::header::CONTENT_SECURITY_POLICY]
+            .to_str()?
+            .to_owned();
+        let hash = STANDARD.encode(Sha256::digest(script.as_bytes()));
+        assert!(csp.contains(&format!("script-src 'sha256-{hash}'")), "{csp}");
+        assert!(
+            csp.starts_with("default-src 'none'"),
+            "the page policy did not replace it: {csp}"
+        );
+        let body = axum::body::to_bytes(answer.into_body(), usize::MAX).await?;
+        assert!(String::from_utf8(body.to_vec())?.contains(&format!("<script>{script}</script>")));
+        Ok(())
     }
 
     #[test]
