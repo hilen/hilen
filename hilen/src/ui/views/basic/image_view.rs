@@ -9,7 +9,10 @@ use crate::{
         LossyConvert,
         flat::{Rect, Size},
     },
-    ui::{CutAxis, NineSegmentImageView, Setup, View, ViewData, ViewFrame, ViewSubviews},
+    ui::{
+        CutAxis, NineSegmentImageView, Setup, Tinted, UIColor, View, ViewCallbacks, ViewData, ViewFrame,
+        ViewSubviews,
+    },
     window::image::{Image, ToImage},
 };
 
@@ -29,6 +32,10 @@ pub struct ImageView {
 
     cut: Option<ImageCut>,
 
+    /// The name and the tint of an icon set with `set_icon`, kept to tint it
+    /// again when the theme changes.
+    icon: Option<(String, UIColor)>,
+
     pub mode: ImageMode,
 
     pub flip_x: bool,
@@ -41,7 +48,21 @@ impl ImageView {
     }
 
     pub fn set_image(&self, image: impl ToImage) -> &Self {
-        weak_from_ref(self).image = image.to_image();
+        let mut this = weak_from_ref(self);
+        this.icon = None;
+        this.image = image.to_image();
+        self
+    }
+
+    /// Shows a black SVG of `assets/images`, like a Lucide icon, in `tint`.
+    /// A `DynamicColor` tint follows the theme, the icon is tinted again on
+    /// every theme switch.
+    pub fn set_icon(&self, name: impl Display, tint: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        let name = name.to_string();
+        let tint = tint.into();
+        this.image = tinted(&name, tint);
+        this.icon = Some((name, tint));
         self
     }
 
@@ -139,6 +160,22 @@ impl ImageView {
                 )
                     .into()
             }
+        }
+    }
+}
+
+fn tinted(name: &str, tint: UIColor) -> Weak<Image> {
+    Tinted {
+        tint: tint.resolve(),
+        name: name.to_string(),
+    }
+    .to_image()
+}
+
+impl ViewCallbacks for ImageView {
+    fn theme_changed(&mut self) {
+        if let Some((name, tint)) = &self.icon {
+            self.image = tinted(name, *tint);
         }
     }
 }
