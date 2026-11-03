@@ -5,17 +5,19 @@ use crate::{
         ToF32,
         color::{CLEAR, Color, WHITE},
     },
-    ui::{DropDown, DropDownData, Setup, UIColor, View, ViewData, view},
+    ui::{DropDown, DropDownData, RowIcon, Setup, UIColor, View, ViewData, view},
 };
 
-/// A drop down of plain texts. It owns the texts, shows one per row and
-/// reports the picked one. For rows with anything more than a text write
-/// an own view around `DropDown`, see `DropDownData`.
+/// A drop down of texts, each with an icon when `set_icons` gave one. It owns
+/// the texts, shows one per row and reports the picked one. For rows with
+/// anything more than a text write an own view around `DropDown`, see
+/// `DropDownData`.
 ///
 /// Its own color, border and corners are the look of the box.
 #[view]
 pub struct TextDropDown {
     values:  Vec<String>,
+    icons:   Vec<RowIcon>,
     changed: Event<String>,
 
     #[init]
@@ -52,6 +54,13 @@ impl TextDropDown {
     pub fn set_values<T: ToString>(&mut self, values: impl IntoIterator<Item = T>) {
         self.values = values.into_iter().map(|value| value.to_string()).collect();
         self.drop.select(0);
+        self.drop.reload();
+    }
+
+    /// An icon before each text, in the order of the texts, in the open list
+    /// and in the closed box. A text past the end of the list has none.
+    pub fn set_icons(&mut self, icons: impl IntoIterator<Item = RowIcon>) {
+        self.icons = icons.into_iter().collect();
         self.drop.reload();
     }
 
@@ -92,6 +101,10 @@ impl DropDownData for TextDropDown {
 
     fn title(&self, index: usize) -> String {
         self.values[index].clone()
+    }
+
+    fn icon(&self, index: usize) -> Option<RowIcon> {
+        self.icons.get(index).cloned()
     }
 
     fn row_selected(&mut self, index: usize) {

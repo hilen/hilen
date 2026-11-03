@@ -14,6 +14,7 @@ use crate::{
         TableView, TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData,
         ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
+    window::image::{Image, Tinted, ToImage, tint_svg},
 };
 
 const ARROW: f32 = 16.0;
@@ -23,6 +24,9 @@ const PANEL_PADDING: f32 = 4.0;
 const PANEL_GAP: f32 = 6.0;
 const ROW_RADIUS: f32 = 6.0;
 const CHECK: f32 = 14.0;
+/// The icon of a row and the space after it.
+const ICON: f32 = 16.0;
+const ICON_GAP: f32 = 8.0;
 /// How much of the accent a hover lays over the fill of the box.
 const HOVER_WASH: f32 = 0.08;
 /// The open list never comes closer than this to the edge of the window.
@@ -37,6 +41,45 @@ const PANEL_RAISE: f32 = 0.004;
 /// The drop down with its list open, a press outside closes it before another
 /// one opens.
 static OPEN: MainLock<Weak<DropDown>> = MainLock::new();
+
+/// The icon of a row of a drop down: a black SVG, from `assets/images` by its
+/// name or from bytes the app built in. It takes the color of the text of
+/// its row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowIcon {
+    data: Option<&'static [u8]>,
+    name: String,
+}
+
+impl RowIcon {
+    /// A black SVG in `assets/images`.
+    pub fn file(name: impl ToString) -> Self {
+        Self {
+            data: None,
+            name: name.to_string(),
+        }
+    }
+
+    /// A black SVG the app holds, like one built in with `include_bytes`. The
+    /// name keeps its tinted pictures apart from other icons.
+    pub fn data(data: &'static [u8], name: impl ToString) -> Self {
+        Self {
+            data: Some(data),
+            name: name.to_string(),
+        }
+    }
+
+    fn tinted(&self, color: Color) -> Weak<Image> {
+        match self.data {
+            Some(data) => tint_svg(data, &self.name, color),
+            None => Tinted {
+                tint: color,
+                name: self.name.clone(),
+            }
+            .to_image(),
+        }
+    }
+}
 
 /// What a `DropDown` shows. Like `TableData` for a table: the drop down
 /// owns no values, it only knows the index of the picked row.
@@ -54,6 +97,12 @@ pub trait DropDownData {
     /// The text of a row that has no cell of its own.
     fn title(&self, _: usize) -> String {
         String::new()
+    }
+
+    /// The icon before the text of a row that has no cell of its own, in the
+    /// open list and in the closed box.
+    fn icon(&self, _: usize) -> Option<RowIcon> {
+        None
     }
 
     /// A cell for this row out of the cell types given to
@@ -108,11 +157,12 @@ pub struct DropDown {
     table:        Weak<TableView>,
 
     #[init]
-    button: Button,
-    holder: Container,
-    label:  Label,
-    arrow:  ImageView,
-    panel:  Container,
+    button:   Button,
+    holder:   Container,
+    label:    Label,
+    box_icon: ImageView,
+    arrow:    ImageView,
+    panel:    Container,
 }
 
 impl DropDown {
@@ -249,9 +299,11 @@ impl DropDown {
         }
         self.box_cell = Weak::default();
 
+        self.box_icon.set_hidden(true);
         if self.rows() == 0 {
             self.label.set_hidden(false);
             self.label.set_text("");
+            self.place_label(false);
             return;
         }
 
@@ -265,7 +317,19 @@ impl DropDown {
         } else {
             self.label.set_hidden(false);
             self.label.set_text(data.title(index));
+            let icon = data.icon(index);
+            if let Some(icon) = &icon {
+                self.box_icon.set_image(icon.tinted(self.label.ui_text_color().resolve()));
+                self.box_icon.set_hidden(false);
+            }
+            self.place_label(icon.is_some());
         }
+    }
+
+    /// The text of the closed box starts after its icon when it has one.
+    fn place_label(self: Weak<Self>, with_icon: bool) {
+        let left = if with_icon { INSET + ICON + ICON_GAP } else { INSET };
+        self.label.place().clear().l(left).r(INSET + ARROW + 6.0).tb(0);
     }
 
     fn tapped(mut self: Weak<Self>) {
@@ -419,6 +483,7 @@ impl TableData for DropDown {
         let row = registry.cell::<DropDownRow>();
         row.setup_row(
             data.title(index),
+            data.icon(index),
             index == self.selected_index,
             self.accent,
             self.text_color,
@@ -442,7 +507,13 @@ impl Setup for DropDown {
         self.box_registry.set_parent(holder);
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
-        self.label.place().l(INSET).r(INSET + ARROW + 6.0).tb(0);
+        self.place_label(false);
+        self.box_icon.set_hidden(true);
+        self.box_icon.place().l(INSET).center_y().size(ICON, ICON);
+
+        // A tinted icon has its color written in, a theme change tints it
+        // again.
+        UIEvents::theme_changed().sub(self, move || self.refresh_box());
 
         self.arrow.set_image(UIImages::chevron_down());
         self.arrow.place().r(INSET - 2.0).center_y().size(ARROW, ARROW);
@@ -481,6 +552,7 @@ struct DropDownRow {
     selected: bool,
 
     #[init]
+    icon:  ImageView,
     label: Label,
     check: DrawingView,
 }
@@ -489,6 +561,7 @@ impl DropDownRow {
     fn setup_row(
         mut self: Weak<Self>,
         text: String,
+        icon: Option<RowIcon>,
         selected: bool,
         accent: Color,
         text_color: Option<UIColor>,
@@ -515,6 +588,17 @@ impl DropDownRow {
             );
         }
         self.check.set_hidden(!selected);
+        match &icon {
+            Some(icon) => {
+                self.icon.set_image(icon.tinted(self.label.ui_text_color().resolve()));
+                self.icon.set_hidden(false);
+            }
+            None => {
+                self.icon.set_hidden(true);
+            }
+        }
+        let left = INSET - PANEL_PADDING + if icon.is_some() { ICON + ICON_GAP } else { 0.0 };
+        self.label.place().clear().l(left).r(INSET + CHECK).tb(0);
         self.refresh(false);
     }
 
@@ -535,6 +619,8 @@ impl Setup for DropDownRow {
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
         self.label.place().l(INSET - PANEL_PADDING).r(INSET + CHECK).tb(0);
+        self.icon.set_hidden(true);
+        self.icon.place().l(INSET - PANEL_PADDING).center_y().size(ICON, ICON);
 
         self.check.set_color(CLEAR);
         self.check.place().r(INSET - PANEL_PADDING).center_y().size(CHECK, CHECK);

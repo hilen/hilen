@@ -19,53 +19,14 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Test data for a dev server
+## An icon before each text of a drop down
 
-- Current: `hilen-server` makes a dev account only through `POST /auth/dev`, 1 email
-  per call, `auth/dev.rs`. There is no way to fill a dev database with many accounts
-  and the data of an app. The forum needed 300 players, 1000 threads and 250000 posts,
-  and got a psql script that wrote into `users` by hand, with no identity, so none of
-  those players can sign in.
-- Needed: behind the `dev-login` feature, a seed step of `hilen-server`. It makes dev
-  accounts the way the dev login does, with their identity, so each one signs in
-  with `POST /auth/dev`. An app hands it a seed function that writes its own rows
-  with its checked queries. It runs after the migrations, only when asked, like with
-  `HILEN_SEED=1`, and refuses a database that holds an account of a real login.
-- Blocks: a look at a forum, a list or a feed with real amounts of data, and the
-  speed of their queries.
-
-## A text field keeps its own color while it is typed in
-
-- Current: `TextField` sets `selected_color = GRAY` in its setup,
-  `text_field/mod.rs`, and paints itself that gray for the whole editing session. A
-  field in the colors of a theme turns into a gray block while the player types, the
-  search box of the forum did. Every app has to call `set_selected_color` with its own
-  fill to undo it.
-- Needed: a field keeps the color the app gave it while it is edited, and
-  `set_selected_color` stays for an app that wants another look.
-- Blocks: every themed form and search field, with no extra call.
-
-## The closed box of a drop down lights up as a whole on hover
-
-- Current: `DropDown` puts the cell of `setup_box_cell` over its own button. A custom
-  cell turns hover on for its rows of the list, so in the box it is the topmost hover
-  view and takes `hovered` from the box. The box never lights its border, and the cell
-  paints its own row hover over a part of the box, with square corners and without the
-  arrow. The cell has no way to know it stands in the box.
-- Needed: the box cell takes no touches and no hover. The box owns its hover look: a
-  wash over its whole face, with its corners, and the accent border it has now.
-- Blocks: a drop down with custom cells, like the mod box of the forum.
-
-## ToolButton takes the fills, the font and the icon bytes of an app
-
-- Current: `ToolButton` has `set_tint` and `set_on_tint` for its text, but its fills
-  for hover, pressed and on are fixed constants, a blue for on. It has no `set_font`.
-  `set_icon` takes only the name of an SVG in `assets/images`. `tint_svg`, which tints
-  SVG bytes an app holds with `include_bytes`, is `pub(crate)`. So an app in its own
-  colors and font, with built in icons, cannot use it for tabs and made its own button.
-- Needed: `set_hover_color`, `set_pressed_color` and `set_on_color` for the fills,
-  `set_font`, and `set_icon_data` for SVG bytes, tinted like a named icon.
-- Blocks: the Bugs and Ideas tabs of the forum, and the end of its own icon button.
+- Current: `TextDropDown` shows text only, and the default row of `DropDown` has no
+  icon. An app that wants an icon per entry, like Bug and Idea, has to write its own
+  cells around `DropDown`.
+- Needed: an icon before the text of each row and of the closed box, from a file or
+  from bytes, in the color of the text of its row.
+- Blocks: the Bug and Idea box of the forum, and every menu entry with an icon.
 
 ## Text entry in a browser, the proof on a real phone
 
