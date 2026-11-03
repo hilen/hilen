@@ -13,7 +13,10 @@ use crate::{
         ViewSubviews,
         view::{ViewData, ViewFrame, ViewTouch},
     },
-    window::{Font, image::tint_svg},
+    window::{
+        Font,
+        image::{Image, tint_svg},
+    },
 };
 
 const TEXT: DynamicColor = DynamicColor::new(Color::hex("#1C1C1E"), Color::hex("#F2F2F4"));
@@ -42,6 +45,8 @@ pub struct ToolButton {
     icon_name: Option<String>,
     /// The SVG of an icon the app built in, none for an icon from a file.
     icon_data: Option<&'static [u8]>,
+    /// A picture in place of the icon, drawn round in its own colors.
+    picture:   Option<Weak<Image>>,
 
     #[educe(Default = true)]
     enabled: bool,
@@ -138,6 +143,18 @@ impl ToolButton {
         self
     }
 
+    /// A picture in place of the icon, like the avatar of the user, drawn
+    /// round and in its own colors, never tinted. `None` brings the icon back.
+    pub fn set_picture(&self, picture: Option<Weak<Image>>) -> &Self {
+        weak_from_ref(self).picture = picture;
+        self.icon
+            .set_corner_radius(if picture.is_some() { ICON_SIZE / 2.0 } else { 0.0 });
+        self.icon.set_hidden(picture.is_none() && self.icon_name.is_none());
+        self.relayout();
+        self.refresh();
+        self
+    }
+
     /// The color of the icon and the text while the button is on.
     pub fn set_on_tint(&self, tint: impl Into<UIColor>) -> &Self {
         weak_from_ref(self).on_tint = Some(tint.into());
@@ -207,6 +224,11 @@ impl ToolButton {
     fn refresh(&self) {
         let tint = self.tint();
         self.label.set_text_color(tint);
+        if let Some(picture) = self.picture {
+            self.icon.set_image(picture);
+            self.set_color(self.background());
+            return;
+        }
         match (self.icon_data, &self.icon_name) {
             (Some(data), Some(name)) => {
                 self.icon.set_image(tint_svg(data, name, tint.resolve()));
@@ -230,7 +252,11 @@ impl ToolButton {
     }
 
     fn parts(&self) -> (f32, f32, f32) {
-        let icon = if self.icon_name.is_some() { ICON_SIZE } else { 0.0 };
+        let icon = if self.icon_name.is_some() || self.picture.is_some() {
+            ICON_SIZE
+        } else {
+            0.0
+        };
         let text = if self.label.text().is_empty() {
             0.0
         } else {
