@@ -28,6 +28,7 @@ use super::{
 use crate::{
     deps::refs::manage::DataManager,
     gm::{
+        LossyConvert,
         color::CLEAR,
         flat::{Rect, Size},
     },
@@ -102,8 +103,9 @@ pub(super) fn draw(view: WeakView, pixels: Rect<u32>, phases: &[f32], pose: &mut
         pose(*phase);
         UIDrawer::update_subtree(view);
 
+        let size: Size<u32> = Window::render_size().lossy_convert();
         for font in Font::storage_mut().values_mut() {
-            font.begin_frame();
+            font.begin_frame(size);
         }
 
         let encoder = device.create_command_encoder(&CommandEncoderDescriptor {

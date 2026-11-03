@@ -83,6 +83,14 @@ speech = ["dep:cpal", "dep:sherpa-onnx", "dep:objc2-avf-audio"]
 # through LocalAuthentication on macOS and iOS, see docs/biometric.md.
 # Every other system answers that the device cannot. Off by default.
 biometric = ["dep:futures-channel", "dep:objc2-local-authentication"]
+# A key combination that works in every app while the app runs, through
+# global-hotkey. macOS now, the other systems answer with an error, see
+# docs/global-keys.md. Off by default.
+global-keys = ["dep:global-hotkey"]
+# A picture of every screen and the Screen Recording permission, through
+# xcap. macOS now, the other systems answer with an error, see
+# docs/screen-capture.md. Off by default.
+screen-capture = ["dep:xcap"]
 # Remote notifications from APNs on iOS, the permission, the device token
 # and the tap on a push, see docs/push.md. Every other system answers that
 # it has no push. Off by default, an app with no push links no
@@ -269,6 +277,7 @@ rfd = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { workspace = true }
+global-hotkey = { workspace = true, optional = true }
 libc = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true }
@@ -279,6 +288,7 @@ objc2-media-player = { workspace = true }
 objc2-metal = { workspace = true }
 objc2-quartz-core = { workspace = true }
 wgpu-hal = { workspace = true }
+xcap = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { workspace = true, optional = true, features = ["input-msmf"] }

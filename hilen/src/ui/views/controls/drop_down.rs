@@ -2,7 +2,7 @@ use crate::{
     self as hilen,
     deps::{
         netrun::Function,
-        refs::{Own, Weak, main_lock::MainLock, weak_from_ref},
+        refs::{Own, Weak, weak_from_ref},
     },
     gm::{
         ToF32, Toggle,
@@ -14,7 +14,10 @@ use crate::{
         TableView, TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData,
         ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
-    window::image::{Image, Tinted, ToImage, tint_svg},
+    window::{
+        image::{Image, Tinted, ToImage, tint_svg},
+        slots::WindowLock,
+    },
 };
 
 const ARROW: f32 = 16.0;
@@ -40,7 +43,7 @@ const PANEL_RAISE: f32 = 0.004;
 
 /// The drop down with its list open, a press outside closes it before another
 /// one opens.
-static OPEN: MainLock<Weak<DropDown>> = MainLock::new();
+static OPEN: WindowLock<Weak<DropDown>> = WindowLock::new();
 
 /// The icon of a row of a drop down: a black SVG, from `assets/images` by its
 /// name or from bytes the app built in. It takes the color of the text of
@@ -224,7 +227,7 @@ impl DropDown {
     /// Closes the open list, true when there was one to close. The ring of a
     /// remote goes back to its box, the rows it was on hide.
     pub(crate) fn escape() -> bool {
-        let drop = *OPEN;
+        let drop = **OPEN;
         if drop.is_null()
             || !drop.opened
             || drop.is_hidden_in_tree()

@@ -24,7 +24,7 @@ use crate::{
         Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
         ViewData, ViewSubviews, WeakView, damage::Damage, latin_candidate, privacy_cover,
     },
-    window::{ElementState, MouseButton, RenderFrame, Theme as OsTheme, Window},
+    window::{ElementState, MouseButton, RenderFrame, Theme as OsTheme, Window, slots},
 };
 #[cfg(feature = "level")]
 use crate::{level::LevelManager, level_drawer::LevelDrawer};
@@ -133,9 +133,17 @@ impl crate::window::WindowEvents for AppRunner {
         Focus::update();
     }
 
+    fn update_window(&mut self) {
+        UIDrawer::update();
+        #[cfg(any(desktop, wasm))]
+        Hover::refresh_gone();
+        Focus::update();
+    }
+
     #[cfg(any(feature = "scene", feature = "level"))]
     fn prepare(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        if UIManager::window_resolution().has_no_area() {
+        // A scene and a level draw in the main window only.
+        if UIManager::window_resolution().has_no_area() || !slots::is_main() {
             return;
         }
 
@@ -152,10 +160,12 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
-        #[cfg(feature = "scene")]
-        SceneDrawer::draw(frame.pass());
-        #[cfg(feature = "level")]
-        LevelDrawer::draw(frame.pass());
+        if slots::is_main() {
+            #[cfg(feature = "scene")]
+            SceneDrawer::draw(frame.pass());
+            #[cfg(feature = "level")]
+            LevelDrawer::draw(frame.pass());
+        }
         UIDrawer::draw(frame);
     }
 
@@ -173,16 +183,20 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn resize(&mut self, inner_pos: Point, outer_pos: Point, inner_size: Size, outer_size: Size) {
         UIManager::set_scale(UIManager::display_scale());
+        UIManager::root_view().resize_root(inner_pos, outer_pos, inner_size, outer_size, UIManager::scale());
+
+        if !slots::is_main() {
+            self.update_window();
+            return;
+        }
+
         #[cfg(feature = "level")]
         LevelManager::set_scale(UIManager::display_scale());
-
-        UIManager::root_view().resize_root(inner_pos, outer_pos, inner_size, outer_size, UIManager::scale());
         UIEvents::size_changed().trigger(());
         self.update();
     }
 
     fn mouse_moved(&mut self, position: Point) -> bool {
-        self.cursor_position = position;
         *CURSOR_POSITION.get_mut() = position;
         Input::process_touch_event(Touch {
             id: 1,
@@ -195,7 +209,7 @@ impl crate::window::WindowEvents for AppRunner {
     fn mouse_event(&mut self, state: ElementState, button: MouseButton) -> bool {
         Input::process_touch_event(Touch {
             id: 1,
-            position: self.cursor_position,
+            position: **CURSOR_POSITION,
             event: state.into(),
             button,
         })

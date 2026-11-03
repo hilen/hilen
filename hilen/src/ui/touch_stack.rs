@@ -1,11 +1,9 @@
-use std::sync::OnceLock;
-
 use nonempty::NonEmpty;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
 use crate::{
     deps::{
-        hreads::from_main,
+        hreads::{from_main, is_main_thread},
         refs::{RawPointer, Weak},
     },
     gm::flat::Point,
@@ -14,24 +12,59 @@ use crate::{
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
+    window::slots::{self, MAX_WINDOWS, within},
 };
 
-static STACK: OnceLock<Mutex<TouchStack>> = OnceLock::new();
+/// 1 stack per window, see `window::slots`, with the generation of its slot.
+/// Behind a mutex, a test turns touch on from its own thread.
+static STACKS: [Mutex<Option<(u32, TouchStack)>>; MAX_WINDOWS] = [const { Mutex::new(None) }; MAX_WINDOWS];
 
 pub struct TouchStack {
     stack: NonEmpty<TouchLayer>,
 }
 
 impl TouchStack {
-    fn init() -> Mutex<Self> {
+    fn init() -> Self {
         Self {
-            stack: NonEmpty::new(UIManager::get().root_view.weak_view().into()),
+            stack: NonEmpty::new(UIManager::root_view().weak_view().into()),
         }
-        .into()
     }
 
-    pub(crate) fn get() -> MutexGuard<'static, Self> {
-        STACK.get_or_init(Self::init).lock()
+    /// The stack of the current window.
+    pub(crate) fn get() -> MappedMutexGuard<'static, Self> {
+        let slot = slots::current();
+        let generation = slots::generation(slot);
+        let mut stack = STACKS[slot].lock();
+        if stack.as_ref().is_none_or(|(made_in, _)| *made_in != generation) {
+            *stack = Some((generation, Self::init()));
+        }
+        MutexGuard::map(stack, |stack| {
+            &mut stack.as_mut().expect("The stack was just made").1
+        })
+    }
+
+    /// A view registers in the stack of the window it is in, also when the
+    /// code that adds it runs for another window, like a timer of the main
+    /// window that fills an extra one. Another thread works on the main
+    /// window, as it always did.
+    fn in_window_of<R>(view: WeakView, action: impl FnOnce() -> R) -> R {
+        if !is_main_thread() {
+            return action();
+        }
+        within(UIManager::slot_of(view), action)
+    }
+
+    /// The freed registrations go in every window.
+    pub(crate) fn clear_freed_everywhere() {
+        for slot in crate::window::open_slots() {
+            within(slot, || Self::get().clear_freed());
+        }
+    }
+
+    /// The stack of a window that closes goes with it.
+    #[cfg(not_wasm)]
+    pub(crate) fn forget_window(slot: usize) {
+        drop(STACKS[slot].lock().take());
     }
 }
 
@@ -104,45 +137,47 @@ impl TouchStack {
     }
 
     pub(crate) fn enable_scroll(scroll: Weak<dyn Scrollable>) {
-        Self::get().layer_for(scroll).add_scroll(scroll);
+        Self::in_window_of(scroll, || Self::get().layer_for(scroll).add_scroll(scroll));
     }
 
     pub(crate) fn enable_for(view: WeakView) {
-        Self::get().layer_for(view).add(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add(view));
     }
 
     pub(crate) fn enable_for_low_priority(view: WeakView) {
-        Self::get().layer_for(view).add_low_priority(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add_low_priority(view));
     }
 
     pub(crate) fn enable_for_high_priority(view: WeakView) {
-        Self::get().layer_for(view).add_high_priority(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add_high_priority(view));
     }
 
     pub(crate) fn enable_hover(view: WeakView) {
-        Self::get().layer_for(view).add_hover(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add_hover(view));
     }
 
     pub(crate) fn enable_pinch(view: WeakView) {
-        Self::get().layer_for(view).add_pinch(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add_pinch(view));
     }
 
     pub(crate) fn enable_hover_high_priority(view: WeakView) {
-        Self::get().layer_for(view).add_hover_high_priority(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).add_hover_high_priority(view));
     }
 
     pub(crate) fn disable_for(view: WeakView) {
-        Self::get().layer_for(view).remove(view);
+        Self::in_window_of(view, || Self::get().layer_for(view).remove(view));
     }
 
     /// Moves every registration under `view` to the front of its layer,
     /// keeping their relative order, so a view drawn over its siblings,
     /// like a pinned sticky table row, also wins their touches.
     pub(crate) fn raise_subtree(view: WeakView) {
-        let mut this = Self::get();
-        let layer = this.layer_for(view);
-        let extracted = layer.extract_under(view);
-        layer.absorb(extracted);
+        Self::in_window_of(view, || {
+            let mut this = Self::get();
+            let layer = this.layer_for(view);
+            let extracted = layer.extract_under(view);
+            layer.absorb(extracted);
+        });
     }
 
     /// Puts an overlay on top of the touch stack: only views under it
@@ -150,33 +185,37 @@ impl TouchStack {
     /// already sitting under the new root migrate into the layer, so a
     /// pre-built overlay keeps its buttons and scrolls when it opens.
     pub fn push_layer(view: WeakView) {
-        let mut this = Self::get();
-        let mut layer: TouchLayer = view.into();
-        for existing in this.stack.iter_mut() {
-            layer.absorb(existing.extract_under(view));
-        }
-        this.stack.push(layer);
+        Self::in_window_of(view, || {
+            let mut this = Self::get();
+            let mut layer: TouchLayer = view.into();
+            for existing in this.stack.iter_mut() {
+                layer.absorb(existing.extract_under(view));
+            }
+            this.stack.push(layer);
+        });
     }
 
     pub fn touch_root_name_for(view: WeakView) -> String {
-        Self::get().layer_for(view).root_name().to_string()
+        Self::in_window_of(view, || Self::get().layer_for(view).root_name().to_string())
     }
 
     /// Removes the top overlay layer. Its surviving registrations go
     /// back to the layer below, so an overlay that merely hides can
     /// reopen with its views still registered.
     pub fn pop_layer(view: WeakView) {
-        let mut this = Self::get();
-        let mut pop = this.stack.pop().unwrap();
-        assert_eq!(
-            pop.root.raw(),
-            view.raw(),
-            "Inconsistent pop_touch_view call. Expected: {} got: {}",
-            pop.root_name(),
-            view.label()
-        );
-        let remaining = pop.drain();
-        this.stack.last_mut().absorb(remaining);
+        Self::in_window_of(view, || {
+            let mut this = Self::get();
+            let mut pop = this.stack.pop().unwrap();
+            assert_eq!(
+                pop.root.raw(),
+                view.raw(),
+                "Inconsistent pop_touch_view call. Expected: {} got: {}",
+                pop.root_name(),
+                view.label()
+            );
+            let remaining = pop.drain();
+            this.stack.last_mut().absorb(remaining);
+        });
     }
 
     /// How many overlay layers sit over the root layer right now.
@@ -195,12 +234,15 @@ impl TouchStack {
     /// shell keeps its shortcuts over a pushed screen, and so does a
     /// subscriber that is not a view in the tree.
     pub(crate) fn key_reaches(subscriber: RawPointer) -> bool {
+        if !Self::in_key_window(subscriber) {
+            return false;
+        }
         // No stack yet means no interface, a keymap of its own in a test.
-        let Some(stack) = STACK.get() else {
-            return true;
-        };
         let top = {
-            let stack = stack.lock();
+            let stack = STACKS[slots::current()].lock();
+            let Some((_, stack)) = stack.as_ref() else {
+                return true;
+            };
             if stack.stack.len() == 1 {
                 return true;
             }
@@ -214,6 +256,26 @@ impl TouchStack {
             Some(view) => reaches_up(view, top.raw()),
             None => true,
         }
+    }
+
+    /// A view of another window is silent, the keys go to the window that
+    /// has them. The keymap is 1 for the app, and an Escape in an extra
+    /// window must not reach the main one.
+    fn in_key_window(subscriber: RawPointer) -> bool {
+        if !is_main_thread() {
+            return true;
+        }
+        let slots = crate::window::open_slots();
+        if slots.len() == 1 {
+            return true;
+        }
+        let current = slots::current();
+        let owner = slots.into_iter().find(|slot| {
+            within(*slot, || {
+                find_view(UIManager::root_view().weak_view(), subscriber).is_some()
+            })
+        });
+        owner.is_none_or(|owner| owner == current)
     }
 
     /// The root of the top layer, the subtree that owns input right now.

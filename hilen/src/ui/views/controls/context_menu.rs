@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     self as hilen,
-    deps::refs::{Own, Weak, main_lock::MainLock},
+    deps::refs::{Own, Weak},
     gm::{
         color::{BLACK, CLEAR, Color, WHITE},
         flat::{Point, Rect},
@@ -15,6 +15,7 @@ use crate::{
     window::{
         NamedKey,
         image::{Tinted, ToImage, tint_svg},
+        slots::WindowLock,
     },
 };
 
@@ -423,7 +424,7 @@ impl Setup for MenuItemView {
     }
 }
 
-static OPEN: MainLock<Weak<ContextMenu>> = MainLock::new();
+static OPEN: WindowLock<Weak<ContextMenu>> = WindowLock::new();
 
 /// Which edge of the anchor view a menu from [`ContextMenu::show_below`]
 /// or [`ContextMenu::show_above`] lines up with.
@@ -556,11 +557,11 @@ impl ContextMenu {
 
     /// The menu on screen, null when none is open.
     pub fn open() -> Weak<Self> {
-        *OPEN
+        **OPEN
     }
 
     pub fn dismiss_open() {
-        let menu = *OPEN;
+        let menu = **OPEN;
 
         if menu.is_null() {
             return;

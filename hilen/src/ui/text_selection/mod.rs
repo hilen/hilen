@@ -27,7 +27,7 @@ use self::{
 use crate::{
     deps::{
         hreads::on_main,
-        refs::{Weak, main_lock::MainLock, weak_from_ref},
+        refs::{Weak, weak_from_ref},
     },
     gm::{Clock, LossyConvert, flat::Point},
     system::Clipboard,
@@ -35,7 +35,7 @@ use crate::{
         Input, Label, Mouse, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
         input::TouchEvent, view::DoubleTap, views::COPY_ROOM,
     },
-    window::{MouseButton, request_frame},
+    window::{MouseButton, request_frame, slots::WindowLock},
 };
 
 /// A drag this close to the top or the bottom edge of a table scrolls it.
@@ -110,11 +110,11 @@ struct Clicks {
     count: usize,
 }
 
-static STATE: MainLock<Option<State>> = MainLock::new();
-static SHOWN: MainLock<Shown> = MainLock::new();
-static CLICKS: MainLock<Clicks> = MainLock::new();
-static TAP: MainLock<Option<Tap>> = MainLock::new();
-static LAST_TICK_MS: MainLock<f64> = MainLock::new();
+static STATE: WindowLock<Option<State>> = WindowLock::new();
+static SHOWN: WindowLock<Shown> = WindowLock::new();
+static CLICKS: WindowLock<Clicks> = WindowLock::new();
+static TAP: WindowLock<Option<Tap>> = WindowLock::new();
+static LAST_TICK_MS: WindowLock<f64> = WindowLock::new();
 
 fn state() -> Option<&'static mut State> {
     let state = STATE.get_mut();

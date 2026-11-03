@@ -3,6 +3,9 @@ mod window;
 mod window_events;
 
 mod app_handler;
+mod extra;
+#[cfg(macos)]
+mod extra_mac;
 pub(crate) mod frame_control;
 mod frame_counter;
 #[cfg(feature = "inspect")]
@@ -25,6 +28,7 @@ mod redraw;
 mod render_frame;
 mod screen;
 mod screenshot;
+pub(crate) mod slots;
 pub mod state;
 mod surface;
 mod vertex_buffer;
@@ -52,6 +56,7 @@ pub(crate) use self::redraw::{
 };
 pub use self::{
     app_handler::AppHandler,
+    extra::{AppWindow, Display, WindowLevel, WindowPlace, WindowSpec},
     gpu_capture::GpuCapture,
     msaa::{msaa_sample_count, set_msaa_sample_count},
     orientation::Orientations,
@@ -66,6 +71,7 @@ pub use self::{
 };
 pub(crate) use self::{
     app_handler::UserEvent,
+    extra::open_slots,
     fullscreen::{reset_fullscreen, sync_fullscreen},
     orientation::reset_orientations,
     redraw::{continuous_render_active, request_frame, take_needs_render},

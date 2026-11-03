@@ -1,8 +1,7 @@
 use crate::{
-    deps::refs::main_lock::MainLock,
     gm::flat::Point,
     ui::{NO_TOUCH_ID, Touch, TouchStack, ViewSubviews, WeakView, input::TouchEvent},
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 /// One step of a pinch, what a view gets from `touch().pinch` after
@@ -23,13 +22,13 @@ pub struct Pinch {
 
 /// The view a running pinch belongs to. A pinch keeps the view it began
 /// over, the middle of 2 fingers can leave it.
-static TARGET: MainLock<WeakView> = MainLock::new();
+static TARGET: WindowLock<WeakView> = WindowLock::new();
 
 /// Every finger on the screen, by touch id, in screen points.
-static FINGERS: MainLock<Vec<(usize, Point)>> = MainLock::new();
+static FINGERS: WindowLock<Vec<(usize, Point)>> = WindowLock::new();
 
 /// The 2 touch ids of a finger pinch in flight.
-static PAIR: MainLock<Option<(usize, usize)>> = MainLock::new();
+static PAIR: WindowLock<Option<(usize, usize)>> = WindowLock::new();
 
 pub(crate) struct PinchInput;
 
@@ -47,7 +46,7 @@ impl PinchInput {
     /// One step, `center` and `shift` in screen points. Without a `begin`
     /// the view under `center` gets it.
     pub(crate) fn step(scale: f32, center: Point, shift: Point) {
-        let mut target = *TARGET;
+        let mut target = **TARGET;
         if !target.is_ok() {
             target = TouchStack::pinch_view_at(center).unwrap_or_default();
         }
@@ -69,7 +68,7 @@ impl PinchInput {
         if touch.button != MouseButton::Left {
             return false;
         }
-        let Some((first, second)) = *PAIR else {
+        let Some((first, second)) = **PAIR else {
             Self::track(touch);
             return false;
         };

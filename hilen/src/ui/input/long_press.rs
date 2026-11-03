@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    deps::{hreads::after, refs::main_lock::MainLock},
+    deps::hreads::after,
     gm::flat::Point,
     ui::{NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView, input::TouchEvent},
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 struct Pending {
@@ -16,7 +16,7 @@ struct Pending {
     hold_only:  bool,
 }
 
-static PENDING: MainLock<Option<Pending>> = MainLock::new();
+static PENDING: WindowLock<Option<Pending>> = WindowLock::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Turns a held touch into a `secondary` event on the view that captured

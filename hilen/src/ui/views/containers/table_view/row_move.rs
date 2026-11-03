@@ -12,14 +12,14 @@ use super::layout::{LayoutMode, lower_z, sticky_raise};
 use crate::{
     deps::{
         hreads::after,
-        refs::{Weak, main_lock::MainLock, weak_from_ref},
+        refs::{Weak, weak_from_ref},
     },
     gm::flat::Point,
     ui::{
         LongPress, Shadow, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
         input::TouchEvent,
     },
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 /// How far a finger moves before it is a drag and no hold any more.
@@ -66,8 +66,8 @@ enum Phase {
     },
 }
 
-static TABLES: MainLock<Vec<Weak<TableView>>> = MainLock::new();
-static PHASE: MainLock<Phase> = MainLock::new();
+static TABLES: WindowLock<Vec<Weak<TableView>>> = WindowLock::new();
+static PHASE: WindowLock<Phase> = WindowLock::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// The gesture that lifts a row of a table with row moves on. `Input`

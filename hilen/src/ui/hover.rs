@@ -1,22 +1,22 @@
 use std::mem::replace;
 
 #[cfg(any(desktop, wasm))]
-use crate::gm::flat::Point;
-#[cfg(any(desktop, wasm))]
 use crate::ui::{TouchStack, UIManager, ViewData};
+#[cfg(any(desktop, wasm))]
+use crate::window::slots::WindowLock;
 use crate::{
-    deps::refs::main_lock::MainLock,
+    gm::flat::Point,
     ui::{CursorIcon, Tooltip, ViewSubviews, WeakView},
 };
 
-static HOVERED: MainLock<WeakView> = MainLock::new();
-static CURSOR: MainLock<CursorIcon> = MainLock::new();
+static HOVERED: WindowLock<WeakView> = WindowLock::new();
+static CURSOR: WindowLock<CursorIcon> = WindowLock::new();
 /// The hovered view and its ancestors, innermost first, each with
 /// `is_hover_within` set. Kept as a list, since a dead hovered view has
 /// no superview chain left to walk.
-static WITHIN: MainLock<Vec<WeakView>> = MainLock::new();
+static WITHIN: WindowLock<Vec<WeakView>> = WindowLock::new();
 #[cfg(any(desktop, wasm))]
-static LOCKED: MainLock<WeakView> = MainLock::new();
+static LOCKED: WindowLock<WeakView> = WindowLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
@@ -29,7 +29,7 @@ pub struct Hover;
 impl Hover {
     #[cfg(all(feature = "inspect", any(desktop, wasm)))]
     pub(crate) fn hovered() -> WeakView {
-        *HOVERED
+        **HOVERED
     }
 
     #[cfg(any(desktop, wasm))]
@@ -76,7 +76,7 @@ impl Hover {
     /// A no-op while the hovered view is alive and shown or there is none.
     #[cfg(any(desktop, wasm))]
     pub(crate) fn refresh_gone() {
-        let old = *HOVERED;
+        let old = **HOVERED;
         if !old.was_initialized() || (old.is_ok() && !old.is_hidden_in_tree()) {
             return;
         }
@@ -89,7 +89,7 @@ impl Hover {
     }
 
     fn set_hovered(new: WeakView) {
-        let old = *HOVERED;
+        let old = **HOVERED;
         let old_alive = old.is_ok();
 
         // Raw equality alone is not enough. A freed view and its
@@ -170,11 +170,11 @@ impl Hover {
     /// with a custom one. Windowless runs track it too, so tests can
     /// assert it.
     pub fn cursor() -> CursorIcon {
-        *CURSOR
+        **CURSOR
     }
 
     fn apply_cursor(cursor: CursorIcon) {
-        if *CURSOR == cursor {
+        if **CURSOR == cursor {
             return;
         }
         *CURSOR.get_mut() = cursor;

@@ -71,6 +71,8 @@ pub mod filesystem;
 #[cfg(feature = "level")]
 pub mod game;
 pub mod generate;
+#[cfg(feature = "global-keys")]
+pub mod global_keys;
 pub mod gm;
 #[cfg(feature = "google-access")]
 pub mod google_access;
@@ -86,6 +88,8 @@ pub mod push;
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;
+#[cfg(feature = "screen-capture")]
+pub mod screen_capture;
 #[cfg(any(feature = "login", feature = "google-access"))]
 mod sign_in_button;
 #[cfg(feature = "speech")]

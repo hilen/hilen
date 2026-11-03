@@ -16,16 +16,16 @@ use crate::deps::refs::Own;
 use crate::gm::{LossyConvert, flat::Size};
 use crate::{
     App,
-    deps::{hreads::from_main, refs::main_lock::MainLock},
+    deps::hreads::from_main,
     gm::flat::Point,
     ui::{Input, TouchEvent, UIManager, ui_test::human_pause},
-    window::{Screenshot, Window},
+    window::{Screenshot, Window, slots::WindowLock},
 };
 
 #[cfg(not_wasm)]
 static WINDOW_READY: parking_lot::Mutex<crate::deps::vents::OnceEvent> =
     parking_lot::Mutex::new(crate::deps::vents::OnceEvent::const_default());
-static CURSOR_POSITION: MainLock<Point> = MainLock::new();
+static CURSOR_POSITION: WindowLock<Point> = WindowLock::new();
 
 /// Mouse events use id 1 and `NO_TOUCH_ID` is 0, so real fingers start above
 /// both. Keeps a finger from ever colliding with the pointer or the "no
@@ -33,12 +33,11 @@ static CURSOR_POSITION: MainLock<Point> = MainLock::new();
 const FIRST_TOUCH_ID: usize = 2;
 
 pub struct AppRunner {
-    pub cursor_position: Point,
-    touch_ids:           HashMap<u64, usize>,
+    touch_ids:     HashMap<u64, usize>,
     /// Where the finger on the touch surface of an Apple TV remote was at
     /// its last event, see `remote_surface`.
-    remote_finger:       Option<Point>,
-    next_touch_id:       usize,
+    remote_finger: Option<Point>,
+    next_touch_id: usize,
 }
 
 impl AppRunner {
@@ -47,7 +46,7 @@ impl AppRunner {
     }
 
     pub(crate) fn cursor_position() -> Point {
-        *CURSOR_POSITION
+        **CURSOR_POSITION
     }
 
     #[cfg(all(not_wasm, not(hot)))]
@@ -195,10 +194,9 @@ impl AppRunner {
         crate::app::set_app(app);
 
         Self {
-            cursor_position: Point::default(),
-            touch_ids:       HashMap::new(),
-            remote_finger:   None,
-            next_touch_id:   FIRST_TOUCH_ID,
+            touch_ids:     HashMap::new(),
+            remote_finger: None,
+            next_touch_id: FIRST_TOUCH_ID,
         }
     }
 

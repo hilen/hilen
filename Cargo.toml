@@ -96,6 +96,7 @@ ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "44662c2ba
 fontdb = "0.23"
 geo = { version = "0.33", default-features = false }
 glam = { version = "0.33", features = ["bytemuck"] }
+global-hotkey = "0.9"
 gltf = { version = "1.4", default-features = false, features = ["utils", "names", "KHR_materials_unlit"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 futures-channel = "0.3"
@@ -142,7 +143,7 @@ nonempty = "0.12"
 obfstr = "0.4"
 # The debug check of every message signature took over half of a debug frame in Metal.
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPasteboard", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSGraphics", "NSImage", "NSPanel", "NSPasteboard", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
 objc2-av-foundation = { version = "0.3", default-features = false, features = [
   "std",
   "AVCaptureDevice",
@@ -328,6 +329,7 @@ wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgp
 # its own lock file while it still fits, and an older fork has no tvOS remote.
 winit = { package = "hilen-winit", version = "0.30.17", features = ["serde"] }
 x25519-dalek = { version = "3.0", features = ["static_secrets"] }
+xcap = { version = "0.9", default-features = false }
 zeroize = "1.9"
 
 plat = { version = "0.10", path = "deps/plat" }

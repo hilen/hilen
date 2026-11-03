@@ -76,6 +76,9 @@ pub struct Font {
     /// frame starts the brush's vertex buffer over and every later one
     /// appends, so the earlier draws of the frame keep their vertices.
     first_batch:    bool,
+    /// The size in pixels the view matrix of the brush is set to. Each
+    /// window draws with its own size, see `begin_frame`.
+    view_size:      Size<u32>,
 }
 
 impl Font {
@@ -129,6 +132,7 @@ impl Font {
         let box_frame = BoxFrame::of(&face);
 
         let brush = Self::make_brush(&font, stem_darkening);
+        let view_size = Window::render_size().lossy_convert();
         Ok(Self {
             name: name.to_string(),
             brush,
@@ -148,6 +152,7 @@ impl Font {
             box_frame,
             color_glyphs: MainLock::new(),
             first_batch: true,
+            view_size,
         })
     }
 
@@ -192,11 +197,23 @@ impl Font {
         for font in Self::storage_mut().values_mut() {
             font.brush = Self::make_brush(&font.ab, font.stem_darkening);
             font.first_batch = true;
+            font.view_size = Window::render_size().lossy_convert();
         }
     }
 
-    pub(crate) fn begin_frame(&mut self) {
+    /// A frame of a window of `size` pixels starts. The view matrix of the
+    /// brush follows the window, an extra window can have another size than
+    /// the main one and they draw one after the other.
+    pub(crate) fn begin_frame(&mut self, size: Size<u32>) {
         self.first_batch = true;
+        if self.view_size != size {
+            self.view_size = size;
+            self.brush.resize_view(
+                size.width.lossy_convert(),
+                size.height.lossy_convert(),
+                Window::queue(),
+            );
+        }
     }
 
     /// Converts a pixels per em text size into the `ab_glyph` `PxScale`

@@ -13,7 +13,7 @@ use plat::Platform;
 
 use crate::{
     deps::{
-        hreads::{assert_main_thread, from_main, on_main},
+        hreads::{assert_main_thread, from_main, is_main_thread, on_main},
         refs::{Own, Weak},
     },
     gm::{
@@ -24,7 +24,10 @@ use crate::{
         CodeEditor, DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation,
         UIColor, UIEvent, View, ViewData, ViewFrame, ViewSubviews, WeakView,
     },
-    window::Window,
+    window::{
+        Window,
+        slots::{WindowLock, WindowU32},
+    },
 };
 
 pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new());
@@ -34,6 +37,9 @@ static ANIMATIONS: Mutex<Vec<UIAnimation>> = Mutex::new(Vec::new());
 static DYNAMIC_CLEAR_COLOR: Mutex<Option<DynamicColor>> = Mutex::new(None);
 
 static UI_MANAGER: OnceLock<UIManager> = OnceLock::new();
+
+/// The root of the main window, made once and never replaced.
+static MAIN_ROOT: OnceLock<Weak<RootView>> = OnceLock::new();
 
 /// False while an app is still doing async startup, a loading screen fetching
 /// assets for one. The test autorun waits for ready before tearing the root
@@ -56,7 +62,8 @@ pub struct SystemInsets {
 }
 
 pub struct UIManager {
-    pub(crate) root_view: Own<RootView>,
+    /// The root of every window, see `window::slots`.
+    root_view: WindowLock<Own<RootView>>,
 
     touch_disabled: AtomicBool,
 
@@ -66,11 +73,11 @@ pub struct UIManager {
     /// is off on desktop and on everywhere else.
     drag_scrolling: AtomicBool,
 
-    cursor_position: Mutex<Point>,
+    cursor_position: WindowLock<Point>,
 
     draw_debug_frames: AtomicBool,
 
-    scale:         AtomicU32,
+    scale:         WindowU32,
     manual_scale:  AtomicU32,
     scale_changed: UIEvent<f32>,
 
@@ -120,17 +127,17 @@ impl UIManager {
     }
 
     pub fn scale() -> f32 {
-        f32::from_bits(Self::get().scale.load(Ordering::Relaxed))
+        f32::from_bits(Self::get().scale.load())
     }
 
     /// The last known cursor or touch position in points. Drag code uses
     /// it for deltas that stay correct while the dragged view moves.
     pub fn cursor_position() -> Point {
-        *Self::get().cursor_position.lock()
+        **Self::get().cursor_position
     }
 
     pub(crate) fn set_cursor_position(pos: Point) {
-        *Self::get().cursor_position.lock() = pos;
+        *Self::get().cursor_position.get_mut() = pos;
     }
 
     pub fn set_scale(scale: impl ToF32) {
@@ -145,7 +152,7 @@ impl UIManager {
             // A resize to the same size sets the scale it already has. An
             // edited text field opens its system field again at a scale
             // change, and on an iPhone the keyboard leaves for that time.
-            let old = sf.scale.swap(scale.to_bits(), Ordering::Relaxed);
+            let old = sf.scale.swap(scale.to_bits());
             if old != scale.to_bits() {
                 sf.scale_changed.trigger(scale);
             }
@@ -263,30 +270,33 @@ impl UIManager {
 }
 
 impl UIManager {
-    fn init() -> Self {
+    fn make_root() -> Own<RootView> {
         let mut root_view = RootView::new();
         root_view.__base_view().view_label = "Root view".to_string();
         root_view.setup_root();
+        root_view
+    }
 
+    fn init() -> Self {
         Self {
-            root_view,
-            touch_disabled: false.into(),
-            drag_scrolling: Self::default_drag_scrolling().into(),
-            cursor_position: Mutex::new(Point::default()),
-            draw_debug_frames: false.into(),
-            scale: AtomicU32::new(1.0f32.to_bits()),
-            manual_scale: AtomicU32::new(0.0f32.to_bits()),
-            scale_changed: UIEvent::default(),
-            on_drop_file: UIEvent::default(),
+            root_view:                  WindowLock::new(),
+            touch_disabled:             false.into(),
+            drag_scrolling:             Self::default_drag_scrolling().into(),
+            cursor_position:            WindowLock::new(),
+            draw_debug_frames:          false.into(),
+            scale:                      WindowU32::new(1.0f32.to_bits()),
+            manual_scale:               AtomicU32::new(0.0f32.to_bits()),
+            scale_changed:              UIEvent::default(),
+            on_drop_file:               UIEvent::default(),
             #[cfg(wasm)]
-            on_drop_bytes: UIEvent::default(),
-            on_hover_file: UIEvent::default(),
-            on_hover_file_end: UIEvent::default(),
-            draw_touches: false.into(),
-            touch_marks: Mutex::new(Vec::new()),
-            keymap: Own::default(),
-            selected_view: Mutex::new(Weak::default()),
-            app_instance_id: crate::deps::netrun::System::generate_app_instance_id(),
+            on_drop_bytes:              UIEvent::default(),
+            on_hover_file:              UIEvent::default(),
+            on_hover_file_end:          UIEvent::default(),
+            draw_touches:               false.into(),
+            touch_marks:                Mutex::new(Vec::new()),
+            keymap:                     Own::default(),
+            selected_view:              Mutex::new(Weak::default()),
+            app_instance_id:            crate::deps::netrun::System::generate_app_instance_id(),
         }
     }
 
@@ -369,17 +379,49 @@ impl UIManager {
         Self::root_view_static().system_insets()
     }
 
+    /// The root of the window the engine works on, the main window unless
+    /// an extra window handles its event or draws its frame.
     pub fn root_view() -> Weak<RootView> {
-        Self::get().root_view.weak()
+        // Test code and tasks read the root of the main window from their
+        // own thread, the slots are on the main thread only.
+        if !is_main_thread() {
+            return *MAIN_ROOT.get().expect("The main window has no root yet");
+        }
+        let root = Self::get().root_view.get_or_init(Self::make_root).weak();
+        if crate::window::slots::is_main() {
+            MAIN_ROOT.get_or_init(|| root);
+        }
+        root
     }
 
     pub(crate) fn root_view_static() -> &'static RootView {
-        Self::get().root_view.deref()
+        let root: &'static Own<RootView> = Self::get().root_view.get_or_init(Self::make_root);
+        root
+    }
+
+    /// Takes the root out of a window that closes.
+    #[cfg(not_wasm)]
+    pub(crate) fn take_root(slot: usize) -> Option<Own<RootView>> {
+        Self::get().root_view.take_from(slot)
+    }
+
+    /// The slot of the window `view` is in, the current one for a view in
+    /// no window yet.
+    pub(crate) fn slot_of(view: WeakView) -> usize {
+        let mut top = view;
+        while top.is_ok() && top.superview().is_ok() {
+            top = *top.superview();
+        }
+        let top = top.raw();
+        crate::window::open_slots()
+            .into_iter()
+            .find(|slot| crate::window::slots::within(*slot, || Self::root_view().raw() == top))
+            .unwrap_or_else(crate::window::slots::current)
     }
 
     pub(crate) fn free_deleted_views() {
         DELETED_VIEWS.lock().clear();
-        TouchStack::get().clear_freed();
+        TouchStack::clear_freed_everywhere();
     }
 
     pub fn enable_debug_frames() {

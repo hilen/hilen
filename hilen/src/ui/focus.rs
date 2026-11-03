@@ -13,7 +13,7 @@ use crate::level::LevelManager;
 #[cfg(feature = "scene")]
 use crate::scene::SceneManager;
 use crate::{
-    deps::refs::{Weak, main_lock::MainLock},
+    deps::refs::Weak,
     gm::{
         color::Color,
         flat::{Point, Rect},
@@ -22,7 +22,7 @@ use crate::{
         Cursor, Input, NamedKey, Scrollable, Setup, TableView, Tooltip, Touch, TouchEvent, TouchStack,
         UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
     },
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 /// The tap of the Enter key is a touch of its own finger, so a real
@@ -167,7 +167,7 @@ struct State {
     tip:           WeakView,
 }
 
-static STATE: MainLock<State> = MainLock::new();
+static STATE: WindowLock<State> = WindowLock::new();
 
 #[view]
 struct FocusRing {}

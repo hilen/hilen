@@ -15,6 +15,9 @@ use crate::{
 pub trait WindowEvents {
     fn window_ready(&mut self) {}
     fn update(&mut self) {}
+    /// The frame of an extra window: its layout and its input state. The
+    /// rest of `update` runs once, with the main window.
+    fn update_window(&mut self) {}
     /// Before the frame's first pass opens, for work the frame reads,
     /// like a shadow map.
     fn prepare(&mut self, _encoder: &mut CommandEncoder) {}

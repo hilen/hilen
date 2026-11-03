@@ -254,12 +254,6 @@ impl State {
             Screen::Headless { .. } => {}
         }
 
-        let queue = Window::queue();
-
-        for font in Font::storage_mut().values_mut() {
-            font.brush.resize_view(new_size.width, new_size.height, queue);
-        }
-
         AppHandler::current().te_window_events.resize(
             Window::inner_position(),
             Window::outer_position(),
@@ -293,6 +287,15 @@ impl State {
                 self.frame_counter.frame_time * 1000.0
             )));
         }
+    }
+
+    /// The part of a frame an extra window has of its own, see
+    /// `window::extra::frame`.
+    #[cfg(not_wasm)]
+    pub(crate) fn update_window(&mut self) {
+        let work_started = Instant::now();
+        AppHandler::current().te_window_events.update_window();
+        self.update_work = work_started.elapsed().as_secs_f32();
     }
 
     /// Where the next frame goes. `Skip` means no frame can be rendered right
@@ -402,10 +405,6 @@ impl State {
 
         let work_started = Instant::now();
 
-        for font in Font::storage_mut().values_mut() {
-            font.begin_frame();
-        }
-
         if surface_texture.is_none() {
             self.ensure_offscreen_texture();
         }
@@ -414,6 +413,10 @@ impl State {
         // multisample and scene textures follow the acquired target, not
         // a window size read after the surface was configured.
         let target_size = self.target_size(surface_texture.as_ref());
+
+        for font in Font::storage_mut().values_mut() {
+            font.begin_frame(target_size);
+        }
 
         self.ensure_depth_texture(target_size);
         self.ensure_msaa_texture(target_size);

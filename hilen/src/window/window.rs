@@ -430,6 +430,26 @@ impl Window {
         Ok(())
     }
 
+    /// An extra window on the GPU of `main`, see `AppWindow`.
+    #[cfg(not_wasm)]
+    pub(crate) fn extra(main: &Self, screen: Screen) -> Self {
+        let mut state = State::default();
+        state.clear_color = main.state.clear_color;
+        Self {
+            state,
+            instance: main.instance.clone(),
+            adapter: main.adapter.clone(),
+            device: main.device.clone(),
+            queue: main.queue.clone(),
+            screen,
+            // The frame time is in the title of the main window only.
+            title_set: true,
+            title_prefix: None,
+            #[cfg(desktop)]
+            is_resizing: false,
+        }
+    }
+
     #[cfg(not_wasm)]
     pub(crate) async fn create_headless(size: Size<u32>) -> Result<Self> {
         let instance = Self::instance();

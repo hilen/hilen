@@ -15,13 +15,13 @@ use parking_lot::Mutex;
 pub(crate) use self::key::PaintKey;
 use self::walk::{Paints, Walk};
 use crate::{
-    deps::refs::main_lock::MainLock,
     gm::{
         LossyConvert,
         color::Color,
         flat::{Rect, Size},
     },
     ui::{DrawingView, Label, View, ViewData},
+    window::slots::WindowLock,
 };
 
 /// Pixels a view can paint past its frame, the soft edge of a rect and
@@ -66,11 +66,11 @@ pub(crate) const WHY_OFF: &str = "HILEN_DAMAGE=0";
 pub(crate) const WHY_NO_KEPT_FRAME: &str = "a surface with 1 sample keeps no frame";
 pub(crate) const WHY_IPHONE_SAMPLES: &str = "an iPhone loses the frame kept in several samples";
 
-static LAST: MainLock<Paints> = MainLock::new();
-static SEEN: MainLock<Paints> = MainLock::new();
-static PLAN: MainLock<Plan> = MainLock::new();
+static LAST: WindowLock<Paints> = WindowLock::new();
+static SEEN: WindowLock<Paints> = WindowLock::new();
+static PLAN: WindowLock<Plan> = WindowLock::new();
 #[cfg(feature = "ui-tests")]
-static FRAMES: MainLock<Frames> = MainLock::new();
+static FRAMES: WindowLock<Frames> = WindowLock::new();
 /// Behind a mutex and not a `MainLock`, a font setting can change on any
 /// thread.
 static WHOLE_NEXT: Mutex<Option<&'static str>> = Mutex::new(None);

@@ -19,6 +19,37 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Global keys on Windows and Linux
+
+- Current: `GlobalKey::register` answers with an error there, the `global-keys` feature
+  pulls global-hotkey on macOS only, see `docs/global-keys.md`.
+- Needed: the same call on Windows and on X11, global-hotkey has both, and an answer
+  for Wayland, which has no global keys for an app.
+- Blocks: the screenshot of banda on Windows and Linux.
+
+## Screen pictures on Windows and Linux
+
+- Current: `ScreenPicture::all` answers with an error there, xcap is pulled on macOS
+  only, on Linux it needs pipewire on every builder, see `docs/screen-capture.md`.
+- Needed: the pictures on Windows and on Linux, X11 and Wayland.
+- Blocks: the screenshot of banda on Windows and Linux.
+
+## A window over everything on Windows and Linux
+
+- Current: `WindowLevel::AboveAll` is only on top through winit there, the panel of
+  `window/extra_mac.rs` is macOS only, see `docs/windows-more.md`.
+- Needed: a window over the task bar and every other window, that takes the keys and
+  gives the focus back when it closes.
+- Blocks: the screenshot of banda on Windows and Linux.
+
+## Loops and the inspector in an extra window
+
+- Current: the declared loops step and the inspector reads in the main window only,
+  `UIDrawer::update` and `InspectService`.
+- Needed: a spinner that moves in an extra window, and the tree and the screenshot of
+  each window in `hilen-inspect`.
+- Blocks: a spinner or a check with the inspector in a second window.
+
 ## A width class for the window
 
 - Current: nothing in the engine says whether a window is narrow or wide. An app

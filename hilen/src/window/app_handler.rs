@@ -47,6 +47,9 @@ pub(crate) enum UserEvent {
     /// The GPU window finished async setup on a worker and is ready to install.
     /// Boxed because it dwarfs the other variant.
     WindowReady(Box<Window>),
+    /// An extra window of this slot waits to be made, see `AppWindow::open`.
+    #[cfg(not_wasm)]
+    OpenWindow(usize),
     /// A nudge that only exists to wake the loop from `ControlFlow::Wait` when
     /// background work queued a main thread callback. Handled by drawing a
     /// frame in `about_to_wait`, so the handler itself does nothing. Wasm
@@ -133,6 +136,7 @@ impl AppHandler {
                 sleep(Duration::from_millis(1));
             }
             Self::frame();
+            crate::window::extra::headless_frames();
         }
 
         crate::app::quit();
@@ -222,11 +226,33 @@ impl AppHandler {
             .expect("AppHandler has not been initialized yet.")
     }
 
+    /// The window of the current slot, see `window::slots`.
     pub(crate) fn window() -> &'static mut Window {
+        #[cfg(not_wasm)]
+        {
+            let slot = crate::window::slots::current();
+            if slot != 0 {
+                return crate::window::extra::window_of(slot)
+                    .unwrap_or_else(|| panic!("Window {slot} is not up"));
+            }
+        }
+        Self::main_window()
+    }
+
+    pub(crate) fn main_window() -> &'static mut Window {
         let AppHandlerState::Ready(ref mut window) = Self::current().state else {
             panic!("Window is not initialized yet")
         };
         window
+    }
+
+    /// The part of a frame that runs once for every window: the removed
+    /// views, the queued callbacks and the animations. An extra window runs
+    /// it while the main window is covered and draws no frame.
+    #[cfg(not_wasm)]
+    pub(crate) fn run_shared() {
+        run_queued();
+        UIManager::commit_animations();
     }
 }
 
@@ -262,115 +288,65 @@ impl AppHandler {
     }
 }
 
-impl ApplicationHandler<UserEvent> for AppHandler {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        app_activity::update(ActivityChange::Resumed(true));
-        #[cfg(target_os = "android")]
-        crate::system::links::check_intent();
-        if let AppHandlerState::Init(proxy) = &mut self.state
-            && let Some(proxy) = proxy.take()
-        {
-            let mut win_attr = winit::window::Window::default_attributes();
-
-            #[cfg(not_wasm)]
-            {
-                win_attr = win_attr.with_title("hilen");
-            }
-
-            #[cfg(wasm)]
-            {
-                use winit::platform::web::WindowAttributesExtWebSys;
-                win_attr = win_attr.with_append(true);
-            }
-
-            let window = event_loop.create_window(win_attr).expect("create window err.");
-
-            #[cfg(wasm)]
-            {
-                use winit::platform::web::WindowExtWebSys;
-                crate::web::keep_canvas(window.canvas());
-            }
-
-            let render_size = if Platform::IOS {
-                window.outer_size()
-            } else {
-                window.inner_size()
-            };
-
-            crate::deps::hreads::block_on(async move {
-                if let Err(err) = Window::start_internal(render_size, window, proxy).await {
-                    error!("Fatal: could not start engine window: {err:?}");
-
-                    // The page stays alive with its fallback content, there
-                    // is nothing to exit in a browser.
-                    #[cfg(wasm)]
-                    crate::web::drop_canvas();
-
-                    // fern logging can be swallowed on iOS, so also print to
-                    // stderr. Exit instead of panicking. A panic here unwinds
-                    // across the Objective-C run loop and turns into an
-                    // opaque EXC_BAD_ACCESS.
-                    #[cfg(not_wasm)]
-                    {
-                        eprintln!("Fatal: could not start engine window: {err:?}");
-                        exit(1);
-                    }
-                }
-            });
+impl AppHandler {
+    /// The GPU window finished its setup and the app gets its first frame.
+    fn window_ready(&mut self, window: Window) {
+        self.state = AppHandlerState::Ready(window);
+        // A `Resized` that arrived while the window was still being set up
+        // was dropped, so the recorded size catches up once.
+        if let Some(winit_window) = Window::winit_window() {
+            Self::window().record_inner_size(winit_window.inner_size());
         }
+        self.te_window_events.window_ready();
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
+    /// An event of an extra window, run with its slot current. The app
+    /// stays active and keeps its place on the screen, those follow the
+    /// main window.
+    #[cfg(not_wasm)]
+    fn extra_window_event(&mut self, slot: usize, event: WindowEvent) {
+        let request_frame = !matches!(event, WindowEvent::RedrawRequested);
         match event {
-            UserEvent::WindowReady(window) => {
-                self.state = AppHandlerState::Ready(*window);
-                // A `Resized` that arrived while the window was still being
-                // set up was dropped, so the recorded size catches up once.
-                if let Some(winit_window) = Window::winit_window() {
-                    Self::window().record_inner_size(winit_window.inner_size());
-                }
-                self.te_window_events.window_ready();
-            }
-            // Waking the loop was the whole point. `about_to_wait` runs right
-            // after this and draws a frame because a redraw was requested.
-            // A covered window draws no frame, and a frame is where queued
-            // callbacks run, so they run here instead. Else a background
-            // thread blocked in `from_main` waits until the window shows.
-            #[cfg(not_wasm)]
-            UserEvent::Wake => {
-                if crate::window::occluded() {
-                    run_queued();
+            WindowEvent::CloseRequested => {
+                if let Some(window) = crate::window::AppWindow::of_slot(slot) {
+                    window.close();
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.te_window_events.mouse_moved((position.x, position.y).into());
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.te_window_events.mouse_event(state, button);
+            }
+            WindowEvent::CursorLeft { .. } => self.te_window_events.cursor_left(),
+            WindowEvent::Focused(focused) => self.te_window_events.focus_changed(focused),
+            WindowEvent::Touch(touch) => {
+                self.te_window_events.touch_event(touch);
+            }
+            WindowEvent::MouseWheel { delta, phase, .. } => self.mouse_wheel(delta, phase),
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                self.te_window_events.pinch(delta.lossy_convert(), phase);
+            }
+            WindowEvent::KeyboardInput { event, .. } => self.te_window_events.key_event(event),
+            WindowEvent::ModifiersChanged(modifiers) => self.te_window_events.modifiers_changed(modifiers),
+            WindowEvent::DroppedFile(path) => self.te_window_events.dropped_file(path),
+            WindowEvent::Resized(size) => {
+                Self::window().record_inner_size(size);
+                State::resize();
+                Self::window().state.render();
+            }
+            WindowEvent::RedrawRequested => crate::window::extra::frame(slot),
+            _ => {}
+        }
+        if request_frame {
+            crate::window::request_frame();
         }
     }
+}
 
-    /// `applicationWillResignActive` on iOS, the first event of a lock or
-    /// an app switch. On Android the surface goes away here, so nothing
-    /// can be drawn any more.
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.activity_changed(ActivityChange::Resumed(false), Platform::IOS);
-    }
-
-    /// The last call of the event loop, on every way out: the close
-    /// button, `AppRunner::stop`, and Cmd+Q on macOS, where winit sends it
-    /// from `applicationWillTerminate` and the process then ends without
-    /// a return from `run_app`. iOS sends it from its own
-    /// `applicationWillTerminate`, and a hot build at the stop of a
-    /// generation.
-    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        crate::app::quit();
-        #[cfg(desktop)]
-        crate::window::placement_store::flush();
-    }
-
-    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
-        if let DeviceEvent::MouseMotion { delta } = event {
-            self.te_window_events.mouse_motion((delta.0, delta.1).into());
-        }
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+impl AppHandler {
+    /// An event of the main window.
+    fn main_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         // Any event other than a redraw can change what is on screen: input,
         // resize, theme, a dropped file. Ask for a frame so the change shows.
         // A redraw already draws, so it must not ask for another or the loop
@@ -496,6 +472,127 @@ impl ApplicationHandler<UserEvent> for AppHandler {
             crate::window::request_frame();
         }
     }
+}
+
+impl ApplicationHandler<UserEvent> for AppHandler {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        app_activity::update(ActivityChange::Resumed(true));
+        #[cfg(target_os = "android")]
+        crate::system::links::check_intent();
+        if let AppHandlerState::Init(proxy) = &mut self.state
+            && let Some(proxy) = proxy.take()
+        {
+            let mut win_attr = winit::window::Window::default_attributes();
+
+            #[cfg(not_wasm)]
+            {
+                win_attr = win_attr.with_title("hilen");
+            }
+
+            #[cfg(wasm)]
+            {
+                use winit::platform::web::WindowAttributesExtWebSys;
+                win_attr = win_attr.with_append(true);
+            }
+
+            let window = event_loop.create_window(win_attr).expect("create window err.");
+
+            #[cfg(wasm)]
+            {
+                use winit::platform::web::WindowExtWebSys;
+                crate::web::keep_canvas(window.canvas());
+            }
+
+            let render_size = if Platform::IOS {
+                window.outer_size()
+            } else {
+                window.inner_size()
+            };
+
+            crate::deps::hreads::block_on(async move {
+                if let Err(err) = Window::start_internal(render_size, window, proxy).await {
+                    error!("Fatal: could not start engine window: {err:?}");
+
+                    // The page stays alive with its fallback content, there
+                    // is nothing to exit in a browser.
+                    #[cfg(wasm)]
+                    crate::web::drop_canvas();
+
+                    // fern logging can be swallowed on iOS, so also print to
+                    // stderr. Exit instead of panicking. A panic here unwinds
+                    // across the Objective-C run loop and turns into an
+                    // opaque EXC_BAD_ACCESS.
+                    #[cfg(not_wasm)]
+                    {
+                        eprintln!("Fatal: could not start engine window: {err:?}");
+                        exit(1);
+                    }
+                }
+            });
+        }
+    }
+
+    #[cfg(wasm)]
+    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
+        let UserEvent::WindowReady(window) = event;
+        self.window_ready(*window);
+    }
+
+    #[cfg(not_wasm)]
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::WindowReady(window) => self.window_ready(*window),
+            UserEvent::OpenWindow(slot) => crate::window::extra::create(slot, event_loop),
+            // Waking the loop was the whole point. `about_to_wait` runs right
+            // after this and draws a frame because a redraw was requested.
+            // A covered window draws no frame, and a frame is where queued
+            // callbacks run, so they run here instead. Else a background
+            // thread blocked in `from_main` waits until the window shows.
+            UserEvent::Wake => {
+                if crate::window::occluded() {
+                    run_queued();
+                }
+            }
+        }
+    }
+
+    /// `applicationWillResignActive` on iOS, the first event of a lock or
+    /// an app switch. On Android the surface goes away here, so nothing
+    /// can be drawn any more.
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.activity_changed(ActivityChange::Resumed(false), Platform::IOS);
+    }
+
+    /// The last call of the event loop, on every way out: the close
+    /// button, `AppRunner::stop`, and Cmd+Q on macOS, where winit sends it
+    /// from `applicationWillTerminate` and the process then ends without
+    /// a return from `run_app`. iOS sends it from its own
+    /// `applicationWillTerminate`, and a hot build at the stop of a
+    /// generation.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        crate::app::quit();
+        #[cfg(desktop)]
+        crate::window::placement_store::flush();
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.te_window_events.mouse_motion((delta.0, delta.1).into());
+        }
+    }
+
+    #[cfg(not_wasm)]
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        match crate::window::extra::slot_of_id(window_id) {
+            Some(slot) => crate::window::slots::within(slot, || self.extra_window_event(slot, event)),
+            None => self.main_window_event(event_loop, event),
+        }
+    }
+
+    #[cfg(wasm)]
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        self.main_window_event(event_loop, event);
+    }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.not_ready() {
@@ -513,16 +610,34 @@ impl ApplicationHandler<UserEvent> for AppHandler {
 
         #[cfg(not_wasm)]
         {
+            // A covered window draws no frame, the frame is where queued
+            // callbacks run. Work queued on the main thread outside an event
+            // of winit, like a global key, wakes nothing, so it runs here.
+            if crate::window::occluded() {
+                run_queued();
+            }
+            let continuous = Self::continuous();
+            let needs_render = crate::window::take_needs_render();
+            // An extra window covers the main one or stands next to it, it
+            // draws for the same changes whether the main one shows or not.
+            let extras = crate::window::extra::any_open();
+            if extras && (needs_render || continuous) {
+                crate::window::extra::request_redraws();
+            }
             let flow = crate::window::frame_pacing(
                 crate::window::visibility(
                     Self::window().state.screenshot_pending() || frame_control::offscreen_wanted(),
                 ),
-                Self::continuous(),
-                crate::window::take_needs_render(),
+                continuous,
+                needs_render,
                 crate::window::Pacer::of_platform(),
             );
             let Some(flow) = flow else {
-                event_loop.set_control_flow(ControlFlow::Wait);
+                event_loop.set_control_flow(if extras && continuous {
+                    ControlFlow::Poll
+                } else {
+                    ControlFlow::Wait
+                });
                 return;
             };
             event_loop.set_control_flow(flow);

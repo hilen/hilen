@@ -129,13 +129,19 @@ pub struct UIDrawer;
 
 impl UIDrawer {
     pub(crate) fn update() {
-        UIManager::commit_animations();
+        let main = crate::window::slots::is_main();
+        // Once a frame of the main window, see `AppHandler::run_shared`.
+        if main {
+            UIManager::commit_animations();
+        }
         TextSelection::tick();
         *NEEDS_SAMPLING.get_mut() = false;
         Self::update_view(UIManager::root_view().deref_mut(), 1.0);
         // After the layout, a loop decides by the frames of this one where
-        // it is shown, see `ui::loops`.
-        loops::step();
+        // it is shown, see `ui::loops`. Loops run in the main window only.
+        if main {
+            loops::step();
+        }
     }
 
     /// Lays out and updates 1 view and its subviews again, after the pose

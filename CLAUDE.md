@@ -54,7 +54,7 @@ report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `speech` is speech to text from the microphone, a streaming model while the user talks and a bigger one on each pause, see [docs/speech.md](docs/speech.md). `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `biometric` is a check of the finger or the face of the user, Touch ID and Face ID, see [docs/biometric.md](docs/biometric.md). `push` is remote notifications from APNs on iOS, see [docs/push.md](docs/push.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `video` is video
+with their shaders. `speech` is speech to text from the microphone, a streaming model while the user talks and a bigger one on each pause, see [docs/speech.md](docs/speech.md). `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `biometric` is a check of the finger or the face of the user, Touch ID and Face ID, see [docs/biometric.md](docs/biometric.md). `push` is remote notifications from APNs on iOS, see [docs/push.md](docs/push.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `global-keys` is a key combination that works in every app, see [docs/global-keys.md](docs/global-keys.md). `screen-capture` is a picture of every screen, see [docs/screen-capture.md](docs/screen-capture.md). `video` is video
 playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
 through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, the sound levels of a file for a waveform, a list of pieces played as 1 video with a volume per piece and music under it, and the export to an mp4 file with pictures and texts drawn over it, see [docs/video.md](docs/video.md). `inspect` is
 the remote inspector. `hot` is hot reload in the iOS and the Apple TV simulator, on a real iPhone and on a real Apple TV, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
@@ -112,6 +112,15 @@ Do not read these upfront. Read the matching file only when the task touches tha
   `MarkdownView` and across the cells of a `TableView`: the calls, what a copy holds, positions kept
   in the data, the hooks in the input code and how the highlight is drawn. Read before touching
   `hilen/src/ui/text_selection`, `selection_drawer.rs` or the touch code in `view_touch.rs`.
+- [docs/windows-more.md](docs/windows-more.md) — `AppWindow`, a window next to the main
+  one, the window slots and `WindowLock`, what each window has of its own, and the
+  panel over everything on a Mac. Read before touching `window/extra`, `window/slots.rs`
+  or a global that belongs to 1 window.
+- [docs/global-keys.md](docs/global-keys.md) — the `global-keys` feature, `GlobalKey` and
+  `GlobalCombo`. Read before touching `hilen/src/global_keys`.
+- [docs/screen-capture.md](docs/screen-capture.md) — the `screen-capture` feature,
+  `ScreenPicture` and the Screen Recording permission. Read before touching
+  `hilen/src/screen_capture`.
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.

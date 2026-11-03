@@ -3,10 +3,10 @@ use std::mem::take;
 use plat::Platform;
 
 use crate::{
-    deps::refs::{Weak, main_lock::MainLock},
+    deps::refs::Weak,
     gm::flat::Point,
     ui::{Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView, input::TouchEvent},
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 /// How far a finger moves before the swipe or the views take it.
@@ -62,8 +62,8 @@ enum Phase {
     },
 }
 
-static ENTRIES: MainLock<Vec<Entry>> = MainLock::new();
-static PHASE: MainLock<Phase> = MainLock::new();
+static ENTRIES: WindowLock<Vec<Entry>> = WindowLock::new();
+static PHASE: WindowLock<Phase> = WindowLock::new();
 
 /// A swipe left or right over any view, also over a scroll view that moves
 /// up and down, like the pages of a native iOS app. A finger that moves 10

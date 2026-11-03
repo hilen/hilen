@@ -6,7 +6,7 @@ use ui_proc::view;
 use crate::{
     deps::{
         hreads::assert_main_thread,
-        refs::{Own, Weak, main_lock::MainLock},
+        refs::{Own, Weak},
     },
     gm::{
         Animation,
@@ -19,7 +19,7 @@ use crate::{
         input::TouchEvent,
         view::{ViewFrame, ViewSubviews},
     },
-    window::MouseButton,
+    window::{MouseButton, slots::WindowLock},
 };
 
 /// How far from the left edge of a stack a swipe may start, in points.
@@ -141,8 +141,8 @@ enum Phase {
     Settling,
 }
 
-static STACKS: MainLock<Vec<Weak<NavigationView>>> = MainLock::new();
-static PHASE: MainLock<Phase> = MainLock::new();
+static STACKS: WindowLock<Vec<Weak<NavigationView>>> = WindowLock::new();
+static PHASE: WindowLock<Phase> = WindowLock::new();
 
 impl NavigationView {
     pub fn with_view(first_view: Own<dyn View>) -> Own<Self> {

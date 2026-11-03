@@ -1,15 +1,13 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    deps::{
-        hreads::after,
-        refs::{Own, main_lock::MainLock},
-    },
+    deps::{hreads::after, refs::Own},
     gm::{
         color::{BLACK, Color, WHITE},
         flat::{Point, Rect},
     },
     ui::{DynamicColor, Label, Setup, Shadow, UIManager, View, ViewData, ViewFrame, ViewSubviews, WeakView},
+    window::slots::WindowLock,
 };
 
 const BACKGROUND: DynamicColor = DynamicColor::new(Color::rgb(0.2, 0.2, 0.22), Color::rgb(0.85, 0.85, 0.87));
@@ -43,7 +41,7 @@ struct State {
     of_ring: bool,
 }
 
-static STATE: MainLock<State> = MainLock::new();
+static STATE: WindowLock<State> = WindowLock::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// The one floating tooltip. Shows after the cursor or the focus ring rests

@@ -4,7 +4,11 @@ use log::{debug, warn};
 use plat::Platform;
 use winit::window::CursorGrabMode;
 
-use crate::{deps::refs::main_lock::MainLock, gm::flat::Point, ui::UIEvent, window::Window};
+use crate::{
+    gm::flat::Point,
+    ui::UIEvent,
+    window::{Window, slots::WindowLock},
+};
 
 #[derive(Default)]
 struct CursorState {
@@ -16,7 +20,7 @@ struct CursorState {
     on_capture: UIEvent<bool>,
 }
 
-static CURSOR: MainLock<CursorState> = MainLock::new();
+static CURSOR: WindowLock<CursorState> = WindowLock::new();
 
 /// The mouse of a game. Captured, it is hidden, kept inside the window
 /// and reported as raw motion, the way a first person game turns its

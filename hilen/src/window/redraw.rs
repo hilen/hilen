@@ -78,11 +78,17 @@ pub(crate) fn request_frame() {
 
 #[cfg(not_wasm)]
 fn wake_loop() {
+    send_user_event(UserEvent::Wake);
+}
+
+/// Hands `event` to the loop, which takes it in its next turn.
+#[cfg(not_wasm)]
+pub(crate) fn send_user_event(event: UserEvent) {
     if let Some(proxy) = WAKE_PROXY.lock().as_ref()
-        && proxy.send_event(UserEvent::Wake).is_err()
+        && proxy.send_event(event).is_err()
     {
         // The event loop already closed, the app is shutting down.
-        log::trace!("wake requested after the event loop closed");
+        log::trace!("a user event came after the event loop closed");
     }
 }
 
