@@ -49,6 +49,7 @@ mod markdown_plain_height;
 mod markdown_selection;
 mod markdown_spacing;
 mod markdown_text_inset;
+mod markdown_unsafe_link;
 mod markdown_view;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]

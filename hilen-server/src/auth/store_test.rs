@@ -402,6 +402,84 @@ where
     Ok(())
 }
 
+async fn a_session_ends_a_year_after_its_sign_in(db: Db) -> Result<()> {
+    let user_id = store::login_user(&db, &identity("Ana")).await?;
+    let token = session::create(&db, user_id).await?;
+
+    // Signed in 364 days ago and used every day: a refresh stops at the year.
+    run(
+        &db,
+        "UPDATE sessions SET created_at = now() - interval '364 days', last_used_at = now() - interval '2 \
+         days'",
+        "UPDATE sessions SET created_at = unixepoch() - 364 * 86400, last_used_at = unixepoch() - 2 * 86400",
+    )
+    .await?;
+    assert!(
+        session::user_of(&db, &token).await?.is_some(),
+        "364 days is inside the year"
+    );
+    let left = seconds_left(&db, &token).await?;
+    assert!(
+        left <= 86400,
+        "the refresh went past the year, {left} seconds left"
+    );
+
+    // A year and a day after the sign in, also with an end in the future.
+    run(
+        &db,
+        "UPDATE sessions SET created_at = now() - interval '366 days', expires_at = now() + interval '30 days'",
+        "UPDATE sessions SET created_at = unixepoch() - 366 * 86400, expires_at = unixepoch() + 30 * 86400",
+    )
+    .await?;
+    assert!(
+        session::user_of(&db, &token).await?.is_none(),
+        "a session older than a year still works"
+    );
+    Ok(())
+}
+
+async fn logout_all_ends_every_session_of_the_user(db: Db) -> Result<()> {
+    let ana = store::login_user(&db, &identity("Ana")).await?;
+    let laptop = session::create(&db, ana).await?;
+    let phone = session::create(&db, ana).await?;
+    let mut other = identity("Bob");
+    other.subject = "google-sub-2".to_owned();
+    other.email = "bob@example.com".to_owned();
+    let bob = store::login_user(&db, &other).await?;
+    let bobs = session::create(&db, bob).await?;
+
+    assert_eq!(store::delete_user_sessions(&db, ana).await?, 2);
+    assert!(session::user_of(&db, &laptop).await?.is_none());
+    assert!(session::user_of(&db, &phone).await?.is_none());
+    assert!(
+        session::user_of(&db, &bobs).await?.is_some(),
+        "another user lost a session"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_a_session_ends_a_year_after_its_sign_in() -> Result<()> {
+    a_session_ends_a_year_after_its_sign_in(sqlite().await?.1).await
+}
+
+#[tokio::test]
+async fn sqlite_logout_all_ends_every_session_of_the_user() -> Result<()> {
+    logout_all_ends_every_session_of_the_user(sqlite().await?.1).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_session_ends_a_year_after_its_sign_in() -> Result<()> {
+    on_postgres(a_session_ends_a_year_after_its_sign_in).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_logout_all_ends_every_session_of_the_user() -> Result<()> {
+    on_postgres(logout_all_ends_every_session_of_the_user).await
+}
+
 #[tokio::test]
 async fn sqlite_a_login_runs_from_start_to_session() -> Result<()> {
     a_login_runs_from_start_to_session(sqlite().await?.1).await

@@ -9,12 +9,7 @@ fn main() {
 }
 
 mod session_key {
-    use std::{
-        env::{var, var_os},
-        fmt::Write,
-        fs::write,
-        path::PathBuf,
-    };
+    use std::env::{var, var_os};
 
     use super::RELEASE_ENV;
 
@@ -25,13 +20,9 @@ mod session_key {
     /// hidden from a casual look.
     const DEV_KEY: &str = "hilen development session key, a release never ships with it";
 
-    /// Writes the built in half of the `SessionStore` key into `OUT_DIR`,
-    /// masked.
-    ///
-    /// The key never reaches the binary as plain bytes. The file holds the key
-    /// xored with a random mask, the mask itself, and the shift between the
-    /// two, so a strings search or a hex editor finds only noise.
-    /// `store/session_key.rs` puts it back together at run time.
+    /// Hands the built in half of the `SessionStore` key to the compiler.
+    /// `session_key.rs` reads it through `obfstr`, so the binary holds only
+    /// its obfuscated bytes, a strings search or a hex editor finds noise.
     pub fn embed() {
         println!("cargo:rerun-if-env-changed={KEY_ENV}");
 
@@ -49,27 +40,12 @@ mod session_key {
             println!("cargo:warning={KEY_ENV} is not set, SessionStore uses the public development key");
         }
 
-        let key = from_env.unwrap_or_else(|| DEV_KEY.to_owned()).into_bytes();
-
-        let mut mask = vec![0; key.len()];
-        getrandom::fill(&mut mask).expect("no random bytes from the system");
-        let mut shift = [0; 1];
-        getrandom::fill(&mut shift).expect("no random bytes from the system");
-        let shift = usize::from(shift[0]) % key.len();
-
-        let masked: Vec<u8> = key
-            .iter()
-            .enumerate()
-            .map(|(index, byte)| byte ^ mask[(index + shift) % mask.len()])
-            .collect();
-
-        let mut code = String::new();
-        writeln!(code, "const MASKED: [u8; {}] = {masked:?};", masked.len()).expect("write to a String");
-        writeln!(code, "const MASK: [u8; {}] = {mask:?};", mask.len()).expect("write to a String");
-        writeln!(code, "const SHIFT: usize = {shift};").expect("write to a String");
-        writeln!(code, "const IS_DEV: bool = {is_dev};").expect("write to a String");
-
-        let out = PathBuf::from(var("OUT_DIR").expect("cargo sets OUT_DIR")).join("session_key.rs");
-        write(&out, code).expect("Failed to write session_key.rs");
+        let key = from_env.unwrap_or_else(|| DEV_KEY.to_owned());
+        assert!(
+            !key.contains(['\n', '\r']),
+            "{KEY_ENV} holds a line break, cargo cannot pass it to the compiler"
+        );
+        println!("cargo:rustc-env=HILEN_SESSION_KEY_BUILT={key}");
+        println!("cargo:rustc-env=HILEN_SESSION_KEY_IS_DEV={is_dev}");
     }
 }

@@ -4,6 +4,7 @@ use linkify::{LinkFinder, LinkKind};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
 use super::model::{Block, Face, Item, Link, Marker, Span, Style, Styled};
+use crate::system::is_safe_link;
 
 /// Stands right after every link when the view shows copy buttons, the
 /// button of the link is drawn over it. A copy of the text leaves it out.
@@ -66,20 +67,23 @@ struct Depth {
 
 #[derive(Default)]
 struct Builder {
-    root:       Vec<Block>,
-    frames:     Vec<Frame>,
+    root:         Vec<Block>,
+    frames:       Vec<Frame>,
     /// The text being collected. A tight list item has no paragraph
     /// around its text, so a text can open one by itself.
-    inline:     Option<Styled>,
-    depth:      Depth,
+    inline:       Option<Styled>,
+    depth:        Depth,
     /// Where the link being read starts in the text, and its address.
-    link:       Option<(usize, String)>,
-    heading:    Option<u8>,
-    code:       Option<(String, String)>,
-    table:      Option<Table>,
+    link:         Option<(usize, String)>,
+    /// The link being read has a scheme that must not open, like
+    /// `javascript:`, so its words stay plain text.
+    dropped_link: bool,
+    heading:      Option<u8>,
+    code:         Option<(String, String)>,
+    table:        Option<Table>,
     /// What a line break inside a paragraph becomes.
-    soft_break: &'static str,
-    copy_rooms: bool,
+    soft_break:   &'static str,
+    copy_rooms:   bool,
 }
 
 impl Builder {
@@ -162,6 +166,10 @@ impl Builder {
             Tag::Strong => self.depth.bold += 1,
             Tag::Emphasis => self.depth.italic += 1,
             Tag::Strikethrough => self.depth.strike += 1,
+            Tag::Link { dest_url, .. } if !is_safe_link(&dest_url) => {
+                log::debug!("a markdown link to {dest_url:?} is shown as plain text, its scheme is not safe");
+                self.dropped_link = true;
+            }
             Tag::Link { dest_url, .. } => {
                 self.depth.link += 1;
                 let start = self.inline.as_ref().map_or(0, |text| text.text.len());
@@ -232,6 +240,7 @@ impl Builder {
             TagEnd::Strong => self.depth.bold = self.depth.bold.saturating_sub(1),
             TagEnd::Emphasis => self.depth.italic = self.depth.italic.saturating_sub(1),
             TagEnd::Strikethrough => self.depth.strike = self.depth.strike.saturating_sub(1),
+            TagEnd::Link if self.dropped_link => self.dropped_link = false,
             TagEnd::Link => {
                 self.depth.link = self.depth.link.saturating_sub(1);
                 if let Some((start, url)) = self.link.take()
@@ -260,7 +269,7 @@ impl Builder {
         let mut finder = LinkFinder::new();
         finder.kinds(&[LinkKind::Url]);
         for piece in finder.spans(text) {
-            let url = piece.kind().is_some();
+            let url = piece.kind().is_some() && is_safe_link(piece.as_str());
             let start = self.inline.as_ref().map_or(0, |styled| styled.text.len());
             self.push_text(piece.as_str(), code, url);
             if url && let Some(styled) = &mut self.inline {
@@ -380,6 +389,35 @@ mod tests {
             .iter()
             .map(|link| (text.text[link.range.clone()].to_string(), link.url.clone()))
             .collect()
+    }
+
+    #[test]
+    fn a_link_that_must_not_open_is_plain_text() {
+        for text in [
+            "[see the log](javascript:alert(document.domain))",
+            "[see the log](JAVASCRIPT:alert(1))",
+            "[see the log](data:text/html,x)",
+            "[see the log](/thread/1)",
+        ] {
+            assert_eq!(urls(text), Vec::<(String, String)>::new(), "{text}");
+            let blocks = parse(text);
+            let Block::Paragraph(styled) = &blocks[0] else {
+                panic!("{text} is not a paragraph");
+            };
+            assert_eq!(styled.text, "see the log", "{text}");
+            assert!(
+                styled.spans.iter().all(|span| !span.style.link),
+                "{text} has no link style"
+            );
+        }
+        assert_eq!(
+            urls("run javascript://x%0Aalert(1) now"),
+            Vec::<(String, String)>::new()
+        );
+        assert_eq!(
+            urls("[ok](https://a.b) and [bad](javascript:x)"),
+            vec![("ok".to_string(), "https://a.b".to_string())]
+        );
     }
 
     #[test]

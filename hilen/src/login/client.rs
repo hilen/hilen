@@ -278,6 +278,17 @@ impl Login {
         });
     }
 
+    /// Ends every session of the active user on the server, on every
+    /// device, and forgets the active one here. A session stolen from
+    /// another device stops working at once. When the server cannot be
+    /// reached nothing changes, so the user can try again.
+    pub fn logout_everywhere(done: impl FnOnce(Result<()>) + Send + 'static) {
+        spawn(async move {
+            let result = end_every_session().await;
+            on_main(move || done(result));
+        });
+    }
+
     /// Removes the account on the server for good, with everything the
     /// server keeps for it, and forgets the session here. The session stays
     /// when the server cannot be reached, so the user can try again.
@@ -497,6 +508,20 @@ async fn end_session() -> Result<()> {
     };
     SessionStore::clear()?;
     logout_on_server(token).await
+}
+
+async fn end_every_session() -> Result<()> {
+    let Some(token) = SessionStore::load() else {
+        bail!("nobody is logged in");
+    };
+    let call = Call::post(format!("{}/auth/logout/all", server()?)).bearer(token);
+    // An unknown session has nothing left to end on the server.
+    match call.send::<()>().await {
+        Ok(()) | Err(RequestError::Unauthorized) => {}
+        Err(error) => return Err(error.into()),
+    }
+    log::info!("every session of the active user is ended on the server");
+    SessionStore::clear()
 }
 
 async fn forget_session(id: &str) -> Result<()> {

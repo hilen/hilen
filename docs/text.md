@@ -362,6 +362,10 @@ in `hilen/src/ui/views/complex/markdown`.
 - A tap on a link is mapped to a byte through `Label::text_layout_for`, fires
   `link_tapped` with the address and opens it with `open_url`. `set_opens_links(false)`
   leaves only the event, for an app with links of its own and for a test.
+- Only an `http`, `https` or `mailto` address is a link, `system::is_safe_link` decides.
+  A markdown link to any other, like `javascript:`, shows its words as plain text, so
+  text a stranger wrote opens no script. `open_url` refuses such a scheme too, and a
+  page it opens on the web gets no `window.opener`. `Markdown unsafe link` pins it.
 - `MarkdownStyle` is global like `DialogStyle`: text sizes, a light and dark pair
   per color, and the 6 fonts, the bundled ones when not set. The test harness takes
   the style of the app away for a run and hands it back.

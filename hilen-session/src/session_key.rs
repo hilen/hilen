@@ -1,18 +1,16 @@
 //! The key that seals the `SessionStore` file. It has two halves. One is built
-//! into the binary by the build script, masked, from `HILEN_SESSION_KEY`. The
+//! into the binary from `HILEN_SESSION_KEY`, hidden by `obfstr`. The
 //! other is the id of this machine, so a file copied to another computer does
 //! not open even with the binary next to it.
 
-use std::{
-    hint::black_box,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 
 use crate::encrypt::EncryptionKey;
 
-include!(concat!(env!("OUT_DIR"), "/session_key.rs"));
+/// The build had no `HILEN_SESSION_KEY` and took the public development key.
+const IS_DEV: bool = matches!(env!("HILEN_SESSION_KEY_IS_DEV").as_bytes(), b"true");
 
 const CONTEXT: &[u8] = b"hilen session store v1";
 
@@ -33,23 +31,9 @@ pub(crate) fn session_key() -> EncryptionKey {
 
     let mut hasher = Sha256::new();
     hasher.update(CONTEXT);
-    hasher.update(built_in());
+    hasher.update(obfstr::obfbytes!(env!("HILEN_SESSION_KEY_BUILT").as_bytes()));
     hasher.update(machine_id());
     hasher.finalize().into()
-}
-
-/// Undoes the mask of the build script. Without `black_box` the optimizer
-/// folds the three constants back into the plain key inside the binary.
-fn built_in() -> Vec<u8> {
-    let masked = black_box(MASKED);
-    let mask = black_box(MASK);
-    let shift = black_box(SHIFT);
-
-    masked
-        .iter()
-        .enumerate()
-        .map(|(index, byte)| byte ^ mask[(index + shift) % mask.len()])
-        .collect()
 }
 
 /// Empty where the platform has no such id. Mobile and browser storage is
@@ -71,7 +55,7 @@ fn machine_id() -> String {
 mod test {
     use std::sync::atomic::AtomicBool;
 
-    use super::{IS_DEV, MASKED, built_in, first_time, session_key};
+    use super::{IS_DEV, first_time, session_key};
 
     #[test]
     fn warns_once() {
@@ -82,15 +66,27 @@ mod test {
     }
 
     #[test]
-    fn mask_comes_off() {
-        let key = built_in();
-        assert_ne!(key.as_slice(), MASKED.as_slice());
-        // Only a build with no key in its env carries the development one.
-        assert_eq!(IS_DEV, key.starts_with(b"hilen development session key"));
-    }
-
-    #[test]
     fn key_is_stable() {
         assert_eq!(session_key(), session_key());
+    }
+
+    /// The test binary is built like the app, with the key through `obfstr`.
+    /// The plain key must not be anywhere in it. The text searched for is
+    /// kept reversed here, or this test would put it into the binary itself.
+    #[test]
+    fn the_plain_key_is_not_in_the_binary() {
+        if !IS_DEV {
+            panic!("this test knows only the development key, run it without HILEN_SESSION_KEY");
+        }
+        let key: Vec<u8> = "ti htiw spihs reven esaeler a ,yek noisses tnempoleved nelih"
+            .bytes()
+            .rev()
+            .collect();
+        let binary =
+            std::fs::read(std::env::current_exe().expect("the test binary")).expect("read the test binary");
+        assert!(
+            !binary.windows(key.len()).any(|window| window == key.as_slice()),
+            "the plain session key is in the binary"
+        );
     }
 }

@@ -65,6 +65,7 @@ pub fn auth_routes<S>(state: AuthState) -> Router<S> {
         .route("/auth/poll", post(poll))
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
+        .route("/auth/logout/all", post(logout_all))
         .route("/auth/delete", post(delete));
     #[cfg(feature = "dev-login")]
     let router = crate::auth::dev::add_route(router);
@@ -462,6 +463,14 @@ async fn me(user: User) -> Json<UserInfo> {
 async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<(), AppError> {
     let token = bearer_token(&headers).ok_or(AppError::Unauthorized)?;
     session::delete(&state.db, token).await?;
+    Ok(())
+}
+
+/// Ends every session of the user, the one that asks included, so a session
+/// stolen from another device stops working at once.
+async fn logout_all(State(state): State<AuthState>, user: User) -> Result<(), AppError> {
+    let ended = store::delete_user_sessions(&state.db, user.id).await?;
+    tracing::info!("user {} ended all {ended} of their sessions", user.id);
     Ok(())
 }
 

@@ -85,6 +85,7 @@ async fn serve_until(
     stop: impl Future<Output = ()> + Send + 'static,
     limit: Duration,
 ) -> Result<()> {
+    let router = crate::security::base(router);
     let stopping = Arc::new(Notify::new());
     let stopped = Arc::clone(&stopping);
     let server = axum::serve(

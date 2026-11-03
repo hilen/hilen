@@ -13,6 +13,9 @@ use crate::{
 };
 
 const SESSION_DAYS: i32 = 90;
+/// A session ends this long after its sign in, also when it is used every
+/// day, so a stolen one that its thief keeps using still runs out.
+const SESSION_MAX_DAYS: i32 = 365;
 const DAY_SECONDS: i32 = 86400;
 
 /// Runs one statement on whichever database is in hand. The 2 arms have
@@ -403,13 +406,19 @@ pub(crate) async fn session_user(db: &Db, token_hash: &[u8]) -> Result<Option<Us
 SELECT u.id, u.email, u.name, u.picture, s.last_used_at < now() - interval '1 day' AS stale
 FROM sessions s
 JOIN users u ON u.id = s.user_id
-WHERE s.token_hash = $1 AND s.expires_at > now()",
+WHERE s.token_hash = $1 AND s.expires_at > now()
+  AND s.created_at > now() - make_interval(days => $2)",
         r"
 SELECT u.id, u.email, u.name, u.picture, s.last_used_at < unixepoch() - 86400 AS stale
 FROM sessions s
 JOIN users u ON u.id = s.user_id
-WHERE s.token_hash = $1 AND s.expires_at > unixepoch()",
-        |sql, pool| sqlx::query_as(sql).bind(token_hash).fetch_optional(pool).await
+WHERE s.token_hash = $1 AND s.expires_at > unixepoch()
+  AND s.created_at > unixepoch() - $2 * 86400",
+        |sql, pool| sqlx::query_as(sql)
+            .bind(token_hash)
+            .bind(SESSION_MAX_DAYS)
+            .fetch_optional(pool)
+            .await
     )?;
 
     let Some(found) = found else {
@@ -421,22 +430,26 @@ WHERE s.token_hash = $1 AND s.expires_at > unixepoch()",
             Db::Postgres(pool) => {
                 sqlx::query(
                     r"
-UPDATE sessions SET last_used_at = now(), expires_at = now() + make_interval(days => $2)
+UPDATE sessions SET last_used_at = now(),
+    expires_at = LEAST(now() + make_interval(days => $2), created_at + make_interval(days => $3))
 WHERE token_hash = $1",
                 )
                 .bind(token_hash)
                 .bind(SESSION_DAYS)
+                .bind(SESSION_MAX_DAYS)
                 .execute(pool)
                 .await?;
             }
             Db::Sqlite(pool) => {
                 sqlx::query(
                     r"
-UPDATE sessions SET last_used_at = unixepoch(), expires_at = unixepoch() + $2
+UPDATE sessions SET last_used_at = unixepoch(),
+    expires_at = MIN(unixepoch() + $2, created_at + $3)
 WHERE token_hash = $1",
                 )
                 .bind(token_hash)
                 .bind(SESSION_DAYS * DAY_SECONDS)
+                .bind(SESSION_MAX_DAYS * DAY_SECONDS)
                 .execute(pool)
                 .await?;
             }
@@ -449,6 +462,16 @@ WHERE token_hash = $1",
         name:    found.name,
         picture: found.picture,
     }))
+}
+
+/// Ends every session of the user, on every device.
+pub(crate) async fn delete_user_sessions(db: &Db, user_id: Uuid) -> Result<u64, sqlx::Error> {
+    let both = "DELETE FROM sessions WHERE user_id = $1";
+    on_db!(db, both, both, |sql, pool| sqlx::query(sql)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map(|done| done.rows_affected()))
 }
 
 pub(crate) async fn delete_session(db: &Db, token_hash: &[u8]) -> Result<(), sqlx::Error> {

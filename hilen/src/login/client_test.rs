@@ -26,7 +26,8 @@ use tokio::{net::TcpListener, spawn};
 
 #[cfg(not_wasm)]
 use super::{
-    ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_session, fetch_current_user, forget_session, wait_for_login,
+    ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_every_session, end_session, fetch_current_user,
+    forget_session, wait_for_login,
 };
 use super::{challenge, login_code, new_verifier};
 #[cfg(not_wasm)]
@@ -82,8 +83,18 @@ async fn account_server() -> Result<Arc<Mutex<Vec<String>>>> {
         )
         .route(
             "/auth/logout",
+            post({
+                let kept = kept.clone();
+                move |headers: HeaderMap| async move {
+                    kept.lock().push(bearer(&headers));
+                    Json(())
+                }
+            }),
+        )
+        .route(
+            "/auth/logout/all",
             post(move |headers: HeaderMap| async move {
-                kept.lock().push(bearer(&headers));
+                kept.lock().push(format!("all {}", bearer(&headers)));
                 Json(())
             }),
         );
@@ -247,6 +258,24 @@ async fn forget_and_logout_end_1_session_each() -> Result<()> {
 
     forget_session("bob").await?;
     assert_eq!(Login::accounts(), []);
+    Ok(())
+}
+
+/// A logout everywhere sends the active session to the server and forgets
+/// only that one here.
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn logout_everywhere_ends_the_active_session_on_the_server() -> Result<()> {
+    let logouts = account_server().await?;
+    fresh_root("hilen-login-logout-everywhere-test")?;
+    SessionStore::add("token-ann", user("ann"))?;
+    SessionStore::add("token-bob", user("bob"))?;
+
+    end_every_session().await?;
+    assert_eq!(*logouts.lock(), ["all token-bob"]);
+    assert_eq!(account_ids(), ["ann"]);
+    assert_eq!(Login::token(), None);
     Ok(())
 }
 

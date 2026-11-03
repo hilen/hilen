@@ -27,7 +27,10 @@ the server half of the Google, Apple and Discord login, see [docs/login.md](docs
 `prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
 the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
 route behind a Bearer token, since a stack with a public host has only one port
-to share. It never
+to share. Its `security` module puts `nosniff`, a `Referrer-Policy`, a frame block and
+a closed `Content-Security-Policy` on every answer that `serve` gives, and `PageCsp`
+gives the html of a trunk page a policy it can run under, its inline scripts allowed
+by their hashes. It never
 links the `hilen` UI crate, a backend and a client only share the wire.
 Its own queries use the plain `query` functions of sqlx, because the login code runs
 the same query on both databases through `Db` and a checked macro can check against

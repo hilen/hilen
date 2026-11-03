@@ -139,6 +139,7 @@ mime_guess = "2.0"
 ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
+obfstr = "0.4"
 # The debug check of every message signature took over half of a debug frame in Metal.
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSPasteboard", "NSResponder"] }

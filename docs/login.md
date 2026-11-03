@@ -117,6 +117,11 @@ nothing new.
   none of the others becomes active by itself, an app shows its profiles then.
   `current_user` drops only the active session on a 401, and puts a new name or picture
   from `/auth/me` into the list.
+- `Login::logout_everywhere(done)` ends every session of the active user on the server,
+  on every device, through `POST /auth/logout/all`, and drops the active one here. A
+  session stolen from another device stops working at once.
+- A session on the server ends 90 days after its last use, and in any case 1 year after
+  its sign in, so a stolen session that is used every day still runs out.
 - `Login::accounts()` lists the users, `Login::active_user()` is the active one with no
   request, `Login::switch(id)` makes one active, and `Login::forget(id)` ends that
   session on the server and drops it here.
@@ -286,11 +291,10 @@ not read back, the user logs in once more.
 `SessionStore` seals the token with AES-256-GCM, a fresh nonce per save in front of the
 bytes. The key is SHA-256 over a context text, the built in key and the machine id.
 
-`hilen-session/build.rs` reads `HILEN_SESSION_KEY` and writes
-`session_key.rs` into `OUT_DIR`: the key xored with a random mask, the mask, and the shift
-between the two. `hilen-session/src/session_key.rs` puts it back together behind `black_box`, without
-it the optimizer folds the constants back into the plain key. Checked once by hand: an
-optimized build with a known key does not hold that text.
+`hilen-session/build.rs` reads `HILEN_SESSION_KEY` and hands it to the compiler as an
+env var. `hilen-session/src/session_key.rs` reads it only through `obfstr::obfbytes!`, so
+the binary holds only the obfuscated bytes. The test `the_plain_key_is_not_in_the_binary`
+reads the test binary and proves the plain key is not in it.
 
 No key means the public development key and a cargo warning. Such a build also writes a
 warning into the log of the app, 1 time per start and not on every use of the key, an
