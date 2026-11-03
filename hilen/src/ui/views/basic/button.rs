@@ -10,8 +10,8 @@ use crate::{
         flat::Size,
     },
     ui::{
-        DynamicColor, ImageView, Label, Setup, Style, ToLabel, UIColor, UIEvent, UIManager, View,
-        ViewSubviews, ViewTransition,
+        DynamicColor, ImageView, Label, Setup, Style, Tinted, ToLabel, UIColor, UIEvent, UIManager, View,
+        ViewCallbacks, ViewSubviews, ViewTransition,
         view::{ViewData, ViewTouch},
     },
     window::{Font, image::ToImage},
@@ -24,6 +24,12 @@ const DISABLED_COLOR: DynamicColor =
 
 const DISABLED_TEXT_COLOR: DynamicColor =
     DynamicColor::new(Color::rgb(0.557, 0.557, 0.576), Color::rgb(0.443, 0.443, 0.467));
+
+/// The side of an icon for each point of the text size, 16 for a text of 14.
+const ICON_SCALE: f32 = 8.0 / 7.0;
+
+/// The space between an icon and the text after it.
+const ICON_GAP: f32 = 6.0;
 
 #[view]
 pub struct Button {
@@ -42,8 +48,12 @@ pub struct Button {
 
     label: Weak<Label>,
 
+    /// The name of the SVG of the icon, none for a button with no icon.
+    icon_name: Option<String>,
+
     #[init]
     image: ImageView,
+    icon:  ImageView,
 }
 
 impl Button {
@@ -54,6 +64,7 @@ impl Button {
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
         self.label.set_hidden(false);
         self.label.set_text(text);
+        self.place_icon();
         self
     }
 
@@ -63,6 +74,7 @@ impl Button {
 
     pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
         self.label.set_text_color(color);
+        self.tint_icon();
         self
     }
 
@@ -72,17 +84,72 @@ impl Button {
 
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
         weak_from_ref(self).label.set_text_size(size);
+        self.place_icon();
         self
     }
 
     pub fn set_letter_spacing(&self, spacing: impl ToF32) -> &Self {
         weak_from_ref(self).label.set_letter_spacing(spacing);
+        self.place_icon();
         self
     }
 
     pub fn set_font(&self, font: Weak<Font>) -> &Self {
         weak_from_ref(self).label.set_font(font);
+        self.place_icon();
         self
+    }
+
+    /// An icon left of the text, the 2 as 1 block in the middle of the
+    /// button, whatever width the owner gives it. The name is of an SVG in
+    /// `assets/images` drawn in black, see Icons in the views chapter. It
+    /// takes the color of the text, also when the button is disabled and
+    /// when the theme changes. The fill of the button stays its own.
+    pub fn set_icon(&self, name: impl Display) -> &Self {
+        weak_from_ref(self).icon_name = Some(name.to_string());
+        self.icon.set_hidden(false);
+        self.place_icon();
+        self.tint_icon();
+        self
+    }
+
+    /// The icon and the text side by side in the middle. A button with no
+    /// icon keeps its text over the whole button, as before.
+    fn place_icon(&self) {
+        if self.icon_name.is_none() {
+            return;
+        }
+        let icon = (self.label.text_size() * ICON_SCALE).round();
+        let text = if self.label.is_hidden() || self.label.text().is_empty() {
+            0.0
+        } else {
+            self.label.content_size().width
+        };
+        let gap = if text > 0.0 { ICON_GAP } else { 0.0 };
+        let block = icon + gap + text;
+        self.icon
+            .place()
+            .clear()
+            .size(icon, icon)
+            .center_y()
+            .center_x_offset(icon / 2.0 - block / 2.0);
+        self.label
+            .place()
+            .clear()
+            .tb(0)
+            .w(text)
+            .center_x_offset(block / 2.0 - text / 2.0);
+    }
+
+    /// An SVG has its color written in, so the icon is tinted again for
+    /// every new text color.
+    fn tint_icon(&self) {
+        if let Some(name) = &self.icon_name {
+            self.icon.set_image(Tinted {
+                tint: self.label.ui_text_color().resolve(),
+                name: name.clone(),
+            });
+        }
     }
 
     /// Size the title needs at the current font, text size and letter
@@ -200,6 +267,9 @@ impl Setup for Button {
         self.image.set_hidden(true);
         self.image.__base_view().is_system = true;
 
+        self.icon.set_hidden(true);
+        self.icon.__base_view().is_system = true;
+
         self.touch().up_inside.sub(self, move || {
             if self.enabled {
                 self.on_tap.trigger(());
@@ -207,6 +277,13 @@ impl Setup for Button {
         });
 
         Style::apply_global(self);
+    }
+}
+
+impl ViewCallbacks for Button {
+    /// A theme change gives the text another color, the icon follows it.
+    fn theme_changed(&mut self) {
+        self.tint_icon();
     }
 }
 

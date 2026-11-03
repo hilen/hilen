@@ -42,6 +42,8 @@ pub(crate) fn start() {
     #[cfg(macos)]
     super::macos::install();
 
+    crate::system::open_files::receive_from_args();
+
     let Some(scheme) = crate::app::hilen_link_scheme() else {
         debug!("no [links] table in hilen.toml, the app takes no link at its start");
         return;

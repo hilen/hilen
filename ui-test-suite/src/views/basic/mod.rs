@@ -1,6 +1,7 @@
 mod background;
 mod button;
 mod button_disabled;
+mod button_icon;
 mod button_title_size;
 mod checkbox;
 mod command_held;
@@ -37,6 +38,7 @@ mod rounded_clip;
 mod secondary_click;
 mod shadow;
 mod slider;
+mod slider_drag;
 mod slider_horizontal;
 mod slider_sizing;
 mod stick_images;

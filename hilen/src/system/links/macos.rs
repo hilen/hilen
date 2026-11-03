@@ -3,7 +3,10 @@
 //! so this handler goes in when the app is about to finish its launch,
 //! after those and before the Apple Events of the launch are handled. The
 //! scheme itself is in the `Info.plist` of the bundle, which the packaging
-//! writes.
+//! writes. A file from Open With or a double click comes the same way, as
+//! the Apple Event of open documents, see `system::OpenFiles`.
+
+use std::path::PathBuf;
 
 use log::warn;
 use objc2::{
@@ -17,7 +20,14 @@ use objc2_foundation::NSString;
 /// `GURL`, the class and the id of the Apple Event of a link.
 const GET_URL: u32 = u32::from_be_bytes(*b"GURL");
 
-/// `----`, the key of the direct object of an Apple Event, the link here.
+/// `aevt`, the class of the Apple Event of open documents.
+const CORE_EVENT: u32 = u32::from_be_bytes(*b"aevt");
+
+/// `odoc`, the id of the Apple Event of open documents.
+const OPEN_DOCUMENTS: u32 = u32::from_be_bytes(*b"odoc");
+
+/// `----`, the key of the direct object of an Apple Event, the link or the
+/// list of files here.
 const DIRECT_OBJECT: u32 = u32::from_be_bytes(*b"----");
 
 define_class!(
@@ -43,6 +53,27 @@ define_class!(
                     forEventClass: GET_URL,
                     andEventID: GET_URL
                 ];
+                let _: () = msg_send![
+                    &manager,
+                    setEventHandler: self,
+                    andSelector: sel!(handleOpenDocumentsEvent:withReplyEvent:),
+                    forEventClass: CORE_EVENT,
+                    andEventID: OPEN_DOCUMENTS
+                ];
+            }
+        }
+
+        #[unsafe(method(handleOpenDocumentsEvent:withReplyEvent:))]
+        fn handle_open_documents(&self, event: &AnyObject, _reply: &AnyObject) {
+            // SAFETY: an `NSAppleEventDescriptor` answers the keyword call.
+            let list: Option<Retained<AnyObject>> =
+                unsafe { msg_send![event, paramDescriptorForKeyword: DIRECT_OBJECT] };
+            let Some(list) = list else {
+                warn!("an Apple Event to open files came with no files");
+                return;
+            };
+            for path in document_paths(&list) {
+                crate::system::open_files::receive(path, "an Apple Event");
             }
         }
 
@@ -60,6 +91,35 @@ define_class!(
         }
     }
 );
+
+/// The paths of a list of files, or of the 1 file that came with no list.
+fn document_paths(list: &AnyObject) -> Vec<PathBuf> {
+    // SAFETY: an `NSAppleEventDescriptor` answers the count, its items are
+    // counted from 1 and each is a descriptor too.
+    let items: Vec<Retained<AnyObject>> = unsafe {
+        let count: isize = msg_send![list, numberOfItems];
+        (1..=count)
+            .filter_map(|index| msg_send![list, descriptorAtIndex: index])
+            .collect()
+    };
+    if items.is_empty() {
+        return document_path(list).into_iter().collect();
+    }
+    items.iter().filter_map(|item| document_path(item)).collect()
+}
+
+fn document_path(item: &AnyObject) -> Option<PathBuf> {
+    // SAFETY: an `NSAppleEventDescriptor` answers `fileURLValue` and an
+    // `NSURL` answers `path`.
+    let path: Option<Retained<NSString>> = unsafe {
+        let url: Option<Retained<AnyObject>> = msg_send![item, fileURLValue];
+        url.and_then(|url| msg_send![&url, path])
+    };
+    if path.is_none() {
+        warn!("an Apple Event to open files has an item that is no file");
+    }
+    path.map(|path| PathBuf::from(path.to_string()))
+}
 
 /// Runs before the event loop, on the main thread.
 pub(super) fn install() {

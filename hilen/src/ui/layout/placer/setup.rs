@@ -144,6 +144,13 @@ impl Placer {
         self
     }
 
+    /// The middle of the view this far right of the middle of its
+    /// superview, left for a negative offset.
+    pub fn center_x_offset(&self, offset: impl ToF32) -> &Self {
+        self.rules().push(LayoutRule::make(Anchor::CenterX, offset));
+        self
+    }
+
     pub fn center_y_offset(&self, offset: impl ToF32) -> &Self {
         self.rules().push(LayoutRule::make(Anchor::CenterY, offset));
         self

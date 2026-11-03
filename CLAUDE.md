@@ -121,6 +121,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/links.md](docs/links.md) — links that open the app: `Links::on_open`, the `[links]` table
   of `hilen.toml`, what each platform does, and `AppLinks` in `hilen-server` that serves the 2
   well-known files. Read before touching `hilen/src/system/links`, `app_links.rs` or a link flow.
+- [docs/open-files.md](docs/open-files.md) — files that open the app, Open With on a Mac:
+  `OpenFiles::on_open`, the `[open_files]` table of `hilen.toml` and `build/release/mac_install.py`
+  for a local bundle. Read before touching `hilen/src/system/open_files.rs`.
 - [docs/push.md](docs/push.md) — the `push` feature: `Push::request`, `on_token` and `on_open`,
   the `push` key of the `[ios]` table, the push methods of the iOS app delegate, and `Apns` in
   `hilen-server` that sends through APNs. Read before touching `hilen/src/push`,

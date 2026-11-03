@@ -14,6 +14,7 @@ mod ios_delegate;
 pub(crate) mod links;
 mod locale;
 mod media_session;
+pub(crate) mod open_files;
 mod open_url;
 mod router;
 mod screen_awake;
@@ -28,6 +29,7 @@ pub use locale::{language_code, locale};
 #[cfg(tvos)]
 pub(crate) use media_session::deliver as deliver_media_command;
 pub use media_session::{MediaCommand, MediaSession, NowPlaying};
+pub use open_files::OpenFiles;
 pub use open_url::open_url;
 pub use router::Router;
 #[cfg(wasm)]

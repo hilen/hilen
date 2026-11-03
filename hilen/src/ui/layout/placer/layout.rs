@@ -146,7 +146,7 @@ impl Placer {
             }
             Anchor::Width => frame.size.width = offset,
             Anchor::Height => frame.size.height = offset,
-            Anchor::CenterX => frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0,
+            Anchor::CenterX => frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0 + offset,
             Anchor::CenterY => frame.origin.y = s_content.height / 2.0 - frame.height() / 2.0 + offset,
             Anchor::Center => {
                 frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0;

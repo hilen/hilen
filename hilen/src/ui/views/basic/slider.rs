@@ -34,7 +34,15 @@ pub struct Slider {
 
     converter: Converter,
 
-    pub on_change: Event<f32>,
+    /// A touch holds the thumb now.
+    dragging: bool,
+
+    pub on_change:  Event<f32>,
+    /// A touch took the thumb, before the first `on_change` of the drag.
+    pub drag_began: Event,
+    /// The touch that held the thumb let go, after the last `on_change` of
+    /// the drag. An owner that keeps 1 undo step per drag closes it here.
+    pub drag_ended: Event,
 
     #[init]
     track:  Container,
@@ -43,6 +51,11 @@ pub struct Slider {
 }
 
 impl Slider {
+    /// A touch holds the thumb now, between `drag_began` and `drag_ended`.
+    pub fn is_dragging(&self) -> bool {
+        self.dragging
+    }
+
     pub fn value(&self) -> f32 {
         self.converter.convert(self.raw_value)
     }
@@ -183,7 +196,15 @@ impl ViewCallbacks for Slider {
 impl Slider {
     fn on_touch(&mut self, touch: &Touch) {
         if touch.is_ended() {
+            if self.dragging {
+                self.dragging = false;
+                self.drag_ended.trigger(());
+            }
             return;
+        }
+        if !self.dragging {
+            self.dragging = true;
+            self.drag_began.trigger(());
         }
 
         let r = self.thumb_radius;

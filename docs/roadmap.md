@@ -60,19 +60,20 @@ Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
 - Needed: 1 login through a real Discord application.
 - Blocks: the sign in of the forum of blackforge.
 
-## Open a file from the system, like Open With on a Mac
+## Open a file from the system on Windows, Linux and the phones
 
-Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. Pin
-`a1984183`.
+Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. The
+Mac is done, see [open-files.md](open-files.md).
 
-- Current: `_info_plist` in `build/release/mac.py` writes no `CFBundleDocumentTypes`, so a
-  bundle never shows in Open With. A grep of `hilen/src` finds no handler for a file that
-  the system hands to a running app, on a Mac that comes as an Apple Event, not as an
-  argument.
-- Needed: file types in `hilen.toml` that the release scripts write into the Mac plist, the
-  Windows registry entries of the installer and the Linux desktop entry. An `App` hook that
-  gets the paths, at the start and while the app runs.
-- Blocks: kutreel in Open With for a video file, and a double click on a file for any app.
+- Current: `OpenFiles::on_open` gets a path on a Mac from the Apple Event and on every
+  desktop from the start arguments, the arguments are not run on Windows and Linux yet.
+  `build/release/win.py` and `linux.py` write no file types. A second start with a file on
+  Windows or Linux opens a second app, `hand_over` in `system/links/desktop.rs` carries only
+  links. iOS, Android and the browser never call `receive`.
+- Needed: the types of `[open_files]` in the installer of Windows and in the Linux desktop
+  entry, a second start that hands its file to the running app, and the file of a document
+  on iOS and Android.
+- Blocks: Open With and a double click on a file for an app on these platforms.
 
 ## Back and the pointer with the ring of a TV remote
 
