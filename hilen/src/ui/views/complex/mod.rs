@@ -5,6 +5,7 @@ mod dialog_style;
 mod dpad_view;
 mod drawing_view;
 mod file_browser;
+mod image_crop;
 mod log_view;
 mod markdown;
 mod number_view;
@@ -22,6 +23,7 @@ pub use drawing_view::DrawingView;
 pub use file_browser::{
     FileBrowser, FileBrowserControl, FileBrowserMode, FilePick, FilePicker, FileSort, SortKey,
 };
+pub use image_crop::{CropShape, ImageCropPrompt, ImageCropRequest, ImageCropView};
 pub use log_view::{LogData, LogLine, LogStyle, LogView};
 pub(crate) use markdown::COPY_ROOM;
 pub use markdown::{MarkdownFonts, MarkdownListMarkers, MarkdownStyle, MarkdownView};

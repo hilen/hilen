@@ -133,6 +133,57 @@ pub(crate) async fn decode(bytes: &[u8], max_side: u32) -> Result<TextureRawData
     })
 }
 
+/// The pixels of the photo in `bytes` upright, its longest side at most
+/// `max_side`. The header gives the size before the EXIF turn, so the size
+/// comes from a first bitmap of the browser, which turns the photo as it
+/// decodes, and a second one makes it smaller.
+pub(crate) async fn decode_upright(bytes: &[u8], max_side: u32) -> Result<TextureRawData> {
+    let window = web_sys::window().ok_or_else(|| anyhow!("No window to decode a photo in"))?;
+    let _slot = slot().await;
+    let parts = Array::of1(&Uint8Array::from(bytes));
+    let blob = Blob::new_with_u8_array_sequence(&parts).map_err(js)?;
+    let promise = window.create_image_bitmap_with_blob(&blob).map_err(js)?;
+    let full: ImageBitmap = JsFuture::from(promise).await.map_err(js)?.dyn_into().map_err(js)?;
+
+    let own = Size::new(full.width(), full.height());
+    if own.width == 0 || own.height == 0 {
+        full.close();
+        return Err(anyhow!("The photo has no pixels"));
+    }
+    let size = fitted_size(own, max_side).unwrap_or(own);
+    let bitmap = if size == own {
+        full
+    } else {
+        let options = ImageBitmapOptions::new();
+        options.set_resize_width(size.width);
+        options.set_resize_height(size.height);
+        options.set_resize_quality(ResizeQuality::High);
+        let promise = window
+            .create_image_bitmap_with_image_bitmap_and_image_bitmap_options(&full, &options)
+            .map_err(js)?;
+        let small = JsFuture::from(promise).await;
+        full.close();
+        small.map_err(js)?.dyn_into().map_err(js)?
+    };
+
+    let (canvas, context) = canvas(&window)?;
+    canvas.set_width(size.width);
+    canvas.set_height(size.height);
+    context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0).map_err(js)?;
+    bitmap.close();
+    let data = context
+        .get_image_data(0.0, 0.0, f64::from(size.width), f64::from(size.height))
+        .map_err(js)?
+        .data()
+        .to_vec();
+
+    Ok(TextureRawData {
+        data,
+        size,
+        channels: 4,
+    })
+}
+
 /// The svg in `bytes` drawn by the browser at `size`, straight alpha RGBA
 /// like a picture. An `<img>` draws it, `createImageBitmap` takes no svg in
 /// every browser. The root tag must carry `size`, see `svg_size::sized`.

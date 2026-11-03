@@ -23,6 +23,8 @@ mod texture;
 mod tinted_image;
 mod to_image;
 
+#[cfg(wasm)]
+pub(crate) use browser_decode::decode_upright;
 pub(crate) use gif::decode_gif;
 pub use image::*;
 pub(crate) use image_bind::*;

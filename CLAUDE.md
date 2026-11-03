@@ -177,6 +177,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
   and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,
   `calculate_absolute_frame`, or the depth order of hover and touches.
+- [docs/image-crop.md](docs/image-crop.md) — `ImageCropView` and `ImageCropPrompt`, a photo
+  cut round or square for an avatar, the drag, the wheel, the pinch and the keys, the
+  EXIF turn on native and in a browser, and the tests. Read before touching
+  `views/complex/image_crop` or `decode_upright`.
 - [docs/clipboard.md](docs/clipboard.md) — `Clipboard`: text, a secret, and a picture as a
   png file with `get_image`, what each platform does, why the png is made off the main
   thread, the `image_pasted` event of `TextField`, and how a test stays away from the
