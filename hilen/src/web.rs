@@ -237,6 +237,25 @@ pub(crate) fn drop_canvas() {
     if let Some(canvas) = CANVAS.get_mut().take() {
         canvas.remove();
     }
+    show_fallback();
+}
+
+/// `build/web/boot.js` hides the `#fallback` block of the page while the app
+/// loads, with this class on `<html>`. A GPU failure raises no browser error
+/// the script could see, so the engine takes the class off itself.
+const LOADING_CLASS: &str = "hilen-loading";
+
+fn show_fallback() {
+    let Some(root) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+    else {
+        log::warn!("No document element to show the fallback block of the page in");
+        return;
+    };
+    if let Err(error) = root.class_list().remove_1(LOADING_CLASS) {
+        log::warn!("Failed to take {LOADING_CLASS} off the page: {error:?}");
+    }
 }
 
 /// Winit's canvas keydown handler calls `preventDefault` on every key, which

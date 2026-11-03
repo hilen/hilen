@@ -6,6 +6,7 @@
         <meta name="description" content="Hilen, a cross platform game engine and UI framework in Rust on WGPU. Live demo." />
         <meta name="color-scheme" content="light dark" />
         <base data-trunk-public-url />
+        <link data-trunk rel="inline" href="../build/web/boot.js" />
         <link data-trunk rel="rust" data-bin="demo" />
         <link data-trunk rel="copy-dir" href="../assets" data-target="assets" />
         <title>Hilen</title>
@@ -27,7 +28,18 @@
             canvas:focus {
                 outline: none;
             }
+            #fallback {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: system-ui, sans-serif;
+                color: #8b97a8;
+            }
         </style>
     </head>
-    <body></body>
+    <body>
+        <div id="fallback">The Hilen demo needs a browser with WebGPU or WebGL.</div>
+    </body>
 </html>
