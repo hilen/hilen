@@ -5,8 +5,10 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::de::DeserializeOwned;
 use serde_json::from_slice;
 
+/// Where a user signs in. An app names the ones a user may use with
+/// [`crate::auth::AuthConfig::with_only_providers`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Provider {
+pub enum Provider {
     Google,
     Apple,
     Discord,
@@ -25,6 +27,17 @@ impl Provider {
             Self::Discord => "discord",
             #[cfg(feature = "dev-login")]
             Self::Dev => "dev",
+        }
+    }
+
+    /// The name a person reads, like `Google`.
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::Google => "Google",
+            Self::Apple => "Apple",
+            Self::Discord => "Discord",
+            #[cfg(feature = "dev-login")]
+            Self::Dev => "the dev login",
         }
     }
 

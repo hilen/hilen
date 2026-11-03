@@ -9,8 +9,27 @@ use sqlx::types::{Uuid, uuid::Builder};
 
 use crate::{
     Db,
-    auth::{User, identity::Identity},
+    auth::{
+        User,
+        identity::{Identity, Provider},
+    },
 };
+
+/// A login through a provider its user may not use, see
+/// `AuthConfig::with_only_providers`. Nothing of it was saved.
+#[derive(Debug)]
+pub(crate) struct LoginRefused {
+    pub provider: Provider,
+    pub allowed:  Vec<Provider>,
+}
+
+impl std::fmt::Display for LoginRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "this user may not sign in with {}", self.provider.title())
+    }
+}
+
+impl std::error::Error for LoginRefused {}
 
 const SESSION_DAYS: i32 = 90;
 /// A session ends this long after its sign in, also when it is used every
@@ -233,8 +252,9 @@ RETURNING user_id",
 /// The body of `login_user`, the same statements on either database inside
 /// one transaction.
 macro_rules! login_user_on {
-    ($pool:expr, $identity:expr) => {{
+    ($pool:expr, $identity:expr, $limits:expr) => {{
         let identity: &Identity = $identity;
+        let limits: &[(Uuid, Vec<Provider>)] = $limits;
         let provider = identity.provider.name();
         let mut transaction = $pool.begin().await?;
 
@@ -315,6 +335,18 @@ ORDER BY created_at LIMIT 1",
             user_id
         };
 
+        // Checked before the commit, so a refused login joins nothing and
+        // changes nothing of the user.
+        if let Some((_, allowed)) = limits.iter().find(|(limited, _)| *limited == user_id)
+            && !allowed.contains(&identity.provider)
+        {
+            return Err(LoginRefused {
+                provider: identity.provider,
+                allowed:  allowed.clone(),
+            }
+            .into());
+        }
+
         transaction.commit().await?;
         user_id
     }};
@@ -327,10 +359,21 @@ ORDER BY created_at LIMIT 1",
 /// is one user. Every email here is verified by its provider. A new user with
 /// no name is named by the email. A dev account joins nobody and nobody joins
 /// it, its email is not verified by anyone.
+#[cfg(any(test, feature = "dev-login"))]
 pub(crate) async fn login_user(db: &Db, identity: &Identity) -> Result<Uuid> {
+    login_user_limited(db, identity, &[]).await
+}
+
+/// The same, and a user of `limits` signs in only with its own providers. Any
+/// other login of that user fails with [`LoginRefused`].
+pub(crate) async fn login_user_limited(
+    db: &Db,
+    identity: &Identity,
+    limits: &[(Uuid, Vec<Provider>)],
+) -> Result<Uuid> {
     Ok(match db {
-        Db::Postgres(pool) => login_user_on!(pool, identity),
-        Db::Sqlite(pool) => login_user_on!(pool, identity),
+        Db::Postgres(pool) => login_user_on!(pool, identity, limits),
+        Db::Sqlite(pool) => login_user_on!(pool, identity, limits),
     })
 }
 

@@ -48,8 +48,9 @@ use std::{
 use anyhow::{Context, Result};
 use axum::extract::FromRef;
 use reqwest::Client;
+use sqlx::types::Uuid;
 
-pub use self::{routes::auth_routes, user::User, wire::UserInfo};
+pub use self::{identity::Provider, routes::auth_routes, user::User, wire::UserInfo};
 use crate::{Db, web::install_tls_provider};
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -116,6 +117,9 @@ pub struct AuthConfig {
     /// The login of a device with no keyboard through a short code, off by
     /// default, see [`AuthConfig::with_code_login`].
     pub code_login:           bool,
+    /// Users who may sign in only with some providers, see
+    /// [`AuthConfig::with_only_providers`].
+    pub provider_limits:      Vec<(Uuid, Vec<Provider>)>,
 }
 
 impl AuthConfig {
@@ -135,6 +139,7 @@ impl AuthConfig {
             apple:                None,
             discord:              None,
             code_login:           false,
+            provider_limits:      Vec::new(),
         }
     }
 
@@ -154,6 +159,17 @@ impl AuthConfig {
     #[must_use]
     pub fn with_apple(mut self, apple: AppleConfig) -> Self {
         self.apple = Some(apple);
+        self
+    }
+
+    /// Lets `user` sign in only with `providers`. A login of that user
+    /// through another provider is refused and changes nothing, also when
+    /// its email would join the user. Every other user signs in as before.
+    /// For an account that must not be as weak as its weakest provider,
+    /// like the admin.
+    #[must_use]
+    pub fn with_only_providers(mut self, user: Uuid, providers: &[Provider]) -> Self {
+        self.provider_limits.push((user, providers.to_vec()));
         self
     }
 

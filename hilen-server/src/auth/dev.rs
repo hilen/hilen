@@ -56,7 +56,7 @@ async fn dev_login(
         picture: None,
         refresh_token: None,
     };
-    let user_id = store::login_user(&state.db, &identity).await?;
+    let user_id = store::login_user_limited(&state.db, &identity, &state.config.provider_limits).await?;
     let token = session::create(&state.db, user_id).await?;
     let user = session::user_of(&state.db, &token).await?.ok_or(AppError::Unauthorized)?;
     tracing::warn!("dev login for user {user_id}, {}", user.email);

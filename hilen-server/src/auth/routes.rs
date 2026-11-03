@@ -350,7 +350,7 @@ async fn finish(
     let hand_back = HandBack::parse(&hand_back)?;
 
     let identity = exchange.await?;
-    let user_id = store::login_user(&state.db, &identity).await?;
+    let user_id = store::login_user_limited(&state.db, &identity, &state.config.provider_limits).await?;
     let code = match hand_back {
         HandBack::Code => None,
         HandBack::Loopback(_) | HandBack::Page => Some(session::new_token()?),
@@ -392,6 +392,18 @@ fn outcome_page(
             "Go back to the app and start again.",
         ),
         Err(error) => {
+            if let Some(refused) = error.downcast_ref::<store::LoginRefused>() {
+                tracing::warn!("{} login refused: {refused}", provider.name());
+                let allowed: Vec<&str> = refused.allowed.iter().map(|one| one.title()).collect();
+                return page(
+                    app,
+                    "Sign in did not work",
+                    &format!(
+                        "This account signs in only with {}. Go back to the app and use that.",
+                        allowed.join(" or ")
+                    ),
+                );
+            }
             tracing::error!("{} login failed: {error:?}", provider.name());
             page(app, "Sign in did not work", "Go back to the app and try again.")
         }

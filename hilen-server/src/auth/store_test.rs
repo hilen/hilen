@@ -291,6 +291,51 @@ async fn google_and_apple_on_one_email_are_one_user(db: Db) -> Result<()> {
     Ok(())
 }
 
+/// A Discord login on the email of the user, the way an admin was joined.
+fn discord_identity(subject: &str, email: &str) -> Identity {
+    Identity {
+        provider:      Provider::Discord,
+        subject:       subject.to_owned(),
+        email:         email.to_owned(),
+        name:          Some("Discord name".to_owned()),
+        picture:       Some("https://cdn.discordapp.com/x.png".to_owned()),
+        refresh_token: None,
+    }
+}
+
+// The failure this prevents: the admin of an app signed in with Discord once,
+// and from then on the weaker Discord account opened the admin.
+async fn a_limited_user_signs_in_only_with_its_providers(db: Db) -> Result<()> {
+    let ana = store::login_user(&db, &identity("Ana")).await?;
+    let limits = vec![(ana, vec![Provider::Google])];
+
+    let refused =
+        store::login_user_limited(&db, &discord_identity("discord-1", "ana@example.com"), &limits).await;
+    let error = refused.expect_err("Discord is not a provider of Ana");
+    let refused = error.downcast_ref::<store::LoginRefused>().context("a refused login")?;
+    assert_eq!(refused.allowed, vec![Provider::Google]);
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM identities").await?,
+        1,
+        "nothing of the refused login is saved"
+    );
+    assert_eq!(count(&db, "SELECT count(*) FROM users").await?, 1);
+
+    let token = session::create(&db, ana).await?;
+    let user = session::user_of(&db, &token).await?.expect("the session has its user");
+    assert_eq!(user.name, "Ana", "the refused login did not change the name");
+
+    assert_eq!(
+        store::login_user_limited(&db, &identity("Ana"), &limits).await?,
+        ana,
+        "Google still works"
+    );
+    let bob =
+        store::login_user_limited(&db, &discord_identity("discord-2", "bob@example.com"), &limits).await?;
+    assert_ne!(bob, ana, "another user signs in with Discord as before");
+    Ok(())
+}
+
 async fn another_email_is_another_user(db: Db) -> Result<()> {
     let google = store::login_user(&db, &identity("Ana")).await?;
     let relay = "x7k2@privaterelay.appleid.com";
@@ -507,6 +552,11 @@ async fn sqlite_google_and_apple_on_one_email_are_one_user() -> Result<()> {
 }
 
 #[tokio::test]
+async fn sqlite_a_limited_user_signs_in_only_with_its_providers() -> Result<()> {
+    a_limited_user_signs_in_only_with_its_providers(sqlite().await?.1).await
+}
+
+#[tokio::test]
 async fn sqlite_another_email_is_another_user() -> Result<()> {
     another_email_is_another_user(sqlite().await?.1).await
 }
@@ -625,6 +675,12 @@ async fn postgres_a_database_of_the_first_migration_moves_over() -> Result<()> {
 #[ignore = "needs a Postgres, see the top of this file"]
 async fn postgres_google_and_apple_on_one_email_are_one_user() -> Result<()> {
     on_postgres(google_and_apple_on_one_email_are_one_user).await
+}
+
+#[tokio::test]
+#[ignore = "needs a Postgres, see the top of this file"]
+async fn postgres_a_limited_user_signs_in_only_with_its_providers() -> Result<()> {
+    on_postgres(a_limited_user_signs_in_only_with_its_providers).await
 }
 
 #[tokio::test]

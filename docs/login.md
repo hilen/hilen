@@ -187,6 +187,18 @@ that user, anything else makes a new user. Both providers hand out verified emai
 An Apple account with a hidden email has a relay address and becomes a user of its own.
 A user with a `dev` identity is left out of that email join, see the next section.
 
+## A user limited to some providers
+
+`AuthConfig::with_only_providers(user_id, &[Provider::Google])` lets 1 user sign in only
+with the providers named. A login of that user through another provider is refused, also
+when its email would join the user: `store::login_user_limited` checks it inside the
+login transaction, before the commit, so nothing of the refused login is saved and the
+name and the picture of the user stay. The browser ends on "This account signs in only
+with Google", the server logs a warning. Every other user signs in as before. It is for an
+account that must not be as weak as its weakest provider, like an admin. The test is
+`a_limited_user_signs_in_only_with_its_providers` in `store_test.rs`, on SQLite and on
+Postgres.
+
 ## The dev login
 
 A dev server, a backend for testing an app with no Google account, logs in with no
