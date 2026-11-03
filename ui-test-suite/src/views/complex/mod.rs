@@ -14,6 +14,7 @@ mod context_menu_reopen;
 mod context_menu_style;
 mod dialog_style;
 mod drop_down;
+mod drop_down_box_hover;
 mod drop_down_cells;
 mod drop_down_escape;
 mod drop_down_in_modal;

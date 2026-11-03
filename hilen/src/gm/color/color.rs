@@ -24,6 +24,22 @@ impl Color<f32> {
             1.0,
         )
     }
+
+    /// `wash` painted over this color with the alpha of `wash`, the way a
+    /// see through layer over a fill looks, like the hover of a box.
+    pub fn with_wash(self, wash: Color) -> Self {
+        let alpha = wash.a + self.a * (1.0 - wash.a);
+        if alpha <= 0.0 {
+            return Self::rgba(0.0, 0.0, 0.0, 0.0);
+        }
+        let mix = |top: f32, base: f32| (top * wash.a + base * self.a * (1.0 - wash.a)) / alpha;
+        Self::rgba(
+            mix(wash.r, self.r),
+            mix(wash.g, self.g),
+            mix(wash.b, self.b),
+            alpha,
+        )
+    }
 }
 
 #[cfg(feature = "scene")]
@@ -131,6 +147,21 @@ impl Hash for Color<f32> {
 #[cfg(test)]
 mod tests {
     use crate::gm::color::{CLEAR, Color, U8Color, WHITE};
+
+    #[test]
+    fn a_wash_over_a_fill() {
+        let washed = WHITE.with_wash(Color::rgb(1.0, 0.0, 0.0).with_alpha(0.25));
+        assert_eq!(washed, Color::rgba(1.0, 0.75, 0.75, 1.0));
+        // No wash keeps the fill, a full one covers it.
+        assert_eq!(WHITE.with_wash(CLEAR), WHITE);
+        assert_eq!(
+            WHITE.with_wash(Color::rgb(0.0, 0.0, 1.0)),
+            Color::rgb(0.0, 0.0, 1.0)
+        );
+        // Over nothing the wash keeps its own color and alpha.
+        let over_clear = CLEAR.with_wash(Color::rgb(0.0, 1.0, 0.0).with_alpha(0.5));
+        assert_eq!(over_clear, Color::rgba(0.0, 1.0, 0.0, 0.5));
+    }
 
     #[test]
     fn color_diff() {

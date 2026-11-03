@@ -119,6 +119,8 @@ mod text_field_font;
 mod text_field_image_paste;
 /// Types through the system input, so it runs on a phone too.
 mod text_field_insert;
+/// Taps through the system input, so it runs on a phone too.
+mod text_field_keeps_color;
 /// Enters and clears text programmatically, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_color;

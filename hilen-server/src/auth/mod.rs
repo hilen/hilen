@@ -24,7 +24,7 @@ mod apple;
 #[cfg(feature = "dev-login")]
 mod dev;
 #[cfg(all(test, feature = "dev-login"))]
-mod dev_test;
+pub(crate) mod dev_test;
 mod discord;
 mod google;
 pub(crate) mod hand_back;

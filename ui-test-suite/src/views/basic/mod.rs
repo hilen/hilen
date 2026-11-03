@@ -46,6 +46,7 @@ mod switch;
 mod switch_colors;
 mod theme_switch;
 mod tool_button;
+mod tool_button_look;
 /// Hover tooltips need a pointer, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod tooltip_hidden;

@@ -83,7 +83,7 @@ fn tinted_name(name: &str, tint: Color) -> String {
 
 /// Tints SVG bytes the app or the engine already holds, like an icon
 /// built in with `include_bytes`, the same way [`Tinted`] tints a file.
-pub(crate) fn tint_svg(data: &[u8], name: &str, tint: Color) -> Weak<Image> {
+pub fn tint_svg(data: &[u8], name: &str, tint: Color) -> Weak<Image> {
     let stored_name = tinted_name(name, tint);
 
     if let Some(cached) = Image::weak_with_name(&stored_name) {

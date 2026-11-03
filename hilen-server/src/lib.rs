@@ -10,6 +10,8 @@ pub mod helpers;
 pub mod log_file;
 pub mod prometheus;
 pub mod push;
+#[cfg(feature = "dev-login")]
+pub mod seed;
 pub mod tracing_init;
 pub mod web;
 

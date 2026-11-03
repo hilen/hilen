@@ -23,6 +23,8 @@ const PANEL_PADDING: f32 = 4.0;
 const PANEL_GAP: f32 = 6.0;
 const ROW_RADIUS: f32 = 6.0;
 const CHECK: f32 = 14.0;
+/// How much of the accent a hover lays over the fill of the box.
+const HOVER_WASH: f32 = 0.08;
 /// The open list never comes closer than this to the edge of the window.
 const SCREEN_MARGIN: f32 = 8.0;
 
@@ -77,7 +79,8 @@ pub trait DropDownData {
 /// under it, or above when there is more room, with the rows of its data
 /// source in a table. The panel is as tall as its rows and scrolls only
 /// when they do not fit the window. The box's own color, border and
-/// corners are its look, the panel copies them.
+/// corners are its look, the panel copies them. A hover lights the whole
+/// box, the cell in it takes no hover of its own.
 #[view]
 pub struct DropDown {
     data:   Weak<dyn DropDownData>,
@@ -92,6 +95,8 @@ pub struct DropDown {
 
     /// The border set by the app, put back when the box is idle again.
     idle_border: Option<Color>,
+    /// The fill set by the app, under the wash of a hover.
+    idle_color:  Option<UIColor>,
     raised:      bool,
 
     /// The view whose color, border and corners are the look of the box.
@@ -282,9 +287,7 @@ impl DropDown {
         // Without a hover first, like on a phone, the border is still
         // the app's own here. Kept now, or the panel would copy the accent.
         let look = self.look();
-        if self.idle_border.is_none() {
-            self.idle_border = Some(*look.border_color());
-        }
+        self.keep_idle_look();
 
         look.set_border_color(self.accent);
         self.layout_panel();
@@ -318,8 +321,9 @@ impl DropDown {
             -(height + PANEL_GAP)
         };
 
+        let fill = self.idle_color.map_or(*look.color(), |color| color.resolve());
         self.panel
-            .set_color(*look.color())
+            .set_color(fill)
             .set_corner_radii(look.corner_radii())
             .set_border_width(look.border_width())
             .set_border_color(self.idle_border.unwrap_or(*look.border_color()))
@@ -348,9 +352,40 @@ impl DropDown {
             *OPEN.get_mut() = Weak::default();
         }
         self.panel.set_hidden(true);
-        if let Some(border) = self.idle_border {
-            self.look().set_border_color(border);
+        if !self.is_hovered() {
+            self.show_idle_look();
         }
+    }
+
+    /// The look the app gave the box, read once before the first hover or
+    /// open changes it, after the setup of the app has run.
+    fn keep_idle_look(mut self: Weak<Self>) {
+        let look = self.look();
+        if self.idle_border.is_none() {
+            self.idle_border = Some(*look.border_color());
+        }
+        if self.idle_color.is_none() {
+            self.idle_color = Some(look.ui_color());
+        }
+    }
+
+    fn show_idle_look(self: Weak<Self>) {
+        let look = self.look();
+        if let Some(border) = self.idle_border {
+            look.set_border_color(border);
+        }
+        if let Some(color) = self.idle_color {
+            look.set_color(color);
+        }
+    }
+
+    /// A hover lays the accent over the whole box, with its corners, and
+    /// lights the border.
+    fn show_hover_look(self: Weak<Self>) {
+        let look = self.look();
+        let fill = self.idle_color.map_or(*look.color(), |color| color.resolve());
+        look.set_color(fill.with_wash(self.accent.with_alpha(HOVER_WASH)));
+        look.set_border_color(self.accent);
     }
 
     fn pick(mut self: Weak<Self>, index: usize) {
@@ -423,20 +458,16 @@ impl Setup for DropDown {
 
         UIEvents::touch_began().val(self, move |touch| self.close_on_touch_outside(touch.position));
 
-        // The border the app set is what idle looks like. Read on the
-        // first hover or open, after the app's setup has run.
-        self.enable_hover();
+        // The high tier wins the hover over the cell of the box, which a
+        // data source made hoverable for its rows in the list. The rows
+        // of the open panel lie outside the box and keep their own.
+        TouchStack::enable_hover_high_priority(self.weak_view());
         self.touch().hovered.val(self, move |hovered| {
-            let look = self.look();
-            if self.idle_border.is_none() {
-                self.idle_border = Some(*look.border_color());
-            }
+            self.keep_idle_look();
             if hovered {
-                look.set_border_color(self.accent);
-            } else if !self.opened
-                && let Some(border) = self.idle_border
-            {
-                look.set_border_color(border);
+                self.show_hover_look();
+            } else if !self.opened {
+                self.show_idle_look();
             }
         });
     }

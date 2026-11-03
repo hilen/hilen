@@ -13,6 +13,7 @@ use crate::{
         ViewSubviews,
         view::{ViewData, ViewFrame, ViewTouch},
     },
+    window::{Font, image::tint_svg},
 };
 
 const TEXT: DynamicColor = DynamicColor::new(Color::hex("#1C1C1E"), Color::hex("#F2F2F4"));
@@ -31,13 +32,16 @@ const RADIUS: f32 = 6.0;
 
 /// A button with an icon on the left and a text after it, as wide as
 /// both need. The entry of a toolbar or a menu. The icon is an SVG with
-/// black in it, tinted like `Tinted`. `set_on` gives the look of a toggle
-/// that is on.
+/// black in it, tinted like `Tinted`, from `assets/images` or from bytes
+/// the app holds. `set_on` gives the look of a toggle that is on. The fills
+/// and the font follow the engine look unless the app gives its own.
 #[view]
 pub struct ToolButton {
     on_tap: UIEvent,
 
     icon_name: Option<String>,
+    /// The SVG of an icon the app built in, none for an icon from a file.
+    icon_data: Option<&'static [u8]>,
 
     #[educe(Default = true)]
     enabled: bool,
@@ -46,6 +50,10 @@ pub struct ToolButton {
 
     tint:    Option<UIColor>,
     on_tint: Option<UIColor>,
+
+    hover_color:   Option<UIColor>,
+    pressed_color: Option<UIColor>,
+    on_color:      Option<UIColor>,
 
     label: Weak<Label>,
 
@@ -78,6 +86,46 @@ impl ToolButton {
         weak_from_ref(self).icon_name = Some(name.to_string());
         self.icon.set_hidden(false);
         self.relayout();
+        self.refresh();
+        self
+    }
+
+    /// An icon from SVG bytes the app holds, like one built in with
+    /// `include_bytes`, drawn in black and tinted like a named icon. The
+    /// name keeps its tinted pictures apart from other icons.
+    pub fn set_icon_data(&self, data: &'static [u8], name: impl Display) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.icon_data = Some(data);
+        this.icon_name = Some(name.to_string());
+        self.icon.set_hidden(false);
+        self.relayout();
+        self.refresh();
+        self
+    }
+
+    pub fn set_font(&self, font: Weak<Font>) -> &Self {
+        self.label.set_font(font);
+        self.relayout();
+        self
+    }
+
+    /// The fill under the pointer. The default is the hover gray of the theme.
+    pub fn set_hover_color(&self, color: impl Into<UIColor>) -> &Self {
+        weak_from_ref(self).hover_color = Some(color.into());
+        self.refresh();
+        self
+    }
+
+    /// The fill while it is pressed.
+    pub fn set_pressed_color(&self, color: impl Into<UIColor>) -> &Self {
+        weak_from_ref(self).pressed_color = Some(color.into());
+        self.refresh();
+        self
+    }
+
+    /// The fill while the button is on.
+    pub fn set_on_color(&self, color: impl Into<UIColor>) -> &Self {
+        weak_from_ref(self).on_color = Some(color.into());
         self.refresh();
         self
     }
@@ -146,11 +194,11 @@ impl ToolButton {
         if !self.enabled {
             CLEAR.into()
         } else if self.pressed {
-            PRESSED.into()
+            self.pressed_color.unwrap_or(PRESSED.into())
         } else if self.is_hovered() {
-            HOVER.into()
+            self.hover_color.unwrap_or(HOVER.into())
         } else if self.on {
-            ON.into()
+            self.on_color.unwrap_or(ON.into())
         } else {
             CLEAR.into()
         }
@@ -159,18 +207,29 @@ impl ToolButton {
     fn refresh(&self) {
         let tint = self.tint();
         self.label.set_text_color(tint);
-        if let Some(name) = &self.icon_name {
-            self.icon.set_image(Tinted {
-                tint: tint.resolve(),
-                name: name.clone(),
-            });
+        match (self.icon_data, &self.icon_name) {
+            (Some(data), Some(name)) => {
+                self.icon.set_image(tint_svg(data, name, tint.resolve()));
+            }
+            (None, Some(name)) => {
+                self.icon.set_image(Tinted {
+                    tint: tint.resolve(),
+                    name: name.clone(),
+                });
+            }
+            _ => {}
         }
         self.set_color(self.background());
     }
 
-    /// The width follows the icon and the text. The height stays what the
-    /// owner placed, 32 points by default.
-    fn relayout(&self) {
+    /// The width the icon and the text take with their padding, the width
+    /// the button gives itself. For an owner that sets frames by hand.
+    pub fn fit_width(&self) -> f32 {
+        let (icon, gap, text) = self.parts();
+        PADDING + icon + gap + text + PADDING
+    }
+
+    fn parts(&self) -> (f32, f32, f32) {
         let icon = if self.icon_name.is_some() { ICON_SIZE } else { 0.0 };
         let text = if self.label.text().is_empty() {
             0.0
@@ -178,10 +237,16 @@ impl ToolButton {
             self.label.content_size().width
         };
         let gap = if icon > 0.0 && text > 0.0 { GAP } else { 0.0 };
+        (icon, gap, text)
+    }
 
+    /// The width follows the icon and the text. The height stays what the
+    /// owner placed, 32 points by default.
+    fn relayout(&self) {
+        let (icon, gap, text) = self.parts();
         self.icon.place().clear().l(PADDING).center_y().size(ICON_SIZE, ICON_SIZE);
         self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
-        self.place().w(PADDING + icon + gap + text + PADDING);
+        self.place().w(self.fit_width());
     }
 
     fn touched(&self, touch: Touch) {

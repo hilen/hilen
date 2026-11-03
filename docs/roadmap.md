@@ -19,9 +19,55 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Text entry in a browser, the proof on a real phone
+## Test data for a dev server
 
-Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
+- Current: `hilen-server` makes a dev account only through `POST /auth/dev`, 1 email
+  per call, `auth/dev.rs`. There is no way to fill a dev database with many accounts
+  and the data of an app. The forum needed 300 players, 1000 threads and 250000 posts,
+  and got a psql script that wrote into `users` by hand, with no identity, so none of
+  those players can sign in.
+- Needed: behind the `dev-login` feature, a seed step of `hilen-server`. It makes dev
+  accounts the way the dev login does, with their identity, so each one signs in
+  with `POST /auth/dev`. An app hands it a seed function that writes its own rows
+  with its checked queries. It runs after the migrations, only when asked, like with
+  `HILEN_SEED=1`, and refuses a database that holds an account of a real login.
+- Blocks: a look at a forum, a list or a feed with real amounts of data, and the
+  speed of their queries.
+
+## A text field keeps its own color while it is typed in
+
+- Current: `TextField` sets `selected_color = GRAY` in its setup,
+  `text_field/mod.rs`, and paints itself that gray for the whole editing session. A
+  field in the colors of a theme turns into a gray block while the player types, the
+  search box of the forum did. Every app has to call `set_selected_color` with its own
+  fill to undo it.
+- Needed: a field keeps the color the app gave it while it is edited, and
+  `set_selected_color` stays for an app that wants another look.
+- Blocks: every themed form and search field, with no extra call.
+
+## The closed box of a drop down lights up as a whole on hover
+
+- Current: `DropDown` puts the cell of `setup_box_cell` over its own button. A custom
+  cell turns hover on for its rows of the list, so in the box it is the topmost hover
+  view and takes `hovered` from the box. The box never lights its border, and the cell
+  paints its own row hover over a part of the box, with square corners and without the
+  arrow. The cell has no way to know it stands in the box.
+- Needed: the box cell takes no touches and no hover. The box owns its hover look: a
+  wash over its whole face, with its corners, and the accent border it has now.
+- Blocks: a drop down with custom cells, like the mod box of the forum.
+
+## ToolButton takes the fills, the font and the icon bytes of an app
+
+- Current: `ToolButton` has `set_tint` and `set_on_tint` for its text, but its fills
+  for hover, pressed and on are fixed constants, a blue for on. It has no `set_font`.
+  `set_icon` takes only the name of an SVG in `assets/images`. `tint_svg`, which tints
+  SVG bytes an app holds with `include_bytes`, is `pub(crate)`. So an app in its own
+  colors and font, with built in icons, cannot use it for tabs and made its own button.
+- Needed: `set_hover_color`, `set_pressed_color` and `set_on_color` for the fills,
+  `set_font`, and `set_icon_data` for SVG bytes, tinted like a named icon.
+- Blocks: the Bugs and Ideas tabs of the forum, and the end of its own icon button.
+
+## Text entry in a browser, the proof on a real phone
 
 - Current: while a `TextField` is edited in a browser, an invisible `<input>` or
   `<textarea>` has the focus and lies over it, `text_field/browser_field.rs`. Paste, undo
@@ -39,8 +85,6 @@ Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
 
 ## Pick several files or a folder in a browser, the proof with a real chooser
 
-Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
-
 - Current: `Paths::pick_files_bytes` and `Paths::pick_folder_bytes` are there, a file of a
   folder says where it lay in `PickedFile::folder`. A phone picks 1 file and no folder.
   `UIManager::on_drop_bytes` gives the bytes of files dropped on a page, and `File drop
@@ -52,8 +96,6 @@ Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
 
 ## Discord login, the proof against the real Discord
 
-Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
-
 - Current: `/auth/discord`, `DiscordConfig`, `Provider::Discord` and `DiscordLoginButton`
   are there. The route tests run against a stand in for Discord, so the answers of the
   real one were not seen.
@@ -62,8 +104,7 @@ Found by the forum of blackforge, `~/dev/apps/blackforge`, on 2026-11-02.
 
 ## Open a file from the system on Windows, Linux and the phones
 
-Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-31, for opening an mp4 from Finder. The
-Mac is done, see [open-files.md](open-files.md).
+The Mac is done, see [open-files.md](open-files.md).
 
 - Current: `OpenFiles::on_open` gets a path on a Mac from the Apple Event and on every
   desktop from the start arguments, the arguments are not run on Windows and Linux yet.
@@ -77,8 +118,7 @@ Mac is done, see [open-files.md](open-files.md).
 
 ## Back and the pointer with the ring of a TV remote
 
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-31, on an LG C1 with keys sent over
-the DevTools port of the TV. Pin `31f6ce82`.
+Pin `31f6ce82`.
 
 - Current:
   - Back or Escape with the list of a `DropDown` open in a modal closes the whole
@@ -98,8 +138,8 @@ the DevTools port of the TV. Pin `31f6ce82`.
 
 ## Speech to text on Android and in a browser
 
-Found by banda, `~/dev/apps/banda`, on 2026-10-29. The `speech` feature hears the
-microphone on macOS, iOS, Windows and Linux, see `docs/speech.md`.
+The `speech` feature hears the microphone on macOS, iOS, Windows and Linux, see
+`docs/speech.md`.
 
 - Current: `Dictation::start` answers `SpeechError::Unsupported` on Android and in a
   browser, `hilen/src/speech/none.rs`. `SpeechModels::download` refuses in a browser.
@@ -114,8 +154,7 @@ microphone on macOS, iOS, Windows and Linux, see `docs/speech.md`.
 
 ## Push on Android, in a browser and on a desktop
 
-Found by shopping, `~/dev/apps/shopping`, on 2026-10-21. Shopping sends a push for a
-friend request, a shared list, an added item and a purchase.
+Shopping sends a push for a friend request, a shared list, an added item and a purchase.
 
 - Current: the `push` feature of `hilen` takes pushes from APNs on iOS only, see
   `docs/push.md`. `Push::request` answers with an error on every other system, in
@@ -133,10 +172,9 @@ friend request, a shared list, an added item and a purchase.
 
 ## A multiline label as wide as its own text wraps
 
-Found by shopping, `~/dev/apps/shopping`, on 2026-10-20. An item row sizes its quantity
-label to the text with `size_for_width(f32::MAX).width`, then asks the height at that
-width. `2 банки небольшие` measures 126.39 points wide, and at that width it breaks
-into 2 lines, in the measure and on the screen.
+An item row sizes its quantity label to the text with `size_for_width(f32::MAX).width`,
+then asks the height at that width. `2 банки небольшие` measures 126.39 points wide, and
+at that width it breaks into 2 lines, in the measure and on the screen.
 
 - Current: `Label::size_for_width` in `hilen/src/ui/views/basic/label.rs` gives the
   measured width plus `alignment_margin`, and wraps at `width - margin`, so the second
@@ -151,9 +189,8 @@ into 2 lines, in the measure and on the screen.
 
 ## Scroll a subview of a scroll view into sight
 
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-19. Its sideways row of library tabs
-has to show the selected tab. When the window gets narrower, the row stays at its start
-and the selected tab is out of sight.
+Its sideways row of library tabs has to show the selected tab. When the window gets
+narrower, the row stays at its start and the selected tab is out of sight.
 
 - Current: `ScrollView::set_content_offset_x` in
   `hilen/src/ui/views/containers/scrolling/scroll_view.rs` clamps the offset against the
@@ -169,9 +206,9 @@ and the selected tab is out of sight.
 
 ## A scroll view with no scroll bar
 
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-19. Its row of library tabs scrolls
-sideways on a phone, where 4 of 7 tabs do not fit. A bar under the tabs runs into the
-line that marks the selected tab, and a row of tabs on a phone shows no bar.
+Its row of library tabs scrolls sideways on a phone, where 4 of 7 tabs do not fit. A bar
+under the tabs runs into the line that marks the selected tab, and a row of tabs on a
+phone shows no bar.
 
 - Current: `ScrollView::update_bar` and `update_bar_x` in
   `hilen/src/ui/views/containers/scrolling/scroll_view.rs` show a bar whenever the
@@ -184,9 +221,6 @@ line that marks the selected tab, and a row of tabs on a phone shows no bar.
   Also the strip of recent posters there, which shows a bar under its captions.
 
 ## Text selection on a touch screen, like native iOS
-
-Found by banda, `~/dev/apps/banda`, on 2026-10-18, on an iPhone: "Long press just
-select 1 word, i want close to native ios select".
 
 - Current: a long press on a selectable label or markdown view takes the word under
   the finger, `hit.unit(Granularity::Word)` in `hilen/src/ui/text_selection/mod.rs:374`.
@@ -211,9 +245,6 @@ select 1 word, i want close to native ios select".
 
 ## Swipe back from the left edge, the proof on a phone
 
-Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18, by the bug report SKAITYK-D
-from an iPhone: "Swipe to go back should work like in native ios app".
-
 - Current: `NavigationView` owns every way back of a pushed page, the swipe, the
   `BackButton`, Escape and the Android back, see `docs/navigation.md`. The UI tests
   `Navigation swipe` and `Navigation shell swipe` pass on the desktop lane with drag
@@ -228,9 +259,8 @@ from an iPhone: "Swipe to go back should work like in native ios app".
 
 ## The Sentry release names the version of Cargo.toml, not of hilen.toml
 
-Found by skaityk, `~/dev/apps/skaityk`, on 2026-10-18. Every event of skaityk 3.0.14,
-the bug reports SKAITYK-C and SKAITYK-D among them, carries the release
-`skaityk@0.1.0`.
+Every event of skaityk 3.0.14, the bug reports SKAITYK-C and SKAITYK-D among them,
+carries the release `skaityk@0.1.0`.
 
 - Current: `register_app!` in `hilen/src/app.rs` makes `hilen_app_version` return
   `env!("CARGO_PKG_VERSION")`. Skaityk keeps `version = "0.1.0"` in `Cargo.toml` and
@@ -246,9 +276,8 @@ the bug reports SKAITYK-C and SKAITYK-D among them, carries the release
 
 ## Browser lane tests that the pictures of the page made flaky
 
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-17, by the change that lets the page
-draw svg icons and decode bundled jpegs, see `window/image/late.rs`. 2 full runs of the
-browser lane on the Linux builder, every test but `Camera view test` and `Inspect frames`.
+2 full runs of the browser lane on the Linux builder, every test but `Camera view test`
+and `Inspect frames`.
 
 - Current: `AppRunner::take_screenshot` waits for the pictures the last frame drew and
   takes the shot again when the shot frame started one. Still, in a full run:
@@ -266,10 +295,9 @@ browser lane on the Linux builder, every test but `Camera view test` and `Inspec
 
 ## Widgets on iOS, the proof on a phone and the remote of nome
 
-Found by nome, `~/dev/apps/nome`, a metronome, on 2026-10-16, and by banda,
-`~/dev/apps/banda`, on 2026-10-17. Nome wants a lock screen widget that works like a
-remote: Start, Stop and the BPM, with the phone locked. Banda has a Live Activity and
-a home screen widget, kept fresh by push from its backend.
+Nome wants a lock screen widget that works like a remote: Start, Stop and the BPM, with
+the phone locked. Banda has a Live Activity and a home screen widget, kept fresh by push
+from its backend.
 
 - Current: the `[widget]` table of `hilen-mobile` adds a WidgetKit extension with the
   Swift of the app, a keychain group both targets share, `aps-environment` and the
@@ -301,8 +329,7 @@ a home screen widget, kept fresh by push from its backend.
 
 ## A partial frame over several samples on an iPhone
 
-Found by skaityk on 2026-10-17, on an iPhone 16 Pro Max with iOS 27.0.1, with the hilen
-of that day. The iOS simulator does not show it.
+The iOS simulator does not show it.
 
 - Current: with 4 samples a partial frame draws over the multisampled texture of the
   frame before, see `docs/damage.md`. On the phone that texture comes back black or
@@ -317,8 +344,6 @@ of that day. The iOS simulator does not show it.
 - Blocks: partial frames for an iOS app that sets 2 or 4 samples.
 
 ## Shaders for WebGL made at build time, with no naga in the wasm
-
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
 
 - Current: on WebGL the wgpu fork of hilen translates every WGSL shader to GLSL with
   naga while the app starts. In the TV build of flixen `naga` is 617 KB of code, the
@@ -353,8 +378,7 @@ Found by flixen, `~/dev/apps/flixen`, on 2026-10-16, on hilen `6f961029`.
 
 ## A picker of the sound output, AirPlay on Apple
 
-Found by nome, `~/dev/apps/nome`, on 2026-10-16, on hilen `6f961029`. A user wants the
-metronome to play on a HomePod, from a button inside the app.
+A user wants the metronome to play on a HomePod, from a button inside the app.
 
 - Current: a grep for `airplay` and `AVRoutePicker` in `docs` and `hilen/src` finds
   nothing. The `audio` feature plays on the default output of the system, kira opens
@@ -369,9 +393,8 @@ metronome to play on a HomePod, from a button inside the app.
 
 ## The metallic and roughness texture of a glTF material
 
-Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
-simulator shows a circuit board, the Sparkfun 5 Stars model from Sketchfab, where the
-copper, the solder mask and the solder differ in shine per pixel.
+Its simulator shows a circuit board, the Sparkfun 5 Stars model from Sketchfab, where
+the copper, the solder mask and the solder differ in shine per pixel.
 
 - Current: `hilen/src/scene/model/parse.rs` reads only `metallic_factor` and
   `roughness_factor` of a material. The `metallicRoughnessTexture` is never read, so
@@ -388,8 +411,7 @@ copper, the solder mask and the solder differ in shine per pixel.
 
 ## A picture of a scene as bytes
 
-Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its
-simulator renders a 3D rig with an object on a turntable, and a virtual phone in the
+Its simulator renders a 3D rig with an object on a turntable, and a virtual phone in the
 scene takes 4032 x 3024 photos that go to a photogrammetry pipeline like real ones.
 
 - Current: `SceneDrawer::picture` in `hilen/src/scene_drawer.rs` draws a scene once
@@ -405,9 +427,8 @@ scene takes 4032 x 3024 photos that go to a photogrammetry pipeline like real on
 
 ## Bluetooth LE devices
 
-Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. The app
-drives the servos of its turntable through a Seeed XIAO nRF52840 board over Bluetooth
-LE.
+The app drives the servos of its turntable through a Seeed XIAO nRF52840 board over
+Bluetooth LE.
 
 - Current: the engine has no Bluetooth. A grep of the repo finds no Bluetooth crate in
   any `Cargo.toml`, no CoreBluetooth code and no `NSBluetoothAlwaysUsageDescription`
@@ -424,9 +445,8 @@ LE.
 
 ## Find a device on the local network
 
-Found by turnscan, `~/dev/apps/turnscan`, on 2026-10-15, on hilen `ffd1d2b2`. Its Wi-Fi
-boards and a fake board on a Mac announce a service on the local network, and the
-app has to find them.
+Its Wi-Fi boards and a fake board on a Mac announce a service on the local network, and
+the app has to find them.
 
 - Current: `mdns-sd` is in the engine only under the `inspect` feature, and only to
   announce the inspect server. `hilen/src/inspect/bonjour.rs` says that on a real
@@ -443,10 +463,8 @@ app has to find them.
 
 ## A small animation keeps the whole engine busy
 
-Found by banda, `~/dev/apps/banda`, on 2026-10-12, and by ui-compare,
-`~/dev/ui-compare`, on 2026-10-14, the same app on hilen and on Tauri, measured from
-outside. Its results and the 10 s Time Profiler run are in `results/` there. 2
-consults of Claude and Codex read the code, their answers are not kept in the repo.
+Its results and the 10 s Time Profiler run are in `results/` there. 2 consults of Claude
+and Codex read the code, their answers are not kept in the repo.
 
 - Current:
   - At 120 Hz on an M1 Pro, idle for 60 s, the ui-compare app uses 43.7% of a core
@@ -536,10 +554,9 @@ consults of Claude and Codex read the code, their answers are not kept in the re
 
 ## A phone has no keys for a view that reads the keyboard itself
 
-Found by banda, `~/dev/apps/banda`, on 2026-10-12, on hilen `9c6c911c`. Its terminal
-page reads every key itself, see A view that reads the keys itself in
-[focus.md](focus.md). On a Mac that works. On an iPhone the terminal shows and
-updates, and nobody can type into it.
+Its terminal page reads every key itself, see A view that reads the keys itself in
+[focus.md](focus.md). On a Mac that works. On an iPhone the terminal shows and updates,
+and nobody can type into it.
 
 - Current: the screen keyboard of a phone comes up only for an edited `TextField`,
   which is a system text field there, see The system text field in [ios.md](ios.md).
@@ -560,9 +577,8 @@ updates, and nobody can type into it.
 
 ## A play after a long pause is not proven in flixen yet
 
-Found by flixen, `~/dev/apps/flixen`, on 2026-10-12, on hilen `2f98fb71`. A video was
-paused for 9 minutes. The play after it showed the spinner for 34 seconds, the
-connection gave no byte and no error for 32 of them.
+A video was paused for 9 minutes. The play after it showed the spinner for 34 seconds,
+the connection gave no byte and no error for 32 of them.
 
 - Current: a play after more than 60 seconds of pause opens fresh connections, and
   a read that hangs for 3 seconds while the video plays is broken,
@@ -576,8 +592,8 @@ connection gave no byte and no error for 32 of them.
 
 ## A list of pieces with other cuts makes a new player
 
-Found by kutreel, `~/dev/apps/kutreel`, on 2026-10-11. It wants a live picture while
-an edge of a clip is trimmed, and a seek slider that does not lag.
+It wants a live picture while an edge of a clip is trimmed, and a seek slider that does
+not lag.
 
 - Current: `VideoView::set_pieces` with other cuts makes a new player,
   `Player::replaced_by` in `hilen/src/video/player/pieces.rs`. That is a new decode
@@ -596,8 +612,7 @@ an edge of a clip is trimmed, and a seek slider that does not lag.
 
 ## The file picker is proven only on an iPhone
 
-Found by banda, `~/dev/apps/banda`, on 2026-10-10. It wants an upload button for files
-on the phone.
+It wants an upload button for files on the phone.
 
 - Current: `Paths::pick_file_bytes(title, extensions)` in
   `hilen/src/filesystem/picker` lets the user pick 1 file of any kind and gives a
@@ -635,8 +650,6 @@ Apple TV. Its TV screens can only be tried with a full build and a TestFlight up
 
 ## The even frame time is not proven on a real screen
 
-Found by blast, `~/dev/apps/blast`, a drum practice app, on 2026-10-10.
-
 - Current: `time::frame_seconds` gives 1 even time per frame and `Animation` runs on
   it, see "The time of a frame" in [dispatch.md](dispatch.md). The follower behind it
   is proven by unit tests with made up frame times. On a real display it is not.
@@ -664,8 +677,6 @@ Found by blast, `~/dev/apps/blast`, a drum practice app, on 2026-10-10.
 
 ## The feed of a sound clock is not proven behind a covered window
 
-Found by blast, `~/dev/apps/blast`, on 2026-10-10.
-
 - Current: `SoundClock::set_feed` is called on a timer with no frame, proven by unit
   tests. Blast plays with a still mouse and no late hit. A window that is fully
   covered or minimized was never tried in a real app.
@@ -675,10 +686,8 @@ Found by blast, `~/dev/apps/blast`, on 2026-10-10.
 
 ## tvOS, the run on an Apple TV
 
-Found by the tvOS display bring-up and by flixen, `~/dev/apps/flixen`, a player on an
-Apple TV. The remote, the safe area, stored settings, the media command of the remote
-and video landed on 2026-10-10 and run in the Apple TV simulator, see
-[tvos.md](tvos.md).
+The remote, the safe area, stored settings, the media command of the remote and video
+landed on 2026-10-10 and run in the Apple TV simulator, see [tvos.md](tvos.md).
 
 - Current: the engine never ran on a real Apple TV. A tvOS build of the demo is in
   TestFlight, version 1.0 build 1, sent by `build/tvos/flight.py`. `make fly` never
@@ -696,8 +705,6 @@ and video landed on 2026-10-10 and run in the Apple TV simulator, see
 
 ## tvOS, the session, the Keychain and the Now Playing panel
 
-Found by flixen on 2026-10-10.
-
 - Current: on tvOS the sealed session of `SessionStore` is an entry of the user
   defaults, and the `keychain` feature of `hilen-session` builds with the protected
   store of iOS, see Stored data in [tvos.md](tvos.md). Both compile and never ran.
@@ -710,9 +717,7 @@ Found by flixen on 2026-10-10.
 
 ## Sound clock and MIDI input, the proof on real devices
 
-Found on 2026-10-09 when `SoundClock` and the `midi` feature landed, see
-[sound-clock.md](sound-clock.md) and [midi.md](midi.md). The driver is blast,
-`~/dev/apps/blast`, a drum practice app.
+The driver is blast, `~/dev/apps/blast`, a drum practice app.
 
 - Current: both are proven by unit tests only, on macOS and on Linux. The clock tests
   play the audio thread by hand and the MIDI tests use a fake device. No sound of a
@@ -738,9 +743,6 @@ Found on 2026-10-09 when `SoundClock` and the `midi` feature landed, see
 
 ## A tinted icon asked for before its download stays the placeholder for good
 
-Found on 2026-10-09 in the beekeeper web UI, `beekeeper/web` of the `beekeeper` repo,
-in a browser.
-
 - Current: in a browser `Tinted::to_image` in
   `hilen/src/window/image/tinted_image.rs` finds no bytes for an SVG whose asset group
   is not downloaded yet. It then makes the default picture and stores it under the
@@ -763,8 +765,6 @@ in a browser.
 
 ## A touch on a button ends the editing of a text field
 
-Found on 2026-10-09 in banda, `~/dev/apps/banda`, on an iPhone 16 Pro Max.
-
 - Current: every touch that begins on a view selects that view, and a touch no view
   takes unselects, `check_touch` in `hilen/src/ui/view/view_touch.rs`,
   `UIManager::set_selected(weak_from_ref(view), true)` and `UIManager::unselect_view()`.
@@ -784,8 +784,6 @@ Found on 2026-10-09 in banda, `~/dev/apps/banda`, on an iPhone 16 Pro Max.
 
 ## Video pictures, pieces and export, Windows and iOS
 
-Found on 2026-10-08 while building kutreel, a video editor at `~/dev/apps/kutreel`.
-
 - Current: `VideoFrames`, `VideoView::set_pieces` and `VideoExport` landed, see
   [video.md](video.md). Their unit tests and UI tests pass on macOS only. The Windows
   ffmpeg archive of release `ffmpeg-9.0-4` has no h264 encoder, so an export fails on
@@ -801,8 +799,6 @@ Found on 2026-10-08 while building kutreel, a video editor at `~/dev/apps/kutree
 - Blocks: the export of kutreel on Windows.
 
 ## A key binding with Alt
-
-Found on 2026-10-08 in banda, `~/dev/apps/banda`, at `dev` commit `7d3dbd66`.
 
 - Current: a `KeyCombo` has only `cmd` and `shift`, `hilen/src/ui/input/keymap/key_combo.rs`.
   `Keymap::check` in `keymap.rs` reads the Control, the Super and the Shift key of
@@ -820,9 +816,8 @@ Found on 2026-10-08 in banda, `~/dev/apps/banda`, at `dev` commit `7d3dbd66`.
 
 ## A table keeps a scroll place that is set before its first layout
 
-Found on 2026-10-08 in banda at `dev` commit `fcd1bda8`. A chat page is made new on
-every switch and puts the reader back where they were. The chat stood at its top for
-a frame and then jumped.
+A chat page is made new on every switch and puts the reader back where they were. The
+chat stood at its top for a frame and then jumped.
 
 - Current: `layout_cells` in `views/containers/table_view/table_view.rs` returns
   while the table has no height, and a view gets its size only in the layout of the
@@ -838,8 +833,6 @@ a frame and then jumped.
 
 ## Work that runs after this turn of the main loop
 
-Found on 2026-10-08 while the markdown view was made to lay out once.
-
 - Current: `on_main` in `deps/hreads/dispatch.rs` runs its closure at once when it is
   already on the main thread. `after(0.0)` goes through a tokio task, so when it runs
   against the next frame is not fixed. The markdown view now lays out in its own
@@ -851,8 +844,6 @@ Found on 2026-10-08 while the markdown view was made to lay out once.
 
 ## The login poll waits 2 seconds
 
-Found on 2026-10-08 in the investigation of delays in banda.
-
 - Current: `wait_for_login` in `hilen/src/login/client.rs` asks the server every
   `POLL_SECONDS`, 2 seconds. A fresh login shows in the app up to 2 seconds after the
   browser finished it.
@@ -861,8 +852,6 @@ Found on 2026-10-08 in the investigation of delays in banda.
 - Blocks: nothing, it happens once per device.
 
 ## The browser websocket does not say why it failed to open
-
-Found on 2026-10-08 in banda.
 
 - Current: the native client reports a failed upgrade with its HTTP status, like
   `HTTP error: 404 Not Found`. The browser client in `deps/netrun/ws/web.rs` gives
@@ -874,8 +863,6 @@ Found on 2026-10-08 in banda.
   and not every 60, it cannot tell the 2 cases apart.
 
 ## The Postgres twin of the token login test never runs
-
-Found on 2026-10-08 with `user_of_token`.
 
 - Current: `a_token_alone` in `hilen-server/src/auth/store_test.rs` passes on SQLite.
   Its Postgres twin is ignored, it needs a server.
@@ -897,9 +884,8 @@ Seen on 2026-10-08 with the nightly toolchain of the workspace.
 
 ## Frame record and frame step, the proof in banda and on the other lanes
 
-Found on 2026-10-07 in banda at `dev` commit `9439493e`. A popup opened with 3 wrong
-frames: the pills of a row sat left of the popup until their anchors settled. The
-user saw a flicker and had no way to show it or to look at it.
+A popup opened with 3 wrong frames: the pills of a row sat left of the popup until their
+anchors settled. The user saw a flicker and had no way to show it or to look at it.
 
 - Current: `hilen-inspect` saves every frame after an input, `tap <query> --frames 30
   --out <dir>` and `record`, and walks a paused app with `pause`, `step [n]` and
@@ -913,9 +899,8 @@ user saw a flicker and had no way to show it or to look at it.
 
 ## 17 UI tests fail on the iOS simulator
 
-Found on 2026-10-07 while the iOS lane was moved to the build machine kotik. The lane
-`make ui-ios` ran at `dev` commit `9439493e`, on the iPhone 8 simulator with iOS 16.4
-and Xcode 26.3.
+The lane `make ui-ios` ran at `dev` commit `9439493e`, on the iPhone 8 simulator with
+iOS 16.4 and Xcode 26.3.
 
 - Current: 254 tests pass and 17 fail. The same 17 fail on 2 machines, on kotik in an
   account with no desktop session and on a mac with a desktop session and the Simulator
@@ -948,10 +933,10 @@ and Xcode 26.3.
 
 ## Keys the owner of an edited text field takes for itself
 
-Found by banda at `~/dev/apps/banda`. Its compose box shows a list of slash commands
-above the field while the text starts with `/`. Up and Down have to move the marked
-row, Tab and Enter have to fill the marked command in, Escape has to close the list,
-and the field has to stay in edit through all of it.
+Its compose box shows a list of slash commands above the field while the text starts
+with `/`. Up and Down have to move the marked row, Tab and Enter have to fill the marked
+command in, Escape has to close the list, and the field has to stay in edit through all
+of it.
 
 - Current: `Input::on_key` in `hilen/src/ui/input/input.rs` calls
   `UIManager::keymap().check(key)` and then always
@@ -973,9 +958,8 @@ and the field has to stay in edit through all of it.
 
 ## Screen keyboard, the proof in banda and on Android
 
-Found by banda at `~/dev/apps/banda`, whose compose box sits at the bottom of the
-screen. The keyboard frame, the field that stays in view, `b_keyboard` and the focus
-by code that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.md).
+The keyboard frame, the field that stays in view, `b_keyboard` and the focus by code
+that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.md).
 
 - Current: proven by 4 UI tests on desktop, with a stand in for the keyboard, and on
   the iOS simulator lane with the real one. banda has the pin `da1b9180` and its
@@ -995,8 +979,7 @@ by code that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.
 
 ## The wheel delta does not tell which way the user turned the wheel
 
-Found by flixen at `~/dev/apps/flixen`. Its player turns the volume with the wheel, up
-is louder.
+Its player turns the volume with the wheel, up is louder.
 
 - Current: `UIEvents::on_scroll` gives the delta the system reports, `scroll_pixels` in
   `hilen/src/window/app_handler.rs`. On a Mac with natural scrolling on, the default,
@@ -1016,9 +999,8 @@ is louder.
 
 ## A paragraph of only bold text before a list is not drawn by MarkdownView
 
-Found by banda at `~/dev/apps/banda`. Its chat draws what Claude wrote with
-`MarkdownView::set_text`, and Claude often writes a bold line as a small header right
-above a list.
+Its chat draws what Claude wrote with `MarkdownView::set_text`, and Claude often writes
+a bold line as a small header right above a list.
 
 - Current: a text like `**Done**` on 1 line with a list on the next line, `- first`,
   shows the list and an empty gap where the bold line should be. The text is there: a
@@ -1032,8 +1014,8 @@ above a list.
 
 ## A key combo with Alt, and a combo that wins over the focus ring and a text field
 
-Found by banda at `~/dev/apps/banda`. It jumps between its sessions with Cmd and an
-arrow on a Mac, and has to do the same with Alt and an arrow on Windows and Linux.
+It jumps between its sessions with Cmd and an arrow on a Mac, and has to do the same
+with Alt and an arrow on Windows and Linux.
 
 - Current: `KeyCombo` in `hilen/src/ui/input/keymap/key_combo.rs` has `cmd` and
   `shift` only, and `cmd` is Cmd or Ctrl, `command_held` in `keymap.rs` takes both. No
@@ -1050,9 +1032,9 @@ arrow on a Mac, and has to do the same with Alt and an arrow on Windows and Linu
 
 ## An image from the clipboard on Android, in a browser and on a real phone
 
-Found by banda at `~/dev/apps/banda`. Its compose box takes a screenshot from the
-clipboard and sends it with a prompt. `Clipboard::get_image` and the `image_pasted`
-event of `TextField` landed, see [clipboard.md](clipboard.md).
+Its compose box takes a screenshot from the clipboard and sends it with a prompt.
+`Clipboard::get_image` and the `image_pasted` event of `TextField` landed, see
+[clipboard.md](clipboard.md).
 
 - Current: proven on macOS with a real screenshot in banda, and by unit tests and the
   UI test `Text field image paste` on the store of the process. Windows and Linux use
@@ -1067,9 +1049,9 @@ event of `TextField` landed, see [clipboard.md](clipboard.md).
 
 ## File browser, the proof in an app and on the other lanes
 
-Found by banda at `~/dev/apps/banda`. Its New session page picks the folder a session
-starts in, on another machine. `FileBrowser`, `FilePicker` and the `FileSource` trait
-landed, see [file-browser.md](file-browser.md).
+Its New session page picks the folder a session starts in, on another machine.
+`FileBrowser`, `FilePicker` and the `FileSource` trait landed, see
+[file-browser.md](file-browser.md).
 
 - Current: proven by 14 UI tests on desktop, on a tree held in memory, and by unit
   tests of `LocalFiles` on a temp folder. banda uses `FilePicker` with its own source
@@ -1086,9 +1068,7 @@ landed, see [file-browser.md](file-browser.md).
 
 ## Google access, the proof on a phone, in a browser and with a linked account
 
-Found by lendar at `~/dev/apps/lendar`, a calendar that reads and writes Google
-Calendar for several Google accounts at once. The feature landed, see
-[google-access.md](google-access.md).
+The feature landed, see [google-access.md](google-access.md).
 
 - Current: proven on a Mac debug build against the live backend of lendar. The main
   account signed in, the Drive app folder was read and the calendars synced. No
@@ -1103,8 +1083,8 @@ Calendar for several Google accounts at once. The feature landed, see
 
 ## Canvas and pinch, the proof on real input
 
-Found by Lan Atlas, a network map app with a canvas that pans and zooms. `CanvasView`,
-the scale of a subtree and the pinch event landed, see [canvas.md](canvas.md).
+`CanvasView`, the scale of a subtree and the pinch event landed, see
+[canvas.md](canvas.md).
 
 - Current: proven by the UI tests `Canvas zoom` and `Canvas pinch` on desktop, with
   injected touches only. No real trackpad and no real finger made a pinch yet. The
@@ -1122,9 +1102,8 @@ the scale of a subtree and the pinch event landed, see [canvas.md](canvas.md).
 
 ## Video on iOS, the proof on a phone
 
-Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
-The `video` feature builds and plays on iOS now, see [video.md](video.md), and
-its UI tests pass on the simulator. No real iPhone ran it yet.
+The `video` feature builds and plays on iOS now, see [video.md](video.md), and its UI
+tests pass on the simulator. No real iPhone ran it yet.
 
 - Current: proven on the iOS 16.4 simulator only, where h264 decodes in
   software and HEVC in hardware. The audio session, `Window::set_orientations`,
@@ -1143,12 +1122,10 @@ its UI tests pass on the simulator. No real iPhone ran it yet.
 
 ## Flixen, the media player gaps
 
-Found by flixen at `~/dev/apps/flixen`, a self hosted media server and player.
-Its first version is macOS only. The gaps landed in 8 batches: tracks and
-subtitles, HDR, fullscreen, pointer hide and screen awake, SQLite in
-`hilen-server`, view opacity with the group fade, the line limit and text
-outline, image downloads, playback speed, Now Playing and the media keys, zlib
-and dav1d, the whole track subtitle read. See
+Its first version is macOS only. The gaps landed in 8 batches: tracks and subtitles,
+HDR, fullscreen, pointer hide and screen awake, SQLite in `hilen-server`, view opacity
+with the group fade, the line limit and text outline, image downloads, playback speed,
+Now Playing and the media keys, zlib and dav1d, the whole track subtitle read. See
 [video.md](video.md), [text.md](text.md) and [login.md](login.md). What is left:
 
 ### What the flixen batches left open
@@ -1205,8 +1182,6 @@ phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
 
 ## Text entry on a TV
 
-Found by flixen, whose admin screens have text fields and stay off the TV for it.
-
 - Current: a text field needs a keyboard. A TV has none, and the keyboard of the TV
   itself opens only for an HTML input, not for a canvas.
 - Needed: an on screen keyboard view driven by the key focus, or a hidden HTML input
@@ -1235,9 +1210,8 @@ planned with it.
 
 ## 3D scene on WebGL2
 
-Found by opening the demo with `?hilen_webgl` in the page query. The UI pipelines
-read their instances from a uniform array on WebGL2, `InstanceBinding` in
-`render/uniform`, the scene does not.
+The UI pipelines read their instances from a uniform array on WebGL2, `InstanceBinding`
+in `render/uniform`, the scene does not.
 
 - Current: `MeshPipeline` binds the instances, the joint matrices and the lights
   as read only storage buffers with no uniform fallback, and WebGL2 has none. On

@@ -23,19 +23,19 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct Done {
-    status: String,
-    token:  String,
-    user:   DoneUser,
+pub(crate) struct Done {
+    status:          String,
+    token:           String,
+    pub(crate) user: DoneUser,
 }
 
 #[derive(Deserialize)]
-struct DoneUser {
-    id:    String,
-    email: String,
+pub(crate) struct DoneUser {
+    pub(crate) id: String,
+    email:         String,
 }
 
-async fn dev_app() -> Result<(Router, Db)> {
+pub(crate) async fn dev_app() -> Result<(Router, Db)> {
     let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");
     let (_pool, db) = sqlite().await?;
     Ok((auth_routes(AuthState::new(db.clone(), config)), db))
@@ -56,7 +56,7 @@ async fn dev_login(app: &Router, email: &str) -> Result<(StatusCode, Vec<u8>)> {
     Ok((status, response.into_body().collect().await?.to_bytes().to_vec()))
 }
 
-async fn logged_in(app: &Router, email: &str) -> Result<Done> {
+pub(crate) async fn logged_in(app: &Router, email: &str) -> Result<Done> {
     let (status, body) = dev_login(app, email).await?;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let done: Done = from_slice(&body)?;
@@ -64,7 +64,7 @@ async fn logged_in(app: &Router, email: &str) -> Result<Done> {
     Ok(done)
 }
 
-fn google(email: &str) -> Identity {
+pub(crate) fn google(email: &str) -> Identity {
     Identity {
         provider:      Provider::Google,
         subject:       "google-sub-1".to_owned(),

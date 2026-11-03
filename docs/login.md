@@ -209,6 +209,21 @@ transaction, the `-- no-transaction` first line. With foreign keys on the drop o
 table would delete every row that points at a user, in the app tables too.
 `a_database_of_the_first_migration_moves_over` pins that on both databases.
 
+## The seed
+
+A dev server fills its database for a look at many rows, `hilen-server/src/seed.rs`,
+only in a build with `dev-login`.
+
+- `seed::run(db, seed)` runs the function of the app only when the start has
+  `HILEN_SEED=1`, after the migrations. A database with an identity of any provider
+  but `dev` is refused with an error, and the function never runs.
+- `seed::dev_users(db, emails)` makes each account through `store::login_user`, the
+  path of the dev login, so each one signs in with `POST /auth/dev`. A second seed gets
+  the same accounts back.
+- The rows of the app come from the app, with its own checked queries.
+
+`seed_test.rs` pins the 4 cases on SQLite.
+
 ## The database
 
 The login runs on Postgres and on SQLite. `hilen_server::Db` is either pool,

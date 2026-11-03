@@ -62,7 +62,8 @@ pub struct TextField {
 
     placeholder:       String,
     text_color:        UIColor,
-    selected_color:    UIColor,
+    /// The fill while the field is edited, none keeps the field's own.
+    selected_color:    Option<UIColor>,
     background_color:  UIColor,
     placeholder_color: Option<UIColor>,
     placeholding:      bool,
@@ -126,7 +127,6 @@ pub struct TextField {
 impl Setup for TextField {
     fn setup(mut self: Weak<Self>) {
         self.text_color = BLACK.into();
-        self.selected_color = GRAY.into();
         self.placeholding = true;
 
         self.scroll.place().back();
@@ -200,16 +200,17 @@ impl Setup for TextField {
             self.editing_ended.trigger(ended_with);
         }
 
-        let color = if selected {
-            // Keep the original theme pair, not the resolved plain color,
-            // so the field keeps following theme switches after editing.
-            self.background_color = self.ui_color();
-            self.selected_color
-        } else {
-            self.background_color
-        };
-
-        self.set_color(color);
+        if let Some(selected_color) = self.selected_color {
+            let color = if selected {
+                // Keep the original theme pair, not the resolved plain color,
+                // so the field keeps following theme switches after editing.
+                self.background_color = self.ui_color();
+                selected_color
+            } else {
+                self.background_color
+            };
+            self.set_color(color);
+        }
         self.update_caret();
         self.show_or_hide_label();
     }
@@ -511,8 +512,10 @@ impl TextField {
         self
     }
 
+    /// Another fill while the field is edited. Without it the field keeps
+    /// the color it has.
     pub fn set_selected_color(&self, color: impl Into<UIColor>) -> &Self {
-        weak_from_ref(self).selected_color = color.into();
+        weak_from_ref(self).selected_color = Some(color.into());
         self
     }
 
