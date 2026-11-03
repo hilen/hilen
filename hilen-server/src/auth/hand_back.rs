@@ -70,6 +70,13 @@ impl HandBack {
     pub(crate) fn storage_key(challenge: &str) -> String {
         format!("hilen-login-{challenge}")
     }
+
+    /// The `localStorage` key of the address a page left in the same tab for
+    /// the login, the last page sends the browser back there. `same_tab` of
+    /// `hilen/src/login/client.rs` writes the same key.
+    pub(crate) fn return_key(challenge: &str) -> String {
+        format!("hilen-login-return-{challenge}")
+    }
 }
 
 #[cfg(test)]

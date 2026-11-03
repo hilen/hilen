@@ -6,6 +6,8 @@
 pub(crate) mod android_jni;
 pub(crate) mod app_activity;
 #[cfg(feature = "login")]
+// A page in a browser logs in within its own tab, see `same_tab` of the login.
+#[cfg(not_wasm)]
 pub(crate) mod browser_sheet;
 mod clipboard;
 mod install_source;

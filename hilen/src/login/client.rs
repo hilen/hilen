@@ -5,18 +5,25 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
+#[cfg(not_wasm)]
+use crate::system::browser_sheet;
 use crate::{
     deps::{
         hreads::{now, on_main, sleep, spawn},
         netrun::rest::{Call, RequestError},
+        refs::main_lock::MainLock,
     },
     login::{
         hand_back::HandBack,
         wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
     },
     store::SessionStore,
-    system::browser_sheet,
+    ui::UIEvent,
 };
+
+/// Triggered on the main thread when a login that came back to this page
+/// in the same tab was done, see `Login::changed`.
+static CHANGED: MainLock<UIEvent<()>> = MainLock::new();
 
 const POLL_SECONDS: f32 = 2.0;
 /// How often a wait between 2 polls looks for a cancel and for a closed
@@ -98,7 +105,18 @@ impl Login {
     /// The origin of the app backend, like `https://myapp.example.com`. Call
     /// it once at launch, before anything else here.
     pub fn set_server(origin: impl ToString) {
-        *SERVER.lock() = Some(origin.to_string().trim_end_matches('/').to_owned());
+        let server = origin.to_string().trim_end_matches('/').to_owned();
+        *SERVER.lock() = Some(server.clone());
+        #[cfg(wasm)]
+        same_tab::resume(server);
+    }
+
+    /// Triggered when a login finished on its own, with no `done` to call: a
+    /// page in a browser leaves for the provider in the same tab and finishes
+    /// the login after it came back, see `same_tab`. Read
+    /// [`Login::active_user`] again then.
+    pub fn changed() -> &'static UIEvent<()> {
+        &CHANGED
     }
 
     /// Opens the login page and waits for the user to finish there. Call it
@@ -120,43 +138,57 @@ impl Login {
         done: impl FnOnce(Result<LoginUser>) + Send + 'static,
         closed: impl FnOnce() + Send + 'static,
     ) {
-        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
-
-        let opened = server().and_then(|server| {
-            let verifier = new_verifier()?;
-            let challenge = challenge(&verifier);
-            let hand_back = HandBack::open(&server, &challenge)?;
-            log::info!("{} login started", provider.route());
-            let page = format!(
-                "{server}/auth/{}?challenge={challenge}&{}",
-                provider.route(),
-                hand_back.query()
-            );
-            let sheet = browser_sheet::open(page, move || {
-                log::info!("the user closed the login sheet");
-                CLOSED.store(attempt, Ordering::SeqCst);
-            })?;
-            Ok((server, verifier, hand_back, sheet))
-        });
-
-        let (server, verifier, hand_back, sheet) = match opened {
-            Ok(opened) => opened,
-            Err(error) => return done(Err(error)),
-        };
-
-        spawn(async move {
-            let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
-            drop(hand_back);
-            // Does nothing when the user closed the sheet, and where a
-            // platform has none.
-            browser_sheet::close(sheet);
-
-            match waited {
-                Waited::Done(result) => on_main(move || done(result)),
-                Waited::Closed => on_main(closed),
-                Waited::Cancelled => {}
+        // A page in a browser goes to the provider in the same tab, a second
+        // tab looked like the login hung. The page is gone then, so `done`
+        // is called only when the login could not start.
+        #[cfg(wasm)]
+        {
+            drop(closed);
+            if let Err(error) = server().and_then(|server| same_tab::leave(&server, provider)) {
+                done(Err(error));
             }
-        });
+        }
+
+        #[cfg(not_wasm)]
+        {
+            let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+
+            let opened = server().and_then(|server| {
+                let verifier = new_verifier()?;
+                let challenge = challenge(&verifier);
+                let hand_back = HandBack::open(&server, &challenge)?;
+                log::info!("{} login started", provider.route());
+                let page = format!(
+                    "{server}/auth/{}?challenge={challenge}&{}",
+                    provider.route(),
+                    hand_back.query()
+                );
+                let sheet = browser_sheet::open(page, move || {
+                    log::info!("the user closed the login sheet");
+                    CLOSED.store(attempt, Ordering::SeqCst);
+                })?;
+                Ok((server, verifier, hand_back, sheet))
+            });
+
+            let (server, verifier, hand_back, sheet) = match opened {
+                Ok(opened) => opened,
+                Err(error) => return done(Err(error)),
+            };
+
+            spawn(async move {
+                let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
+                drop(hand_back);
+                // Does nothing when the user closed the sheet, and where a
+                // platform has none.
+                browser_sheet::close(sheet);
+
+                match waited {
+                    Waited::Done(result) => on_main(move || done(result)),
+                    Waited::Closed => on_main(closed),
+                    Waited::Cancelled => {}
+                }
+            });
+        }
     }
 
     /// The login of a device with no keyboard and no browser of its own, a
@@ -560,3 +592,115 @@ async fn delete_user() -> Result<()> {
 #[cfg(test)]
 #[path = "client_test.rs"]
 mod test;
+
+/// The login of a page in a browser in 1 tab. Before the page leaves for the
+/// provider it keeps the verifier and its own address. The last page of the
+/// server writes the code and sends the browser back to that address, and at
+/// the next start `Login::set_server` finishes the login with the kept
+/// verifier.
+#[cfg(wasm)]
+mod same_tab {
+    use std::sync::atomic::Ordering;
+
+    use anyhow::{Result, anyhow};
+    use web_sys::{Storage, window};
+
+    use super::{ATTEMPT, CHANGED, Provider, Waited, challenge, new_verifier, wait_for_login};
+    use crate::{
+        deps::hreads::{on_main, spawn},
+        login::hand_back::HandBack,
+    };
+
+    /// The verifier and the challenge of the login this page left for.
+    const PENDING: &str = "hilen-login-same-tab";
+
+    /// Where the last page of the server sends the browser back to, the same
+    /// key as `HandBack::return_key` of the server.
+    fn return_key(challenge: &str) -> String {
+        format!("hilen-login-return-{challenge}")
+    }
+
+    fn storage() -> Result<Storage> {
+        window()
+            .ok_or_else(|| anyhow!("no window"))?
+            .local_storage()
+            .map_err(|error| anyhow!("localStorage is blocked: {error:?}"))?
+            .ok_or_else(|| anyhow!("no localStorage"))
+    }
+
+    pub(super) fn leave(server: &str, provider: Provider) -> Result<()> {
+        let verifier = new_verifier()?;
+        let challenge = challenge(&verifier);
+        // Checks that the page is on the origin of its server, the last page
+        // can write only there.
+        drop(HandBack::open(server, &challenge)?);
+        let location = window().ok_or_else(|| anyhow!("no window"))?.location();
+        let here = format!(
+            "{}{}{}",
+            location.pathname().unwrap_or_default(),
+            location.search().unwrap_or_default(),
+            location.hash().unwrap_or_default()
+        );
+        let storage = storage()?;
+        storage
+            .set_item(PENDING, &format!("{verifier} {challenge}"))
+            .map_err(|error| anyhow!("failed to keep the login: {error:?}"))?;
+        storage
+            .set_item(&return_key(&challenge), &here)
+            .map_err(|error| anyhow!("failed to keep the address: {error:?}"))?;
+        log::info!("{} login started in this tab, back to {here}", provider.route());
+        location
+            .assign(&format!(
+                "{server}/auth/{}?challenge={challenge}&page=1",
+                provider.route()
+            ))
+            .map_err(|error| anyhow!("failed to open the login: {error:?}"))
+    }
+
+    /// Finishes the login this page left for, if it came back with a code.
+    pub(super) fn resume(server: String) {
+        let pending = match storage().and_then(|storage| {
+            let pending = storage.get_item(PENDING).map_err(|error| anyhow!("{error:?}"))?;
+            if pending.is_some() {
+                storage.remove_item(PENDING).map_err(|error| anyhow!("{error:?}"))?;
+            }
+            Ok(pending)
+        }) {
+            Ok(Some(pending)) => pending,
+            Ok(None) => return,
+            Err(error) => {
+                log::warn!("the login of this tab cannot be read: {error}");
+                return;
+            }
+        };
+        let Some((verifier, challenge)) = pending.split_once(' ') else {
+            log::warn!("the kept login of this tab is broken, it is dropped");
+            return;
+        };
+        if let Ok(storage) = storage() {
+            storage.remove_item(&return_key(challenge)).ok();
+        }
+        let hand_back = match HandBack::open(&server, challenge) {
+            Ok(hand_back) => hand_back,
+            Err(error) => {
+                log::warn!("the login of this tab cannot finish: {error}");
+                return;
+            }
+        };
+        // Back with no code: the user went back from the provider.
+        if !hand_back.has_code() {
+            log::info!("the page came back with no login, it was cancelled");
+            return;
+        }
+        let verifier = verifier.to_owned();
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+        log::info!("the login of this tab came back, it finishes");
+        spawn(async move {
+            match wait_for_login(&server, &verifier, Some(&hand_back), attempt).await {
+                Waited::Done(Ok(_)) => on_main(|| CHANGED.trigger(())),
+                Waited::Done(Err(error)) => log::warn!("the login of this tab failed: {error}"),
+                Waited::Closed | Waited::Cancelled => {}
+            }
+        });
+    }
+}

@@ -34,9 +34,17 @@ read, and the poll needs the code that came that way. The server half is
   is the loopback way of RFC 8252. Only a GET of the root with 64 hex digits counts, a
   request some web page sends to the port changes nothing, and a code the server does
   not take does not end the wait.
-- A page in a browser sends `page=1`. The last page of the login writes the code into
-  `localStorage` of the origin of the server under `hilen-login-<challenge>`, and the
-  page of the app reads it there. So the page and the server need 1 origin, the page
+- A page in a browser logs in within its own tab, `same_tab` in
+  `hilen/src/login/client.rs`. A second tab looked like the login hung. Before it leaves
+  for the provider, the page keeps its verifier and challenge under
+  `hilen-login-same-tab` and its own address under `hilen-login-return-<challenge>`, then
+  sends `page=1`. The last page of the login writes the code into `localStorage` of the
+  origin of the server under `hilen-login-<challenge>` and sends the browser back to the
+  kept address, only to a path on the same site. At the next start `Login::set_server`
+  finds the kept login and finishes it, and `Login::changed()` tells the app to read
+  `Login::active_user` again. A page that comes back with no code, the user went back
+  from the provider, drops the kept login. The `done` of `Login::start` runs on the web
+  only when the login could not start, the page is gone after that. So the page and the server need 1 origin, the page
   served by `web_mount` of the same backend. `Login::start` gives an error on a page of
   another origin. The last page sends its own `Content-Security-Policy`, with the hash of
   its script, in `page_with` of `routes.rs`. The policy of the web page, `PageCsp`,

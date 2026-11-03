@@ -420,8 +420,10 @@ fn hand_back_page(app: &str, finished: &Finished) -> Response {
         (HandBack::Page, Some(code)) => {
             // The key and the code are hex, nothing in them needs escaping.
             let script = format!(
-                r#"try {{ localStorage.setItem("{}", "{code}"); }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}"#,
-                HandBack::storage_key(&finished.challenge)
+                r#"try {{ localStorage.setItem("{}", "{code}"); const back = localStorage.getItem("{}"); if (back && back.startsWith("/") && !back.startsWith("//")) {{ localStorage.removeItem("{}"); location.replace(back); }} }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}"#,
+                HandBack::storage_key(&finished.challenge),
+                HandBack::return_key(&finished.challenge),
+                HandBack::return_key(&finished.challenge)
             );
             page_with(
                 app,
@@ -672,6 +674,35 @@ mod test {
         );
         let body = axum::body::to_bytes(answer.into_body(), usize::MAX).await?;
         assert!(String::from_utf8(body.to_vec())?.contains(&format!("<script>{script}</script>")));
+        Ok(())
+    }
+
+    // The failure this prevents: a page that left for the login in its own
+    // tab stayed on the last page of the server and never came back.
+    #[tokio::test]
+    async fn the_last_page_sends_a_same_tab_login_back() -> anyhow::Result<()> {
+        use crate::auth::hand_back::HandBack;
+
+        let challenge = "ab".repeat(32);
+        let finished = super::Finished {
+            hand_back: HandBack::Page,
+            challenge: challenge.clone(),
+            code:      Some("cd".repeat(32)),
+        };
+        let answer = super::hand_back_page("App", &finished);
+        let csp = answer.headers()[axum::http::header::CONTENT_SECURITY_POLICY]
+            .to_str()?
+            .to_owned();
+        let body = axum::body::to_bytes(answer.into_body(), usize::MAX).await?;
+        let page = String::from_utf8(body.to_vec())?;
+        assert!(page.contains(&HandBack::storage_key(&challenge)), "{page}");
+        assert!(page.contains(&HandBack::return_key(&challenge)), "{page}");
+        assert!(page.contains("location.replace(back)"), "{page}");
+        assert!(
+            page.contains(r#"back.startsWith("/") && !back.startsWith("//")"#),
+            "only an address of the site: {page}"
+        );
+        assert!(csp.contains("script-src 'sha256-"), "{csp}");
         Ok(())
     }
 

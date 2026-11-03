@@ -37,17 +37,11 @@ impl HandBack {
         }
     }
 
-    /// The part of the start link that names the way back.
+    /// The part of the start link that names the way back. A page in a
+    /// browser writes its own `page=1`, see `same_tab` of the login.
+    #[cfg(not_wasm)]
     pub(crate) fn query(&self) -> String {
-        #[cfg(not_wasm)]
-        {
-            format!("port={}", self.listener.port())
-        }
-
-        #[cfg(wasm)]
-        {
-            "page=1".to_owned()
-        }
+        format!("port={}", self.listener.port())
     }
 
     /// A code came back and waits to be taken.
