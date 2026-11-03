@@ -17,6 +17,9 @@ static CURSOR: WindowLock<CursorIcon> = WindowLock::new();
 static WITHIN: WindowLock<Vec<WeakView>> = WindowLock::new();
 #[cfg(any(desktop, wasm))]
 static LOCKED: WindowLock<WeakView> = WindowLock::new();
+/// A scroll moved content under the cursor since the last frame.
+#[cfg(any(desktop, wasm))]
+static SCROLLED: WindowLock<bool> = WindowLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
@@ -67,6 +70,27 @@ impl Hover {
         Self::set_hovered(WeakView::default());
     }
 
+    /// A scroll moves content under a still cursor, but the new offset
+    /// lands only at the next layout. A pick now would find the view that
+    /// is leaving, so the pick waits for `after_layout`. A shown tooltip
+    /// belongs to a place that just moved, so it goes at once.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn scrolled() {
+        *SCROLLED.get_mut() = true;
+        Tooltip::hide();
+    }
+
+    /// Runs each frame after layout: re-picks under the cursor after a
+    /// scroll, else only when the hovered view went away.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn after_layout() {
+        if replace(SCROLLED.get_mut(), false) {
+            Self::update(UIManager::cursor_position());
+        } else {
+            Self::refresh_gone();
+        }
+    }
+
     /// The hovered view can die or hide without a cursor event: a
     /// rebuild replaces the rows under a stationary cursor, a key hides
     /// the panel the cursor rests on. Runs after the deleted views drain
@@ -75,7 +99,7 @@ impl Hover {
     /// gone one goes, without waiting for a mouse move, like CSS hover.
     /// A no-op while the hovered view is alive and shown or there is none.
     #[cfg(any(desktop, wasm))]
-    pub(crate) fn refresh_gone() {
+    fn refresh_gone() {
         let old = **HOVERED;
         if !old.was_initialized() || (old.is_ok() && !old.is_hidden_in_tree()) {
             return;

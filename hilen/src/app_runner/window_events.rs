@@ -126,17 +126,18 @@ impl crate::window::WindowEvents for AppRunner {
         // A hidden `VideoView` gets no update, its element is hidden here.
         #[cfg(all(wasm, feature = "video"))]
         crate::video::hide_unplaced();
-        // After layout, so a row that replaced the dead hovered one
-        // already has its frame when hover re-picks.
+        // After layout, so a row that replaced the dead hovered one, or a
+        // row a scroll moved under the cursor, has its frame when hover
+        // re-picks.
         #[cfg(any(desktop, wasm))]
-        Hover::refresh_gone();
+        Hover::after_layout();
         Focus::update();
     }
 
     fn update_window(&mut self) {
         UIDrawer::update();
         #[cfg(any(desktop, wasm))]
-        Hover::refresh_gone();
+        Hover::after_layout();
         Focus::update();
     }
 

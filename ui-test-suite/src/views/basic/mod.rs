@@ -25,6 +25,9 @@ mod hover_front;
 /// Hover re-pick on view removal, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_removal;
+/// Hover re-pick after a scroll, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_scroll;
 /// Hover of a whole subtree, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_within;
@@ -47,6 +50,7 @@ mod switch;
 mod switch_colors;
 mod theme_switch;
 mod tool_button;
+mod tool_button_fill;
 mod tool_button_look;
 mod tool_button_picture;
 /// Hover tooltips need a pointer, the same gate as `hover`.

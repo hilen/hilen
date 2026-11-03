@@ -99,6 +99,17 @@ impl ImageView {
         self
     }
 
+    /// The size the picture takes inside `bounds` with its aspect kept, as
+    /// big as fits. A frame of this size shows the picture with no blank band,
+    /// and its origin is where the picture starts, so a column of pictures
+    /// lines up on its left edge. Zero before a picture is set.
+    pub fn fit_size(&self, bounds: impl Into<Size>) -> Size {
+        if !self.image.is_ok() {
+            return Size::default();
+        }
+        fit_size(self.image.size.into(), bounds.into())
+    }
+
     pub(crate) fn image_frame(&self) -> Rect {
         match self.mode {
             ImageMode::Fill | ImageMode::AspectFill => self.__base_view().draw_frame(),
@@ -164,6 +175,14 @@ impl ImageView {
     }
 }
 
+fn fit_size(image: Size, bounds: Size) -> Size {
+    if image.width <= 0.0 || image.height <= 0.0 || bounds.width <= 0.0 || bounds.height <= 0.0 {
+        return Size::default();
+    }
+    let scale = f32::min(bounds.width / image.width, bounds.height / image.height);
+    Size::new(image.width * scale, image.height * scale)
+}
+
 fn tinted(name: &str, tint: UIColor) -> Weak<Image> {
     Tinted {
         tint: tint.resolve(),
@@ -181,3 +200,39 @@ impl ViewCallbacks for ImageView {
 }
 
 impl Setup for ImageView {}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_size;
+    use crate::gm::flat::Size;
+
+    fn near(size: Size, width: f32, height: f32) -> bool {
+        (size.width - width).abs() < 0.01 && (size.height - height).abs() < 0.01
+    }
+
+    #[test]
+    fn a_wide_picture_takes_the_width() {
+        let size = fit_size(Size::new(1920.0, 1000.0), Size::new(680.0, 320.0));
+        assert!(near(size, 614.4, 320.0), "{size:?}");
+        let size = fit_size(Size::new(1920.0, 600.0), Size::new(680.0, 320.0));
+        assert!(near(size, 680.0, 212.5), "{size:?}");
+    }
+
+    #[test]
+    fn a_tall_picture_takes_the_height() {
+        let size = fit_size(Size::new(400.0, 800.0), Size::new(680.0, 320.0));
+        assert!(near(size, 160.0, 320.0), "{size:?}");
+    }
+
+    #[test]
+    fn nothing_to_fit_is_zero() {
+        assert_eq!(
+            fit_size(Size::new(0.0, 0.0), Size::new(680.0, 320.0)),
+            Size::default()
+        );
+        assert_eq!(
+            fit_size(Size::new(100.0, 50.0), Size::new(0.0, 320.0)),
+            Size::default()
+        );
+    }
+}

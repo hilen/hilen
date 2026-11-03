@@ -6,6 +6,12 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 - An arrow key moves a ring to the nearest view in that direction. Enter taps the view
   under the ring, with a began touch at its middle when the key goes down and the ended
   one when it comes up, so every view that takes a tap works.
+- Tab moves the ring to the next place in reading order, Shift Tab to the one before:
+  lines from the top, and in a line from the left. A place starts a new line when its
+  top is below the middle of the line so far, so a row of buttons of a few heights is
+  1 line. The first Tab only shows the ring, like an arrow. At the end a scroll view
+  the ring is in scrolls on, else the ring goes round to the other end. Tab in an
+  edited text field still goes to the next field. The test is `Key focus tab`.
 - Enter held for half a second is a long press, like a held finger. It fires
   `secondary` on the view under the ring, on a table with the position of the cell, and
   its release is no tap. The repeats of a held key are ignored. `Input::on_key_up`

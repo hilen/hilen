@@ -119,6 +119,13 @@ impl Placer {
         self.fit_text_width().fit_text_height()
     }
 
+    /// Drops the width rule, the width is then the one the owner sets.
+    pub(crate) fn drop_width(&self) -> &Self {
+        self.has().width = false;
+        self.rules().retain(|r| !r.width());
+        self
+    }
+
     pub fn w(&self, w: impl ToF32) -> &Self {
         self.add_size_rule(LayoutRule::make(Anchor::Width, w));
         self

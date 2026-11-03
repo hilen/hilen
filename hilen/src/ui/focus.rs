@@ -301,6 +301,10 @@ impl Focus {
             return Self::go(direction, true);
         }
 
+        if key == NamedKey::Tab {
+            return Self::tab(!Input::modifiers().shift_key());
+        }
+
         if key == NamedKey::Enter {
             return Self::press();
         }
@@ -429,6 +433,67 @@ impl Focus {
             state.pending = Some((direction, PENDING_FRAMES));
         }
 
+        true
+    }
+
+    /// Tab moves the ring to the next place in reading order, Shift Tab to
+    /// the one before. The first key only shows the ring, like an arrow. At
+    /// the end a scroll view the ring is in scrolls on, else the ring goes
+    /// round to the other end.
+    fn tab(forward: bool) -> bool {
+        let all = reading_order(candidates());
+        let state = STATE.get_mut();
+        let current = state
+            .target
+            .and_then(|target| target.view().map(|view| (target, *view.absolute_frame())));
+
+        if take(&mut state.pointer_moved) && current.is_some() {
+            state.shown = true;
+        }
+
+        let Some((target, rect)) = current.filter(|_| state.shown) else {
+            let start = current.map(|(target, rect)| Candidate { target, rect });
+            let first = if forward { all.first() } else { all.last() };
+            let Some(start) = start.or_else(|| first.copied()) else {
+                return false;
+            };
+            state.target = Some(start.target);
+            state.shown = true;
+            reveal(start.rect);
+            Self::place_ring();
+            return true;
+        };
+
+        let Some(at) = all.iter().position(|candidate| candidate.target.same(target)) else {
+            return false;
+        };
+        let next = if forward {
+            all.get(at + 1)
+        } else {
+            at.checked_sub(1).and_then(|index| all.get(index))
+        };
+        if let Some(next) = next {
+            state.target = Some(next.target);
+            reveal(next.rect);
+            Self::place_ring();
+            return true;
+        }
+
+        if scroll_of(rect).is_some() {
+            let direction = if forward {
+                FocusDirection::Down
+            } else {
+                FocusDirection::Up
+            };
+            return Self::go(direction, true);
+        }
+
+        let other_end = if forward { all.first() } else { all.last() };
+        if let Some(next) = other_end {
+            state.target = Some(next.target);
+            reveal(next.rect);
+            Self::place_ring();
+        }
         true
     }
 
@@ -593,6 +658,29 @@ fn candidates() -> Vec<Candidate> {
     }
 
     all
+}
+
+/// The places in the order a reader meets them: lines from the top, and in
+/// a line from the left. A place starts a new line when its top is below the
+/// middle of the line so far, so a row of buttons of a few heights is 1
+/// line.
+fn reading_order(mut all: Vec<Candidate>) -> Vec<Candidate> {
+    all.sort_by(|a, b| a.rect.y().total_cmp(&b.rect.y()).then(a.rect.x().total_cmp(&b.rect.x())));
+    let mut lines: Vec<Vec<Candidate>> = Vec::new();
+    let mut line_middle = f32::MIN;
+    for candidate in all {
+        match lines.last_mut() {
+            Some(line) if candidate.rect.y() < line_middle => line.push(candidate),
+            _ => {
+                line_middle = candidate.rect.y() + candidate.rect.height() / 2.0;
+                lines.push(vec![candidate]);
+            }
+        }
+    }
+    for line in &mut lines {
+        line.sort_by(|a, b| a.rect.x().total_cmp(&b.rect.x()));
+    }
+    lines.into_iter().flatten().collect()
 }
 
 /// The start of a ring with no view: the nearest one to where it was, on

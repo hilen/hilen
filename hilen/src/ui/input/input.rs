@@ -171,11 +171,10 @@ impl Input {
         UIEvents::on_scroll().trigger(offset);
         Self::check_wheel_scroll(offset);
 
-        // Scroll moves content under a still cursor. Re-pick the hovered
-        // view. Frames update on the next layout, so a scroll burst is
-        // one event behind until the cursor moves again.
+        // Scroll moves content under a still cursor. The hovered view is
+        // picked again after the next layout, when the frames have moved.
         #[cfg(any(desktop, wasm))]
-        Hover::update(UIManager::cursor_position());
+        Hover::scrolled();
     }
 
     /// Offers a touch to the views of the top touch layer, the front one

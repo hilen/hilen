@@ -26,6 +26,16 @@ const HOVER: DynamicColor = DynamicColor::new(Color::hex("#ECECF0"), Color::hex(
 const PRESSED: DynamicColor = DynamicColor::new(Color::hex("#D6D6DD"), Color::hex("#46464C"));
 const ON: DynamicColor = DynamicColor::new(Color::hex("#E1ECFF"), Color::hex("#1F3352"));
 
+/// How wide a `ToolButton` is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Width {
+    /// As wide as its icon and text.
+    #[default]
+    Fit,
+    /// The width its owner gives it.
+    Fill,
+}
+
 const PADDING: f32 = 10.0;
 const GAP: f32 = 6.0;
 const ICON_SIZE: f32 = 16.0;
@@ -52,6 +62,9 @@ pub struct ToolButton {
     enabled: bool,
     on:      bool,
     pressed: bool,
+    /// Fits its icon and text, or takes the width its owner gives it, see
+    /// `set_fills_width`.
+    width:   Width,
 
     tint:    Option<UIColor>,
     on_tint: Option<UIColor>,
@@ -159,6 +172,19 @@ impl ToolButton {
     pub fn set_on_tint(&self, tint: impl Into<UIColor>) -> &Self {
         weak_from_ref(self).on_tint = Some(tint.into());
         self.refresh();
+        self
+    }
+
+    /// A button that takes the width its owner gives it, like a row of a
+    /// menu, with its icon and text at the left. Its fill, hover and on look
+    /// cover the whole row. Off by default, the button is as wide as its
+    /// icon and text.
+    pub fn set_fills_width(&self, fills: bool) -> &Self {
+        weak_from_ref(self).width = if fills { Width::Fill } else { Width::Fit };
+        if fills {
+            self.place().drop_width();
+        }
+        self.relayout();
         self
     }
 
@@ -272,7 +298,9 @@ impl ToolButton {
         let (icon, gap, text) = self.parts();
         self.icon.place().clear().l(PADDING).center_y().size(ICON_SIZE, ICON_SIZE);
         self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
-        self.place().w(self.fit_width());
+        if self.width == Width::Fit {
+            self.place().w(self.fit_width());
+        }
     }
 
     fn touched(&self, touch: Touch) {
