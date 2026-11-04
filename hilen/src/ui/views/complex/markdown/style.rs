@@ -71,6 +71,12 @@ pub struct MarkdownStyle {
     pub deleted:           UIColor,
     /// The fonts, the ones the engine brings when not set.
     pub fonts:             Option<MarkdownFonts>,
+    /// How much bigger a formula is than the size that matches the x
+    /// height of the text, 1 by default.
+    pub math_scale:        f32,
+    /// The stem darkening of the math font, for formulas with a little
+    /// more ink, see `Font::math_darkened`. 0 by default.
+    pub math_darkening:    f32,
 }
 
 /// How the markers of a list stand, the bullets, the numbers and the
@@ -149,6 +155,8 @@ impl MarkdownStyle {
         inserted:          dynamic("#16a34a", "#22c55e"),
         deleted:           dynamic("#dc2626", "#ef4444"),
         fonts:             None,
+        math_scale:        1.0,
+        math_darkening:    0.0,
     };
 
     pub fn apply_globally(self) {

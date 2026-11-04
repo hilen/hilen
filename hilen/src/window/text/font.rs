@@ -293,6 +293,7 @@ impl Font {
             grid:        shaping.grid,
             box_chars:   BoxChars::Glyphs,
             break_words: shaping.break_words,
+            rooms:       shaping.rooms,
         }
     }
 
@@ -334,7 +335,8 @@ impl Font {
         // A run in another font draws its glyphs with that font, so the
         // glyph bounds of this font leave them out, see below. A run in
         // this font measures like the plain text.
-        let has_runs = shaping.runs.iter().any(|run| run.font.name != self.name);
+        // A room has no glyph at all, so it is left out of the bounds too.
+        let has_runs = shaping.runs.iter().any(|run| run.font.name != self.name) || !shaping.rooms.is_empty();
         let px_scale = size.to_f32() * self.em_scale;
         let section = Section::new()
             .add_text(Text::new(text).with_scale(px_scale))
@@ -615,6 +617,29 @@ impl Font {
         Self::bundled("RobotoMono-700", include_bytes!("fonts/RobotoMono.ttf"), 700.0)
     }
 
+    /// Latin Modern Math, the font of LaTeX documents, with the MATH
+    /// table that lays out formulas. What `MathView` draws with.
+    #[cfg(feature = "math")]
+    pub fn math() -> Weak<Font> {
+        Self::math_darkened(0.0)
+    }
+
+    /// [`Font::math`] with its stem darkening, the way
+    /// [`Font::with_variations_darkened`] makes it, for formulas with a
+    /// little more ink. Keep it at or under 0.5.
+    #[cfg(feature = "math")]
+    pub fn math_darkened(darkening: f32) -> Weak<Font> {
+        let name = if darkening > 0.0 {
+            format!("LatinModernMath-darkened-{darkening}")
+        } else {
+            "LatinModernMath".to_string()
+        };
+        Self::store_with_name(&name, || {
+            Self::from_static(&name, MATH_FONT_DATA, 0, &[], darkening)
+        })
+        .expect("Failed to load the math font")
+    }
+
     #[cfg(any(
         feature = "font-roboto",
         feature = "font-roboto-italic",
@@ -684,6 +709,11 @@ managed!(Font);
 
 #[cfg(feature = "font-roboto")]
 static ROBOTO_REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+
+/// Latin Modern Math by GUST, under the GUST Font License, see
+/// `fonts/LatinModernMath-LICENSE.txt`.
+#[cfg(feature = "math")]
+pub(crate) static MATH_FONT_DATA: &[u8] = include_bytes!("fonts/LatinModernMath.otf");
 
 static BUILTIN_DATA: OnceLock<&'static [u8]> = OnceLock::new();
 

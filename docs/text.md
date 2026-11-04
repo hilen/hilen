@@ -103,6 +103,11 @@ built in font is `Font::roboto()` itself, never a second copy of the file under
 another name, so a run in `Font::roboto()` on a default label stays in the label
 font, `Label font runs` pins it.
 
+The `math` feature, off by default, brings a 5th file, Latin Modern Math, the font of
+LaTeX documents, 730 KB, under the GUST Font License next to it in `fonts/`.
+`Font::math()` hands it out, `Font::math_darkened(strength)` a copy with stem
+darkening, see Math below.
+
 ## Letter spacing
 
 `Label::set_letter_spacing(points)` adds tracking between glyphs, applied by
@@ -330,6 +335,15 @@ that is bold as a whole. It was measured as nothing and its label got no room.
 `Font::measure` takes the width from the lines of the layout then. `Markdown bold
 item` pins it.
 
+`RunStyle::room(width)` draws its range as nothing, 1 piece `width` points wide
+that never breaks, for a view the owner places over it. `RunStyle::glyph(id, width)`
+draws 1 glyph of the label font there, picked by its id, for a glyph no char maps to,
+like a bigger variant of a bracket in a math font. `ShapedLayout::make_rooms` turns
+the glyphs of the range into 1 glyph of that width at its first byte, the way a tab
+becomes a wide space, so the wrap, the measure and `text_layout_for` all see 1
+piece. A room has no ink, so a label with one takes its width from the lines of the
+layout, like a run in another font. Markdown puts an inline formula in a room.
+
 ## Markdown
 
 `MarkdownView` draws GitHub flavored markdown as blocks, one under the other:
@@ -432,9 +446,52 @@ in `hilen/src/ui/views/complex/markdown`.
 - `set_selectable(true)` makes the text selectable, one selection over all blocks,
   see [text-selection.md](text-selection.md).
 
-Images, raw HTML, footnotes and math are shown as their text. `Markdown view test`
+Images, raw HTML and footnotes are shown as their text, and so is math without the
+`math` feature, see Math below. `Markdown view test`
 pins the look, a tap on a link and the height at 2 widths. `Markdown spacing` shows
 the same text with the default style and with all 3 spacing values set.
+
+## Math
+
+With the `math` feature `MarkdownView` draws LaTeX math with Latin Modern Math, the
+way a LaTeX document does: `$...$` inside a line and `$$...$$` as a block of its own,
+centered in the column. A display formula in a heading or a table cell stays in the
+line. A formula that does not parse is shown as inline code with its `$` signs. The
+code is in `hilen/src/ui/views/complex/math`.
+
+- `parse.rs` reads the LaTeX people write in a chat: scripts and primes, `\frac` and
+  its kin, `\binom`, `\sqrt` with an index, `\left` and `\right`, `\big` and its
+  kin, the large operators and the functions like `\lim`, accents and wide accents,
+  `\overline`, `\underbrace`, `\overset`, `\text`, `\operatorname`, the math
+  alphabets like `\mathbb` and `\mathcal`, spaces, `\not`, and the environments
+  `matrix`, `pmatrix` and its kin, `cases` and `aligned`. `symbols.rs` maps a command
+  to its char and its TeX class. Any other command is an error.
+- `layout.rs` sets the tree the way TeX does, in the 4 styles of TeX with the space
+  table between the classes of atoms. Every shift, gap and bar width comes from the
+  MATH table of the font, read with `ttf_parser`. A bracket, a root sign and a large
+  operator in a display take the first variant of the font that is big enough, or
+  are built from the parts of its glyph assembly. The result is glyphs with their
+  places and rules, in points with y up from the baseline.
+- `MathView` draws that result: every glyph as a `Label` in the math font, a
+  variant by its id through `RunStyle::glyph`, every rule as a `Container`. A
+  glyph is centered both ways in a frame far bigger than it, a label cuts ink that
+  leaves its frame on the side its text starts from. A rule is at least 1 device
+  pixel thick, thinner it covers no pixel center on some rows and a draw with 1
+  sample, like WebGL, leaves the bar of a fraction out. Glyphs went through the
+  text brush and not through `DrawingView` paths for the same reason, a path with
+  1 sample lost the thin strokes of a big sum sign.
+- An inline formula is its LaTeX source in `$` signs in the text of its label, with
+  a room run as wide as the formula. After the layout `place_maths` puts a
+  `MathView` over every room, its baseline on the baseline of the line. So a copy of
+  a selection gives the source.
+- A formula is as big as the text when the x heights of the 2 fonts match, at most
+  1.3 times the text size. `math_scale` of `MarkdownStyle` makes it bigger from
+  there, `math_darkening` gives the math font stem darkening, see Matching other
+  renderers above. A display formula wider than its column shrinks to fit, to 60
+  percent at most. A formula takes the color of the text around it.
+
+`Markdown math` pins the placement of inline and display formulas and the broken
+one, `Markdown math style` the 2 style values.
 
 ## Selectable text
 

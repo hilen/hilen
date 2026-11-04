@@ -21,6 +21,8 @@ pub(crate) enum Block {
         rows: Vec<Vec<Styled>>,
     },
     Rule,
+    /// A display formula, its LaTeX source with no `$$` around it.
+    Math(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,9 +74,19 @@ pub(crate) struct Span {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Style {
     pub face:   Face,
-    pub code:   bool,
+    pub kind:   Kind,
     pub strike: bool,
     pub link:   bool,
+}
+
+/// What a piece of text is, beyond its look.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Kind {
+    #[default]
+    Text,
+    Code,
+    /// An inline formula, its text is the LaTeX source in `$` signs.
+    Math,
 }
 
 /// The weight and the slant of a piece of text.

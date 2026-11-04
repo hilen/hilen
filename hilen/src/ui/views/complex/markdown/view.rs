@@ -3,6 +3,11 @@ use std::{mem::take, ops::Range};
 use log::{info, warn};
 use ui_proc::view;
 
+#[cfg(feature = "math")]
+use crate::ui::{
+    MathView,
+    views::complex::math::{self, MathBox},
+};
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::{
@@ -17,7 +22,7 @@ use crate::{
         ViewCallbacks, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
-            model::{Block, Item, Marker, Styled},
+            model::{Block, Item, Kind, Marker, Styled},
             parse::{COPY_ROOM, parse_lines},
             selection::marker_text,
         },
@@ -42,6 +47,16 @@ const UNBOUND: f32 = 100_000.0;
 const CODE_BUTTON: f32 = 16.0;
 /// How much of the room after a link its copy icon fills.
 const ICON_SHARE: f32 = 0.8;
+/// The most a formula grows to match the x height of the text.
+#[cfg(feature = "math")]
+const MAX_MATH_GROWTH: f32 = 1.3;
+/// A display formula wider than its column shrinks to fit, but not
+/// below this share of its size, a tiny formula cannot be read.
+#[cfg(feature = "math")]
+const MIN_MATH_SHARE: f32 = 0.6;
+/// The room above and below a display formula, in body text sizes.
+#[cfg(feature = "math")]
+const DISPLAY_PAD: f32 = 0.3;
 
 /// A markdown text drawn as blocks, one under the other: paragraphs,
 /// headings, lists with tasks, quotes, code with colors, tables and
@@ -73,6 +88,10 @@ pub struct MarkdownView {
     /// The links of the running layout that get a copy icon: the label,
     /// the byte of the room after the link and the address.
     pending_copies:  Vec<(Weak<Label>, usize, String)>,
+    /// The inline formulas of the running layout: the label, the byte
+    /// their room starts at, the LaTeX source, the size in points and
+    /// the color of the text around it.
+    pending_maths:   Vec<(Weak<Label>, usize, String, f32, UIColor)>,
 
     pub(super) blocks: Vec<Block>,
     /// The label of every text in reading order, made by the last layout.
@@ -250,6 +269,42 @@ impl MarkdownView {
         self.blocks = blocks;
         self.height = y;
         self.place_copy_buttons(&style);
+        self.place_maths();
+    }
+
+    /// The view of every inline formula of this layout, over the room
+    /// its label keeps for it, with its baseline on the baseline of the
+    /// line. The labels have their frames by now.
+    #[cfg_attr(not(feature = "math"), allow(clippy::unused_self, unused_mut))]
+    fn place_maths(mut self: Weak<Self>) {
+        #[cfg(feature = "math")]
+        for (label, start, source, size, color) in take(&mut self.pending_maths) {
+            let layout = label.text_layout_for(label.text());
+            let Some(line) = (0..layout.line_count()).find(|line| layout.line_range(*line).contains(&start))
+            else {
+                continue;
+            };
+            let Some(laid) = math_box(&source, size, false) else {
+                continue;
+            };
+            // From the top of a line to its baseline, see
+            // `ShapedLayout::place`.
+            let rise = match label.line_height() {
+                Some(height) => (height - (layout.ascent - layout.descent)) / 2.0 + layout.ascent,
+                None => layout.ascent,
+            };
+            let top: f32 = line.lossy_convert();
+            let frame = *label.frame();
+            let x = frame.origin.x + label.text_inset() + layout.x_on_line(line, start);
+            let y = frame.origin.y + top * layout.line_height + rise - laid.ascent;
+            let view = self.add_view::<MathView>();
+            view.set_color(color);
+            view.set_font(crate::window::Font::math_darkened(
+                MarkdownStyle::current().math_darkening,
+            ));
+            let size = view.set_box(laid);
+            view.set_frame((x, y, size.width, size.height));
+        }
     }
 
     /// The copy icon of every link of this layout, over the room the
@@ -329,6 +384,7 @@ impl MarkdownView {
             Block::Quote(blocks) => self.quote(style, blocks, column, y),
             Block::List(items) => self.list(style, items, column, y),
             Block::Table { head, rows } => self.table(style, head, rows, column, y),
+            Block::Math(source) => self.display_math(style, source, column, y),
             Block::Rule => {
                 self.line(
                     style,
@@ -385,33 +441,12 @@ impl MarkdownView {
         label.set_font(if heading { fonts.bold } else { fonts.regular });
         label.set_text(&text.text);
         label.set_text_color(color);
-        label.set_font_runs(text.spans.iter().filter_map(|span| {
-            let run = span.style;
-            let bold = heading || run.face.is_bold();
-            let font = match (run.code, bold, run.face.is_italic()) {
-                (true, true, _) => Some(fonts.mono_bold),
-                (true, false, _) => Some(fonts.mono),
-                (false, true, true) => Some(fonts.bold_italic),
-                (false, false, true) => Some(fonts.italic),
-                // The font of a heading is bold already.
-                (false, true, false) => (!heading).then_some(fonts.bold),
-                (false, false, false) => None,
-            };
-            (font.is_some() || run.link || run.strike).then(|| {
-                (
-                    span.range.clone(),
-                    RunStyle {
-                        font,
-                        underline: run.link,
-                        strikethrough: run.strike,
-                    },
-                )
-            })
-        }));
+        let rooms = self.math_rooms(style, text, size, label, color);
+        label.set_font_runs(text_runs(style, text, heading).into_iter().chain(rooms));
         label.set_color_runs(text.spans.iter().filter_map(|span| {
             let color = if span.style.link {
                 style.link
-            } else if span.style.code {
+            } else if span.style.kind == Kind::Code {
                 style.inline_code
             } else {
                 return None;
@@ -421,7 +456,7 @@ impl MarkdownView {
         let codes: Vec<Range<usize>> = if self.copy_buttons {
             text.spans
                 .iter()
-                .filter(|span| span.style.code && !span.style.link)
+                .filter(|span| span.style.kind == Kind::Code && !span.style.link)
                 .map(|span| span.range.clone())
                 .collect()
         } else {
@@ -461,6 +496,29 @@ impl MarkdownView {
         }
         self.note_text(label);
         label
+    }
+
+    /// The room of every inline formula of `text`, as wide as the formula
+    /// is. The views of them are placed by `place_maths`.
+    fn math_rooms(
+        mut self: Weak<Self>,
+        style: &MarkdownStyle,
+        text: &Styled,
+        size: f32,
+        label: Weak<Label>,
+        color: UIColor,
+    ) -> Vec<(Range<usize>, RunStyle)> {
+        let size = math_size(style, size);
+        text.spans
+            .iter()
+            .filter(|span| span.style.kind == Kind::Math)
+            .filter_map(|span| {
+                let source = text.text[span.range.clone()].trim_matches('$').to_string();
+                let width = math_width(&source, size)?;
+                self.pending_maths.push((label, span.range.start, source, size, color));
+                Some((span.range.clone(), RunStyle::room(width)))
+            })
+            .collect()
     }
 
     fn code(
@@ -719,11 +777,117 @@ impl MarkdownView {
         frame.set_frame((left, top, total, *y - top));
     }
 
+    /// A display formula centered in the column, made smaller when it is
+    /// wider than the column.
+    #[cfg(feature = "math")]
+    fn display_math(self: Weak<Self>, style: &MarkdownStyle, source: &str, column: Column, y: &mut f32) {
+        let room = (column.width - column.margin * 2.0).max(MIN_WIDTH);
+        let mut size = math_size(style, style.text_size);
+        let Some(mut laid) = math_box(source, size, true) else {
+            return;
+        };
+        if laid.width > room {
+            size *= (room / laid.width).max(MIN_MATH_SHARE);
+            if let Some(smaller) = math_box(source, size, true) {
+                laid = smaller;
+            }
+        }
+        let pad = (style.text_size * DISPLAY_PAD).round();
+        let view = self.add_view::<MathView>();
+        view.set_color(column.color);
+        view.set_font(crate::window::Font::math_darkened(style.math_darkening));
+        let laid_size = view.set_box(laid);
+        let x = column.x + column.margin + ((room - laid_size.width) / 2.0).max(0.0);
+        view.set_frame((x, *y + pad, laid_size.width, laid_size.height));
+        *y += laid_size.height + pad * 2.0;
+    }
+
+    /// Not reached, the parser makes no formula without the feature.
+    #[cfg(not(feature = "math"))]
+    #[allow(clippy::unused_self)]
+    fn display_math(self: Weak<Self>, _style: &MarkdownStyle, _source: &str, _column: Column, _y: &mut f32) {}
+
     fn line(self: Weak<Self>, style: &MarkdownStyle, x: f32, y: f32, width: f32, height: f32) {
         let line = self.add_view::<Container>();
         line.set_color(style.line);
         line.set_frame((x, y, width, height));
     }
+}
+
+/// The font of every bold, italic, code, struck and link range of a
+/// text. A formula has a room of its own, see `math_rooms`.
+fn text_runs(style: &MarkdownStyle, text: &Styled, heading: bool) -> Vec<(Range<usize>, RunStyle)> {
+    let fonts = style.fonts();
+    text.spans
+        .iter()
+        .filter(|span| span.style.kind != Kind::Math)
+        .filter_map(|span| {
+            let run = span.style;
+            let bold = heading || run.face.is_bold();
+            let font = match (run.kind == Kind::Code, bold, run.face.is_italic()) {
+                (true, true, _) => Some(fonts.mono_bold),
+                (true, false, _) => Some(fonts.mono),
+                (false, true, true) => Some(fonts.bold_italic),
+                (false, false, true) => Some(fonts.italic),
+                // The font of a heading is bold already.
+                (false, true, false) => (!heading).then_some(fonts.bold),
+                (false, false, false) => None,
+            };
+            (font.is_some() || run.link || run.strike).then(|| {
+                (
+                    span.range.clone(),
+                    RunStyle {
+                        font,
+                        underline: run.link,
+                        strikethrough: run.strike,
+                        room: None,
+                        glyph: None,
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+/// How big a formula is next to text of `size` points. Latin Modern
+/// Math has a small x height, so the math is made bigger until its
+/// lowercase letters are as tall as the ones of the body font.
+#[cfg(feature = "math")]
+fn math_size(style: &MarkdownStyle, size: f32) -> f32 {
+    let x_height = |font: Weak<crate::window::Font>| {
+        let face = font.face();
+        face.x_height()
+            .map(|height| f32::from(height) / face.units_per_em().lossy_convert())
+    };
+    let ratio = match (
+        x_height(style.fonts().regular),
+        x_height(crate::window::Font::math()),
+    ) {
+        (Some(text), Some(math)) if math > 0.0 => (text / math).clamp(1.0, MAX_MATH_GROWTH),
+        _ => 1.0,
+    };
+    size * ratio * style.math_scale
+}
+
+#[cfg(not(feature = "math"))]
+fn math_size(_style: &MarkdownStyle, size: f32) -> f32 {
+    size
+}
+
+#[cfg(feature = "math")]
+fn math_box(source: &str, size: f32, display: bool) -> Option<MathBox> {
+    let nodes = math::parse(source).ok()?;
+    math::lay_out(&nodes, size, display).ok()
+}
+
+#[cfg(feature = "math")]
+fn math_width(source: &str, size: f32) -> Option<f32> {
+    math_box(source, size, false).map(|laid| laid.width)
+}
+
+#[cfg(not(feature = "math"))]
+fn math_width(_source: &str, _size: f32) -> Option<f32> {
+    None
 }
 
 /// The range of text drawn at a point of a label, and the rect of its

@@ -110,7 +110,8 @@ fn flatten(blocks: &[Block], between: Lead, next: &mut Lead, out: &mut Vec<(Stri
                     }
                 }
             }
-            Block::Rule => {}
+            // A display formula has no label, so a selection skips it.
+            Block::Rule | Block::Math(_) => {}
         }
     }
 }

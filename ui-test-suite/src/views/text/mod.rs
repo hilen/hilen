@@ -46,6 +46,8 @@ mod markdown_copy_buttons;
 mod markdown_heading_sizes;
 mod markdown_inline_markers;
 mod markdown_line_breaks;
+mod markdown_math;
+mod markdown_math_style;
 mod markdown_one_layout;
 mod markdown_plain_height;
 mod markdown_selection;

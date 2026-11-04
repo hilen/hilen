@@ -20,7 +20,7 @@ use crate::{
         Label, TextAlignment, UIManager, VerticalAlignment, ViewFrame,
         ui_drawer::{IMAGE_RECT_DRAWER, UIDrawer},
     },
-    window::{BOX_LAYERS, BoxChars, Font, ShapedLayout, ShapedParams, VerticalAlign, is_box_char},
+    window::{BOX_LAYERS, BoxChars, Font, Room, ShapedLayout, ShapedParams, VerticalAlign, is_box_char},
 };
 
 /// How much nearer each layer of an outlined text sits than the one before,
@@ -84,6 +84,14 @@ impl UIDrawer {
             grid:        label.cell_width().map(|width| width * scale),
             box_chars:   label.box_chars(),
             break_words: label.breaks_long_words(),
+            rooms:       label
+                .room_runs(text)
+                .into_iter()
+                .map(|room| Room {
+                    width: room.width * scale,
+                    ..room
+                })
+                .collect(),
         }
     }
 

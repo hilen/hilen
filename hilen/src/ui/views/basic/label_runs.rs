@@ -4,7 +4,7 @@ use crate::{
     deps::refs::{Weak, weak_from_ref},
     gm::color::Color,
     ui::Label,
-    window::{Font, FontRun, runs_with_fallbacks},
+    window::{Font, FontRun, Room, runs_with_fallbacks},
 };
 
 /// The look of one byte range of a label's text beyond its color. A
@@ -14,6 +14,14 @@ pub struct RunStyle {
     pub font:          Option<Weak<Font>>,
     pub underline:     bool,
     pub strikethrough: bool,
+    /// The range draws as nothing and takes this many points, 1 piece
+    /// that never breaks, for a view the owner places over it, like an
+    /// inline formula. `Label::text_layout_for` says where it is.
+    pub room:          Option<f32>,
+    /// With `room`, the range draws this glyph of the label font in the
+    /// room, picked by its id. For a glyph no char maps to, like a bigger
+    /// variant of a bracket in a math font.
+    pub glyph:         Option<u16>,
 }
 
 impl RunStyle {
@@ -34,6 +42,24 @@ impl RunStyle {
     pub fn strikethrough() -> Self {
         Self {
             strikethrough: true,
+            ..Self::default()
+        }
+    }
+
+    /// Empty room `width` points wide in place of the text of the range.
+    pub fn room(width: f32) -> Self {
+        Self {
+            room: Some(width),
+            ..Self::default()
+        }
+    }
+
+    /// The glyph `id` of the label font, `width` points wide, in place of
+    /// the text of the range.
+    pub fn glyph(id: u16, width: f32) -> Self {
+        Self {
+            room: Some(width),
+            glyph: Some(id),
             ..Self::default()
         }
     }
@@ -129,6 +155,22 @@ impl Label {
             })
             .collect();
         runs_with_fallbacks(text, self.font(), explicit)
+    }
+
+    /// The ranges drawn as empty room, clamped like `shaping_runs`.
+    pub(crate) fn room_runs(&self, text: &str) -> Vec<Room> {
+        self.font_runs
+            .iter()
+            .filter_map(|run| {
+                let width = run.style.room?;
+                let range = Self::clamp_to(text, &run.range);
+                (range.start < range.end).then_some(Room {
+                    range,
+                    width,
+                    glyph: run.style.glyph,
+                })
+            })
+            .collect()
     }
 
     /// Whether any font this label may draw with has color glyphs, the

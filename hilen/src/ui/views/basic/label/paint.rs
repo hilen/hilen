@@ -49,6 +49,9 @@ impl Label {
             if let Some(font) = &run.style.font {
                 key.hash(&font.name);
             }
+            if let Some(width) = run.style.room {
+                key.hash(&width.to_bits()).hash(&run.style.glyph);
+            }
         }
     }
 }

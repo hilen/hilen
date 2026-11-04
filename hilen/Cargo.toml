@@ -25,6 +25,9 @@ default = ["checks", "font-roboto", "font-roboto-italic", "font-roboto-mono"]
 font-roboto = []
 font-roboto-italic = []
 font-roboto-mono = []
+# LaTeX math in `MarkdownView` and `MathView`, drawn with Latin Modern Math,
+# a 730 KB font file. Without it a formula shows as its text.
+math = []
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
 # The frame record packs its frames as QOI, which the browser build leaves out

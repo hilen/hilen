@@ -3,7 +3,7 @@ use std::mem::take;
 use linkify::{LinkFinder, LinkKind};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
-use super::model::{Block, Face, Item, Link, Marker, Span, Style, Styled};
+use super::model::{Block, Face, Item, Kind, Link, Marker, Span, Style, Styled};
 use crate::system::is_safe_link;
 
 /// Stands right after every link when the view shows copy buttons, the
@@ -22,6 +22,8 @@ pub(crate) fn parse(text: &str) -> Vec<Block> {
 /// `COPY_ROOM` follows every link.
 pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool, copy_rooms: bool) -> Vec<Block> {
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    #[cfg(feature = "math")]
+    let options = options | Options::ENABLE_MATH;
     let mut builder = Builder {
         copy_rooms,
         soft_break: if keeps_line_breaks { "\n" } else { " " },
@@ -108,7 +110,9 @@ impl Builder {
                     *marker = Marker::Task(done);
                 }
             }
-            Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {}
+            Event::InlineMath(source) => self.math(&source, false),
+            Event::DisplayMath(source) => self.math(&source, true),
+            Event::FootnoteReference(_) => {}
         }
     }
 
@@ -282,6 +286,37 @@ impl Builder {
         }
     }
 
+    /// A formula. A display one in a paragraph, a list item or a quote
+    /// gets its own block, in a heading or a table cell it stays in the
+    /// line. A formula that does not parse is shown as code.
+    fn math(&mut self, source: &str, display: bool) {
+        let marks = if display { "$$" } else { "$" };
+        if !formula_parses(source) {
+            self.text(&format!("{marks}{source}{marks}"), true);
+            return;
+        }
+        if display && self.heading.is_none() && self.table.is_none() {
+            self.flush();
+            self.push(Block::Math(source.trim().to_string()));
+            return;
+        }
+        // A line break inside it would split the room the formula is
+        // drawn over.
+        let source: String = source.split_whitespace().collect::<Vec<_>>().join(" ");
+        let style = Style {
+            face: Face::new(self.depth.bold > 0, self.depth.italic > 0),
+            kind: Kind::Math,
+            ..Style::default()
+        };
+        let styled = self.inline.get_or_insert_with(Styled::default);
+        let start = styled.text.len();
+        styled.text.push_str(&format!("${source}$"));
+        styled.spans.push(Span {
+            range: start..styled.text.len(),
+            style,
+        });
+    }
+
     fn copy_room(&mut self) {
         if self.copy_rooms {
             self.push_text(COPY_ROOM.encode_utf8(&mut [0; 4]), false, false);
@@ -290,10 +325,10 @@ impl Builder {
 
     fn push_text(&mut self, text: &str, code: bool, url: bool) {
         let style = Style {
-            face: Face::new(self.depth.bold > 0, self.depth.italic > 0),
-            code,
+            face:   Face::new(self.depth.bold > 0, self.depth.italic > 0),
+            kind:   if code { Kind::Code } else { Kind::Text },
             strike: self.depth.strike > 0,
-            link: url || self.depth.link > 0,
+            link:   url || self.depth.link > 0,
         };
         let styled = self.inline.get_or_insert_with(Styled::default);
         let start = styled.text.len();
@@ -335,10 +370,20 @@ impl Builder {
     }
 }
 
+#[cfg(feature = "math")]
+fn formula_parses(source: &str) -> bool {
+    crate::ui::views::complex::math::parse(source).is_ok()
+}
+
+#[cfg(not(feature = "math"))]
+fn formula_parses(_source: &str) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::{COPY_ROOM, parse, parse_lines};
-    use crate::ui::views::complex::markdown::model::{Block, Face, Marker, Style};
+    use crate::ui::views::complex::markdown::model::{Block, Face, Kind, Marker, Style};
 
     #[test]
     fn inline_marks_become_spans_and_leave_the_text() {
@@ -363,7 +408,13 @@ mod tests {
                         ..plain
                     }
                 ),
-                ("code", Style { code: true, ..plain }),
+                (
+                    "code",
+                    Style {
+                        kind: Kind::Code,
+                        ..plain
+                    }
+                ),
                 (
                     "gone",
                     Style {
@@ -506,6 +557,30 @@ mod tests {
             panic!("2 paragraphs expected");
         };
         assert_eq!(kept.text, "one\ntwo");
+    }
+
+    #[cfg(feature = "math")]
+    #[test]
+    fn a_formula_is_inline_or_a_block_and_a_broken_one_is_code() {
+        let blocks = parse("so $x^{3}$ grows\n\n$$\\frac{a}{b}$$\n\nand $\\frac{a}$ breaks");
+        let [
+            Block::Paragraph(inline),
+            Block::Math(display),
+            Block::Paragraph(broken),
+        ] = &blocks[..]
+        else {
+            panic!("a paragraph, a formula and a paragraph expected, got {blocks:#?}");
+        };
+        assert_eq!(inline.text, "so $x^{3}$ grows");
+        let math: Vec<&str> = inline
+            .spans
+            .iter()
+            .filter(|span| span.style.kind == Kind::Math)
+            .map(|span| &inline.text[span.range.clone()])
+            .collect();
+        assert_eq!(math, ["$x^{3}$"]);
+        assert_eq!(display, "\\frac{a}{b}");
+        assert!(broken.spans.iter().any(|span| span.style.kind == Kind::Code));
     }
 
     #[test]

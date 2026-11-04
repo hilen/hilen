@@ -240,6 +240,7 @@ impl Label {
             secret:      self.secret,
             grid:        self.cell_width(),
             break_words: self.breaks_long_words(),
+            rooms:       self.room_runs(text),
         }
     }
 

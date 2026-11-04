@@ -34,6 +34,20 @@ pub(crate) struct FontRun {
     pub font:  Weak<Font>,
 }
 
+/// A byte range of the text drawn as 1 piece that never breaks: empty
+/// room for a view placed over it, like an inline formula, or 1 glyph of
+/// the base font picked by its id, a glyph no char maps to, like the
+/// bigger variants of a bracket in a math font.
+#[derive(Clone, PartialEq)]
+pub(crate) struct Room {
+    pub range: Range<usize>,
+    /// In the unit of the rest of the layout, points in `Shaping` and
+    /// pixels in `ShapedParams`.
+    pub width: f32,
+    /// The glyph drawn there, `None` for empty room.
+    pub glyph: Option<u16>,
+}
+
 /// How a label shapes a text, what `Font::measure` and `Font::text_layout`
 /// need next to the text, its size and its wrap width.
 #[derive(Clone, Default)]
@@ -52,6 +66,8 @@ pub(crate) struct Shaping {
     pub grid:        Option<f32>,
     /// A word too long for its line breaks, see `ShapedParams::break_words`.
     pub break_words: bool,
+    /// Sorted, not overlapping, on char boundaries, see `Room`.
+    pub rooms:       Vec<Room>,
 }
 
 /// Per label shaping parameters, collected where the label is drawn.
@@ -84,6 +100,8 @@ pub(crate) struct ShapedParams {
     /// A word wider than the line breaks at the cluster that overflows,
     /// see `Label::set_breaks_long_words`.
     pub break_words: bool,
+    /// Sorted, not overlapping, on char boundaries, see `Room`.
+    pub rooms:       Vec<Room>,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -115,6 +133,11 @@ impl Hash for ShapedLayout<'_> {
         for run in &self.params.runs {
             run.range.hash(state);
             run.font.name.hash(state);
+        }
+        for room in &self.params.rooms {
+            room.range.hash(state);
+            room.width.to_bits().hash(state);
+            room.glyph.hash(state);
         }
     }
 }
@@ -283,7 +306,48 @@ impl ShapedLayout<'_> {
             glyphs.extend(self.shape_segment(&text[cursor..range.end], cursor, 0, &sources[0]));
         }
 
-        glyphs
+        self.make_rooms(glyphs, &range, sources)
+    }
+
+    /// Every room on the line becomes 1 glyph of its width at the first
+    /// byte of its range, a space or the glyph it names. Its own glyphs go,
+    /// so the line breaks around it and never inside it.
+    fn make_rooms(
+        &self,
+        glyphs: Vec<ShapedGlyph>,
+        line: &Range<usize>,
+        sources: &[Source],
+    ) -> Vec<ShapedGlyph> {
+        let rooms: Vec<&Room> = self
+            .params
+            .rooms
+            .iter()
+            .filter(|room| room.range.start >= line.start && room.range.start < line.end)
+            .collect();
+        if rooms.is_empty() {
+            return glyphs;
+        }
+        let space = sources[0].space.map_or(0, |space| space.id);
+        let mut result = Vec::with_capacity(glyphs.len());
+        let mut placed = vec![false; rooms.len()];
+        for glyph in glyphs {
+            let Some(index) = rooms.iter().position(|room| room.range.contains(&glyph.cluster)) else {
+                result.push(glyph);
+                continue;
+            };
+            if !placed[index] {
+                placed[index] = true;
+                result.push(ShapedGlyph {
+                    id:        rooms[index].glyph.unwrap_or(space),
+                    cluster:   rooms[index].range.start,
+                    source:    0,
+                    x_advance: rooms[index].width,
+                    x_offset:  0.0,
+                    y_offset:  0.0,
+                });
+            }
+        }
+        result
     }
 
     /// Greedy wrap at the Unicode line break opportunities of the line,

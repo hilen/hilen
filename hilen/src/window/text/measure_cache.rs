@@ -23,6 +23,7 @@ pub(crate) struct MeasureKey {
     pub grid:        Option<u32>,
     pub break_words: bool,
     pub runs:        Vec<(String, usize, usize)>,
+    pub rooms:       Vec<(usize, usize, u32, Option<u16>)>,
 }
 
 impl MeasureKey {
@@ -46,6 +47,11 @@ impl MeasureKey {
                 .runs
                 .iter()
                 .map(|run| (run.font.name.clone(), run.range.start, run.range.end))
+                .collect(),
+            rooms:       shaping
+                .rooms
+                .iter()
+                .map(|room| (room.range.start, room.range.end, room.width.to_bits(), room.glyph))
                 .collect(),
         })
     }
@@ -117,6 +123,7 @@ mod tests {
             grid:        None,
             break_words: false,
             runs:        vec![],
+            rooms:       vec![],
         }
     }
 

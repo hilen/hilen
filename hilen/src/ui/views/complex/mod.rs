@@ -8,6 +8,8 @@ mod file_browser;
 mod image_crop;
 mod log_view;
 mod markdown;
+#[cfg(feature = "math")]
+pub(crate) mod math;
 mod number_view;
 mod plot_view;
 mod point_view;
@@ -27,6 +29,8 @@ pub use image_crop::{CropShape, ImageCropPrompt, ImageCropRequest, ImageCropView
 pub use log_view::{LogData, LogLine, LogStyle, LogView};
 pub(crate) use markdown::COPY_ROOM;
 pub use markdown::{MarkdownFonts, MarkdownListMarkers, MarkdownStyle, MarkdownView};
+#[cfg(feature = "math")]
+pub use math::MathView;
 pub use number_view::*;
 pub use plot_view::PlotView;
 pub use point_view::PointView;
