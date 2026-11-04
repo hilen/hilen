@@ -39,6 +39,9 @@ enum Width {
 const PADDING: f32 = 10.0;
 const GAP: f32 = 6.0;
 const ICON_SIZE: f32 = 16.0;
+/// A picture like an avatar has to show a face, so it is larger than an
+/// icon. Its center stays where the center of an icon is.
+const PICTURE_SIZE: f32 = 24.0;
 const HEIGHT: f32 = 32.0;
 const TEXT_SIZE: f32 = 14.0;
 const RADIUS: f32 = 6.0;
@@ -157,11 +160,16 @@ impl ToolButton {
     }
 
     /// A picture in place of the icon, like the avatar of the user, drawn
-    /// round and in its own colors, never tinted. `None` brings the icon back.
+    /// round and in its own colors, never tinted, 24 points where an icon is
+    /// 16. `None` brings the icon back.
     pub fn set_picture(&self, picture: Option<Weak<Image>>) -> &Self {
         weak_from_ref(self).picture = picture;
-        self.icon
-            .set_corner_radius(if picture.is_some() { ICON_SIZE / 2.0 } else { 0.0 });
+        let radius = if picture.is_some() {
+            PICTURE_SIZE / 2.0
+        } else {
+            0.0
+        };
+        self.icon.set_corner_radius(radius);
         self.icon.set_hidden(picture.is_none() && self.icon_name.is_none());
         self.relayout();
         self.refresh();
@@ -277,9 +285,21 @@ impl ToolButton {
         PADDING + icon + gap + text + PADDING
     }
 
+    /// The left edge of the icon or the picture and its side.
+    fn icon_frame(&self) -> (f32, f32) {
+        if self.picture.is_some() {
+            (PADDING - (PICTURE_SIZE - ICON_SIZE) / 2.0, PICTURE_SIZE)
+        } else {
+            (PADDING, ICON_SIZE)
+        }
+    }
+
+    /// The space the icon takes from the left padding on, the width of the
+    /// text and the gap between them.
     fn parts(&self) -> (f32, f32, f32) {
         let icon = if self.icon_name.is_some() || self.picture.is_some() {
-            ICON_SIZE
+            let (left, side) = self.icon_frame();
+            left + side - PADDING
         } else {
             0.0
         };
@@ -296,7 +316,8 @@ impl ToolButton {
     /// owner placed, 32 points by default.
     fn relayout(&self) {
         let (icon, gap, text) = self.parts();
-        self.icon.place().clear().l(PADDING).center_y().size(ICON_SIZE, ICON_SIZE);
+        let (left, side) = self.icon_frame();
+        self.icon.place().clear().l(left).center_y().size(side, side);
         self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
         if self.width == Width::Fit {
             self.place().w(self.fit_width());
