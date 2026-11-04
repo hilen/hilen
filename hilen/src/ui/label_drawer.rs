@@ -83,6 +83,7 @@ impl UIDrawer {
             secret:      label.is_secret(),
             grid:        label.cell_width().map(|width| width * scale),
             box_chars:   label.box_chars(),
+            break_words: label.breaks_long_words(),
         }
     }
 

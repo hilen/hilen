@@ -25,6 +25,7 @@ mod label_font;
 mod label_font_runs;
 mod label_image;
 mod label_line_height;
+mod label_long_words;
 mod label_max_lines;
 mod label_measure;
 mod label_outline;

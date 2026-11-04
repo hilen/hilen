@@ -292,6 +292,7 @@ impl Font {
             secret:      shaping.secret,
             grid:        shaping.grid,
             box_chars:   BoxChars::Glyphs,
+            break_words: shaping.break_words,
         }
     }
 

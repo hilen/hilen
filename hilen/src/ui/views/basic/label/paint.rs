@@ -18,6 +18,7 @@ impl Label {
             .hash(&discriminant(&self.ellipsize))
             .hash(&discriminant(&self.placing))
             .hash(&self.box_chars)
+            .hash(&self.long_words)
             .pod(&self.text_color)
             .pod(&self.text_size)
             .pod(&self.text_inset)

@@ -44,6 +44,17 @@ enum Placing {
     Grid,
 }
 
+/// What a label does with a word too wide for its line.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+enum LongWords {
+    /// The word runs past the edge, as in `UIKit`.
+    #[default]
+    Overflow,
+    /// The word breaks at the letter that overflows, see
+    /// `Label::set_breaks_long_words`.
+    Break,
+}
+
 #[derive(Debug, Default)]
 pub enum TextAlignment {
     Left,
@@ -142,6 +153,9 @@ pub struct Label {
     /// `Fitted` when box chars fill their cells, see `set_joins_box_chars`.
     box_chars: BoxChars,
 
+    /// What a word too long for its line does, see `set_breaks_long_words`.
+    long_words: LongWords,
+
     /// Byte ranges drawn in their own font or underlined, sorted and not
     /// overlapping. See `set_font_runs`.
     pub(super) font_runs: Vec<StyleRun>,
@@ -225,7 +239,28 @@ impl Label {
             runs:        self.shaping_runs(text),
             secret:      self.secret,
             grid:        self.cell_width(),
+            break_words: self.breaks_long_words(),
         }
+    }
+
+    /// Breaks a word too long for its line at the letter that overflows,
+    /// like `overflow-wrap: anywhere` in a browser. Off by default, then
+    /// such a word runs past the edge, as in `UIKit`. Made for text that
+    /// has long runs with no space, like a log line in a code block or a
+    /// long link. Only a multiline label wraps at all.
+    pub fn set_breaks_long_words(&self, breaks: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.long_words = if breaks {
+            LongWords::Break
+        } else {
+            LongWords::Overflow
+        };
+        this.ellipsized = None;
+        self
+    }
+
+    pub fn breaks_long_words(&self) -> bool {
+        self.long_words == LongWords::Break
     }
 
     /// Puts the text on a cell grid, like the screen of a terminal.

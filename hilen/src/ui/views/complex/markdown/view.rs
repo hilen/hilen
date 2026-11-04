@@ -485,6 +485,8 @@ impl MarkdownView {
             .set_vertical_alignment(VerticalAlignment::Top);
         label.set_font(style.fonts().mono);
         label.set_joins_box_chars(true);
+        // A log line often has no space, it would run past the box.
+        label.set_breaks_long_words(true);
         label.set_text(code);
         label.set_text_color(column.color);
         if let Some(mut highlighter) = CodeHighlighter::for_language(language) {

@@ -131,7 +131,12 @@ text, UAX 14 through the `unicode-linebreak` crate, so Latin breaks after
 spaces and after a `/` in a path, Japanese and Chinese between characters.
 Spaces before a break are dropped. Only the first glyph of a cluster may start
 a line, a combining mark stays on its base. A Latin word wider than the bound
-overflows, the `UIKit` word wrapping behavior. Thai, Lao, Khmer and Myanmar
+overflows, the `UIKit` word wrapping behavior, unless the label has
+`Label::set_breaks_long_words(true)`. Then such a word breaks at the cluster that
+overflows, like `overflow-wrap: anywhere` in a browser: a normal break comes first,
+only a word that does not fit on a line of its own is cut. It is part of the shape,
+measure and paint keys. The code blocks of `MarkdownView` turn it on, a log line often
+has no space, and `Label long words` tests it. Thai, Lao, Khmer and Myanmar
 have no opportunity inside a word without a dictionary, so a piece of those
 wider than the bound breaks at the cluster that overflows. `Script wrap`
 walks ten widths over Japanese, Thai, Korean and a mixed label. Vertical alignment
@@ -367,7 +372,8 @@ in `hilen/src/ui/views/complex/markdown`.
   `height_for_width` lays the text out at a width and gives the height, the way a
   table asks for the height of a cell. A change of the text or its color lays out
   once on the next turn of the main loop, and a change of the width lays out again.
-  A code line longer than the block wraps, and a table wider than its room shrinks
+  A code line longer than the block wraps, a word too long for a line breaks inside it,
+  and a table wider than its room shrinks
   every column by the same share.
 - A tap on a link is mapped to a byte through `Label::text_layout_for`, fires
   `link_tapped` with the address and opens it with `open_url`. `set_opens_links(false)`

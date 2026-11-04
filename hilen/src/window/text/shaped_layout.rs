@@ -50,6 +50,8 @@ pub(crate) struct Shaping {
     /// The width of 1 cell in points when the text sits on a cell grid,
     /// see `ShapedParams::grid`.
     pub grid:        Option<f32>,
+    /// A word too long for its line breaks, see `ShapedParams::break_words`.
+    pub break_words: bool,
 }
 
 /// Per label shaping parameters, collected where the label is drawn.
@@ -79,6 +81,9 @@ pub(crate) struct ShapedParams {
     /// Whether the box chars fill their cells and which of them the
     /// brush gets, see `Label::set_joins_box_chars`.
     pub box_chars:   BoxChars,
+    /// A word wider than the line breaks at the cluster that overflows,
+    /// see `Label::set_breaks_long_words`.
+    pub break_words: bool,
 }
 
 /// Positions glyphs with real shaping through rustybuzz, so GPOS kerning
@@ -104,6 +109,7 @@ impl Hash for ShapedLayout<'_> {
         self.params.line_height.map(f32::to_bits).hash(state);
         self.params.grid.map(f32::to_bits).hash(state);
         self.params.box_chars.hash(state);
+        self.params.break_words.hash(state);
         (self.params.h_align as u8).hash(state);
         self.params.v_align.hash(state);
         for run in &self.params.runs {
@@ -283,11 +289,18 @@ impl ShapedLayout<'_> {
     /// Greedy wrap at the Unicode line break opportunities of the line,
     /// UAX 14, so Latin breaks after spaces and Japanese between
     /// characters. Spaces before a break die with it. A Latin word wider
-    /// than the bound overflows, the `UIKit` word wrapping behavior. Thai
-    /// and the other complex scripts have no opportunity without a
+    /// than the bound overflows, the `UIKit` word wrapping behavior, or
+    /// with `break_words` breaks at the cluster that overflows. Thai and
+    /// the other complex scripts have no opportunity without a
     /// dictionary, so a too wide piece of them breaks at the cluster
     /// that overflows.
-    fn wrap(line: Vec<ShapedGlyph>, text: &str, range: Range<usize>, max_width: f32) -> Vec<WrappedChunk> {
+    fn wrap(
+        line: Vec<ShapedGlyph>,
+        text: &str,
+        range: Range<usize>,
+        max_width: f32,
+        break_words: bool,
+    ) -> Vec<WrappedChunk> {
         let is_space = |glyph: &ShapedGlyph| text.as_bytes().get(glyph.cluster) == Some(&b' ');
         let is_complex = |glyph: &ShapedGlyph| {
             text[glyph.cluster..]
@@ -321,7 +334,7 @@ impl ShapedLayout<'_> {
             if width + glyph.x_advance > max_width && !current.is_empty() {
                 let split = match last_break {
                     Some(index) => Some(index),
-                    None if first_of_cluster && is_complex(&glyph) => Some(current.len()),
+                    None if first_of_cluster && (break_words || is_complex(&glyph)) => Some(current.len()),
                     None => None,
                 };
 
@@ -421,7 +434,7 @@ impl ShapedLayout<'_> {
             }
 
             let chunks = if self.params.multiline {
-                Self::wrap(shaped, text, offset..line_end, bound_w)
+                Self::wrap(shaped, text, offset..line_end, bound_w, self.params.break_words)
             } else {
                 vec![WrappedChunk {
                     glyphs: shaped,
