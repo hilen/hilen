@@ -1,12 +1,13 @@
 use std::mem::replace;
 
 #[cfg(any(desktop, wasm))]
-use crate::ui::{TouchStack, UIManager, ViewData};
-#[cfg(any(desktop, wasm))]
-use crate::window::slots::WindowLock;
 use crate::{
     gm::flat::Point,
+    ui::{TouchStack, UIManager, ViewData},
+};
+use crate::{
     ui::{CursorIcon, Tooltip, ViewSubviews, WeakView},
+    window::slots::WindowLock,
 };
 
 static HOVERED: WindowLock<WeakView> = WindowLock::new();
