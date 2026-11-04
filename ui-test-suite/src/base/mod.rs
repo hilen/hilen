@@ -77,3 +77,7 @@ mod transition_rich;
 mod translucent_over_text;
 mod transparency;
 mod view_order;
+/// The back swipe of a trackpad is a browser gesture, everywhere else the
+/// OS owns it and the engine installs nothing.
+#[cfg(wasm)]
+mod wheel_swipe_browser;

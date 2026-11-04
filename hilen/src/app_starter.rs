@@ -121,6 +121,7 @@ fn install_page_listeners() {
     crate::web::install_pointer_lock_listener();
     crate::web::install_file_drop_listener();
     crate::web::install_tv_back_listener();
+    crate::web::install_wheel_listener();
 }
 
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {

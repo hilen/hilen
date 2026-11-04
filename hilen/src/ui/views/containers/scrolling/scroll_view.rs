@@ -565,6 +565,12 @@ impl Scrollable for ScrollView {
         false
     }
 
+    fn __takes_wheel_x(&self, delta_x: f32) -> bool {
+        let range = self.range_x();
+        let offset = (self.offset_x + delta_x).clamp(-range, 0.0);
+        range > 0.0 && (offset - self.offset_x).abs() >= f32::EPSILON
+    }
+
     fn __process_wheel_scroll(&mut self, delta: Point) {
         // A plain mouse wheel has only the vertical delta. Over a view
         // that can move only sideways it would do nothing, so it moves

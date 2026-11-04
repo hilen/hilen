@@ -16,6 +16,14 @@ pub(crate) trait Scrollable: View {
         false
     }
 
+    /// Whether a sideways wheel move by `delta_x` moves it. In a browser a
+    /// move no view takes is left to the page, so the 2 finger swipe of a
+    /// trackpad goes back or forward. A view that zooms on the wheel keeps
+    /// every move.
+    fn __takes_wheel_x(&self, _delta_x: f32) -> bool {
+        true
+    }
+
     /// A scroll the engine asks for itself, like the focus ring. Each
     /// axis has to move by its own delta, so it skips the rule that
     /// sends a plain wheel sideways in a view with no vertical range.

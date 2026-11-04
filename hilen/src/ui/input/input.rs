@@ -319,6 +319,23 @@ impl Input {
     /// z is closer, and a child is closer than its parent, so a nested
     /// scroll view still beats the one around it.
     fn check_wheel_scroll(delta: Point) {
+        if let Some(mut scroll) = Self::wheel_scroll() {
+            scroll.__process_wheel_scroll(delta);
+        }
+    }
+
+    /// Whether the browser keeps a wheel move, in the delta of the engine,
+    /// so a sideways swipe of 2 fingers goes back or forward in the page
+    /// history. It does when the move is mostly sideways and the view under
+    /// the cursor cannot take it, the rule a page of plain html follows.
+    #[cfg(wasm)]
+    pub(crate) fn wheel_goes_to_browser(delta: Point) -> bool {
+        delta.x.abs() > delta.y.abs()
+            && Self::wheel_scroll().is_none_or(|scroll| !scroll.__takes_wheel_x(delta.x))
+    }
+
+    /// The front scrollable view under the cursor, the one a wheel moves.
+    fn wheel_scroll() -> Option<Weak<dyn Scrollable>> {
         let cursor = UIManager::cursor_position();
 
         let mut front: Option<((f32, f32), Weak<dyn Scrollable>)> = None;
@@ -335,9 +352,7 @@ impl Input {
             }
         }
 
-        if let Some((_, mut scroll)) = front {
-            scroll.__process_wheel_scroll(delta);
-        }
+        front.map(|(_, scroll)| scroll)
     }
 }
 

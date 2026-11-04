@@ -321,6 +321,48 @@ pub(crate) fn install_tv_back_listener() {
     TV_BACK_LISTENER.set(Some(listener));
 }
 
+type WheelListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::WheelEvent)>;
+
+static WHEEL_LISTENER: MainLock<Option<WheelListener>> = MainLock::new();
+
+/// The browser starts the back or forward swipe of 2 fingers on a trackpad
+/// only from a wheel event no listener cancelled, and winit cancels every
+/// one on the canvas. A sideways move no view takes is stopped here, before
+/// winit sees it, and stays with the browser. A pinch comes with Ctrl and
+/// always goes to the engine.
+pub(crate) fn install_wheel_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::WheelEvent)>::new(|event: web_sys::WheelEvent| {
+        let target = event.target();
+        let target = target.as_ref().and_then(|target| target.dyn_ref::<web_sys::Node>());
+        let on_canvas = canvas().is_some_and(|canvas| target.is_some() && canvas.is_same_node(target));
+        if !on_canvas || event.ctrl_key() {
+            return;
+        }
+        // winit turns the delta of the page around, the engine moves by this.
+        #[allow(clippy::cast_possible_truncation)]
+        let delta = crate::gm::flat::Point::new(-event.delta_x() as f32, -event.delta_y() as f32);
+        if crate::ui::Input::wheel_goes_to_browser(delta) {
+            event.stop_immediate_propagation();
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "wheel",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the wheel listener");
+
+    WHEEL_LISTENER.set(Some(listener));
+}
+
 /// Sends panics to console.error and, when a driver flag is in the url, to
 /// the driver's `/te-panic` endpoint. The origin is captured now, on the main
 /// thread, because a worker that panics later has no `window` to ask.

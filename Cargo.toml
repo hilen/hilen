@@ -310,6 +310,8 @@ web-sys = { version = "0.3", features = [
     "VideoPlaybackQuality",
     "VisualViewport",
     "WebSocket",
+    "WheelEvent",
+    "WheelEventInit",
     "Window",
     "XmlHttpRequest",
     "XmlHttpRequestEventTarget",
