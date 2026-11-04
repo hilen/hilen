@@ -18,7 +18,13 @@ bench = []
 # Runtime pointer checks from the vendored `refs`. On by default, the engine
 # has always run with them.
 checks = []
-default = ["checks"]
+default = ["checks", "font-roboto", "font-roboto-italic", "font-roboto-mono"]
+# The Roboto files the engine brings, 1 feature per file, so an app with its
+# own fonts can leave a file out, see docs/text.md. Without `font-roboto` the
+# app gives its fallback font to `Font::set_builtin`.
+font-roboto = []
+font-roboto-italic = []
+font-roboto-mono = []
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
 # The frame record packs its frames as QOI, which the browser build leaves out

@@ -183,6 +183,9 @@ mod web_assets {
                         error!("Boot asset preload failed: {err}");
                     }
                 }
+                Err(err) if is_not_found(&err) => {
+                    log::debug!("No asset manifest, the app ships no asset files");
+                }
                 Err(err) => error!("Asset manifest fetch failed: {err}"),
             }
 
@@ -216,6 +219,14 @@ mod web_assets {
         }
 
         Ok(())
+    }
+
+    /// A page with every file inside its wasm has no `assets.json`, and its
+    /// server answers 404 for it.
+    fn is_not_found(err: &anyhow::Error) -> bool {
+        err.downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            .is_some_and(|status| status == reqwest::StatusCode::NOT_FOUND)
     }
 
     async fn fetch_manifest() -> Result<Manifest> {

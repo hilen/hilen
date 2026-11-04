@@ -90,6 +90,16 @@ variable Roboto, Roboto Italic and Roboto Mono. `Font::bold()`, `Font::italic()`
 the 3 variable files, weight 400 or 700, made on the first call. So an app has bold,
 italic and code text with no font file of its own.
 
+Each file is behind a feature, all on by default: `font-roboto` holds Roboto Regular
+and the variable Roboto, `font-roboto-italic` and `font-roboto-mono` the other 2. An
+app with its own fonts, like a web page where every byte is downloaded, turns off the
+ones it does not use with `default-features = false`. Without `font-roboto` the app
+calls `Font::set_builtin(data)` in `App::before_launch`. That file is then the default
+font and the fallback of a font that fails to load, and the first text drawn without
+it panics with a message that names the call. A left out file is drawn with the
+default font where the engine needs it, the markdown, the log view and the code
+editor, and bold italic falls back to bold.
+
 ## Letter spacing
 
 `Label::set_letter_spacing(points)` adds tracking between glyphs, applied by

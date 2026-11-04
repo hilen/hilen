@@ -24,7 +24,7 @@ use crate::{
         flat::{Point, Size},
     },
     video::overlay::Layer,
-    window::DEFAULT_FONT_DATA,
+    window::builtin_font_data,
 };
 
 /// A font for the outlines and for shaping. A `Font` of the engine cannot
@@ -52,7 +52,7 @@ impl TextFace {
 
 /// The font a `Label` has by default.
 pub(super) static FACE: LazyLock<TextFace> =
-    LazyLock::new(|| TextFace::new(DEFAULT_FONT_DATA).expect("the built in font has outlines and shapes"));
+    LazyLock::new(|| TextFace::new(builtin_font_data()).expect("the built in font has outlines and shapes"));
 
 /// The faces of font files by their path. A face borrows its bytes for the
 /// whole run, so each file is read and kept once, an app that builds its

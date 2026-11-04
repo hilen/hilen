@@ -106,11 +106,11 @@ impl MarkdownFonts {
     pub fn bundled() -> Self {
         Self {
             regular:     Font::default(),
-            bold:        Font::bold(),
-            italic:      Font::italic(),
-            bold_italic: Font::bold_italic(),
-            mono:        Font::mono(),
-            mono_bold:   Font::mono_bold(),
+            bold:        Font::bold_or_default(),
+            italic:      Font::italic_or_default(),
+            bold_italic: Font::bold_italic_or_default(),
+            mono:        Font::mono_or_default(),
+            mono_bold:   Font::mono_bold_or_default(),
         }
     }
 }

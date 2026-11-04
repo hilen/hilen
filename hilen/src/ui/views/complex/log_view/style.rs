@@ -65,11 +65,11 @@ impl LogStyle {
     };
 
     pub(super) fn regular_font(&self) -> Weak<Font> {
-        self.font.unwrap_or_else(Font::mono)
+        self.font.unwrap_or_else(Font::mono_or_default)
     }
 
     pub(super) fn strong_font(&self) -> Weak<Font> {
-        self.bold_font.unwrap_or_else(Font::mono_bold)
+        self.bold_font.unwrap_or_else(Font::mono_bold_or_default)
     }
 
     pub(super) fn color(&self, color: AnsiColor) -> UIColor {

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::take};
+use std::{collections::HashMap, mem::take, sync::OnceLock};
 
 use anyhow::{Result, anyhow, bail};
 use log::error;
@@ -422,7 +422,24 @@ impl Font {
         {
             return font;
         }
-        Self::roboto()
+        Self::builtin()
+    }
+
+    /// The font file every text falls back to, in place of Roboto Regular.
+    /// An app built without the `font-roboto` feature calls it in
+    /// `App::before_launch`, before any text is drawn.
+    pub fn set_builtin(data: &'static [u8]) {
+        if BUILTIN_DATA.set(data).is_err() {
+            error!("Font::set_builtin was called twice, the first file stays");
+        }
+    }
+
+    /// The font of [`builtin_font_data`], made on its first call.
+    fn builtin() -> Weak<Font> {
+        Self::store_with_name("hilen-builtin", || {
+            Self::new("hilen-builtin", builtin_font_data())
+        })
+        .expect("Failed to load the built in font")
     }
 
     pub fn set_default(font: Weak<Font>) {
@@ -528,9 +545,10 @@ impl Font {
         system_emoji::system_emoji()
     }
 
+    #[cfg(feature = "font-roboto")]
     pub fn roboto() -> Weak<Font> {
         Self::store_with_name("Roboto-Regular.ttf", || {
-            Self::new("Roboto-Regular.ttf", include_bytes!("fonts/Roboto-Regular.ttf"))
+            Self::new("Roboto-Regular.ttf", ROBOTO_REGULAR)
         })
         .expect("Failed to load Roboto font")
     }
@@ -538,16 +556,19 @@ impl Font {
     /// Roboto at weight 700. The engine brings the variable Roboto files,
     /// upright, italic and mono, so an app has bold, italic and code text
     /// with no font file of its own. Each one is made on its first call.
+    #[cfg(feature = "font-roboto")]
     pub fn bold() -> Weak<Font> {
         Self::bundled("Roboto-700", include_bytes!("fonts/Roboto.ttf"), 700.0)
     }
 
     /// Roboto at weight 500, between regular and bold, for a title that
     /// has to stand out a little, like a menu over a video.
+    #[cfg(feature = "font-roboto")]
     pub fn medium() -> Weak<Font> {
         Self::bundled("Roboto-500", include_bytes!("fonts/Roboto.ttf"), 500.0)
     }
 
+    #[cfg(feature = "font-roboto-italic")]
     pub fn italic() -> Weak<Font> {
         Self::bundled(
             "Roboto-Italic-400",
@@ -556,6 +577,7 @@ impl Font {
         )
     }
 
+    #[cfg(feature = "font-roboto-italic")]
     pub fn bold_italic() -> Weak<Font> {
         Self::bundled(
             "Roboto-Italic-700",
@@ -565,22 +587,107 @@ impl Font {
     }
 
     /// Roboto Mono, every glyph the same width, for code.
+    #[cfg(feature = "font-roboto-mono")]
     pub fn mono() -> Weak<Font> {
         Self::bundled("RobotoMono-400", include_bytes!("fonts/RobotoMono.ttf"), 400.0)
     }
 
+    #[cfg(feature = "font-roboto-mono")]
     pub fn mono_bold() -> Weak<Font> {
         Self::bundled("RobotoMono-700", include_bytes!("fonts/RobotoMono.ttf"), 700.0)
     }
 
+    #[cfg(any(
+        feature = "font-roboto",
+        feature = "font-roboto-italic",
+        feature = "font-roboto-mono"
+    ))]
     fn bundled(name: &str, data: &[u8], weight: f32) -> Weak<Font> {
         Self::with_variations(name, data, &[(*b"wght", weight)]).expect("Failed to load a bundled font")
+    }
+
+    /// [`Font::bold`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto")]
+    pub(crate) fn bold_or_default() -> Weak<Font> {
+        Self::bold()
+    }
+
+    #[cfg(not(feature = "font-roboto"))]
+    pub(crate) fn bold_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::italic`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto-italic")]
+    pub(crate) fn italic_or_default() -> Weak<Font> {
+        Self::italic()
+    }
+
+    #[cfg(not(feature = "font-roboto-italic"))]
+    pub(crate) fn italic_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::bold_italic`], or the bold font in a build without its file.
+    #[cfg(feature = "font-roboto-italic")]
+    pub(crate) fn bold_italic_or_default() -> Weak<Font> {
+        Self::bold_italic()
+    }
+
+    #[cfg(not(feature = "font-roboto-italic"))]
+    pub(crate) fn bold_italic_or_default() -> Weak<Font> {
+        Self::bold_or_default()
+    }
+
+    /// [`Font::mono`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto-mono")]
+    pub(crate) fn mono_or_default() -> Weak<Font> {
+        Self::mono()
+    }
+
+    #[cfg(not(feature = "font-roboto-mono"))]
+    pub(crate) fn mono_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::mono_bold`], or the bold font in a build without its file.
+    #[cfg(feature = "font-roboto-mono")]
+    pub(crate) fn mono_bold_or_default() -> Weak<Font> {
+        Self::mono_bold()
+    }
+
+    #[cfg(not(feature = "font-roboto-mono"))]
+    pub(crate) fn mono_bold_or_default() -> Weak<Font> {
+        Self::bold_or_default()
     }
 }
 
 managed!(Font);
 
-pub(crate) static DEFAULT_FONT_DATA: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+#[cfg(feature = "font-roboto")]
+static ROBOTO_REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+
+static BUILTIN_DATA: OnceLock<&'static [u8]> = OnceLock::new();
+
+/// The file of [`Font::set_builtin`], else Roboto Regular.
+///
+/// # Panics
+///
+/// In a build without the `font-roboto` feature whose app never called
+/// [`Font::set_builtin`].
+pub(crate) fn builtin_font_data() -> &'static [u8] {
+    BUILTIN_DATA.get().copied().unwrap_or_else(fallback_font_data)
+}
+
+#[cfg(feature = "font-roboto")]
+fn fallback_font_data() -> &'static [u8] {
+    ROBOTO_REGULAR
+}
+
+#[cfg(not(feature = "font-roboto"))]
+fn fallback_font_data() -> &'static [u8] {
+    panic!("hilen is built without the font-roboto feature, call Font::set_builtin in App::before_launch")
+}
 
 impl ResourceLoader for Font {
     fn load_path(path: &std::path::Path) -> Self {
@@ -595,7 +702,7 @@ impl ResourceLoader for Font {
                     path.display()
                 );
             })
-            .unwrap_or(DEFAULT_FONT_DATA);
+            .unwrap_or_else(|_| builtin_font_data());
 
         Self::load_data(data, path.display())
     }
@@ -609,8 +716,20 @@ impl ResourceLoader for Font {
             Ok(font) => font,
             Err(err) => {
                 error!("Failed to load font {name}: {err}. Returning default font");
-                Font::new(name, DEFAULT_FONT_DATA).expect("Failed to load the built in default font")
+                Font::new(name, builtin_font_data()).expect("Failed to load the built in default font")
             }
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "font-roboto")))]
+mod builtin_test {
+    use super::{Font, builtin_font_data};
+
+    #[test]
+    fn the_set_file_is_the_builtin() {
+        static FILE: &[u8] = include_bytes!("fonts/RobotoMono.ttf");
+        Font::set_builtin(FILE);
+        assert!(std::ptr::eq(builtin_font_data(), FILE));
     }
 }

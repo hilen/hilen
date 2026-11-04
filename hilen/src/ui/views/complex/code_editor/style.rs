@@ -69,7 +69,7 @@ impl CodeEditorStyle {
     };
 
     pub(super) fn regular_font(&self) -> Weak<Font> {
-        self.font.unwrap_or_else(Font::mono)
+        self.font.unwrap_or_else(Font::mono_or_default)
     }
 }
 
