@@ -1,4 +1,7 @@
-use super::{Model, parse::PartSource};
+use super::{
+    Model,
+    parse::{ModelSource, PartSource},
+};
 use crate::gm::volume::{Ray, Vec3};
 
 /// A determinant this small is a ray along the plane of the triangle.
@@ -17,6 +20,16 @@ pub(super) fn of_parts(parts: &[PartSource]) -> Vec<[Vec3; 3]> {
             })
         })
         .collect()
+}
+
+/// The triangles a model keeps for picking, none for a mesh made
+/// `without_picking`.
+pub(super) fn kept(source: &ModelSource) -> Vec<[Vec3; 3]> {
+    if source.picking {
+        of_parts(&source.parts)
+    } else {
+        vec![]
+    }
 }
 
 impl Model {
@@ -73,6 +86,10 @@ fn hit(ray: Ray, [first, second, third]: [Vec3; 3]) -> Option<f32> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{
+        gm::volume::Vertex3D,
+        scene::{MeshData, PreparedMesh},
+    };
 
     const TRIANGLE: [Vec3; 3] = [
         Vec3::new(0.0, 0.0, 0.0),
@@ -139,5 +156,22 @@ mod test {
         let triangles = of_parts(&mesh_source(mesh, Colors::Flat).parts);
         assert_eq!(triangles.len(), 2);
         assert_eq!(triangles[1][0], Vec3::new(5.0, 0.0, -1.0));
+    }
+
+    fn one_triangle() -> MeshData {
+        MeshData {
+            vertices: TRIANGLE.map(|pos| Vertex3D::new(pos, Vec3::Z, (0.0, 0.0).into())).to_vec(),
+            indices:  vec![0, 1, 2],
+        }
+    }
+
+    // A streamed ground kept a copy of every triangle it was never picked by.
+    #[test]
+    fn a_mesh_without_picking_keeps_no_triangles() {
+        assert_eq!(kept(&PreparedMesh::new(one_triangle()).0), vec![TRIANGLE]);
+        assert_eq!(
+            kept(&PreparedMesh::new(one_triangle()).without_picking().0),
+            Vec::<[Vec3; 3]>::new()
+        );
     }
 }

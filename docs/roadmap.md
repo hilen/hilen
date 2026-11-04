@@ -19,6 +19,17 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## A packed mesh vertex
+
+- Current: `Vertex3D` is 36 bytes, the position, the normal and the uv as full floats
+  and the packed color, see `gm/volume/vertex3d.rs`. Every mesh pipeline and the shadow
+  shader read that layout.
+- Needed: a vertex of 24 bytes, the normal as 2 snorm16 like `GrassBlade`, the uv as 2
+  f16, with every pipeline layout and the shadow shader moved to it, and a Metal System
+  Trace A/B of the vertex time.
+- Blocks: less vertex memory and bandwidth for a ground of millions of triangles, like
+  the planet of geblings, which draws its near tiles again in up to 3 shadow maps.
+
 ## Global keys on Windows and Linux
 
 - Current: `GlobalKey::register` answers with an error there, the `global-keys` feature

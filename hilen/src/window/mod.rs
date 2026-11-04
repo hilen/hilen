@@ -48,6 +48,8 @@ pub use winit::{
 
 #[cfg(any(desktop, wasm))]
 pub(crate) use self::app_handler::ready_winit_window;
+#[cfg(feature = "scene")]
+pub(crate) use self::msaa::hides_covered_pixels;
 #[cfg(wasm)]
 pub(crate) use self::redraw::needs_render;
 #[cfg(not_wasm)]

@@ -12,10 +12,30 @@ use crate::{
 };
 
 static BACKEND: OnceLock<Backend> = OnceLock::new();
+/// Whether the GPU is Apple's, see `hides_covered_pixels`.
+static APPLE_GPU: OnceLock<bool> = OnceLock::new();
+
+/// The PCI vendor id wgpu reports for an Apple GPU.
+const APPLE_VENDOR: u32 = 0x106b;
+
+/// Tells what GPU the window got, before the first frame.
+pub(crate) fn set_adapter(info: &wgpu::AdapterInfo) {
+    set_backend(info.backend);
+    APPLE_GPU.get_or_init(|| info.vendor == APPLE_VENDOR || info.name.contains("Apple"));
+}
+
+/// Whether the GPU shades only the nearest surface of a pixel whatever the
+/// order of the draws, Apple's hidden surface removal. A near to far order
+/// of the cut out batches gave nothing on an M1 Pro on 2026-10-30, so it
+/// is skipped there. Any other GPU, an Intel Mac on Metal too, gains from it.
+#[cfg_attr(not(feature = "scene"), allow(dead_code))]
+pub(crate) fn hides_covered_pixels() -> bool {
+    APPLE_GPU.get().copied().unwrap_or(false)
+}
 
 /// The backend of the adapter the window got. Has to be told before the
 /// first pipeline asks for the sample count.
-pub(crate) fn set_backend(backend: Backend) {
+fn set_backend(backend: Backend) {
     BACKEND.get_or_init(|| backend);
 }
 

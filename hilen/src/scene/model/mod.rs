@@ -93,7 +93,7 @@ impl Model {
     }
 
     fn upload(source: ModelSource) -> Self {
-        let triangles = triangles::of_parts(&source.parts);
+        let triangles = triangles::kept(&source);
         let images: Vec<_> = source
             .images
             .iter()

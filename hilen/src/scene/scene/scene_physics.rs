@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use educe::Educe;
 use rapier3d::{
@@ -20,6 +20,9 @@ use crate::{
 #[educe(Default)]
 pub(crate) struct ScenePhysics {
     pub(crate) colliding_nodes: HashMap<ColliderHandle, Weak<dyn Node>>,
+    /// The node of each collider a query met, see `SceneBase::node_with`. A
+    /// scan of every node per hit was the cost of an aim cast each frame.
+    pub(crate) query_nodes:     RefCell<HashMap<ColliderHandle, Weak<dyn Node>>>,
 
     pub(crate) sets: Sets,
 

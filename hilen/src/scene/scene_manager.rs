@@ -43,12 +43,18 @@ pub struct SceneManager {
     /// the whole root area.
     host: Option<Weak<SceneView>>,
 
-    /// Holds the scene's time, see `set_paused`.
+    /// The app holds the scene's time, see `set_paused`.
     paused: bool,
+    /// The test harness holds it while a human looks, see `set_held`.
+    held:   bool,
 
     /// See `set_render_scale`.
     #[educe(Default = 1.0)]
     render_scale: f32,
+
+    /// See `set_scene_samples`.
+    #[educe(Default = 1)]
+    scene_samples: u32,
 
     /// Steps a stepped scene test may still take, see `set_stepped`.
     /// `None` runs free, one step per turn of the main loop.
@@ -63,7 +69,7 @@ impl SceneManager {
             Self::stop_scene();
         }
 
-        if Self::no_scene() || SELF.paused {
+        if Self::no_scene() || SELF.paused || SELF.held {
             // The time held does not pass in the scene.
             SELF.get_mut().last_update = None;
             return;
@@ -132,6 +138,7 @@ impl SceneManager {
         // The host is known before the setup, which may ask for the area.
         s.host = host;
         s.last_update = None;
+        s.paused = false;
         s.scene = Some(scene);
         s.scene.as_ref().unwrap().__internal_setup();
         weak
@@ -285,11 +292,30 @@ impl SceneManager {
         SELF.render_scale
     }
 
+    /// Samples a pixel of the picture of a scene under a render scale, 1, 2
+    /// or 4, apart from the frame's own count, which the views keep. 4
+    /// samples were half the GPU cost of a frame, see docs/damage.md, and
+    /// the stretch over the window softens the edges anyway. 1 by default,
+    /// `stop_scene` sets it back.
+    pub fn set_scene_samples(samples: u32) {
+        assert!(
+            matches!(samples, 1 | 2 | 4),
+            "a scene draws with 1, 2 or 4 samples, got {samples}"
+        );
+        SELF.get_mut().scene_samples = samples;
+    }
+
+    pub fn scene_samples() -> u32 {
+        SELF.scene_samples
+    }
+
     pub fn stop_scene() {
         let s = SELF.get_mut();
         s.scene = None;
         s.host = None;
+        s.paused = false;
         s.render_scale = 1.0;
+        s.scene_samples = 1;
         SceneDrawer::free_window_picture();
         #[cfg(feature = "scene-tests")]
         {
@@ -297,12 +323,22 @@ impl SceneManager {
         }
     }
 
-    /// Stops the scene's time, the physics and every playing clip, and
-    /// keeps drawing it. The test harness holds a scene this way while
-    /// a human looks at its probes, so the picture under them stands
-    /// still.
-    pub(crate) fn set_paused(paused: bool) {
+    /// Stops the scene's time, the physics, every playing clip and the
+    /// `frame` and `update` calls, and keeps drawing it, a game under its
+    /// pause menu. A new scene and `stop_scene` start the time again.
+    pub fn set_paused(paused: bool) {
         SELF.get_mut().paused = paused;
+    }
+
+    pub fn is_paused() -> bool {
+        SELF.paused
+    }
+
+    /// The pause of the test harness while a human looks at the probes, so
+    /// the picture under them stands still. Apart from `set_paused`, the end
+    /// of a hold must not start a game the app paused.
+    pub(crate) fn set_held(held: bool) {
+        SELF.get_mut().held = held;
     }
 
     /// Stepped, the scene's time stands still until `grant_steps` hands it

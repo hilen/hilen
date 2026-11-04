@@ -1,22 +1,27 @@
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
-    gm::volume::{Shape3, Vec3},
+    gm::volume::{Quat, Shape3, Vec3},
     refs::Weak,
     scene::{
         Camera, NodeTemplates, Prop, SceneCreation, SceneManager, SceneSetup, SceneTest, SceneTestView, scene,
     },
     ui::{Color, Label, ViewData, ViewFrame, ViewSubviews},
-    ui_test::{check_colors, set_record_probe_count},
+    ui_test::{capture_screenshot, check_colors, set_record_probe_count},
 };
 
 /// A flat box under a see through panel. At half the pixels the picture
 /// is stretched over the whole window, so the box stays where it was and
 /// the panel still blends over the scene. A picture drawn after the rects
-/// of the views would leave the panel over an empty frame.
+/// of the views would leave the panel over an empty frame. The half picture
+/// draws with 1 sample by default and then with 4, the same colors inside
+/// the box and the panel. Then the box turns, so its edges slant, and the
+/// 2 counts must draw those edges apart, the probes skip edge pixels.
 #[scene]
 #[derive(Default)]
-struct RenderScale {}
+struct RenderScale {
+    node: Weak<Prop>,
+}
 
 impl SceneSetup for RenderScale {
     fn setup(&mut self) {
@@ -26,8 +31,8 @@ impl SceneSetup for RenderScale {
             ..Camera::default()
         };
         self.ambient = Color::rgb(1.0, 1.0, 1.0);
-        let mut node = self.make_node::<Prop>(Shape3::Box(Vec3::new(2.0, 2.0, 0.2)), Vec3::ZERO);
-        node.set_color(Color::hex("#d35400"));
+        self.node = self.make_node::<Prop>(Shape3::Box(Vec3::new(2.0, 2.0, 0.2)), Vec3::ZERO);
+        self.node.set_color(Color::hex("#d35400"));
     }
 }
 
@@ -39,14 +44,38 @@ impl SceneTest for RenderScale {
             .set_frame((250.0, 100.0, 100.0, 400.0));
     }
 
-    fn perform_test(_: Weak<Self>) -> Result<()> {
+    fn perform_test(mut scene: Weak<Self>) -> Result<()> {
         set_record_probe_count(32);
         wait_for_next_frame();
         check_colors(WHOLE)?;
         from_main(|| SceneManager::set_render_scale(0.5));
         wait_for_next_frame();
         wait_for_next_frame();
-        check_colors(HALF)
+        ensure!(
+            from_main(SceneManager::scene_samples) == 1,
+            "a scene under a render scale draws with 1 sample by default"
+        );
+        check_colors(HALF)?;
+        from_main(|| SceneManager::set_scene_samples(4));
+        wait_for_next_frame();
+        wait_for_next_frame();
+        check_colors(HALF)?;
+
+        from_main(move || {
+            scene.node.set_rotation(Quat::from_rotation_z(0.3));
+        });
+        wait_for_next_frame();
+        wait_for_next_frame();
+        let four = capture_screenshot()?;
+        from_main(|| SceneManager::set_scene_samples(1));
+        wait_for_next_frame();
+        wait_for_next_frame();
+        let one = capture_screenshot()?;
+        ensure!(
+            four.data != one.data,
+            "the slanted edges look the same with 4 samples and with 1"
+        );
+        Ok(())
     }
 }
 

@@ -30,6 +30,9 @@ pub(crate) struct ModelSource {
     pub rig:         Option<Rig>,
     /// Every skin's joint matrices at rest, in the rig's skin order.
     pub rest_joints: Vec<Vec<Mat4>>,
+    /// Whether the model keeps its triangles for `Model::hit_triangle`,
+    /// see `PreparedMesh::without_picking`.
+    pub picking:     bool,
 }
 
 /// One primitive of one node, or a slice of a primitive too big for 16
@@ -134,6 +137,7 @@ pub(crate) fn parse_glb(data: &[u8], name: &str) -> Result<ModelSource> {
         bounds,
         rig,
         rest_joints,
+        picking: true,
     })
 }
 

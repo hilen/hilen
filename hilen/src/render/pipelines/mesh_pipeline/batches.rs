@@ -13,11 +13,11 @@ use crate::{
         bind_cache::{StorageKey, cached},
         data::MeshInstance,
         device_helper::MeshDraw,
-        pipelines::mesh_binds::{instances_bind, opaque_bind, storage_bind, textures_bind, view_bind},
+        pipelines::mesh_binds::{instances_bind, opaque_bind, storage_bind, textures_at, view_bind},
         vertex_layout::VertexLayout,
     },
     scene::Sky,
-    window::Window,
+    window::{Window, hides_covered_pixels},
 };
 
 /// The rounds of `draw_batches`.
@@ -58,7 +58,14 @@ impl MeshPipeline {
         if self.depth.is_none() {
             let device = Window::device();
             let pipelines = |name: &str, draw: MeshDraw| {
-                mesh_pipelines(device, name, &self.mesh_layout, &self.mesh_shader, draw)
+                mesh_pipelines(
+                    device,
+                    name,
+                    &self.mesh_layout,
+                    &self.mesh_shader,
+                    draw,
+                    self.samples,
+                )
             };
             self.depth = Some([
                 pipelines("mesh_depth", MeshDraw::Depth),
@@ -72,6 +79,7 @@ impl MeshPipeline {
                 &self.mesh_layout,
                 &self.mesh_shader,
                 MeshDraw::SmoothDepthCutout,
+                self.samples,
             ));
         }
 
@@ -127,26 +135,25 @@ impl MeshPipeline {
             &[Round::Solid, Round::CutoutDepth, Round::CutoutColor]
         };
         for &round in rounds {
-            for (key, drawn) in self
+            let mut draws: Vec<_> = self
                 .instances
                 .iter()
                 .filter(|(key, _)| round.holds(key))
-                .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?)))
-            {
-                let textures_bind = textures_bind(
-                    &mut self.textures,
-                    &self.textures_layout,
-                    key,
-                    &self.white,
-                    &self.flat_normal,
-                );
-
-                render_pass.set_bind_group(3, textures_bind, &[]);
+                .filter_map(|(key, batch)| Some((key, batch.drawn_in(frame, 0)?, batch.textures, batch.near)))
+                .collect();
+            // Near first, so the depth test spares the pixels behind on a GPU
+            // that shades a pixel in the order it is drawn.
+            if !hides_covered_pixels() {
+                draws.sort_by(|a, b| a.3.total_cmp(&b.3));
+            }
+            for (key, drawn, textures, _) in draws {
+                render_pass.set_bind_group(3, textures_at(&self.textures, textures), &[]);
                 let pipelines = match round {
                     Round::Photo => {
                         let [plain, cutout] = self.depth.as_ref().expect("made before the photo draws");
                         if key.cutout { cutout } else { plain }
                     }
+                    Round::Solid if key.plain() => &self.plain,
                     Round::Solid => &self.opaque,
                     Round::CutoutDepth => &self.cutout_depth,
                     Round::CutoutColor => &self.cutout,
@@ -197,15 +204,9 @@ impl MeshPipeline {
         let range = self.transparent.range().clone();
         let stride = MeshInstance::VERTEX_LAYOUT.array_stride;
 
-        for (i, key) in self.transparent_keys.drain(..).enumerate() {
-            let textures_bind = textures_bind(
-                &mut self.textures,
-                &self.textures_layout,
-                &key,
-                &self.white,
-                &self.flat_normal,
-            );
-            render_pass.set_bind_group(3, textures_bind, &[]);
+        let textures = std::mem::take(&mut self.transparent_textures);
+        for (i, (key, textures)) in self.transparent_keys.drain(..).zip(textures).enumerate() {
+            render_pass.set_bind_group(3, textures_at(&self.textures, textures), &[]);
             set_mesh(render_pass, &key.mesh, &self.translucent);
             if key.mesh.smooth_colors {
                 let smooth = self.smooth.as_ref().expect("made when the node was added");

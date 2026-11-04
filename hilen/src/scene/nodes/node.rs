@@ -205,10 +205,21 @@ pub trait NodeTemplates {
     fn set_restitution(&mut self, _: f32, _: CoefficientCombineRule) -> &mut Self;
     fn set_position(&mut self, _: impl Into<Vec3>) -> &mut Self;
     fn set_rotation(&mut self, _: Quat) -> &mut Self;
+    /// `set_position` and `set_rotation` in 1 write to the physics, for a
+    /// world that moves every node each frame.
+    fn set_pose(&mut self, _: impl Into<Vec3>, _: Quat) -> &mut Self;
     /// Sizes the node uniformly on top of its shape, 1 as modeled. A
     /// model in other units fits a scene this way. The collider follows,
     /// and so does everything attached to the node, see `world_scale`.
     fn set_scale(&mut self, _: impl ToF32) -> &mut Self;
+    /// Stretches the drawn mesh along each of its own axes, on top of
+    /// `set_scale`, so props of 1 shape stretched each its own way share 1
+    /// model and draw in 1 batch. Only the drawing stretches: the collider,
+    /// `node_at` and the nodes attached to it keep the uniform scale, so a
+    /// stretched solid gets its collider from `set_collider`. A ball has no
+    /// stretched twin in the physics, and a child of a node stretched and
+    /// turned would be sheared.
+    fn set_mesh_scale(&mut self, _: Vec3) -> &mut Self;
     /// Collides as `shape` in place of the drawn shape's own solid, its
     /// center `offset` from the node's origin, both sized by the node's
     /// scale. The drawing and touch picking keep the drawn shape. A node
@@ -328,7 +339,9 @@ impl<T: ?Sized + Node> NodeTemplates for T {
     fn set_position(&mut self, pos: impl Into<Vec3>) -> &mut Self {
         let pos = pos.into();
         if self.rigid_handle().is_some() {
-            self.rigid_body_mut().set_position(Pose3::from_translation(pos), true);
+            // A pose of a place alone has no turn, the body's own goes with it.
+            let rotation = *self.rigid_body_mut().rotation();
+            self.rigid_body_mut().set_position(Pose3::from_parts(pos, rotation), true);
         } else if self.collider_handle().is_some() {
             let rotation = self.rotation;
             let offset = rotation * self.collider_offset();
@@ -351,6 +364,25 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         }
         self.rotation = rotation;
         follow_parent(self);
+        self
+    }
+
+    fn set_pose(&mut self, pos: impl Into<Vec3>, rotation: Quat) -> &mut Self {
+        let pos = pos.into();
+        if self.rigid_handle().is_some() {
+            self.rigid_body_mut().set_position(Pose3::from_parts(pos, rotation), true);
+        } else if self.collider_handle().is_some() {
+            let offset = rotation * self.collider_offset();
+            self.collider_mut().set_position(Pose3::from_parts(pos + offset, rotation));
+        }
+        self.position = pos;
+        self.rotation = rotation;
+        follow_parent(self);
+        self
+    }
+
+    fn set_mesh_scale(&mut self, scale: Vec3) -> &mut Self {
+        self.mesh_scale = scale;
         self
     }
 

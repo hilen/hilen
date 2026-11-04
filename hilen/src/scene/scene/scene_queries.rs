@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use rapier3d::{
     geometry::{ColliderHandle, Ray as RapierRay},
     parry::query::ShapeCastOptions,
@@ -126,7 +124,7 @@ impl SceneBase {
         })
     }
 
-    fn excluded(&self, skip: &[Weak<dyn Node>]) -> HashSet<ColliderHandle> {
+    fn excluded(&self, skip: &[Weak<dyn Node>]) -> Vec<ColliderHandle> {
         skip.iter()
             .filter(|node| node.is_ok())
             .filter_map(|node| node.collider_handle())
@@ -134,10 +132,27 @@ impl SceneBase {
             .collect()
     }
 
+    /// The node of the collider `handle`. A cached node counts only while
+    /// it lives and still owns that collider, so no add, remove or refit
+    /// has to keep the cache, a miss scans the nodes and fills it.
     fn node_with(&self, handle: ColliderHandle) -> Option<Weak<dyn Node>> {
-        self.nodes
+        let mut cache = self.physics.as_ref()?.query_nodes.borrow_mut();
+        if let Some(node) = cache
+            .get(&handle)
+            .filter(|node| node.is_ok() && node.collider_handle() == Some(handle))
+        {
+            return Some(*node);
+        }
+        let node = self
+            .nodes
             .iter()
             .find(|node| node.collider_handle() == Some(handle))
-            .map(Own::weak)
+            .map(Own::weak)?;
+        // Dead entries are only ever skipped, a bound keeps them few.
+        if cache.len() > 2 * self.nodes.len() + 64 {
+            cache.clear();
+        }
+        cache.insert(handle, node);
+        Some(node)
     }
 }

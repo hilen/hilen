@@ -74,7 +74,8 @@ them pixel for pixel after each of 10 small changes.
 that a game calls MSAA. Before the window is up it is the count everything is first
 built for. In a running app it drops every pipeline, the brush of every font and the
 textures of the frame, and each is made again for the new count. The test
-`Sample count switch` goes from 4 to 1 and back.
+`Sample count switch` goes from 4 to 1 and back. A scene drawn under a render scale has its own
+count, `SceneManager::set_scene_samples`, see [scene.md](scene.md).
 
 - Rects, text and images are smoothed in the shader or in the glyph picture. They
   look the same with 1 sample.

@@ -17,10 +17,10 @@ use crate::{
     render::{
         MeshKey, MeshPipeline, PicturePipeline, Reach, SceneUniform,
         data::{MeshInstance, WideLine},
-        frustum::Frustum,
+        frustum::{self, Frustum},
     },
     scene::{
-        Atmosphere, Camera, DayNightSky, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh, Model, Node,
+        Atmosphere, Camera, DayNightSky, Fog, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh, Model, Node,
         Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights, sun_cascades,
     },
     ui::{
@@ -37,6 +37,10 @@ use crate::{
 };
 
 static MESH: MainLock<MeshPipeline> = MainLock::new();
+/// The pipelines of a scene under a render scale whose sample count is not
+/// the frame's, see `SceneManager::set_scene_samples`. Made at the first
+/// such frame, an app that never asks for it does not wait for them.
+static MESH_OWN_SAMPLES: MainLock<MeshPipeline> = MainLock::new();
 static PICTURE: MainLock<PicturePipeline> = MainLock::new();
 static PICTURE_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 /// The targets of the scene in a `SceneView`, apart from the pictures so
@@ -47,30 +51,52 @@ static VIEW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 static PHOTO: MainLock<Option<Texture>> = MainLock::new();
 /// The picture of a scene over the whole window at a render scale under 1,
 /// see `SceneManager::set_render_scale`, and the targets of its size.
-static WINDOW_PICTURE: MainLock<Option<Weak<Image>>> = MainLock::new();
+/// The flag is whether the image is in the surface format, see
+/// `window_picture`.
+static WINDOW_PICTURE: MainLock<Option<(Weak<Image>, bool)>> = MainLock::new();
 static WINDOW_TARGETS: MainLock<Option<PictureTargets>> = MainLock::new();
 
 /// Drops what is built for a sample count. Each part is made again when
 /// it is next used.
 pub(crate) fn drop_pipelines() {
     MESH.clear();
+    MESH_OWN_SAMPLES.clear();
     PICTURE_TARGETS.clear();
     VIEW_TARGETS.clear();
     WINDOW_TARGETS.clear();
 }
 
-/// The targets of `size` in `slot`, made again for another size.
-fn targets_of(slot: &mut Option<PictureTargets>, size: Size<u32>) -> &PictureTargets {
-    if slot.as_ref().is_none_or(|targets| targets.size != size) {
-        *slot = Some(PictureTargets::new(size));
+/// The targets of `size` with `samples` a pixel in `slot`, made again for
+/// another size or count.
+fn targets_of(slot: &mut Option<PictureTargets>, size: Size<u32>, samples: u32) -> &PictureTargets {
+    if slot
+        .as_ref()
+        .is_none_or(|targets| targets.size != size || targets.samples != samples)
+    {
+        *slot = Some(PictureTargets::new(size, samples));
     }
     slot.as_ref().expect("just set")
+}
+
+/// The mesh pipelines for a pass of `samples` samples a pixel.
+fn mesh_for(samples: u32) -> &'static mut MeshPipeline {
+    if samples == msaa_sample_count() {
+        MESH.get_mut()
+    } else {
+        let pipeline = MESH_OWN_SAMPLES.get_or_init(|| MeshPipeline::new(samples));
+        if pipeline.samples() == samples {
+            pipeline
+        } else {
+            MESH_OWN_SAMPLES.set(MeshPipeline::new(samples))
+        }
+    }
 }
 
 /// What a picture is drawn into before it becomes an image, kept for the
 /// next picture of the same size, so a grid of pictures makes them once.
 struct PictureTargets {
     size:     Size<u32>,
+    samples:  u32,
     /// The multisampled color, none when multisampling is off.
     msaa:     Option<TextureView>,
     depth:    Texture,
@@ -80,9 +106,9 @@ struct PictureTargets {
 }
 
 impl PictureTargets {
-    fn new(size: Size<u32>) -> Self {
+    fn new(size: Size<u32>, samples: u32) -> Self {
         let device = Window::device();
-        let msaa = (msaa_sample_count() > 1).then(|| {
+        let msaa = (samples > 1).then(|| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label:           Some("picture_msaa"),
@@ -92,7 +118,7 @@ impl PictureTargets {
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
-                    sample_count:    msaa_sample_count(),
+                    sample_count:    samples,
                     dimension:       wgpu::TextureDimension::D2,
                     format:          surface_texture_format(),
                     usage:           wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -103,8 +129,9 @@ impl PictureTargets {
         let resolved = Texture::pixel_target(size);
         Self {
             size,
+            samples,
             msaa,
-            depth: Texture::create_depth_texture(device, size, msaa_sample_count(), "picture_depth"),
+            depth: Texture::create_depth_texture(device, size, samples, "picture_depth"),
             bind: Image::bind_texture(&resolved),
             resolved,
         }
@@ -119,6 +146,16 @@ const COLLIDER_COLOR: Color = Color::hex("#00ff60");
 /// `MeshPipeline::fill_depth`. A band of the range lost the reversed
 /// depth its gain: floats are dense only near 0.
 const DEPTH_BAND: (f32, f32) = (0.0, 1.0);
+
+/// How `draw_into` gets the scene into its target.
+#[derive(Debug, Clone, Copy)]
+enum Route {
+    /// Through the picture copy, filled by this.
+    Copy(Fill),
+    /// The samples resolve straight into a target in the surface format,
+    /// over an opaque clear.
+    Straight,
+}
 
 /// What a picture of the scene holds.
 #[derive(Debug, Clone, Copy)]
@@ -142,6 +179,10 @@ fn push_line(pipeline: &mut MeshPipeline, line: Line3) {
 /// translucent list drawn after every batch.
 struct NodeDraws<'a> {
     pipeline:    &'a mut MeshPipeline,
+    /// The camera's view, a translucent node out of it is left out. `None`
+    /// draws every node, see `frustum::enabled`.
+    frustum:     Option<&'a Frustum>,
+    camera:      Vec3,
     translucent: &'a mut Vec<(f32, MeshKey, MeshInstance)>,
     lights:      LightPick,
     distance:    f32,
@@ -172,7 +213,15 @@ impl NodeDraws<'_> {
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
         // A cut out node is solid where it is drawn, whatever its alpha.
         if !cutout && material.color.a < 1.0 {
-            self.translucent.push((self.distance, key, instance));
+            // The same test `MeshPipeline::prepare` gives an opaque node, a
+            // posed one can leave its sphere.
+            let seen = posed
+                || self
+                    .frustum
+                    .is_none_or(|frustum| frustum.holds(self.reach.center - self.camera, self.reach.radius));
+            if seen {
+                self.translucent.push((self.distance, key, instance));
+            }
         } else {
             self.pipeline.add(key, instance, (!posed).then_some(self.reach));
         }
@@ -255,48 +304,68 @@ impl SceneDrawer {
         }
 
         if let Some(host) = SceneManager::host() {
-            if !host.is_ok() {
-                return;
+            if host.is_ok()
+                && let Some(image) = host.frame_target()
+            {
+                Self::draw_live_picture(
+                    image,
+                    VIEW_TARGETS.get_mut(),
+                    msaa_sample_count(),
+                    host.background(),
+                    encoder,
+                );
             }
-            let Some(image) = host.frame_target() else {
-                return;
-            };
-            let targets = targets_of(VIEW_TARGETS.get_mut(), image.size);
-            let scene = SceneManager::scene();
-            Self::draw_into(
-                scene,
-                &scene.camera,
-                image.view(),
-                image.size,
-                targets,
-                Fill::Light(host.background()),
-                encoder,
-            );
             return;
         }
 
         if let Some(size) = Self::window_picture_size() {
-            let image = Self::window_picture(size);
-            let targets = targets_of(WINDOW_TARGETS.get_mut(), size);
+            // Over an opaque clear every pixel has an alpha of 1, nothing to
+            // divide out, so the samples resolve straight into the image the
+            // frame stretches and the copy pass of a picture is left out.
+            let background = Window::clear_color();
+            let straight = background.a >= 1.0;
+            let image = Self::window_picture(size, straight);
+            let targets = targets_of(WINDOW_TARGETS.get_mut(), size, SceneManager::scene_samples());
             let scene = SceneManager::scene();
-            Self::draw_into(
-                scene,
-                &scene.camera,
-                image.view(),
-                size,
-                targets,
-                Fill::Light(Window::clear_color()),
-                encoder,
-            );
+            let route = if straight {
+                Route::Straight
+            } else {
+                Route::Copy(Fill::Light(background))
+            };
+            Self::draw_into(scene, &scene.camera, image.view(), size, targets, route, encoder);
             return;
         }
 
         let scene = SceneManager::scene();
         Self::gather(
+            MESH.get_mut(),
             scene,
             &scene.camera,
             UIManager::render_area(),
             DEPTH_BAND,
+            encoder,
+        );
+    }
+
+    /// Draws the running scene into `image` through its own camera, the
+    /// picture of a `SceneView` or of a scene under a render scale, with
+    /// the targets kept in `slot` for the next frame.
+    fn draw_live_picture(
+        image: Weak<Image>,
+        slot: &mut Option<PictureTargets>,
+        samples: u32,
+        background: Color,
+        encoder: &mut CommandEncoder,
+    ) {
+        let targets = targets_of(slot, image.size, samples);
+        let scene = SceneManager::scene();
+        Self::draw_into(
+            scene,
+            &scene.camera,
+            image.view(),
+            image.size,
+            targets,
+            Route::Copy(Fill::Light(background)),
             encoder,
         );
     }
@@ -316,21 +385,36 @@ impl SceneDrawer {
         (size.width > 0 && size.height > 0).then_some(size)
     }
 
-    /// The image of `size` pixels, made again when the size changed.
-    fn window_picture(size: Size<u32>) -> Weak<Image> {
+    /// The image of `size` pixels, made again when the size changed. A
+    /// `straight` one is in the format of the surface, the samples resolve
+    /// into it, any other gets the picture copy with its alpha divided out.
+    fn window_picture(size: Size<u32>, straight: bool) -> Weak<Image> {
         let slot = WINDOW_PICTURE.get_mut();
-        if let Some(image) = slot.as_ref().filter(|image| image.is_ok() && image.size == size) {
+        if let Some((image, _)) = slot
+            .as_ref()
+            .filter(|(image, kind)| image.is_ok() && image.size == size && *kind == straight)
+        {
             return *image;
         }
+        let name = format!(
+            "scene-window-{}x{}{}",
+            size.width,
+            size.height,
+            if straight { "-straight" } else { "" }
+        );
         Self::free_window_picture();
-        let image = Image::render_target(&format!("scene-window-{}x{}", size.width, size.height), size);
-        *WINDOW_PICTURE.get_mut() = Some(image);
+        let image = if straight {
+            Image::surface_target(&name, size)
+        } else {
+            Image::render_target(&name, size)
+        };
+        *WINDOW_PICTURE.get_mut() = Some((image, straight));
         image
     }
 
     /// Frees the picture of a stopped scene, it holds a window of pixels.
     pub(crate) fn free_window_picture() {
-        if let Some(image) = WINDOW_PICTURE.get_mut().take().filter(Weak::is_ok) {
+        if let Some((image, _)) = WINDOW_PICTURE.get_mut().take().filter(|(image, _)| image.is_ok()) {
             image.free();
         }
         WINDOW_TARGETS.clear();
@@ -340,19 +424,32 @@ impl SceneDrawer {
     /// pipeline for a target of `area` pixels that draws in the depth band
     /// `depth`, loads them and draws the shadow map.
     fn gather(
+        pipeline: &mut MeshPipeline,
         scene: &dyn Scene,
         camera: &Camera,
         area: Size,
         depth: (f32, f32),
         encoder: &mut CommandEncoder,
     ) {
-        let pipeline = MESH.get_mut();
-
         for light in &scene.lights {
             pipeline.add_light(light.mesh_light());
         }
 
-        let extent = Self::gather_nodes(pipeline, scene, camera, area);
+        let aspect = area.width / area.height;
+        let view_proj = camera.view_projection(aspect);
+        // The camera's space with its origin on the camera, see
+        // `camera_offset` in scene_common.wgsl. Turned in 64 bit, the
+        // camera's own place cancels out exactly.
+        let relative = view_proj.as_dmat4() * DMat4::from_translation(camera.position.as_dvec3());
+        let frustum = Frustum::of(relative.as_mat4());
+
+        let extent = Self::gather_nodes(
+            pipeline,
+            scene,
+            camera,
+            area,
+            frustum::enabled().then_some(&frustum),
+        );
 
         let sun = scene.sun;
         let sun_color = sun.color.linear();
@@ -367,18 +464,8 @@ impl SceneDrawer {
             let to_sun = -sun.direction.normalize_or_zero();
             pipeline.air.ambient(&air, camera.position - air.center, to_sun)
         });
-        let fog = scene.fog;
         let [sky_sun, sky_moon, sky_params] = DayNightSky::shader_data(scene.day_night_sky.as_ref());
-        let fog_color = fog.map_or(Vec4::ZERO, |fog| {
-            let color = fog.color.linear();
-            Vec4::new(color.r, color.g, color.b, 1.0)
-        });
-        let fog_range = fog.map_or(Vec4::ZERO, |fog| {
-            let (start, inverse) = fog.range();
-            Vec4::new(start, inverse, fog.height.max(1e-3), 0.0)
-        });
-        let aspect = area.width / area.height;
-        let view_proj = camera.view_projection(aspect);
+        let (fog_color, fog_range) = fog_data(scene.fog);
         let cascades = sun_cascades(&sun, camera, aspect, Bounds::of_points(extent));
         let mut sun_texel = Vec4::ZERO;
         let mut sun_depth = Vec4::ZERO;
@@ -387,11 +474,6 @@ impl SceneDrawer {
             sun_depth[slot] = 1.0 / cascade.depth;
         }
 
-        // The camera's space with its origin on the camera, see
-        // `camera_offset` in scene_common.wgsl. Turned in 64 bit, the
-        // camera's own place cancels out exactly.
-        let relative = view_proj.as_dmat4() * DMat4::from_translation(camera.position.as_dvec3());
-        let frustum = Frustum::of(relative.as_mat4());
         for grass in &scene.grass {
             grass.push_draws(pipeline, camera.position, &frustum, &scene.lights);
         }
@@ -467,6 +549,7 @@ impl SceneDrawer {
         scene: &dyn Scene,
         camera: &Camera,
         area: Size,
+        frustum: Option<&Frustum>,
     ) -> Vec<Vec3> {
         let mut translucent = vec![];
         let mut extent = vec![];
@@ -474,16 +557,22 @@ impl SceneDrawer {
 
         for node in scene.nodes() {
             let shape = node.shape();
+            let (position, rotation) = pose(&**node);
+            let scale = node.world_scale();
             // The drawn solid's center, a model's origin can sit off its
             // bounds. The collider can sit elsewhere, see `set_collider`.
-            let center = node.position() + node.rotation() * (shape.collider_offset() * node.world_scale());
-            let reach = node.half_extents().length();
-            let model_matrix = node.model_matrix();
+            let stretch = scale * node.mesh_scale;
+            let center = position + rotation * (shape.collider_offset() * stretch);
+            let reach = (shape.half_extents() * stretch).length();
+            let model_matrix =
+                Mat4::from_scale_rotation_translation(shape.mesh_scale() * stretch, rotation, position);
             extent.push(center - reach);
             extent.push(center + reach);
 
             let mut draws = NodeDraws {
                 pipeline,
+                frustum,
+                camera: camera.position,
                 translucent: &mut translucent,
                 lights: pick_lights(center, reach, &scene.lights),
                 distance: camera.position.distance_squared(center),
@@ -512,11 +601,7 @@ impl SceneDrawer {
             }
 
             if !node.lines.is_empty() {
-                let space = Mat4::from_scale_rotation_translation(
-                    Vec3::splat(node.world_scale()),
-                    node.rotation(),
-                    node.position(),
-                );
+                let space = Mat4::from_scale_rotation_translation(Vec3::splat(scale), rotation, position);
                 for line in &node.lines {
                     push_line(pipeline, line.transformed(space));
                 }
@@ -545,7 +630,7 @@ impl SceneDrawer {
         }
 
         if Self::window_picture_size().is_some() {
-            if let Some(image) = *WINDOW_PICTURE.get_mut() {
+            if let Some((image, _)) = *WINDOW_PICTURE.get_mut() {
                 UIDrawer::draw_behind_views(pass, image);
             }
             return;
@@ -581,7 +666,7 @@ impl SceneDrawer {
         );
 
         let image = Image::render_target(&format!("{name}-{}x{}", size.width, size.height), size);
-        let targets = targets_of(PICTURE_TARGETS.get_mut(), size);
+        let targets = targets_of(PICTURE_TARGETS.get_mut(), size, msaa_sample_count());
 
         let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {
             label: Some("scene_picture"),
@@ -593,7 +678,7 @@ impl SceneDrawer {
             image.view(),
             image.size,
             targets,
-            Fill::Light(background),
+            Route::Copy(Fill::Light(background)),
             &mut encoder,
         );
 
@@ -615,13 +700,21 @@ impl SceneDrawer {
             *photo = Some(Texture::render_target(size, "scene_photo"));
         }
         let photo = photo.as_ref().expect("just set");
-        let targets = targets_of(PICTURE_TARGETS.get_mut(), size);
+        let targets = targets_of(PICTURE_TARGETS.get_mut(), size, msaa_sample_count());
 
         let mut encoder = Window::device().create_command_encoder(&CommandEncoderDescriptor {
             label: Some("scene_photo"),
         });
 
-        Self::draw_into(scene, camera, &photo.view, size, targets, fill, &mut encoder);
+        Self::draw_into(
+            scene,
+            camera,
+            &photo.view,
+            size,
+            targets,
+            Route::Copy(fill),
+            &mut encoder,
+        );
         let (buffer, _) = State::read_screen(&mut encoder, &photo.texture);
 
         crate::render::upload_pending();
@@ -640,9 +733,13 @@ impl SceneDrawer {
         target: &TextureView,
         size: Size<u32>,
         targets: &PictureTargets,
-        fill: Fill,
+        route: Route,
         encoder: &mut CommandEncoder,
     ) {
+        let fill = match route {
+            Route::Copy(fill) => fill,
+            Route::Straight => Fill::Light(Window::clear_color()),
+        };
         // White is the 24 bits a depth photo keeps for no surface.
         let background = match fill {
             Fill::Light(color) => color,
@@ -650,11 +747,16 @@ impl SceneDrawer {
         };
         let area: Size = (size.width.lossy_convert(), size.height.lossy_convert()).into();
 
-        Self::gather(scene, camera, area, (0.0, 1.0), encoder);
+        let pipeline = mesh_for(targets.samples);
+        Self::gather(pipeline, scene, camera, area, (0.0, 1.0), encoder);
 
+        let resolved = match route {
+            Route::Copy(_) => &targets.resolved.view,
+            Route::Straight => target,
+        };
         let (color, resolve_target) = match &targets.msaa {
-            Some(msaa) => (msaa, Some(&targets.resolved.view)),
-            None => (&targets.resolved.view, None),
+            Some(msaa) => (msaa, Some(resolved)),
+            None => (resolved, None),
         };
         // Color times alpha, what a blended node leaves in the frame too,
         // the picture pass divides it back out.
@@ -696,7 +798,7 @@ impl SceneDrawer {
             });
             pass.set_viewport(0.0, 0.0, area.width, area.height, 0.0, 1.0);
             match fill {
-                Fill::Light(_) => MESH.get_mut().draw(
+                Fill::Light(_) => pipeline.draw(
                     &mut pass,
                     scene.sky.as_ref(),
                     scene.sky.is_some()
@@ -704,12 +806,40 @@ impl SceneDrawer {
                         || scene.space_sky.is_some()
                         || scene.fog.is_some(),
                 ),
-                Fill::Depth => MESH.get_mut().draw_depth(&mut pass, scene.sky.as_ref()),
+                Fill::Depth => pipeline.draw_depth(&mut pass, scene.sky.as_ref()),
             }
         }
 
-        PICTURE.get_mut().draw(encoder, &targets.bind.bind, target);
+        if let Route::Copy(_) = route {
+            PICTURE.get_mut().draw(encoder, &targets.bind.bind, target);
+        }
     }
+}
+
+/// Where `node` stands and how it is turned. A node with no body and no
+/// parent keeps both in its own fields, every move of its collider goes
+/// through `set_position`, `set_rotation` or `set_pose`, which write them
+/// too. Read from rapier, 3 or 4 times a node, it was a lookup into the
+/// physics for every wall and prop of a streamed world every frame.
+fn pose(node: &dyn Node) -> (Vec3, Quat) {
+    if node.rigid_handle().is_none() && node.parent().is_none() {
+        (node.position, node.rotation)
+    } else {
+        (node.position(), node.rotation())
+    }
+}
+
+/// The color of the fog and its range as `SceneUniform` holds them, all 0
+/// with no fog.
+fn fog_data(fog: Option<Fog>) -> (Vec4, Vec4) {
+    fog.map_or((Vec4::ZERO, Vec4::ZERO), |fog| {
+        let color = fog.color.linear();
+        let (start, inverse) = fog.range();
+        (
+            Vec4::new(color.r, color.g, color.b, 1.0),
+            Vec4::new(start, inverse, fog.height.max(1e-3), 0.0),
+        )
+    })
 }
 
 /// The occluders from the camera with their radii, for `light_through`.

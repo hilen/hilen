@@ -1,10 +1,12 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashSet},
     f32::consts::{PI, TAU},
-    sync::OnceLock,
+    sync::{Arc, Mutex},
 };
 
-use wgpu::{Buffer, BufferUsages};
+use log::warn;
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, MapMode};
 
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
@@ -40,13 +42,24 @@ pub struct Mesh {
     /// Whether its texture slides along a flow, see
     /// `Model::from_flowing_mesh`.
     pub(crate) flowing:       bool,
-    /// The triangles again on the CPU, what the edges are made from.
-    indices:                  Vec<u16>,
     /// Every edge of the triangles once, as pairs of vertex indices, and
     /// their count, what `SceneBase::show_wireframe` draws as lines. Made
     /// on the first wireframe draw, at every upload it took a third of the
-    /// main thread of a game that streams its ground.
-    edges:                    OnceLock<(Buffer, u32)>,
+    /// main thread of a game that streams its ground. The indices are read
+    /// back from the GPU for it, a copy kept on the CPU for every mesh was
+    /// memory only a debug view used.
+    edges:                    RefCell<Edges>,
+}
+
+/// How far the edges of a mesh are, see `Mesh::edges`.
+#[derive(Debug, Default)]
+enum Edges {
+    /// No wireframe asked for them yet.
+    #[default]
+    Unasked,
+    /// The indices are on their way back from the GPU.
+    Reading(Arc<Mutex<Option<Vec<u16>>>>),
+    Ready(Buffer, u32),
 }
 
 type Geometry = (Vec<Vertex3D>, Vec<u16>);
@@ -83,12 +96,11 @@ impl Mesh {
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),
             skin_buffer:   None,
-            index_buffer:  device.buffer(indices, BufferUsages::INDEX),
+            index_buffer:  device.buffer(indices, BufferUsages::INDEX | BufferUsages::COPY_SRC),
             index_count:   checked_usize_to_u32(indices.len()),
             smooth_colors: false,
             flowing:       false,
-            indices:       indices.to_vec(),
-            edges:         OnceLock::new(),
+            edges:         RefCell::default(),
         }
     }
 
@@ -110,16 +122,69 @@ impl Mesh {
         }
     }
 
-    /// The edge buffer and its index count, made the first time they are
-    /// asked for.
-    pub(crate) fn edges(&self) -> &(Buffer, u32) {
-        self.edges.get_or_init(|| {
-            let edges = edges(&self.indices);
-            (
+    /// The edge buffer and its index count, none until the indices came
+    /// back from the GPU. A native GPU is waited for at the first ask, so
+    /// the edges draw that frame. A browser answers on its own time and the
+    /// edges show from the frame they landed.
+    pub(crate) fn edges(&self) -> Option<(Buffer, u32)> {
+        let mut state = self.edges.borrow_mut();
+        if let Edges::Unasked = *state {
+            *state = Edges::Reading(self.read_indices());
+        }
+        if let Edges::Reading(slot) = &*state {
+            let indices = slot.lock().expect("the map callback does not panic").take()?;
+            let edges = edges(&indices);
+            *state = Edges::Ready(
                 Window::device().buffer(edges.as_slice(), BufferUsages::INDEX),
                 checked_usize_to_u32(edges.len()),
-            )
-        })
+            );
+        }
+        match &*state {
+            Edges::Ready(buffer, count) => Some((buffer.clone(), *count)),
+            _ => None,
+        }
+    }
+
+    /// Copies the index buffer into one the CPU can map, and fills the slot
+    /// with the indices once the map is done.
+    fn read_indices(&self) -> Arc<Mutex<Option<Vec<u16>>>> {
+        let device = Window::device();
+        let size = self.index_buffer.size();
+        let readable = device.create_buffer(&BufferDescriptor {
+            label: Some("mesh_indices_read"),
+            size,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("mesh_indices_read"),
+        });
+        encoder.copy_buffer_to_buffer(&self.index_buffer, 0, &readable, 0, size);
+        Window::queue().submit([encoder.finish()]);
+
+        let slot = Arc::new(Mutex::new(None));
+        let (filled, mapped) = (slot.clone(), readable.clone());
+        let count = self.index_count as usize;
+        readable.slice(..).map_async(MapMode::Read, move |result| {
+            if let Err(err) = result {
+                warn!("the indices of a mesh did not come back for its wireframe: {err}");
+                return;
+            }
+            let indices = match mapped.slice(..).get_mapped_range() {
+                Ok(bytes) => bytemuck::cast_slice::<u8, u16>(&bytes)[..count].to_vec(),
+                Err(err) => {
+                    warn!("the indices of a mesh could not be read for its wireframe: {err}");
+                    return;
+                }
+            };
+            mapped.unmap();
+            *filled.lock().expect("nothing else holds the slot") = Some(indices);
+        });
+        #[cfg(not_wasm)]
+        if let Err(err) = device.poll(wgpu::PollType::wait_indefinitely()) {
+            warn!("the GPU poll for the indices of a mesh failed: {err}");
+        }
+        slot
     }
 
     /// A mesh whose vertices follow the joints of a skin, `skin` is one

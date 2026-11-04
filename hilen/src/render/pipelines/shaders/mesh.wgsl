@@ -791,6 +791,33 @@ fn f_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(lit(in).rgb, 1.0);
 }
 
+// An opaque node whose material has no maps, `f_opaque` with the plain
+// texels folded in: it reads no texture and builds no normal frame, the
+// cost of every pixel of a ground that sets only a color. The plain
+// normal texel of 128 is a hair off flat, this one is flat.
+@fragment
+fn f_plain_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let tint = unpack4x8unorm(in.color);
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    // The white texel decodes a hair under one too, kept for the same pixels.
+    let white = srgb_to_linear(vec3<f32>(1.0));
+    let offset = camera_offset(in.pos);
+    let flat = normalize(in.normal);
+    let sampled = Sampled(
+        srgb_to_linear(instance.color.rgb) * tint_linear * white,
+        instance.color.a * tint.a,
+        instance.metallic,
+        clamp(instance.roughness, 0.045, 1.0),
+        1.0,
+        offset,
+        view.camera_pos.xyz + offset,
+        flat,
+        flat,
+    );
+    return vec4<f32>(shade_sampled(sampled, in.instance).rgb, 1.0);
+}
+
 // A cut out node, see `Material::cutout`, or a fading one, see
 // `Material::fade`. Its own entry, so a plain opaque draw carries no
 // discard. The color it returns goes nowhere, `f_opaque` lights what

@@ -13,6 +13,12 @@ pub(crate) struct CachedBind<K> {
     bind: BindGroup,
 }
 
+impl<K> CachedBind<K> {
+    pub(crate) fn bind(&self) -> &BindGroup {
+        &self.bind
+    }
+}
+
 /// The bind group for `key` out of `slot`, made by `make` when the slot
 /// is empty or holds one for other resources.
 pub(crate) fn cached<K: PartialEq>(

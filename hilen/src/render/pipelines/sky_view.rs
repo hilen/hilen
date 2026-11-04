@@ -14,14 +14,16 @@ use wgpu::{
 };
 
 use super::{
-    air_textures::AirTextures,
+    air_textures::{AirPlace, AirTextures},
     mesh_binds::{sampler_entry, texture_entry},
 };
 use crate::{
+    gm::volume::Vec4,
     render::{
         SceneUniform,
         bind_cache::{CachedBind, cached},
     },
+    scene::MAX_OCCLUDERS,
     window::Window,
 };
 
@@ -41,6 +43,60 @@ pub(crate) struct SkyView {
     /// Clamps, for the air's tables this pass reads.
     table_sampler:      Sampler,
     bind:               Option<CachedBind<(TextureView, TextureView)>>,
+    /// What the table holds now, built again only when the view moves
+    /// past it.
+    built:              Option<SkyKey>,
+}
+
+/// What of a view the table depends on. It is built for a sun of 1, the
+/// sky pass gives the sun its color.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SkyKey {
+    place:      AirPlace,
+    /// The ground radius and the shape of the air, `air[0].w` and
+    /// `air[1..6]`.
+    shape:      [Vec4; 6],
+    occluders:  [Vec4; MAX_OCCLUDERS],
+    transmit:   [Vec4; MAX_OCCLUDERS],
+    /// The count of the occluders and the size of the sun's disc.
+    sun_disc:   (f32, f32),
+    brightness: f32,
+}
+
+/// A change of the brightness of the air under this share draws the same.
+const BRIGHTNESS_STEP: f32 = 1e-3;
+
+impl SkyKey {
+    fn of(view: &SceneUniform) -> Self {
+        let mut shape = view.air;
+        shape[0] = Vec4::new(0.0, 0.0, 0.0, view.air[0].w);
+        Self {
+            place: AirPlace {
+                from_center: -view.air[0].truncate(),
+                to_sun:      -view.sun_dir.truncate(),
+            },
+            shape,
+            occluders: view.occluders,
+            transmit: view.transmit,
+            sun_disc: (view.occlusion.x, view.occlusion.y),
+            brightness: view.occlusion.w,
+        }
+    }
+
+    /// Whether the table built for `self` still holds for `other`. An
+    /// occluder may move by the same turn as the sun, seen from the camera.
+    fn holds(&self, other: &Self) -> bool {
+        let occluders_near = self.occluders.iter().zip(&other.occluders).all(|(a, b)| {
+            a.w.to_bits() == b.w.to_bits()
+                && a.truncate().distance(b.truncate()) <= 5e-4 * a.truncate().length().max(1.0)
+        });
+        self.shape == other.shape
+            && self.transmit == other.transmit
+            && self.sun_disc == other.sun_disc
+            && (self.brightness - other.brightness).abs() <= BRIGHTNESS_STEP * self.brightness.abs().max(1e-6)
+            && occluders_near
+            && self.place.near(&other.place, self.shape[0].w)
+    }
 }
 
 impl SkyView {
@@ -131,6 +187,7 @@ impl SkyView {
             sampler: linear(AddressMode::Repeat, "sky_view_sampler"),
             table_sampler: linear(AddressMode::ClampToEdge, "sky_view_table_sampler"),
             bind: None,
+            built: None,
         }
     }
 
@@ -147,6 +204,12 @@ impl SkyView {
         if view.space.x < 0.5 || view.air[5].w < 0.5 {
             return;
         }
+        // 512 by 256 texels of 24 steps each, for a sky that moves slowly.
+        let key = SkyKey::of(view);
+        if self.built.is_some_and(|built| built.holds(&key)) {
+            return;
+        }
+        self.built = Some(key);
         let bind = cached(
             &mut self.bind,
             (air.transmittance.clone(), air.multi.clone()),
@@ -197,5 +260,56 @@ impl SkyView {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bind, &[]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::gm::volume::Vec3;
+
+    const GROUND: f32 = 20_000.0;
+
+    fn view(height: f32, sun: Vec3) -> SceneUniform {
+        let mut view = SceneUniform::default();
+        view.air[0] = Vec3::new(0.0, -(GROUND + height), 0.0).extend(GROUND);
+        view.air[1] = Vec4::new(5.8e-6, 1.35e-5, 3.31e-5, GROUND + 60_000.0);
+        view.sun_dir = (-sun).normalize().extend(0.0);
+        view.occlusion = Vec4::new(1.0, 0.0047, 0.0, 0.8);
+        view.occluders[0] = Vec4::new(0.0, -(GROUND + height), 0.0, GROUND);
+        view
+    }
+
+    // The table was marched every frame, 3 million steps, for a sky that
+    // turns once in 24 minutes.
+    #[test]
+    fn a_table_holds_while_the_sky_barely_moves() {
+        let built = SkyKey::of(&view(2.0, Vec3::new(0.3, 1.0, 0.0)));
+        assert!(built.holds(&SkyKey::of(&view(2.2, Vec3::new(0.3, 1.0, 0.0001)))));
+    }
+
+    #[test]
+    fn a_table_is_built_again_when_the_sun_the_height_or_the_air_moves() {
+        let built = SkyKey::of(&view(2.0, Vec3::new(0.3, 1.0, 0.0)));
+        assert!(
+            !built.holds(&SkyKey::of(&view(2.0, Vec3::new(0.3, 1.0, 0.01)))),
+            "the sun"
+        );
+        assert!(
+            !built.holds(&SkyKey::of(&view(40.0, Vec3::new(0.3, 1.0, 0.0)))),
+            "a climb"
+        );
+
+        let mut brighter = view(2.0, Vec3::new(0.3, 1.0, 0.0));
+        brighter.occlusion.w = 0.81;
+        assert!(!built.holds(&SkyKey::of(&brighter)), "the brightness of the air");
+
+        let mut moon = view(2.0, Vec3::new(0.3, 1.0, 0.0));
+        moon.occluders[1] = Vec4::new(1000.0, 300_000.0, 0.0, 6000.0);
+        assert!(!built.holds(&SkyKey::of(&moon)), "an occluder");
+
+        let mut shape = view(2.0, Vec3::new(0.3, 1.0, 0.0));
+        shape.air[2].x = 2e-5;
+        assert!(!built.holds(&SkyKey::of(&shape)), "the shape of the air");
     }
 }

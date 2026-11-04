@@ -40,9 +40,26 @@ SceneManager::set_scene(Playground::default());
 collider, so what is drawn is what collides. `Body` is dynamic, `Wall` a fixed and
 bouncy collider, `Prop` is only drawn. `NodeTemplates` carries `set_color`,
 `set_material`, `set_metallic`, `set_roughness`, `set_position`, `set_rotation`,
-`set_scale`, `set_friction` and `set_restitution`, and a `Body` has `set_velocity`,
-`add_impulse` and `set_damping`. Rapier has no rolling resistance, so a ball on a
-plane rolls forever without damping.
+`set_pose`, `set_scale`, `set_mesh_scale`, `set_friction` and `set_restitution`, and
+a `Body` has `set_velocity`, `add_impulse` and `set_damping`. Rapier has no rolling
+resistance, so a ball on a plane rolls forever without damping.
+
+`set_pose` sets the place and the turn in 1 write to the physics, for a world that
+moves every node each frame. `set_mesh_scale(Vec3)` stretches only the drawn mesh
+along each of its axes, on top of `set_scale`, so props of 1 shape stretched each
+its own way share 1 model and draw in 1 batch. The collider, `node_at`, triangle
+picking and the attached nodes keep the uniform scale, so a stretched solid gets
+its collider from `set_collider`. Rapier has no stretched ball, and a child of a
+node stretched and turned would be sheared. `Mesh scale` and `Node pose` hold both.
+
+`SceneSetup::frame(dt)` runs once a frame before the physics steps, with the whole
+frame time. `update` and `after_physics` run once per step, `PHYSICS_SUBSTEPS` times
+a frame in a scene with physics, so only what has to move with the physics belongs
+there. A game that streamed its world in `update` paid for it 4 times a frame.
+`SceneManager::set_paused(true)` holds the scene's time, its physics and the `frame`
+and `update` calls, and keeps drawing it, a game under its pause menu. A new scene
+and `stop_scene` start it again. The test harness holds a scene with its own flag,
+so the end of a human hold does not start a game the app paused.
 
 The world is right handed with y up, the glTF and Blender convention. A plane is
 drawn at its origin facing up and its collider slab hangs below it, so a body rests
@@ -160,6 +177,9 @@ each node is tried first. A model keeps its triangles in model space for this,
 index is the triangle of its `MeshData`, 3 indices each, since the split into 16 bit
 parts keeps their order. So an app reads its own data per triangle, like the part a
 CSG library made it from. `node_at` and a touch still use the box around a model.
+A mesh made from `PreparedMesh::without_picking` keeps no triangles, 36 bytes each
+for its whole life, so ground that is never picked by triangle costs no memory for
+it. `triangle_count` is 0 there and `hit_triangle` finds nothing.
 
 ## Transform handle
 
@@ -289,7 +309,9 @@ the map, so the shadow is as thin as the node. A fade of 0 is not drawn at all, 
 draws as a node that never faded. `set_fade_flip(true)` keeps the other share of the
 pattern: a node fading in and a flipped one fading out at the same place, with fades
 that add up to 1, cover every pixel once, a cross fade with no hole. The fade and the
-flip fill the 2 words of padding `MeshInstance` had, its size stays 192 bytes. Each
+flip fill the 2 words of padding `MeshInstance` had. It is 208 bytes since the
+`shallow` color of water, and a unit test checks that `mesh.wgsl` and `shadow.wgsl`
+read the same offsets the Rust side writes. Each
 comparison in `faded_out` sits in its own parentheses, a bare `a < b, c > d` in WGSL
 parses as a template list.
 
@@ -450,6 +472,13 @@ so the filter never mixes the ground into the sky. A ground texel lets nothing t
 Only a frame with a `SpaceSky` with air builds it. In geblings at noon and in the
 afternoon, headless, the sky came out the same as with the march per pixel, only a few
 cells of 8 pixels moved. Its gain in a window was not measured yet.
+
+The table is built again only when the view moves past it, `SkyKey` in
+`render/pipelines/sky_view.rs`: the up of the camera or the sun turned by more than
+0.0005 radians, the camera climbed more than 0.5 m and a thousandth of its height,
+an occluder moved, or the shape or the brightness of the air changed. The ambient
+light of the air, 2048 steps of the air on the main thread, is kept by the same rule
+of `AirPlace`. A day of 24 minutes turns the sun past the step in 0.1 s.
 
 `air_haze` runs for every lit pixel, so it is the dearest part of a lit node. In
 geblings at 500 m by day in a window of 2880 by 1872 on an M1 Pro, 8 steps took 41.9
@@ -857,9 +886,15 @@ eight, see Meshes from code. The cutout shadow pass carries
 four, the uv, the index and the color, two for a mesh with fading colors, the index
 and the alpha. Every mesh buffer loads once per
 frame, so the bind groups over the view, the lights, the instances and
-each key's textures are kept from frame to frame and remade only when a buffer
-grows, a count changes, the sky or the shadow map is replaced or an image dies,
-see `render/bind_cache.rs`. Indices are 16 bit so every lane
+the textures are kept from frame to frame and remade only when a buffer grows, a
+count changes, the sky or the shadow map is replaced or an image dies, see
+`render/bind_cache.rs`. Meshes with the same images share 1 textures bind, every
+mesh with no maps the plain one, and `prepare` checks the images of each bind once a
+frame, the draws read it by an index with no check. A solid node whose material has
+no maps draws through `f_plain_opaque`, which reads no texture and builds no normal
+frame, the cost of every pixel of a ground that sets only a color. The plain normal
+texel of 128 was a hair off flat, so a surface with a uv may move by a color step,
+no recorded test did. Indices are 16 bit so every lane
 draws them. Back faces are culled, so every primitive is wound counter clockwise
 seen from outside, pinned by unit tests on the geometry.
 
@@ -872,9 +907,21 @@ would have drawn no pixel, and the picture stays the same. A cascade tests its o
 so a node behind the camera still casts its shadow into the view, the scene test
 `Shadow out of view` pins that and fails when a cascade culls by the camera. A skinned
 part and a part of a playing clip are never left out, their rest bounds do not hold the
-pose. Translucent nodes are not culled. `HILEN_CULL=0` in the env draws every node in
+pose. A translucent node is left out when the camera cannot see its sphere, a posed
+one never. `HILEN_CULL=0` in the env draws every node in
 every pass, the A/B for a measurement. In geblings, standing in a forest with the sun
 held still, a headless frame went from 2.43 ms to 1.44 ms.
+
+On a GPU that is not Apple's the solid batches draw nearest first, by their nearest
+instance, so the depth test spares the pixels behind. Apple's GPU shades only the
+nearest surface of a pixel whatever the order, `hides_covered_pixels` in
+`window/msaa.rs`, and a near to far order gave nothing on an M1 Pro. A node with no
+body and no parent gives its place and turn from its own fields, every move of its
+collider writes them too, and each node is read once a frame, not 3 or 4 times
+through rapier. With these, the bind sharing and the kept sky, geblings took 5.0 ms
+of CPU work a frame on the ground where it took 8.1, and 5.6 ms in flight where it
+took 9.9, the median of 3 headless runs each on an M4 Pro on 2026-11-04 with the
+Time Profiler of Instruments, the GPU side not measured.
 
 `GpuCapture::frames(count, path)` captures the GPU work of the next frames into a
 `.gputrace` file that Xcode replays with the time of every pass and draw,
@@ -889,7 +936,13 @@ route of a `SceneView`. `UIDrawer::draw_behind_views` stretches it over the fram
 any view, so a see through view blends over the scene. Queued with the views it would come
 after their rects. The views stay sharp, and what shows where nothing draws is the
 window's clear color, as without a scale. `stop_scene` sets it back to 1, a scene in a
-`SceneView` ignores it. `Render scale` holds the colors at 1 and at 0.5. In geblings at
+`SceneView` ignores it. `SceneManager::set_scene_samples(1, 2 or 4)` gives that picture
+its own sample count, 1 by default, the views keep the frame's. Its pipelines are made
+at the first such frame, so an app that never draws under a scale does not wait for
+them. Over an opaque clear color the samples resolve straight into the image the frame
+stretches, a picture over a clear one goes through the copy that divides out the
+alpha. `Render scale` holds the colors at 1 and at 0.5 with 1 and with 4 samples, and
+that the slanted edges of a turned box differ between them. In geblings at
 4096 by 2304 on an M1 Pro, 22 ms of GPU work a frame held only 45 fps, 3328 by 1872 took
 16.3 ms and held 60, measured with Metal System Trace on 2026-10-30.
 
@@ -910,9 +963,11 @@ line pipeline on the same view uniform, depth tested against the nodes, and sit 
 little outside their solid so the faces do not cut them.
 
 `show_wireframe` on the scene draws the edge of every triangle of every node as a
-white line over the scene. A mesh keeps its triangle indices and builds its edge
-index buffer the first time a wireframe draws it, each edge of the triangles once,
-so the lines cost nothing on the CPU per frame. Built at every upload they took a
+white line over the scene. A mesh builds its edge index buffer the first time a
+wireframe draws it, each edge of the triangles once, so the lines cost nothing on the
+CPU per frame. It keeps no copy of its indices for that, it reads them back from the
+GPU then: a native GPU is waited for and the edges draw that frame, a browser answers
+later and the edges show from the frame they land. Built at every upload they took a
 third of the main thread of a game that streams its ground. The wireframe pipelines are the mesh pipelines with a line list, made at
 the first frame that shows a wireframe. They use the same vertex entries and
 instances, so a model and a skinned mesh draw their edges where they stand. An edge

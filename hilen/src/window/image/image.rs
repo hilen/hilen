@@ -295,6 +295,16 @@ impl Image {
         .unwrap()
     }
 
+    /// A blank image in the format of the surface that a scene resolves
+    /// into straight, with no copy, see `SceneDrawer::window_picture`.
+    #[cfg(feature = "scene")]
+    pub(crate) fn surface_target(name: &str, size: Size<u32>) -> Weak<Image> {
+        Image::store_with_name::<Infallible>(name, || {
+            Ok(Self::from_texture(&Texture::pixel_target(size), None))
+        })
+        .unwrap()
+    }
+
     pub(crate) fn from_file_data(data: &[u8], name: &str) -> Weak<Image> {
         Image::store_with_name(name, || Self::load_to_wgpu(name, data))
             .expect("Failed to load image from data")

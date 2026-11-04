@@ -36,6 +36,8 @@ pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::D
 pub(crate) enum MeshDraw {
     /// Replaces the target and writes depth.
     Opaque,
+    /// `Opaque` for a material with no maps, it reads no texture.
+    PlainOpaque,
     /// The depth alone of the fragments that stay of a cut out node, see
     /// `Material::cutout`. Far trees are layers of quads, a fragment only
     /// pays for its light in `Cutout`, once it is known to be on top.
@@ -69,6 +71,14 @@ pub(crate) enum MeshDraw {
     /// flow, the fragment entries that take `v_flow`.
     FlowOpaque,
     FlowTranslucent,
+}
+
+/// What a mesh pipeline draws and how many samples a pixel of its pass has.
+#[cfg(feature = "scene")]
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct MeshPass {
+    pub(crate) draw:    MeshDraw,
+    pub(crate) samples: u32,
 }
 
 /// How a pipeline tests depth, what it draws, and how many samples a
@@ -200,13 +210,19 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        draw: MeshDraw,
+        pass: MeshPass,
     ) -> RenderPipeline;
 
     /// The skybox, one triangle over the viewport with no depth test
     /// and no depth write, drawn before the nodes cover it.
     #[cfg(feature = "scene")]
-    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
+    fn sky_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        samples: u32,
+    ) -> RenderPipeline;
 
     /// One triangle over the viewport that writes the depth of
     /// `vertex_entry` of the depth fill shader and no color.
@@ -217,6 +233,7 @@ pub(crate) trait DeviceHelper {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_entry: &str,
+        samples: u32,
     ) -> RenderPipeline;
 
     /// The sun's depth pass into the shadow map, no color target and a
@@ -402,7 +419,7 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        draw: MeshDraw,
+        MeshPass { draw, samples }: MeshPass,
     ) -> RenderPipeline {
         let transparent = matches!(
             draw,
@@ -424,6 +441,7 @@ impl DeviceHelper for Device {
                 entry_point:         Some(match draw {
                     MeshDraw::CutoutDepth => "f_cutout_depth",
                     MeshDraw::Opaque | MeshDraw::Cutout => "f_opaque",
+                    MeshDraw::PlainOpaque => "f_plain_opaque",
                     MeshDraw::Translucent => "f_main",
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
@@ -480,7 +498,7 @@ impl DeviceHelper for Device {
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -553,6 +571,7 @@ impl DeviceHelper for Device {
         layout: &PipelineLayout,
         shader: &ShaderModule,
         vertex_entry: &str,
+        samples: u32,
     ) -> RenderPipeline {
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -590,7 +609,7 @@ impl DeviceHelper for Device {
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -600,7 +619,13 @@ impl DeviceHelper for Device {
     }
 
     #[cfg(feature = "scene")]
-    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
+    fn sky_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        samples: u32,
+    ) -> RenderPipeline {
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
             layout:         layout.into(),
@@ -639,7 +664,7 @@ impl DeviceHelper for Device {
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },

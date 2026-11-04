@@ -15,9 +15,42 @@ use crate::{
     window::Window,
 };
 
+/// Turns smaller than this, of the up of the camera or of the sun, give the
+/// air the same picture: a pixel of a window of 1700 pixels over 60 degrees
+/// is about 0.0006 radians. The sun of geblings turns past it in 0.1 s.
+const AIR_STEP_ANGLE: f32 = 5e-4;
+/// A climb smaller than this share of the height over the ground, plus
+/// `AIR_STEP_METERS`, gives the air the same picture.
+const AIR_STEP_SHARE: f32 = 1e-3;
+const AIR_STEP_METERS: f32 = 0.5;
+
+/// Where the camera stands in the air and where the sun is, what the sky
+/// table and the ambient light of the air are worked out for. Both were
+/// worked out every frame for a sky that moves with a day of 24 minutes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AirPlace {
+    /// The camera from the center of the air.
+    pub from_center: Vec3,
+    pub to_sun:      Vec3,
+}
+
+impl AirPlace {
+    /// Whether the air looks the same from `other`, over a ground of
+    /// `ground_radius`.
+    pub(crate) fn near(&self, other: &Self, ground_radius: f32) -> bool {
+        let height = (self.from_center.length() - ground_radius).max(0.0);
+        let climb = (self.from_center.length() - other.from_center.length()).abs();
+        climb <= AIR_STEP_METERS + height * AIR_STEP_SHARE
+            && self.from_center.angle_between(other.from_center) <= AIR_STEP_ANGLE
+            && self.to_sun.angle_between(other.to_sun) <= AIR_STEP_ANGLE
+    }
+}
+
 pub(crate) struct AirTextures {
     shape:                    Option<Atmosphere>,
     tables:                   Option<AtmosphereTables>,
+    /// The last ambient light and where it was worked out.
+    ambient:                  Option<(AirPlace, [Vec3; 9])>,
     pub(crate) transmittance: TextureView,
     pub(crate) multi:         TextureView,
 }
@@ -33,6 +66,7 @@ impl AirTextures {
         Self {
             shape:         None,
             tables:        None,
+            ambient:       None,
             transmittance: upload(&empty, "air_transmittance"),
             multi:         upload(&empty, "air_multi"),
         }
@@ -58,13 +92,27 @@ impl AirTextures {
         );
         self.tables = Some(tables);
         self.shape = Some(shape);
+        self.ambient = None;
     }
 
     /// The ambient light of `air` at `camera`, relative to its center,
     /// for a sun of 1 toward `to_sun`, once its tables are built.
-    pub(crate) fn ambient(&self, air: &Atmosphere, camera: Vec3, to_sun: Vec3) -> Option<[Vec3; 9]> {
+    /// Kept while the camera and the sun stay `near` where it was worked
+    /// out, 2048 steps of the air on the main thread each time.
+    pub(crate) fn ambient(&mut self, air: &Atmosphere, camera: Vec3, to_sun: Vec3) -> Option<[Vec3; 9]> {
         let tables = self.tables.as_ref().filter(|_| self.shape == Some(air.shape()))?;
-        Some(air.ambient(tables, camera, to_sun))
+        let place = AirPlace {
+            from_center: camera,
+            to_sun,
+        };
+        if let Some((kept, light)) = self.ambient
+            && kept.near(&place, air.ground_radius)
+        {
+            return Some(light);
+        }
+        let light = air.ambient(tables, camera, to_sun);
+        self.ambient = Some((place, light));
+        Some(light)
     }
 }
 

@@ -1,7 +1,7 @@
 mod batches;
 mod builders;
 
-use std::{array::from_fn, ops::Range};
+use std::{array::from_fn, collections::HashSet, ops::Range};
 
 use indexmap::IndexMap;
 use plat::Platform;
@@ -17,8 +17,8 @@ use self::builders::{
 use super::{
     air_textures::AirTextures,
     mesh_binds::{
-        instances_bind, instances_layout, opaque_bind, plain_texture, textures_bind, textures_layout,
-        view_bind, view_layout,
+        TextureSet, TexturesEntry, instances_bind, instances_layout, opaque_bind, plain_texture, textures_at,
+        textures_index, textures_layout, view_bind, view_layout, warn_unshown,
     },
     sky_view::SkyView,
 };
@@ -44,6 +44,7 @@ use crate::{
     window::{
         Window,
         image::{Image, Texture},
+        msaa_sample_count,
     },
 };
 
@@ -100,6 +101,21 @@ pub(crate) struct MeshKey {
     pub cutout:                 bool,
 }
 
+impl MeshKey {
+    /// Whether a solid draw of it reads no texture, see `f_plain_opaque`. A
+    /// mesh with fading colors or a flow has pipelines of its own.
+    pub(crate) fn plain(&self) -> bool {
+        self.texture.is_none()
+            && self.normal_map.is_none()
+            && self.metallic_roughness_map.is_none()
+            && self.occlusion_map.is_none()
+            && self.flow_map.is_none()
+            && !self.cutout
+            && !self.mesh.smooth_colors
+            && !self.mesh.flowing
+    }
+}
+
 /// The sky cube, its sampler and the shadow map a view bind holds.
 pub(super) type ViewKey = (TextureView, Sampler, TextureView, TextureView, TextureView);
 /// The instance range and the joint range an instances bind holds.
@@ -130,9 +146,14 @@ pub(crate) struct Reach {
 /// trees through the camera and 3 cascades, most of them out of all 4.
 #[derive(Default)]
 struct Batch {
-    pending: Vec<(MeshInstance, Option<Reach>)>,
-    drawn:   [Range<u32>; PASSES],
-    frame:   u64,
+    pending:  Vec<(MeshInstance, Option<Reach>)>,
+    drawn:    [Range<u32>; PASSES],
+    frame:    u64,
+    /// Where its textures bind is, see `textures_index`.
+    textures: usize,
+    /// How far its nearest instance is from the camera, what solid draws
+    /// are ordered by, see `hides_covered_pixels`.
+    near:     f32,
 }
 
 impl Batch {
@@ -157,8 +178,13 @@ impl Batch {
 /// pipeline, the same shader from its other vertex entry, which blends
 /// the joint matrices its instance points at.
 pub struct MeshPipeline {
+    /// Samples a pixel of the pass every pipeline here draws into, see
+    /// `SceneManager::set_scene_samples`.
+    samples:      u32,
     /// Each a pipeline and its skinned twin.
     opaque:       [RenderPipeline; 2],
+    /// `opaque` for a material with no maps, see `MeshKey::plain`.
+    plain:        [RenderPipeline; 2],
     cutout:       [RenderPipeline; 2],
     cutout_depth: [RenderPipeline; 2],
     translucent:  [RenderPipeline; 2],
@@ -237,9 +263,11 @@ pub struct MeshPipeline {
 
     /// The translucent nodes in draw order, the key of each and the
     /// bind over them.
-    transparent:      VecBuffer<MeshInstance>,
-    transparent_keys: Vec<MeshKey>,
-    transparent_bind: Option<CachedBind<InstancesKey>>,
+    transparent:          VecBuffer<MeshInstance>,
+    transparent_keys:     Vec<MeshKey>,
+    /// The textures bind of each translucent node, see `textures_index`.
+    transparent_textures: Vec<usize>,
+    transparent_bind:     Option<CachedBind<InstancesKey>>,
 
     /// The joint matrices of every skinned node of the frame, one run
     /// per node and skin, indexed by the instance's `joint_base`.
@@ -250,6 +278,8 @@ pub struct MeshPipeline {
     /// buffers of the grass bind.
     grass_pending:   Vec<GrassDraw>,
     grass_drawn:     Vec<GrassDraw>,
+    /// The textures bind of each patch drawn, see `textures_index`.
+    grass_textures:  Vec<usize>,
     grass_instances: VecBuffer<MeshInstance>,
     grass_patches:   VecBuffer<Mat4>,
     grass_bind:      Option<CachedBind<InstancesKey>>,
@@ -267,7 +297,9 @@ pub struct MeshPipeline {
     textures_layout: BindGroupLayout,
     white:           Texture,
     flat_normal:     Texture,
-    textures:        IndexMap<MeshKey, Option<CachedBind<TexturesKey>>>,
+    textures:        IndexMap<TextureSet, TexturesEntry>,
+    /// The meshes `warn_unshown` already spoke about.
+    warned:          HashSet<Weak<Mesh>>,
 }
 
 impl MeshPipeline {
@@ -282,6 +314,13 @@ impl MeshPipeline {
 
 impl Default for MeshPipeline {
     fn default() -> Self {
+        Self::new(msaa_sample_count())
+    }
+}
+
+impl MeshPipeline {
+    /// The pipelines for a pass of `samples` samples a pixel.
+    pub(crate) fn new(samples: u32) -> Self {
         let device = Window::device();
 
         // The common part reads the cascade count, one source for both.
@@ -298,34 +337,25 @@ impl Default for MeshPipeline {
         let lights_layout = make_storage_layout("mesh_lights_layout", ShaderStages::FRAGMENT);
         let textures_layout = textures_layout(device);
 
-        let mesh_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label:              "mesh_pipeline_layout".into(),
-            bind_group_layouts: &[
-                Some(&view_layout),
-                Some(&instances_layout),
-                Some(&lights_layout),
-                Some(&textures_layout),
-            ],
-            immediate_size:     0,
-        });
-        let sky_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label:              "sky_pipeline_layout".into(),
-            bind_group_layouts: &[Some(&view_layout)],
-            immediate_size:     0,
-        });
+        let (mesh_layout, sky_layout) = pipeline_layouts(
+            device,
+            [&view_layout, &instances_layout, &lights_layout, &textures_layout],
+        );
 
-        let draws =
-            |label: &str, draw: MeshDraw| mesh_pipelines(device, label, &mesh_layout, &mesh_shader, draw);
+        let draws = |label: &str, draw: MeshDraw| {
+            mesh_pipelines(device, label, &mesh_layout, &mesh_shader, draw, samples)
+        };
         let opaque = draws("mesh", MeshDraw::Opaque);
+        let plain = draws("mesh_plain", MeshDraw::PlainOpaque);
         let cutout = draws("mesh_cutout", MeshDraw::Cutout);
         let cutout_depth = draws("mesh_cutout_depth", MeshDraw::CutoutDepth);
         let translucent = draws("mesh_translucent", MeshDraw::Translucent);
-        let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
-        let [depth_far, depth_near] = depth_fill_pipelines(device);
-        let grass = grass_pipelines(device, &mesh_layout, &mesh_shader);
+        let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader, samples);
+        let [depth_far, depth_near] = depth_fill_pipelines(device, samples);
+        let grass = grass_pipelines(device, &mesh_layout, &mesh_shader, samples);
         // The lines bind only the view, the sky's layout.
         let [lines_pipeline, wide_tested, wide_on_top] =
-            line_pipelines(device, &sky_layout, &lines_shader, &wide_shader);
+            line_pipelines(device, &sky_layout, &lines_shader, &wide_shader, samples);
 
         let view_buffer = device.buffer(
             &SceneUniform::default(),
@@ -333,7 +363,9 @@ impl Default for MeshPipeline {
         );
 
         Self {
+            samples,
             opaque,
+            plain,
             cutout,
             cutout_depth,
             translucent,
@@ -374,10 +406,12 @@ impl Default for MeshPipeline {
             opaque_bind: None,
             transparent: VecBuffer::default(),
             transparent_keys: vec![],
+            transparent_textures: vec![],
             transparent_bind: None,
             joints: VecBuffer::default(),
             grass_pending: vec![],
             grass_drawn: vec![],
+            grass_textures: vec![],
             grass_instances: VecBuffer::default(),
             grass_patches: VecBuffer::default(),
             grass_bind: None,
@@ -388,11 +422,16 @@ impl Default for MeshPipeline {
             white: plain_texture([255, 255, 255, 255], "mesh_white"),
             flat_normal: plain_texture([128, 128, 255, 255], "mesh_flat_normal"),
             textures: IndexMap::default(),
+            warned: HashSet::new(),
         }
     }
 }
 
 impl MeshPipeline {
+    pub(crate) fn samples(&self) -> u32 {
+        self.samples
+    }
+
     /// An opaque instance, left out of the passes whose view misses
     /// `reach`, drawn in all of them with none.
     pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance, reach: Option<Reach>) {
@@ -412,9 +451,20 @@ impl MeshPipeline {
     /// Makes the pipelines of a mesh whose colors fade the first time
     /// `key` draws one.
     fn fit_smooth(&mut self, key: &MeshKey) {
+        if (key.mesh.smooth_colors || key.mesh.flowing)
+            && !self.warned.contains(&key.mesh)
+            && warn_unshown(key)
+        {
+            self.warned.insert(key.mesh);
+        }
         if key.mesh.smooth_colors && self.smooth.is_none() {
             let device = Window::device();
-            self.smooth = Some(SmoothPipelines::new(device, &self.mesh_layout, &self.mesh_shader));
+            self.smooth = Some(SmoothPipelines::new(
+                device,
+                &self.mesh_layout,
+                &self.mesh_shader,
+                self.samples,
+            ));
             self.shadow.make_smooth(device);
         }
         if key.mesh.flowing && self.flow.is_none() {
@@ -422,6 +472,7 @@ impl MeshPipeline {
                 Window::device(),
                 &self.mesh_layout,
                 &self.mesh_shader,
+                self.samples,
             ));
         }
     }
@@ -473,7 +524,8 @@ impl MeshPipeline {
         map_size: u32,
     ) {
         self.instances.retain(|key, _| key.mesh.is_ok());
-        self.textures.retain(|key, _| key.mesh.is_ok());
+        self.textures.retain(|set, _| set.alive());
+        self.warned.retain(Weak::is_ok);
 
         self.view_buffer.update(*view);
         self.sky_view.draw(encoder, view, &self.view_buffer, &self.air);
@@ -492,43 +544,21 @@ impl MeshPipeline {
         self.joints.load();
 
         let frame = Window::render_frame();
-        let camera = view.camera_pos.truncate();
-        let views: [Frustum; PASSES] = from_fn(|pass| match pass {
-            0 => Frustum::of(view.view_proj),
-            cascade => Frustum::of(view.sun_view_proj[cascade - 1]),
-        });
-        let passes = if shadows { PASSES } else { 1 };
-        let cull = frustum::enabled();
-        for batch in self.instances.values_mut() {
-            // A batch nothing added to draws nothing. Its range can still be
-            // from this same frame number, a picture is drawn between two
-            // frames and the scene on screen loaded the frame before it.
-            batch.drawn = Default::default();
-            if batch.pending.is_empty() {
-                continue;
-            }
-            for (pass, frustum) in views.iter().enumerate().take(passes) {
-                let start = self.opaque_instances.pending();
-                for (instance, reach) in &batch.pending {
-                    // The view projections take a point relative to the
-                    // camera, see `SceneUniform`.
-                    if cull && reach.is_some_and(|reach| !frustum.holds(reach.center - camera, reach.radius))
-                    {
-                        continue;
-                    }
-                    let mut instance = *instance;
-                    instance.index = self.opaque_instances.pending();
-                    self.opaque_instances.push(instance);
-                }
-                batch.drawn[pass] = start..self.opaque_instances.pending();
-            }
-            batch.pending.clear();
-            batch.frame = frame;
-        }
-        if !self.opaque_instances.is_empty() {
-            self.opaque_instances.load();
-        }
-        self.load_grass();
+        self.load_batches(view, shadows, frame);
+        self.load_grass(frame);
+        self.transparent_textures = self
+            .transparent_keys
+            .iter()
+            .map(|key| {
+                textures_index(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    key,
+                    (&self.white, &self.flat_normal),
+                    frame,
+                )
+            })
+            .collect();
         if self.transparent.is_empty() {
             self.transparent.forget();
         } else {
@@ -552,16 +582,7 @@ impl MeshPipeline {
             let mut batches = vec![];
             for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
                 // A cut out batch reads its texture's alpha in the pass.
-                let textures = key.cutout.then(|| {
-                    textures_bind(
-                        &mut self.textures,
-                        &self.textures_layout,
-                        key,
-                        &self.white,
-                        &self.flat_normal,
-                    )
-                    .clone()
-                });
+                let textures = key.cutout.then(|| textures_at(&self.textures, batch.textures).clone());
                 batches.push(ShadowBatch {
                     key,
                     ranges: from_fn(|cascade| batch.drawn[1 + cascade].clone()),
@@ -585,6 +606,59 @@ impl MeshPipeline {
         } else if shadows {
             self.shadow.fit(Window::device(), map_size);
             self.shadow.clear(encoder);
+        }
+    }
+
+    /// Loads the instances of every opaque batch for each pass that can see
+    /// them, the camera's and, with `shadows`, every cascade of the sun.
+    fn load_batches(&mut self, view: &SceneUniform, shadows: bool, frame: u64) {
+        let camera = view.camera_pos.truncate();
+        let views: [Frustum; PASSES] = from_fn(|pass| match pass {
+            0 => Frustum::of(view.view_proj),
+            cascade => Frustum::of(view.sun_view_proj[cascade - 1]),
+        });
+        let passes = if shadows { PASSES } else { 1 };
+        let cull = frustum::enabled();
+        for (key, batch) in &mut self.instances {
+            // A batch nothing added to draws nothing. Its range can still be
+            // from this same frame number, a picture is drawn between two
+            // frames and the scene on screen loaded the frame before it.
+            batch.drawn = Default::default();
+            if batch.pending.is_empty() {
+                continue;
+            }
+            batch.near = batch
+                .pending
+                .iter()
+                .map(|(_, reach)| reach.map_or(0.0, |reach| (reach.center - camera).length() - reach.radius))
+                .fold(f32::INFINITY, f32::min);
+            batch.textures = textures_index(
+                &mut self.textures,
+                &self.textures_layout,
+                key,
+                (&self.white, &self.flat_normal),
+                frame,
+            );
+            for (pass, frustum) in views.iter().enumerate().take(passes) {
+                let start = self.opaque_instances.pending();
+                for (instance, reach) in &batch.pending {
+                    // The view projections take a point relative to the
+                    // camera, see `SceneUniform`.
+                    if cull && reach.is_some_and(|reach| !frustum.holds(reach.center - camera, reach.radius))
+                    {
+                        continue;
+                    }
+                    let mut instance = *instance;
+                    instance.index = self.opaque_instances.pending();
+                    self.opaque_instances.push(instance);
+                }
+                batch.drawn[pass] = start..self.opaque_instances.pending();
+            }
+            batch.pending.clear();
+            batch.frame = frame;
+        }
+        if !self.opaque_instances.is_empty() {
+            self.opaque_instances.load();
         }
     }
 
@@ -655,6 +729,7 @@ impl MeshPipeline {
                 &self.mesh_layout,
                 &self.mesh_shader,
                 MeshDraw::Wireframe,
+                self.samples,
             ));
         }
 
@@ -718,8 +793,21 @@ impl MeshPipeline {
     /// instance and the 2 matrices of each at its slot, the patch's and
     /// its field's turn. The slots stay with a patch while it lives, its
     /// blades name theirs.
-    fn load_grass(&mut self) {
+    fn load_grass(&mut self, frame: u64) {
         self.grass_drawn = std::mem::take(&mut self.grass_pending);
+        self.grass_textures = self
+            .grass_drawn
+            .iter()
+            .map(|draw| {
+                textures_index(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    &draw.key,
+                    (&self.white, &self.flat_normal),
+                    frame,
+                )
+            })
+            .collect();
         let Some(last) = self.grass_drawn.iter().map(|draw| draw.slot).max() else {
             return;
         };
@@ -761,15 +849,11 @@ impl MeshPipeline {
         let stride = GrassBlade::VERTEX_LAYOUT.array_stride;
         for pipeline in &self.grass {
             render_pass.set_pipeline(pipeline);
-            for draw in self.grass_drawn.iter().filter(|draw| draw.key.mesh.is_ok()) {
-                let textures_bind = textures_bind(
-                    &mut self.textures,
-                    &self.textures_layout,
-                    &draw.key,
-                    &self.white,
-                    &self.flat_normal,
-                );
-                render_pass.set_bind_group(3, textures_bind, &[]);
+            for (draw, &textures) in self.grass_drawn.iter().zip(&self.grass_textures) {
+                if !draw.key.mesh.is_ok() {
+                    continue;
+                }
+                render_pass.set_bind_group(3, textures_at(&self.textures, textures), &[]);
                 render_pass.set_vertex_buffer(0, draw.key.mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(draw.key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
                 render_pass.set_vertex_buffer(1, draw.blades.slice(..u64::from(draw.count) * stride));
@@ -782,14 +866,17 @@ impl MeshPipeline {
 /// Draws the edges of `count` instances of the mesh whose vertex and
 /// instance buffers are set, see `MeshDraw::Wireframe`.
 fn draw_edges(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipeline; 2], count: u32) {
+    // A browser gives the indices back a frame or more later.
+    let Some((edges, edge_count)) = mesh.edges() else {
+        return;
+    };
     pass.set_pipeline(if mesh.skin_buffer.is_some() {
         skinned
     } else {
         plain
     });
-    let (edges, edge_count) = mesh.edges();
     pass.set_index_buffer(edges.slice(..), IndexFormat::Uint16);
-    pass.draw_indexed(0..*edge_count, 0, 0..count);
+    pass.draw_indexed(0..edge_count, 0, 0..count);
 }
 
 /// Picks the pipeline for the mesh out of a pipeline and its skinned
@@ -805,4 +892,23 @@ pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[R
     }
     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
     pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
+}
+
+/// The layout of the mesh pipelines over the view, the instances, the lights
+/// and the textures, and the one of the sky over the view alone.
+fn pipeline_layouts(
+    device: &wgpu::Device,
+    groups: [&BindGroupLayout; 4],
+) -> (PipelineLayout, PipelineLayout) {
+    let mesh = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label:              "mesh_pipeline_layout".into(),
+        bind_group_layouts: &groups.map(Some),
+        immediate_size:     0,
+    });
+    let sky = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label:              "sky_pipeline_layout".into(),
+        bind_group_layouts: &[Some(groups[0])],
+        immediate_size:     0,
+    });
+    (mesh, sky)
 }

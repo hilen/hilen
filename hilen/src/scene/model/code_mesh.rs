@@ -24,7 +24,7 @@ pub struct MeshData {
 /// A mesh made ready to upload. Getting there splits it and checks it, which
 /// takes ms for a big mesh, so a worker thread can do it with this and leave
 /// only the upload to `Model::from_prepared`.
-pub struct PreparedMesh(ModelSource);
+pub struct PreparedMesh(pub(super) ModelSource);
 
 impl PreparedMesh {
     /// Any thread.
@@ -40,6 +40,17 @@ impl PreparedMesh {
     /// Any thread, like `Model::from_flowing_mesh`.
     pub fn flowing(mesh: MeshData) -> Self {
         Self(mesh_source(mesh, Colors::Flow))
+    }
+
+    /// The model keeps no copy of its triangles, 36 bytes each for its whole
+    /// life, so `triangle_at` and `hit_triangle` find nothing on it and
+    /// `triangle_count` is 0. For ground that is never picked by triangle,
+    /// a streamed world kept about 130 MB of them. `node_at` and the
+    /// colliders still find it.
+    #[must_use]
+    pub fn without_picking(mut self) -> Self {
+        self.0.picking = false;
+        self
     }
 }
 
@@ -151,6 +162,7 @@ pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
         bounds: Bounds::of_points(mesh.vertices.iter().map(|vertex| vertex.pos)),
         rig: None,
         rest_joints: vec![],
+        picking: true,
     }
 }
 

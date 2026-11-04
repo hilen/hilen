@@ -173,7 +173,7 @@ fn hold(prompt: String) {
     };
     Window::set_title_prefix(title);
     #[cfg(feature = "scene")]
-    from_main(|| SceneManager::set_paused(true));
+    from_main(|| SceneManager::set_held(true));
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))
@@ -183,7 +183,7 @@ fn hold(prompt: String) {
 
     wait_for_advance();
     #[cfg(feature = "scene")]
-    from_main(|| SceneManager::set_paused(false));
+    from_main(|| SceneManager::set_held(false));
 
     if let Some(mut overlay) = overlay {
         from_main(move || {

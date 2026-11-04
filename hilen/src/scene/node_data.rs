@@ -15,6 +15,10 @@ pub struct NodeData {
     /// Uniform, on top of the shape's own size, see `NodeTemplates::set_scale`.
     #[educe(Default = 1.0)]
     pub(crate) scale:          f32,
+    /// A stretch of the drawn mesh alone along each of its axes, see
+    /// `NodeTemplates::set_mesh_scale`.
+    #[educe(Default = Vec3::ONE)]
+    pub(crate) mesh_scale:     Vec3,
     pub(crate) shape:          Shape3,
     /// A collider put on in place of the shape's own, with where it sits
     /// from the origin, see `NodeTemplates::set_collider`.
@@ -67,6 +71,11 @@ impl NodeData {
     /// The node's own uniform size, see `NodeTemplates::set_scale`.
     pub fn scale(&self) -> f32 {
         self.scale
+    }
+
+    /// The stretch of the drawn mesh, see `NodeTemplates::set_mesh_scale`.
+    pub fn mesh_scale(&self) -> Vec3 {
+        self.mesh_scale
     }
 
     /// The node this one is attached to.

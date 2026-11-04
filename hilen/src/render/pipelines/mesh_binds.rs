@@ -252,46 +252,112 @@ pub(super) fn image_or<'a>(
     }
 }
 
-/// The textures bind of `key` out of `cache`, remade when one of its
-/// images has died since, its plain stand in is bound then.
-pub(super) fn textures_bind<'a>(
-    cache: &'a mut IndexMap<MeshKey, Option<CachedBind<TexturesKey>>>,
-    layout: &BindGroupLayout,
-    key: &MeshKey,
-    white: &Texture,
-    flat_normal: &Texture,
-) -> &'a BindGroup {
-    let alive = |image: &Option<Weak<Image>>| image.as_ref().is_some_and(Weak::is_ok);
-    let slot = cache.entry(key.clone()).or_default();
-    let alive_now = (
-        alive(&key.texture),
-        alive(&key.normal_map),
-        alive(&key.metallic_roughness_map),
-        alive(&key.occlusion_map),
-        alive(&key.flow_map),
-    );
-    cached(slot, alive_now, || {
-        make_textures_bind(layout, key, white, flat_normal)
-    })
+/// The images of a draw's material, all its textures bind holds. Meshes
+/// with the same images share 1 bind, every mesh with no maps the plain one.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct TextureSet {
+    texture:                Option<Weak<Image>>,
+    normal_map:             Option<Weak<Image>>,
+    metallic_roughness_map: Option<Weak<Image>>,
+    occlusion_map:          Option<Weak<Image>>,
+    flow_map:               Option<Weak<Image>>,
 }
 
-pub(super) fn make_textures_bind(
+impl TextureSet {
+    fn of(key: &MeshKey) -> Self {
+        Self {
+            texture:                key.texture,
+            normal_map:             key.normal_map,
+            metallic_roughness_map: key.metallic_roughness_map,
+            occlusion_map:          key.occlusion_map,
+            flow_map:               key.flow_map,
+        }
+    }
+
+    fn images(&self) -> [&Option<Weak<Image>>; 5] {
+        [
+            &self.texture,
+            &self.normal_map,
+            &self.metallic_roughness_map,
+            &self.occlusion_map,
+            &self.flow_map,
+        ]
+    }
+
+    /// Whether every image it names still lives. One that died is bound as
+    /// its plain stand in from then on, so its set is dropped.
+    pub(super) fn alive(&self) -> bool {
+        self.images().iter().all(|image| image.as_ref().is_none_or(Weak::is_ok))
+    }
+}
+
+/// The bind of a set and the frame its images were last checked on.
+#[derive(Default)]
+pub(super) struct TexturesEntry {
+    bind:    Option<CachedBind<TexturesKey>>,
+    checked: u64,
+}
+
+/// Where the textures bind of `key` is in `cache`, made or remade when one
+/// of its images died since. Its images are checked once a `frame`, each
+/// draw then reads the bind by the index with no check, see `textures_at`.
+pub(super) fn textures_index(
+    cache: &mut IndexMap<TextureSet, TexturesEntry>,
     layout: &BindGroupLayout,
     key: &MeshKey,
-    white: &Texture,
-    flat_normal: &Texture,
-) -> BindGroup {
-    if key.mesh.smooth_colors
-        && (key.texture.is_some()
-            || key.normal_map.is_some()
-            || key.metallic_roughness_map.is_some()
-            || key.occlusion_map.is_some())
-    {
+    plain: (&Texture, &Texture),
+    frame: u64,
+) -> usize {
+    let entry = cache.entry(TextureSet::of(key));
+    let index = entry.index();
+    entry.or_default();
+    let (set, slot) = cache.get_index_mut(index).expect("just put in");
+    if slot.checked != frame || slot.bind.is_none() {
+        let alive = |image: &Option<Weak<Image>>| image.as_ref().is_some_and(Weak::is_ok);
+        let alive_now = (
+            alive(&set.texture),
+            alive(&set.normal_map),
+            alive(&set.metallic_roughness_map),
+            alive(&set.occlusion_map),
+            alive(&set.flow_map),
+        );
+        cached(&mut slot.bind, alive_now, || {
+            make_textures_bind(layout, set, plain.0, plain.1)
+        });
+        slot.checked = frame;
+    }
+    index
+}
+
+/// The bind `textures_index` gave `index` this frame.
+pub(super) fn textures_at(cache: &IndexMap<TextureSet, TexturesEntry>, index: usize) -> &BindGroup {
+    cache[index].bind.as_ref().expect("made by textures_index").bind()
+}
+
+/// The 2 materials a mesh cannot show the way they are set, said once per
+/// mesh, see `MeshPipeline::add`.
+pub(super) fn warn_unshown(key: &MeshKey) -> bool {
+    let maps = key.texture.is_some()
+        || key.normal_map.is_some()
+        || key.metallic_roughness_map.is_some()
+        || key.occlusion_map.is_some();
+    if key.mesh.smooth_colors && maps {
         warn!("a mesh with fading colors has no uv, the maps of its material show only their first texel");
+        return true;
     }
     if key.mesh.flowing && key.cutout {
         warn!("a mesh with a flow cannot be cut out, its flow reads as a color there");
+        return true;
     }
+    false
+}
+
+fn make_textures_bind(
+    layout: &BindGroupLayout,
+    key: &TextureSet,
+    white: &Texture,
+    flat_normal: &Texture,
+) -> BindGroup {
     let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
     let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
     let (metallic_roughness_view, metallic_roughness_sampler) =
