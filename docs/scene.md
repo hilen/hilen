@@ -236,6 +236,14 @@ on the floor. A primitive over 65535 vertices is split into parts so every lane
 draws 16 bit indices, and one without normals shades flat as glTF asks. Only a
 `.glb` with embedded buffers and images loads, triangles only, no morph targets.
 
+A model that the app did not ship, like a file a user or a server hands it, loads in
+2 steps. `PreparedMesh::from_glb(bytes, name)` reads a `.glb` on any thread and gives
+an error for a file that does not parse, where `Model::load` panics.
+`MeshData::from_stl(bytes)` reads a binary or an ASCII STL into a mesh with a normal
+per face, also with an error for a bad file. A binary STL is told by its size, since
+many start with `solid` like an ASCII one. `Model::from_prepared` then uploads it on
+the main thread. The code is `hilen/src/scene/model/stl.rs`.
+
 ## Skins and animations
 
 A file with a skin or an animation keeps its node tree as a `Rig`: every node's

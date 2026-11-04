@@ -4,6 +4,7 @@ mod material_source;
 mod parse;
 mod rig;
 mod split;
+mod stl;
 mod triangles;
 
 use std::path::Path;
