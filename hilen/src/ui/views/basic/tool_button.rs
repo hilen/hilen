@@ -25,6 +25,7 @@ const DISABLED_TEXT: DynamicColor = DynamicColor::new(Color::hex("#B4B4BC"), Col
 const HOVER: DynamicColor = DynamicColor::new(Color::hex("#ECECF0"), Color::hex("#323236"));
 const PRESSED: DynamicColor = DynamicColor::new(Color::hex("#D6D6DD"), Color::hex("#46464C"));
 const ON: DynamicColor = DynamicColor::new(Color::hex("#E1ECFF"), Color::hex("#1F3352"));
+const ON_HOVER: DynamicColor = DynamicColor::new(Color::hex("#D2E2FF"), Color::hex("#284068"));
 
 /// How wide a `ToolButton` is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -72,9 +73,10 @@ pub struct ToolButton {
     tint:    Option<UIColor>,
     on_tint: Option<UIColor>,
 
-    hover_color:   Option<UIColor>,
-    pressed_color: Option<UIColor>,
-    on_color:      Option<UIColor>,
+    hover_color:    Option<UIColor>,
+    pressed_color:  Option<UIColor>,
+    on_color:       Option<UIColor>,
+    on_hover_color: Option<UIColor>,
 
     label: Weak<Label>,
 
@@ -147,6 +149,16 @@ impl ToolButton {
     /// The fill while the button is on.
     pub fn set_on_color(&self, color: impl Into<UIColor>) -> &Self {
         weak_from_ref(self).on_color = Some(color.into());
+        self.refresh();
+        self
+    }
+
+    /// The fill of a button that is on while the pointer is over it, so a
+    /// picked entry of a switch stays marked under the pointer. Without it
+    /// an app's own on fill stays as it is, the engine on fill gets a step
+    /// darker.
+    pub fn set_on_hover_color(&self, color: impl Into<UIColor>) -> &Self {
+        weak_from_ref(self).on_hover_color = Some(color.into());
         self.refresh();
         self
     }
@@ -246,10 +258,12 @@ impl ToolButton {
             CLEAR.into()
         } else if self.pressed {
             self.pressed_color.unwrap_or(PRESSED.into())
-        } else if self.is_hovered() {
-            self.hover_color.unwrap_or(HOVER.into())
+        } else if self.on && self.is_hovered() {
+            self.on_hover_color.or(self.on_color).unwrap_or(ON_HOVER.into())
         } else if self.on {
             self.on_color.unwrap_or(ON.into())
+        } else if self.is_hovered() {
+            self.hover_color.unwrap_or(HOVER.into())
         } else {
             CLEAR.into()
         }

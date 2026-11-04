@@ -6,13 +6,13 @@ use crate::{
     },
     gm::{
         ToF32, Toggle,
-        color::{CLEAR, Color, LIGHT_BLUE, WHITE},
+        color::{CLEAR, Color, LIGHT_BLUE},
         flat::{LineCap, LineJoin, Point, StrokeStyle, VectorPath},
     },
     ui::{
-        Button, CellRegistry, Container, DrawingView, Focus, ImageView, Label, Setup, Shadow, TableData,
-        TableView, TextAlignment, TouchStack, UIColor, UIEvents, UIImages, UIManager, View, ViewData,
-        ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
+        Button, CellRegistry, Container, DrawingView, DynamicColor, Focus, ImageView, Label, Setup, Shadow,
+        TableData, TableView, TextAlignment, Theme, TouchStack, UIColor, UIEvents, UIImages, UIManager, View,
+        ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
     },
     window::{
         image::{Image, Tinted, ToImage, tint_svg},
@@ -32,6 +32,12 @@ const ICON: f32 = 16.0;
 const ICON_GAP: f32 = 8.0;
 /// How much of the accent a hover lays over the fill of the box.
 const HOVER_WASH: f32 = 0.08;
+
+/// The look of a box and its rows the app did not style. The light values
+/// are the ones the engine always had, the dark ones keep it readable in a
+/// dark app.
+pub(crate) const FILL: DynamicColor = DynamicColor::new(Color::hex("#FFFFFF"), Color::hex("#2A2D33"));
+const TEXT: DynamicColor = DynamicColor::new(Color::hex("#000000"), Color::hex("#F2F2F4"));
 /// The open list never comes closer than this to the edge of the window.
 const SCREEN_MARGIN: f32 = 8.0;
 
@@ -455,6 +461,14 @@ impl DropDown {
         look.set_border_color(self.accent);
     }
 
+    fn tint_arrow(self: Weak<Self>) {
+        let image = match Theme::current() {
+            Theme::Light => UIImages::chevron_down(),
+            Theme::Dark => UIImages::chevron_down_dark(),
+        };
+        self.arrow.set_image(image);
+    }
+
     fn pick(mut self: Weak<Self>, index: usize) {
         self.selected_index = index;
         self.refresh_box();
@@ -499,7 +513,8 @@ impl TableData for DropDown {
 impl Setup for DropDown {
     fn setup(mut self: Weak<Self>) {
         self.accent = LIGHT_BLUE;
-        self.set_color(WHITE);
+        self.set_color(FILL);
+        self.label.set_text_color(TEXT);
 
         self.button.set_color(CLEAR).place().back();
         self.button.on_tap(move || self.tapped());
@@ -516,9 +531,12 @@ impl Setup for DropDown {
 
         // A tinted icon has its color written in, a theme change tints it
         // again.
-        UIEvents::theme_changed().sub(self, move || self.refresh_box());
+        UIEvents::theme_changed().sub(self, move || {
+            self.refresh_box();
+            self.tint_arrow();
+        });
 
-        self.arrow.set_image(UIImages::chevron_down());
+        self.tint_arrow();
         self.arrow.place().r(INSET - 2.0).center_y().size(ARROW, ARROW);
 
         self.panel.set_hidden(true);
@@ -573,13 +591,12 @@ impl DropDownRow {
         self.accent = accent;
         self.selected = selected;
         self.label.set_text(text);
-        if let Some(color) = text_color {
-            self.label.set_text_color(color);
-        }
+        // A reused row may have been the picked one before, with the
+        // accent on its text.
+        self.label.set_text_color(text_color.unwrap_or(TEXT.into()));
         if let Some(size) = text_size {
             self.label.set_text_size(size);
         }
-        // A reused row may have been the picked one before.
         self.check.remove_all_paths();
         if selected {
             self.label.set_text_color(accent);
@@ -621,6 +638,7 @@ impl Setup for DropDownRow {
         self.set_corner_radius(ROW_RADIUS);
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
+        self.label.set_text_color(TEXT);
         self.label.place().l(INSET - PANEL_PADDING).r(INSET + CHECK).tb(0);
         self.icon.set_hidden(true);
         self.icon.place().l(INSET - PANEL_PADDING).center_y().size(ICON, ICON);

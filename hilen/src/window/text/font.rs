@@ -331,6 +331,10 @@ impl Font {
             return cached;
         }
 
+        // A run in another font draws its glyphs with that font, so the
+        // glyph bounds of this font leave them out, see below. A run in
+        // this font measures like the plain text.
+        let has_runs = shaping.runs.iter().any(|run| run.font.name != self.name);
         let px_scale = size.to_f32() * self.em_scale;
         let section = Section::new()
             .add_text(Text::new(text).with_scale(px_scale))
@@ -346,17 +350,23 @@ impl Font {
         // the height comes from the lines of the layout.
         let bound = width.unwrap_or(f32::INFINITY);
         let scale = PxScale::from(px_scale);
+        let line_width = || {
+            let lines = layout.text_layout(scale, text, bound).lines;
+            lines.iter().map(|line| line.width).fold(0.0, f32::max)
+        };
         let text_width = match self.brush.glyph_bounds_custom_layout(section, &layout) {
-            Some(bounds) => bounds.width(),
+            Some(bounds) if !has_runs => bounds.width(),
+            // The glyphs of a run, like a bold title before a plain year,
+            // are not in the bounds of this font. Measured by those alone
+            // a cut title looked as if it fit and drew its ellipsis past
+            // the frame. The lines hold the glyphs of every font.
+            Some(bounds) => bounds.width().max(line_width()),
             None if text.trim().is_empty() => return Size::default(),
             // No glyph of this font: every char is drawn by the font of a
             // run, a text that is bold as a whole. It was measured as
             // nothing and its label got no room, so the lines give the
             // width here.
-            None => {
-                let lines = layout.text_layout(scale, text, bound).lines;
-                lines.iter().map(|line| line.width).fold(0.0, f32::max)
-            }
+            None => line_width(),
         };
 
         let measured = Size::new(text_width, layout.text_height(scale, text, bound));
@@ -435,8 +445,15 @@ impl Font {
         }
     }
 
-    /// The font of [`builtin_font_data`], made on its first call.
+    /// The font of [`builtin_font_data`], made on its first call. With no
+    /// file from [`Font::set_builtin`] it is [`Font::roboto`] itself. A
+    /// second instance of the same file under another name made every run
+    /// in `Font::roboto()` a run in another font, and its glyphs moved.
     fn builtin() -> Weak<Font> {
+        #[cfg(feature = "font-roboto")]
+        if BUILTIN_DATA.get().is_none() {
+            return Self::roboto();
+        }
         Self::store_with_name("hilen-builtin", || {
             Self::new("hilen-builtin", builtin_font_data())
         })

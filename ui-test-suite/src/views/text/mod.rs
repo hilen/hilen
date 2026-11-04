@@ -29,6 +29,7 @@ mod label_long_words;
 mod label_max_lines;
 mod label_measure;
 mod label_outline;
+mod label_run_ellipsize;
 mod label_selection;
 mod label_soft_shadow;
 mod label_stress;

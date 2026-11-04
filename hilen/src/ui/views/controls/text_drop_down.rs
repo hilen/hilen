@@ -3,7 +3,7 @@ use crate::{
     deps::{refs::Weak, vents::Event},
     gm::{
         ToF32,
-        color::{CLEAR, Color, WHITE},
+        color::{CLEAR, Color},
     },
     ui::{DropDown, DropDownData, RowIcon, Setup, UIColor, View, ViewData, view},
 };
@@ -114,7 +114,7 @@ impl DropDownData for TextDropDown {
 
 impl Setup for TextDropDown {
     fn setup(mut self: Weak<Self>) {
-        self.set_color(WHITE);
+        self.set_color(super::drop_down::FILL);
 
         self.drop.set_color(CLEAR);
         self.drop.place().back();

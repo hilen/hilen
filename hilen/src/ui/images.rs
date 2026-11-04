@@ -24,6 +24,14 @@ impl UIImages {
         Image::from_file_data(include_bytes!("images/chevron_down.svg"), "chevron_down.svg")
     }
 
+    /// The down chevron in a lighter gray that reads on a dark fill.
+    pub(crate) fn chevron_down_dark() -> Weak<Image> {
+        Image::from_file_data(
+            include_bytes!("images/chevron_down_dark.svg"),
+            "chevron_down_dark.svg",
+        )
+    }
+
     /// The Lucide x, drawn in `tint`.
     pub(crate) fn x(tint: Color) -> Weak<Image> {
         tint_svg(include_bytes!("images/x.svg"), "x.svg", tint)

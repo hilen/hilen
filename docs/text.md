@@ -98,7 +98,10 @@ calls `Font::set_builtin(data)` in `App::before_launch`. That file is then the d
 font and the fallback of a font that fails to load, and the first text drawn without
 it panics with a message that names the call. A left out file is drawn with the
 default font where the engine needs it, the markdown, the log view and the code
-editor, and bold italic falls back to bold.
+editor, and bold italic falls back to bold. With no file from `set_builtin` the
+built in font is `Font::roboto()` itself, never a second copy of the file under
+another name, so a run in `Font::roboto()` on a default label stays in the label
+font, `Label font runs` pins it.
 
 ## Letter spacing
 
@@ -309,7 +312,11 @@ a wider run font moves the wraps and `Font::measure` follows. The line height
 and baseline stay the label font's. Every `Font` owns one brush, so the drawer
 queues a mixed label on every brush it touches, and each layout copy lays out
 the whole text and emits only the glyphs of the font that brush draws. Kerning
-stops at a run boundary, the two sides are different fonts. An underline is
+stops at a run boundary, the two sides are different fonts. The glyph bounds
+of a font hold only its own glyphs, so a text with a run in another font takes
+its width from the laid out lines, which hold them all. Measured by the base font
+alone, a title with a bold run looked as if it fit and drew its ellipsis past the
+frame, `Label run ellipsize` pins it. An underline is
 not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
 the run from the base font's underline metrics, in the color the text has
 there, between the label background and the glyphs. A run with
