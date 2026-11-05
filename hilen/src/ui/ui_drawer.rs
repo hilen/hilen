@@ -28,6 +28,7 @@ use crate::{
         damage::{clip_rect, paint_rect},
         label_drawer::TextSections,
         loops,
+        view::depth_order,
     },
     window::{RenderFrame, Window},
 };
@@ -137,6 +138,13 @@ impl UIDrawer {
         TextSelection::tick();
         *NEEDS_SAMPLING.get_mut() = false;
         Self::update_view(UIManager::root_view().deref_mut(), 1.0);
+        // After the update, which can add and remove views.
+        let mut root = UIManager::root_view();
+        let generation = depth_order::generation();
+        if root.depth_generation != generation {
+            root.depth_generation = generation;
+            depth_order::order(root.weak_view());
+        }
         // After the layout, a loop decides by the frames of this one where
         // it is shown, see `ui::loops`. Each window steps the loops of its
         // own views.

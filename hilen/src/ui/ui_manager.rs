@@ -108,6 +108,11 @@ impl UIManager {
     pub(crate) const MODAL_LAYER_Z_STEP: f32 = 0.005;
     /// A context menu floats over a modal, so it sits closer than one.
     pub(crate) const MENU_Z_OFFSET: f32 = 0.35;
+    /// A toast and a tooltip are in front of an open menu. The gap holds
+    /// 25000 views of a menu, see `depth_order::DEPTH_STEP`.
+    pub(crate) const TOAST_Z_OFFSET: f32 = 0.34;
+    /// The focus ring is in front of a toast.
+    pub(crate) const RING_Z_OFFSET: f32 = 0.33;
     pub const DEBUG_Z_OFFSET: f32 = 0.3;
 
     pub(crate) const fn subview_z_offset() -> f32 {

@@ -11,7 +11,7 @@ use crate::{
     },
     ui::{
         CutAxis, NineSegmentImageView, Setup, Tinted, UIColor, View, ViewCallbacks, ViewData, ViewFrame,
-        ViewSubviews,
+        ViewSubviews, view::depth_order,
     },
     window::image::{Image, ToImage},
 };
@@ -88,10 +88,7 @@ impl ImageView {
         if !self.nine_segment.was_initialized() {
             self.nine_segment = self.add_view();
             self.nine_segment.place().back();
-            self.nine_segment
-                .subviews_weak()
-                .iter_mut()
-                .for_each(|v| v.__base_view().z_position = self.z_position());
+            depth_order::set_same_depth(&*self.nine_segment);
         }
 
         self.nine_segment.set_image(name);

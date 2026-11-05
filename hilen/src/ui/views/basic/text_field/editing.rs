@@ -24,7 +24,7 @@ use crate::{
         ViewSubviews, WeakView,
         selection_drawer::SELECTION_COLOR,
         text_selection::word_range,
-        view::{ViewData, ViewFrame, ViewTouch},
+        view::{ViewData, ViewFrame, ViewTouch, depth_order},
     },
     window::{NamedKey, TextLayout},
     wipe::joined,
@@ -566,8 +566,6 @@ impl TextField {
         };
         let (start, end) = (self.display_byte(start), self.display_byte(end));
 
-        let label_z = self.label.z_position();
-
         for (index, line) in layout.lines.iter().enumerate() {
             if line.end < start || line.start > end {
                 continue;
@@ -591,8 +589,8 @@ impl TextField {
             view.set_color(SELECTION_COLOR);
             view.set_frame(rect);
             // Added after the label, so it would draw over the glyphs.
-            // Push it just behind the label, still in front of the field.
-            view.__base_view().z_position = label_z + UIManager::additional_z_offset();
+            // Ordered before it, still in front of the field.
+            depth_order::set_raise(&*view, -1);
             self.selection_views.push(view);
         }
     }

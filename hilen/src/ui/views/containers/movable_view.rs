@@ -11,6 +11,7 @@ use crate::{
     },
     ui::{
         Anchor::Top, ImageView, Label, Setup, UIImages, View, ViewData, ViewFrame, ViewSubviews, ViewTouch,
+        view::depth_order,
     },
 };
 
@@ -64,7 +65,7 @@ impl<T: View + Default + 'static> Setup for MovableView<T> {
             let new_size = new_size.clamp(100.0, 100.0).into_size();
             self.set_size(new_size.width, new_size.height);
         });
-        self.corner_view.draw_on_top();
+        depth_order::set_raise(&*self.corner_view, 1);
     }
 }
 

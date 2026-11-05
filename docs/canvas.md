@@ -38,9 +38,9 @@ A touch reaches a view in its own points, `ViewBase::local_point` divides by `tr
 
 ## A flat layer
 
-A later sibling draws behind the subviews of an earlier one, the depth of a subview is
-nearer than the depth of its parent's sibling. For a map with controls over it that is
-wrong, the map would draw over the controls.
+The tree order already puts a later sibling in front of all of an earlier one, see
+[depth.md](depth.md). The flat layer is for input and for a clip: a view drawn after
+the canvas covers all of it, also where the subtree draws outside its own frame.
 
 A view with `ViewBase::flat_depth` counts as one flat layer at its own depth.
 `CanvasView` and `VideoView` set it, and it needs a view that clips.
@@ -54,8 +54,8 @@ A view with `ViewBase::flat_depth` counts as one flat layer at its own depth.
   view lies over that layer at the point, `TouchStack::covered`.
 - A touch does not pick by depth. It goes to the view that turned its touch on last,
   after the tier of `enable_touch_high_priority`, which comes before all of them, see
-  `TouchLayer::views`. A view raised with `bump_z_position` over content that makes new
-  touch views, like a button over a list that grows, needs that tier too.
+  `TouchLayer::views`. A view over content that makes new touch views, like a button
+  over a list that grows, needs that tier too.
 
 ## Pinch
 

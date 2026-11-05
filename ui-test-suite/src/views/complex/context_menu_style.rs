@@ -67,18 +67,13 @@ impl Setup for ContextMenuStyle {
         }
         self.stripes.place().all_hor();
 
-        // The stripes are a sibling with subviews, which draw over the
-        // views that follow it, so those go in front by hand.
         self.caption.set_text("video under the menu").set_text_size(16).set_color(CLEAR);
         self.caption.place().t(20).l(20).size(240, 32);
-        self.caption.bump_z_position(0.000_1);
 
         self.bar.set_color(BLACK.with_alpha(0.8));
         self.bar.place().lrb(0).h(48);
-        self.bar.bump_z_position(0.000_1);
 
         self.button.set_color(WHITE);
-        self.button.bump_z_position(0.000_2);
         self.button.set_text("Subtitles");
         self.button.place().b(8).r(40).size(160, 32);
         self.button.on_tap(move || {

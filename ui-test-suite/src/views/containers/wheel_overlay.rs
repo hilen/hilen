@@ -1,11 +1,11 @@
 use anyhow::{Result, ensure};
 use hilen::{
     refs::Weak,
-    ui::{Color, Container, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{Color, Container, ScrollView, Setup, ViewData, ViewSubviews, ViewTest, view},
     ui_test::{inject_scroll, inject_touches},
 };
 
-/// A scroll view floating over a deeper one, pushed forward the way a
+/// A scroll view floating over a deeper one, added after it the way a
 /// toast or a popover is. The wheel over the overlap goes to the one
 /// drawn in front, not to the one deeper in the tree, and off the
 /// overlay it still reaches the one below.
@@ -41,9 +41,6 @@ impl Setup for WheelOverlay {
         self.front.place().t(220).l(20).size(400, 200);
         let filler = self.front.add_view::<Container>();
         filler.place().t(1500).l(0).size(1, 1);
-        // A later sibling draws behind the host's subtree, so the overlay
-        // is pushed forward like an app toast.
-        self.front.bump_z_position(0.0001);
     }
 }
 

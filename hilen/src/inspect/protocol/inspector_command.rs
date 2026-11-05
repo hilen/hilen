@@ -213,6 +213,11 @@ pub enum UIRequest {
         width:  f32,
         height: f32,
     },
+    /// Holds a file over the window like a drag from a file manager, or
+    /// ends the hold with no path. Nothing is dropped. Desktop only.
+    FileHover {
+        path: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -28,6 +28,9 @@ pub struct RootView {
     /// `ScreenKeyboard`.
     keyboard_shift: f32,
 
+    /// The tree change the depths were last set for, see `depth_order`.
+    pub(crate) depth_generation: u64,
+
     /// Where the app views sit.
     layer_origin: Point,
 

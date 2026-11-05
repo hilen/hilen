@@ -19,10 +19,6 @@ impl Setup for KeyboardMarker {
         self.label.set_text("the keyboard").set_text_size(18);
         self.label.set_text_color((255, 255, 255));
         self.label.place().back();
-        // The real keyboard is in front of everything, rows of a scroll
-        // view included.
-        self.bump_z_position(0.001);
-
         // The keyboard stays where it is on the glass while the screen
         // under it moves up, so the marker goes down inside the screen by
         // the same distance.

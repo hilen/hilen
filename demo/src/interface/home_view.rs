@@ -32,9 +32,10 @@ pub struct HomeView {
     menu_open: bool,
 
     #[init]
-    sidebar: Sidebar,
     top_bar: TopBar,
     content: Container,
+    // Last, so it draws over the page when it slides out on a phone.
+    sidebar: Sidebar,
 }
 
 /// The narrow screen header, a menu button and the open page title.
@@ -75,9 +76,6 @@ impl Setup for HomeView {
             self.menu_open = !self.menu_open;
             self.arrange();
         });
-
-        // The sidebar draws over the page when it slides out on a phone.
-        self.sidebar.bump_z_position(0.000_1);
 
         let page = Router::current_path().map_or(Page::Landing, |path| Page::from_path(&path));
         self.show(page);

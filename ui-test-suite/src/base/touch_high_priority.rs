@@ -60,13 +60,11 @@ impl Setup for TouchHighPriority {
         self.plain.set_text("plain").set_text_size(20);
         self.plain.set_color(Color::rgb(0.9, 0.3, 0.3));
         self.plain.set_frame((400, 170, 140, 40));
-        self.plain.bump_z_position(0.000_1);
         self.plain.on_tap(move || self.set_tapped("plain"));
 
         self.high.set_text("high").set_text_size(20);
         self.high.set_color(Color::rgb(0.3, 0.5, 1.0));
         self.high.set_frame((400, 290, 140, 40));
-        self.high.bump_z_position(0.000_1);
         self.high.enable_touch_high_priority();
         self.high.on_tap(move || self.set_tapped("high"));
 

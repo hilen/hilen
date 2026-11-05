@@ -14,7 +14,7 @@ use crate::{
     ui::{
         Container, DynamicColor, Input, NO_TOUCH_ID, Scrollable, Setup, TextSelection, Touch, TouchStack,
         UIAnimation, UIEvent, UIManager, View, ViewCallbacks, ViewData, ViewFrame, ViewSubviews, view,
-        views::containers::scrolling::ScrollContent,
+        view::depth_order, views::containers::scrolling::ScrollContent,
     },
 };
 
@@ -443,14 +443,12 @@ impl Setup for ScrollView {
 
         self.bar.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
         self.bar.set_hidden(true);
-        // A later sibling draws behind an earlier sibling's children, so
-        // the bar has to be pushed in front of everything in the content,
-        // pinned sticky table rows and their raise included.
-        self.bar.bump_z_position(UIManager::subview_z_offset() * 10.0);
+        // In front of the content with all it holds.
+        depth_order::set_raise(&*self.bar, 1);
 
         self.bar_x.set_color(BAR_COLOR).set_corner_radius(BAR_WIDTH / 2.0);
         self.bar_x.set_hidden(true);
-        self.bar_x.bump_z_position(UIManager::subview_z_offset() * 10.0);
+        depth_order::set_raise(&*self.bar_x, 1);
 
         self.size_changed().sub(move || {
             self.resized();

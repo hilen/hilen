@@ -12,7 +12,7 @@ use crate::{
     ui::{
         Button, CellRegistry, Container, DrawingView, DynamicColor, Focus, ImageView, Label, Setup, Shadow,
         TableData, TableView, TextAlignment, Theme, TouchStack, UIColor, UIEvents, UIImages, UIManager, View,
-        ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
+        ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view, view::depth_order,
     },
     window::{
         image::{Image, Tinted, ToImage, tint_svg},
@@ -40,12 +40,6 @@ pub(crate) const FILL: DynamicColor = DynamicColor::new(Color::hex("#FFFFFF"), C
 const TEXT: DynamicColor = DynamicColor::new(Color::hex("#000000"), Color::hex("#F2F2F4"));
 /// The open list never comes closer than this to the edge of the window.
 const SCREEN_MARGIN: f32 = 8.0;
-
-/// How much closer an open drop down sits than its siblings: 400 nesting
-/// steps, so the list draws over a view nested that deep. It stays under
-/// the step between 2 modal layers, 0.005, so a list in a modal never
-/// draws over the modal above it.
-const PANEL_RAISE: f32 = 0.004;
 
 /// The drop down with its list open, a press outside closes it before another
 /// one opens.
@@ -155,7 +149,6 @@ pub struct DropDown {
     idle_border: Option<Color>,
     /// The fill set by the app, under the wash of a hover.
     idle_color:  Option<UIColor>,
-    raised:      bool,
 
     /// The view whose color, border and corners are the look of the box.
     /// The drop down itself unless a view around it draws the box.
@@ -349,13 +342,10 @@ impl DropDown {
         }
     }
 
-    fn open(mut self: Weak<Self>) {
-        // The panel floats over whatever sits under the box. Pushed
-        // forward once, later siblings stay behind it.
-        if !self.raised {
-            self.bump_z_position(PANEL_RAISE);
-            self.raised = true;
-        }
+    fn open(self: Weak<Self>) {
+        // The panel floats over whatever sits under the box, in front of
+        // all of its layer, and a modal over it stays in front.
+        depth_order::set_floats(&*self, true);
 
         // Without a hover first, like on a phone, the border is still
         // the app's own here. Kept now, or the panel would copy the accent.
@@ -425,6 +415,7 @@ impl DropDown {
             *OPEN.get_mut() = Weak::default();
         }
         self.panel.set_hidden(true);
+        depth_order::set_floats(&*self, false);
         if !self.is_hovered() {
             self.show_idle_look();
         }

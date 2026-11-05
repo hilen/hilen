@@ -12,8 +12,8 @@ use crate::{
     deps::refs::Weak,
     gm::{LossyConvert, flat::Size},
     ui::{
-        CellRegistry, Label, Setup, TableData, TableView, TextAlignment, UIManager, View, ViewCallbacks,
-        ViewData, ViewFrame, view,
+        CellRegistry, Label, Setup, TableData, TableView, TextAlignment, View, ViewCallbacks, ViewData,
+        ViewFrame, view, view::depth_order,
     },
     window::request_frame,
 };
@@ -113,9 +113,8 @@ impl Setup for LogView {
             label.set_alignment(TextAlignment::Left);
         }
 
-        // Over the rows of the table, which are deeper in the tree than
-        // a view added after it.
-        self.to_end.bump_z_position(UIManager::subview_z_offset() * 10.0);
+        // Over the table.
+        depth_order::set_raise(&*self.to_end, 1);
         self.to_end.set_hidden(true);
         self.to_end.tapped.sub(move || self.scroll_to_end());
 

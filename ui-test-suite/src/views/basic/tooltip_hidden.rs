@@ -3,8 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        BLUE, Container, GREEN, Hover, Label, ORANGE, Setup, Tooltip, ViewData, ViewFrame, ViewTest,
-        ViewTooltip, ViewTouch, view,
+        BLUE, Container, GREEN, Hover, Label, ORANGE, Setup, Tooltip, ViewData, ViewTest, ViewTooltip,
+        ViewTouch, view,
     },
     ui_test::{checkpoint, inject_touches, wait_for_tooltip},
 };
@@ -50,7 +50,6 @@ impl Setup for TooltipHidden {
             .size(300, 30);
 
         self.panel.place().tl(60).size(200, 160);
-        self.panel.bump_z_position(0.001);
         self.row_name
             .set_text("orange: row in blue panel")
             .set_text_size(16)

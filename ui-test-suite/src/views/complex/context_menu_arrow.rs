@@ -75,26 +75,20 @@ impl Setup for ContextMenuArrow {
         }
         self.stripes.place().all_hor();
 
-        // The stripes are a sibling with subviews, which draw over the
-        // views that follow it, so those go in front by hand.
         self.caption
             .set_text("video under the menus")
             .set_text_size(16)
             .set_color(CLEAR);
         self.caption.place().t(20).l(200).size(240, 32);
-        self.caption.bump_z_position(0.000_1);
 
         self.bar.set_color(BLACK.with_alpha(0.8));
         self.bar.place().lrb(0).h(48);
-        self.bar.bump_z_position(0.000_1);
 
         self.timeline.set_color(Color::rgb(0.43, 0.43, 0.46));
         self.timeline.place().lr(20).b(60).h(4);
-        self.timeline.bump_z_position(0.000_1);
 
         for button in [self.captions, self.edge, self.plain] {
             button.set_color(WHITE);
-            button.bump_z_position(0.000_2);
         }
 
         self.captions.set_text("Captions");

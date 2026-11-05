@@ -3,7 +3,10 @@ use std::{any::type_name, ops::DerefMut};
 use crate::{
     deps::refs::{Own, Weak, weak_from_ref},
     gm::{LossyConvert, color::Color},
-    ui::{Container, DELETED_VIEWS, UIManager, View, ViewData, ViewFrame, WeakView, view::setup::Setup},
+    ui::{
+        Container, DELETED_VIEWS, UIManager, View, ViewData, ViewFrame, WeakView,
+        view::{depth_order, setup::Setup},
+    },
 };
 
 pub trait ViewSubviews {
@@ -36,8 +39,6 @@ pub trait ViewSubviews {
     fn outline(&self, color: Color) -> Weak<Self>;
 
     fn find_superview<V: View + 'static>(&self) -> Weak<V>;
-
-    fn draw_on_top(&mut self);
 }
 
 pub trait __ViewIntoUnsizedOwn {
@@ -72,6 +73,7 @@ impl<T: ?Sized + View> ViewSubviews for T {
     }
 
     fn subviews_mut(&mut self) -> &mut Vec<Own<dyn View>> {
+        depth_order::tree_changed();
         &mut self.__base_view().subviews
     }
 
@@ -89,11 +91,13 @@ impl<T: ?Sized + View> ViewSubviews for T {
         let super_subs = &mut self.__base_view().superview.__base_view().subviews;
 
         let index = super_subs.iter().position(|a| a.raw() == this_addr).unwrap();
+        depth_order::tree_changed();
 
         super_subs.remove(index)
     }
 
     default fn remove_all_subviews(&self) {
+        depth_order::tree_changed();
         DELETED_VIEWS.lock().append(&mut self.__base_view().subviews);
     }
 
@@ -139,6 +143,7 @@ impl<T: ?Sized + View> ViewSubviews for T {
             view.__base_view().navigation_view = self.__base_view().navigation_view;
         }
 
+        depth_order::tree_changed();
         if !weak.__base_view().z_position_custom {
             weak.__base_view().z_position = self.z_position()
                 - UIManager::subview_z_offset()
@@ -213,11 +218,5 @@ impl<T: ?Sized + View> ViewSubviews for T {
         }
 
         panic!("This view doesn't have `{}` in superview chain", type_name::<V>());
-    }
-
-    fn draw_on_top(&mut self) {
-        let neighbours = self.superview().subviews();
-        let last_z_pos = neighbours.last().unwrap().z_position();
-        self.__base_view().z_position = last_z_pos - UIManager::subview_z_offset() * 2.0;
     }
 }

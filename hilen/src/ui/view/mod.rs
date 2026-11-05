@@ -1,5 +1,6 @@
 mod cell_callbacks;
 mod container;
+pub(crate) mod depth_order;
 pub(crate) mod double_tap;
 mod setup;
 mod view;

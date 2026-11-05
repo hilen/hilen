@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{BLACK, Container, ImageView, Label, RED, Setup, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{BLACK, Container, ImageView, Label, RED, Setup, ViewData, ViewTest, WHITE, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -38,7 +38,6 @@ impl Setup for TranslucentOverText {
 
         self.overlay.set_color(BLACK.with_alpha(0.4));
         self.overlay.place().right_half();
-        self.overlay.bump_z_position(0.001);
 
         self.caption
             .set_text("40% black overlay")
@@ -48,7 +47,6 @@ impl Setup for TranslucentOverText {
             .b(40)
             .l(300)
             .size(300, 60);
-        self.caption.bump_z_position(0.002);
     }
 }
 

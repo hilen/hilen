@@ -34,6 +34,10 @@ browser.
 
 ## Tests
 
+`hilen-inspect file-hover <path>` holds a file over a running app and
+`hilen-inspect file-hover --end` ends the hold, so a drop mark can be looked at. Nothing
+is dropped.
+
 `inject_file_hover(path)`, `inject_file_hover_end()` and `inject_file_drop(path)` are the
 UI test helpers. The paths do not have to exist. `File hover` in
 `ui-test-suite/src/base/file_hover.rs` is the test.

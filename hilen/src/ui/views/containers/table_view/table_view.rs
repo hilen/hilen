@@ -1,5 +1,5 @@
 use super::{
-    layout::{LayoutMode, sticky_raise},
+    layout::{HEADER_RAISE, LayoutMode},
     row_move::RowMove,
     rows::{Rows, row_offsets},
 };
@@ -12,7 +12,7 @@ use crate::{
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
         CellRegistry, ScrollView, Setup, TableData, TextSelection, UIEvent, View, ViewData, ViewFrame,
-        ViewSubviews, ViewTouch, WeakView, struct_name, view,
+        ViewSubviews, ViewTouch, WeakView, struct_name, view, view::depth_order,
     },
 };
 
@@ -232,7 +232,7 @@ impl TableView {
     /// so it takes no `place()` rules. Call it once per table.
     pub fn add_sticky_header_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
         let view = self.add_header_view::<T>();
-        view.bump_z_position(sticky_raise());
+        depth_order::set_raise(&*view, HEADER_RAISE);
         self.sticky_header = Some((view.weak_view(), 0.0, 0.0));
         view
     }

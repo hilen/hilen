@@ -78,10 +78,8 @@ impl SceneTest for SceneInView {
     }
 
     fn overlay(mut scene: Weak<Self>, view: Weak<SceneTestView>) {
-        // A later sibling draws behind the image inside the scene view,
-        // raised it draws over it.
-        let badge = caption(view, "a label over the scene", (262.0, 72.0, 180.0, 30.0));
-        badge.bump_z_position(0.000_1);
+        // Added after the scene view, so it draws over its picture.
+        caption(view, "a label over the scene", (262.0, 72.0, 180.0, 30.0));
         scene.status = caption(view, "", (10.0, 480.0, 580.0, 40.0));
     }
 

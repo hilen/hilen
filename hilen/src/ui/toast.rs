@@ -52,7 +52,7 @@ impl Toast {
         let width = (label.content_size().width + SIDE_PADDING * 2.0).ceil();
 
         let mut view: Own<dyn View> = label;
-        view.set_z_position(UIManager::MENU_Z_OFFSET - UIManager::subview_z_offset() * 2.0);
+        view.set_z_position(UIManager::TOAST_Z_OFFSET);
         let mut view = UIManager::root_view().add_subview_to_root(view);
         view.set_label("Toast");
 

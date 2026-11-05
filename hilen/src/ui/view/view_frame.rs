@@ -3,7 +3,7 @@ use crate::{
         ToF32,
         flat::{Point, Rect, Size},
     },
-    ui::{UIManager, View, ViewData, ViewSubviews, WeakView},
+    ui::{UIManager, View, ViewData, ViewSubviews, WeakView, view::depth_order},
 };
 
 /// Where a view sits front to back for input, smaller is nearer: first
@@ -25,8 +25,10 @@ pub(crate) fn depth_key(view: WeakView) -> (f32, f32) {
 
 pub trait ViewFrame {
     fn z_position(&self) -> f32;
+    /// Starts a layer of its own at `z` over the whole window, smaller is
+    /// nearer, like a toast. The tree order puts every other view in front
+    /// or behind, a later sibling is in front of an earlier one.
     fn set_z_position(&mut self, z: f32) -> &mut Self;
-    fn bump_z_position(&self, z: f32) -> &Self;
     fn frame(&self) -> &Rect;
     fn absolute_frame(&self) -> &Rect;
     fn contains_visible(&self, point: Point) -> bool;
@@ -61,14 +63,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         );
         self.__base_view().z_position = z;
         self.__base_view().z_position_custom = true;
-        self
-    }
-
-    fn bump_z_position(&self, z: f32) -> &Self {
-        self.__base_view().z_position -= z;
-        for sub in self.subviews() {
-            sub.bump_z_position(z + UIManager::subview_z_offset());
-        }
+        depth_order::tree_changed();
         self
     }
 

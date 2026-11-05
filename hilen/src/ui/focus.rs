@@ -540,7 +540,7 @@ impl Focus {
 
         if state.ring.is_null() {
             let mut ring = FocusRing::new();
-            ring.set_z_position(UIManager::MENU_Z_OFFSET - UIManager::subview_z_offset() * 3.0);
+            ring.set_z_position(UIManager::RING_Z_OFFSET);
             let mut ring = UIManager::root_view().add_subview_to_root(ring);
             ring.set_label("Focus ring");
             state.ring = ring.downcast_view::<FocusRing>().expect("the focus ring is a FocusRing");

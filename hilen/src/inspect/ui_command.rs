@@ -100,6 +100,10 @@ impl InspectService {
             UIRequest::Resize { width, height } => Self::resize(width, height),
             #[cfg(not(desktop))]
             UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
+            #[cfg(desktop)]
+            UIRequest::FileHover { path } => Self::file_hover(path),
+            #[cfg(not(desktop))]
+            UIRequest::FileHover { .. } => AppCommand::Error("A file hold works only on desktop".into()),
             UIRequest::Hold { keys, ms } => Self::hold(keys, ms),
             UIRequest::Keys { keys, modifiers } => {
                 // The modifiers hold only for this one request and release
@@ -229,6 +233,19 @@ impl InspectService {
             }
             Err(err) => AppCommand::Error(err),
         }
+    }
+
+    /// Holds a file over the window, or ends the hold with no path.
+    #[cfg(desktop)]
+    fn file_hover(path: Option<String>) -> AppCommand {
+        from_main(move || {
+            crate::window::frame_control::input_arrived();
+            match path {
+                Some(path) => UIManager::trigger_hover_file(path.into()),
+                None => UIManager::trigger_hover_file_end(),
+            }
+        });
+        Self::send_ui()
     }
 
     /// A size the OS does not give, like one above the screen, is an

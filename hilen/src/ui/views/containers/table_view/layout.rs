@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::{Own, weak_from_ref},
     gm::LossyConvert,
-    ui::{TableView, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView},
+    ui::{TableView, TouchStack, ViewData, ViewFrame, ViewSubviews, WeakView, view::depth_order},
 };
 
 pub(super) enum LayoutMode {
@@ -12,21 +12,12 @@ pub(super) enum LayoutMode {
     Full,
 }
 
-/// The exact inverse of `bump_z_position`, so a cell raised while its
-/// row was pinned returns to the depth the bump found it at.
-pub(super) fn lower_z(view: WeakView, z: f32) {
-    view.__base_view().z_position += z;
-    for sub in view.subviews() {
-        lower_z(sub.weak(), z + UIManager::subview_z_offset());
-    }
-}
-
-/// How far a pinned cell rises in front of its siblings: clears several
-/// nesting levels of the other cells' subtrees while staying far behind
-/// the menu and modal layers.
-pub(super) fn sticky_raise() -> f32 {
-    UIManager::subview_z_offset() * 5.0
-}
+/// A pinned cell is in front of the cells that scroll under it.
+pub(super) const PINNED_RAISE: i8 = 1;
+/// The sticky header view is in front of every cell, a pinned one too.
+pub(super) const HEADER_RAISE: i8 = 2;
+/// A held row rides over all of them while it moves.
+pub(super) const HELD_RAISE: i8 = 3;
 
 /// Hands the sideways offset to every marked view under `view`. A marked
 /// view carries its subtree along, so the walk stops there.
@@ -286,7 +277,7 @@ impl TableView {
             cell.set_frame((x, y, cell_width, height));
 
             if !self.raised.iter().any(|(_, raised)| raised.raw() == cell.raw()) {
-                cell.bump_z_position(sticky_raise());
+                depth_order::set_raise(&*cell, PINNED_RAISE);
                 TouchStack::raise_subtree(cell);
                 self.raised.push((index, cell));
             }
@@ -302,7 +293,7 @@ impl TableView {
             }
         });
         for view in lowered {
-            lower_z(view, sticky_raise());
+            depth_order::set_raise(&*view, 0);
         }
     }
 
@@ -366,7 +357,7 @@ impl TableView {
             }
         });
         if was_raised {
-            lower_z(cell, sticky_raise());
+            depth_order::set_raise(&*cell, 0);
         }
     }
 }

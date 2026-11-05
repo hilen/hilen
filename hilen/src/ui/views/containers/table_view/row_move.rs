@@ -8,7 +8,7 @@ use std::{
 
 use plat::Platform;
 
-use super::layout::{LayoutMode, lower_z, sticky_raise};
+use super::layout::{HELD_RAISE, LayoutMode};
 use crate::{
     deps::{
         hreads::after,
@@ -17,7 +17,7 @@ use crate::{
     gm::flat::Point,
     ui::{
         LongPress, Shadow, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
-        input::TouchEvent,
+        input::TouchEvent, view::depth_order,
     },
     window::{MouseButton, slots::WindowLock},
 };
@@ -298,7 +298,7 @@ impl TableView {
         };
         let content_y = self.__base_view().local_point(finger).y - self.content_offset();
         let shadow = cell.shadow();
-        cell.bump_z_position(sticky_raise());
+        depth_order::set_raise(&*cell, HELD_RAISE);
         cell.set_shadow(Shadow::default());
         self.row_move = Some(RowMove {
             from: index,
@@ -420,7 +420,7 @@ impl TableView {
 /// The held cell goes back to the depth and the shadow it had.
 fn put_down(held: &RowMove) {
     if held.cell.is_ok() {
-        lower_z(held.cell, sticky_raise());
+        depth_order::set_raise(&*held.cell, 0);
         held.cell.set_shadow(held.shadow);
     }
 }

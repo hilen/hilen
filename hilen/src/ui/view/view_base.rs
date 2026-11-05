@@ -68,10 +68,22 @@ pub struct ViewBase {
     #[educe(Default = crate::ui::UIManager::ROOT_VIEW_Z_OFFSET)]
     pub(crate) z_position: f32,
 
-    /// Set through `set_z_position`. Blocks the automatic z assignment
-    /// when the view is added to a superview.
+    /// Set through `set_z_position`. The view starts a layer of its own
+    /// at that z, the tree order does not move it, see `depth_order`.
     #[educe(Debug(ignore))]
     pub(crate) z_position_custom: bool,
+    /// The place among the siblings, a higher one is in front of the
+    /// others with all it holds, see `depth_order::set_raise`.
+    #[educe(Debug(ignore))]
+    pub(crate) raise:             i8,
+    /// Draws at the depth of its superview, with all it holds, like the
+    /// picture of a label under its glyphs.
+    #[educe(Debug(ignore))]
+    pub(crate) same_depth:        bool,
+    /// Leaves its superview and is in front of everything else of its
+    /// layer, like the open panel of a drop down.
+    #[educe(Debug(ignore))]
+    pub(crate) floats:            bool,
 
     pub(crate) frame:     Rect,
     #[allow(clippy::pub_underscore_fields)]
@@ -91,9 +103,8 @@ pub struct ViewBase {
     pub(crate) tree_scale:    f32,
     /// Everything inside this view counts as one flat layer at the depth
     /// of the view, for drawing and for input. A view drawn after it, a
-    /// button over a map, is then in front of all of it. Without this a
-    /// later sibling draws behind the subviews of an earlier one. Only
-    /// for a view that clips to its bounds.
+    /// button over a map, is then in front of all of it. Only for a view
+    /// that clips to its bounds.
     pub(crate) flat_depth:    bool,
 
     #[educe(Debug(ignore))]

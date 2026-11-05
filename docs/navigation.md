@@ -71,10 +71,9 @@ A stack can sit in any view, so a sidebar app puts one in its page container.
 
 ## How the pages are drawn
 
-Each page sits in a `PageHolder`. A later sibling draws behind the subviews of an
-earlier one, so while a swipe shows the page below, its holder is a flat layer that
-clips, see "A flat layer" in [canvas.md](canvas.md). The top page drawn after it covers
-all of it.
+Each page sits in a `PageHolder`. While a swipe shows the page below, its holder is a
+flat layer that clips, see "A flat layer" in [canvas.md](canvas.md). The top page drawn
+after it covers all of it.
 
 - A page with no background of its own shows the clear color of the window. While a
   swipe runs, the holder of the top page paints that color, else the page below would

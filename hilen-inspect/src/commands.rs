@@ -194,6 +194,16 @@ pub(super) enum Command {
     ScrollTo { query: String },
     /// Resize the window, in points
     Resize { width: f32, height: f32 },
+    /// Hold a file over the window like a drag from a file manager, the
+    /// way a drop mark shows. Nothing is dropped
+    FileHover {
+        /// The path the app sees, it does not have to exist
+        #[arg(required_unless_present = "end", conflicts_with = "end")]
+        path: Option<String>,
+        /// End the hold, like a drag that left the window
+        #[arg(long)]
+        end:  bool,
+    },
     /// Hold physical keys down for a while, then release them, for input
     /// read every frame like walking. A single letter or digit names its
     /// key, anything else is a winit `KeyCode` name like Space or `ArrowUp`
@@ -379,6 +389,10 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::ScrollTo { query } => scroll_to(client, &query).await?,
         Command::Resize { width, height } => {
             send(client, UIRequest::Resize { width, height }.into()).await?;
+            println!("ok");
+        }
+        Command::FileHover { path, end: _ } => {
+            send(client, UIRequest::FileHover { path }.into()).await?;
             println!("ok");
         }
         Command::Hold { keys, ms } => hold(client, &keys, ms).await?,

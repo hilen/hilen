@@ -17,7 +17,7 @@ use crate::{
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         text_selection::Lead,
-        view::{ViewData, ViewSubviews},
+        view::{ViewData, ViewSubviews, depth_order},
         views::basic::{
             label_runs::StyleRun,
             label_style::{TextOutline, TextShadow},
@@ -707,7 +707,7 @@ impl Label {
         let image_view = self.add_view::<ImageView>();
         image_view.place().back();
         image_view.set_image(image);
-        image_view.__base_view().z_position = self.z_position();
+        depth_order::set_same_depth(&*image_view);
 
         self
     }
@@ -717,13 +717,7 @@ impl Label {
         let mut image_view = self.add_view::<ImageView>();
         image_view.place().back();
         image_view.set_resizing_image(name);
-        image_view.__base_view().z_position = self.z_position();
-        image_view.subviews_weak().iter_mut().for_each(|v| {
-            v.__base_view().z_position = self.z_position();
-            v.subviews_weak().iter_mut().for_each(|v| {
-                v.__base_view().z_position = self.z_position();
-            });
-        });
+        depth_order::set_same_depth(&*image_view);
 
         self
     }
