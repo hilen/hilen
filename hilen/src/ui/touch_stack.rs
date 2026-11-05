@@ -168,6 +168,10 @@ impl TouchStack {
         Self::in_window_of(view, || Self::get().layer_for(view).remove(view));
     }
 
+    pub(crate) fn disable_input(view: WeakView) {
+        Self::in_window_of(view, || Self::get().layer_for(view).remove_input(view));
+    }
+
     /// Moves every registration under `view` to the front of its layer,
     /// keeping their relative order, so a view drawn over its siblings,
     /// like a pinned sticky table row, also wins their touches.

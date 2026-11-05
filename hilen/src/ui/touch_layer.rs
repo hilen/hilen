@@ -121,6 +121,17 @@ impl TouchLayer {
         self.high_priority.retain(|a| a.raw() != view.raw());
     }
 
+    /// Takes `view` out of every list: its touch, its hover, its pinch and
+    /// its wheel. A touch or a wheel over it goes on to the views below.
+    pub(crate) fn remove_input(&mut self, view: WeakView) {
+        let raw = view.raw();
+        self.remove(view);
+        self.hovered.retain(|a| a.raw() != raw);
+        self.high_hovered.retain(|a| a.raw() != raw);
+        self.pinched.retain(|a| a.raw() != raw);
+        self.scrolls.retain(|a| a.raw() != raw);
+    }
+
     /// Moves every registration sitting under `root` out of this layer,
     /// so a pre-built overlay keeps its views when it becomes a layer.
     pub(crate) fn extract_under(&mut self, root: WeakView) -> Extracted {

@@ -93,4 +93,8 @@ any system, a start of the app on iOS, and an archive or upload.
 A hot build, `make hot` and `make device`, is a dynamic library that rustc
 links. It gets the static code too, but `sherpa-onnx-sys` still adds a load of
 `@rpath/SherpaOnnxC.framework`, which the loader app does not have, though no
-symbol is taken from it. A hot build with `speech` is not proven to load.
+symbol is taken from it. The loader failed to open banda on it, `Library not
+loaded`, and showed the demo. Since 2026-11-05 `build/py/shared/hot.py` of the
+`build` repo links the library with `-dead_strip_dylibs`, which leaves that load
+out, and banda with `speech` swapped onto an iPhone. A dictation in a hot build is
+not proven yet.

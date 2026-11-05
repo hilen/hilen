@@ -116,6 +116,11 @@ of the floor is cut flat. Every triangle has a back side, since back faces are
 culled. It runs the one scene of `SceneManager`, like any `SceneView`. The
 last surface model is not freed when the view goes away.
 
+`SurfacePlotView::picture(function, half, name, size)` draws the same graph
+once into an image with no scene running, seen from where the live view
+starts, through `SceneManager::picture`. It is for a graph in a list or a
+chat, where only 1 live scene can run. The test is `Surface still`.
+
 ## Orthographic camera
 
 `Camera::projection` is `Projection::Perspective`, the default, or

@@ -162,6 +162,26 @@ impl PlotView {
         self
     }
 
+    /// On by default: a drag pans, the wheel and a pinch zoom. Off, the
+    /// plot takes no touch, pinch or wheel, they go on to the views around
+    /// it. For a plot in a list or a chat, where the wheel scrolls the list
+    /// and a tap belongs to the cell.
+    pub fn set_interactive(self: Weak<Self>, on: bool) -> Weak<Self> {
+        if on {
+            self.enable_input();
+        } else {
+            TouchStack::disable_input(self.weak_view());
+        }
+        self
+    }
+
+    fn enable_input(self: Weak<Self>) {
+        // Low priority, a subview that takes touches is asked first.
+        self.enable_touch_low_priority();
+        self.enable_pinch();
+        TouchStack::enable_scroll(self);
+    }
+
     /// The visible x from the left edge to the right edge.
     pub fn x_range(&self) -> (f64, f64) {
         let half = self.x_span / 2.0;
@@ -449,14 +469,9 @@ impl Setup for PlotView {
         self.field_view.set_hidden(true);
         self.drawing.place().back();
 
-        // Low priority, a subview that takes touches is asked first.
-        self.enable_touch_low_priority();
+        self.enable_input();
         self.touch().all.val(move |touch| self.drag(touch));
-
-        self.enable_pinch();
         self.touch().pinch.val(self, move |pinch| self.pinch(pinch));
-
-        TouchStack::enable_scroll(self);
 
         self.size_changed().sub(move || self.redraw());
         UIEvents::theme_changed().sub(self, move || self.redraw());
