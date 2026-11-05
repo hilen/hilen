@@ -20,7 +20,7 @@ use std::{
 use anyhow::{Context, Result};
 use image::{ExtendedColorType, ImageEncoder, RgbImage, codecs::qoi::QoiEncoder, imageops::thumbnail};
 use log::{debug, error, info, warn};
-use parking_lot::{Condvar, Mutex};
+use parking_lot::{Condvar, Mutex, MutexGuard};
 use web_time::Instant;
 
 #[cfg(wasm)]
@@ -43,7 +43,12 @@ const MAX_WAITING: u32 = 16;
 
 /// How long the app waits for the packers before it gives a frame up. It
 /// is the only way a frame is lost, and it means the packers are dead.
+#[cfg(not_wasm)]
 const STALL_WAIT: Duration = Duration::from_secs(2);
+/// A browser does not let its main thread block, so a page gives a frame up
+/// at once when the line of the packers is full.
+#[cfg(wasm)]
+const STALL_WAIT: Duration = Duration::ZERO;
 
 /// How long a reader of a stopped record waits for its last frames.
 const PACK_WAIT: Duration = Duration::from_secs(10);
@@ -236,9 +241,7 @@ pub(crate) fn running() -> bool {
 pub(crate) fn kept() -> Result<Kept, String> {
     let mut store = STORE.lock();
     if !store.running && store.waiting > 0 {
-        let timed_out = PACKED
-            .wait_while_for(&mut store, |store| store.waiting > 0, PACK_WAIT)
-            .timed_out();
+        let timed_out = wait_while_for(&mut store, |store| store.waiting > 0, PACK_WAIT);
         if timed_out {
             return Err(format!(
                 "{} frames of the record are still not packed",
@@ -362,13 +365,11 @@ fn wait_for_room(record: u64, index: u32) -> Option<bool> {
     let stalled = store.waiting >= MAX_WAITING;
     if stalled {
         store.stalled += 1;
-        let timed_out = PACKED
-            .wait_while_for(
-                &mut store,
-                |store| store.record == record && store.waiting >= MAX_WAITING,
-                STALL_WAIT,
-            )
-            .timed_out();
+        let timed_out = wait_while_for(
+            &mut store,
+            |store| store.record == record && store.waiting >= MAX_WAITING,
+            STALL_WAIT,
+        );
         if timed_out {
             if store.skipped == 0 {
                 error!("The frame packers do not answer, frame {index} is the first one lost");
@@ -379,6 +380,38 @@ fn wait_for_room(record: u64, index: u32) -> Option<bool> {
     }
     store.waiting += 1;
     Some(stalled)
+}
+
+/// Waits on `PACKED` while `condition` holds, at most `timeout`. True when
+/// the time ran out.
+#[cfg(not_wasm)]
+fn wait_while_for(
+    store: &mut MutexGuard<'_, Store>,
+    condition: impl FnMut(&mut Store) -> bool,
+    timeout: Duration,
+) -> bool {
+    PACKED.wait_while_for(store, condition, timeout).timed_out()
+}
+
+/// The same for a page. The timed wait of `parking_lot` reads the clock of
+/// std, which a browser does not have, and the call panics. So the page
+/// looks again every few milliseconds by `web_time`. A wait of 0 never
+/// sleeps, the main thread of a page must not.
+#[cfg(wasm)]
+fn wait_while_for(
+    store: &mut MutexGuard<'_, Store>,
+    mut condition: impl FnMut(&mut Store) -> bool,
+    timeout: Duration,
+) -> bool {
+    const POLL: Duration = Duration::from_millis(5);
+    let started = Instant::now();
+    while condition(store) {
+        if started.elapsed() >= timeout {
+            return true;
+        }
+        MutexGuard::unlocked(store, || std::thread::sleep(POLL));
+    }
+    false
 }
 
 /// The size of a picture with 1 pixel per point.
