@@ -411,8 +411,9 @@ app, with a line per second.
 ## Browser transport
 
 A page cannot listen on TCP and has no mDNS, so on wasm the direction inverts.
-With the `hilen_inspect` query flag set, the app dials out to the server that
-served the page, same origin, at `/hilen-inspect`, in `web_transport.rs`. `Router::push` and
+A page built with the `inspect` feature dials out to the server that served
+the page, same origin, at `/hilen-inspect`, in `web_transport.rs`. It needs no
+flag in the address, only a dev build has the feature. `Router::push` and
 `Router::replace` carry every `hilen_` flag of the current query into the
 address they write, so the flag stays through the steps of the app and a
 reload keeps the inspector, `keep_flags` in `system/router.rs`. One

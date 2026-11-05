@@ -363,11 +363,12 @@ pub(crate) fn install_wheel_listener() {
     WHEEL_LISTENER.set(Some(listener));
 }
 
-/// Sends panics to console.error and, when a driver flag is in the url, to
-/// the driver's `/te-panic` endpoint. The origin is captured now, on the main
-/// thread, because a worker that panics later has no `window` to ask.
+/// Sends panics to console.error and, in a build with the inspector or when a
+/// driver flag is in the url, to the `/te-panic` endpoint of the server. The
+/// origin is captured now, on the main thread, because a worker that panics
+/// later has no `window` to ask.
 pub(crate) fn install_panic_hook() {
-    if query_flag("hilen_inspect") || query_flag("hilen_run_tests") {
+    if cfg!(feature = "inspect") || query_flag("hilen_run_tests") {
         let origin = web_sys::window()
             .expect("Failed to get browser window")
             .location()

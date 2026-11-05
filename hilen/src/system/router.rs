@@ -156,8 +156,8 @@ fn join_base(base: &str, path: &str) -> String {
 }
 
 /// The new address with the `hilen_` flags of the current query, like
-/// `hilen_inspect`. The engine reads them from the address, so a step of the
-/// app that dropped them would turn the inspector off at the next reload.
+/// `hilen_msaa`. The engine reads them from the address, so a step of the app
+/// that dropped them would lose them at the next reload.
 /// Any other key of the query belongs to the app and stays behind.
 #[cfg(any(wasm, test))]
 fn keep_flags(url: &str, search: &str) -> String {

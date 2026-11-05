@@ -1,7 +1,8 @@
 //! The inspect channel for a browser page. A page cannot listen on TCP and
-//! has no mDNS, so the direction inverts: when the `hilen_inspect` query flag
-//! is set, the app dials out to the server that served the page, same origin,
-//! at `/hilen-inspect`. The protocol stays the same request in, response out
+//! has no mDNS, so the direction inverts: a page built with the `inspect`
+//! feature dials out to the server that served the page, same origin, at
+//! `/hilen-inspect`. Only a dev build has the feature, so it needs no flag in
+//! the address. The protocol stays the same request in, response out
 //! JSON, one WebSocket text message per frame instead of a length prefix.
 //!
 //! An app installed on a TV opens from a file, it has no server to dial and
@@ -56,9 +57,7 @@ pub(crate) fn is_open() -> bool {
 pub(crate) fn start_if_requested() {
     black_box(MARKER);
 
-    let Some(url) = BAKED_URL.map(str::to_string).or_else(page_url) else {
-        return;
-    };
+    let url = BAKED_URL.map_or_else(page_url, str::to_string);
 
     let (sender, receiver) = channel::<InspectorCommand>();
     *REQUESTS.lock() = Some(sender);
@@ -85,16 +84,13 @@ pub(crate) fn start_if_requested() {
     dial(url);
 }
 
-/// The server that served the page, when the url asks for the inspector.
-fn page_url() -> Option<String> {
-    if !crate::web::query_flag("hilen_inspect") {
-        return None;
-    }
+/// The server that served the page.
+fn page_url() -> String {
     let location = web_sys::window().expect("Failed to get browser window").location();
     let protocol = location.protocol().expect("Failed to get location protocol");
     let host = location.host().expect("Failed to get location host");
     let scheme = if protocol == "https:" { "wss" } else { "ws" };
-    Some(format!("{scheme}://{host}/hilen-inspect"))
+    format!("{scheme}://{host}/hilen-inspect")
 }
 
 /// Opens the socket. A baked address is dialed again after a failure.
