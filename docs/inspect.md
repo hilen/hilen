@@ -461,6 +461,11 @@ the Mac.
   DedicatedWorker yet`, so `wasm_thread` runs with no default features and the
   `module-workers` feature of hilen turns modules on, for a module page like the
   demo of the browser test lane.
+  A worker of the wrong type dies before its first line, and only the browser
+  console says so. So the page logs an error 5 seconds after its start when the
+  worker did not run, `check_worker` in `web_transport.rs`, and the log reaches
+  the bridge. On 2026-11-05 a module page built with no `module-workers` answered
+  no command on an iPhone, and its log said nothing about why.
 - Proven on an LG C1 on 2026-10-20: `apps` listed the installed Flixen package, `find`
   read its tree, `screenshot` gave 3840x2160, and its log came in live. A `tap` was not
   tried there.

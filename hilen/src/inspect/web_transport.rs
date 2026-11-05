@@ -50,6 +50,12 @@ static REQUESTS: Mutex<Option<Sender<InspectorCommand>>> = Mutex::new(None);
 /// itself, which lives on the main thread.
 static OPEN: AtomicBool = AtomicBool::new(false);
 
+/// Set by the inspect worker when it runs. A worker whose script type does not
+/// fit the page dies before its first line, and the browser tells only its
+/// console, so the page checks this after `WORKER_WAIT_MS`.
+static WORKER_UP: AtomicBool = AtomicBool::new(false);
+const WORKER_WAIT_MS: i32 = 5000;
+
 pub(crate) fn is_open() -> bool {
     OPEN.load(Ordering::Relaxed)
 }
@@ -68,6 +74,7 @@ pub(crate) fn start_if_requested() {
     crate::deps::hreads::spawn_thread(move || {
         // A worker that never starts leaves every request in the channel with
         // no error, the page then answers nothing. This line tells the 2 apart.
+        WORKER_UP.store(true, Ordering::Relaxed);
         log::info!("Inspect worker runs");
         while let Ok(request) = receiver.recv() {
             let shown = format!("{request:?}");
@@ -87,7 +94,30 @@ pub(crate) fn start_if_requested() {
         }
     });
 
+    check_worker();
     dial(url);
+}
+
+/// Says loudly when the worker did not start, every request would wait in
+/// the channel with no answer and no error.
+fn check_worker() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let check = Closure::once_into_js(|| {
+        if !WORKER_UP.load(Ordering::Relaxed) {
+            log::error!(
+                "The inspect worker did not start, so the inspector answers nothing. A page \
+                 whose script is an ES module, like the one trunk builds, needs the hilen \
+                 feature `module-workers`. A classic page, like a packaged webOS app, needs it off"
+            );
+        }
+    });
+    if let Err(err) =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(check.unchecked_ref(), WORKER_WAIT_MS)
+    {
+        log::error!("Failed to plan the check of the inspect worker: {err:?}");
+    }
 }
 
 /// The server that served the page.
