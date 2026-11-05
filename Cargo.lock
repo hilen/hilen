@@ -2361,6 +2361,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exmex"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9a53dccfc387af263e69c1eb53d13a4e9b26a7134ffdd38398a208374cbf851"
+dependencies = [
+ "regex",
+ "smallvec",
+]
+
+[[package]]
 name = "exr"
 version = "1.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2464,6 +2474,15 @@ name = "fiat-crypto"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
+
+[[package]]
+name = "filediff"
+version = "0.1.0"
+source = "git+https://github.com/hilen/filediff?rev=4d787a23b21271f102e2c2509a68093aa41a6ff0#4d787a23b21271f102e2c2509a68093aa41a6ff0"
+dependencies = [
+ "base64 0.23.1",
+ "serde",
+]
 
 [[package]]
 name = "filetime"
@@ -3306,10 +3325,12 @@ dependencies = [
  "educe",
  "env_logger",
  "event-listener",
+ "exmex",
  "fake",
  "fastrand",
  "fern",
  "ffmpeg-next",
+ "filediff",
  "fontdb 0.23.0",
  "futures-channel",
  "futures-util",
@@ -3353,6 +3374,7 @@ dependencies = [
  "noise",
  "nokhwa",
  "nonempty",
+ "num-complex",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-av-foundation",

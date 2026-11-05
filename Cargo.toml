@@ -88,6 +88,7 @@ ed25519-dalek = "3.0"
 educe = "0.8"
 env_logger = "0.11"
 event-listener = "5.4"
+exmex = "0.21"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
@@ -140,6 +141,7 @@ mime_guess = "2.0"
 ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
+num-complex = "0.4"
 obfstr = "0.4"
 # The debug check of every message signature took over half of a debug frame in Metal.
 objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
@@ -341,6 +343,9 @@ hilen = { version = "0.1", path = "hilen" }
 hilen-server = { version = "0.1", path = "hilen-server" }
 hilen-session = { version = "0.1", path = "hilen-session" }
 hilen-updater = { version = "0.1", path = "hilen-updater" }
+# The data of `DiffPanel`. A repo of its own, so its rev moves only when the
+# types change, and every crate that builds diffs pins that same rev.
+filediff = { git = "https://github.com/hilen/filediff", rev = "4d787a23b21271f102e2c2509a68093aa41a6ff0" }
 hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }

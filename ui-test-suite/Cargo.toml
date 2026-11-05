@@ -20,7 +20,7 @@ pretty_assertions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-hilen = { workspace = true, features = ["camera", "inspect", "level", "math", "ui-tests"] }
+hilen = { workspace = true, features = ["camera", "diff-view", "inspect", "level", "math", "plot", "ui-tests"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { workspace = true }

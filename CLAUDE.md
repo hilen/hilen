@@ -72,7 +72,10 @@ asset groups of a browser build, which load over the network, so a browser build
 `bug-report` is Sentry and the bug report dialog, `infisical` is `SecretsManager`,
 `system-info` is `System::get_info`, `updater` is self update with the update hooks of
 `App`, `code-colors` is syntect for `CodeHighlighter` and the code blocks of
-`MarkdownView`, and `noise` is `hilen::generate`. `login`, `google-access` and `speech`
+`MarkdownView`, and `noise` is `hilen::generate`. Off by default, `diff-view` is `DiffPanel`, the diff of 1
+file on the data of the [filediff](https://github.com/hilen/filediff) crate, see
+[docs/diff-view.md](docs/diff-view.md), and `plot` is `GraphView`, formulas drawn as graphs,
+see [docs/formula-plot.md](docs/formula-plot.md). `login`, `google-access` and `speech`
 turn `net` on. A crate of shared views depends on `hilen` with
 `default-features = false`: on macOS that is 295 crates where the defaults are 437, and
 the app that links it brings the rest. `make ci` runs clippy on `hilen` with no default
@@ -276,6 +279,12 @@ Do not read these upfront. Read the matching file only when the task touches tha
   lines in a table of rows, the gutter, color runs and marks per line set by the app, undo
   and redo by steps of lines, the keys and the menu. Read before touching
   `views/complex/code_editor` or putting a code editor into an app.
+- [docs/diff-view.md](docs/diff-view.md) — `DiffPanel` of the `diff-view` feature, the
+  `filediff` crate it draws and why that crate is a repo of its own, and the `DiffHost`
+  an app gives it. Read before touching `views/complex/diff_view` or the diff types.
+- [docs/formula-plot.md](docs/formula-plot.md) — `GraphView` and `graphs` of the `plot`
+  feature, formulas typed as text, and which graphs need `scene`. Read before touching
+  `views/complex/formula_plot`.
 - [docs/log-view.md](docs/log-view.md) — `LogView`, the ready view for a log: the
   `LogData` trait, ANSI colors, the prefix column, follow the end, and why a row out of
   view gets its height from arithmetic and not from shaped text. Read before touching
