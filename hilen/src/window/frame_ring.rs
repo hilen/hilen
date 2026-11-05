@@ -10,6 +10,7 @@
 use std::thread::{Builder, available_parallelism, sleep};
 use std::{
     collections::BTreeMap,
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{
         Arc,
         mpsc::{Receiver, Sender, channel},
@@ -30,6 +31,7 @@ use crate::window::{Window, occluded};
 use crate::{
     deps::refs::main_lock::MainLock,
     gm::{LossyConvert, flat::Size},
+    inspect::ViewToInspect,
     ui::UIManager,
     window::{Screenshot, frame_control::FrameReader, frame_step, request_frame},
 };
@@ -84,6 +86,16 @@ pub(crate) struct Kept {
     pub frames:   Vec<Arc<PackedFrame>>,
     /// See `Store::shown`.
     pub shown:    BTreeMap<u32, f32>,
+    pub layouts:  Vec<Layout>,
+}
+
+/// The view tree at a frame where it changed, see `note_layout`.
+#[derive(Clone)]
+pub(crate) struct Layout {
+    pub index: u32,
+    pub ms:    f32,
+    /// The `ViewRepr` of the root as JSON.
+    pub json:  String,
 }
 
 struct RawFrame {
@@ -108,6 +120,8 @@ struct Live {
     #[cfg(apple)]
     drawing: Option<u32>,
     raw:     Sender<RawFrame>,
+    /// The hash of the layout kept last.
+    layout:  Option<u64>,
 }
 
 static LIVE: MainLock<Option<Live>> = MainLock::new();
@@ -127,6 +141,9 @@ struct Store {
     /// reached the screen, by its index. Only for the frames the screen
     /// told it for.
     shown:    BTreeMap<u32, f32>,
+    /// The layouts of the record, the oldest first, each one that differs
+    /// from the one before.
+    layouts:  Vec<Layout>,
 }
 
 static STORE: Mutex<Store> = Mutex::new(Store {
@@ -139,6 +156,7 @@ static STORE: Mutex<Store> = Mutex::new(Store {
     stalled:  0,
     frames:   BTreeMap::new(),
     shown:    BTreeMap::new(),
+    layouts:  Vec::new(),
 });
 
 static PACKED: Condvar = Condvar::new();
@@ -183,6 +201,7 @@ pub(crate) fn start() -> Result<(), String> {
         store.stalled = 0;
         store.frames.clear();
         store.shown.clear();
+        store.layouts.clear();
         store.record
     };
     // A packer of the old record that waits for room goes on.
@@ -206,6 +225,7 @@ pub(crate) fn start() -> Result<(), String> {
         #[cfg(apple)]
         drawing: None,
         raw,
+        layout: None,
     });
     info!("Frame record {record} started, {packers} packers");
     request_frame();
@@ -257,6 +277,7 @@ pub(crate) fn kept() -> Result<Kept, String> {
         stalled:  store.stalled,
         frames:   store.frames.values().cloned().collect(),
         shown:    store.shown.clone(),
+        layouts:  store.layouts.clone(),
     })
 }
 
@@ -315,6 +336,9 @@ pub(crate) fn take_frame() -> Option<FrameReader> {
     let record = live.record;
     let index = live.taken;
     live.taken += 1;
+
+    // Before the wait for the packers, a frame they lose keeps its layout.
+    note_layout(live, index);
 
     let stalled = wait_for_room(record, index)?;
 
@@ -380,6 +404,35 @@ fn wait_for_room(record: u64, index: u32) -> Option<bool> {
     }
     store.waiting += 1;
     Some(stalled)
+}
+
+/// Keeps the view tree of the frame `index` when it differs from the one
+/// kept last. A picture shows what was drawn, the tree shows what the app
+/// holds: its pages, the place, the text and the hidden state of each view.
+fn note_layout(live: &mut Live, index: u32) {
+    let ms = live.started.elapsed().as_secs_f32() * 1000.0;
+    // The tree holds `Own` pointers, it is made and dropped here on the main
+    // thread, only its text leaves.
+    let root = UIManager::root_view().view_to_inspect();
+    let json = serde_json::to_string(&*root);
+    drop(root);
+    let json = match json {
+        Ok(json) => json,
+        Err(error) => {
+            error!("The layout of frame {index} did not serialize: {error}");
+            return;
+        }
+    };
+    let mut hasher = DefaultHasher::new();
+    json.hash(&mut hasher);
+    let hash = hasher.finish();
+    if live.layout == Some(hash) {
+        return;
+    }
+    live.layout = Some(hash);
+    let mut store = STORE.lock();
+    store.layouts.push(Layout { index, ms, json });
+    store.layouts.retain(|layout| layout.ms >= ms - KEPT_MS);
 }
 
 /// Waits on `PACKED` while `condition` holds, at most `timeout`. True when

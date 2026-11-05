@@ -7,7 +7,7 @@ use crate::{
     gm::LossyConvert,
     inspect::{
         AppCommand, InspectService,
-        protocol::{FrameInfoRepr, FrameRepr, KeptFrameRepr, RecordRepr, UIRequest, UIResponse},
+        protocol::{FrameInfoRepr, FrameRepr, KeptFrameRepr, LayoutRepr, RecordRepr, UIRequest, UIResponse},
         wait::MAX_WAIT_MS,
     },
     window::{
@@ -136,6 +136,22 @@ impl InspectService {
             })
             .collect();
         AppCommand::KeptFrames(frames)
+    }
+
+    pub(super) fn record_layouts() -> AppCommand {
+        match frame_ring::kept() {
+            Ok(kept) => AppCommand::KeptLayouts(
+                kept.layouts
+                    .iter()
+                    .map(|layout| LayoutRepr {
+                        index: layout.index,
+                        ms:    layout.ms,
+                        json:  layout.json.clone(),
+                    })
+                    .collect(),
+            ),
+            Err(error) => AppCommand::Error(error),
+        }
     }
 
     pub(super) fn pause() -> AppCommand {

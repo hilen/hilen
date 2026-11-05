@@ -56,6 +56,10 @@ pub enum InspectorCommand {
         from:  u32,
         count: u32,
     },
+    /// Asks for the layouts of the record: the whole view tree, like `UI`
+    /// gives it, at each frame where it differs from the frame before. The
+    /// answer is `KeptLayouts`.
+    RecordLayouts,
     /// Freezes the engine clock and the drawing until `Resume`.
     Pause,
     /// Draws the next frames of a paused app, each moves the clock by one

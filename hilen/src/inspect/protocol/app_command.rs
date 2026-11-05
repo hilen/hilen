@@ -22,6 +22,8 @@ pub enum AppCommand {
     Record(RecordRepr),
     /// Pictures of the record from a start to a stop, the oldest first.
     KeptFrames(Vec<KeptFrameRepr>),
+    /// The layouts of the record from a start to a stop, the oldest first.
+    KeptLayouts(Vec<LayoutRepr>),
     /// The app is paused, with the frames drawn since the pause.
     Paused {
         frame: u64,
@@ -148,6 +150,17 @@ pub struct FrameInfoRepr {
     /// The app waited for the packers of the record before this frame,
     /// so its gap is the cost of the record and not of the app.
     pub stalled:  bool,
+}
+
+/// The view tree of a record at a frame where it changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutRepr {
+    /// The frame the tree was taken at, the index of `FrameInfoRepr`.
+    pub index: u32,
+    /// Milliseconds from the start of the record to that frame.
+    pub ms:    f32,
+    /// The `ViewRepr` of the root as JSON.
+    pub json:  String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

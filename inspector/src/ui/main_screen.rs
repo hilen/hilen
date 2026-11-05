@@ -290,6 +290,7 @@ impl MainScreen {
             | AppCommand::Frames { .. }
             | AppCommand::Record(_)
             | AppCommand::KeptFrames(_)
+            | AppCommand::KeptLayouts(_)
             | AppCommand::Paused { .. }
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)

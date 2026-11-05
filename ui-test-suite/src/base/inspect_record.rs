@@ -7,8 +7,8 @@ use hilen::{
         color::{BLACK, Color},
     },
     inspect::{
-        AppCommand, InspectService, InspectorCommand,
-        protocol::{KeptFrameRepr, RecordRepr},
+        AppCommand, InspectService, InspectorCommand, ViewRepr,
+        protocol::{KeptFrameRepr, LayoutRepr, RecordRepr},
     },
     refs::Weak,
     ui::{Container, Label, Setup, Shadow, UIAnimation, UIManager, ViewData, ViewFrame, ViewTest, view},
@@ -92,6 +92,68 @@ fn pictures(from: u32, count: u32) -> Result<Vec<KeptFrameRepr>> {
             _ => None,
         },
     )
+}
+
+fn layouts() -> Result<Vec<LayoutRepr>> {
+    send(InspectorCommand::RecordLayouts, |response| match response {
+        AppCommand::KeptLayouts(layouts) => Some(layouts.clone()),
+        _ => None,
+    })
+}
+
+/// The left edge of the card in a kept layout. The subviews of a
+/// `ViewRepr` are `Own` pointers, so it is read and dropped on the main
+/// thread.
+fn card_x(layout: &LayoutRepr) -> Result<f32> {
+    fn find(view: &ViewRepr) -> Option<f32> {
+        if view.label.starts_with("InspectRecord.card") {
+            return Some(view.frame.origin.x);
+        }
+        view.subviews.iter().find_map(|sub| find(sub))
+    }
+    let json = layout.json.clone();
+    let x = from_main(move || -> Result<Option<f32>> {
+        let root: ViewRepr = serde_json::from_str(&json)?;
+        Ok(find(&root))
+    })?;
+    x.with_context(|| format!("No card in the layout of frame {}", layout.index))
+}
+
+/// The layouts of the slide: 1 for each frame where the tree changed. The
+/// card moves in every frame, so nearly every frame has one, and the card
+/// moves through them.
+fn check_layouts(stopped: &RecordRepr) -> Result<()> {
+    let layouts = layouts()?;
+    info!(
+        "Layouts of the slide: {} for {} frames",
+        layouts.len(),
+        stopped.frames.len()
+    );
+    ensure!(
+        layouts.len() * 10 >= stopped.frames.len() * 9,
+        "Only {} layouts for {} frames of a moving card",
+        layouts.len(),
+        stopped.frames.len()
+    );
+    ensure!(
+        layouts
+            .windows(2)
+            .all(|pair| pair[0].index < pair[1].index && pair[0].ms <= pair[1].ms),
+        "The layouts must come in the order of the frames"
+    );
+    ensure!(
+        layouts
+            .iter()
+            .all(|layout| stopped.frames.iter().any(|frame| frame.index == layout.index)),
+        "A layout names a frame the record does not have"
+    );
+    let first = card_x(&layouts[0])?;
+    let last = card_x(&layouts[layouts.len() - 1])?;
+    ensure!(
+        last - first >= TRAVEL * 0.8,
+        "The card went from {first} to {last} in the layouts, it slides {TRAVEL}"
+    );
+    Ok(())
 }
 
 /// The left edge of the card in a kept picture, in points. A kept picture
@@ -189,6 +251,7 @@ impl ViewTest for InspectRecord {
         ensure!(nothing.contains("No record runs"), "{nothing}");
 
         let stopped = check_slide(view)?;
+        check_layouts(&stopped)?;
         let frames = &stopped.frames;
         let (first, last) = (&frames[0], &frames[frames.len() - 1]);
 

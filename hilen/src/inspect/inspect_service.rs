@@ -269,6 +269,7 @@ impl InspectService {
             InspectorCommand::RecordStop => Self::record_stop(),
             InspectorCommand::RecordInfo => Self::record_info(),
             InspectorCommand::RecordFrames { from, count } => Self::record_frames(from, count),
+            InspectorCommand::RecordLayouts => Self::record_layouts(),
             InspectorCommand::Pause => Self::pause(),
             InspectorCommand::Step { frames } => Self::step(frames),
             InspectorCommand::Resume => Self::resume(),

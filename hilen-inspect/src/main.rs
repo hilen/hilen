@@ -525,8 +525,18 @@ async fn print_edited(client: &Client, request: UIRequest, view_id: &str) -> Res
 }
 
 fn print_tree(view: &ViewRepr, depth: usize) {
+    let mut text = String::new();
+    tree_text(view, depth, &mut text);
+    print!("{text}");
+}
+
+/// The lines of `tree` for `view` and every view in it.
+fn tree_text(view: &ViewRepr, depth: usize, text: &mut String) {
+    use std::fmt::Write;
+
     let frame = &view.frame;
-    println!(
+    let _ = writeln!(
+        text,
         "{}{}{}  [{}, {}] {}x{}  {}{}",
         "  ".repeat(depth),
         view.label,
@@ -539,7 +549,7 @@ fn print_tree(view: &ViewRepr, depth: usize) {
         if view.hidden { "  hidden" } else { "" },
     );
     for sub in &view.subviews {
-        print_tree(sub, depth + 1);
+        tree_text(sub, depth + 1, text);
     }
 }
 

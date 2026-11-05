@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use hilen::inspect::protocol::{AppCommand, Client, InspectorCommand, RecordRepr, UIRequest};
+use hilen::inspect::protocol::{AppCommand, Client, InspectorCommand, RecordRepr, UIRequest, ui::ViewRepr};
 use image::{ImageFormat, load_from_memory_with_format};
 
 use super::send;
@@ -120,6 +120,32 @@ pub(super) async fn kept_frames(client: &Client, out: &Path) -> Result<()> {
         from = newest + 1;
     }
     print_kept(&record);
+    kept_layouts(client, out).await
+}
+
+/// Saves the layout of each frame where it changed as `<frame>.layout.txt`,
+/// in the lines of `tree`, and prints 1 line per change.
+async fn kept_layouts(client: &Client, out: &Path) -> Result<()> {
+    let AppCommand::KeptLayouts(layouts) = send(client, InspectorCommand::RecordLayouts).await? else {
+        bail!("Unexpected response to a layouts request");
+    };
+    for layout in &layouts {
+        let root: ViewRepr = serde_json::from_str(&layout.json)?;
+        let path = out.join(format!("{:05}.layout.txt", layout.index));
+        let mut text = String::new();
+        super::tree_text(&root, 0, &mut text);
+        write(&path, text)?;
+        println!(
+            "layout changed at frame {}  {:.1} ms  {}",
+            layout.index,
+            layout.ms,
+            path.display()
+        );
+    }
+    println!(
+        "{} layouts, 1 for each frame where the tree changed",
+        layouts.len()
+    );
     Ok(())
 }
 

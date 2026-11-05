@@ -163,6 +163,14 @@ time, the gap to the frame before and its draw time. It is the record for a stre
 with no input, like a playback, and for a glitch that comes when it wants: start it,
 use the app, stop it right after the glitch.
 
+The record also keeps the layout: the whole view tree, as `ui` gives it, at every
+frame where it differs from the frame before, `note_layout` in `frame_ring.rs`. A
+picture shows what was drawn, the layout shows what the app holds, its pages and the
+place, text and hidden state of each view. `frames --out` writes each one as
+`<frame>.layout.txt` in the lines of `tree` and prints the frames where it changed. A
+step costs 0.13 to 0.24 ms in a debug build with a small tree, measured on 2026-11-05
+in `Inspect record`.
+
 - No frame is left out. Every frame the app draws is taken, the answer says how many
   the app drew and how many the record took. When the app cannot pack the frames
   fast enough it waits for its packers, and the frame it drew after the wait is
@@ -301,6 +309,9 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `RecordFrames { from, count }` — replies with `KeptFrames`, the pictures of at most
   `count` kept frames from the index `from` on, each as base64 QOI with its
   `FrameInfoRepr`. At most 120 in 1 answer, a client asks in pieces.
+- `RecordLayouts` — replies with `KeptLayouts`, a `LayoutRepr` per frame where the
+  view tree changed: the index and the time of the frame and the `ViewRepr` of the
+  root as JSON.
 - `Pause`, `Step { frames }`, `Resume` — the frame step. `Pause` and `Step` reply with
   `Paused { frame }`, the frames drawn since the pause. `Step` on an app that is not
   paused is an error.
