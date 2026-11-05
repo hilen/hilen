@@ -70,7 +70,7 @@ pub(crate) struct Frames {
 pub(crate) const WHY_OFF: &str = "HILEN_DAMAGE=0";
 pub(crate) const WHY_SWITCHED_OFF: &str = "the inspector turned partial frames off";
 pub(crate) const WHY_NO_KEPT_FRAME: &str = "a surface with 1 sample keeps no frame";
-pub(crate) const WHY_IPHONE_SAMPLES: &str = "an iPhone loses the frame kept in several samples";
+pub(crate) const WHY_IPHONE_SAMPLES: &str = "an iPhone or an iPad loses the frame kept in several samples";
 
 static LAST: WindowLock<Paints> = WindowLock::new();
 static SEEN: WindowLock<Paints> = WindowLock::new();

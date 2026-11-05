@@ -109,8 +109,11 @@ impl State {
         }
         // Proven on an iPhone 16 Pro Max with iOS 27: a partial frame over
         // the kept multisampled texture shows black or an older screen,
-        // the simulator keeps it. See the roadmap.
-        if cfg!(target_os = "ios") && msaa_sample_count() > 1 {
+        // the simulator keeps it. See the roadmap. A page in a browser of an
+        // iPhone does the same over WebGPU: on 2026-11-05 the icons of a
+        // page blinked 20 times a second in Brave on iOS 18, and stopped with
+        // partial frames off.
+        if (cfg!(target_os = "ios") || on_apple_touch_page()) && msaa_sample_count() > 1 {
             return Damage::Whole(damage::WHY_IPHONE_SAMPLES);
         }
         // A region is painted over with the clear color first. A color
@@ -120,5 +123,53 @@ impl State {
         }
 
         damage
+    }
+}
+
+/// Whether this is a page on an iPhone or an iPad, read once from the
+/// browser.
+#[cfg(wasm)]
+fn on_apple_touch_page() -> bool {
+    use std::sync::OnceLock;
+
+    static APPLE_TOUCH: OnceLock<bool> = OnceLock::new();
+    *APPLE_TOUCH.get_or_init(|| {
+        let Some(navigator) = web_sys::window().map(|window| window.navigator()) else {
+            return false;
+        };
+        let agent = navigator.user_agent().unwrap_or_default();
+        apple_touch(&agent, navigator.max_touch_points())
+    })
+}
+
+#[cfg(not_wasm)]
+fn on_apple_touch_page() -> bool {
+    false
+}
+
+/// An iPhone, an iPod, or an iPad, which since iPadOS 13 names itself a
+/// Mac and tells it by its touch points. Every browser there runs on `WebKit`.
+#[cfg(any(wasm, test))]
+fn apple_touch(user_agent: &str, touch_points: i32) -> bool {
+    ["iPhone", "iPad", "iPod"].iter().any(|name| user_agent.contains(name))
+        || (user_agent.contains("Macintosh") && touch_points > 1)
+}
+
+#[cfg(test)]
+mod test {
+    use super::apple_touch;
+
+    #[test]
+    fn a_page_on_an_iphone_or_an_ipad_is_found() {
+        let brave = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like \
+                     Gecko) Version/27.0.1 Mobile/15E148 Safari/604.1 Brave";
+        assert!(apple_touch(brave, 5));
+        let ipad = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) \
+                    Version/18.0 Safari/605.1.15";
+        assert!(apple_touch(ipad, 5));
+        assert!(!apple_touch(ipad, 0), "a Mac has no touch points");
+        let android = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) \
+                       Chrome/130.0 Mobile Safari/537.36";
+        assert!(!apple_touch(android, 5));
     }
 }

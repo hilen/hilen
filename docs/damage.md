@@ -43,6 +43,11 @@ them pixel for pixel after each of 10 small changes.
 - An iPhone draws with more than 1 sample. It loses the frame kept in the
   multisampled texture, see the roadmap. iOS draws 1 sample by default, so this
   happens only when an app sets more.
+- A page in a browser of an iPhone or an iPad draws with more than 1 sample. It
+  loses the kept frame the same way: on 2026-11-05 the icons of a page blinked 20
+  times a second in Brave on iOS 18 over WebGPU with 4 samples, and `damage off` of
+  the inspector stopped it. The page is told by its user agent, `apple_touch` in
+  `window/state/kept.rs`.
 
 ## Where the frame before is kept
 
