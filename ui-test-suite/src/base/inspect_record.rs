@@ -8,7 +8,7 @@ use hilen::{
     },
     inspect::{
         AppCommand, InspectService, InspectorCommand, ViewRepr,
-        protocol::{KeptFrameRepr, LayoutRepr, RecordRepr},
+        protocol::{KeptFrameRepr, LayoutRepr, RecordRepr, RenderInfoRepr},
     },
     refs::Weak,
     ui::{Container, Label, Setup, Shadow, UIAnimation, UIManager, ViewData, ViewFrame, ViewTest, view},
@@ -295,6 +295,70 @@ impl ViewTest for InspectRecord {
             "A new record must start empty, it has {} frames",
             again.frames.len()
         );
-        Ok(())
+        check_layouts_only(view)?;
+        check_damage_switch()
     }
+}
+
+fn render_info(command: InspectorCommand) -> Result<RenderInfoRepr> {
+    send(command, |response| match response {
+        AppCommand::RenderInfo(info) => Some(info.clone()),
+        _ => None,
+    })
+}
+
+/// The switch of partial frames: off draws every frame whole and says why,
+/// on lets frames be partial again. A page has no other way to try it.
+fn check_damage_switch() -> Result<()> {
+    let off = render_info(InspectorCommand::SetDamage { on: false })?;
+    ensure!(!off.damage_on, "The switch did not turn partial frames off");
+    ensure!(!off.backend.is_empty(), "No backend in the render info");
+    wait_until("a frame drawn whole by the switch", || {
+        render_info(InspectorCommand::RenderInfo).is_ok_and(|info| {
+            info.frames.last().is_some_and(|frame| {
+                frame.whole.as_deref() == Some("the inspector turned partial frames off")
+            })
+        })
+    })?;
+    let on = render_info(InspectorCommand::SetDamage { on: true })?;
+    ensure!(on.damage_on, "The switch did not turn partial frames back on");
+    Ok(())
+}
+
+/// A record of layouts alone: no picture, the app draws every frame, and
+/// the moving card gives a layout in nearly each of them.
+fn check_layouts_only(view: Weak<InspectRecord>) -> Result<()> {
+    let started = record(InspectorCommand::RecordLayoutsStart)?;
+    ensure!(started.running, "A started record of layouts must run");
+    from_main(move || view.slide());
+    wait_until("the card arrives", move || view.arrived)?;
+    let stopped = record(InspectorCommand::RecordStop)?;
+    info!("Record of layouts alone: {} frames drawn", stopped.drawn);
+    ensure!(
+        stopped.frames.is_empty(),
+        "A record of layouts kept {} pictures",
+        stopped.frames.len()
+    );
+    ensure!(
+        stopped.drawn >= 90,
+        "Only {} frames drawn in a slide of 2 seconds",
+        stopped.drawn
+    );
+    let layouts = layouts()?;
+    ensure!(
+        layouts.len() * 10 >= usize::try_from(stopped.drawn)? * 9,
+        "Only {} layouts for {} frames of a moving card",
+        layouts.len(),
+        stopped.drawn
+    );
+    // The first layout is taken before the slide starts, the card still
+    // stands where the slide before left it.
+    let places = layouts.iter().map(card_x).collect::<Result<Vec<f32>>>()?;
+    let low = places.iter().copied().fold(f32::MAX, f32::min);
+    let high = places.iter().copied().fold(f32::MIN, f32::max);
+    ensure!(
+        high - low >= TRAVEL * 0.8,
+        "The card went only from {low} to {high} in the layouts, it slides {TRAVEL}"
+    );
+    Ok(())
 }

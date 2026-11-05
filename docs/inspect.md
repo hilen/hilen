@@ -163,6 +163,26 @@ time, the gap to the frame before and its draw time. It is the record for a stre
 with no input, like a playback, and for a glitch that comes when it wants: start it,
 use the app, stop it right after the glitch.
 
+A picture of the record or of `screenshot` is what the app drew, read back from
+the GPU. It is not what the screen showed. A glitch that comes after the app drew, in
+how a browser or a phone shows the frames, is in no picture: on 2026-11-05 the icons
+of a page blinked on an iPhone 20 times a second while every recorded frame had them.
+In a browser a frame that is read back even draws by another path, through the scene
+texture, `needs_sampling` in `window/state.rs`. Such a glitch starts with
+`render-info`, which says the backend, the samples, whether frames can be partial, and
+the plan of each of the newest frames, whole with its reason or partial with its
+regions. `damage off` draws every frame whole in a running app, and `damage on` turns
+partial frames back on. A glitch that goes away with `damage off` comes from a partial
+frame over a frame the screen did not keep.
+
+`record-start --layouts-only` keeps no pictures and only the layouts, see below, and
+the app draws every frame while it runs. A phone needs it, its pictures are 15 MB
+unpacked, and a record of them ran a page out of memory on 2026-11-05.
+
+A page keeps the log lines from before its inspector socket opened, at most 300, and
+sends them when it opens, each starting with `before the inspector connected:`. The
+backend line of the start is one of them.
+
 The record also keeps the layout: the whole view tree, as `ui` gives it, at every
 frame where it differs from the frame before, `note_layout` in `frame_ring.rs`. A
 picture shows what was drawn, the layout shows what the app holds, its pages and the
@@ -309,6 +329,11 @@ Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 - `RecordFrames { from, count }` — replies with `KeptFrames`, the pictures of at most
   `count` kept frames from the index `from` on, each as base64 QOI with its
   `FrameInfoRepr`. At most 120 in 1 answer, a client asks in pieces.
+- `RecordLayoutsStart` — `RecordStart` with no pictures, it keeps only the layouts.
+- `RenderInfo` — replies with `RenderInfo`, a `RenderInfoRepr`: the backend, the
+  samples, whether frames can be partial and a `FramePlanRepr` for each of the newest
+  240 frames.
+- `SetDamage { on }` — turns partial frames off or on and replies like `RenderInfo`.
 - `RecordLayouts` — replies with `KeptLayouts`, a `LayoutRepr` per frame where the
   view tree changed: the index and the time of the frame and the `ViewRepr` of the
   root as JSON.

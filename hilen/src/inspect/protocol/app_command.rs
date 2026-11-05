@@ -56,6 +56,7 @@ pub enum AppCommand {
     /// Unix seconds of when the app's Rust code was compiled, see
     /// `hilen/build.rs`.
     BuildTime(u64),
+    RenderInfo(RenderInfoRepr),
     /// Unix seconds of when this app process started.
     StartTime(u64),
     /// The user of a dev login.
@@ -150,6 +151,30 @@ pub struct FrameInfoRepr {
     /// The app waited for the packers of the record before this frame,
     /// so its gap is the cost of the record and not of the app.
     pub stalled:  bool,
+}
+
+/// How the app draws, see `InspectorCommand::RenderInfo`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderInfoRepr {
+    /// Like `Metal`, `Vulkan`, `BrowserWebGpu` or `Gl`, the last one is
+    /// WebGL in a browser.
+    pub backend:   String,
+    pub samples:   u32,
+    /// Whether a frame can draw only what changed.
+    pub damage_on: bool,
+    /// The newest frames, the oldest first.
+    pub frames:    Vec<FramePlanRepr>,
+}
+
+/// 1 frame as the damage planned it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FramePlanRepr {
+    /// The count of planned frames since the start of the app.
+    pub number:  u64,
+    /// Why it was drawn whole, `None` for a partial frame.
+    pub whole:   Option<String>,
+    /// The regions of a partial frame, 0 when nothing changed.
+    pub regions: usize,
 }
 
 /// The view tree of a record at a frame where it changed.

@@ -249,7 +249,12 @@ pub(super) enum Command {
     },
     /// Start a record of every frame the app draws. It runs until
     /// record-stop and keeps its last 10 seconds
-    RecordStart,
+    RecordStart {
+        /// Keep only the layouts and no pictures, for a phone. The app
+        /// draws every frame while it runs
+        #[arg(long)]
+        layouts_only: bool,
+    },
     /// Stop the running record, the app keeps its frames
     RecordStop,
     /// Save the frames of the last record, 1 PNG each at 1 pixel per
@@ -291,6 +296,18 @@ pub(super) enum Command {
     /// file here. Tells a stale binary from a current one before anything is
     /// tested against it.
     BuildTime,
+    /// How the app draws: the backend, the samples, whether frames can be
+    /// partial, and the plan of each of its newest frames. The first stop
+    /// for a glitch that shows on the screen and in no picture of the
+    /// inspector, which shows what the app drew, not what the screen showed
+    RenderInfo,
+    /// Turn partial frames off or back on in the running app, then print
+    /// like render-info. A page has no env to turn them off, this is its
+    /// switch
+    Damage {
+        /// on or off
+        state: String,
+    },
     /// Measure the link to the app: the time of a round trip, then raw
     /// bytes to the app and from it, like iperf
     Speed {
@@ -354,6 +371,15 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         }
         Command::RunTests { only, timeout } => run_tests(client, only, timeout).await?,
         Command::BuildTime => build_time(client).await?,
+        Command::RenderInfo => render_info(client, InspectorCommand::RenderInfo).await?,
+        Command::Damage { state } => {
+            let on = match state.as_str() {
+                "on" => true,
+                "off" => false,
+                other => anyhow::bail!("damage takes on or off, not {other}"),
+            };
+            render_info(client, InspectorCommand::SetDamage { on }).await?;
+        }
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
         Command::App { name, args } => {
@@ -405,7 +431,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         | Command::Scroll { .. }
         | Command::Keys { .. }
         | Command::Record { .. }
-        | Command::RecordStart
+        | Command::RecordStart { .. }
         | Command::RecordStop
         | Command::Frames { .. }
         | Command::Pause
@@ -461,7 +487,7 @@ async fn run_input(client: &Client, command: Command) -> Result<()> {
             record,
         } => keys(client, text, key, [cmd, shift, alt], &record).await?,
         Command::Record { frames, out, timeout } => record(client, frames, &out, timeout).await?,
-        Command::RecordStart => record_start(client).await?,
+        Command::RecordStart { layouts_only } => record_start(client, layouts_only).await?,
         Command::RecordStop => record_stop(client).await?,
         Command::Frames { out } => kept_frames(client, &out).await?,
         Command::Pause => pause(client).await?,
@@ -507,5 +533,43 @@ async fn run_edit(client: &Client, command: Command) -> Result<()> {
         _ => unreachable!("only the edit commands reach run_edit"),
     }
 
+    Ok(())
+}
+
+/// Prints how the app draws and sums up the plans of its newest frames.
+async fn render_info(client: &Client, command: InspectorCommand) -> Result<()> {
+    let AppCommand::RenderInfo(info) = send(client, command).await? else {
+        anyhow::bail!("Unexpected response to a render info request");
+    };
+    println!(
+        "backend {}, {} samples, partial frames {}",
+        info.backend,
+        info.samples,
+        if info.damage_on { "on" } else { "off" }
+    );
+    let partial = info.frames.iter().filter(|frame| frame.whole.is_none()).count();
+    println!(
+        "the newest {} frames: {partial} partial, {} whole",
+        info.frames.len(),
+        info.frames.len() - partial
+    );
+    let mut reasons: Vec<(&str, usize)> = Vec::new();
+    for frame in &info.frames {
+        if let Some(why) = &frame.whole {
+            match reasons.iter_mut().find(|(known, _)| known == why) {
+                Some((_, count)) => *count += 1,
+                None => reasons.push((why, 1)),
+            }
+        }
+    }
+    for (why, count) in reasons {
+        println!("  whole {count} times: {why}");
+    }
+    for frame in info.frames.iter().rev().take(10).rev() {
+        match &frame.whole {
+            Some(why) => println!("frame {}  whole: {why}", frame.number),
+            None => println!("frame {}  partial, {} regions", frame.number, frame.regions),
+        }
+    }
     Ok(())
 }

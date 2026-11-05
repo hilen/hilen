@@ -246,6 +246,16 @@ impl InspectService {
             // Compiled in, so it reports when this running code was built, not
             // when the bundle around it was linked. See `hilen_app_build_time`.
             InspectorCommand::GetBuildTime => AppCommand::BuildTime(hilen_app_build_time()),
+            InspectorCommand::RenderInfo => Self::render_info(),
+            InspectorCommand::SetDamage { on } => {
+                crate::ui::damage::set_enabled(on);
+                crate::deps::hreads::on_main(crate::window::request_frame);
+                log::info!(
+                    "The inspector turned partial frames {}",
+                    if on { "on" } else { "off" }
+                );
+                Self::render_info()
+            }
             InspectorCommand::GetStartTime => {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
@@ -265,7 +275,8 @@ impl InspectService {
                 input,
                 wait_ms,
             } => Self::record(frames, input, wait_ms),
-            InspectorCommand::RecordStart => Self::record_start(),
+            InspectorCommand::RecordStart => Self::record_start(true),
+            InspectorCommand::RecordLayoutsStart => Self::record_start(false),
             InspectorCommand::RecordStop => Self::record_stop(),
             InspectorCommand::RecordInfo => Self::record_info(),
             InspectorCommand::RecordFrames { from, count } => Self::record_frames(from, count),
@@ -345,6 +356,25 @@ impl InspectService {
     #[cfg(not(desktop))]
     fn quit() -> AppCommand {
         AppCommand::Error("Quit works on desktop only".into())
+    }
+
+    fn render_info() -> AppCommand {
+        use crate::inspect::protocol::{FramePlanRepr, RenderInfoRepr};
+
+        AppCommand::RenderInfo(RenderInfoRepr {
+            backend:   crate::window::graphics_backend()
+                .map_or_else(|| "none yet".into(), |backend| format!("{backend:?}")),
+            samples:   crate::window::msaa_sample_count(),
+            damage_on: crate::ui::damage::enabled(),
+            frames:    crate::ui::damage::recent_plans()
+                .into_iter()
+                .map(|plan| FramePlanRepr {
+                    number:  plan.number,
+                    whole:   plan.whole.map(str::to_string),
+                    regions: plan.regions,
+                })
+                .collect(),
+        })
     }
 
     // Runs off the main thread, on a tokio task natively and on the inspect

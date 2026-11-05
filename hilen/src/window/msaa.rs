@@ -39,6 +39,12 @@ fn set_backend(backend: Backend) {
     BACKEND.get_or_init(|| backend);
 }
 
+/// The graphics backend of the window, `None` before the first frame.
+#[cfg(feature = "inspect")]
+pub(crate) fn graphics_backend() -> Option<Backend> {
+    BACKEND.get().copied()
+}
+
 /// 0 until the first read or `set_msaa_sample_count` decides it.
 static COUNT: AtomicU32 = AtomicU32::new(0);
 

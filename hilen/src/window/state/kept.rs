@@ -95,7 +95,7 @@ impl State {
             return damage;
         }
         if !damage::enabled() {
-            return Damage::Whole(damage::WHY_OFF);
+            return Damage::Whole(damage::why_off());
         }
 
         let Some(kept) = self.kept else {

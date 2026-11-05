@@ -110,18 +110,20 @@ struct RawFrame {
 
 /// The main thread side of a running record.
 struct Live {
-    record:  u64,
-    started: Instant,
-    taken:   u32,
+    record:   u64,
+    started:  Instant,
+    taken:    u32,
     /// When the next frame of a window with nothing to pace it is due.
     #[cfg(not_wasm)]
-    due:     Instant,
+    due:      Instant,
     /// The frame that is drawn and not on its way to the screen yet.
     #[cfg(apple)]
-    drawing: Option<u32>,
-    raw:     Sender<RawFrame>,
+    drawing:  Option<u32>,
+    raw:      Sender<RawFrame>,
     /// The hash of the layout kept last.
-    layout:  Option<u64>,
+    layout:   Option<u64>,
+    /// False for a record of layouts alone, which reads no picture back.
+    pictures: bool,
 }
 
 static LIVE: MainLock<Option<Live>> = MainLock::new();
@@ -183,8 +185,12 @@ impl Drop for Asked {
     }
 }
 
-/// Starts a record and drops the one kept before it.
-pub(crate) fn start() -> Result<(), String> {
+/// Starts a record and drops the one kept before it. With no `pictures`
+/// it keeps only the layouts and reads no frame back, a picture of a phone
+/// screen is 15 MB unpacked and 16 of them ran a page out of memory. It
+/// draws every frame all the same, so a glitch of an idle screen that comes
+/// from the drawing goes away while it runs.
+pub(crate) fn start(pictures: bool) -> Result<(), String> {
     let live = LIVE.get_mut();
     if live.is_some() {
         return Err("A record already runs".into());
@@ -209,7 +215,7 @@ pub(crate) fn start() -> Result<(), String> {
 
     let (raw, frames) = channel();
     let frames = Arc::new(Mutex::new(frames));
-    let packers = packers();
+    let packers = if pictures { packers() } else { 0 };
     for number in 0..packers {
         let frames = frames.clone();
         spawn_packer(number, move || pack_all(&frames));
@@ -226,6 +232,7 @@ pub(crate) fn start() -> Result<(), String> {
         drawing: None,
         raw,
         layout: None,
+        pictures,
     });
     info!("Frame record {record} started, {packers} packers");
     request_frame();
@@ -339,6 +346,11 @@ pub(crate) fn take_frame() -> Option<FrameReader> {
 
     // Before the wait for the packers, a frame they lose keeps its layout.
     note_layout(live, index);
+    if !live.pictures {
+        STORE.lock().drawn += 1;
+        request_frame();
+        return None;
+    }
 
     let stalled = wait_for_room(record, index)?;
 

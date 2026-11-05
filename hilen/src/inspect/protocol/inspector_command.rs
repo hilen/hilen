@@ -19,6 +19,17 @@ pub enum InspectorCommand {
     },
     GetBuildTime,
     GetStartTime,
+    /// How the app draws: the graphics backend, the samples, whether frames
+    /// can be partial, and the plan of each of the newest frames. The
+    /// answer is `RenderInfo`. A bug that shows on the screen and in no
+    /// picture of the inspector starts here, see `docs/inspect.md`.
+    RenderInfo,
+    /// Turns partial frames off or back on, then answers like `RenderInfo`.
+    /// The way to draw every frame whole in a page, which has no env for
+    /// `HILEN_DAMAGE=0`.
+    SetDamage {
+        on: bool,
+    },
     /// Logs the app into a dev account of its backend, with no password,
     /// see `Login::dev`. The answer is `LoggedIn`. An app with no `login`
     /// feature answers with an error.
@@ -45,6 +56,10 @@ pub enum InspectorCommand {
     /// pack fast enough it waits, and the frame says so. It drops the
     /// record kept before it.
     RecordStart,
+    /// `RecordStart` with no pictures: it keeps only the layouts, see
+    /// `RecordLayouts`, and the app draws every frame while it runs. For a
+    /// phone, whose pictures do not fit its memory.
+    RecordLayoutsStart,
     /// Stops the running record. The app keeps its frames until the next
     /// start.
     RecordStop,

@@ -291,6 +291,7 @@ impl MainScreen {
             | AppCommand::Record(_)
             | AppCommand::KeptFrames(_)
             | AppCommand::KeptLayouts(_)
+            | AppCommand::RenderInfo(_)
             | AppCommand::Paused { .. }
             | AppCommand::Edits(_)
             | AppCommand::BuildTime(_)

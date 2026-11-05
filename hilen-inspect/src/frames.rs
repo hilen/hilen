@@ -58,8 +58,13 @@ pub(super) async fn record(client: &Client, frames: u32, out: &Path, timeout: u3
 /// How many pictures 1 answer holds.
 const PIECE: u32 = 30;
 
-pub(super) async fn record_start(client: &Client) -> Result<()> {
-    record_info(client, InspectorCommand::RecordStart).await?;
+pub(super) async fn record_start(client: &Client, layouts_only: bool) -> Result<()> {
+    let command = if layouts_only {
+        InspectorCommand::RecordLayoutsStart
+    } else {
+        InspectorCommand::RecordStart
+    };
+    record_info(client, command).await?;
     println!("recording, the app keeps the last 10 seconds until record-stop");
     Ok(())
 }
@@ -75,7 +80,13 @@ pub(super) async fn record_stop(client: &Client) -> Result<()> {
 pub(super) async fn kept_frames(client: &Client, out: &Path) -> Result<()> {
     let record = record_info(client, InspectorCommand::RecordInfo).await?;
     let Some(last) = record.frames.last().map(|frame| frame.index) else {
-        bail!("The app keeps no record, send record-start first");
+        if record.drawn == 0 {
+            bail!("The app keeps no record, send record-start first");
+        }
+        // A record of layouts alone has no pictures.
+        create_dir_all(out)?;
+        print_kept(&record);
+        return kept_layouts(client, out).await;
     };
 
     create_dir_all(out)?;

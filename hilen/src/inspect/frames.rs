@@ -87,8 +87,8 @@ impl InspectService {
         }
     }
 
-    pub(super) fn record_start() -> AppCommand {
-        match from_main(frame_ring::start) {
+    pub(super) fn record_start(pictures: bool) -> AppCommand {
+        match from_main(move || frame_ring::start(pictures)) {
             Ok(()) => Self::record_info(),
             Err(error) => AppCommand::Error(error),
         }

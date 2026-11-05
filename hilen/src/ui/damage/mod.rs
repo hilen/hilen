@@ -8,7 +8,12 @@ mod key;
 mod regions;
 mod walk;
 
-use std::mem::swap;
+#[cfg(feature = "inspect")]
+use std::collections::VecDeque;
+use std::{
+    mem::swap,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use parking_lot::Mutex;
 
@@ -63,6 +68,7 @@ pub(crate) struct Frames {
 /// The reasons for a whole frame that say the platform or the user rules
 /// partial frames out, so a test of them has nothing to check there.
 pub(crate) const WHY_OFF: &str = "HILEN_DAMAGE=0";
+pub(crate) const WHY_SWITCHED_OFF: &str = "the inspector turned partial frames off";
 pub(crate) const WHY_NO_KEPT_FRAME: &str = "a surface with 1 sample keeps no frame";
 pub(crate) const WHY_IPHONE_SAMPLES: &str = "an iPhone loses the frame kept in several samples";
 
@@ -75,19 +81,67 @@ static FRAMES: WindowLock<Frames> = WindowLock::new();
 /// thread.
 static WHOLE_NEXT: Mutex<Option<&'static str>> = Mutex::new(None);
 
+/// Set by the inspector, `damage off`. A page has no env, so this is its
+/// only way to draw every frame whole.
+static OFF: AtomicBool = AtomicBool::new(false);
+
+/// Turns partial frames off or back on in a running app. The next frame is
+/// whole either way.
+#[cfg(feature = "inspect")]
+pub(crate) fn set_enabled(on: bool) {
+    OFF.store(!on, Ordering::Relaxed);
+    whole_next(why_off());
+}
+
+/// Why `enabled` says no.
+pub(crate) fn why_off() -> &'static str {
+    if OFF.load(Ordering::Relaxed) {
+        WHY_SWITCHED_OFF
+    } else {
+        WHY_OFF
+    }
+}
+
+/// How many frame plans `recent_plans` keeps, 4 seconds of 60 a second.
+#[cfg(feature = "inspect")]
+const KEPT_PLANS: usize = 240;
+
+/// A frame as the damage planned it, for the inspector.
+#[cfg(feature = "inspect")]
+#[derive(Debug, Clone)]
+pub(crate) struct FramePlan {
+    /// The count of planned frames since the start of the app.
+    pub number:  u64,
+    /// Why the frame was drawn whole, `None` for a partial frame.
+    pub whole:   Option<&'static str>,
+    /// The regions of a partial frame, 0 when nothing changed.
+    pub regions: usize,
+}
+
+#[cfg(feature = "inspect")]
+static PLANS: Mutex<VecDeque<FramePlan>> = Mutex::new(VecDeque::new());
+
+/// The plans of the newest frames, the oldest first.
+#[cfg(feature = "inspect")]
+pub(crate) fn recent_plans() -> Vec<FramePlan> {
+    PLANS.lock().iter().cloned().collect()
+}
+
 /// `HILEN_DAMAGE=0` draws every frame whole, the A/B lever for a
 /// measurement and the way around a view that shows stale pixels.
 pub(crate) fn enabled() -> bool {
+    let switched_off = OFF.load(Ordering::Relaxed);
     #[cfg(not_wasm)]
     {
         use std::sync::OnceLock;
 
         static ENABLED: OnceLock<bool> = OnceLock::new();
-        *ENABLED.get_or_init(|| !std::env::var("HILEN_DAMAGE").is_ok_and(|value| value == "0"))
+        !switched_off
+            && *ENABLED.get_or_init(|| !std::env::var("HILEN_DAMAGE").is_ok_and(|value| value == "0"))
     }
     #[cfg(wasm)]
     {
-        true
+        !switched_off
     }
 }
 
@@ -121,6 +175,25 @@ pub(crate) fn find() -> Damage {
 
 /// Hands the drawer what the frame draws, after the window had its say.
 pub(crate) fn set_plan(damage: &Damage, fill: Color) {
+    #[cfg(feature = "inspect")]
+    {
+        let mut plans = PLANS.lock();
+        let number = plans.back().map_or(0, |last| last.number + 1);
+        if plans.len() == KEPT_PLANS {
+            plans.pop_front();
+        }
+        plans.push_back(FramePlan {
+            number,
+            whole: match damage {
+                Damage::Whole(why) => Some(why),
+                Damage::Regions(_) => None,
+            },
+            regions: match damage {
+                Damage::Whole(_) => 0,
+                Damage::Regions(rects) => rects.len(),
+            },
+        });
+    }
     let plan = PLAN.get_mut();
     plan.fill = fill;
 

@@ -37,8 +37,12 @@ impl Log for WebLogger {
         crate::bug_report::BugReport::push_log_line(record.args().to_string());
 
         #[cfg(feature = "inspect")]
-        if record.level() <= Level::Info && crate::inspect::web_transport::is_open() {
-            crate::inspect::web_transport::push_log(record.level().as_str(), record.args().to_string());
+        if record.level() <= Level::Info {
+            if crate::inspect::web_transport::is_open() {
+                crate::inspect::web_transport::push_log(record.level().as_str(), record.args().to_string());
+            } else {
+                crate::inspect::web_transport::keep_early(record.level().as_str(), record.args().to_string());
+            }
         }
     }
 

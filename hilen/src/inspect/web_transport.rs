@@ -54,6 +54,20 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 /// fit the page dies before its first line, and the browser tells only its
 /// console, so the page checks this after `WORKER_WAIT_MS`.
 static WORKER_UP: AtomicBool = AtomicBool::new(false);
+
+/// Log lines from before the socket opened, the start of the page, like the
+/// backend line. They go out when it opens, else a page connects with no
+/// word about how it started.
+static EARLY: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+const KEPT_EARLY: usize = 300;
+
+/// Keeps a log line for the socket that is not open yet.
+pub(crate) fn keep_early(level: &str, message: String) {
+    let mut early = EARLY.lock();
+    if early.len() < KEPT_EARLY {
+        early.push((level.to_string(), message));
+    }
+}
 const WORKER_WAIT_MS: i32 = 5000;
 
 pub(crate) fn is_open() -> bool {
@@ -164,6 +178,10 @@ fn dial(url: String) {
         OPEN.store(true, Ordering::Relaxed);
         log::info!("Inspect socket connected");
         hello();
+        let early = std::mem::take(&mut *EARLY.lock());
+        for (level, message) in early {
+            push_log(&level, format!("before the inspector connected: {message}"));
+        }
     });
     socket.set_onopen(Some(onopen.as_ref().unchecked_ref()));
     onopen.forget();
