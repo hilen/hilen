@@ -7,6 +7,8 @@ daemon, updates itself with it. `system::Updater` in
 re-exports the crate as `hilen::updater`. Mobile goes through the stores and
 wasm updates by rehosting, so every call outside the desktop is a no-op like
 `system::Router`. The crate keeps only its types there.
+`hilen` links it through its `updater` feature, on by default, which also holds
+`system::Updater`, `UpdateState` and the update hooks of `App`.
 
 ## A binary with no window
 

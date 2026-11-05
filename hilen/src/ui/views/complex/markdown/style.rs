@@ -1,7 +1,9 @@
+#[cfg(feature = "code-colors")]
+use crate::ui::code_highlighter::Token;
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::color::Color,
-    ui::{DynamicColor, Label, UIColor, code_highlighter::Token},
+    ui::{DynamicColor, Label, UIColor},
     window::Font,
 };
 
@@ -199,6 +201,7 @@ impl MarkdownStyle {
         self.line_height.unwrap_or_else(|| (self.text_size * 1.3).ceil())
     }
 
+    #[cfg(feature = "code-colors")]
     pub(crate) fn syntax(&self, token: Token) -> UIColor {
         match token {
             Token::Comment => self.comment,

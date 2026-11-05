@@ -5,11 +5,12 @@ use std::{
 
 use log::info;
 
+#[cfg(feature = "updater")]
+use crate::system::{UpdateSource, app_update_source};
 use crate::{
     app_starter::hilen_start_with_app,
     deps::refs::{Own, main_lock::MainLock},
     gm::flat::Size,
-    system::{UpdateSource, app_update_source},
     ui::View,
     window::WindowPlacement,
 };
@@ -146,6 +147,7 @@ pub trait App {
     /// app gives to update itself on the desktop. With it the engine
     /// checks for a new version after launch and keeps the result in
     /// `system::UpdateState`. `None` leaves self update off.
+    #[cfg(feature = "updater")]
     fn update_key(&self) -> Option<&'static str> {
         None
     }
@@ -153,6 +155,7 @@ pub trait App {
     /// The address of the update manifest, for an app that does not ship
     /// from the default download server. `None` means
     /// `<DEFAULT_UPDATE_HOST>/<project_name>/updater.json`.
+    #[cfg(feature = "updater")]
     fn update_url(&self) -> Option<String> {
         None
     }
@@ -161,6 +164,7 @@ pub trait App {
     /// to disable self update, or a configuration error. The default
     /// builds it from `update_key` and `update_url`, an app overrides
     /// this only to decide the source at run time.
+    #[cfg(feature = "updater")]
     fn update_source(&self) -> PinnedFuture<Option<UpdateSource>> {
         let source = app_update_source(self.update_key(), self.update_url());
         Box::pin(async move { Ok(source) })
@@ -179,7 +183,9 @@ unsafe extern "C" {
 // `Paths::storage`, and a Sentry event names its release with both.
 #[cfg(ios)]
 unsafe extern "Rust" {
+    #[cfg(any(hot, feature = "bug-report"))]
     pub(crate) safe fn hilen_project_name() -> &'static str;
+    #[cfg(any(feature = "bug-report", feature = "google-access"))]
     pub(crate) safe fn hilen_app_version() -> &'static str;
 }
 

@@ -62,6 +62,7 @@ compile_error!("the video feature is for desktop, iOS, tvOS and the browser for 
 pub mod biometric;
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth;
+#[cfg(feature = "bug-report")]
 pub mod bug_report;
 #[cfg(feature = "camera")]
 pub mod camera;
@@ -70,6 +71,7 @@ pub mod discovery;
 pub mod filesystem;
 #[cfg(feature = "level")]
 pub mod game;
+#[cfg(feature = "noise")]
 pub mod generate;
 #[cfg(feature = "global-keys")]
 pub mod global_keys;
@@ -104,6 +106,7 @@ pub use app_starter::*;
 pub use educe;
 /// The self update calls with no UI, for a binary with no window.
 /// `system::Updater` and `system::UpdateState` sit on top of it.
+#[cfg(feature = "updater")]
 pub use hilen_updater as updater;
 
 pub use crate::ui::{launch_app, ui_test};
@@ -132,6 +135,7 @@ pub mod time {
 
 pub use app_runner::AppRunner;
 pub use assets::Assets;
+#[cfg(feature = "bug-report")]
 pub use bug_report::{BugReport, BugReportAttachment, BugReportScreenshot, BugReportStyle};
 #[cfg(not_wasm)]
 pub use log_file::{log_dir, log_file_path};
@@ -143,10 +147,15 @@ pub use crate::{
 };
 
 pub mod net {
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "infisical"))]
     pub use crate::deps::netrun::secret::*;
-    pub use crate::deps::netrun::{Function, System, local_ip, rest::*, transport::*, ws::*};
+    pub use crate::deps::netrun::{Function, System};
+    #[cfg(feature = "net")]
+    pub use crate::deps::netrun::{local_ip, rest::*, transport::*, ws::*};
 }
+
+#[cfg(all(wasm, not(feature = "net")))]
+compile_error!("a browser build loads its assets over the network, it needs the `net` feature of hilen");
 
 pub mod dispatch {
     #[cfg(not_wasm)]

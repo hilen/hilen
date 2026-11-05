@@ -45,6 +45,7 @@ pub(crate) struct TextureLevels {
 
 /// The size `size` shrinks to so its longest side is `max_side`, with the
 /// same shape. None when it already fits or `max_side` is 0, no limit.
+#[cfg(any(feature = "net", feature = "camera"))]
 pub(crate) fn fitted_size(size: Size<u32>, max_side: u32) -> Option<Size<u32>> {
     let longest = size.width.max(size.height);
     if max_side == 0 || longest <= max_side {
@@ -60,6 +61,7 @@ pub(crate) fn fitted_size(size: Size<u32>, max_side: u32) -> Option<Size<u32>> {
 impl TextureRawData {
     /// The same picture with its longest side at most `max_side`. The data
     /// of a decoded file is always 4 bytes a pixel, whatever `channels` says.
+    #[cfg(feature = "net")]
     pub(crate) fn fit_in(self, max_side: u32) -> Result<Self> {
         let Some(size) = fitted_size(self.size, max_side) else {
             return Ok(self);
@@ -456,7 +458,7 @@ fn _save_rgba_image(buffer: &[u8], width: u32, height: u32, path: &str) -> Resul
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "net"))]
 mod test {
     use super::{TextureRawData, fitted_size};
     use crate::gm::flat::Size;

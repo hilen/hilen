@@ -1,5 +1,6 @@
+#[cfg(feature = "net")]
+use std::borrow::Cow;
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, btree_map::Entry},
     mem::transmute,
     ops::Deref,
@@ -9,16 +10,17 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use event_listener::Event;
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "net"))]
 use reqwest::{
     StatusCode,
     header::{ETAG, IF_NONE_MATCH},
 };
 use web_time::Instant;
 
+#[cfg(feature = "net")]
+use crate::deps::netrun::rest::client;
 use crate::deps::{
     hreads::on_main,
-    netrun::rest::client,
     refs::{
         __internal_deps::{Mutex, RwLockReadGuard, RwLockWriteGuard},
         Own, Weak,
@@ -50,7 +52,7 @@ fn insert_or_existing<T: Managed>(
 /// Fetch needs an absolute url. A relative one is resolved against the
 /// document base url, so a page hosted under a path prefix points its
 /// asset fetches there with a base tag instead of hitting the site root.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "net"))]
 fn absolute_url(url: &str) -> Cow<'_, str> {
     if url.contains("://") {
         return url.into();
@@ -70,7 +72,7 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
         .into()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "net"))]
 fn absolute_url(url: &str) -> Cow<'_, str> {
     url.into()
 }
@@ -78,12 +80,14 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
 /// Plain HTTP fetch with the same root relative url resolution the
 /// managed downloads use. For data that is not a managed resource,
 /// like the asset manifest.
+#[cfg(feature = "net")]
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
     fetch_bytes_with(url, &[]).await
 }
 
 /// `fetch_bytes` with request headers, for a server behind a login. A 404
 /// page is an error here, not bytes, or it would fail later in a parser.
+#[cfg(feature = "net")]
 pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
     let url = absolute_url(url);
     #[cfg(target_arch = "wasm32")]
@@ -100,7 +104,7 @@ pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec
 }
 
 /// What a conditional fetch brought back.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "net"))]
 pub(crate) enum Fetched {
     /// The server still has the picture the etag names.
     NotModified,
@@ -112,7 +116,7 @@ pub(crate) enum Fetched {
 
 /// `fetch_bytes_with` that also sends `etag` as `If-None-Match` when there
 /// is one, and hands back the etag of a fresh answer.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "net"))]
 pub(crate) async fn fetch_if_changed(
     url: &str,
     headers: &[(&str, &str)],
@@ -235,6 +239,7 @@ pub trait DataManager<T: Managed> {
         insert_or_existing(Self::storage_mut(), name, new)
     }
 
+    #[cfg(feature = "net")]
     #[allow(async_fn_in_trait)]
     async fn download(name: impl ToString, url: &str) -> Result<Weak<T>> {
         Self::download_from(name, fetch_bytes(url)).await

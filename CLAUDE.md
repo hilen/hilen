@@ -66,6 +66,18 @@ on `hilen` with none of them and the wasm drops rapier, kira and the codecs enti
 `demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, Windows, iOS and wasm, and `scene`
 through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
 
+The parts of the engine that are no UI are cargo features too, all on by default, so an
+app sees no change. `net` is requests, websockets, downloaded pictures and fonts, and the
+asset groups of a browser build, which load over the network, so a browser build needs it.
+`bug-report` is Sentry and the bug report dialog, `infisical` is `SecretsManager`,
+`system-info` is `System::get_info`, `updater` is self update with the update hooks of
+`App`, `code-colors` is syntect for `CodeHighlighter` and the code blocks of
+`MarkdownView`, and `noise` is `hilen::generate`. `login`, `google-access` and `speech`
+turn `net` on. A crate of shared views depends on `hilen` with
+`default-features = false`: on macOS that is 295 crates where the defaults are 437, and
+the app that links it brings the rest. `make ci` runs clippy on `hilen` with no default
+features, so that build keeps compiling.
+
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
 [docs/guesses.md](docs/guesses.md), not into the code.

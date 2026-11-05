@@ -124,6 +124,20 @@ fn install_page_listeners() {
     crate::web::install_wheel_listener();
 }
 
+/// The future is 'static, so it resolves on the browser loop while the app
+/// starts, and reporting turns on when it lands.
+#[cfg(all(wasm, feature = "bug-report"))]
+fn start_web_reports(app: &dyn App) {
+    let sentry_url = app.sentry_url();
+    crate::deps::hreads::spawn(async move {
+        match sentry_url.await {
+            Ok(Some(url)) => crate::bug_report::set_dsn(&url),
+            Ok(None) => {}
+            Err(err) => log::warn!("Failed to get sentry URL: {err}"),
+        }
+    });
+}
+
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
@@ -221,16 +235,8 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
         log::info!("Hello from wasm");
 
-        // The future is 'static, so it resolves on the browser loop while
-        // the app starts, and reporting turns on when it lands.
-        let sentry_url = app.sentry_url();
-        crate::deps::hreads::spawn(async move {
-            match sentry_url.await {
-                Ok(Some(url)) => crate::bug_report::set_dsn(&url),
-                Ok(None) => {}
-                Err(err) => log::warn!("Failed to get sentry URL: {err}"),
-            }
-        });
+        #[cfg(feature = "bug-report")]
+        start_web_reports(std::ops::Deref::deref(&app));
     }
 
     #[cfg(wasm)]
@@ -240,8 +246,12 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
     #[cfg(hot)]
     {
+        #[cfg(feature = "net")]
         crate::deps::netrun::tls::install_provider();
+        #[cfg(feature = "bug-report")]
         crate::hot::enter_runtime(std::ops::Deref::deref(&app));
+        #[cfg(not(feature = "bug-report"))]
+        crate::hot::enter_runtime();
 
         start(app, headless);
     }
@@ -253,13 +263,16 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         // Sentry builds a reqwest client and apps build their own in
         // `before_launch`, so the process default has to be in place before
         // both, not only before the engine's first request.
+        #[cfg(feature = "net")]
         crate::deps::netrun::tls::install_provider();
 
         rt.block_on(async {
+            #[cfg(feature = "bug-report")]
             let sentry_guard = AppRunner::setup_sentry(std::ops::Deref::deref(&app)).await;
 
             start(app, headless);
 
+            #[cfg(feature = "bug-report")]
             drop(sentry_guard);
         });
     }

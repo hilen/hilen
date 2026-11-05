@@ -380,7 +380,8 @@ in `hilen/src/ui/views/complex/markdown`.
   `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
   builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix
   that fits, and `MarkdownStyle` has a color per kind, so the code follows the theme.
-  A language nobody knows gets no color. It is public, `hilen::ui::CodeHighlighter`,
+  A language nobody knows gets no color. It needs the `code-colors` feature, on by
+  default. Without it the code of a block is drawn in 1 color. It is public, `hilen::ui::CodeHighlighter`,
   for code an app draws itself, like a diff with 1 label per line:
   `CodeHighlighter::for_file("src/main.rs")` or `for_language("rust")`, then
   `label.set_color_runs(code.color_runs(line))`. It keeps the parse state from one

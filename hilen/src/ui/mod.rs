@@ -1,3 +1,4 @@
+#[cfg(feature = "code-colors")]
 mod code_highlighter;
 pub(crate) mod damage;
 mod focus;
@@ -53,8 +54,10 @@ pub mod ui_test;
 
 pub use ui_proc::*;
 
+#[cfg(feature = "code-colors")]
+pub use self::code_highlighter::CodeHighlighter;
+pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use self::{
-    code_highlighter::CodeHighlighter,
     focus::{Focus, FocusDirection, ViewFocus},
     gradient::*,
     hover::*,
@@ -82,7 +85,6 @@ pub use self::{
     views::*,
     with_header::*,
 };
-pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use crate::{
     gm::{
         color::*,

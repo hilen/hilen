@@ -2,7 +2,10 @@ mod animated_gif;
 mod animation_drives_frames;
 mod animation_from_finish;
 mod app_views_fit_screen;
+/// The bug report dialog exists only with the `bug-report` feature.
+#[cfg(feature = "bug-report")]
 mod bug_report_dialog;
+#[cfg(feature = "bug-report")]
 mod bug_report_style;
 mod double_tap;
 mod even_frame_time;

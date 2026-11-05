@@ -17,6 +17,7 @@ use std::{
 use log::info;
 use objc2::{ffi::objc_disposeClassPair, runtime::AnyClass};
 use parking_lot::Mutex;
+#[cfg(feature = "bug-report")]
 use sentry::ClientInitGuard;
 use tokio::runtime::{EnterGuard, Handle, Runtime};
 use winit::platform::ios::release_classes;
@@ -29,15 +30,18 @@ use crate::camera::apple::delegates_alive;
 use crate::level::LevelManager;
 #[cfg(feature = "scene")]
 use crate::scene::SceneManager;
+#[cfg(feature = "bug-report")]
+use crate::{App, AppRunner};
 use crate::{
-    App, AppRunner, deps::hreads::stop_dispatch, inspect::InspectService, system::MediaSession,
-    ui::UIManager, window::AppHandler,
+    deps::hreads::stop_dispatch, inspect::InspectService, system::MediaSession, ui::UIManager,
+    window::AppHandler,
 };
 // The Apple TV shell has no system text field and no image picker.
 #[cfg(not(tvos))]
 use crate::{filesystem::stop_picker, ui::mobile::ios::hilen_ios_text_stop};
 
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
+#[cfg(feature = "bug-report")]
 static SENTRY: Mutex<Option<ClientInitGuard>> = Mutex::new(None);
 static CLASSES_DELETED: AtomicBool = AtomicBool::new(false);
 /// The handle the context of the main thread borrows. It is freed at the
@@ -78,11 +82,20 @@ thread_local! {
 /// A normal start never leaves the `block_on` of its runtime. A hot start
 /// returns, so the runtime, its context on the main thread and the Sentry
 /// guard live here. `tokio::spawn` on the main thread needs that context.
+#[cfg(feature = "bug-report")]
 pub(crate) fn enter_runtime(app: &dyn App) {
     let runtime = Runtime::new().expect("Failed to start the tokio runtime");
-
     *SENTRY.lock() = runtime.block_on(AppRunner::setup_sentry(app));
+    enter(runtime);
+}
 
+/// The same start for a build with no crash reports.
+#[cfg(not(feature = "bug-report"))]
+pub(crate) fn enter_runtime() {
+    enter(Runtime::new().expect("Failed to start the tokio runtime"));
+}
+
+fn enter(runtime: Runtime) {
     // The guard borrows the handle, and the guard lives in a thread local.
     let handle = Box::into_raw(Box::new(runtime.handle().clone()));
     HANDLE.store(handle, Ordering::Relaxed);
@@ -129,6 +142,7 @@ pub extern "C" fn hilen_stop() {
 
     AppHandler::stop();
 
+    #[cfg(feature = "bug-report")]
     SENTRY.lock().take();
     CONTEXT.with_borrow_mut(Option::take);
     let handle = HANDLE.swap(null_mut(), Ordering::Relaxed);

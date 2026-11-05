@@ -18,7 +18,49 @@ bench = []
 # Runtime pointer checks from the vendored `refs`. On by default, the engine
 # has always run with them.
 checks = []
-default = ["checks", "font-roboto", "font-roboto-italic", "font-roboto-mono"]
+default = [
+  "bug-report",
+  "checks",
+  "code-colors",
+  "font-roboto",
+  "font-roboto-italic",
+  "font-roboto-mono",
+  "infisical",
+  "net",
+  "noise",
+  "system-info",
+  "updater",
+]
+# The parts of the engine that are no UI. All on by default, so an app sees no
+# change. A crate of shared views turns the defaults off and depends on the
+# UI alone, the app that links it brings the rest.
+#
+# Requests over http and websockets, `hilen::net`, downloaded pictures and
+# fonts, and the asset groups of a browser build, which load over the network.
+# A browser build needs it.
+net = [
+  "dep:futures-util",
+  "dep:hex",
+  "dep:local-ip-address",
+  "dep:reqwest",
+  "dep:rustls",
+  "dep:sha2",
+  "dep:tokio-tungstenite",
+  "dep:webpki-roots",
+]
+# Bug reports and crash reports to Sentry, `hilen::bug_report`.
+bug-report = ["net", "system-info", "dep:sentry"]
+# Secrets read from Infisical, `hilen::net::SecretsManager`.
+infisical = ["dep:infisical"]
+# The host, the system, the cores and the memory, `System::get_info`.
+system-info = ["dep:byte-unit", "dep:sysinfo"]
+# Self update of a desktop app, `hilen::updater` and `system::Updater`.
+updater = ["dep:hilen-updater"]
+# Syntax colors of code, `CodeHighlighter` and the code blocks of
+# `MarkdownView`. Without it code is drawn in 1 color.
+code-colors = ["dep:syntect", "dep:two-face"]
+# Terrain from noise, `hilen::generate`.
+noise = ["dep:contour", "dep:noise"]
 # The Roboto files the engine brings, 1 feature per file, so an app with its
 # own fonts can leave a file out, see docs/text.md. Without `font-roboto` the
 # app gives its fallback font to `Font::set_builtin`.
@@ -32,12 +74,12 @@ math = []
 # never reach a shipped app by accident. Off unless an app asks for it.
 # The frame record packs its frames as QOI, which the browser build leaves out
 # of its image formats.
-inspect = ["discovery", "dep:if-addrs", "image/qoi"]
+inspect = ["discovery", "dep:hex", "dep:if-addrs", "dep:wasm_thread", "image/qoi"]
 # A worker thread of an atomics wasm build starts as an ES module, for a page
 # whose own script is a module, like the one trunk builds by default. A page
 # with a classic script, like a packaged webOS app, needs classic workers,
 # Chromium 79 starts no module worker at all.
-module-workers = ["wasm_thread/es_modules"]
+module-workers = ["wasm_thread?/es_modules"]
 # Find devices on the local network by the service they announce, see
 # `hilen/src/discovery`. The system Bonjour service on macOS, iOS and tvOS,
 # mdns-sd on Windows, Linux and Android. Off by default.
@@ -50,7 +92,7 @@ hot = ["inspect", "winit/ios-attach"]
 # macro, so off means `view` emits no ctor in any crate and a shipped app
 # carries none. One switch for the whole graph, so no crate can forget it and
 # silently lose its tests.
-ui-tests = ["ui-proc/ui-tests", "dep:clap"]
+ui-tests = ["ui-proc/ui-tests", "dep:clap", "dep:wasm_thread"]
 # Physics levels and the no physics game scene, with rapier, the level
 # proc macro, and the sprite, polygon and background pipelines. Off by
 # default, a GUI only app carries none of it.
@@ -64,7 +106,7 @@ audio = ["dep:kira"]
 midi = ["dep:midir"]
 # Bluetooth LE devices in the central role, through btleplug and through Web
 # Bluetooth in a browser, see the doc of `hilen::bluetooth`. Off by default.
-bluetooth = ["dep:btleplug", "dep:uuid"]
+bluetooth = ["dep:btleplug", "dep:futures-util", "dep:uuid"]
 # The cameras of the device: the list, a live picture in `CameraView` and a
 # photo at full resolution. AVFoundation on macOS and iOS, the NDK camera on
 # Android, Media Foundation through nokhwa on Windows, Video for Linux
@@ -87,7 +129,7 @@ camera = [
 # through cpal and the streaming and offline recognizers of sherpa-onnx, on
 # macOS, iOS, Windows and Linux. Android and a browser answer that they have
 # none yet. Off by default, an app with no speech links neither.
-speech = ["dep:cpal", "dep:sherpa-onnx", "dep:objc2-avf-audio"]
+speech = ["net", "dep:cpal", "dep:sherpa-onnx", "dep:objc2-avf-audio"]
 # A check of the finger or the face of the user, Touch ID and Face ID
 # through LocalAuthentication on macOS and iOS, see docs/biometric.md.
 # Every other system answers that the device cannot. Off by default.
@@ -104,7 +146,7 @@ screen-capture = ["dep:xcap"]
 # and the tap on a push, see docs/push.md. Every other system answers that
 # it has no push. Off by default, an app with no push links no
 # UserNotifications and no call to register for it.
-push = ["dep:futures-channel", "dep:objc2-user-notifications"]
+push = ["dep:futures-channel", "dep:hex", "dep:objc2-user-notifications"]
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
@@ -129,11 +171,11 @@ webgl = ["wgpu/webgl"]
 # Google and Apple login against a `hilen-server` backend, the two login button
 # views and the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
 # at build time. Off by default, an app with no accounts carries none of it.
-login = ["dep:hilen-session", "dep:getrandom", "dep:qrcode"]
+login = ["net", "dep:hilen-session", "dep:getrandom", "dep:hex", "dep:qrcode", "dep:sha2"]
 # Google API access with the tokens kept on the device, against the
 # `google_access` routes of a `hilen-server` backend, and `SecretStore`, a
 # secret in the credential store of a phone. Off by default.
-google-access = ["secrets", "hilen-session/device-key", "dep:getrandom"]
+google-access = ["net", "secrets", "hilen-session/device-key", "dep:getrandom", "dep:hex", "dep:sha2"]
 # `SecretStore` alone, a secret in the credential store of a phone and in a
 # sealed file on desktop, also one shared with the widget extension of an iOS
 # app. Off by default.
@@ -146,53 +188,51 @@ arbitrary = { workspace = true }
 atomic_float = { workspace = true }
 base64 = { workspace = true }
 bit_ops = { workspace = true }
-byte-unit = { workspace = true }
+byte-unit = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
-contour = { workspace = true }
+contour = { workspace = true, optional = true }
 ctor = { workspace = true }
 dirs = { workspace = true }
 educe = { workspace = true }
 event-listener = { workspace = true }
 fastrand = { workspace = true }
-fern = { workspace = true }
 futures-channel = { workspace = true, optional = true }
-futures-util = { workspace = true }
+futures-util = { workspace = true, optional = true }
 geo = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
-hex = { workspace = true }
+hex = { workspace = true, optional = true }
 indexmap = { workspace = true }
 kira = { workspace = true, optional = true }
 linkify = { workspace = true }
 log = { workspace = true }
-local-ip-address = { workspace = true }
+local-ip-address = { workspace = true, optional = true }
 lyon = { workspace = true }
 midir = { workspace = true, optional = true }
 mime_guess = { workspace = true }
-noise = { workspace = true }
+noise = { workspace = true, optional = true }
 nonempty = { workspace = true }
 parking_lot = { workspace = true }
 pulldown-cmark = { workspace = true }
 regex = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
-rust_decimal = { workspace = true }
 rustybuzz = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-syntect = { workspace = true }
-sysinfo = { workspace = true }
+syntect = { workspace = true, optional = true }
+sysinfo = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
-two-face = { workspace = true }
+two-face = { workspace = true, optional = true }
 web-time = { workspace = true }
 wgpu = { workspace = true }
 wgpu_text = { workspace = true }
 zeroize = { workspace = true }
 
 hilen-pixels = { workspace = true }
-hilen-updater = { workspace = true }
+hilen-updater = { workspace = true, optional = true }
 plat = { workspace = true }
 reflected = { workspace = true }
 
@@ -205,9 +245,10 @@ uuid = { workspace = true, optional = true }
 gltf = { workspace = true, optional = true }
 hilen-session = { workspace = true, optional = true }
 qrcode = { workspace = true, optional = true }
-sha2 = { workspace = true }
+sha2 = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fern = { workspace = true }
 btleplug = { workspace = true, optional = true }
 fontdb = { workspace = true }
 image = { workspace = true, features = ["default-formats", "gif", "png"] }
@@ -216,17 +257,16 @@ usvg = { workspace = true, features = ["default"] }
 memmap2 = { workspace = true }
 getrandom = { workspace = true, optional = true }
 if-addrs = { workspace = true, optional = true }
-infisical = { workspace = true }
+infisical = { workspace = true, optional = true }
 rapier2d = { workspace = true, optional = true } # simd can crash if there are too many active objects
 rapier3d = { workspace = true, optional = true }
 pollster = { workspace = true }
-rustls = { workspace = true }
-sentry = { workspace = true }
+rustls = { workspace = true, optional = true }
+sentry = { workspace = true, optional = true }
 sys-locale = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
-tokio-util = { workspace = true }
-webpki-roots = { workspace = true }
+tokio-tungstenite = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 
 # macOS, iOS and tvOS announce and browse through the system Bonjour service.
 [target.'cfg(not(any(target_arch = "wasm32", target_vendor = "apple")))'.dependencies]
@@ -266,7 +306,7 @@ rapier3d = { workspace = true, optional = true }
 spin = { workspace = true }
 sys-locale = { workspace = true, features = ["js"] }
 wasm-bindgen-futures = { workspace = true }
-wasm_thread = { workspace = true }
+wasm_thread = { workspace = true, optional = true }
 web-sys = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -280,9 +320,6 @@ winit = { workspace = true, features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 winit = { workspace = true }
-
-[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
-rfd = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { workspace = true }
@@ -339,6 +376,7 @@ objc2-user-notifications = { workspace = true, optional = true }
 wgpu-hal = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
+rfd = { workspace = true }
 arboard = { workspace = true }
 ffmpeg-next = { workspace = true, optional = true }
 keepawake = { workspace = true }

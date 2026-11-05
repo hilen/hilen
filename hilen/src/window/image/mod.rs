@@ -1,6 +1,6 @@
 #[cfg(wasm)]
 mod browser_decode;
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "net"))]
 mod disk_cache;
 mod gif;
 mod image;
@@ -11,6 +11,7 @@ mod image_header;
 pub(crate) mod late;
 #[cfg(wasm)]
 pub(crate) mod pending;
+#[cfg(feature = "net")]
 mod remote;
 #[cfg(not_wasm)]
 mod svg;

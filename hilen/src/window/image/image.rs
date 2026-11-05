@@ -65,7 +65,7 @@ impl Image {
     /// Decodes a downloaded file and stores it under `name`, its longest
     /// side at most `max_side`, 0 for its own size. A browser decodes it
     /// itself, see `browser_decode`. An svg keeps the usual path.
-    #[cfg(wasm)]
+    #[cfg(all(wasm, feature = "net"))]
     pub(crate) async fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
         if Svg::is_svg(&data) {
             return Ok(Self::load(&data, name));
@@ -81,7 +81,7 @@ impl Image {
 
     /// `decode_download` with the decoder of the engine, the only one there is
     /// outside a browser.
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "net"))]
     pub(crate) fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
         if Svg::is_svg(&data) {
             return Ok(Self::load(&data, name));
@@ -89,12 +89,14 @@ impl Image {
         Self::decode_here(name, &data, max_side)
     }
 
+    #[cfg(feature = "net")]
     fn decode_here(name: &str, data: &[u8], max_side: u32) -> Result<Weak<Image>> {
         let raw = Texture::parse_file_from_bytes(data)?.fit_in(max_side)?;
         Ok(Self::store_raw(name, raw))
     }
 
     /// The mip chain is built on the calling thread, the texture on main.
+    #[cfg(feature = "net")]
     fn store_raw(name: &str, raw: TextureRawData) -> Weak<Image> {
         let levels = raw.into_levels();
         let name = name.to_string();

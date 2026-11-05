@@ -28,8 +28,11 @@ struct AppState {
     text_inset:     f32,
     scale_override: f32,
     clear_color:    UIColor,
+    #[cfg(feature = "bug-report")]
     bug_animation:  Option<&'static [u8]>,
+    #[cfg(feature = "bug-report")]
     bug_style:      Option<crate::BugReportStyle>,
+    #[cfg(feature = "bug-report")]
     bug_email:      Option<String>,
     system_fonts:   bool,
 }
@@ -46,17 +49,20 @@ fn prepare_harness() -> AppState {
     crate::window::placement_store::pause();
 
     let state = from_main(|| AppState {
-        styles:         Style::take_globals(),
-        dialog_style:   DialogStyle::take_global(),
-        markdown_style: MarkdownStyle::take_global(),
-        text_size:      Label::default_text_size(),
-        text_inset:     Label::default_text_inset(),
-        scale_override: UIManager::scale_override(),
-        clear_color:    UIManager::clear_color(),
-        bug_animation:  crate::BugReport::animation(),
-        bug_style:      crate::BugReportStyle::take_global(),
-        bug_email:      crate::BugReport::email(),
-        system_fonts:   crate::ui::Font::system_fallback(),
+        styles:                                       Style::take_globals(),
+        dialog_style:                                 DialogStyle::take_global(),
+        markdown_style:                               MarkdownStyle::take_global(),
+        text_size:                                    Label::default_text_size(),
+        text_inset:                                   Label::default_text_inset(),
+        scale_override:                               UIManager::scale_override(),
+        clear_color:                                  UIManager::clear_color(),
+        #[cfg(feature = "bug-report")]
+        bug_animation:                                crate::BugReport::animation(),
+        #[cfg(feature = "bug-report")]
+        bug_style:                                    crate::BugReportStyle::take_global(),
+        #[cfg(feature = "bug-report")]
+        bug_email:                                    crate::BugReport::email(),
+        system_fonts:                                 crate::ui::Font::system_fallback(),
     });
 
     Label::set_default_text_size(32);
@@ -73,14 +79,18 @@ fn prepare_harness() -> AppState {
 fn restore_app(state: AppState) {
     Label::set_default_text_size(state.text_size);
     Label::set_default_text_inset(state.text_inset);
-    crate::BugReport::restore_animation(state.bug_animation);
-    crate::BugReport::restore_email(state.bug_email);
+    #[cfg(feature = "bug-report")]
+    {
+        crate::BugReport::restore_animation(state.bug_animation);
+        crate::BugReport::restore_email(state.bug_email);
+    }
 
     from_main(move || {
         crate::ui::Font::set_system_fallback(state.system_fonts);
         Style::restore_globals(state.styles);
         DialogStyle::restore_global(state.dialog_style.as_ref());
         MarkdownStyle::restore_global(state.markdown_style.as_ref());
+        #[cfg(feature = "bug-report")]
         crate::BugReportStyle::restore_global(state.bug_style.as_ref());
         UIManager::restore_scale_override(state.scale_override);
         UIManager::set_clear_color(state.clear_color);
@@ -194,6 +204,7 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     from_main(Style::take_globals);
     from_main(DialogStyle::take_global);
     from_main(MarkdownStyle::take_global);
+    #[cfg(feature = "bug-report")]
     from_main(crate::BugReportStyle::take_global);
     Label::set_default_text_size(32);
     Label::set_default_text_inset(HARNESS_TEXT_INSET);

@@ -194,7 +194,6 @@ resvg = { version = "0.48", default-features = false }
 rfd = "0.17"
 ring = "0.17"
 rust-embed = { version = "8.12", features = ["include-exclude"] }
-rust_decimal = "1.42"
 rustc-hash = "2.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustybuzz = "0.20"
@@ -234,7 +233,6 @@ tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["full", "fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
-tokio-util = "0.7"
 toml = "1.1"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["trace", "fs"] }

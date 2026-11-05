@@ -33,6 +33,7 @@ impl Log for WebLogger {
 
         // The bug report ring keeps the same lines the console shows, like
         // the native dispatch does.
+        #[cfg(feature = "bug-report")]
         crate::bug_report::BugReport::push_log_line(record.args().to_string());
 
         #[cfg(feature = "inspect")]

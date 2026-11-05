@@ -84,6 +84,7 @@ impl AppRunner {
 
         // The bug report ring keeps the same formatted lines the console
         // shows, so a report attaches exactly what the log printed.
+        #[cfg(feature = "bug-report")]
         let ring = fern::Output::call(|record| {
             crate::bug_report::BugReport::push_log_line(record.args().to_string());
         });
@@ -112,7 +113,7 @@ impl AppRunner {
             None => (None, None),
         };
 
-        let mut dispatch = dispatch
+        let dispatch = dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -142,12 +143,15 @@ impl AppRunner {
 
                 out.finish(format_args!("{log}"));
             })
-            .chain(output)
-            .chain(ring);
+            .chain(output);
 
-        if let Some(file) = file {
-            dispatch = dispatch.chain(file);
-        }
+        #[cfg(feature = "bug-report")]
+        let dispatch = dispatch.chain(ring);
+
+        let dispatch = match file {
+            Some(file) => dispatch.chain(file),
+            None => dispatch,
+        };
 
         dispatch.apply().expect("Failed to initialize logging");
 
@@ -158,7 +162,7 @@ impl AppRunner {
         }
     }
 
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "bug-report"))]
     pub(crate) async fn setup_sentry(app: &dyn App) -> Option<sentry::ClientInitGuard> {
         let sentry_url = crate::config::Config::sentry_url(app).await?;
 

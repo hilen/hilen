@@ -111,9 +111,12 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // The dialog animation is global app state, a test that registers
         // one must not leak it into the next. The suite snapshot hands the
         // app's own animation back after the run.
-        crate::BugReport::restore_animation(None);
-        crate::BugReport::restore_email(None);
-        crate::BugReportStyle::restore_global(None);
+        #[cfg(feature = "bug-report")]
+        {
+            crate::BugReport::restore_animation(None);
+            crate::BugReport::restore_email(None);
+            crate::BugReportStyle::restore_global(None);
+        }
         // A test that styles its dialogs must not style the next one's.
         crate::ui::DialogStyle::restore_global(None);
         crate::ui::MarkdownStyle::restore_global(None);

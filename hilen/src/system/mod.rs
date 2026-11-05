@@ -20,7 +20,9 @@ pub(crate) mod open_files;
 mod open_url;
 mod router;
 mod screen_awake;
+#[cfg(feature = "updater")]
 mod update_state;
+#[cfg(feature = "updater")]
 mod updater;
 
 pub use app_activity::AppActivity;
@@ -39,6 +41,7 @@ pub(crate) use router::install_popstate_listener;
 pub use screen_awake::ScreenAwake;
 #[cfg(mobile)]
 pub(crate) use screen_awake::keep_on_for_tests;
+#[cfg(feature = "updater")]
 pub use update_state::{UpdatePhase, UpdateState};
 
 /// Sets the handlers of the system that need the event loop, before the app
@@ -48,5 +51,7 @@ pub(crate) fn install_platform_handlers() {
     #[cfg(target_os = "ios")]
     ios_delegate::install();
 }
+#[cfg(feature = "updater")]
 pub(crate) use updater::app_update_source;
+#[cfg(feature = "updater")]
 pub use updater::{DEFAULT_UPDATE_HOST, UpdateArtifact, UpdateInfo, UpdateManifest, UpdateSource, Updater};

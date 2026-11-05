@@ -1,8 +1,12 @@
 use std::{mem::take, ops::Range};
 
+#[cfg(not(feature = "code-colors"))]
+use log::debug;
 use log::{info, warn};
 use ui_proc::view;
 
+#[cfg(feature = "code-colors")]
+use crate::ui::CodeHighlighter;
 #[cfg(feature = "math")]
 use crate::ui::{
     MathView,
@@ -17,9 +21,9 @@ use crate::{
     },
     system::{Clipboard, open_url},
     ui::{
-        CodeHighlighter, Container, DrawingView, ImageView, Label, MarkdownListMarkers, MarkdownStyle,
-        RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment,
-        ViewCallbacks, ViewFrame, ViewSubviews,
+        Container, DrawingView, ImageView, Label, MarkdownListMarkers, MarkdownStyle, RunStyle, Setup,
+        TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment, ViewCallbacks, ViewFrame,
+        ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
             model::{Block, Item, Kind, Marker, Styled},
@@ -547,9 +551,12 @@ impl MarkdownView {
         label.set_breaks_long_words(true);
         label.set_text(code);
         label.set_text_color(column.color);
+        #[cfg(feature = "code-colors")]
         if let Some(mut highlighter) = CodeHighlighter::for_language(language) {
             label.set_color_runs(highlighter.color_runs(code));
         }
+        #[cfg(not(feature = "code-colors"))]
+        debug!("code of {language:?} in 1 color, the code-colors feature of hilen is off");
 
         // The copy icon keeps a strip at the right, no code runs under it.
         let button_room = if self.copy_buttons { CODE_BUTTON } else { 0.0 };

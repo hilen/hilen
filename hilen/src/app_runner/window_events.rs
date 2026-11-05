@@ -103,7 +103,7 @@ impl crate::window::WindowEvents for AppRunner {
 
             crate::app::app().after_launch();
 
-            #[cfg(desktop)]
+            #[cfg(all(desktop, feature = "updater"))]
             crate::system::UpdateState::check_after_launch();
 
             #[cfg(not_wasm)]
@@ -275,6 +275,7 @@ impl crate::window::WindowEvents for AppRunner {
             return;
         }
 
+        #[cfg(feature = "bug-report")]
         if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
             use crate::bug_report::InputRing;
 
@@ -320,6 +321,7 @@ impl crate::window::WindowEvents for AppRunner {
 
     fn modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
         Input::set_modifiers(modifiers.state());
+        #[cfg(feature = "bug-report")]
         crate::bug_report::InputRing::set_modifiers(modifiers.state());
     }
 
