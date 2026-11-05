@@ -195,8 +195,22 @@ impl Layer {
             y_down:      self.y_down,
             builds:      0,
             pictures_id: self.pictures.as_ref().map_or(0, |pictures| Rc::as_ptr(pictures).addr()),
+            root:        Retained::as_ptr(&self.root).addr(),
         }
     }
+}
+
+/// The root layer of the window view of the current window, the one a new
+/// layer goes on, for a test that checks which window a layer is in.
+#[cfg(feature = "ui-tests")]
+pub(super) fn window_root() -> Option<usize> {
+    let view = window_view()?;
+    // SAFETY: a view of winit, which lives with the window, asked on the
+    // main thread.
+    let view: &AnyObject = unsafe { view.as_ref() };
+    // SAFETY: `layer` of an NSView or a UIView gives a CALayer or nil.
+    let root: Option<Retained<CALayer>> = unsafe { msg_send![view, layer] };
+    root.map(|root| Retained::as_ptr(&root).addr())
 }
 
 impl Layer {

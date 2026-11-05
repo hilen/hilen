@@ -48,8 +48,9 @@ current, everything else with the main one.
   them first.
 - A window that closes in its own event hands the rest of that event to the main window,
   `slots::leave`.
-- A scene, a level and the declared loops draw in the main window only. The inspector
-  sees the main window only.
+- A scene and a level draw in the main window only. Each window steps the declared
+  loops of its own views, see "Windows" in [loops.md](loops.md). The inspector reaches
+  every window with `--window`, see [inspect.md](inspect.md).
 
 ## Over everything on a Mac
 
@@ -67,4 +68,5 @@ front gets the focus back. The code is `window/extra_mac.rs`.
 
 The UI test `Second window` opens one headless, taps and types into each window, reads
 the picture of the second one and closes it. `window::slots` has unit tests for the
-values of a reused slot.
+values of a reused slot. `Loop in second window` checks a loop there, `Inspect window`
+the inspector commands there.

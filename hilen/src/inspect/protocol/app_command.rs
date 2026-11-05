@@ -78,7 +78,20 @@ pub enum AppCommand {
     HotFiles(Vec<HotFileRepr>),
     /// What a command of the app answered.
     Answer(String),
+    /// The open windows, the main one first.
+    Windows(Vec<WindowRepr>),
     UI(UIResponse),
+}
+
+/// An open window of the app.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowRepr {
+    /// 0 for the main window, what `InWindow` takes.
+    pub number: usize,
+    pub title:  String,
+    /// The size of the content in points.
+    pub width:  f32,
+    pub height: f32,
 }
 
 /// A file a hot build already has.

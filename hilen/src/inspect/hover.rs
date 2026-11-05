@@ -1,11 +1,11 @@
 use crate::{
-    deps::hreads::from_main,
     gm::flat::Point,
     inspect::{
         AppCommand, InspectService,
-        inspect_service::find_view,
+        ui_command::find_view,
         wait::{MAX_WAIT_MS, wait_ms},
         weak_to_id,
+        window::from_main,
     },
     ui::{Hover, Input, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
     window::{MouseButton, frame_control},

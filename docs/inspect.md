@@ -53,7 +53,7 @@ Two clients exist:
 - `hilen-inspect` — the CLI, also the interface for AI agents. Install once with
   `cargo install --path hilen-inspect`, reinstall after protocol changes. A serde error like
   `unknown field 'fit_text'` from any command means the installed CLI is older than the
-  app's protocol, reinstall and retry. Commands: `apps`,
+  app's protocol, reinstall and retry. Commands: `apps`, `windows`,
   `tree`, `view`, `find`, `wait`, `ui`, `screenshot`, `tap`, `hover`, `keys`, `hold`, `drag`, `scroll`, `scroll-to`,
   `resize`, `record`, `record-start`, `record-stop`, `frames`, `pause`, `step`, `resume`, `edit-rule`, `set-text`, `set-color`, `set-scale`,
   `edits`, `play-sound`, `run-tests`, `build-time`, `quit`, `dev-login`, `app`, `devices`, `web-bridge`, and `hot-status` and `hot-send`
@@ -79,6 +79,14 @@ Two clients exist:
 `dev-login <email>` logs an app with the `login` feature into a dev account of its
 backend, with no password. The backend needs the `dev-login` feature of `hilen-server`,
 see "The dev login" in [login.md](login.md). The app shows the account at its next start.
+
+`windows` lists the open windows of the app, 1 line each with its number, its size in
+points and its title. The main window is 0, an extra window, see
+[windows-more.md](windows-more.md), has its slot as its number. `--window <n>` on any
+command works on that window: `tree`, `find`, `screenshot`, `tap`, `keys`, `hover`,
+`drag`, `scroll` and the edits read and drive its views through its own input. A command
+that is not about views, like `resize`, `record` or `pause`, answers with an error for a
+window other than 0. Without `--window` every command works on the main window, as before.
 
 `hilen-inspect tap` takes a query, not only an id, and matches exactly by default: exact
 view id, exact visible text, then exact label field name like `save_button` or
@@ -242,6 +250,14 @@ The code is `inspector/src/ui/frames/`.
 Lives in `hilen/src/inspect/protocol/`. Length-prefixed JSON frames over TCP
 (`transport.rs`), request in, response out:
 
+- `Windows` — the open windows as `WindowRepr`: number, title and size in points, the
+  main window first as 0.
+- `InWindow { window, command }` — runs `command` in that window. The app sets the window
+  for the thread that runs the command, `inspect/window.rs`, and every main thread call
+  of the command runs with the slot of that window current, so its root view, input and
+  frame are used. Only `Screenshot` and the `UI` requests but `Resize` take it, any other
+  command and a window that is not open answer with an error. The CLI sends a command
+  as it is for window 0, so an older app still answers it.
 - `GetUI` — returns scale and the whole view tree as `ViewRepr`: labels, ids, frames, scroll content offsets,
     colors, texts, hidden flags, whether a view clips its subviews and placer rules.
 - `SetScale(f32)` — applies the scale on the main thread.

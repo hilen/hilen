@@ -171,6 +171,12 @@ impl AppWindow {
         self.within(|| crate::ui::UIManager::root_view().size())
     }
 
+    /// The title it was opened with, None once it closed.
+    #[cfg(feature = "inspect")]
+    pub(crate) fn title(self) -> Option<String> {
+        registry::title(self.slot, self.generation)
+    }
+
     /// The window comes to the front and takes the keys.
     pub fn focus(self) {
         registry::focus(self.slot, self.generation);
@@ -217,6 +223,11 @@ impl AppWindow {
     }
 
     pub fn size(self) -> Result<Size> {
+        match self.never {}
+    }
+
+    #[cfg(feature = "inspect")]
+    pub(crate) fn title(self) -> Option<String> {
         match self.never {}
     }
 

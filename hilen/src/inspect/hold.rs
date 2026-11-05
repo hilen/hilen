@@ -1,8 +1,8 @@
 use crate::{
-    deps::hreads::from_main,
     inspect::{
         AppCommand, InspectService,
         wait::{MAX_WAIT_MS, wait_ms},
+        window::from_main,
     },
     ui::{Input, Keys, NamedKey},
     window::KeyCode,

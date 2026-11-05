@@ -6,6 +6,7 @@ mod input;
 mod reach;
 mod speed;
 mod web_bridge;
+mod window;
 
 use std::{
     env::{current_dir, temp_dir},
@@ -28,6 +29,7 @@ use hot::Target;
 use reach::{NO_APPS, apps, connect, given, save_cache};
 use serde_json::{Value, from_value, json, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout};
+use window::send;
 
 #[derive(Parser)]
 #[command(name = "hilen-inspect", about = "Inspect and edit UI of running hilen apps")]
@@ -49,6 +51,11 @@ struct Cli {
     #[arg(long, global = true)]
     device: Option<String>,
 
+    /// The window to read and drive, its number from `windows`. 0 is the
+    /// main window, the one every command works on without this.
+    #[arg(long, global = true)]
+    window: Option<usize>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -60,6 +67,7 @@ async fn main() -> Result<()> {
     set_current_thread_as_main();
 
     let cli = Cli::parse();
+    window::choose(cli.window);
     let mut addr = given(cli.addr).await?;
 
     if let Command::Devices = cli.command {
@@ -479,13 +487,6 @@ async fn run_tests(client: &Client, only: Option<String>, seconds: u64) -> Resul
     }
 
     Ok(())
-}
-
-async fn send(client: &Client, command: InspectorCommand) -> Result<AppCommand> {
-    match client.send(command).await? {
-        AppCommand::Error(err) => bail!("{err}"),
-        response => Ok(response),
-    }
 }
 
 async fn quit(client: &Client, seconds: u64) -> Result<()> {

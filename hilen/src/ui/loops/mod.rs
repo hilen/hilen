@@ -25,6 +25,8 @@ mod shared;
 mod shared_test;
 #[cfg(feature = "ui-tests")]
 mod test;
+#[cfg(feature = "ui-tests")]
+mod window_test;
 
 use std::{
     mem::take,
@@ -39,8 +41,11 @@ use crate::{
     deps::refs::main_lock::MainLock,
     frame_time::frame_seconds,
     gm::{LossyConvert, ToF32},
-    ui::{UIDrawer, ViewData, ViewFrame, WeakView},
-    window::request_frame,
+    ui::{UIDrawer, UIManager, ViewData, ViewFrame, WeakView},
+    window::{
+        request_frame,
+        slots::{MAX_WINDOWS, current},
+    },
 };
 
 /// What a pose gets, the phase of the loop from 0 to 1.
@@ -155,11 +160,14 @@ impl Entry {
     }
 }
 
+/// The loops of every window. A loop belongs to the window its view is in,
+/// and the frame of that window steps it, so a view that moves to another
+/// window takes its loop along.
 static LOOPS: MainLock<Vec<Entry>> = MainLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-/// A loop on the frame path is on the screen, so the loop of the app
-/// draws on every refresh.
-static WANTS_FRAMES: AtomicBool = AtomicBool::new(false);
+/// Per window slot, a loop on the frame path is on the screen of that
+/// window, so the loop of the app draws on every refresh.
+static WANTS_FRAMES: [AtomicBool; MAX_WINDOWS] = [const { AtomicBool::new(false) }; MAX_WINDOWS];
 
 pub(crate) fn start(view: WeakView, animation: LoopAnimation) {
     let LoopAnimation {
@@ -217,7 +225,14 @@ fn phase_at((zero, period): (f64, f64), time: f64) -> f32 {
 
 /// Read by `continuous_render_active`.
 pub(crate) fn wants_frames() -> bool {
-    WANTS_FRAMES.load(Ordering::Relaxed)
+    WANTS_FRAMES.iter().any(|wants| wants.load(Ordering::Relaxed))
+}
+
+/// A window that closes steps no loop again, its flag must not keep the
+/// app drawing. Its loops go with its views.
+#[cfg(not_wasm)]
+pub(crate) fn forget_window(slot: usize) {
+    WANTS_FRAMES[slot].store(false, Ordering::Relaxed);
 }
 
 /// The longest step in seconds since the last read, for the test of the
@@ -231,8 +246,9 @@ pub(crate) fn longest_step() -> f64 {
     take(LONGEST_STEP.get_mut())
 }
 
-/// Once a frame, after the layout. Puts every loop on a layer or on the
-/// frame path and poses the ones on the frame path for this frame.
+/// Once a frame of each window, after its layout. Puts every loop of that
+/// window on a layer or on the frame path and poses the ones on the frame
+/// path for this frame.
 pub(crate) fn step() {
     #[cfg(all(apple, feature = "ui-tests"))]
     let started = crate::monotonic::monotonic_seconds();
@@ -246,13 +262,14 @@ pub(crate) fn step() {
 }
 
 fn step_entries() {
-    let mut entries = take(LOOPS.get_mut());
-    if entries.is_empty() {
-        WANTS_FRAMES.store(false, Ordering::Relaxed);
+    let slot = current();
+    let mut all = take(LOOPS.get_mut());
+    if all.is_empty() {
+        WANTS_FRAMES[slot].store(false, Ordering::Relaxed);
         return;
     }
 
-    entries.retain(|entry| {
+    all.retain(|entry| {
         let alive = entry.alive();
         // A stopped or replaced loop leaves the view to the frame.
         if !alive && entry.view.is_ok() && entry.view.__base_view().loop_id == 0 {
@@ -260,6 +277,24 @@ fn step_entries() {
         }
         alive
     });
+
+    // The loops of the other windows wait for the frames of their windows.
+    // A view in no window is not on any screen, its layer goes down.
+    let mut entries = Vec::new();
+    let mut others = Vec::new();
+    for entry in all {
+        match UIManager::window_of(entry.view) {
+            Some(window) if window == slot => entries.push(entry),
+            Some(_) => others.push(entry),
+            None => {
+                #[cfg(apple)]
+                let mut entry = entry;
+                #[cfg(apple)]
+                entry.leave_layer();
+                others.push(entry);
+            }
+        }
+    }
 
     let now = frame_seconds();
     #[cfg(apple)]
@@ -289,10 +324,11 @@ fn step_entries() {
     }
 
     // A pose or a setup may have started loops while this ran.
+    entries.extend(others);
     entries.append(LOOPS.get_mut());
     *LOOPS.get_mut() = entries;
 
-    WANTS_FRAMES.store(wants, Ordering::Relaxed);
+    WANTS_FRAMES[slot].store(wants, Ordering::Relaxed);
     if wants {
         request_frame();
     }
@@ -308,5 +344,7 @@ pub(crate) fn stop_all() {
         }
     }
     shared::clear();
-    WANTS_FRAMES.store(false, Ordering::Relaxed);
+    for wants in &WANTS_FRAMES {
+        wants.store(false, Ordering::Relaxed);
+    }
 }

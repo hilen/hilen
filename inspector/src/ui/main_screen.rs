@@ -302,7 +302,8 @@ impl MainScreen {
             | AppCommand::FailureScreenshot { .. }
             | AppCommand::Log { .. }
             | AppCommand::Hello { .. }
-            | AppCommand::Answer(_) => {}
+            | AppCommand::Answer(_)
+            | AppCommand::Windows(_) => {}
         }
     }
 }

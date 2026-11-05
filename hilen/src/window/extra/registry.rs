@@ -139,6 +139,11 @@ pub(super) fn open(spec: WindowSpec, make_root: MakeRoot) -> Result<AppWindow> {
     Ok(AppWindow { slot, generation })
 }
 
+#[cfg(feature = "inspect")]
+pub(super) fn title(slot: usize, generation: u32) -> Option<String> {
+    extra(slot, generation).map(|extra| extra.spec.title.clone())
+}
+
 pub(super) fn is_open(slot: usize, generation: u32) -> bool {
     extra(slot, generation).is_some()
 }
@@ -175,6 +180,7 @@ pub(super) fn close(slot: usize, generation: u32) {
         DELETED_VIEWS.lock().push(root);
     }
     TouchStack::forget_window(slot);
+    crate::ui::loops::forget_window(slot);
 
     #[cfg(macos)]
     if let (Some(class), Some(winit)) = (

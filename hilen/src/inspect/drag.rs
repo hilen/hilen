@@ -1,9 +1,9 @@
 use crate::{
-    deps::hreads::from_main,
     gm::{LossyConvert, flat::Point},
     inspect::{
         AppCommand, InspectService,
         wait::{MAX_WAIT_MS, wait_ms},
+        window::from_main,
     },
     ui::{Input, Touch, TouchEvent, UIManager},
     window::MouseButton,

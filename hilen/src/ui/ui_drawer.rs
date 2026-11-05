@@ -138,10 +138,9 @@ impl UIDrawer {
         *NEEDS_SAMPLING.get_mut() = false;
         Self::update_view(UIManager::root_view().deref_mut(), 1.0);
         // After the layout, a loop decides by the frames of this one where
-        // it is shown, see `ui::loops`. Loops run in the main window only.
-        if main {
-            loops::step();
-        }
+        // it is shown, see `ui::loops`. Each window steps the loops of its
+        // own views.
+        loops::step();
     }
 
     /// Lays out and updates 1 view and its subviews again, after the pose

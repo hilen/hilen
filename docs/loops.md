@@ -203,6 +203,22 @@ gif with a loop count end or are no loop, they keep frames with
   screen are not, the test has no capture of the screen there. tvOS builds
   the same code and was not run, an A7 was not run.
 
+## Windows
+
+A loop belongs to the window its view is in, `UIManager::window_of`. The frame of
+each window steps only the loops of its own views, so a spinner moves in an extra
+window too, and a view that moves to another window takes its loop along. A loop of
+a view in no window takes down its layer. The flag that keeps the app drawing is 1
+per window, and a window that closes clears its own. On a Mac a loop in an extra
+window goes on a layer of that window, the checks above read the window the loop is
+in.
+
+`Loop in second window`, in `ui/loops/window_test.rs`, pins the bar of a loop in a
+second window at 2 phases on stepped time, and that a closed window stops the drawing.
+In a window on macOS it then checks that the loop is on a layer of the second window.
+A view that reaches into the picture of a loop keeps it off a layer, so its title
+stays clear of the picture.
+
 ## What is not here yet
 
 Keyframe animations of a position, an angle, a scale or an opacity, which

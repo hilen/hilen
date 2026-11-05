@@ -53,14 +53,6 @@ original is the acceptance bar. Their ports drove the gaps below.
   gives the focus back when it closes.
 - Blocks: the screenshot of banda on Windows and Linux.
 
-## Loops and the inspector in an extra window
-
-- Current: the declared loops step and the inspector reads in the main window only,
-  `UIDrawer::update` and `InspectService`.
-- Needed: a spinner that moves in an extra window, and the tree and the screenshot of
-  each window in `hilen-inspect`.
-- Blocks: a spinner or a check with the inspector in a second window.
-
 ## A width class for the window
 
 - Current: nothing in the engine says whether a window is narrow or wide. An app

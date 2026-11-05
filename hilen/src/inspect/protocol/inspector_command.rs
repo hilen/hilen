@@ -113,6 +113,17 @@ pub enum InspectorCommand {
         name: String,
         args: Vec<String>,
     },
+    /// Lists the open windows, the main one as 0 and every extra window
+    /// that is up. The answer is `Windows`.
+    Windows,
+    /// Runs `command` in the window of that number from `Windows`. A
+    /// command that reads or drives views, a screenshot included, then
+    /// works on that window. Any other command answers with an error for a
+    /// window other than 0.
+    InWindow {
+        window:  usize,
+        command: Box<InspectorCommand>,
+    },
     UI(UIRequest),
 }
 

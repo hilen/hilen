@@ -408,6 +408,13 @@ impl UIManager {
     /// The slot of the window `view` is in, the current one for a view in
     /// no window yet.
     pub(crate) fn slot_of(view: WeakView) -> usize {
+        Self::window_of(view).unwrap_or_else(crate::window::slots::current)
+    }
+
+    /// The slot of the window `view` is in, None for a view in no window,
+    /// also for one in a window that closed and whose views go at the
+    /// next frame.
+    pub(crate) fn window_of(view: WeakView) -> Option<usize> {
         let mut top = view;
         while top.is_ok() && top.superview().is_ok() {
             top = *top.superview();
@@ -416,7 +423,6 @@ impl UIManager {
         crate::window::open_slots()
             .into_iter()
             .find(|slot| crate::window::slots::within(*slot, || Self::root_view().raw() == top))
-            .unwrap_or_else(crate::window::slots::current)
     }
 
     pub(crate) fn free_deleted_views() {

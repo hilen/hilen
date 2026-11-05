@@ -15,10 +15,12 @@ mod hover;
 mod inspect_service;
 #[cfg(test)]
 mod release_guard;
+mod ui_command;
 mod view_conversion;
 mod wait;
 #[cfg(wasm)]
 pub(crate) mod web_transport;
+mod window;
 
 pub mod views;
 

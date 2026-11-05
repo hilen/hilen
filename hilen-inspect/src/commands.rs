@@ -16,6 +16,7 @@ use super::{
     print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send,
     speed::speed,
     wait,
+    window::windows,
 };
 
 #[derive(Subcommand)]
@@ -54,6 +55,9 @@ pub(super) enum Command {
         #[arg(long)]
         assets:  Option<PathBuf>,
     },
+    /// List the open windows of the app: number, size in points, title.
+    /// `--window` with a number reads and drives that window
+    Windows,
     /// Print a compact overview of the view tree: label, frame, id per line
     Tree,
     /// Print full JSON of every view whose label contains the query, or with
@@ -317,6 +321,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
             let (scale, root) = get_ui(client).await?;
             println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);
         }
+        Command::Windows => windows(client).await?,
         Command::Tree => {
             let (_, root) = get_ui(client).await?;
             print_tree(&root, 0);
