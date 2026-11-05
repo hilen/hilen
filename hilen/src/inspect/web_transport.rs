@@ -66,7 +66,13 @@ pub(crate) fn start_if_requested() {
     // `from_main` and `RunTests` runs the whole suite, neither may happen on
     // the main thread.
     crate::deps::hreads::spawn_thread(move || {
+        // A worker that never starts leaves every request in the channel with
+        // no error, the page then answers nothing. This line tells the 2 apart.
+        log::info!("Inspect worker runs");
         while let Ok(request) = receiver.recv() {
+            let shown = format!("{request:?}");
+            let kind = shown.split([' ', '(', '{']).next().unwrap_or_default();
+            log::info!("Inspect worker takes {kind}");
             let response = InspectService::process_command(request);
             let data = serde_json::to_string(&response);
 
