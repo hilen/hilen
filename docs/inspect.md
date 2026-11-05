@@ -412,7 +412,10 @@ app, with a line per second.
 
 A page cannot listen on TCP and has no mDNS, so on wasm the direction inverts.
 With the `hilen_inspect` query flag set, the app dials out to the server that
-served the page, same origin, at `/hilen-inspect`, in `web_transport.rs`. One
+served the page, same origin, at `/hilen-inspect`, in `web_transport.rs`. `Router::push` and
+`Router::replace` carry every `hilen_` flag of the current query into the
+address they write, so the flag stays through the steps of the app and a
+reload keeps the inspector, `keep_flags` in `system/router.rs`. One
 WebSocket text message carries one JSON frame, request in, response out, the
 same protocol types as TCP. Requests are processed on one dedicated worker
 thread, since commands block on `from_main` and `RunTests` runs the whole

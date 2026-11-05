@@ -66,7 +66,12 @@ impl Router {
 fn set_url(path: &str, replace: bool) {
     use web_sys::wasm_bindgen::JsValue;
 
-    let url = join_base(base_path(), path);
+    let search = web_sys::window()
+        .expect("Failed to get browser window")
+        .location()
+        .search()
+        .expect("Failed to get location search");
+    let url = keep_flags(&join_base(base_path(), path), &search);
     let history = web_sys::window()
         .expect("Failed to get browser window")
         .history()
@@ -150,9 +155,45 @@ fn join_base(base: &str, path: &str) -> String {
     format!("{base}/{path}")
 }
 
+/// The new address with the `hilen_` flags of the current query, like
+/// `hilen_inspect`. The engine reads them from the address, so a step of the
+/// app that dropped them would turn the inspector off at the next reload.
+/// Any other key of the query belongs to the app and stays behind.
+#[cfg(any(wasm, test))]
+fn keep_flags(url: &str, search: &str) -> String {
+    let flags: Vec<&str> = search
+        .trim_start_matches('?')
+        .split('&')
+        .filter(|pair| pair.starts_with("hilen_"))
+        .collect();
+    if flags.is_empty() {
+        return url.to_string();
+    }
+    let joint = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{joint}{}", flags.join("&"))
+}
+
 #[cfg(test)]
 mod test {
-    use super::{join_base, strip_base};
+    use super::{join_base, keep_flags, strip_base};
+
+    #[test]
+    fn a_new_address_keeps_the_flags_of_the_engine() {
+        assert_eq!(
+            keep_flags("/ideas/new", "?hilen_inspect"),
+            "/ideas/new?hilen_inspect"
+        );
+        assert_eq!(
+            keep_flags("/te/a", "?tag=run1&hilen_inspect&hilen_msaa=4"),
+            "/te/a?hilen_inspect&hilen_msaa=4"
+        );
+        assert_eq!(
+            keep_flags("/a?page=2", "?hilen_inspect"),
+            "/a?page=2&hilen_inspect"
+        );
+        assert_eq!(keep_flags("/ideas", ""), "/ideas");
+        assert_eq!(keep_flags("/ideas", "?mod=Railroads"), "/ideas");
+    }
 
     #[test]
     fn strip_base_at_root() {
