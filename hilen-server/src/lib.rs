@@ -13,6 +13,7 @@ pub mod push;
 pub mod security;
 #[cfg(feature = "dev-login")]
 pub mod seed;
+pub mod tls;
 pub mod tracing_init;
 pub mod web;
 
@@ -30,6 +31,7 @@ pub use redis;
 pub use rust_embed;
 pub use security::PageCsp;
 pub use sqlx;
+pub use tls::{LocalCert, serve_tls};
 pub use tokio;
 pub use tracing;
 pub use web::{WEB_DEV_PROXY_ENV, web_mount, web_mount_with};

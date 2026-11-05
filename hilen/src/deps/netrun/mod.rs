@@ -1,4 +1,6 @@
 mod function;
+#[cfg(all(not_wasm, feature = "net"))]
+pub(crate) mod pinned;
 #[cfg(feature = "net")]
 pub mod rest;
 #[cfg(all(not_wasm, feature = "infisical"))]

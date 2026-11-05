@@ -150,6 +150,8 @@ pub use crate::{
 };
 
 pub mod net {
+    #[cfg(all(not_wasm, feature = "net"))]
+    pub use crate::deps::netrun::pinned::pinned_client;
     #[cfg(all(not_wasm, feature = "infisical"))]
     pub use crate::deps::netrun::secret::*;
     pub use crate::deps::netrun::{Function, System};

@@ -1,7 +1,12 @@
 use std::{future::pending, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use axum::{Json, Router, routing::get};
+use axum::{
+    Json, Router,
+    extract::connect_info::Connected,
+    routing::get,
+    serve::{IncomingStream, Listener},
+};
 use serde_json::json;
 #[cfg(unix)]
 use tokio::signal::unix::{SignalKind, signal};
@@ -77,14 +82,18 @@ pub async fn serve_listener(listener: tokio::net::TcpListener, router: Router) -
 /// A websocket or a long poll never ends by itself, so a stop must not wait
 /// for it. A container that ignores the signal holds a deploy for 10 seconds,
 /// then Docker kills it.
-const SHUTDOWN_LIMIT: Duration = Duration::from_secs(3);
+pub(crate) const SHUTDOWN_LIMIT: Duration = Duration::from_secs(3);
 
-async fn serve_until(
-    listener: tokio::net::TcpListener,
+pub(crate) async fn serve_until<L>(
+    listener: L,
     router: Router,
     stop: impl Future<Output = ()> + Send + 'static,
     limit: Duration,
-) -> Result<()> {
+) -> Result<()>
+where
+    L: Listener<Addr = SocketAddr>,
+    for<'a> SocketAddr: Connected<IncomingStream<'a, L>>,
+{
     let router = crate::security::base(router);
     let stopping = Arc::new(Notify::new());
     let stopped = Arc::clone(&stopping);
@@ -113,7 +122,7 @@ async fn serve_until(
 
 /// Ends at the signal Docker stops a container with, or at Ctrl+C. A signal
 /// that cannot be listened to only warns, the server must keep running.
-async fn stop_signal() {
+pub(crate) async fn stop_signal() {
     #[cfg(unix)]
     let terminate = async {
         match signal(SignalKind::terminate()) {
