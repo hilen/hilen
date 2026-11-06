@@ -130,22 +130,21 @@ fn triangle_sdf(p_in: vec2<f32>, q: vec2<f32>) -> f32 {
 
 // The distance to the rounded box, or with a tail to the box and the
 // triangle together. The box gives up the height of the tail on its edge.
-fn shape_sdf(local_pos: vec2<f32>, instance: UIBackdropInstance) -> f32 {
-    let rect = instance.rect;
-    let edge = instance.tail.w;
-    let height = instance.tail.z * abs(edge);
+fn shape_sdf(local_pos: vec2<f32>, size: vec2<f32>, corner_radii: vec4<f32>, tail: vec4<f32>) -> f32 {
+    let edge = tail.w;
+    let height = tail.z * abs(edge);
 
     let box_center = vec2<f32>(0.0, -edge * height * 0.5);
-    let box_half = vec2<f32>(rect.size.x * 0.5, (rect.size.y - height) * 0.5);
+    let box_half = vec2<f32>(size.x * 0.5, (size.y - height) * 0.5);
     let p = local_pos - box_center;
-    var dist: f32 = rounded_box_sdf(p, box_half, pick_radius(p, rect.corner_radii));
+    var dist: f32 = rounded_box_sdf(p, box_half, pick_radius(p, corner_radii));
 
     if edge != 0.0 {
-        let apex = vec2<f32>(instance.tail.x - rect.size.x * 0.5, edge * rect.size.y * 0.5);
+        let apex = vec2<f32>(tail.x - size.x * 0.5, edge * size.y * 0.5);
         // y grows from the apex toward the box. The base goes 1 point into
         // the box, so no seam of edge coverage shows between them.
         let t = vec2<f32>(local_pos.x - apex.x, (apex.y - local_pos.y) * edge);
-        dist = min(dist, triangle_sdf(t, vec2<f32>(instance.tail.y, height + 1.0)));
+        dist = min(dist, triangle_sdf(t, vec2<f32>(tail.y, height + 1.0)));
     }
 
     return dist;
@@ -166,11 +165,14 @@ fn pixel_width(derivative: f32, scale: f32) -> f32 {
 // instance color is a tint mixed on top by its alpha.
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let backdrop: UIBackdropInstance = instances[in.index];
-    let instance: UIRectInstance = backdrop.rect;
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let backdrop = &instances[in.index];
+    let instance = &backdrop.rect;
 
     let local_pos: vec2<f32> = in.uv * instance.size;
-    let dist: f32 = shape_sdf(local_pos, backdrop);
+    let dist: f32 = shape_sdf(local_pos, instance.size, instance.corner_radii, backdrop.tail);
 
     // Zero guarded, see ui_rect.wgsl.
     let width: f32 = pixel_width(fwidth(dist), instance.scale);

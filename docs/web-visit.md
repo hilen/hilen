@@ -50,3 +50,16 @@ started` in the console at start. A visit that did not end shows `The last
 visit did not end, it stopped after <step>` at the next start, and
 `Sent the unfinished visit report`. Killing the tab from the task manager of
 the browser leaves such a record.
+
+## What it found first
+
+On 2026-11-06 the first report showed a page on WebGL stopped after `device`.
+On d-win, Edge 156 with ANGLE on Direct3D 11 hung in
+`getProgramParameter(LINK_STATUS)` of the rect pipeline, the GPU process at a full
+core. The fragment shader copied a whole instance out of the uniform array of
+192 instances by a dynamic index. The link took 9 ms with 1 instance, 1.9 s with
+64, 23 s with 128 and over a minute with 192. Reading the fields one by one
+linked in 21 ms. So every UI shader on the uniform path takes a pointer to its
+instance, `let instance = &instances[in.index];`, and a helper takes plain
+fields, never the instance. The test
+`no_shader_on_the_uniform_path_copies_its_instance` keeps it so.

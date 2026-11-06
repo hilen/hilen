@@ -159,7 +159,10 @@ fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
 
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIImageInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
     // Under MSAA a pixel the quad edge only partly covers runs at its
     // center, outside the quad, with the uv past the image. The sampler

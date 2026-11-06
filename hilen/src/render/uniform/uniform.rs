@@ -298,6 +298,38 @@ mod test {
         );
     }
 
+    /// On WebGL the instances are a uniform array, and ANGLE on Direct3D 11
+    /// took over a minute to link a shader that copies a whole instance out
+    /// of it by a dynamic index. The page froze Edge and Chrome on Windows.
+    /// A shader on the uniform path takes a pointer to its instance.
+    #[test]
+    fn no_shader_on_the_uniform_path_copies_its_instance() {
+        let shaders = [
+            ("ui_rect", include_str!("../pipelines/shaders/ui_rect.wgsl")),
+            ("ui_image", include_str!("../pipelines/shaders/ui_image.wgsl")),
+            (
+                "ui_gradient",
+                include_str!("../pipelines/shaders/ui_gradient.wgsl"),
+            ),
+            ("ui_shadow", include_str!("../pipelines/shaders/ui_shadow.wgsl")),
+            ("ui_clip", include_str!("../pipelines/shaders/ui_clip.wgsl")),
+            (
+                "ui_backdrop",
+                include_str!("../pipelines/shaders/ui_backdrop.wgsl"),
+            ),
+        ];
+        for (name, source) in shaders {
+            assert!(
+                source.contains("&instances["),
+                "{name} reads its instance through a pointer"
+            );
+            assert!(
+                !source.contains("= instances["),
+                "{name} copies its instance out of the array"
+            );
+        }
+    }
+
     /// The WebGL2 limits, a 16 KiB binding at 256 byte offsets.
     fn webgl2(stride: u64) -> InstanceChunks {
         InstanceChunks::with_limits(stride, 16 << 10, 256)

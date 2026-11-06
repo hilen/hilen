@@ -123,13 +123,20 @@ fn pixel_width(derivative: f32, scale: f32) -> f32 {
 // How far along the ramp this pixel is, 0 at the start color and 1 at the
 // end. The CSS math is baked into the instance, so a linear gradient costs
 // one dot product and a radial one length.
-fn gradient_ramp(uv: vec2<f32>, instance: UIGradientInstance) -> f32 {
+fn gradient_ramp(
+    uv: vec2<f32>,
+    kind: u32,
+    radial_center: vec2<f32>,
+    radial_radii: vec2<f32>,
+    linear_bias: f32,
+    linear_axis: vec2<f32>,
+) -> f32 {
     var ramp: f32;
 
-    if instance.kind == GRADIENT_RADIAL {
-        ramp = length((uv - instance.radial_center) / instance.radial_radii);
+    if kind == GRADIENT_RADIAL {
+        ramp = length((uv - radial_center) / radial_radii);
     } else {
-        ramp = instance.linear_bias + dot(uv, instance.linear_axis);
+        ramp = linear_bias + dot(uv, linear_axis);
     }
 
     return clamp(ramp, 0.0, 1.0);
@@ -137,9 +144,9 @@ fn gradient_ramp(uv: vec2<f32>, instance: UIGradientInstance) -> f32 {
 
 // CSS interpolates a gradient with premultiplied alpha, so a stop fading to
 // `transparent` keeps its hue instead of sliding towards black.
-fn gradient_color(instance: UIGradientInstance, ramp: f32) -> vec4<f32> {
-    let start = vec4<f32>(instance.start_color.rgb * instance.start_color.a, instance.start_color.a);
-    let end = vec4<f32>(instance.end_color.rgb * instance.end_color.a, instance.end_color.a);
+fn gradient_color(start_color: vec4<f32>, end_color: vec4<f32>, ramp: f32) -> vec4<f32> {
+    let start = vec4<f32>(start_color.rgb * start_color.a, start_color.a);
+    let end = vec4<f32>(end_color.rgb * end_color.a, end_color.a);
 
     let color = mix(start, end, ramp);
 
@@ -163,9 +170,20 @@ fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
 
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIGradientInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
-    let color = gradient_color(instance, gradient_ramp(in.uv, instance));
+    let ramp = gradient_ramp(
+        in.uv,
+        instance.kind,
+        instance.radial_center,
+        instance.radial_radii,
+        instance.linear_bias,
+        instance.linear_axis,
+    );
+    let color = gradient_color(instance.start_color, instance.end_color, ramp);
 
     let local_pos: vec2<f32> = in.uv * instance.size;
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
