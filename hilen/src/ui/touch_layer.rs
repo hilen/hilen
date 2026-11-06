@@ -24,6 +24,14 @@ pub(crate) trait Scrollable: View {
         true
     }
 
+    /// Whether a wheel move by `delta` moves it. A move it cannot take goes
+    /// on to the scroll view behind it, like a page around a text field
+    /// that has nothing to scroll. A view that zooms on the wheel keeps
+    /// every move.
+    fn __takes_wheel(&self, _delta: Point) -> bool {
+        true
+    }
+
     /// A scroll the engine asks for itself, like the focus ring. Each
     /// axis has to move by its own delta, so it skips the rule that
     /// sends a plain wheel sideways in a view with no vertical range.

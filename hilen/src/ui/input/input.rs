@@ -318,10 +318,40 @@ impl Input {
     /// over a deeper one, a toast or a popover, wins the overlap. Smaller
     /// z is closer, and a child is closer than its parent, so a nested
     /// scroll view still beats the one around it.
+    ///
+    /// A scroll view that cannot move by `delta`, like a text field with
+    /// nothing to scroll or a list at its end, passes the move on to the
+    /// next one behind it, the way a page in a browser does.
     fn check_wheel_scroll(delta: Point) {
-        if let Some(mut scroll) = Self::wheel_scroll() {
+        if let Some(mut scroll) = Self::wheel_scroll_taking(delta) {
             scroll.__process_wheel_scroll(delta);
         }
+    }
+
+    /// The front scrollable view under the cursor that a wheel move by
+    /// `delta` moves.
+    fn wheel_scroll_taking(delta: Point) -> Option<Weak<dyn Scrollable>> {
+        let cursor = UIManager::cursor_position();
+
+        let mut front: Option<((f32, f32), Weak<dyn Scrollable>)> = None;
+
+        for scroll in TouchStack::scrolls() {
+            if scroll.is_null()
+                || scroll.is_hidden_in_tree()
+                || !scroll.absolute_frame().contains(cursor)
+                || !scroll.__takes_wheel(delta)
+            {
+                continue;
+            }
+
+            let z = depth_key(scroll.weak_view());
+
+            if front.as_ref().is_none_or(|(front_z, _)| z <= *front_z) {
+                front = Some((z, scroll));
+            }
+        }
+
+        front.map(|(_, scroll)| scroll)
     }
 
     /// Whether the browser keeps a wheel move, in the delta of the engine,
@@ -334,7 +364,9 @@ impl Input {
             && Self::wheel_scroll().is_none_or(|scroll| !scroll.__takes_wheel_x(delta.x))
     }
 
-    /// The front scrollable view under the cursor, the one a wheel moves.
+    /// The front scrollable view under the cursor, for the sideways swipe
+    /// a browser may keep.
+    #[cfg(wasm)]
     fn wheel_scroll() -> Option<Weak<dyn Scrollable>> {
         let cursor = UIManager::cursor_position();
 

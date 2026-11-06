@@ -250,6 +250,19 @@ impl ScrollView {
         (content - self.width()).max(0.0)
     }
 
+    /// Whether a vertical wheel move by `delta_y` moves the content, the
+    /// clamp of `on_scroll`. At its end the move goes on to the view behind.
+    fn takes_wheel_y(&self, delta_y: f32) -> bool {
+        let height = self.content.height();
+        let size = self.content.content_size.height;
+        if delta_y == 0.0 || height >= size {
+            return false;
+        }
+        let offset = self.content.content_offset();
+        let moved = (offset + delta_y).clamp(-(size - height), 0.0);
+        (moved - offset).abs() >= f32::EPSILON
+    }
+
     /// The same test `on_scroll` uses to refuse a vertical scroll.
     fn has_vertical_range(&self) -> bool {
         self.content.content_size.height > self.content.height()
@@ -567,6 +580,18 @@ impl Scrollable for ScrollView {
         let range = self.range_x();
         let offset = (self.offset_x + delta_x).clamp(-range, 0.0);
         range > 0.0 && (offset - self.offset_x).abs() >= f32::EPSILON
+    }
+
+    fn __takes_wheel(&self, delta: Point) -> bool {
+        // The same 2 rules as `__process_wheel_scroll` and `__scroll_by`
+        // that send a plain wheel sideways.
+        let sideways = delta.x == 0.0
+            && self.range_x() > 0.0
+            && (!self.has_vertical_range() || Input::modifiers().shift_key());
+        if sideways {
+            return self.__takes_wheel_x(delta.y);
+        }
+        self.takes_wheel_y(delta.y) || (delta.x != 0.0 && self.__takes_wheel_x(delta.x))
     }
 
     fn __process_wheel_scroll(&mut self, delta: Point) {

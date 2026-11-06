@@ -53,6 +53,13 @@ at the pointer, see `TouchStack::hover_view_at`. The rows of an open drop down t
 taps and no hover, and the field under the list lit up through them. A button inside a
 hoverable row is inside it, so the row keeps its hover. `Drop down hover under` tests it.
 
+The wheel goes to the front scroll view under the pointer that can move by it, see
+`Input::check_wheel_scroll` and `Scrollable::__takes_wheel`. A scroll view with nothing
+to scroll that way, like a text field with a few lines or a list at its end, passes the
+move on to the one behind it, the way a page in a browser does. The page of a form did
+not scroll while the pointer was over an empty text field. A view that zooms on the
+wheel, like a plot, keeps every move. `Wheel through field` tests it.
+
 ## Test
 
 `Overlay over table` holds a dark overlay as the last child over a table that is
