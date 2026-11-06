@@ -19,19 +19,6 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## A row icon that keeps its own colors
-
-- Current: `RowIcon::file` and `RowIcon::data` always go through `RowIcon::tinted`,
-  which calls `tint_svg` or `Tinted`, see `ui/views/controls/drop_down.rs` line 75. An
-  icon is a black SVG painted in the color of the text of its row. A png, or an SVG
-  that keeps its own colors, cannot stand before a row of `TextDropDown` or in its
-  closed box.
-- Needed: a row icon drawn as it is, from png or SVG bytes, next to the tinted ones of
-  the same list, with the same size and place, in the open list and in the closed box.
-- Blocks: the logos of apps that ship only a color icon, like r2modman and Gale, before
-  their rows in a drop down. The mod manager box of the report page of blackforge waits
-  for it.
-
 ## A packed mesh vertex
 
 - Current: `Vertex3D` is 36 bytes, the position, the normal and the uv as full floats
