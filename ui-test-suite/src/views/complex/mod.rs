@@ -18,6 +18,7 @@ mod drop_down_box_hover;
 mod drop_down_cells;
 mod drop_down_dark;
 mod drop_down_escape;
+mod drop_down_hover_under;
 mod drop_down_in_modal;
 mod drop_down_outside_tap;
 mod drop_down_over_button;

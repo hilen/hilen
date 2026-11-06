@@ -48,6 +48,11 @@ Hover, the wheel and the pinch pick the view in front by its z, see `depth_key`.
 does not, it follows the order the views turned their touch on, see
 [canvas.md](canvas.md).
 
+A hover view gets no hover when a touch view that is not inside it lies in front of it
+at the pointer, see `TouchStack::hover_view_at`. The rows of an open drop down take
+taps and no hover, and the field under the list lit up through them. A button inside a
+hoverable row is inside it, so the row keeps its hover. `Drop down hover under` tests it.
+
 ## Test
 
 `Overlay over table` holds a dark overlay as the last child over a table that is

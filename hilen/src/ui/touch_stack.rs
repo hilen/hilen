@@ -96,23 +96,39 @@ impl TouchStack {
     /// the hover and not the row. Registration order would pick the row,
     /// since a parent's setup runs after its children's. A view clipped
     /// out of a scroll view is not drawn at `point` and never hovers there.
+    ///
+    /// A touch view drawn in front of the hover view at `point`, and not
+    /// inside it, takes the pointer, and nothing hovers. The rows of an open
+    /// drop down take no hover, and the field under the list lit up through
+    /// them.
     pub(crate) fn hover_view_at(point: Point) -> Option<WeakView> {
         let this = Self::get();
         let layer = this.stack.last();
         let under =
             |view: &WeakView| view.is_ok() && !view.is_hidden_in_tree() && view.contains_visible(point);
 
-        if let Some(view) = layer.high_hovered().iter().rev().find(|view| under(view)) {
-            return Some(*view);
-        }
+        let found = layer
+            .high_hovered()
+            .iter()
+            .rev()
+            .find(|view| under(view))
+            .copied()
+            .or_else(|| {
+                let mut front: Option<WeakView> = None;
+                for view in layer.plain_hovered().iter().rev().filter(|view| under(view)) {
+                    if front.is_none_or(|front| depth_key(*view) < depth_key(front)) {
+                        front = Some(*view);
+                    }
+                }
+                front
+            })?;
 
-        let mut front: Option<WeakView> = None;
-        for view in layer.plain_hovered().iter().rev().filter(|view| under(view)) {
-            if front.is_none_or(|front| depth_key(*view) < depth_key(front)) {
-                front = Some(*view);
-            }
-        }
-        front
+        let key = depth_key(found);
+        let covered = layer
+            .views()
+            .iter()
+            .any(|other| under(other) && depth_key(*other) < key && !is_inside(*other, found));
+        (!covered).then_some(found)
     }
 
     /// The view under `point` that takes a pinch, the one drawn in front
@@ -380,4 +396,16 @@ fn find_view(view: WeakView, target: RawPointer) -> Option<WeakView> {
         return Some(view);
     }
     view.subviews().iter().find_map(|sub| find_view(sub.weak_view(), target))
+}
+
+/// `view` is `outer` or lies inside it.
+fn is_inside(view: WeakView, outer: WeakView) -> bool {
+    let mut cur = view;
+    while cur.is_ok() {
+        if cur.raw() == outer.raw() {
+            return true;
+        }
+        cur = *cur.superview();
+    }
+    false
 }
