@@ -137,6 +137,14 @@ pub trait App {
         hilen_start_with_app(Box::new(Self::default()));
     }
 
+    /// A path on the origin of the page, like `/api/visit`, that takes the
+    /// visit reports of the browser build: a panic as it happens, and on
+    /// the next start a visit that froze or died. `None` keeps them off.
+    /// Native builds never read it. See `docs/web-visit.md`.
+    fn visit_report_path(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Returns a Sentry DSN, `None` to disable Sentry, or a configuration
     /// error.
     fn sentry_url(&self) -> PinnedFuture<Option<String>> {

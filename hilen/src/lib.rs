@@ -31,6 +31,7 @@ mod level_drawer;
 mod scene_drawer;
 mod web;
 mod web_log;
+mod web_visit;
 
 mod app;
 mod app_starter;

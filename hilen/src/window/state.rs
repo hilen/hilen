@@ -240,6 +240,8 @@ impl State {
                     .into();
 
                     info!("surface created");
+                    #[cfg(wasm)]
+                    crate::web_visit::step("surface");
                 }
 
                 surface.as_ref().unwrap().presentable.configure(
@@ -373,6 +375,16 @@ impl State {
             || kept::keeps_through_scene()
     }
 
+    fn present(surface_texture: wgpu::SurfaceTexture) {
+        #[cfg(all(feature = "inspect", apple))]
+        if let Some(handler) = frame_control::presented_handler() {
+            wgpu_hal::metal::on_next_presented(handler);
+        }
+        Window::queue().present(surface_texture);
+        #[cfg(wasm)]
+        crate::web_visit::frame();
+    }
+
     pub(crate) fn render(&mut self) {
         #[cfg(desktop)]
         if Window::is_resizing() {
@@ -498,11 +510,7 @@ impl State {
         self.frame_work_time = self.update_work + work_started.elapsed().as_secs_f32();
 
         if let Some(surface_texture) = surface_texture {
-            #[cfg(all(feature = "inspect", apple))]
-            if let Some(handler) = frame_control::presented_handler() {
-                wgpu_hal::metal::on_next_presented(handler);
-            }
-            Window::queue().present(surface_texture);
+            Self::present(surface_texture);
         }
         super::gpu_capture::end_frame();
 

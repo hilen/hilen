@@ -56,6 +56,8 @@ impl crate::window::WindowEvents for AppRunner {
             );
 
             debug!("UI initialized");
+            #[cfg(wasm)]
+            crate::web_visit::step("ui");
 
             if let Some(theme) = Window::system_theme() {
                 Theme::set_system(theme.into());

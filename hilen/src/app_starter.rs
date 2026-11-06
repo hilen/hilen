@@ -235,6 +235,10 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
 
         log::info!("Hello from wasm");
 
+        if let Some(path) = app.visit_report_path() {
+            crate::web_visit::start(path);
+        }
+
         #[cfg(feature = "bug-report")]
         start_web_reports(std::ops::Deref::deref(&app));
     }

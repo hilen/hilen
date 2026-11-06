@@ -359,12 +359,20 @@ impl Window {
         #[cfg(not_wasm)]
         let instance = Self::instance();
 
+        #[cfg(wasm)]
+        crate::web_visit::step("instance");
+
         let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
 
         let info = adapter.get_info();
         set_adapter(&info);
 
         info!("Backend: {}", info.backend);
+        #[cfg(wasm)]
+        crate::web_visit::step(format!(
+            "adapter {} {} {} {}",
+            info.backend, info.name, info.driver, info.driver_info
+        ));
 
         // Everything down the line asks for the render format, so the
         // browser canvas format resolves first.
@@ -372,6 +380,8 @@ impl Window {
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
         let (device, queue) = Self::request_device(&adapter).await?;
+        #[cfg(wasm)]
+        crate::web_visit::step("device");
 
         // A browser reports a failed pipeline or a bad draw through this
         // event and otherwise carries on, every later frame of the page

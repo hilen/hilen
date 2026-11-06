@@ -382,6 +382,7 @@ pub(crate) fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         console_error_panic_hook::hook(info);
         report_panic(info);
+        crate::web_visit::report_panic(info);
         #[cfg(feature = "bug-report")]
         crate::bug_report::report_panic(info);
     }));

@@ -372,14 +372,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::RunTests { only, timeout } => run_tests(client, only, timeout).await?,
         Command::BuildTime => build_time(client).await?,
         Command::RenderInfo => render_info(client, InspectorCommand::RenderInfo).await?,
-        Command::Damage { state } => {
-            let on = match state.as_str() {
-                "on" => true,
-                "off" => false,
-                other => anyhow::bail!("damage takes on or off, not {other}"),
-            };
-            render_info(client, InspectorCommand::SetDamage { on }).await?;
-        }
+        Command::Damage { state } => damage(client, &state).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
         Command::App { name, args } => {
@@ -441,6 +434,15 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn damage(client: &Client, state: &str) -> Result<()> {
+    let on = match state {
+        "on" => true,
+        "off" => false,
+        other => anyhow::bail!("damage takes on or off, not {other}"),
+    };
+    render_info(client, InspectorCommand::SetDamage { on }).await
 }
 
 /// The commands that send an input, with the frame record and the frame

@@ -226,6 +226,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
   app has. Also how a binding like Cmd and B fires on any keyboard layout, Cyrillic
   and Greek included. Read before touching `hilen/src/ui/focus.rs`, the keymap or key
   handling in `input.rs`.
+- [docs/web-visit.md](docs/web-visit.md) — the visit record of a page, kept in local
+  storage step by step so a browser that froze or died can still report the visit on
+  the next start, `App::visit_report_path`, the steps, the panic report. Read before
+  touching `web_visit.rs` or the report path of an app.
 - [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: `make webos`, the
   `[webos]` table of `hilen.toml`, the Chromium 79 build flags, the start script rewrite, what the TV needed from the engine, the plain
   canvas format, no texture copy, 1 sample, lazy pictures, shared text pipelines, and
