@@ -40,7 +40,9 @@ read, and the poll needs the code that came that way. The server half is
   `hilen-login-same-tab` and its own address under `hilen-login-return-<challenge>`, then
   sends `page=1`. The last page of the login writes the code into `localStorage` of the
   origin of the server under `hilen-login-<challenge>` and sends the browser back to the
-  kept address, only to a path on the same site. At the next start `Login::set_server`
+  kept address, only to a path on the same site. The script reads that address with
+  `new URL(back, location.origin)` and goes there only when its origin is the site's,
+  since a browser reads a text like `/\evil.com` as another site. At the next start `Login::set_server`
   finds the kept login and finishes it, and `Login::changed()` tells the app to read
   `Login::active_user` again. A page that comes back with no code, the user went back
   from the provider, drops the kept login. The `done` of `Login::start` runs on the web

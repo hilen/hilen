@@ -419,8 +419,11 @@ fn hand_back_page(app: &str, finished: &Finished) -> Response {
         }
         (HandBack::Page, Some(code)) => {
             // The key and the code are hex, nothing in them needs escaping.
+            // The saved address is read the way the browser reads it, so
+            // `/\evil.com`, which a browser takes as `//evil.com`, never leaves
+            // the site. A text no address can be made of stays on this page.
             let script = format!(
-                r#"try {{ localStorage.setItem("{}", "{code}"); const back = localStorage.getItem("{}"); if (back && back.startsWith("/") && !back.startsWith("//")) {{ localStorage.removeItem("{}"); location.replace(back); }} }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}"#,
+                r#"try {{ localStorage.setItem("{}", "{code}"); const back = localStorage.getItem("{}"); if (back) {{ localStorage.removeItem("{}"); let target = null; try {{ target = new URL(back, location.origin); }} catch (bad) {{ target = null; }} if (target && target.origin === location.origin) {{ location.replace(target.href); }} }} }} catch (error) {{ document.querySelector("p").textContent = "This browser does not let the page hand the sign in over. Allow the site to store data and start again."; }}"#,
                 HandBack::storage_key(&finished.challenge),
                 HandBack::return_key(&finished.challenge),
                 HandBack::return_key(&finished.challenge)
@@ -697,11 +700,15 @@ mod test {
         let page = String::from_utf8(body.to_vec())?;
         assert!(page.contains(&HandBack::storage_key(&challenge)), "{page}");
         assert!(page.contains(&HandBack::return_key(&challenge)), "{page}");
-        assert!(page.contains("location.replace(back)"), "{page}");
+        assert!(page.contains("location.replace(target.href)"), "{page}");
+        // A check of the text alone let `/\evil.com` through, a browser
+        // reads it as `//evil.com`.
         assert!(
-            page.contains(r#"back.startsWith("/") && !back.startsWith("//")"#),
+            page.contains("target = new URL(back, location.origin)")
+                && page.contains("target.origin === location.origin"),
             "only an address of the site: {page}"
         );
+        assert!(!page.contains("startsWith"), "{page}");
         assert!(csp.contains("script-src 'sha256-"), "{csp}");
         Ok(())
     }
