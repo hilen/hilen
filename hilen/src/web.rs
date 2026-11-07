@@ -186,6 +186,14 @@ pub(crate) fn touch_is_main_input() -> bool {
         .is_some_and(|query| query.matches())
 }
 
+/// An LG TV. It names webOS in its user agent, the C1 with a zero for the
+/// letter o, `Web0S`.
+pub(crate) fn is_webos() -> bool {
+    web_sys::window()
+        .and_then(|window| window.navigator().user_agent().ok())
+        .is_some_and(|agent| agent.contains("Web0S") || agent.contains("webOS"))
+}
+
 /// Where the canvas sits in the page, in CSS pixels, with the CSS pixels
 /// one device pixel is. An element of the page is laid over or under a view
 /// with it.

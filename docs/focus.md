@@ -23,6 +23,13 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
   only brings it back. A pointer that only moves hides it too, but the next arrow moves
   the ring on from where it was, a remote with a pointer moves it with a small move of
   the hand. The test is `Key focus pointer`.
+- On an LG TV a pointer puts the ring on the smallest view under it instead, and the
+  ring stays. Its Magic Remote shows the pointer at any move of the hand, and OK is
+  then a click at the pointer, so the ring has to sit where that click lands. Over no
+  view the ring hides and the next arrow goes on from where it was. `is_webos` in
+  `web.rs` reads the user agent, `Focus::set_pointer_moves_ring` turns it on or off on
+  any system. The test is `Key focus pointer menu`, proven on an LG C1 with a Magic
+  Remote in the subtitle menu of flixen on 2026-11-07.
 - The gap along the move counts once, the gap across it 4 times, so a view straight
   ahead wins over a nearer one that sits diagonally.
 - A move with nothing ahead scrolls the scroll view the ring is in and looks again for
@@ -115,6 +122,6 @@ with `Focus::set_enabled(false)`. The keymap takes Ctrl for Cmd on every system,
 binding that must not fire on Ctrl checks `Keys::modifiers().super_key()` itself.
 
 The tests are `Key focus`, `Key focus table`, `Key focus modal`, `Key focus long
-press`, `Key focus pointer`, `Drop down escape` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
-of an Apple TV drives it in the simulator, see [tvos.md](tvos.md). The remote of a
-real TV was not tried yet, see [roadmap.md](roadmap.md).
+press`, `Key focus pointer`, `Key focus pointer menu`, `Drop down escape` and `Navigation escape`. The scoring has unit tests in `focus.rs`. The remote
+of an Apple TV drives it in the simulator, see [tvos.md](tvos.md). The Magic Remote
+of an LG C1 drove a menu on 2026-11-07.

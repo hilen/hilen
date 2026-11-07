@@ -187,26 +187,6 @@ The Mac is done, see [open-files.md](open-files.md).
   on iOS and Android.
 - Blocks: Open With and a double click on a file for an app on these platforms.
 
-## Back and the pointer with the ring of a TV remote
-
-Pin `31f6ce82`.
-
-- Current:
-  - Back or Escape with the list of a `DropDown` open in a modal closes the whole
-    modal. `DropDown` closes its list only on a touch outside, `drop_down.rs:397`, it
-    has no Escape binding and its `close` is private, so an app can not do it.
-  - A pointer that moves hides the ring, `Focus::pointer_used` in `focus.rs`. The next
-    arrow only shows the ring again and does not move it, `Focus::go`. On a TV with a
-    Magic Remote a small move of the hand costs a key press. What OK does while the
-    pointer of a Magic Remote shows was not checked with a real remote.
-- Needed:
-  - Escape closes an open `DropDown` list first and nothing else, the ring goes back to
-    its box. A UI test beside `Key focus modal`.
-  - An arrow after a pointer move hid the ring moves it from where it was. The first
-    key with no ring before it still only shows the ring. A UI test beside `Key focus`.
-- Blocks: the language picker of the subtitle search of flixen, and the subtitle menu
-  with a Magic Remote in the hand.
-
 ## Speech to text on Android and in a browser
 
 The `speech` feature hears the microphone on macOS, iOS, Windows and Linux, see

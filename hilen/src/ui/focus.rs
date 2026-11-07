@@ -165,6 +165,8 @@ struct State {
     held:          Option<Point>,
     /// The view whose tooltip the ring asked for, null while no ring shows.
     tip:           WeakView,
+    /// Set by the app or a test, none keeps the default of the system.
+    pointer_moves: Option<bool>,
 }
 
 static STATE: WindowLock<State> = WindowLock::new();
@@ -189,6 +191,18 @@ impl Focus {
         if !enabled {
             Self::hide();
         }
+    }
+
+    /// On, a pointer puts the ring on the view under it instead of hiding
+    /// it. On by default on an LG TV: its Magic Remote shows the pointer at
+    /// any move of the hand, and OK is then a click at the pointer, so the
+    /// ring has to sit where that click lands.
+    pub fn set_pointer_moves_ring(on: bool) {
+        STATE.get_mut().pointer_moves = Some(on);
+    }
+
+    fn pointer_moves_ring() -> bool {
+        STATE.get_mut().pointer_moves.unwrap_or_else(default_pointer_moves_ring)
     }
 
     pub fn set_ring_color(color: impl Into<UIColor>) {
@@ -275,11 +289,16 @@ impl Focus {
         state.rect = Rect::default();
         state.disabled = false;
         state.color = None;
+        state.pointer_moves = None;
     }
 
     /// A pointer that moves or presses takes over from the keys.
     pub(crate) fn pointer_used(touch: &Touch) {
         if touch.id == FOCUS_TOUCH_ID {
+            return;
+        }
+        if Self::pointer_moves_ring() && Self::active() {
+            Self::follow_pointer(touch.position * (1.0 / UIManager::scale()));
             return;
         }
         if STATE.get_mut().shown {
@@ -288,6 +307,38 @@ impl Focus {
         } else if !touch.is_moved() {
             STATE.get_mut().pointer_moved = false;
         }
+    }
+
+    /// The ring goes to the view under the pointer and shows. Over no view
+    /// it hides, a click there taps nothing the ring could show, and the
+    /// next arrow goes on from the view it was on.
+    fn follow_pointer(position: Point) {
+        let under = candidates()
+            .into_iter()
+            .filter(|candidate| candidate.rect.contains(position))
+            // The smallest view under the pointer wins, a button inside a
+            // cell over the cell.
+            .min_by(|a, b| area(&a.rect).total_cmp(&area(&b.rect)));
+        let Some(under) = under else {
+            if STATE.get_mut().shown {
+                log::debug!("focus: the pointer at {position:?} is over no view, the ring hides");
+                Self::hide();
+                STATE.get_mut().pointer_moved = true;
+            }
+            return;
+        };
+        let state = STATE.get_mut();
+        if state.shown && state.target.is_some_and(|target| target.same(under.target)) {
+            return;
+        }
+        let label = under.target.view().map_or_default(|view| view.label().to_string());
+        log::debug!("focus: the pointer at {position:?} puts the ring on {label:?}");
+        let state = STATE.get_mut();
+        state.target = Some(under.target);
+        state.shown = true;
+        state.pointer_moved = false;
+        state.pending = None;
+        Self::place_ring();
     }
 
     /// True when the focus took the key, nothing else sees it then. A
@@ -618,6 +669,16 @@ fn in_top_layer(view: WeakView) -> bool {
         }
         current = parent;
     }
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+fn default_pointer_moves_ring() -> bool {
+    crate::web::is_webos()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn default_pointer_moves_ring() -> bool {
     false
 }
 
