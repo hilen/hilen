@@ -70,8 +70,7 @@ tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`,
 ## wgpu-text
 
 Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master after the merge
-of #48, with 9 commits on top. `Pipeline::new` has 8 arguments there, 1 over the clippy
-limit, since the gradient commit. The examples do not build there, they still import
+of #48, with 10 commits on top. The examples do not build there, they still import
 `wgpu_text` and the crate is renamed.
 
 What upstream already has from us, so the fork no longer carries it:
@@ -108,9 +107,14 @@ targets and hilen renders into plain Unorm since 2026-07-26, see
 [colors.md](colors.md), so it never ran. The old heads of that day are
 `pin-2026-09-19`, `pin-2026-09-19b` and `pin-2026-09-19c`.
 
-The newest commit is `BrushBuilder::with_multithread`. It passes the `multithread`
-switch of `glyph_brush` through, so a hot build keeps the glyph cache off the global
-rayon pool, see [hot-reload.md](hot-reload.md).
+`BrushBuilder::with_multithread` passes the `multithread` switch of `glyph_brush`
+through, so a hot build keeps the glyph cache off the global rayon pool, see
+[hot-reload.md](hot-reload.md).
+
+The newest commit tests a texture write of a later batch against the atlas slot of
+each drawn glyph, not against its quad, see [text.md](text.md). The brush now gets
+the shared pipelines and passes them to `Pipeline::new`, which takes 4 arguments and
+is under the clippy limit again.
 
 The second color per section, the stem darkening entry point, the effect pipeline
 for outlines and soft shadows, see [text.md](text.md), and the `hilen-wgpu`

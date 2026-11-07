@@ -27,7 +27,15 @@ write of a later batch lands on a glyph an earlier batch of the frame still draw
 the writes go into a copy of the atlas, the earlier draw keeps the old one, and
 the next frame starts with an atlas of double size. The copy is written from the
 pixels the fork keeps in memory, not copied on the GPU, a texture to texture copy
-made an LG TV drop its WebGL context, see [webos.md](webos.md). `Clipped text batches` and
+made an LG TV drop its WebGL context, see [webos.md](webos.md).
+
+The test is on the atlas slot of a drawn glyph: its box and the 1 texel of padding
+the cache puts around it, the most any shader reads. It is not on the quad, which
+the stem darkening or a spread grows past the slot. The cache packs a new glyph
+right after the slot of the last one in its row. A test on the quad took each such
+glyph for an overwrite, and each one copied and doubled the whole atlas. In
+kukareker that froze each click on a file of a diff for 0.8 to 3.5 seconds, with a
+peak of 30 GB of memory. `Clipped text batches` and
 `Text corruption` pin it. The engine used to queue every visible label once before
 drawing to keep the atlas stable, that preload pass is gone.
 
