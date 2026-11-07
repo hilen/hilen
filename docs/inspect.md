@@ -502,6 +502,13 @@ the Mac.
   worker did not run, `check_worker` in `web_transport.rs`, and the log reaches
   the bridge. On 2026-11-05 a module page built with no `module-workers` answered
   no command on an iPhone, and its log said nothing about why.
+- A dev package also gets `--no-wasm-code-gc` in `v8ExtraFlags`, `_DEV_V8_FLAGS` in
+  `build/web/webos.py`. V8 of Chromium 79 aborts the inspector worker when its wasm
+  code GC frees code while the worker waits in `memory.atomic.wait`, `MetadataLock`
+  in `trap-handler/handler-shared.cc` under `Runtime_WasmI32AtomicWait`. Liftoff code
+  that tier up replaced is freed that way about 1.5 s after the start. In the
+  Chromium 79.0.3945.79 copy of flixen 6 starts of 6 died before and 0 of 5 after, on
+  2026-11-07. A normal package has no such worker and keeps the GC.
 - Proven on an LG C1 on 2026-10-20: `apps` listed the installed Flixen package, `find`
   read its tree, `screenshot` gave 3840x2160, and its log came in live. A `tap` was not
   tried there.
