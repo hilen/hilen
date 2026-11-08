@@ -43,6 +43,39 @@ fn is_refused(url: &str) -> bool {
     }
 }
 
+/// Whether `leave_for` takes `url`: an absolute `http` or `https` address.
+fn leaves_for(url: &str) -> bool {
+    scheme_of(url).is_some_and(|scheme| scheme == "http" || scheme == "https")
+}
+
+/// Sends the page to `url` in the same browser tab, for a flow that goes to
+/// another site and comes back to an address of the page, like the link of an
+/// account. The page that runs stops there. Outside a browser there is no tab
+/// to leave, so it opens `url` like `open_url`.
+pub fn leave_for(url: impl ToString) -> Result<()> {
+    let url = url.to_string();
+
+    if !leaves_for(&url) {
+        log::warn!("refused to leave for {url:?}, only http and https addresses");
+        return Err(anyhow!("Only http and https addresses"));
+    }
+
+    #[cfg(wasm)]
+    {
+        log::info!("leaving the page for {url}");
+        web_sys::window()
+            .ok_or_else(|| anyhow!("Failed to leave for {url}: no browser window"))?
+            .location()
+            .set_href(&url)
+            .map_err(|err| anyhow!("Failed to leave for {url}: {err:?}"))
+    }
+
+    #[cfg(not(wasm))]
+    {
+        open_url(url)
+    }
+}
+
 pub fn open_url(url: impl ToString) -> Result<()> {
     let url = url.to_string();
 
@@ -142,7 +175,29 @@ fn android_open(url: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_refused, is_safe_link};
+    use super::{is_refused, is_safe_link, leaves_for};
+
+    #[test]
+    fn leave_for_takes_only_http_and_https() {
+        for url in [
+            "https://steamcommunity.com/openid/login?a=b",
+            "http://a.b",
+            "HTTPS://A.B",
+        ] {
+            assert!(leaves_for(url), "{url:?} is left for");
+        }
+        for url in [
+            "mailto:a@b.c",
+            "javascript:alert(1)",
+            "java\tscript:alert(1)",
+            "data:text/html,x",
+            "/servers",
+            "//evil.example",
+            "",
+        ] {
+            assert!(!leaves_for(url), "{url:?} is refused");
+        }
+    }
 
     #[test]
     fn only_http_https_and_mailto_are_safe() {

@@ -34,7 +34,7 @@ pub use locale::{language_code, locale};
 pub(crate) use media_session::deliver as deliver_media_command;
 pub use media_session::{MediaCommand, MediaSession, NowPlaying};
 pub use open_files::OpenFiles;
-pub use open_url::{is_safe_link, open_url};
+pub use open_url::{is_safe_link, leave_for, open_url};
 pub use router::Router;
 #[cfg(wasm)]
 pub(crate) use router::install_popstate_listener;
