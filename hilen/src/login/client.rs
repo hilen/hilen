@@ -290,6 +290,16 @@ impl Login {
         }
     }
 
+    /// `send` for an answer that is a file, its bytes as they came, like a
+    /// log only the logged in user may read. Save them with
+    /// `Paths::save_file_bytes`.
+    pub async fn send_bytes(call: Call) -> Result<Vec<u8>, RequestError> {
+        match Self::token() {
+            Some(token) => call.bearer(token).send_bytes().await,
+            None => Err(RequestError::Unauthorized),
+        }
+    }
+
     /// Who the active session belongs to, for the app launch. `None` when
     /// nobody is active, also when the server no longer knows the session,
     /// which then is forgotten here too. The other sessions stay.

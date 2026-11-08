@@ -139,6 +139,19 @@ impl Call {
     /// Sends the request and parses the answer. An empty answer parses as
     /// `()`.
     pub async fn send<Out: DeserializeOwned>(self) -> Result<Out, RequestError> {
+        let body = self.answer().await?;
+        parse(&String::from_utf8_lossy(&body))
+    }
+
+    /// Sends the request and gives the bytes of the answer as they came,
+    /// like a file. A status that is not a success is an error, as in
+    /// `send`.
+    pub async fn send_bytes(self) -> Result<Vec<u8>, RequestError> {
+        self.answer().await
+    }
+
+    /// The body of a successful answer.
+    async fn answer(self) -> Result<Vec<u8>, RequestError> {
         let Self {
             method,
             url,
@@ -192,10 +205,14 @@ impl Call {
             return Err(RequestError::Unauthorized);
         }
         if !status.is_success() {
-            return Err(RequestError::Status { status, url, body });
+            return Err(RequestError::Status {
+                status,
+                url,
+                body: String::from_utf8_lossy(&body).into_owned(),
+            });
         }
 
-        parse(&body)
+        Ok(body)
     }
 }
 
@@ -204,7 +221,7 @@ async fn send_to_network(
     url: &str,
     headers: BTreeMap<String, String>,
     body: Option<Vec<u8>>,
-) -> Result<(StatusCode, String), reqwest::Error> {
+) -> Result<(StatusCode, Vec<u8>), reqwest::Error> {
     let client = shared_client();
     let mut request = match method {
         Method::Get => client.get(url),
@@ -222,7 +239,7 @@ async fn send_to_network(
 
     let response = request.send().await?;
     let status = response.status();
-    Ok((status, response.text().await?))
+    Ok((status, response.bytes().await?.to_vec()))
 }
 
 fn parse<Out: DeserializeOwned>(body: &str) -> Result<Out, RequestError> {
@@ -243,7 +260,7 @@ mod tests {
     use reqwest::StatusCode;
 
     use super::{Call, RequestError, parse};
-    use crate::deps::netrun::test_server::{Post, PostPatch, start_test_server};
+    use crate::deps::netrun::test_server::{Post, PostPatch, secret_bytes, start_test_server};
 
     #[test]
     fn empty_body_parses_as_null() {
@@ -321,6 +338,29 @@ mod tests {
             .await?;
 
         assert_eq!(seen.2.as_deref(), Some("image/png"));
+
+        Ok(())
+    }
+
+    /// A file that is no text comes back byte for byte, only with the token.
+    #[tokio::test]
+    async fn the_bytes_of_an_answer_come_as_they_are() -> Result<()> {
+        let base_url = start_test_server().await;
+
+        let bytes = Call::get(format!("{base_url}/secret")).bearer("abc").send_bytes().await?;
+        assert_eq!(bytes, secret_bytes());
+
+        let wrong = Call::get(format!("{base_url}/secret")).bearer("xyz").send_bytes().await;
+        assert!(matches!(wrong, Err(RequestError::Unauthorized)));
+
+        let none = Call::get(format!("{base_url}/secret")).send_bytes().await;
+        assert!(matches!(none, Err(RequestError::Unauthorized)));
+
+        let error = Call::get(format!("{base_url}/status/404"))
+            .send_bytes()
+            .await
+            .expect_err("A 404 must not give bytes");
+        assert_eq!(error.status(), Some(StatusCode::NOT_FOUND));
 
         Ok(())
     }

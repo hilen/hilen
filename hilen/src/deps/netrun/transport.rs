@@ -39,7 +39,7 @@ pub struct TransportRequest {
 #[derive(Debug, Clone)]
 pub struct TransportAnswer {
     pub status: StatusCode,
-    pub body:   String,
+    pub body:   Vec<u8>,
 }
 
 pub trait Transport: Send + Sync {
@@ -174,7 +174,7 @@ mod test {
                     });
                     Ok(TransportAnswer {
                         status,
-                        body: seen.to_string(),
+                        body: seen.to_string().into_bytes(),
                     })
                 })
             }

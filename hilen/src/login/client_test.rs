@@ -38,7 +38,7 @@ use crate::{
         hreads::now,
         netrun::{
             rest::{Call, RequestError},
-            test_server::start_test_server,
+            test_server::{secret_bytes, start_test_server},
         },
     },
     login::{Login, LoginUser},
@@ -506,6 +506,28 @@ async fn send_adds_the_session_token_and_sends_nothing_without_one() -> Result<(
     // A request that went out would get a 200 with no header in it.
     SessionStore::clear()?;
     let logged_out = Login::send::<Option<String>>(Call::get(&url)).await;
+    assert!(matches!(logged_out, Err(RequestError::Unauthorized)));
+
+    Ok(())
+}
+
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn send_bytes_gives_the_file_only_with_the_session_token() -> Result<()> {
+    let base_url = start_test_server().await;
+    let url = format!("{base_url}/secret");
+    test_root("hilen-login-send-bytes-test");
+
+    SessionStore::add("abc", user("ann"))?;
+    assert_eq!(Login::send_bytes(Call::get(&url)).await?, secret_bytes());
+
+    SessionStore::add("other", user("bob"))?;
+    let other = Login::send_bytes(Call::get(&url)).await;
+    assert!(matches!(other, Err(RequestError::Unauthorized)));
+
+    SessionStore::clear()?;
+    let logged_out = Login::send_bytes(Call::get(&url)).await;
     assert!(matches!(logged_out, Err(RequestError::Unauthorized)));
 
     Ok(())

@@ -61,7 +61,8 @@ pub(crate) async fn start_test_server() -> String {
         .route("/status/{code}", get(status))
         .route("/empty", post(empty))
         .route("/bytes", post(bytes))
-        .route("/file", get(file));
+        .route("/file", get(file))
+        .route("/secret", get(secret));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind the test server");
     let address = listener.local_addr().expect("Failed to read the test server address");
@@ -111,6 +112,19 @@ async fn delete_post() -> Json<Empty> {
 
 async fn file() -> Vec<u8> {
     vec![0x5A; FILE_SIZE]
+}
+
+/// The bytes a file behind a login holds, every byte value and no text.
+pub(crate) fn secret_bytes() -> Vec<u8> {
+    (0..=255).chain([0, 255, 0x89, 0xC3, 0x28]).collect()
+}
+
+/// The bytes of `secret_bytes` for the token `abc`, a 401 for any other.
+async fn secret(headers: HeaderMap) -> Result<Vec<u8>, StatusCode> {
+    match headers.get("authorization").and_then(|value| value.to_str().ok()) {
+        Some("Bearer abc") => Ok(secret_bytes()),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
 }
 
 /// The value of one request header as the server got it.
