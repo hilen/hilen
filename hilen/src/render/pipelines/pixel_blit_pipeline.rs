@@ -6,11 +6,12 @@ use wgpu::{
 
 use crate::{
     gm::flat::Point,
+    image::Image,
     render::{
         device_helper::DeviceHelper,
         uniform::{UniformBind, make_uniform_layout},
     },
-    window::{Window, image::Image},
+    window::Window,
 };
 
 /// Which part of the art resolution texture the level area shows, and at

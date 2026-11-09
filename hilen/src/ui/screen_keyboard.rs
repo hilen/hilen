@@ -13,17 +13,20 @@
 //!
 //! Lengths are in points of the window, the ones `absolute_frame` counts in.
 
+#[cfg(feature = "gpu")]
 use crate::{
-    deps::refs::{Weak, main_lock::MainLock},
-    gm::{Clock, LossyConvert},
-    ui::{
-        ScrollView, TextField, UIEvents, UIManager, View, ViewFrame, ViewSubviews, WeakView,
-        layout::Placement,
-    },
+    deps::refs::Weak,
+    ui::{ScrollView, TextField, UIEvents, UIManager, ViewSubviews, WeakView, layout::Placement},
     window::request_frame,
+};
+use crate::{
+    deps::refs::main_lock::MainLock,
+    gm::{Clock, LossyConvert},
+    ui::{View, ViewFrame},
 };
 
 /// The gap kept between the edited field and the keyboard.
+#[cfg(feature = "gpu")]
 const FIELD_GAP: f32 = 8.0;
 
 /// What the system said about the keyboard, the payload of
@@ -48,12 +51,15 @@ struct State {
     /// How far the screen is moved up for the edited field.
     shift:    f32,
     /// The field the screen was last arranged for.
+    #[cfg(feature = "gpu")]
     arranged: WeakView,
     /// The screen was arranged for the place the keyboard stopped at.
+    #[cfg(feature = "gpu")]
     settled:  bool,
     /// The bottom edge the screen was last moved for, with the gap, where
     /// it is with no shift. The screen comes down by it when the field
     /// let the keys go and the keyboard leaves.
+    #[cfg(feature = "gpu")]
     bottom:   f32,
     /// What the system said last, not started yet. The next frame starts
     /// it. iOS says several things in a row for 1 move, a keyboard that
@@ -105,6 +111,7 @@ impl ScreenKeyboard {
     }
 
     /// The system moves the keyboard to `top`, or away with `None`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn moves_to(top: Option<f32>, duration: f32) {
         log::debug!("screen keyboard moves to {top:?} in {duration} s");
         STATE.get_mut().asked = Some(ScreenKeyboardMove { top, duration });
@@ -114,6 +121,7 @@ impl ScreenKeyboard {
     /// Starts the move the system asked for last. The app hears of it
     /// here, on a frame, and not from inside the change of the selected
     /// view the system said it in.
+    #[cfg(feature = "gpu")]
     fn start_asked() {
         let Some(asked) = STATE.get_mut().asked.take() else {
             return;
@@ -133,6 +141,7 @@ impl ScreenKeyboard {
     }
 
     /// Every frame, before the layout.
+    #[cfg(feature = "gpu")]
     pub(crate) fn update() {
         Self::start_asked();
 
@@ -181,6 +190,7 @@ impl ScreenKeyboard {
     }
 
     /// A test that failed with the keyboard up must not leave it there.
+    #[cfg(feature = "gpu")]
     pub(crate) fn reset() {
         let state = STATE.get_mut();
         *state = State::default();
@@ -188,6 +198,7 @@ impl ScreenKeyboard {
     }
 }
 
+#[cfg(feature = "gpu")]
 fn window_bottom() -> f32 {
     UIManager::window_resolution().height / UIManager::scale()
 }
@@ -205,6 +216,7 @@ fn ease(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+#[cfg(feature = "gpu")]
 fn set_shift(state: &mut State, shift: f32) {
     if (state.shift - shift).abs() < f32::EPSILON {
         return;
@@ -214,6 +226,7 @@ fn set_shift(state: &mut State, shift: f32) {
 }
 
 /// The text field that has the keys now.
+#[cfg(feature = "gpu")]
 fn edited_field() -> WeakView {
     let selected = UIManager::selected_view();
     let editing =
@@ -223,6 +236,7 @@ fn edited_field() -> WeakView {
 
 /// `view` sits in a view that rides on the keyboard, so it is in view
 /// already. Moving the screen for it too would move it twice.
+#[cfg(feature = "gpu")]
 fn follows_keyboard(view: &dyn View) -> bool {
     let mut above = view.weak_view();
     while above.is_ok() {
@@ -243,6 +257,7 @@ fn follows_keyboard(view: &dyn View) -> bool {
 
 /// Scrolls the nearest scroll view around `view` by at most `distance` and
 /// returns how far it went.
+#[cfg(feature = "gpu")]
 fn scroll_up(view: &dyn View, distance: f32) -> f32 {
     if distance <= 0.0 {
         return 0.0;

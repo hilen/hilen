@@ -1,8 +1,8 @@
+#[cfg(feature = "gpu")]
 use super::screen_awake;
-use crate::{
-    deps::refs::main_lock::MainLock,
-    ui::{UIEvent, privacy_cover},
-};
+#[cfg(feature = "gpu")]
+use crate::ui::privacy_cover;
+use crate::{deps::refs::main_lock::MainLock, ui::UIEvent};
 
 static STATE: MainLock<ActivityState> = MainLock::new();
 static CHANGED: UIEvent<bool> = UIEvent::const_new();
@@ -25,12 +25,14 @@ impl AppActivity {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(feature = "gpu")]
 pub(crate) enum ActivityChange {
     Focused(bool),
     Visible(bool),
     Resumed(bool),
 }
 
+#[cfg(feature = "gpu")]
 pub(crate) fn update(change: ActivityChange) {
     let changed = STATE.get_mut().update(change);
     if let Some(active) = changed {
@@ -61,6 +63,7 @@ impl ActivityState {
         self.focused && self.visible && self.resumed
     }
 
+    #[cfg(feature = "gpu")]
     fn update(&mut self, change: ActivityChange) -> Option<bool> {
         let was_active = self.active();
         match change {
@@ -72,7 +75,7 @@ impl ActivityState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::{
         ActivityChange::{Focused, Resumed, Visible},

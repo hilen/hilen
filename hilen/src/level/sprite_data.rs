@@ -9,8 +9,9 @@ use crate::{
         color::{Color, WHITE},
         flat::{Point, PointsPath, Shape, Size},
     },
+    image::Image,
     level::Sprite,
-    window::{VertexBuffer, image::Image},
+    window::VertexBuffer,
 };
 
 const CIRCLE_POINTS: usize = 32;

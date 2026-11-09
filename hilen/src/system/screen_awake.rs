@@ -60,6 +60,7 @@ pub(crate) fn keep_on_for_tests(on: bool) {
     state.apply();
 }
 
+#[cfg(feature = "gpu")]
 pub(crate) fn set_active(active: bool) {
     let state = STATE.get_mut();
     state.active = active;

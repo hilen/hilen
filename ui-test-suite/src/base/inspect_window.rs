@@ -10,8 +10,7 @@ use hilen::{
     },
     refs::{Own, Weak},
     ui::{
-        Button, Color, Label, ModifiersState, Setup, UIManager, View, ViewData, ViewFrame, ViewTest, WHITE,
-        view,
+        Button, Color, Label, Modifiers, Setup, UIManager, View, ViewData, ViewFrame, ViewTest, WHITE, view,
     },
     ui_test::checkpoint,
     window::{AppWindow, WindowLevel, WindowPlace, WindowSpec},
@@ -139,7 +138,7 @@ fn tree_has(window: Option<usize>, id: &str) -> Result<bool> {
 fn tap(window: Option<usize>, id: &str) -> Option<String> {
     let request = UIRequest::Tap {
         view_id:   id.to_string(),
-        modifiers: ModifiersState::empty(),
+        modifiers: Modifiers::empty(),
         right:     false,
         force:     false,
     };
@@ -244,7 +243,7 @@ impl ViewTest for InspectWindow {
 
         let keys = UIRequest::Keys {
             keys:      vec![Key::Char('k')],
-            modifiers: ModifiersState::empty(),
+            modifiers: Modifiers::empty(),
         };
         if let Some(error) = ask(Some(number), keys.into(), error_of) {
             bail!("keys in window {number} failed: {error}");

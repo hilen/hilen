@@ -24,7 +24,7 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use log::{debug, info, warn};
 
-use crate::{app::hilen_project_name, deps::hreads::on_main, filesystem::Paths, window::ready_winit_window};
+use crate::{app::hilen_project_name, filesystem::Paths};
 
 const PORT_FILE: &str = "links.port";
 
@@ -64,8 +64,9 @@ pub(crate) fn start() {
 
     match listen(&port_file, name, |url| {
         super::receive(url, "a second start");
-        on_main(|| {
-            if let Some(window) = ready_winit_window() {
+        #[cfg(feature = "gpu")]
+        crate::deps::hreads::on_main(|| {
+            if let Some(window) = crate::window::ready_winit_window() {
                 window.focus_window();
             }
         });

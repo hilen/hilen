@@ -14,6 +14,7 @@ use crate::{
         flat::Size,
         volume::{Bounds, Mat3, Mat4, Quat, Shape3, Vec3, Vec4},
     },
+    image::{Image, ImageBind, Texture},
     render::{
         MeshKey, MeshPipeline, PicturePipeline, Reach, SceneUniform,
         data::{MeshInstance, WideLine},
@@ -27,13 +28,7 @@ use crate::{
         UIManager,
         ui_drawer::{UIDrawer, set_viewport},
     },
-    window::{
-        Window,
-        image::{Image, ImageBind, Texture},
-        msaa_sample_count,
-        state::State,
-        surface_texture_format,
-    },
+    window::{Window, msaa_sample_count, state::State, surface_texture_format},
 };
 
 static MESH: MainLock<MeshPipeline> = MainLock::new();

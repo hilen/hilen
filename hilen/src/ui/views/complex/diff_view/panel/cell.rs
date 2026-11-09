@@ -296,8 +296,7 @@ impl DiffLineCell {
         label.set_text(text).set_text_size(12).set_text_color(colors::FG);
         match self.panel.runs.get(global) {
             Some(runs) if !runs.is_empty() => {
-                label
-                    .set_color_runs(runs.iter().map(|(range, color)| (range.clone(), UIColor::from(*color))));
+                label.set_color_runs(runs.iter().cloned());
             }
             _ => {
                 label.clear_color_runs();

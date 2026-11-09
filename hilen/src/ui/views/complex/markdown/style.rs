@@ -3,8 +3,8 @@ use crate::ui::code_highlighter::Token;
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::color::Color,
+    text::Font,
     ui::{DynamicColor, Label, UIColor},
-    window::Font,
 };
 
 static STYLE: MainLock<Option<MarkdownStyle>> = MainLock::new();
@@ -172,10 +172,12 @@ impl MarkdownStyle {
 
     /// The test harness gives every test the default look and hands the
     /// app's own style back after the run.
+    #[cfg(feature = "gpu")]
     pub(crate) fn take_global() -> Option<Self> {
         STYLE.get_mut().take()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn restore_global(style: Option<&Self>) {
         *STYLE.get_mut() = style.copied();
     }

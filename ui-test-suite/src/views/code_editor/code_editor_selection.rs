@@ -3,8 +3,7 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        CodeEditor, CodePos, Label, ModifiersState, NamedKey, Setup, UIManager, ViewData, ViewTest, WHITE,
-        view,
+        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, UIManager, ViewData, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key, set_record_probe_count},
 };
@@ -76,20 +75,20 @@ impl ViewTest for CodeEditorSelection {
         check_colors(LINE)?;
 
         click_at(view.editor, CodePos::new(1, 0));
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::ArrowDown);
         inject_named_key(NamedKey::ArrowDown);
         inject_named_key(NamedKey::End);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         let text = view.show("Shift with Down, Down and End from the start of line 2");
         ensure!(
             text == "size = [40, 30, 10];\n\nmodule plate() {",
             "Shift and the arrows selected {text:?}"
         );
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys('a');
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         let text = view.show("Cmd or Ctrl with A takes all");
         ensure!(text == SCAD, "select all took {text:?}");
         check_colors(ALL)?;

@@ -29,6 +29,7 @@ use crate::{
     audio::manager::audio_manager,
     deps::refs::Weak,
     gm::{Clock, flat::Size},
+    image::Image,
     video::{
         PlayerEvent, VideoSource, VideoState, VideoStats,
         audio::{AudioDecoder, SPEEDS},
@@ -47,7 +48,6 @@ use crate::{
         subtitles::Subtitles,
         tracks::{AudioTrack, SubtitleTrack},
     },
-    window::image::Image,
 };
 
 mod faults;

@@ -24,9 +24,9 @@ use super::{
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::LossyConvert,
-    ui::{Input, ModifiersState, ScreenKeyboard, UIManager, view::ViewFrame},
+    ui::{Input, Modifiers, NamedKey, ScreenKeyboard, UIManager, view::ViewFrame},
     web::{canvas, canvas_css_origin},
-    window::{NamedKey, request_frame},
+    window::request_frame,
 };
 
 /// A smaller text makes Safari on an iPhone zoom the page in on a focus.
@@ -223,11 +223,11 @@ fn engine_key(field: Weak<TextField>, key: &str) -> Option<NamedKey> {
 }
 
 fn set_modifiers(event: &KeyboardEvent) {
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SHIFT, event.shift_key());
-    modifiers.set(ModifiersState::CONTROL, event.ctrl_key());
-    modifiers.set(ModifiersState::ALT, event.alt_key());
-    modifiers.set(ModifiersState::SUPER, event.meta_key());
+    let mut modifiers = Modifiers::empty();
+    modifiers.set(Modifiers::SHIFT, event.shift_key());
+    modifiers.set(Modifiers::CONTROL, event.ctrl_key());
+    modifiers.set(Modifiers::ALT, event.alt_key());
+    modifiers.set(Modifiers::META, event.meta_key());
     Input::set_modifiers(modifiers);
 }
 
@@ -474,7 +474,7 @@ pub(super) fn end() {
     if let Some(canvas) = canvas() {
         focus(&canvas);
     }
-    Input::set_modifiers(ModifiersState::empty());
+    Input::set_modifiers(Modifiers::empty());
 }
 
 /// Puts the focus back on the element. A press on the field ends with it, a

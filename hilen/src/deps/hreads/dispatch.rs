@@ -1,7 +1,6 @@
-use std::{
-    mem::take,
-    sync::mpsc::{Receiver, channel},
-};
+#[cfg(any(feature = "gpu", test))]
+use std::mem::take;
+use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::Result;
 // The main thread drains the queue every frame while workers push into
@@ -31,6 +30,7 @@ static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 /// Register a callback that fires whenever work is queued for the main thread
 /// from another thread. An event driven main loop uses this to wake from sleep
 /// and drain the queue, instead of polling every frame just in case.
+#[cfg(any(feature = "gpu", test))]
 pub fn set_dispatch_waker(waker: impl Fn() + Send + Sync + 'static) {
     *WAKER.lock() = Some(Box::new(waker));
 }
@@ -134,6 +134,7 @@ pub fn after(delay: f32, action: impl FnOnce() + Send + 'static) {
     });
 }
 
+#[cfg(any(feature = "gpu", test))]
 pub fn invoke_dispatched() {
     let actions = take(&mut *CALLBACKS.lock());
 

@@ -7,7 +7,7 @@ use hilen::{
         weak_to_id,
     },
     refs::Weak,
-    ui::{Button, ModifiersState, Setup, UIManager, View, ViewFrame, ViewTest, ViewTouch, view},
+    ui::{Button, Modifiers, Setup, UIManager, View, ViewFrame, ViewTest, ViewTouch, view},
 };
 
 /// A tap injected over the inspect protocol can hold modifiers, so a Cmd
@@ -43,7 +43,7 @@ impl Setup for InspectTapModifiers {
 
 /// The tree in the reply holds `Own` pointers, which must drop on the main
 /// thread like the transports do.
-fn send_tap(view_id: String, modifiers: ModifiersState, right: bool) -> Result<()> {
+fn send_tap(view_id: String, modifiers: Modifiers, right: bool) -> Result<()> {
     let response = InspectService::process_command(
         UIRequest::Tap {
             view_id,
@@ -66,19 +66,19 @@ impl ViewTest for InspectTapModifiers {
         let counts = move || from_main(move || (view.plain, view.cmd, view.secondary));
         let button_id = from_main(move || weak_to_id(view.button.weak_view()));
 
-        send_tap(button_id.clone(), ModifiersState::empty(), false)?;
+        send_tap(button_id.clone(), Modifiers::empty(), false)?;
         assert_eq!(counts(), (1, 0, 0));
 
-        send_tap(button_id.clone(), ModifiersState::SUPER, false)?;
+        send_tap(button_id.clone(), Modifiers::META, false)?;
         assert_eq!(counts(), (1, 1, 0));
 
         // The held Cmd released with its request.
         assert!(!from_main(UIManager::command_held));
-        send_tap(button_id.clone(), ModifiersState::empty(), false)?;
+        send_tap(button_id.clone(), Modifiers::empty(), false)?;
         assert_eq!(counts(), (2, 1, 0));
 
         // A right tap fires the secondary action, not the tap.
-        send_tap(button_id, ModifiersState::empty(), true)?;
+        send_tap(button_id, Modifiers::empty(), true)?;
         assert_eq!(counts(), (2, 1, 1));
 
         Ok(())

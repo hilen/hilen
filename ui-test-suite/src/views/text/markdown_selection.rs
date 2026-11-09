@@ -7,8 +7,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        ContextMenu, GRAY, Label, MarkdownView, ModifiersState, Setup, TextAlignment, TextSelection,
-        UIManager, VerticalAlignment, View, ViewData, ViewFrame, ViewTest, WHITE, view,
+        ContextMenu, GRAY, Label, MarkdownView, Modifiers, Setup, TextAlignment, TextSelection, UIManager,
+        VerticalAlignment, View, ViewData, ViewFrame, ViewTest, WHITE, view,
     },
     ui_test::{
         check_colors, inject_keys, inject_modifiers, inject_right_click, inject_touches,
@@ -16,7 +16,7 @@ use hilen::{
     },
 };
 
-use crate::text_points::{click, drag, label_with, point_after, point_of, shown};
+use crate::text_points::{click, drag, label_with, past_double_tap, point_after, point_of, shown};
 
 const TEXT: &str = r"# A heading
 
@@ -729,6 +729,7 @@ impl ViewTest for MarkdownSelection {
                 point_after(label_with(root, "First bullet"), "First"),
             )
         });
+        past_double_tap();
         inject_touches(drag(heading, bullet));
         assert_eq!(
             view.show("drag from the heading into the first bullet"),
@@ -738,6 +739,7 @@ impl ViewTest for MarkdownSelection {
 
         // A word of the code block.
         let answer = from_main(move || point_of(label_with(root, "let answer"), "nswer"));
+        past_double_tap();
         inject_touches(click(answer));
         inject_touches(click(answer));
         assert_eq!(view.show("double click on answer in the code"), "answer");
@@ -750,6 +752,7 @@ impl ViewTest for MarkdownSelection {
                 point_after(label_with(root, "Value"), "Value"),
             )
         });
+        past_double_tap();
         inject_touches(drag(name, value));
         assert_eq!(
             view.show("drag over the 2 head cells of the table"),
@@ -757,9 +760,9 @@ impl ViewTest for MarkdownSelection {
         );
         check_colors(CHECK_3)?;
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("a");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         assert_eq!(view.show("Cmd or Ctrl with A"), drawn());
         check_colors(CHECK_4)?;
 
@@ -769,6 +772,7 @@ impl ViewTest for MarkdownSelection {
             Clipboard::set_in_process(true);
             Clipboard::set_text("not copied yet").expect("the clipboard takes a text");
         });
+        past_double_tap();
         inject_right_click(heading.0, heading.1);
         from_main(|| {
             let menu = ContextMenu::open();
@@ -781,6 +785,7 @@ impl ViewTest for MarkdownSelection {
         check_colors(CHECK_5)?;
 
         let copy = from_main(|| ContextMenu::open().items()[0].absolute_frame().center());
+        past_double_tap();
         inject_touches(click((copy.x, copy.y)));
         from_main(|| {
             assert!(ContextMenu::open().is_null(), "Copy left the menu open");
@@ -804,6 +809,7 @@ impl ViewTest for MarkdownSelection {
             let label = label_with(root, "link to a page");
             (point_of(label, "nk to a page"), point_after(label, "link to a"))
         });
+        past_double_tap();
         inject_touches(click(link));
         assert_eq!(
             tapped.try_recv().ok().as_deref(),
@@ -814,6 +820,7 @@ impl ViewTest for MarkdownSelection {
         // From another place than the click, or the 2 presses are a double
         // click.
         let inside = from_main(move || point_of(label_with(root, "link to a page"), "k to a page"));
+        past_double_tap();
         inject_touches(drag(inside, link_end));
         assert!(tapped.try_recv().is_err(), "a drag over the link tapped it");
         assert_eq!(view.show("drag over the link, it is not tapped"), "k to a");

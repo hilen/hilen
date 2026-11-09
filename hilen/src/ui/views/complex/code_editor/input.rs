@@ -8,8 +8,7 @@ use crate::{
     deps::refs::Weak,
     gm::{LossyConvert, flat::Point},
     system::Clipboard,
-    ui::{ContextMenu, Focus, Input, MenuItem, UIEvents, UIManager, View, ViewFrame, ViewTouch},
-    window::NamedKey,
+    ui::{ContextMenu, Focus, Input, MenuItem, NamedKey, UIEvents, UIManager, View, ViewFrame, ViewTouch},
 };
 
 /// Page Up and Page Down move by the lines on screen less this many, so
@@ -78,7 +77,7 @@ impl CodeEditor {
         };
         match self.click_count {
             1 => {
-                let extend = Input::modifiers().shift_key();
+                let extend = Input::modifiers().shift();
                 self.text.move_to(at, extend);
                 self.dragging = true;
             }
@@ -128,10 +127,10 @@ impl CodeEditor {
 
     fn on_command(mut self: Weak<Self>, ch: char) {
         let modifiers = Input::modifiers();
-        let shift = modifiers.shift_key();
+        let shift = modifiers.shift();
         match ch.to_ascii_lowercase() {
             // Cmd H hides the app on a Mac, so replace is Cmd Alt F there.
-            'f' if modifiers.alt_key() && Platform::MAC => self.find_from_keys(true),
+            'f' if modifiers.alt() && Platform::MAC => self.find_from_keys(true),
             'h' if !Platform::MAC => self.find_from_keys(true),
             'f' => self.find_from_keys(false),
             'g' if shift => self.find_previous(),
@@ -152,12 +151,12 @@ impl CodeEditor {
             return;
         }
         let modifiers = Input::modifiers();
-        let shift = modifiers.shift_key();
+        let shift = modifiers.shift();
         let command = Input::command_held();
         let word = if Platform::MAC {
-            modifiers.alt_key()
+            modifiers.alt()
         } else {
-            modifiers.control_key()
+            modifiers.ctrl()
         };
         // Escape closes an open find bar first.
         if key == NamedKey::Escape && self.find.open {

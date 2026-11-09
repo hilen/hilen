@@ -16,7 +16,8 @@ use crate::{
         LossyConvert,
         flat::{Rect, Size},
     },
-    window::{Display, image::Image},
+    image::Image,
+    window::Display,
 };
 
 /// The Screen Recording permission of macOS. Without it a picture of a

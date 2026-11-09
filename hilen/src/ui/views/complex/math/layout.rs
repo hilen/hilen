@@ -11,7 +11,7 @@ use rustybuzz::ttf_parser::{
 };
 
 use super::parse::{Class, GridKind, Level, Node};
-use crate::{gm::LossyConvert, window::MATH_FONT_DATA};
+use crate::{gm::LossyConvert, text::MATH_FONT_DATA};
 
 /// A glyph or a filled rect of a laid out formula.
 #[derive(Debug, Clone, PartialEq)]

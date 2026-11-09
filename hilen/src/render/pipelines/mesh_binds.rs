@@ -19,16 +19,14 @@ use super::{
 use crate::{
     deps::refs::Weak,
     gm::{flat::Size, volume::Mat4},
+    image::{Image, Texture, TextureRawData},
     render::{
         bind_cache::{CachedBind, StorageKey, cached},
         data::MeshInstance,
         vec_buffer::VecBuffer,
     },
     scene::Sky,
-    window::{
-        Window,
-        image::{Image, Texture, TextureRawData},
-    },
+    window::Window,
 };
 
 /// The frame's view, the sky cube, the sun's shadow map, one layer per

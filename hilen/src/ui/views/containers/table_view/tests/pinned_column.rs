@@ -11,7 +11,7 @@ use crate::{
     },
     gm::color::{Color, WHITE},
     ui::{
-        CellRegistry, Label, ModifiersState, Setup, TableData, TableView, TextAlignment, View, ViewData,
+        CellRegistry, Label, Modifiers, Setup, TableData, TableView, TextAlignment, View, ViewData,
         ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{check_colors, inject_modifiers, inject_scroll, inject_scroll_x, inject_touches},
@@ -214,9 +214,9 @@ impl ViewTest for TablePinnedColumn {
         assert_eq!(SELECTED.lock().deref(), "|3|");
         SELECTED.lock().clear();
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_scroll(-100);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         view.say("Shift plus wheel, 100 more to the left, rows did not move");
         assert_eq!(view.row(1), (0.0, NUMBER_WIDTH - 300.0, MARK_X));
         assert!(from_main(move || view.table.content_offset()).abs() < 0.001);

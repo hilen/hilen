@@ -2,8 +2,8 @@ use crate::{
     deps::refs::Weak,
     filesystem::{FileCategory, PlaceKind},
     gm::color::{Color, WHITE},
+    image::{Image, tint_svg},
     ui::DynamicColor,
-    window::image::{Image, tint_svg},
 };
 
 pub(super) const BACKGROUND: DynamicColor = DynamicColor::new(WHITE, Color::hex("#1E1E20"));

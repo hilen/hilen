@@ -1,3 +1,4 @@
+#[cfg(feature = "gpu")]
 use std::ops::DerefMut;
 
 use educe::Educe;
@@ -8,6 +9,7 @@ use crate::{
     ui::{View, WeakView},
 };
 
+#[cfg(feature = "gpu")]
 type Action = Box<dyn FnMut(&mut dyn View, f32) + Send>;
 
 #[derive(Educe)]
@@ -17,6 +19,7 @@ pub struct UIAnimation {
     pub(crate) view: WeakView,
     animation:       Animation,
     #[educe(Debug(ignore))]
+    #[cfg(feature = "gpu")]
     action:          Action,
     #[educe(Debug(ignore))]
     pub on_finish:   OnceEvent,
@@ -28,13 +31,17 @@ pub struct UIAnimation {
 
 impl UIAnimation {
     pub fn new(action: impl FnMut(&mut dyn View, f32) + Send + 'static) -> Self {
+        // A build with no window draws no frame, nothing would run the action.
+        #[cfg(not(feature = "gpu"))]
+        drop(action);
         Self {
-            view:             Weak::default(),
-            animation:        Animation::default(),
-            action:           Box::new(action),
-            on_finish:        OnceEvent::default(),
-            finish_condition: Function::default(),
-            repeats:          false,
+            view:                           Weak::default(),
+            animation:                      Animation::default(),
+            #[cfg(feature = "gpu")]
+            action:                         Box::new(action),
+            on_finish:                      OnceEvent::default(),
+            finish_condition:               Function::default(),
+            repeats:                        false,
         }
     }
 
@@ -57,6 +64,7 @@ impl UIAnimation {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn active(&self) -> bool {
         if self.view.is_null() {
             return false;
@@ -69,6 +77,7 @@ impl UIAnimation {
         }
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn commit(&mut self) {
         let value = if self.animation.is_empty() {
             0.0

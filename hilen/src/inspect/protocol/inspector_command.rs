@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     gm::color::Color,
-    ui::{ModifiersState, NamedKey},
-    window::KeyCode,
+    ui::{Code, Modifiers, NamedKey},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +176,7 @@ pub enum UIRequest {
     Tap {
         view_id:   String,
         #[serde(default)]
-        modifiers: ModifiersState,
+        modifiers: Modifiers,
         #[serde(default)]
         right:     bool,
         /// Send the touch although another view covers the tap point.
@@ -195,12 +194,12 @@ pub enum UIRequest {
     /// Plays the keys in order with the modifiers held, then releases them.
     Keys {
         keys:      Vec<Key>,
-        modifiers: ModifiersState,
+        modifiers: Modifiers,
     },
     /// Holds physical keys down for `ms`, as `Keys::held` reads them,
     /// then releases them. For input read every frame, like walking.
     Hold {
-        keys: Vec<KeyCode>,
+        keys: Vec<Code>,
         ms:   u32,
     },
     /// A left drag from one window point to another: began, moved steps

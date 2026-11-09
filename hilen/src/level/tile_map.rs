@@ -4,8 +4,8 @@ use crate::{
         LossyConvert,
         flat::{Point, Rect},
     },
+    image::{Image, ToImage},
     level::{LevelBase, LevelManager, TileFrames, TileSides},
-    window::image::{Image, ToImage},
 };
 
 /// Which kind a cell holds, an index from `TileMap::add_kind`.

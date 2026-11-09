@@ -2,9 +2,7 @@ use anyhow::{Result, ensure};
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{
-        Label, ModifiersState, NamedKey, Setup, TextAlignment, TextField, UIManager, ViewData, ViewTest, view,
-    },
+    ui::{Label, Modifiers, NamedKey, Setup, TextAlignment, TextField, UIManager, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key, set_record_probe_count},
 };
 
@@ -183,9 +181,9 @@ fn press(keys: &[NamedKey]) {
 fn chat_box_list(view: Weak<TextFieldTakenKeys>) -> Result<()> {
     from_main(move || view.chat.focus());
     inject_keys("one");
-    inject_modifiers(ModifiersState::SHIFT);
+    inject_modifiers(Modifiers::SHIFT);
     inject_named_key(NamedKey::Enter);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
     inject_keys("two");
     press(&[NamedKey::ArrowUp]);
     inject_keys("X");

@@ -183,26 +183,27 @@ impl Layer {
         // SAFETY: the key is a string, the answer an animation or nil.
         let animation = unsafe { self.layer.animationForKey(&NSString::from_str(ANIMATION)) };
         super::on_layer::LayerState {
-            frame:       Rect::new(
+            frame:              Rect::new(
                 narrow(frame.origin.x),
                 narrow(frame.origin.y),
                 narrow(frame.size.width),
                 narrow(frame.size.height),
             ),
-            pictures:    self.pictures.as_ref().map_or(0, |pictures| pictures.images.len()),
-            animated:    animation.is_some() && !self.layer.isHidden(),
-            flipped:     self.layer.contentsAreFlipped(),
-            y_down:      self.y_down,
-            builds:      0,
-            pictures_id: self.pictures.as_ref().map_or(0, |pictures| Rc::as_ptr(pictures).addr()),
-            root:        Retained::as_ptr(&self.root).addr(),
+            pictures:           self.pictures.as_ref().map_or(0, |pictures| pictures.images.len()),
+            animated:           animation.is_some() && !self.layer.isHidden(),
+            flipped:            self.layer.contentsAreFlipped(),
+            y_down:             self.y_down,
+            builds:             0,
+            pictures_id:        self.pictures.as_ref().map_or(0, |pictures| Rc::as_ptr(pictures).addr()),
+            #[cfg(macos)]
+            root:               Retained::as_ptr(&self.root).addr(),
         }
     }
 }
 
 /// The root layer of the window view of the current window, the one a new
 /// layer goes on, for a test that checks which window a layer is in.
-#[cfg(feature = "ui-tests")]
+#[cfg(all(feature = "ui-tests", macos))]
 pub(super) fn window_root() -> Option<usize> {
     let view = window_view()?;
     // SAFETY: a view of winit, which lives with the window, asked on the

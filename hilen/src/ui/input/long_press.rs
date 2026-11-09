@@ -3,8 +3,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::{
     deps::hreads::after,
     gm::flat::Point,
-    ui::{NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView, input::TouchEvent},
-    window::{MouseButton, slots::WindowLock},
+    ui::{
+        MouseButton, NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView,
+        input::TouchEvent,
+    },
+    window::slots::WindowLock,
 };
 
 struct Pending {

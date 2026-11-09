@@ -10,6 +10,7 @@ use wgpu::{
 use crate::{
     deps::refs::Weak,
     gm::flat::{Point, Size, Vertex2D},
+    image::{Image, RASTER_KEEP_FRAMES},
     render::{
         PipelineShape, WithSamples,
         device_helper::DeviceHelper,
@@ -18,11 +19,7 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{
-        Window,
-        image::{Image, RASTER_KEEP_FRAMES},
-        msaa_sample_count,
-    },
+    window::{Window, msaa_sample_count},
 };
 
 /// What one draw of the image pipeline binds. A raster size selects an

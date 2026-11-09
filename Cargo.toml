@@ -81,6 +81,9 @@ console_log = "1.0"
 contour = { version = "0.13", features = ["f32"] }
 cpal = "0.18"
 ctor = "1.0"
+# The mouse pointer shapes, the same type winit takes.
+cursor-icon = "1.2"
+data-encoding = "2.11"
 dirs = "7.0"
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 dotenvy = "0.15"
@@ -100,6 +103,7 @@ glam = { version = "0.33", features = ["bytemuck"] }
 global-hotkey = "0.9"
 gltf = { version = "1.4", default-features = false, features = ["utils", "names", "KHR_materials_unlit"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
+glyph_brush = "0.7"
 futures-channel = "0.3"
 futures-util = "0.3"
 getrandom = "0.4"
@@ -115,6 +119,7 @@ infisical = "0.0.3"
 http-body-util = "0.1"
 jni = "0.22"
 keepawake = "0.6"
+keyboard-types = { version = "0.8", features = ["serde"] }
 keyring-core = "1.0"
 keyring-store-android = { package = "android-native-keyring-store", version = "1" }
 keyring-store-apple = { package = "apple-native-keyring-store", version = "1" }
@@ -226,7 +231,7 @@ sqlx = { version = "0.9", features = [
   "uuid", "any", "ipnetwork", "json", "rust_decimal",
 ] , default-features = false }
 syn = { version = "3.0", features = ["extra-traits", "full"] }
-syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy", "default-fancy"] }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }
 sys-locale = "0.3"
 sysinfo = { version = "0.39", default-features = false, features = ["component", "disk", "network", "system", "user"] }
 test-log = "0.2"

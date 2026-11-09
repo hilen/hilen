@@ -9,12 +9,13 @@ use crate::{
         color::CLEAR,
         flat::{CornerRadii, Point, Rect},
     },
+    image::Image,
     render::{
         ImageKey,
         data::{RectView, UIImageInstance},
     },
     ui::{UIManager, ViewFrame},
-    window::{Window, image::Image},
+    window::Window,
 };
 
 /// Farther than the root view and every view under it, nearer than the

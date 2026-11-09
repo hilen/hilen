@@ -14,9 +14,8 @@ use rustls::{
     crypto::{CryptoProvider, ring::default_provider, verify_tls12_signature, verify_tls13_signature},
     pki_types::{CertificateDer, ServerName, UnixTime},
 };
-use sha2::{Digest, Sha256};
 
-use crate::deps::netrun::tls::install_provider;
+use crate::deps::netrun::{sha256::sha256_hex, tls::install_provider};
 
 /// A client for a server whose certificate has the SHA-256 `fingerprint`,
 /// in hex. Any other certificate fails the handshake. The name in the URL
@@ -51,7 +50,7 @@ impl ServerCertVerifier for Pinned {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-        if hex::encode(Sha256::digest(end_entity)) == self.fingerprint {
+        if sha256_hex(end_entity) == self.fingerprint {
             Ok(ServerCertVerified::assertion())
         } else {
             Err(Error::InvalidCertificate(

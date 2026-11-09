@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::{Own, Weak},
     game::object::Object,
-    window::image::Image,
+    image::Image,
 };
 
 #[derive(Default)]

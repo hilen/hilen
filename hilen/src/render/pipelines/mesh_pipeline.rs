@@ -28,6 +28,7 @@ use crate::{
         color::Color,
         volume::{Mat4, SkinVertex, Vec3, Vertex3D},
     },
+    image::{Image, Texture},
     render::{
         SHADOW_CASCADES, SceneUniform,
         bind_cache::{CachedBind, StorageKey, cached},
@@ -41,11 +42,7 @@ use crate::{
         vertex_layout::VertexLayout,
     },
     scene::{Mesh, Sky},
-    window::{
-        Window,
-        image::{Image, Texture},
-        msaa_sample_count,
-    },
+    window::{Window, msaa_sample_count},
 };
 
 /// What the mesh and the sky shaders share, prepended to both.

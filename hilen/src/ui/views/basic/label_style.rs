@@ -7,8 +7,8 @@ use zeroize::Zeroizing;
 use crate::{
     deps::refs::weak_from_ref,
     gm::{ToF32, color::Color, flat::Point},
+    text::TextLayout,
     ui::Label,
-    window::TextLayout,
     wipe::joined,
 };
 
@@ -83,10 +83,12 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn text_outline(&self) -> Option<TextOutline> {
         self.text_outline
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn text_shadow(&self) -> Option<TextShadow> {
         self.text_shadow
     }

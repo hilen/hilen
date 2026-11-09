@@ -57,10 +57,10 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
     ui::{
-        Input, LongPress, ModifiersState, NamedKey, Tooltip, Touch, U8Color, UIEvents, UIManager,
-        input::TouchEvent, latin_candidate,
+        Code, Input, LongPress, Modifiers, MouseButton, NamedKey, Tooltip, Touch, U8Color, UIEvents,
+        UIManager, input::TouchEvent, latin_candidate,
     },
-    window::{KeyCode, MouseButton, Window},
+    window::Window,
 };
 
 pub fn test_combinations<const A: usize, Val>(comb: [(&'static str, Val); A]) -> Result<()>
@@ -262,9 +262,9 @@ pub fn inject_key(key: char) {
 }
 
 /// Presses a physical key on a layout that types `typed` on it, like `'и'`
-/// on `KeyCode::KeyB` for Russian. The Latin letter comes from the US place
+/// on `Code::KeyB` for Russian. The Latin letter comes from the US place
 /// of the key, the same on every platform.
-pub fn inject_layout_key(typed: char, code: KeyCode) {
+pub fn inject_layout_key(typed: char, code: Code) {
     from_main(move || Input::on_char(typed, latin_candidate(typed, Some(code), None)));
     human_pause_key();
 }
@@ -292,8 +292,8 @@ pub fn inject_held_key(key: NamedKey, seconds: f32, repeats: usize) {
 }
 
 /// Sets the held modifier keys for the injected keys that follow, until
-/// the next call. `ModifiersState::empty()` releases them.
-pub fn inject_modifiers(modifiers: ModifiersState) {
+/// the next call. `Modifiers::empty()` releases them.
+pub fn inject_modifiers(modifiers: Modifiers) {
     from_main(move || Input::set_modifiers(modifiers));
 }
 

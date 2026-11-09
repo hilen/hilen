@@ -5,6 +5,8 @@ pub(crate) mod pinned;
 pub mod rest;
 #[cfg(all(not_wasm, feature = "infisical"))]
 pub mod secret;
+#[cfg(all(not_wasm, feature = "net"))]
+pub(crate) mod sha256;
 mod system;
 #[cfg(feature = "net")]
 pub(crate) mod test_server;

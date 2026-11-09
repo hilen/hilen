@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 use log::debug;
 
 use crate::deps::{hreads::assert_main_thread, refs::main_lock::MainLock};
@@ -47,7 +47,7 @@ pub(crate) fn within<R>(slot: usize, action: impl FnOnce() -> R) -> R {
 /// The window of `slot` closed. When it was current, the rest of its event
 /// runs as the main window, so a draw for the main window that its action
 /// started does not look for the window that is gone.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn leave(slot: usize) {
     assert_main_thread();
     if CURRENT.compare_exchange(slot, 0, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
@@ -61,7 +61,7 @@ pub(crate) fn generation(slot: usize) -> u32 {
 
 /// A new window takes `slot`. Every value kept for the window that had it
 /// before is made again on its next read.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn renew(slot: usize) {
     assert!(slot > 0, "The main window keeps its slot");
     GENERATIONS[slot].fetch_add(1, Ordering::Relaxed);
@@ -101,7 +101,7 @@ impl<T> WindowLock<T> {
 
     /// Takes the value out of `slot`, for a window that closes and has to
     /// free what it holds now, not at the next open of its slot.
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "gpu"))]
     pub(crate) fn take_from(&self, slot: usize) -> Option<T> {
         self.lock_of(slot).take()
     }
@@ -149,7 +149,14 @@ impl WindowU32 {
     }
 }
 
-#[cfg(test)]
+/// The slots of the windows that are open. A build with no `gpu` feature
+/// opens no window, its views live in the main slot.
+#[cfg(not(feature = "gpu"))]
+pub(crate) fn open_slots() -> Vec<usize> {
+    vec![0]
+}
+
+#[cfg(all(test, feature = "gpu"))]
 mod test {
     use serial_test::serial;
 

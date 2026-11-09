@@ -5,6 +5,7 @@ use hilen::{
         Shape,
         color::{Color, GREEN},
     },
+    image::ToImage,
     level::{
         Banner, LevelCreation, LevelSetup, LevelTest, Light, Sprite, SpriteTemplates, TileKind, TileMap,
         level,
@@ -12,7 +13,6 @@ use hilen::{
     refs::Weak,
     ui::{ImageFilter, Point},
     ui_test::{check_colors, set_record_probe_count},
-    window::image::ToImage,
 };
 
 /// A dark cave: a brick wall far behind, a stone floor, a cutout, a plain

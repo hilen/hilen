@@ -21,10 +21,11 @@ use crate::{
     gm::flat::{Point, Size},
     pipelines::Pipelines,
     ui::{
-        Cursor, Focus, Hover, Input, ScreenKeyboard, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager,
-        ViewData, ViewSubviews, WeakView, damage::Damage, latin_candidate, privacy_cover,
+        Cursor, ElementState, Focus, Hover, Input, MouseButton, NamedKey, ScreenKeyboard, Theme, Touch,
+        TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews, WeakView, damage::Damage,
+        latin_candidate, privacy_cover,
     },
-    window::{ElementState, MouseButton, RenderFrame, Theme as OsTheme, Window, slots},
+    window::{RenderFrame, Theme as OsTheme, Window, slots, winit_keys},
 };
 #[cfg(feature = "level")]
 use crate::{level::LevelManager, level_drawer::LevelDrawer};
@@ -266,19 +267,28 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn key_event(&mut self, event: KeyEvent) {
-        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+        let code = match event.physical_key {
+            PhysicalKey::Code(code) => winit_keys::code(code),
+            PhysicalKey::Unidentified(_) => None,
+        };
+        let named = match &event.logical_key {
+            Key::Named(key) => winit_keys::named_key(*key).map(back_as_escape),
+            _ => None,
+        };
+
+        if let Some(code) = code {
             crate::ui::Keys::set(code, event.state.is_pressed());
         }
 
         if !event.state.is_pressed() {
-            if let Key::Named(key) = event.logical_key {
-                Input::on_key_up(back_as_escape(key));
+            if let Some(key) = named {
+                Input::on_key_up(key);
             }
             return;
         }
 
         #[cfg(feature = "bug-report")]
-        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+        if let Some(code) = code {
             use crate::bug_report::InputRing;
 
             InputRing::record(code);
@@ -289,9 +299,9 @@ impl crate::window::WindowEvents for AppRunner {
             {
                 let modifiers = InputRing::modifiers();
 
-                if code == winit::keyboard::KeyCode::KeyR
-                    && modifiers.shift_key()
-                    && (modifiers.control_key() || modifiers.super_key())
+                if code == crate::ui::Code::KeyR
+                    && modifiers.shift()
+                    && (modifiers.ctrl() || modifiers.meta())
                 {
                     crate::bug_report::BugReport::open();
                 }
@@ -302,29 +312,26 @@ impl crate::window::WindowEvents for AppRunner {
         // key. On a Mac the system takes that key and sends a media command,
         // so an app reads it the same way on both.
         #[cfg(tvos)]
-        if event.logical_key == Key::Named(winit::keyboard::NamedKey::MediaPlayPause) {
+        if named == Some(NamedKey::MediaPlayPause) {
             crate::system::deliver_media_command(crate::system::MediaCommand::Toggle);
             return;
         }
 
-        if let Key::Named(key) = event.logical_key {
-            Input::on_key(back_as_escape(key));
+        if let Some(key) = named {
+            Input::on_key(key);
         }
 
         if let Some(text) = event.logical_key.to_text() {
             let typed = text.chars().last().unwrap();
-            let code = match event.physical_key {
-                PhysicalKey::Code(code) => Some(code),
-                PhysicalKey::Unidentified(_) => None,
-            };
             Input::on_char(typed, latin_candidate(typed, code, system_latin(&event)));
         }
     }
 
     fn modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
-        Input::set_modifiers(modifiers.state());
+        let modifiers = winit_keys::modifiers(modifiers.state());
+        Input::set_modifiers(modifiers);
         #[cfg(feature = "bug-report")]
-        crate::bug_report::InputRing::set_modifiers(modifiers.state());
+        crate::bug_report::InputRing::set_modifiers(modifiers);
     }
 
     fn hovered_file(&mut self, path: PathBuf) {
@@ -358,9 +365,7 @@ fn system_latin(event: &KeyEvent) -> Option<char> {
 
 /// The Back key of a remote or of a keyboard with media keys does what
 /// Escape does on a desktop, it closes the modal or the screen on top.
-fn back_as_escape(key: winit::keyboard::NamedKey) -> winit::keyboard::NamedKey {
-    use winit::keyboard::NamedKey;
-
+fn back_as_escape(key: NamedKey) -> NamedKey {
     match key {
         NamedKey::GoBack | NamedKey::BrowserBack => NamedKey::Escape,
         key => key,

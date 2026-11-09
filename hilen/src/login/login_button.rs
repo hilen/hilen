@@ -3,13 +3,13 @@ use ui_proc::view;
 
 use crate::{
     deps::{refs::Weak, vents::Event},
+    image::Image,
     login::{Login, LoginUser, Provider},
     sign_in_button::{APPLE, DISCORD, GOOGLE, sign_in_button},
     ui::{
         Button, ImageView, Label, RingSpinner, Setup, TextAlignment, Theme, ViewCallbacks, ViewData,
         ViewTouch,
     },
-    window::image::Image,
 };
 
 fn start_google(

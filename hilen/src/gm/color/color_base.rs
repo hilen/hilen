@@ -26,6 +26,7 @@ impl<T> Color<T> {
         Self { r, g, b, a }
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn bgra_to_rgba(self) -> Self {
         Self {
             r: self.b,
@@ -40,6 +41,7 @@ impl Color {
     /// The same color with its alpha scaled by `opacity`, 1 leaves it as it
     /// is.
     #[must_use]
+    #[cfg(feature = "gpu")]
     pub(crate) fn faded(&self, opacity: f32) -> Self {
         Self {
             a: self.a * opacity,
@@ -49,6 +51,7 @@ impl Color {
 }
 
 impl<T: Copy> Color<T> {
+    #[cfg(feature = "gpu")]
     pub(crate) const fn as_slice(&self) -> [T; 4] {
         [self.r, self.g, self.b, self.a]
     }

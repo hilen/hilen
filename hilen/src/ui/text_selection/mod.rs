@@ -14,14 +14,17 @@ mod pieces;
 mod position;
 mod words;
 
+#[cfg(feature = "gpu")]
 use std::collections::HashMap;
 
 use anyhow::Result;
 use log::{debug, warn};
 
+#[cfg(feature = "gpu")]
+use self::pieces::pieces;
 pub(crate) use self::{pieces::texts, position::Lead, words::word_range};
 use self::{
-    pieces::{hit, is_target, pieces, scope_of},
+    pieces::{hit, is_target, scope_of},
     position::{Granularity, Position, Scope},
 };
 use crate::{
@@ -29,24 +32,34 @@ use crate::{
         hreads::on_main,
         refs::{Weak, weak_from_ref},
     },
-    gm::{Clock, LossyConvert, flat::Point},
+    gm::{color::Color, flat::Point},
     system::Clipboard,
     ui::{
-        Input, Label, Mouse, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
+        Input, MouseButton, TableView, Touch, TouchStack, UIManager, View, ViewFrame, WeakView,
         input::TouchEvent, view::DoubleTap, views::COPY_ROOM,
     },
-    window::{MouseButton, request_frame, slots::WindowLock},
+    window::{request_frame, slots::WindowLock},
+};
+#[cfg(feature = "gpu")]
+use crate::{
+    gm::{Clock, LossyConvert},
+    ui::{Label, Mouse, ViewData},
 };
 
 /// A drag this close to the top or the bottom edge of a table scrolls it.
+#[cfg(feature = "gpu")]
 const EDGE: f32 = 24.0;
 /// Points a second the table scrolls per point the pointer is past the
 /// start of the edge zone, and the bounds of that speed.
+#[cfg(feature = "gpu")]
 const SCROLL_GAIN: f32 = 14.0;
+#[cfg(feature = "gpu")]
 const MIN_SCROLL_SPEED: f32 = 60.0;
+#[cfg(feature = "gpu")]
 const MAX_SCROLL_SPEED: f32 = 2400.0;
 /// A frame that took longer scrolls as if it took this long, so a stall
 /// does not throw the list far away.
+#[cfg(feature = "gpu")]
 const MAX_TICK_MS: f64 = 50.0;
 
 /// How far a press may move and still end as a tap.
@@ -100,6 +113,7 @@ impl State {
 struct Shown {
     valid: bool,
     /// By the address of the label.
+    #[cfg(feature = "gpu")]
     place: HashMap<usize, (usize, usize)>,
 }
 
@@ -110,10 +124,14 @@ struct Clicks {
     count: usize,
 }
 
+/// The color over selected text, of a label and of a text field.
+pub(crate) const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
+
 static STATE: WindowLock<Option<State>> = WindowLock::new();
 static SHOWN: WindowLock<Shown> = WindowLock::new();
 static CLICKS: WindowLock<Clicks> = WindowLock::new();
 static TAP: WindowLock<Option<Tap>> = WindowLock::new();
+#[cfg(feature = "gpu")]
 static LAST_TICK_MS: WindowLock<f64> = WindowLock::new();
 
 fn state() -> Option<&'static mut State> {
@@ -130,6 +148,7 @@ fn changed() {
 }
 
 /// The selected part of a label as the drawer needs it.
+#[cfg(feature = "gpu")]
 pub(crate) struct Highlight {
     /// Bytes of the full text of the label.
     pub start:   usize,
@@ -332,7 +351,7 @@ impl TextSelection {
             by_hold: false,
         });
 
-        let extends = Input::modifiers().shift_key();
+        let extends = Input::modifiers().shift();
         match state() {
             Some(state) if extends && state.scope.same(&scope) => {
                 state.granularity = Granularity::Char;
@@ -434,6 +453,7 @@ impl TextSelection {
     }
 
     /// A typed character, with the modifiers held now.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_char(ch: char) {
         // A text field in edit has the keys, its own copy and select all.
         if !Input::command_held() || UIManager::text_editing() {
@@ -457,6 +477,7 @@ impl TextSelection {
     /// Once a frame, before the views update. Follows the pointer of a
     /// drag and scrolls a table whose edge it reached. The pointer can
     /// rest there with no touch event, so this cannot hang on events.
+    #[cfg(feature = "gpu")]
     pub(crate) fn tick() {
         SHOWN.get_mut().valid = false;
 
@@ -603,6 +624,7 @@ impl TextSelection {
     }
 
     /// The selected part of `label`, none when no selection touches it.
+    #[cfg(feature = "gpu")]
     pub(crate) fn highlight(label: &Label) -> Option<Highlight> {
         let state = state_ref()?;
         if state.is_empty() {

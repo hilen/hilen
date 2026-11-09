@@ -109,7 +109,12 @@ impl CodeHighlighter {
     /// For a file by its name or its path, like `a.rs`, `src/x.tsx` or
     /// `Makefile`. None for a file of a language nobody knows.
     pub fn for_file(file_name: &str) -> Option<Self> {
-        Some(Self::with(syntax_for_file(file_name)?, &MarkdownStyle::current()))
+        Self::for_file_styled(file_name, &MarkdownStyle::current())
+    }
+
+    /// `for_file` in the colors of `style`, on any thread.
+    pub(crate) fn for_file_styled(file_name: &str, style: &MarkdownStyle) -> Option<Self> {
+        Some(Self::with(syntax_for_file(file_name)?, style))
     }
 
     /// For a language by the word a markdown code block names it with,

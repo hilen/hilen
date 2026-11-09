@@ -1,11 +1,11 @@
 use anyhow::Result;
 use hilen::{
     gm::Shape,
+    image::ToImage,
     level::{Banner, LevelCreation, LevelSetup, LevelTest, SpriteTemplates, level},
     refs::Weak,
     ui::ImageFilter,
     ui_test::{check_colors, set_record_probe_count},
-    window::image::ToImage,
 };
 
 /// Two 8 pixel tiles drawn 200 pixels wide with the nearest filter, every

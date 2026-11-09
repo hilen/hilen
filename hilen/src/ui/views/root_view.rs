@@ -3,20 +3,20 @@ use ui_proc::view;
 
 use crate::{
     deps::refs::{Own, Weak},
-    gm::{
-        color::CLEAR,
-        flat::{Point, Rect, Size},
-    },
+    gm::flat::{Point, Rect, Size},
+    image::ToImage,
     ui::{
         ImageMode, ImageView, NavigationView, RowDrag, SideSwipe, SystemInsets, UIColor, UIManager, View,
         ViewData, ViewFrame, ViewSubviews, WeakView, view::Setup,
     },
-    window::image::{NoImage, ToImage},
 };
+#[cfg(feature = "gpu")]
+use crate::{gm::color::CLEAR, image::NoImage};
 
 #[view]
 pub struct RootView {
     inner_pos: Point,
+    #[cfg(feature = "gpu")]
     outer_pos: Point,
 
     inner_size: Size,
@@ -26,9 +26,11 @@ pub struct RootView {
 
     /// How far the screen keyboard moved the app views up, see
     /// `ScreenKeyboard`.
+    #[cfg(feature = "gpu")]
     keyboard_shift: f32,
 
     /// The tree change the depths were last set for, see `depth_order`.
+    #[cfg(feature = "gpu")]
     pub(crate) depth_generation: u64,
 
     /// Where the app views sit.
@@ -82,6 +84,7 @@ impl RootView {
 
     /// A test that fails part way through never reaches the line that puts the
     /// root background back. Every later test would then probe those leftovers.
+    #[cfg(feature = "gpu")]
     pub(crate) fn reset_background(&mut self) {
         self.background.set_color(CLEAR);
         self.background.set_image(NoImage);
@@ -103,6 +106,7 @@ impl RootView {
     /// the canvas instead. The rest of the screen just shows the clear color.
     /// Everything that lays out against the root, such as a modal, then lands
     /// where the probes expect it on any screen.
+    #[cfg(feature = "gpu")]
     pub(crate) fn set_test_canvas(mut self: Weak<Self>, canvas: Size) {
         self.test_canvas = canvas.into();
         self.rescale_root(crate::ui::UIManager::scale());
@@ -110,11 +114,13 @@ impl RootView {
 
     /// Unpin the root and let it fill the screen again. A run that leaves the
     /// canvas pinned leaves the app boxed into the test's rectangle.
+    #[cfg(feature = "gpu")]
     pub(crate) fn clear_test_canvas(mut self: Weak<Self>) {
         self.test_canvas = None;
         self.rescale_root(crate::ui::UIManager::scale());
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn resize_root(
         mut self: Weak<Self>,
         inner_pos: Point,
@@ -214,11 +220,13 @@ impl RootView {
     }
 
     /// The background stays, only the app views move.
+    #[cfg(feature = "gpu")]
     pub(crate) fn set_keyboard_shift(mut self: Weak<Self>, shift: f32) {
         self.keyboard_shift = shift;
         self.rescale_root(crate::ui::UIManager::scale());
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn rescale_root(self: Weak<Self>, scale: f32) {
         self.resize_root(
             self.inner_pos,

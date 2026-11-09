@@ -11,11 +11,12 @@ use crate::{
         checked_usize_to_u32,
         flat::{Point, Size, Vertex2D},
     },
+    image::Image,
     render::{
         PipelineShape, buffer_helper::BufferHelper, device_helper::DeviceHelper,
         uniform::make_uniform_layout, vertex_layout::VertexLayout,
     },
-    window::{Window, image::Image, msaa_sample_count},
+    window::{Window, msaa_sample_count},
 };
 
 const VAL: f32 = 100_000.0;

@@ -9,6 +9,7 @@ use crate::{
         LossyConvert,
         flat::{Point, Size},
     },
+    image::{Image, ImageBind, Texture},
     level::{Level, LevelManager},
     render::{
         BackgroundPipeline, MAX_SPRITE_LIGHTS, PixelBlitPipeline, PolygonPipeline, SpriteBoxPipeline,
@@ -16,11 +17,7 @@ use crate::{
         data::{SpriteInstance, TexturedSpriteInstance},
     },
     ui::{UIManager, ui_drawer::set_viewport},
-    window::{
-        Window,
-        image::{Image, ImageBind, Texture},
-        msaa_sample_count,
-    },
+    window::{Window, msaa_sample_count},
 };
 
 /// Everything that draws a level, built for one sample count.

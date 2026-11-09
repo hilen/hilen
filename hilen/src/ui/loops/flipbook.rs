@@ -26,16 +26,17 @@ use super::{
     on_layer::{PixelOrder, RawFrames},
 };
 use crate::{
-    deps::refs::manage::DataManager,
     gm::{
         LossyConvert,
         color::CLEAR,
         flat::{Rect, Size},
     },
+    image::Texture,
     monotonic::monotonic_seconds,
     render::upload_pending,
+    text::TextBrushes,
     ui::{UIDrawer, WeakView},
-    window::{Font, RenderFrame, Window, image::Texture, msaa_sample_count, surface_texture_format},
+    window::{RenderFrame, Window, msaa_sample_count, surface_texture_format},
 };
 
 /// Most bytes of the pictures of 1 loop. A loop that needs more stays on
@@ -104,9 +105,7 @@ pub(super) fn draw(view: WeakView, pixels: Rect<u32>, phases: &[f32], pose: &mut
         UIDrawer::update_subtree(view);
 
         let size: Size<u32> = Window::render_size().lossy_convert();
-        for font in Font::storage_mut().values_mut() {
-            font.begin_frame(size);
-        }
+        TextBrushes::begin_frame(size);
 
         let encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Loop picture"),

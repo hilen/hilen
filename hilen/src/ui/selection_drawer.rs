@@ -8,11 +8,10 @@ use crate::{
     },
     pipelines::Pipelines,
     render::data::UIRectInstance,
-    ui::{Label, TextSelection, View, ViewData, ViewFrame, ui_drawer::UIDrawer},
+    ui::{
+        Label, TextSelection, View, ViewData, ViewFrame, text_selection::SELECTION_COLOR, ui_drawer::UIDrawer,
+    },
 };
-
-/// The color over selected text, of a label and of a text field.
-pub(crate) const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
 
 /// `top` drawn over `bottom` as 1 color, the "over" of alpha blending.
 fn over(top: Color, bottom: Color) -> Color {

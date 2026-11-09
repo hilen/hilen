@@ -1,11 +1,12 @@
 use anyhow::Result;
+use glyph_brush::ab_glyph::{Font as _, PxScale, ScaleFont};
 use rustybuzz::ttf_parser::{Face, GlyphId};
 use ui_proc::view;
-use wgpu_text::glyph_brush::ab_glyph::{Font as _, PxScale, ScaleFont};
 
 use crate::{
     deps::refs::Weak,
     gm::flat::Size,
+    text::{Font, MATH_FONT_DATA},
     ui::{
         Container, Label, RunStyle, TextAlignment, UIColor, UIManager, VerticalAlignment, ViewCallbacks,
         ViewFrame, ViewSubviews,
@@ -15,7 +16,6 @@ use crate::{
             parse::parse,
         },
     },
-    window::{Font, MATH_FONT_DATA},
 };
 
 /// A LaTeX formula drawn like a LaTeX document, with Latin Modern Math.

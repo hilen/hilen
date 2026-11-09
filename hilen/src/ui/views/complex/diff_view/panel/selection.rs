@@ -87,7 +87,11 @@ impl DiffPanel {
     /// clamped into the table and its content, so a drag past an edge
     /// lands on the nearest row. `lock_right` keeps a drag in the half
     /// it began on.
-    fn sel_pos(self: Weak<Self>, position: Point, lock_right: Option<bool>) -> Option<(usize, usize, bool)> {
+    pub(super) fn sel_pos(
+        self: Weak<Self>,
+        position: Point,
+        lock_right: Option<bool>,
+    ) -> Option<(usize, usize, bool)> {
         let x = position.x.clamp(0.0, (self.table.width() - 0.1).max(0.0));
         let y = (position.y - HEADER_H).clamp(0.0, (self.table.height() - 0.1).max(0.0));
         let offset = self.table.content_offset();

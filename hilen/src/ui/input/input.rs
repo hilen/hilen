@@ -1,24 +1,30 @@
+pub use cursor_icon::CursorIcon;
 use log::warn;
 use parking_lot::Mutex;
+#[cfg(feature = "gpu")]
 use winit::event::{MouseScrollDelta, TouchPhase};
-pub use winit::{
-    keyboard::{ModifiersState, NamedKey},
-    window::CursorIcon,
-};
 
+use super::Modifiers;
+#[cfg(feature = "gpu")]
+use super::NamedKey;
 #[cfg(feature = "level")]
 use crate::level::LevelManager;
 #[cfg(feature = "scene")]
 use crate::scene::SceneManager;
 #[cfg(any(desktop, wasm))]
 use crate::ui::Hover;
+#[cfg(feature = "gpu")]
 use crate::{
     deps::refs::Weak,
-    gm::{color::Color, flat::Point},
+    gm::flat::Point,
+    ui::{Cursor, DropDown, Scrollable, TextField, depth_key},
+};
+use crate::{
+    gm::color::Color,
     ui::{
-        Container, Cursor, DropDown, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag,
-        Scrollable, Setup, SideSwipe, TextField, TextSelection, Tooltip, Touch, TouchStack, UIEvents,
-        UIManager, ViewData, ViewFrame, check_touch, depth_key, press_keeps_selection,
+        Container, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Setup, SideSwipe,
+        TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch,
+        press_keeps_selection,
     },
     window::frame_control,
 };
@@ -27,6 +33,7 @@ use crate::{
 /// one line, this is about the Windows default of three text lines. It
 /// used to be 28 and then went through a trackpad factor as well, 7 a
 /// notch, a 30 point row took four notches.
+#[cfg(feature = "gpu")]
 const LINE_SCROLL_POINTS: f32 = 60.0;
 
 /// The points a wheel event moves the content, whichever unit the platform
@@ -34,6 +41,7 @@ const LINE_SCROLL_POINTS: f32 = 60.0;
 /// points, so the content moves exactly as far as the fingers, like in
 /// every other app. It used to move a quarter of the pixels, half the
 /// distance on a 2x screen.
+#[cfg(feature = "gpu")]
 pub(crate) fn wheel_points_at(delta: MouseScrollDelta, scale: f32) -> Point {
     match delta {
         MouseScrollDelta::LineDelta(x, y) => Point::new(x, y) * LINE_SCROLL_POINTS,
@@ -52,7 +60,7 @@ const DRAW_TOUCHES: bool = false;
 #[cfg(wasm)]
 const BROWSER_PINCH_STEP: f32 = 0.01;
 
-static MODIFIERS: Mutex<ModifiersState> = Mutex::new(ModifiersState::empty());
+static MODIFIERS: Mutex<Modifiers> = Mutex::new(Modifiers::empty());
 
 /// The Latin character of the key whose character is being handed out
 /// right now, see `Input::shortcut_char`.
@@ -67,17 +75,19 @@ impl Input {
     /// the end then carries the first delta of the next scroll and that start
     /// arrives with it again. A real end carries no delta, the web views and
     /// the native views of macOS move nothing on it either.
+    #[cfg(feature = "gpu")]
     pub(crate) fn wheel_points(delta: MouseScrollDelta, phase: TouchPhase) -> Option<Point> {
         (phase != TouchPhase::Ended).then(|| wheel_points_at(delta, UIManager::scale()))
     }
 
-    pub(crate) fn set_modifiers(modifiers: ModifiersState) {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn set_modifiers(modifiers: Modifiers) {
         *MODIFIERS.lock() = modifiers;
     }
 
     /// The modifier keys held right now, so a key handler can tell Shift
     /// plus an arrow or Cmd plus a letter from the plain key.
-    pub(crate) fn modifiers() -> ModifiersState {
+    pub(crate) fn modifiers() -> Modifiers {
         *MODIFIERS.lock()
     }
 
@@ -85,12 +95,13 @@ impl Input {
     /// into a command like copy or select all.
     pub(crate) fn command_held() -> bool {
         let modifiers = Self::modifiers();
-        modifiers.super_key() || modifiers.control_key()
+        modifiers.meta() || modifiers.ctrl()
     }
 
     /// A typed character. `latin` is the Latin one of the same key when the
     /// layout typed another, see `latin_candidate`. Bindings and commands
     /// read it, text gets only the typed one.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_char(ch: char, latin: Option<char>) {
         frame_control::input_arrived();
         *LATIN.lock() = latin;
@@ -106,6 +117,7 @@ impl Input {
         LATIN.lock().unwrap_or(ch)
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_key(key: NamedKey) {
         frame_control::input_arrived();
         // A game's Escape gives the mouse back and nothing else sees it.
@@ -134,6 +146,7 @@ impl Input {
     }
 
     /// The release of a key. Only the key focus reads it, for a held Enter.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_key_up(key: NamedKey) {
         Focus::on_key_up(key);
     }
@@ -141,6 +154,7 @@ impl Input {
     /// A pinch on a trackpad. `growth` is the share the content grew by
     /// since the last event, what macOS calls the magnification. The view
     /// under the cursor at the start keeps the pinch until it ends.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_trackpad_pinch(growth: f32, phase: TouchPhase) {
         match phase {
             TouchPhase::Started => PinchInput::begin(UIManager::cursor_position()),
@@ -154,11 +168,12 @@ impl Input {
     }
 
     /// A turn of the wheel as the window reports it.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_wheel(delta: Point) {
         // A browser reports a pinch on a trackpad as a wheel turn with
         // Ctrl held, it has no pinch event of its own.
         #[cfg(wasm)]
-        if Self::modifiers().control_key() {
+        if Self::modifiers().ctrl() {
             let growth = -delta.y * BROWSER_PINCH_STEP;
             PinchInput::step(1.0 + growth, UIManager::cursor_position(), Point::default());
             return;
@@ -166,6 +181,7 @@ impl Input {
         Self::on_scroll(delta);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_scroll(offset: Point) {
         frame_control::input_arrived();
         UIEvents::on_scroll().trigger(offset);
@@ -322,6 +338,7 @@ impl Input {
     /// A scroll view that cannot move by `delta`, like a text field with
     /// nothing to scroll or a list at its end, passes the move on to the
     /// next one behind it, the way a page in a browser does.
+    #[cfg(feature = "gpu")]
     fn check_wheel_scroll(delta: Point) {
         if let Some(mut scroll) = Self::wheel_scroll_taking(delta) {
             scroll.__process_wheel_scroll(delta);
@@ -330,6 +347,7 @@ impl Input {
 
     /// The front scrollable view under the cursor that a wheel move by
     /// `delta` moves.
+    #[cfg(feature = "gpu")]
     fn wheel_scroll_taking(delta: Point) -> Option<Weak<dyn Scrollable>> {
         let cursor = UIManager::cursor_position();
 
@@ -388,7 +406,7 @@ impl Input {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod wheel_tests {
     use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
 

@@ -303,7 +303,7 @@ impl MarkdownView {
             let y = frame.origin.y + top * layout.line_height + rise - laid.ascent;
             let view = self.add_view::<MathView>();
             view.set_color(color);
-            view.set_font(crate::window::Font::math_darkened(
+            view.set_font(crate::text::Font::math_darkened(
                 MarkdownStyle::current().math_darkening,
             ));
             let size = view.set_box(laid);
@@ -802,7 +802,7 @@ impl MarkdownView {
         let pad = (style.text_size * DISPLAY_PAD).round();
         let view = self.add_view::<MathView>();
         view.set_color(column.color);
-        view.set_font(crate::window::Font::math_darkened(style.math_darkening));
+        view.set_font(crate::text::Font::math_darkened(style.math_darkening));
         let laid_size = view.set_box(laid);
         let x = column.x + column.margin + ((room - laid_size.width) / 2.0).max(0.0);
         view.set_frame((x, *y + pad, laid_size.width, laid_size.height));
@@ -861,14 +861,14 @@ fn text_runs(style: &MarkdownStyle, text: &Styled, heading: bool) -> Vec<(Range<
 /// lowercase letters are as tall as the ones of the body font.
 #[cfg(feature = "math")]
 fn math_size(style: &MarkdownStyle, size: f32) -> f32 {
-    let x_height = |font: Weak<crate::window::Font>| {
+    let x_height = |font: Weak<crate::text::Font>| {
         let face = font.face();
         face.x_height()
             .map(|height| f32::from(height) / face.units_per_em().lossy_convert())
     };
     let ratio = match (
         x_height(style.fonts().regular),
-        x_height(crate::window::Font::math()),
+        x_height(crate::text::Font::math()),
     ) {
         (Some(text), Some(math)) if math > 0.0 => (text / math).clamp(1.0, MAX_MATH_GROWTH),
         _ => 1.0,

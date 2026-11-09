@@ -1,4 +1,5 @@
 mod cursor;
+mod keyboard;
 mod keymap;
 mod keys;
 mod long_press;
@@ -9,6 +10,9 @@ mod touch_event;
 mod ui_events;
 
 pub use cursor::Cursor;
+#[cfg(feature = "inspect")]
+pub(crate) use keyboard::named_key_char;
+pub use keyboard::{Code, ElementState, Modifiers, MouseButton, NamedKey};
 pub use keymap::*;
 pub use keys::Keys;
 pub(crate) use long_press::LongPress;

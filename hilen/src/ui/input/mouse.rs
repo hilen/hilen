@@ -1,9 +1,6 @@
 use parking_lot::Mutex;
 
-use crate::{
-    ui::{Touch, TouchEvent},
-    window::MouseButton,
-};
+use crate::ui::{MouseButton, Touch, TouchEvent};
 
 /// Every button or finger down right now, a finger counts as the left
 /// button. Keyed by touch id too, so lifting one of two fingers keeps
@@ -33,6 +30,7 @@ impl Mouse {
         }
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn clear() {
         HELD.lock().clear();
     }

@@ -5,15 +5,17 @@ use ui_proc::view;
 use super::image_cut::ImageCut;
 use crate::{
     deps::refs::{Weak, weak_from_ref},
-    gm::{
-        LossyConvert,
-        flat::{Rect, Size},
-    },
+    gm::flat::Size,
+    image::{Image, ToImage},
     ui::{
-        CutAxis, NineSegmentImageView, Setup, Tinted, UIColor, View, ViewCallbacks, ViewData, ViewFrame,
-        ViewSubviews, view::depth_order,
+        CutAxis, NineSegmentImageView, Setup, Tinted, UIColor, ViewCallbacks, ViewData, ViewSubviews,
+        view::depth_order,
     },
-    window::image::{Image, ToImage},
+};
+#[cfg(feature = "gpu")]
+use crate::{
+    gm::{LossyConvert, flat::Rect},
+    ui::{View, ViewFrame},
 };
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +82,8 @@ impl ImageView {
         self
     }
 
-    pub(crate) fn cut(&self) -> Option<ImageCut> {
+    /// The cut `set_cut` gave, `None` for an image drawn whole.
+    pub fn cut(&self) -> Option<ImageCut> {
         self.cut
     }
 
@@ -107,6 +110,7 @@ impl ImageView {
         fit_size(self.image.size.into(), bounds.into())
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn image_frame(&self) -> Rect {
         match self.mode {
             ImageMode::Fill | ImageMode::AspectFill => self.__base_view().draw_frame(),
@@ -117,6 +121,7 @@ impl ImageView {
     /// Pixels the image covers on screen, the size an svg rasterizes
     /// at. `AspectFill` scales the image past the frame and crops, so
     /// its raster is the scaled image, not the frame.
+    #[cfg(feature = "gpu")]
     pub(crate) fn raster_size(&self, scale: f32) -> Size<u32> {
         let size = match self.mode {
             ImageMode::Fill | ImageMode::AspectFit => self.image_frame().size,
@@ -136,6 +141,7 @@ impl ImageView {
     /// The size an svg of this view rasterizes at, in pixels. A cut image
     /// rasterizes whole at the scale of the view, its quads then show
     /// parts of that raster.
+    #[cfg(feature = "gpu")]
     pub(crate) fn svg_raster_size(&self, scale: f32) -> Size<u32> {
         let Some(cut) = self.cut else {
             return self.raster_size(scale);
@@ -151,6 +157,7 @@ impl ImageView {
     /// Texture subrect in 0..1 UV space. `AspectFill` keeps the quad at the
     /// view frame and crops here instead of enlarging the quad, so corner
     /// radii apply to the visible rect and no scissor is needed.
+    #[cfg(feature = "gpu")]
     pub(crate) fn uv_rect(&self) -> Rect {
         match self.mode {
             ImageMode::Fill | ImageMode::AspectFit => (0, 0, 1, 1).into(),

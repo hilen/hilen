@@ -27,7 +27,7 @@ pub use dialog_style::DialogStyle;
 #[cfg(feature = "diff-view")]
 pub use diff_view::{DiffHost, DiffPanel, DiffShown, diff_colors};
 pub use dpad_view::DPadView;
-pub use drawing_view::DrawingView;
+pub use drawing_view::{DrawingView, PathData};
 pub use file_browser::{
     FileBrowser, FileBrowserControl, FileBrowserMode, FilePick, FilePicker, FileSort, SortKey,
 };

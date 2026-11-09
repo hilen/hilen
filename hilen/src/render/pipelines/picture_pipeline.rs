@@ -6,7 +6,7 @@ use wgpu::{
     VertexState,
 };
 
-use crate::window::{Window, image::Image};
+use crate::{image::Image, window::Window};
 
 /// The last step of a scene picture: copies the resolved frame into the
 /// image's own texture with the color divided by its alpha. The scene

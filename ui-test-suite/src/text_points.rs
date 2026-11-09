@@ -2,6 +2,8 @@
 //! tests. A test points at a byte, not at a pixel it once measured, so
 //! it holds on a platform that shapes the text a little wider.
 
+use std::{thread::sleep, time::Duration};
+
 use hilen::{
     refs::Weak,
     ui::{Label, ViewData, ViewFrame, ViewSubviews, WeakView},
@@ -82,4 +84,12 @@ pub(crate) fn shown(text: &str) -> String {
     }
     let start: String = written.chars().take(MOST).collect();
     format!("{start} ...")
+}
+
+/// Waits until a tap can no longer be the second of a double tap, so the
+/// next gesture starts fresh. A double tap is 2 taps within 250 ms, and on
+/// a phone within 40 points, where a mouse has 6. Gestures a few words or
+/// a row apart joined up there into double and triple clicks.
+pub(crate) fn past_double_tap() {
+    sleep(Duration::from_millis(300));
 }

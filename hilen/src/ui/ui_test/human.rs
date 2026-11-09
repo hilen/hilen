@@ -23,11 +23,11 @@ use crate::{
         color::{BLACK, CLEAR, Color, U8Color, WHITE},
     },
     ui::{
-        Button, Container, Input, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews,
-        WeakView,
+        Button, Container, Input, Label, NamedKey, Setup, TouchStack, UIManager, ViewData, ViewFrame,
+        ViewSubviews, WeakView,
     },
     ui_test::{TEST_NAME, capture::save_shot},
-    window::{NamedKey, Window},
+    window::Window,
 };
 
 static HUMAN_MODE: AtomicBool = AtomicBool::new(false);

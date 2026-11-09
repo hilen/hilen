@@ -27,9 +27,9 @@ use crate::{
     },
     filesystem::read_bytes,
     gm::volume::{Bounds, Mat4, Vec3},
+    image::Image,
     managed,
     scene::{Material, Mesh},
-    window::image::Image,
 };
 
 /// A `.glb` loaded onto the GPU, a managed resource like an `Image`.

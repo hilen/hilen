@@ -1,13 +1,11 @@
+#[cfg(feature = "gpu")]
 use std::f32::consts::SQRT_2;
 
-use crate::{
-    gm::{
-        ToF32,
-        color::Color,
-        flat::{CornerRadii, Point, Rect, Size},
-    },
-    render::data::UIGradientInstance,
-};
+#[cfg(feature = "gpu")]
+use crate::gm::flat::{CornerRadii, Rect, Size};
+use crate::gm::{ToF32, color::Color, flat::Point};
+#[cfg(feature = "gpu")]
+use crate::render::data::UIGradientInstance;
 
 /// A gradient fill for a view, following CSS. `Gradient::vertical` is the
 /// plain top to bottom ramp `set_gradient` has always drawn, the same thing
@@ -84,6 +82,7 @@ impl Gradient {
     /// All of the CSS math happens here, so the fragment stage is left with
     /// one dot product or one length. The shader works in uv space, where
     /// the box spans -0.5 to 0.5 on both axes and y grows downwards.
+    #[cfg(feature = "gpu")]
     pub(crate) fn instance(
         &self,
         frame: Rect,

@@ -16,10 +16,10 @@ use crate::{
     },
     gm::flat::Point,
     ui::{
-        LongPress, Shadow, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView,
-        input::TouchEvent, view::depth_order,
+        LongPress, MouseButton, Shadow, TableView, Touch, TouchStack, UIManager, View, ViewData, ViewFrame,
+        WeakView, input::TouchEvent, view::depth_order,
     },
-    window::{MouseButton, slots::WindowLock},
+    window::slots::WindowLock,
 };
 
 /// How far a finger moves before it is a drag and no hold any more.
@@ -94,6 +94,7 @@ impl RowDrag {
     }
 
     /// Escape puts a held row back. True when a row was held.
+    #[cfg(feature = "gpu")]
     pub(crate) fn escape() -> bool {
         if !matches!(*PHASE.get_mut(), Phase::Dragging { .. }) {
             return false;

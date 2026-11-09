@@ -10,13 +10,11 @@ use crate::{
         color::CLEAR,
         flat::{CornerRadii, Rect, Size},
     },
+    image::Svg,
     pipelines::Pipelines,
     render::data::UIRectInstance,
-    ui::{
-        Label, UIManager, View, ViewFrame, damage,
-        view::{RenderProbe, renders_itself},
-    },
-    window::{RenderFrame, image::Svg},
+    ui::{Label, UIManager, View, ViewFrame, damage, view::RenderProbe},
+    window::RenderFrame,
 };
 
 /// The pixel of the window at the top left of the texture the passes draw
@@ -78,11 +76,11 @@ impl UIDrawer {
         }
     }
 
-    /// Runs the `before_render` of a view and keeps whether the view has
-    /// one of its own, see `RenderProbe`.
-    pub(super) fn before_render(render_frame: &mut RenderFrame, view: &dyn View) {
+    /// Draws a view that draws itself, and keeps whether it is one, see
+    /// `RenderProbe`.
+    pub(super) fn draw_custom(render_frame: &mut RenderFrame, view: &dyn View) {
         let pass = render_frame.pass();
-        view.__base_view().render_probe = if renders_itself(|| view.before_render(pass)) {
+        view.__base_view().render_probe = if Self::draw_itself(view, pass) {
             RenderProbe::Custom
         } else {
             RenderProbe::Plain

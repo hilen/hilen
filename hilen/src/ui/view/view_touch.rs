@@ -3,10 +3,10 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::weak_from_ref,
     ui::{
-        CursorIcon, LongPress, TextSelection, Touch, TouchStack, UIManager, View, ViewTouchEvents, WeakView,
+        CursorIcon, LongPress, MouseButton, TextSelection, Touch, TouchStack, UIManager, View,
+        ViewTouchEvents, WeakView,
         view::{ViewFrame, double_tap::wait_for_single_tap, view_data::ViewData},
     },
-    window::MouseButton,
 };
 
 pub(crate) const NO_TOUCH_ID: usize = 0;

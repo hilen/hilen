@@ -3,12 +3,12 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        Color, DynamicColor, Label, Setup, TextAlignment, TextField, Theme, ThemeMode, ViewData, ViewTest,
-        view,
+        Color, DynamicColor, Label, Setup, TextAlignment, TextField, Theme, ThemeMode, ViewData, ViewFrame,
+        ViewTest, view,
     },
     ui_test::{
         check_colors,
-        system_input::{tap, wait_until},
+        system_input::{screen_ink, system_input, tap, wait_until},
     },
 };
 
@@ -118,6 +118,31 @@ impl Setup for TextFieldKeepsColor {
     }
 }
 
+/// Room left out at each side of a field, past its rounded corners.
+const INSIDE: f32 = 10.0;
+
+/// The look of an edited field. On a phone the system text field draws the
+/// text then, and a capture of the engine frame holds no system view. The
+/// fill is checked from the data on every platform, there the screen has to
+/// show the text in the field.
+fn check_edited(field: Weak<TextField>, colors: &str) -> Result<()> {
+    if !system_input() {
+        return check_colors(colors);
+    }
+    let frame = from_main(move || *field.absolute_frame());
+    let ink = screen_ink(
+        frame.x() + INSIDE,
+        frame.y() + INSIDE,
+        frame.width() - 2.0 * INSIDE,
+        frame.height() - 2.0 * INSIDE,
+    )?;
+    ensure!(
+        ink.bottom > ink.top,
+        "the edited field shows no text on the screen"
+    );
+    Ok(())
+}
+
 impl ViewTest for TextFieldKeepsColor {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         from_main(|| {
@@ -136,7 +161,7 @@ impl ViewTest for TextFieldKeepsColor {
             );
             Ok(())
         })?;
-        check_colors(PLAIN_EDITED)?;
+        check_edited(view.plain, PLAIN_EDITED)?;
 
         tap(CHOSEN_AT.0, CHOSEN_AT.1)?;
         wait_until("the chosen field is edited", move || view.chosen.is_editing())?;
@@ -154,7 +179,7 @@ impl ViewTest for TextFieldKeepsColor {
             );
             Ok(())
         })?;
-        check_colors(CHOSEN_EDITED)?;
+        check_edited(view.chosen, CHOSEN_EDITED)?;
 
         // A tap on the empty ground ends the editing for the tests after this
         // one.

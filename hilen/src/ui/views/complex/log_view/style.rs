@@ -2,8 +2,8 @@ use super::ansi::AnsiColor;
 use crate::{
     deps::refs::Weak,
     gm::color::Color,
+    text::Font,
     ui::{DynamicColor, UIColor},
-    window::Font,
 };
 
 /// The look of a `LogView`, set with `LogView::set_style`. Every default

@@ -5,8 +5,8 @@ use plat::Platform;
 use crate::{
     deps::refs::Weak,
     gm::flat::Point,
-    ui::{Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView, input::TouchEvent},
-    window::{MouseButton, slots::WindowLock},
+    ui::{MouseButton, Touch, TouchStack, UIManager, View, ViewData, ViewFrame, WeakView, input::TouchEvent},
+    window::slots::WindowLock,
 };
 
 /// How far a finger moves before the swipe or the views take it.

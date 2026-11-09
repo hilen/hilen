@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::Weak,
     gm::color::Color,
-    window::image::{Image, tint_svg},
+    image::{Image, tint_svg},
 };
 
 pub struct UIImages;

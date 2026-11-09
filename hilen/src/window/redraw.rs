@@ -1,15 +1,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 use parking_lot::Mutex;
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 use plat::Platform;
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 use winit::event_loop::{ControlFlow, EventLoopProxy};
 
-#[cfg(all(not_wasm, not_ios))]
+#[cfg(all(not_wasm, not_ios, feature = "gpu"))]
 use crate::deps::hreads::is_main_thread;
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 use crate::window::app_handler::UserEvent;
 
 /// A frame is pending. Set by any change that has to reach the screen, cleared
@@ -23,10 +23,10 @@ static NEEDS_REDRAW: AtomicBool = AtomicBool::new(true);
 /// Wasm never has one. A page asks the browser for its frame itself, see
 /// `request_frame`. The proxy type is also not `Sync` there, so a static
 /// holding it would not even compile.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 static WAKE_PROXY: Mutex<Option<EventLoopProxy<UserEvent>>> = Mutex::new(None);
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn set_wake_proxy(proxy: EventLoopProxy<UserEvent>) {
     *WAKE_PROXY.lock() = Some(proxy);
 }
@@ -55,14 +55,14 @@ pub(crate) fn request_frame() {
     // callback like a key listener runs outside the loop. A worker has no
     // window to ask with, the atomics build ticks the loop for it, see
     // `AppHandler::page_wants_frame`.
-    #[cfg(wasm)]
+    #[cfg(all(wasm, feature = "gpu"))]
     if crate::deps::hreads::is_main_thread()
         && let Some(window) = crate::window::ready_winit_window()
     {
         window.request_redraw();
     }
 
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "gpu"))]
     {
         // On desktop about_to_wait runs after the frame, so a main thread
         // request_frame is picked up this iteration and a wake is redundant.
@@ -76,13 +76,13 @@ pub(crate) fn request_frame() {
     }
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 fn wake_loop() {
     send_user_event(UserEvent::Wake);
 }
 
 /// Hands `event` to the loop, which takes it in its next turn.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn send_user_event(event: UserEvent) {
     if let Some(proxy) = WAKE_PROXY.lock().as_ref()
         && proxy.send_event(event).is_err()
@@ -93,7 +93,7 @@ pub(crate) fn send_user_event(event: UserEvent) {
 }
 
 /// What keeps the loop going between 2 frames of continuous work.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Pacer {
     /// The loop polls. Every iteration draws a frame, and the draw waits
@@ -107,7 +107,7 @@ pub(crate) enum Pacer {
     FrameWake,
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 impl Pacer {
     pub(crate) const fn of_platform() -> Self {
         if Platform::IOS {
@@ -126,7 +126,7 @@ impl Pacer {
 /// Call after every drawn frame. Under `Pacer::FrameWake` nothing else
 /// brings the loop back to `about_to_wait` while continuous work lives,
 /// also not work that began while this frame was drawn.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn frame_drawn(continuous: bool) {
     if Pacer::of_platform().wakes_after_frame(continuous) {
         wake_loop();
@@ -136,13 +136,14 @@ pub(crate) fn frame_drawn(continuous: bool) {
 /// Consumes the pending flag. The native winit loop calls this once per
 /// iteration, a page once per browser frame, and each draws only when it
 /// returns true.
+#[cfg(feature = "gpu")]
 pub(crate) fn take_needs_render() -> bool {
     NEEDS_REDRAW.swap(false, Ordering::Relaxed)
 }
 
 /// The pending flag, left as it is. A page reads it when it decides whether
 /// to ask the browser for the next frame.
-#[cfg(wasm)]
+#[cfg(all(wasm, feature = "gpu"))]
 pub(crate) fn needs_render() -> bool {
     NEEDS_REDRAW.load(Ordering::Relaxed)
 }
@@ -153,6 +154,7 @@ pub(crate) fn needs_render() -> bool {
 /// `about_to_wait` does not re-arm a loop already asleep in Wait, so a
 /// per-frame flag is not enough to keep continuous work drawing. The presence
 /// of the work is.
+#[cfg(feature = "gpu")]
 pub(crate) fn continuous_render_active() -> bool {
     #[cfg(feature = "level")]
     let level_running = !crate::level::LevelManager::no_level();
@@ -164,21 +166,21 @@ pub(crate) fn continuous_render_active() -> bool {
 /// The window is minimized, fully covered or on another desktop, so nothing
 /// drawn reaches a screen. Set from winit's occluded event on the main
 /// thread. A browser throttles its own frame callbacks for a hidden tab.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 static OCCLUDED: AtomicBool = AtomicBool::new(false);
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn set_occluded(occluded: bool) {
     OCCLUDED.store(occluded, Ordering::Relaxed);
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn occluded() -> bool {
     OCCLUDED.load(Ordering::Relaxed)
 }
 
 /// Whether a drawn frame reaches the screen right now.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Visibility {
     Visible,
@@ -188,7 +190,7 @@ pub(crate) enum Visibility {
     CoveredScreenshot,
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn visibility(screenshot_pending: bool) -> Visibility {
     match (occluded(), screenshot_pending) {
         (false, _) => Visibility::Visible,
@@ -205,7 +207,7 @@ pub(crate) fn visibility(screenshot_pending: bool) -> Visibility {
 /// the end state on the first frame back. A pending screenshot is the one
 /// exception, it is answered through the offscreen path and would otherwise
 /// wait until the window is uncovered.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn frame_pacing(
     visibility: Visibility,
     continuous: bool,
@@ -226,7 +228,7 @@ pub(crate) fn frame_pacing(
     pending.then_some(ControlFlow::Wait)
 }
 
-#[cfg(all(test, not_wasm))]
+#[cfg(all(test, not_wasm, feature = "gpu"))]
 mod test {
     use winit::event_loop::ControlFlow;
 

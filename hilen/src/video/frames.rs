@@ -22,6 +22,7 @@ use crate::{
         refs::{Weak, manage::DataManager},
     },
     gm::{LossyConvert, flat::Size},
+    image::Image,
     video::{
         VideoSource,
         decoder::{
@@ -30,7 +31,6 @@ use crate::{
         },
         source::Interrupt,
     },
-    window::image::Image,
 };
 
 /// Seconds ahead of the last picture that are decoded through with no seek.

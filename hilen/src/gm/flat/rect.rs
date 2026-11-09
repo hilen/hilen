@@ -87,6 +87,7 @@ impl Rect<f32> {
         (side, side).into()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn fit_aspect_ratio(&self, size: Size) -> Rect {
         let scale_x = self.size.width / size.width;
         let scale_y = self.size.height / size.height;
@@ -109,6 +110,7 @@ impl Rect<f32> {
 }
 
 impl Rect<u32> {
+    #[cfg(feature = "gpu")]
     pub(crate) fn intersection(&self, other: &Self) -> Self {
         let x = self.x().max(other.x());
         let y = self.y().max(other.y());
@@ -133,6 +135,7 @@ impl Rect {
         (0, 0, self.size.width, self.size.height).into()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn to_borders(self, width: impl ToF32) -> [Rect; 4] {
         let width = width.to_f32();
 

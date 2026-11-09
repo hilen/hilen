@@ -11,8 +11,7 @@ use rapier3d::{
 use crate::{
     gm::volume::{Quat, Vec3},
     scene::{SceneManager, ThirdPerson, WorldMove, scene::ScenePhysics},
-    ui::{Cursor, Keys},
-    window::KeyCode,
+    ui::{Code, Cursor, Keys},
 };
 
 /// Looking straight up or down flips the view, so the pitch stops just
@@ -252,32 +251,26 @@ impl Player {
             return (Vec3::ZERO, false);
         }
         let arrows = self.walk_keys == WalkKeys::WasdAndArrows;
-        let axis = |negative: [KeyCode; 2], positive: [KeyCode; 2]| {
+        let axis = |negative: [Code; 2], positive: [Code; 2]| {
             // The second key of each pair is the arrow.
-            let held = |keys: [KeyCode; 2]| {
+            let held = |keys: [Code; 2]| {
                 let held = Keys::held(keys[0]) || (arrows && Keys::held(keys[1]));
                 f32::from(u8::from(held))
             };
             held(positive) - held(negative)
         };
-        let forward = axis(
-            [KeyCode::KeyS, KeyCode::ArrowDown],
-            [KeyCode::KeyW, KeyCode::ArrowUp],
-        );
-        let right = axis(
-            [KeyCode::KeyA, KeyCode::ArrowLeft],
-            [KeyCode::KeyD, KeyCode::ArrowRight],
-        );
+        let forward = axis([Code::KeyS, Code::ArrowDown], [Code::KeyW, Code::ArrowUp]);
+        let right = axis([Code::KeyA, Code::ArrowLeft], [Code::KeyD, Code::ArrowRight]);
         if self.motion == Motion::Fly {
             let up = Self::fly_up(
-                Keys::held(KeyCode::Space),
-                Keys::held(KeyCode::ControlLeft) || Keys::held(KeyCode::ControlRight),
+                Keys::held(Code::Space),
+                Keys::held(Code::ControlLeft) || Keys::held(Code::ControlRight),
             );
             let wish = self.direction() * forward + self.right() * right + self.up() * up;
             return (wish.normalize_or_zero(), false);
         }
         let wish = (self.forward() * forward + self.right() * right).normalize_or_zero();
-        (wish, Keys::held(KeyCode::Space))
+        (wish, Keys::held(Code::Space))
     }
 
     /// How a flying player climbs, 1 up, -1 down, 0 with both keys or none.
@@ -768,7 +761,7 @@ mod test {
             keyboard: true,
             ..test_player()
         };
-        Keys::set(KeyCode::ArrowUp, true);
+        Keys::set(Code::ArrowUp, true);
         let walks = player.wish().0.length() > 0.5;
         let blocked = Player {
             walk_keys: WalkKeys::WasdOnly,
@@ -776,7 +769,7 @@ mod test {
         }
         .wish()
         .0;
-        Keys::set(KeyCode::ArrowUp, false);
+        Keys::set(Code::ArrowUp, false);
         assert!(walks);
         assert_eq!(blocked, Vec3::ZERO);
     }

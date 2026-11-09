@@ -8,12 +8,12 @@ use crate::{
         color::Color,
         flat::{Point, Size},
     },
+    image::Image,
     scene::{Scene, SceneManager},
     ui::{
         ImageView, Pinch, Scrollable, Setup, Touch, TouchStack, UIManager, View, ViewData, ViewFrame,
         ViewTouch, keep_frames_exempt, view,
     },
-    window::image::Image,
 };
 
 /// Radians of orbit, or of a player's look, per point of drag.

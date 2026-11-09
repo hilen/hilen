@@ -1,14 +1,16 @@
 use anyhow::{Result, ensure};
+#[cfg(any(desktop, wasm))]
+use hilen::ui::ViewTouch;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::color::Color,
     refs::Weak,
+    text::Font,
     ui::{
         Anchor::Left, Container, DynamicColor, Label, Setup, TextAlignment, Theme, ThemeMode, ToolButton,
-        ViewData, ViewFrame, ViewTest, ViewTouch, view,
+        ViewData, ViewFrame, ViewTest, view,
     },
     ui_test::{check_colors, inject_touches},
-    window::Font,
 };
 
 const PAGE: DynamicColor = DynamicColor::new(Color::hex("#F4F5F7"), Color::hex("#1B1D21"));
@@ -55,6 +57,7 @@ const IDLE: &str = r"
              244  112 - #f4f5f7
              392  112 - #f4f5f7
 ";
+#[cfg(any(desktop, wasm))]
 const SECOND_HOVERED: &str = r"
              380    4 - #f4f5f7
               60   24 - #20232a
@@ -205,17 +208,22 @@ impl ViewTest for ToolButtonLook {
             let frame = view.second.absolute_frame();
             (frame.center().x, frame.center().y)
         });
-        inject_touches(format!("{x} {y} m"));
-        wait_for_next_frame();
-        from_main(move || {
-            ensure!(view.second.is_hovered(), "the second tab took no hover");
-            ensure!(
-                *view.second.color() == HOVER.resolve(),
-                "the hover is not the fill of the app"
-            );
-            Ok(())
-        })?;
-        check_colors(SECOND_HOVERED)?;
+        // Hover needs a pointer, a phone has none, the gate of `hover` in the
+        // module list. The press and the pick below are on every platform.
+        #[cfg(any(desktop, wasm))]
+        {
+            inject_touches(format!("{x} {y} m"));
+            wait_for_next_frame();
+            from_main(move || {
+                ensure!(view.second.is_hovered(), "the second tab took no hover");
+                ensure!(
+                    *view.second.color() == HOVER.resolve(),
+                    "the hover is not the fill of the app"
+                );
+                Ok(())
+            })?;
+            check_colors(SECOND_HOVERED)?;
+        }
 
         inject_touches(format!("{x} {y} b"));
         wait_for_next_frame();

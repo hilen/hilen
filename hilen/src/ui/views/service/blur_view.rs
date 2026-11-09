@@ -34,6 +34,7 @@ pub enum TailEdge {
 }
 
 impl BlurView {
+    #[cfg(feature = "gpu")]
     pub(crate) fn blur_radius(&self) -> f32 {
         self.blur_radius
     }
@@ -53,6 +54,7 @@ impl BlurView {
     }
 
     /// The tail as `ui_backdrop.wgsl` reads it, see `UIBackdropInstance`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn tail_params(&self) -> [f32; 4] {
         let Some(tail) = self.tail else {
             return [0.0; 4];

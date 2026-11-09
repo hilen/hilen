@@ -2,7 +2,7 @@ use anyhow::{Result, ensure};
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{CodeEditor, CodePos, Label, ModifiersState, NamedKey, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, ViewData, ViewTest, WHITE, view},
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key, set_record_probe_count},
 };
 
@@ -52,9 +52,9 @@ impl CodeEditorTyping {
 }
 
 fn command(ch: char) {
-    inject_modifiers(ModifiersState::SUPER);
+    inject_modifiers(Modifiers::META);
     inject_keys(ch);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 impl ViewTest for CodeEditorTyping {
@@ -80,9 +80,9 @@ impl ViewTest for CodeEditorTyping {
         );
         check_colors(TYPED)?;
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::Tab);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         let lines = view.show("Shift Tab, the line is 1 level out");
         ensure!(lines[1] == "cube(1);", "Shift Tab gave {lines:?}");
 
@@ -107,11 +107,11 @@ impl ViewTest for CodeEditorTyping {
         let lines = view.show("4 more undos, the text is as it was");
         ensure!(lines == ["module part() {", "}"], "the undos gave {lines:?}");
 
-        inject_modifiers(ModifiersState::SUPER | ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::META | Modifiers::SHIFT);
         for _ in 0..5 {
             inject_keys('Z');
         }
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         let (lines, changes, cursor, runs) = from_main(move || {
             let runs: Vec<_> = view.editor.color_runs(1).iter().map(|(range, _)| range.clone()).collect();
             (

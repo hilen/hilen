@@ -37,6 +37,7 @@ impl U8Color {
         format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn diff_u8(self, other: Self) -> i16 {
         (i16::from(self.r) - i16::from(other.r)).abs()
             + (i16::from(self.g) - i16::from(other.g)).abs()

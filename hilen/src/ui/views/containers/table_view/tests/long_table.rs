@@ -1,14 +1,17 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 use crate::{
     self as hilen,
-    deps::{hreads::from_main, refs::Weak},
+    deps::{
+        hreads::{from_main, wait_for_next_frame},
+        refs::Weak,
+    },
     gm::color::GRAY,
     ui::{
-        CellRegistry, Container, Label, Setup, TableData, TableView, UIManager, View, ViewData, ViewSubviews,
-        ViewTest, view,
+        CellRegistry, Container, Label, Point, Setup, TableData, TableView, UIManager, View, ViewData,
+        ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::inject_touches,
 };
@@ -82,9 +85,24 @@ impl ViewTest for LongTableTest {
 
         inject_touches(TOUCHES_2);
 
+        // Where the fling of the drags stops depends on the real time between
+        // the frames, so the row under the tap is read once the table stands
+        // still. A fixed row number was 24 in some runs and 25 in others.
+        while from_main(move || view.table.scroll.is_scrolling()) {
+            wait_for_next_frame();
+        }
+        let expected = from_main(move || {
+            let frame = view.table.absolute_frame();
+            view.table.index_at(Point::new(TAP.0 - frame.x(), TAP.1 - frame.y()))
+        });
+        ensure!(
+            expected.is_some_and(|index| index > 0),
+            "no scrolled row under the tap, {expected:?}"
+        );
+
         inject_touches(TOUCHES_3);
 
-        assert_eq!(INDEX.load(Ordering::Relaxed), 25);
+        assert_eq!(Some(INDEX.load(Ordering::Relaxed)), expected);
 
         from_main(move || {
             view.table.set_columns(2);
@@ -319,6 +337,9 @@ const TOUCHES_2: &str = "
     154  237  b
     154  237  e
 ";
+
+/// The tap of `TOUCHES_3`.
+const TAP: (f32, f32) = (157.0, 351.0);
 
 const TOUCHES_3: &str = "
     157  351  b

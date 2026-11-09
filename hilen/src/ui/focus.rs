@@ -19,10 +19,10 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        Cursor, Input, NamedKey, Scrollable, Setup, TableView, Tooltip, Touch, TouchEvent, TouchStack,
-        UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
+        Cursor, Input, MouseButton, NamedKey, Scrollable, Setup, TableView, Tooltip, Touch, TouchEvent,
+        TouchStack, UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
     },
-    window::{MouseButton, slots::WindowLock},
+    window::slots::WindowLock,
 };
 
 /// The tap of the Enter key is a touch of its own finger, so a real
@@ -280,6 +280,7 @@ impl Focus {
 
     /// A new screen or a new test starts with no ring and no memory of
     /// the old one.
+    #[cfg(feature = "gpu")]
     pub(crate) fn reset() {
         let state = STATE.get_mut();
         Self::hide();
@@ -353,7 +354,7 @@ impl Focus {
         }
 
         if key == NamedKey::Tab {
-            return Self::tab(!Input::modifiers().shift_key());
+            return Self::tab(!Input::modifiers().shift());
         }
 
         if key == NamedKey::Enter {
@@ -367,6 +368,7 @@ impl Focus {
     /// `LongPress::DURATION` is a long press and fires `secondary` on the
     /// view under the ring, and its release is then no tap, the same as a
     /// held finger.
+    #[cfg(feature = "gpu")]
     pub(crate) fn on_key_up(key: NamedKey) -> bool {
         if key != NamedKey::Enter {
             return false;
@@ -381,6 +383,7 @@ impl Focus {
     /// After layout each frame. The ring follows its view, a move that
     /// scrolled looks again, and a ring whose view is gone, a modal
     /// opened over it, finds a new one.
+    #[cfg(feature = "gpu")]
     pub(crate) fn update() {
         let state = STATE.get_mut();
         if !state.shown {

@@ -18,10 +18,12 @@ extern crate self as hilen;
 
 mod deps;
 
+#[cfg(feature = "gpu")]
 mod app_runner;
 mod assets;
+#[cfg(feature = "gpu")]
 mod assets_paths;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 mod assets_root;
 #[cfg(desktop)]
 mod embedded;
@@ -34,6 +36,7 @@ mod web_log;
 mod web_visit;
 
 mod app;
+#[cfg(feature = "gpu")]
 mod app_starter;
 mod config;
 mod dispatch_tools;
@@ -47,8 +50,9 @@ mod ios_log;
 #[cfg(not_wasm)]
 mod log_file;
 mod monotonic;
-#[cfg(any(desktop, target_os = "android"))]
+#[cfg(all(any(desktop, target_os = "android"), feature = "gpu"))]
 mod panic_log;
+#[cfg(feature = "gpu")]
 mod pipelines;
 mod wipe;
 
@@ -79,6 +83,7 @@ pub mod global_keys;
 pub mod gm;
 #[cfg(feature = "google-access")]
 pub mod google_access;
+pub mod image;
 pub mod inspect;
 #[cfg(feature = "level")]
 pub mod level;
@@ -88,6 +93,7 @@ pub mod login;
 pub mod midi;
 #[cfg(feature = "push")]
 pub mod push;
+#[cfg(feature = "gpu")]
 pub mod render;
 #[cfg(feature = "scene")]
 pub mod scene;
@@ -99,10 +105,12 @@ mod sign_in_button;
 pub mod speech;
 pub mod store;
 pub mod system;
+pub mod text;
 pub mod ui;
 pub mod window;
 
 pub use app::*;
+#[cfg(feature = "gpu")]
 pub use app_starter::*;
 pub use educe;
 /// The data of a file diff that `ui::DiffPanel` draws.
@@ -113,6 +121,7 @@ pub use filediff;
 #[cfg(feature = "updater")]
 pub use hilen_updater as updater;
 
+#[cfg(feature = "gpu")]
 pub use crate::ui::{launch_app, ui_test};
 
 pub mod refs {
@@ -137,6 +146,7 @@ pub mod time {
     pub use crate::{frame_time::frame_seconds, monotonic::monotonic_seconds};
 }
 
+#[cfg(feature = "gpu")]
 pub use app_runner::AppRunner;
 pub use assets::Assets;
 #[cfg(feature = "bug-report")]
@@ -145,9 +155,11 @@ pub use bug_report::{BugReport, BugReportAttachment, BugReportScreenshot, BugRep
 pub use log_file::{log_dir, log_file_path};
 pub use project_proc::{app_version, build_time, embedded_assets, link_scheme, project_name};
 
+#[cfg(feature = "gpu")]
+pub use crate::window::{RenderPass, VertexBuffer, Window, cast_slice};
 pub use crate::{
     deps::vents::{Event, OnceEvent},
-    window::{RenderPass, VertexBuffer, Window, cast_slice, image::ToImage},
+    image::ToImage,
 };
 
 pub mod net {
@@ -162,6 +174,11 @@ pub mod net {
 
 #[cfg(all(wasm, not(feature = "net")))]
 compile_error!("a browser build loads its assets over the network, it needs the `net` feature of hilen");
+
+#[cfg(all(not(feature = "gpu"), not(desktop)))]
+compile_error!(
+    "a build with no `gpu` feature is for desktop only, where a crate of shared views checks on its own"
+);
 
 pub mod dispatch {
     #[cfg(not_wasm)]
@@ -182,12 +199,13 @@ pub mod __internal_macro_deps {
 
 pub use plat::Platform;
 
-#[cfg(target_os = "android")]
+#[cfg(all(target_os = "android", feature = "gpu"))]
 pub type AndroidApp = winit::platform::android::activity::AndroidApp;
 
 /// Every UI test, from the engine, the suite and the app. One map, filled by
 /// a ctor per view before `main`, so the count is known without running
 /// anything and nothing has to merge lists.
+#[cfg(feature = "gpu")]
 pub static UI_TESTS: __internal_macro_deps::Mutex<
     std::collections::BTreeMap<String, crate::ui_test::UITestEntry>,
 > = __internal_macro_deps::Mutex::new(std::collections::BTreeMap::new());

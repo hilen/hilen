@@ -24,7 +24,8 @@ struct FileBrowserPath {
 
 impl Setup for FileBrowserPath {
     fn setup(self: Weak<Self>) {
-        self.browser.place().t(0).lr(0).b(40);
+        // Below the status bar of a phone, which takes a tap on the toolbar.
+        self.browser.place().t(40).lr(0).b(40);
         self.browser.set_open_on_tap(false).set_source(sample());
         self.browser.path_changed.val(move |path| {
             self.status.set_text(format!("open folder: {}", path.slash_text()));
@@ -89,23 +90,24 @@ impl ViewTest for FileBrowserPath {
 }
 
 const CHECK_1: &str = r"
-             308    8 - #d9d9de
-             104   16 - #d9d9de
-             388   20 - #ffffff
-             448   20 - #e8e8eb
-             188   24 - #8a8a91
-             424   24 - #c3c3c9
-             228   56 - #1c1c1e
-             516   56 - #6e6e76
-             184   80 - #ffffff
-             444   80 - #85858c
-              68   84 - #8e8e90
-             212   84 - #e8e8e8
-             228   84 - #d2d2d2
-              24   88 - #f4f4f6
-              84  144 - #cdcdcf
-             332  320 - #ffffff
-             592  344 - #ffffff
+               4    4 - #597c95
+             308   48 - #d9d9de
+             104   56 - #d9d9de
+             388   60 - #ffffff
+             448   60 - #e8e8eb
+             188   64 - #8a8a91
+             424   64 - #c3c3c9
+             228   96 - #1c1c1e
+             516   96 - #6e6e76
+             184  120 - #ffffff
+             444  120 - #85858c
+              68  124 - #8e8e90
+             212  124 - #e8e8e8
+             228  124 - #d2d2d2
+              24  128 - #f4f4f6
+              84  184 - #cdcdcf
+             336  340 - #ffffff
+             592  368 - #ffffff
              592  560 - #597c95
               84  576 - #151d22
              156  576 - #07090b
@@ -120,30 +122,30 @@ const CHECK_1: &str = r"
              344  580 - #2d3e4b
              396  580 - #425c6e
              408  580 - #597c95
-             504  592 - #597c95
 ";
 
 const CHECK_2: &str = r"
-             384    8 - #d9d9de
-             104   16 - #d9d9de
-             448   20 - #e8e8eb
-             172   24 - #99999f
-             244   24 - #e7e7e8
-             320   24 - #a3a3a4
-             424   24 - #c3c3c9
-             228   56 - #1c1c1e
-             436   56 - #7c7c83
-             516   56 - #6e6e76
-              68   84 - #8e8e90
-             188   84 - #ffffff
-              24   88 - #f4f4f6
-              52  112 - #f4f4f6
-              76  144 - #1c1c1e
-             332  312 - #ffffff
-               4  356 - #f4f4f6
-             592  388 - #ffffff
-             420  560 - #597c95
-             592  560 - #597c95
+               4    4 - #597c95
+             592    4 - #597c95
+             384   48 - #d9d9de
+             104   56 - #d9d9de
+             448   60 - #e8e8eb
+             172   64 - #99999f
+             184   64 - #72727a
+             244   64 - #e7e7e8
+             320   64 - #a3a3a4
+             424   64 - #c3c3c9
+             228   96 - #1c1c1e
+             436   96 - #7c7c83
+             516   96 - #6e6e76
+              68  124 - #8e8e90
+             188  124 - #ffffff
+              24  128 - #f4f4f6
+              52  152 - #f4f4f6
+              76  184 - #1c1c1e
+             336  328 - #ffffff
+               4  376 - #f4f4f6
+             592  412 - #ffffff
              140  576 - #2d3e4b
              156  576 - #07090b
               44  580 - #000001
@@ -153,34 +155,33 @@ const CHECK_2: &str = r"
              192  580 - #000000
              240  580 - #597c95
              256  580 - #000000
-             300  580 - #486478
              312  580 - #597c95
-             528  592 - #597c95
+             512  592 - #597c95
 ";
 
 const CHECK_3: &str = r"
-             300    8 - #d9d9de
-             104   16 - #d9d9de
-             448   20 - #e8e8eb
-             180   24 - #909096
-             240   24 - #909096
-             448   24 - #e8e8eb
-             516   56 - #6e6e76
-              24   88 - #f4f4f6
-             308  116 - #ec968f
-             328  116 - #e05247
-             332  116 - #ffffff
-             268  120 - #d92d20
-             288  120 - #efa6a1
-             336  120 - #f3bfbb
-             440  120 - #e15b51
-             476  120 - #f4c0bc
-             500  120 - #d92e21
-              84  144 - #cdcdcf
-             400  160 - #b4b4b7
-             212  348 - #ffffff
-             592  412 - #ffffff
-             436  560 - #597c95
+               4    4 - #597c95
+             300   48 - #d9d9de
+             104   56 - #d9d9de
+             448   60 - #e8e8eb
+             180   64 - #909096
+             240   64 - #909096
+             448   64 - #e8e8eb
+             516   96 - #6e6e76
+              24  128 - #f4f4f6
+             308  156 - #ec968f
+             328  156 - #e05247
+             332  156 - #ffffff
+             268  160 - #d92d20
+             288  160 - #efa6a1
+             336  160 - #f3bfbb
+             440  160 - #e15b51
+             476  160 - #f4c0bc
+             500  160 - #d92e21
+              84  184 - #cdcdcf
+             400  200 - #b4b4b7
+             212  368 - #ffffff
+             592  436 - #ffffff
               84  576 - #151d22
              156  576 - #07090b
               44  580 - #000001
@@ -190,5 +191,5 @@ const CHECK_3: &str = r"
              292  580 - #000000
              300  580 - #486478
              340  580 - #597c95
-             532  592 - #597c95
+             516  592 - #597c95
 ";

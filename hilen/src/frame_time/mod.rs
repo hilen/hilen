@@ -2,12 +2,16 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::{deps::refs::main_lock::MainLock, gm::Clock, monotonic::monotonic_seconds};
+#[cfg(feature = "gpu")]
+use crate::deps::refs::main_lock::MainLock;
+use crate::{gm::Clock, monotonic::monotonic_seconds};
 
+#[cfg(feature = "gpu")]
 mod follower;
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod follower_test;
 
+#[cfg(feature = "gpu")]
 use follower::FrameFollower;
 
 /// The frame time of the newest frame, f64 seconds as raw bits.
@@ -16,6 +20,7 @@ static SECONDS: AtomicU64 = AtomicU64::new(0);
 /// Between the begin and the end of a frame.
 static IN_FRAME: AtomicBool = AtomicBool::new(false);
 
+#[cfg(feature = "gpu")]
 static FOLLOWER: MainLock<FrameFollower> = MainLock::new();
 
 /// The time of the frame that is drawn now, in the seconds of
@@ -70,12 +75,13 @@ fn real_seconds() -> f64 {
 
 /// The refresh period of the screen as measured from the frames, none
 /// before the frames came in an even rhythm. On the main thread.
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 pub(crate) fn refresh_period() -> Option<f64> {
     FOLLOWER.get_mut().period()
 }
 
 /// Before the update of a frame, on the main thread.
+#[cfg(feature = "gpu")]
 pub(crate) fn begin_frame() {
     let time = FOLLOWER.get_mut().advance(frame_start());
     SECONDS.store(time.to_bits(), Ordering::Relaxed);
@@ -83,11 +89,12 @@ pub(crate) fn begin_frame() {
 }
 
 /// After the draw of a frame.
+#[cfg(feature = "gpu")]
 pub(crate) fn end_frame() {
     IN_FRAME.store(false, Ordering::Relaxed);
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 fn frame_start() -> f64 {
     monotonic_seconds()
 }
@@ -95,7 +102,7 @@ fn frame_start() -> f64 {
 /// A browser gives every frame the time of its refresh, which is already
 /// even. The follower still gets it, so a browser that rounds this time
 /// is evened out too.
-#[cfg(wasm)]
+#[cfg(all(wasm, feature = "gpu"))]
 fn frame_start() -> f64 {
     let now = monotonic_seconds();
     match crate::web::refresh_seconds() {

@@ -25,7 +25,7 @@ use crate::{
     },
     deps::hreads::on_main,
     gm::flat::Size,
-    window::image::fitted_size,
+    image::fitted_size,
 };
 
 /// The size the browser is asked for, it gives the largest it has up to it.

@@ -12,10 +12,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use rustybuzz::{Face, UnicodeBuffer, shape};
-use wgpu_text::glyph_brush::ab_glyph::{
+use glyph_brush::ab_glyph::{
     Font as AbGlyphFont, FontRef, Glyph, GlyphId, OutlinedGlyph, PxScale, ScaleFont, point,
 };
+use rustybuzz::{Face, UnicodeBuffer, shape};
 
 use crate::{
     gm::{
@@ -23,8 +23,8 @@ use crate::{
         color::Color,
         flat::{Point, Size},
     },
+    text::builtin_font_data,
     video::overlay::Layer,
-    window::builtin_font_data,
 };
 
 /// A font for the outlines and for shaping. A `Font` of the engine cannot

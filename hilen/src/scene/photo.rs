@@ -13,13 +13,11 @@ use crate::{
         color::{Color, U8Color},
         flat::Size,
     },
+    image::{Image, TextureRawData},
     scene::{Camera, Scene, SceneManager},
     scene_drawer::{Fill, SceneDrawer},
     time::Instant,
-    window::{
-        Window,
-        image::{Image, TextureRawData},
-    },
+    window::Window,
 };
 
 /// The pixels of a scene photo, see `SceneManager::photo`.

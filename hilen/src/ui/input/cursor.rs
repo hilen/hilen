@@ -1,14 +1,10 @@
 use std::mem::take;
 
-use log::{debug, warn};
 use plat::Platform;
+#[cfg(feature = "gpu")]
 use winit::window::CursorGrabMode;
 
-use crate::{
-    gm::flat::Point,
-    ui::UIEvent,
-    window::{Window, slots::WindowLock},
-};
+use crate::{gm::flat::Point, ui::UIEvent, window::slots::WindowLock};
 
 #[derive(Default)]
 struct CursorState {
@@ -67,7 +63,8 @@ impl Cursor {
             return;
         }
         CURSOR.get_mut().hidden = hidden;
-        if let Some(window) = Window::winit_window() {
+        #[cfg(feature = "gpu")]
+        if let Some(window) = crate::window::Window::winit_window() {
             window.set_cursor_visible(!hidden && !Self::captured());
         }
     }
@@ -85,6 +82,7 @@ impl Cursor {
         take(&mut CURSOR.get_mut().motion)
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn add_motion(delta: Point) {
         if Self::captured() {
             CURSOR.get_mut().motion += delta;
@@ -93,6 +91,7 @@ impl Cursor {
 
     /// A test that captured the mouse and failed must not leave it
     /// captured for the next test.
+    #[cfg(feature = "gpu")]
     pub(crate) fn reset() {
         Self::release();
         Self::show();
@@ -106,13 +105,15 @@ impl Cursor {
         let state = CURSOR.get_mut();
         state.captured = captured;
         state.motion = Point::default();
-        if let Some(window) = Window::winit_window() {
+        #[cfg(feature = "gpu")]
+        if let Some(window) = crate::window::Window::winit_window() {
             grab(window, captured);
         }
         Self::on_capture().trigger(captured);
     }
 }
 
+#[cfg(feature = "gpu")]
 fn grab(window: &winit::window::Window, captured: bool) {
     let mode = if captured {
         CursorGrabMode::Locked
@@ -123,14 +124,14 @@ fn grab(window: &winit::window::Window, captured: bool) {
     // the window. Hidden and read as raw motion that looks the same.
     let result = window.set_cursor_grab(mode).or_else(|error| {
         if captured {
-            debug!("Locking the cursor failed, confining it: {error}");
+            log::debug!("Locking the cursor failed, confining it: {error}");
             window.set_cursor_grab(CursorGrabMode::Confined)
         } else {
             Err(error)
         }
     });
     if let Err(error) = result {
-        warn!("Failed to grab the cursor: {error}");
+        log::warn!("Failed to grab the cursor: {error}");
     }
     window.set_cursor_visible(!captured && !Cursor::hidden());
 }

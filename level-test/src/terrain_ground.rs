@@ -2,6 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::{Shape, color::Color},
+    image::{Image, ToImage},
     level::{
         Banner, LevelCreation, LevelSetup, LevelTest, Light, MaterialId, SpriteTemplates, Terrain,
         TerrainMaterial, level,
@@ -9,7 +10,6 @@ use hilen::{
     refs::Weak,
     ui::{ImageFilter, Point},
     ui_test::{check_colors, checkpoint, set_record_probe_count},
-    window::image::{Image, ToImage},
 };
 
 /// A hill of dirt with grass along its walkable slopes and tops, a layer

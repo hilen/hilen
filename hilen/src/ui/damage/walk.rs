@@ -211,6 +211,7 @@ impl<'a> Walk<'a> {
         // the screen, so all of them are marked as drawn here.
         let frame = Window::render_frame();
         image.drawn_at.store(frame, Ordering::Relaxed);
+        #[cfg(feature = "gpu")]
         if let Some(svg) = &image.svg {
             let size = view.svg_raster_size(scale);
             svg.touch(size, frame);
@@ -218,8 +219,9 @@ impl<'a> Walk<'a> {
             key.hash(&svg.is_ready(size));
         }
 
-        key.hash(&image.pixels_ready())
-            .hash(&image.addr())
+        #[cfg(feature = "gpu")]
+        key.hash(&image.pixels_ready());
+        key.hash(&image.addr())
             .pod(&image.size)
             .pod(&view.image_frame())
             .pod(&view.uv_rect())

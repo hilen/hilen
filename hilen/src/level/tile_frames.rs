@@ -1,6 +1,6 @@
 use std::ops::BitOr;
 
-use crate::{deps::refs::Weak, window::image::Image};
+use crate::{deps::refs::Weak, image::Image};
 
 /// Which of the 4 neighbors of a cell join it, 16 shapes in all. A tile
 /// framed like Terraria frames its blocks draws an edge on every side

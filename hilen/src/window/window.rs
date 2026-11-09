@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     mpsc::Receiver,
 };
 
@@ -42,10 +42,6 @@ use crate::{
 static VSYNC: AtomicBool = AtomicBool::new(true);
 static MAX_FRAME_LATENCY: AtomicU32 = AtomicU32::new(2);
 static QUIT_ON_ESCAPE: AtomicBool = AtomicBool::new(false);
-static RENDER_FRAME: AtomicU64 = AtomicU64::new(0);
-/// Mirrors `Screen::Headless` so any thread can check it. Set once at
-/// startup, never changes.
-static HEADLESS: AtomicBool = AtomicBool::new(false);
 /// The browser surface is render attachment only, and the android
 /// swapchain rejects the copy usage on some devices. Screenshots there
 /// read the scene texture instead of copying the surface.
@@ -82,12 +78,6 @@ impl Window {
 
     pub(crate) fn queue() -> &'static Queue {
         &Self::current().queue
-    }
-
-    /// Rendering goes to an offscreen texture, there is no window and no
-    /// display. Decided at startup. Callable from any thread.
-    pub fn headless() -> bool {
-        HEADLESS.load(Ordering::Relaxed)
     }
 
     #[cfg(desktop)]
@@ -479,7 +469,7 @@ impl Window {
 
         info!("Backend: {} (headless)", info.backend);
 
-        HEADLESS.store(true, Ordering::Relaxed);
+        Self::set_headless();
 
         let (device, queue) = Self::request_device(&adapter).await?;
 
@@ -671,16 +661,6 @@ impl Window {
             MAX_FRAME_LATENCY.store(latency, Ordering::Relaxed);
             Self::reconfigure_surface();
         });
-    }
-
-    /// Index of the frame currently being rendered. Bumps once per rendered
-    /// frame, before any draw code runs.
-    pub fn render_frame() -> u64 {
-        RENDER_FRAME.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn next_render_frame() {
-        RENDER_FRAME.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn reconfigure_surface() {

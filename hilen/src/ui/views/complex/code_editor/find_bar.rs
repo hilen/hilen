@@ -9,11 +9,11 @@ use crate::{
     self as hilen,
     deps::{refs::Weak, vents::Event},
     gm::color::{CLEAR, Color},
+    image::Image,
     ui::{
-        ImageView, Input, Label, Setup, TextAlignment, TextField, UIColor, UIEvents, UIImages, UIManager,
-        ViewCallbacks, ViewData, ViewFrame, ViewTouch, view,
+        ImageView, Input, Label, NamedKey, Setup, TextAlignment, TextField, UIColor, UIEvents, UIImages,
+        UIManager, ViewCallbacks, ViewData, ViewFrame, ViewTouch, view,
     },
-    window::{NamedKey, image::Image},
 };
 
 /// The height of a row of the bar.
@@ -308,7 +308,7 @@ impl FindBar {
 
     fn query_key(self: Weak<Self>, key: NamedKey) {
         let command = match key {
-            NamedKey::Enter if Input::modifiers().shift_key() => FindCommand::Previous,
+            NamedKey::Enter if Input::modifiers().shift() => FindCommand::Previous,
             NamedKey::Enter => FindCommand::Next,
             NamedKey::Escape => FindCommand::Close,
             _ => return,
@@ -335,13 +335,13 @@ impl FindBar {
         }
         let modifiers = Input::modifiers();
         let command = match Input::shortcut_char(ch).to_ascii_lowercase() {
-            'f' if modifiers.alt_key() && Platform::MAC => FindCommand::ShowReplace,
+            'f' if modifiers.alt() && Platform::MAC => FindCommand::ShowReplace,
             'h' if !Platform::MAC => FindCommand::ShowReplace,
             'f' => {
                 self.focus_query();
                 return;
             }
-            'g' if modifiers.shift_key() => FindCommand::Previous,
+            'g' if modifiers.shift() => FindCommand::Previous,
             'g' => FindCommand::Next,
             _ => return,
         };

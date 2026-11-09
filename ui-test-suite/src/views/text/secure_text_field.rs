@@ -2,9 +2,8 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Setup, TextField, ViewData, ViewTest, view},
+    ui::{NamedKey, Setup, TextField, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_keys, inject_named_key, set_record_probe_count},
-    window::NamedKey,
 };
 
 /// Five bullets sit centered in the field, the pinned black pixels are

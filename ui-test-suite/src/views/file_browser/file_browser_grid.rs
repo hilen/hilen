@@ -2,9 +2,8 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{FileBrowser, FileBrowserControl, Setup, ViewData, ViewTest, view},
+    ui::{FileBrowser, FileBrowserControl, NamedKey, Setup, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_named_key},
-    window::NamedKey,
 };
 
 use super::{double_tap_row, names, picked, sample, tap_control, tap_row};

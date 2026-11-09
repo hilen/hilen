@@ -5,8 +5,7 @@ use crate::{
         color::Color,
         flat::{FillRule, Paint, Point, StrokeStyle, VectorPath},
     },
-    render::data::PathData,
-    ui::{UIManager, View, ViewCallbacks, view::ViewFrame},
+    ui::{PathData, UIManager, View, ViewCallbacks, view::ViewFrame},
 };
 
 /// Draws vector paths: stroked polylines and curves, filled shapes.

@@ -1,3 +1,5 @@
+#[cfg(feature = "gpu")]
+use crate::window::Theme as OsTheme;
 use crate::{
     deps::refs::main_lock::MainLock,
     gm::{
@@ -5,7 +7,6 @@ use crate::{
         color::{Color, U8Color},
     },
     ui::{UIEvents, UIManager, View, WeakView, view::ViewSubviews},
-    window::Theme as OsTheme,
 };
 
 static THEME: MainLock<ThemeState> = MainLock::new();
@@ -72,6 +73,7 @@ impl Theme {
     }
 }
 
+#[cfg(feature = "gpu")]
 impl From<OsTheme> for Theme {
     fn from(theme: OsTheme) -> Self {
         match theme {

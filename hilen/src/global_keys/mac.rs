@@ -1,12 +1,12 @@
 //! Global keys through [global-hotkey](https://github.com/tauri-apps/global-hotkey),
 //! the Carbon hot key API underneath.
 
-use std::{collections::HashMap, str::FromStr};
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
-    hotkey::{Code, HotKey, Modifiers},
+    hotkey::{HotKey, Modifiers},
 };
 use log::warn;
 
@@ -42,7 +42,7 @@ impl Registered {
             }));
         }
 
-        let hot_key = HotKey::new(Some(modifiers(combo)), code(combo)?);
+        let hot_key = HotKey::new(Some(modifiers(combo)), combo.key);
         manager
             .as_ref()
             .expect("The manager was just made")
@@ -81,10 +81,4 @@ fn modifiers(combo: GlobalCombo) -> Modifiers {
         }
     }
     modifiers
-}
-
-/// winit and global-hotkey both name a key the way the W3C does.
-fn code(combo: GlobalCombo) -> Result<Code> {
-    let name = combo.code_name();
-    Code::from_str(&name).map_err(|err| anyhow::anyhow!("The system knows no key {name}: {err:?}"))
 }

@@ -3,9 +3,10 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     system::Clipboard,
-    ui::{ModifiersState, Setup, TextAlignment, TextField, ViewData, ViewFrame, ViewTest, ViewTouch, view},
+    ui::{
+        Modifiers, NamedKey, Setup, TextAlignment, TextField, ViewData, ViewFrame, ViewTest, ViewTouch, view,
+    },
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key, inject_scroll, inject_touches},
-    window::NamedKey,
 };
 
 /// Enough lines to overflow the field, real words so a drag and a double
@@ -785,9 +786,9 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
     });
 
     // Shift plus arrows extend, a plain arrow collapses.
-    inject_modifiers(ModifiersState::SHIFT);
+    inject_modifiers(Modifiers::SHIFT);
     inject_named_key(NamedKey::ArrowLeft);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 
     from_main(move || {
         assert_eq!(view.field.selected_text(), "X");
@@ -801,9 +802,9 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
 
     // Select all, cut, paste. The clipboard part needs a display server,
     // a headless CI box has none, so it is checked only where it works.
-    inject_modifiers(ModifiersState::SUPER);
+    inject_modifiers(Modifiers::META);
     inject_keys("a");
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 
     let whole = from_main(move || {
         let text = view.field.text().to_string();
@@ -814,17 +815,17 @@ fn check_selection(view: Weak<MultilineTextField>) -> Result<()> {
     check_colors(CHECK_12)?;
 
     if from_main(|| Clipboard::set_text("probe")).is_ok() {
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("x");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
 
         from_main(move || {
             assert!(view.field.is_placeholding(), "cut must empty the field");
         });
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("v");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
 
         let whole = whole.clone();
         from_main(move || {
@@ -860,9 +861,9 @@ fn check_shift_tap_and_copy(view: Weak<MultilineTextField>) {
     // Shift plus a tap extends from the caret to the tap.
     inject_keys("hello world");
     inject_named_key(NamedKey::Home);
-    inject_modifiers(ModifiersState::SHIFT);
+    inject_modifiers(Modifiers::SHIFT);
     inject_touches("160 240 b\n160 240 e");
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 
     from_main(move || {
         let selected = view.field.selected_text();
@@ -874,18 +875,18 @@ fn check_shift_tap_and_copy(view: Weak<MultilineTextField>) {
     if from_main(|| Clipboard::set_text("probe")).is_ok() {
         let selected = from_main(move || view.field.selected_text());
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("c");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
 
         let text = from_main(move || view.field.text().to_string());
 
         inject_named_key(NamedKey::ArrowRight);
         inject_named_key(NamedKey::End);
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("v");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
 
         from_main(move || {
             assert_eq!(view.field.text().len(), text.len() + selected.len());

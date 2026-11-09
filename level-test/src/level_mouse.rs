@@ -7,9 +7,8 @@ use hilen::{
     },
     level::{Banner, LevelCreation, LevelManager, LevelSetup, LevelTest, Sprite, SpriteTemplates, level},
     refs::Weak,
-    ui::{Mouse, Point, UIManager},
+    ui::{Mouse, MouseButton, Point, UIManager},
     ui_test::{capture_screenshot, checkpoint, inject_right_click, inject_touches, step_frames},
-    window::MouseButton,
 };
 
 const TARGET: Point = Point::new(14.0, 3.0);

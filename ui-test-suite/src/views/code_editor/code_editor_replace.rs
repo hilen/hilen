@@ -3,8 +3,7 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        CodeEditor, CodePos, Label, ModifiersState, NamedKey, Setup, UIManager, ViewData, ViewTest, WHITE,
-        view,
+        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, UIManager, ViewData, ViewTest, WHITE, view,
     },
     ui_test::{
         check_colors, checkpoint, inject_modifiers, inject_named_key, set_record_probe_count,
@@ -103,9 +102,9 @@ impl ViewTest for CodeEditorReplace {
         );
         view.hold("`dims` and Enter: line 2 replaced, 1 of 1 left on line 6")?;
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_named_key(NamedKey::Enter);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         wait_for_next_frame();
         let lines = view.lines();
         ensure!(

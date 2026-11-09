@@ -3,9 +3,8 @@ use hilen::{
     dispatch::from_main,
     filesystem::FilePath,
     refs::Weak,
-    ui::{FileBrowser, Label, ModifiersState, Setup, TextAlignment, ViewData, ViewTest, view},
+    ui::{FileBrowser, Label, Modifiers, NamedKey, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, checkpoint, inject_key, inject_keys, inject_modifiers, inject_named_key},
-    window::NamedKey,
 };
 
 use super::{names, picked, sample, tap_row};
@@ -55,13 +54,13 @@ impl ViewTest for FileBrowserKeys {
         inject_named_key(NamedKey::ArrowDown);
         assert_eq!(picked(browser), ["Many"]);
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::ArrowDown);
         inject_named_key(NamedKey::ArrowDown);
         assert_eq!(picked(browser), ["Many", "Music", "Photos"]);
         check_colors(CHECK_1)?;
 
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_named_key(NamedKey::ArrowUp);
         inject_named_key(NamedKey::ArrowUp);
         assert_eq!(picked(browser), ["Many"]);
@@ -96,9 +95,9 @@ impl ViewTest for FileBrowserKeys {
         assert_eq!(picked(browser), ["Many"]);
         check_colors(CHECK_3)?;
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_key('a');
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         assert_eq!(picked(browser).len(), 10);
         check_colors(CHECK_4)?;
 

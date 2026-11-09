@@ -2,23 +2,23 @@
 //! the rects of a selected range. The selection itself, which views it
 //! goes over and what is copied, lives in `ui/text_selection`.
 
+#[cfg(feature = "gpu")]
 use std::ops::Range;
 
+#[cfg(feature = "gpu")]
+use crate::gm::{LossyConvert, color::Color, flat::Rect};
 use crate::{
     deps::refs::weak_from_ref,
-    gm::{
-        LossyConvert,
-        color::Color,
-        flat::{Point, Rect},
-    },
+    gm::flat::Point,
+    text::TextLayout,
     ui::{Label, TextAlignment, VerticalAlignment, ViewFrame, ViewTouch},
-    window::TextLayout,
 };
 
 const ELLIPSIS: &str = "…";
 
 /// How wide the mark of a selected line break is, in line heights. A text
 /// editor shows it at the end of every line the selection goes on from.
+#[cfg(feature = "gpu")]
 const LINE_BREAK_WIDTH: f32 = 0.3;
 
 /// How the drawn text differs from the full text of a label. The bytes
@@ -64,6 +64,7 @@ impl Cut {
     }
 
     /// The inverse of `full_byte`.
+    #[cfg(feature = "gpu")]
     fn drawn_byte(self, drawn_len: usize, full: usize) -> usize {
         match self {
             Self::None => full.min(drawn_len),
@@ -142,6 +143,7 @@ impl Label {
     /// One rect per line of the selected `range` of the full text, in the
     /// points of the label. `goes_on` says the selection goes on after
     /// this label, the last line then shows its line break as selected.
+    #[cfg(feature = "gpu")]
     pub(crate) fn selection_rects(&self, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
         let drawn = self.display_text(self.width());
         let layout = self.text_layout_for(drawn);
@@ -150,6 +152,7 @@ impl Label {
 
     /// The rects behind every background run of the label, each with
     /// its color. The text is laid out once for all of them.
+    #[cfg(feature = "gpu")]
     pub(crate) fn background_rects(&self) -> Vec<(Rect, Color)> {
         let runs = self.background_runs();
         if runs.is_empty() {
@@ -178,6 +181,7 @@ impl Label {
 
     /// One rect per line of `range` of the full text, on a `layout` of
     /// the text as it is `drawn`.
+    #[cfg(feature = "gpu")]
     fn range_rects(&self, drawn: &str, layout: &TextLayout, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
         let cut = Cut::of(&self.text, drawn);
         let start = cut.drawn_byte(drawn.len(), range.start);
@@ -223,7 +227,7 @@ impl Label {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::Cut;
 

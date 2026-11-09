@@ -1,7 +1,7 @@
 use hilen::{
     refs::main_lock::MainLock,
-    render::data::{PathData, RectView, UIRectInstance},
-    ui::{BLUE, CLEAR, CornerRadii, FillRule, RED, VectorPath},
+    render::data::{RectView, UIRectInstance},
+    ui::{BLUE, CLEAR, CornerRadii, FillRule, PathData, RED, VectorPath},
     window::{RenderPass, Window},
 };
 

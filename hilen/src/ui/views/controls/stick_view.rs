@@ -3,8 +3,8 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::flat::Point,
+    image::ToImage,
     ui::{ImageView, Setup, Touch, UIImages, ViewData, ViewFrame, ViewTouch},
-    window::image::ToImage,
 };
 
 #[view]

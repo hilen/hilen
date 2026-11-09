@@ -7,10 +7,10 @@
 //! most of all. It goes to the first view that subscribes.
 
 use std::path::PathBuf;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 use std::path::{Path, absolute};
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 use log::info;
 use parking_lot::Mutex;
 
@@ -39,7 +39,7 @@ impl OpenFiles {
 }
 
 /// Takes a path from a platform, from any thread.
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 pub(crate) fn receive(path: PathBuf, source: &str) {
     info!("file to open from {source}: {}", path.display());
     PENDING.lock().push(path);
@@ -48,14 +48,14 @@ pub(crate) fn receive(path: PathBuf, source: &str) {
 
 /// Windows and Linux start the app with the file as an argument, and a run
 /// from a terminal does the same on a Mac.
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 pub(crate) fn receive_from_args() {
     for path in existing_paths(std::env::args().skip(1)) {
         receive(path, "the start arguments");
     }
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 fn existing_paths(args: impl Iterator<Item = String>) -> Vec<PathBuf> {
     args.filter(|arg| !arg.starts_with('-') && Path::new(arg).exists())
         .filter_map(|arg| absolute(arg).ok())
@@ -72,7 +72,7 @@ fn deliver_pending() {
     }
 }
 
-#[cfg(all(test, desktop))]
+#[cfg(all(test, desktop, feature = "gpu"))]
 mod test {
     use std::env::temp_dir;
 

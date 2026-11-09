@@ -14,19 +14,19 @@ use web_time::Instant;
 use wgpu::{CurrentSurfaceTexture, TextureFormat};
 
 use crate::{
-    deps::refs::manage::DataManager,
     gm::{
         LossyConvert,
         color::{Color, GRAY_BLUE},
         flat::Size,
     },
+    image::Texture,
     render::upload_pending,
+    text::TextBrushes,
     window::{
-        Font, RenderFrame, Screenshot, Window,
+        RenderFrame, Screenshot, Window,
         app_handler::AppHandler,
         frame_control::{self, FrameReader},
         frame_counter::FrameCounter,
-        image::Texture,
         screen::Screen,
         surface::Surface,
         window::surface_config_with_size,
@@ -426,9 +426,7 @@ impl State {
         // a window size read after the surface was configured.
         let target_size = self.target_size(surface_texture.as_ref());
 
-        for font in Font::storage_mut().values_mut() {
-            font.begin_frame(target_size);
-        }
+        TextBrushes::begin_frame(target_size);
 
         self.ensure_depth_texture(target_size);
         self.ensure_msaa_texture(target_size);

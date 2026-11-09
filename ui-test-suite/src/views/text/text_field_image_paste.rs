@@ -4,8 +4,8 @@ use hilen::{
     refs::{Weak, manage::DataManager},
     system::{Clipboard, ClipboardImage},
     ui::{
-        Image, ImageView, Label, ModifiersState, Setup, TextAlignment, TextField, VerticalAlignment,
-        ViewData, ViewTest, view,
+        Image, ImageView, Label, Modifiers, Setup, TextAlignment, TextField, VerticalAlignment, ViewData,
+        ViewTest, view,
     },
     ui_test::{checkpoint, inject_keys, inject_modifiers, system_input::wait_until},
 };
@@ -105,9 +105,9 @@ fn copied_picture() -> Result<ClipboardImage> {
 }
 
 fn paste() {
-    inject_modifiers(ModifiersState::SUPER);
+    inject_modifiers(Modifiers::META);
     inject_keys("v");
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 impl ViewTest for TextFieldImagePaste {

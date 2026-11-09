@@ -2,9 +2,8 @@ use anyhow::{Result, ensure};
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Label, ModifiersState, Setup, TextAlignment, TextField, ViewData, ViewTest, view},
+    ui::{Label, Modifiers, NamedKey, Setup, TextAlignment, TextField, ViewData, ViewTest, view},
     ui_test::{checkpoint, inject_keys, inject_modifiers, inject_named_key, inject_touches},
-    window::NamedKey,
 };
 
 /// A multiline field with `set_submit_on_enter` is a chat box. A plain
@@ -81,9 +80,9 @@ impl ViewTest for MultilineSubmit {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         inject_touches("200 100 b\n200 100 e");
         inject_keys("hi");
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::Enter);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_keys("there");
         checkpoint("the chat box holds hi and there on 2 lines, the log says sent 0 messages")?;
         from_main(move || {

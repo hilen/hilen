@@ -43,10 +43,12 @@ impl DialogStyle {
 
     /// The test harness gives every test the default look and hands the
     /// app's own style back after the run.
+    #[cfg(feature = "gpu")]
     pub(crate) fn take_global() -> Option<Self> {
         STYLE.get_mut().take()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn restore_global(style: Option<&Self>) {
         *STYLE.get_mut() = style.copied();
     }

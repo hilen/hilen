@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use clap::Args;
 use hilen::{
     inspect::protocol::{AppCommand, Client, Key, UIRequest, UIResponse},
-    ui::ModifiersState,
+    ui::Modifiers,
 };
 
 use super::{
@@ -67,10 +67,10 @@ pub(super) async fn tap(
         _ => unreachable!("clap requires exactly one of query and --near"),
     };
 
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
+    let mut modifiers = Modifiers::empty();
+    modifiers.set(Modifiers::META, cmd);
+    modifiers.set(Modifiers::SHIFT, shift);
+    modifiers.set(Modifiers::ALT, alt);
 
     // The tapped view is often gone from the fresh tree, a tab swaps the
     // page and a modal button closes the modal, so no lookup afterwards.
@@ -116,10 +116,10 @@ pub(super) async fn keys(
     [cmd, shift, alt]: [bool; 3],
     record: &RecordArgs,
 ) -> Result<()> {
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
+    let mut modifiers = Modifiers::empty();
+    modifiers.set(Modifiers::META, cmd);
+    modifiers.set(Modifiers::SHIFT, shift);
+    modifiers.set(Modifiers::ALT, alt);
 
     let keys = match (text, key) {
         (Some(text), None) => text.chars().map(Key::Char).collect(),

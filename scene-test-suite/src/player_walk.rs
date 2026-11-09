@@ -7,9 +7,8 @@ use hilen::{
         Body, Light, Material, Node, NodeTemplates, Player, SceneCreation, SceneSetup, SceneTest, Wall,
         scene, step_scene,
     },
-    ui::{Color, Image},
+    ui::{Code, Color, Image},
     ui_test::{capture_screenshot, checkpoint, hold_key, release_key},
-    window::KeyCode,
 };
 
 /// Frames of walking, two seconds, more than the wall is away.
@@ -78,9 +77,9 @@ impl SceneTest for PlayerWalk {
         step_scene(SETTLE_FRAMES);
         let start = player(scene).expect("the scene has a player");
 
-        hold_key(KeyCode::KeyW);
+        hold_key(Code::KeyW);
         step_scene(WALK_FRAMES);
-        release_key(KeyCode::KeyW);
+        release_key(Code::KeyW);
 
         let stopped = player(scene).expect("the scene has a player");
         let crate_box = from_main(move || scene.crate_box.position());
@@ -99,9 +98,9 @@ impl SceneTest for PlayerWalk {
             "the player did not shove the crate, it is at {crate_box:?}"
         );
 
-        hold_key(KeyCode::Space);
+        hold_key(Code::Space);
         step_scene(1);
-        release_key(KeyCode::Space);
+        release_key(Code::Space);
         step_scene(6);
         let airborne = player(scene).expect("the scene has a player");
         anyhow::ensure!(

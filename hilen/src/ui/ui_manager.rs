@@ -9,8 +9,15 @@ use std::{
 };
 
 use parking_lot::Mutex;
+#[cfg(feature = "gpu")]
 use plat::Platform;
 
+#[cfg(not(feature = "gpu"))]
+use crate::gm::color::{Color, GRAY_BLUE};
+#[cfg(feature = "gpu")]
+use crate::ui::ViewFrame;
+#[cfg(feature = "gpu")]
+use crate::window::Window;
 use crate::{
     deps::{
         hreads::{assert_main_thread, from_main, is_main_thread, on_main},
@@ -22,12 +29,9 @@ use crate::{
     },
     ui::{
         CodeEditor, DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation,
-        UIColor, UIEvent, View, ViewData, ViewFrame, ViewSubviews, WeakView,
+        UIColor, UIEvent, View, ViewData, ViewSubviews, WeakView,
     },
-    window::{
-        Window,
-        slots::{WindowLock, WindowU32},
-    },
+    window::slots::{WindowLock, WindowU32},
 };
 
 pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new());
@@ -35,6 +39,10 @@ pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new
 static ANIMATIONS: Mutex<Vec<UIAnimation>> = Mutex::new(Vec::new());
 
 static DYNAMIC_CLEAR_COLOR: Mutex<Option<DynamicColor>> = Mutex::new(None);
+/// The clear color of a build with no `gpu` feature, which has no window to
+/// keep it.
+#[cfg(not(feature = "gpu"))]
+static PLAIN_CLEAR_COLOR: Mutex<Color> = Mutex::new(GRAY_BLUE);
 
 static UI_MANAGER: OnceLock<UIManager> = OnceLock::new();
 
@@ -123,12 +131,20 @@ impl UIManager {
         Self::subview_z_offset() / 100.0
     }
 
+    /// The frames a second of the window, 0 in a build with no `gpu` feature,
+    /// which draws none.
     pub fn fps() -> f32 {
-        Window::current().fps()
+        #[cfg(feature = "gpu")]
+        return Window::current().fps();
+        #[cfg(not(feature = "gpu"))]
+        0.0
     }
 
     pub fn frame_drawn() -> u32 {
-        Window::current().frame_drawn()
+        #[cfg(feature = "gpu")]
+        return Window::current().frame_drawn();
+        #[cfg(not(feature = "gpu"))]
+        0
     }
 
     pub fn scale() -> f32 {
@@ -178,18 +194,20 @@ impl UIManager {
     /// The override in effect, 0.0 meaning none. The test harness pins scale 1
     /// and has to put this back, or the app stays at scale 1 on a screen that
     /// is not, which on a phone means half sized UI.
+    #[cfg(feature = "gpu")]
     pub(crate) fn scale_override() -> f32 {
         f32::from_bits(Self::get().manual_scale.load(Ordering::Relaxed))
     }
 
     /// Drop the override and go back to the screen's own scale.
+    #[cfg(feature = "gpu")]
     pub(crate) fn restore_scale_override(scale: f32) {
         assert_main_thread();
         let sf = Self::get();
 
         sf.manual_scale.store(scale.to_bits(), Ordering::Relaxed);
 
-        let real = Window::screen_scale();
+        let real = Self::display_scale();
         Self::set_scale(if scale == 0.0 { real } else { scale });
     }
 
@@ -239,6 +257,7 @@ impl UIManager {
     }
 
     /// The view that has the keys, a null view when none has.
+    #[cfg(feature = "gpu")]
     pub(crate) fn selected_view() -> WeakView {
         *Self::get().selected_view.lock()
     }
@@ -341,18 +360,25 @@ impl UIManager {
         }
     }
 
+    /// The pixels of the window, none in a build with no `gpu` feature.
     pub(crate) fn window_resolution() -> Size {
-        let size = if Platform::IOS {
-            Window::render_size()
-        } else {
-            Window::inner_size()
-        };
-        (size.width, size.height).into()
+        #[cfg(feature = "gpu")]
+        {
+            let size = if Platform::IOS {
+                Window::render_size()
+            } else {
+                Window::inner_size()
+            };
+            (size.width, size.height).into()
+        }
+        #[cfg(not(feature = "gpu"))]
+        Size::default()
     }
 
     /// Pixels the app renders into. The same as the window in an app, because
     /// the root fills it. A UI test pins the root to a fixed canvas instead, so
     /// a game or a level lands on the same pixels on any screen.
+    #[cfg(feature = "gpu")]
     pub(crate) fn render_area() -> Size {
         let size = Self::root_view().size();
         let scale = Self::scale();
@@ -363,7 +389,10 @@ impl UIManager {
     /// unless `override_scale` replaced it. An app with its own UI scale
     /// setting multiplies it.
     pub fn display_scale() -> f32 {
-        Window::screen_scale()
+        #[cfg(feature = "gpu")]
+        return Window::screen_scale();
+        #[cfg(not(feature = "gpu"))]
+        1.0
     }
 
     /// The part of the app views that is always seen, in their points. On
@@ -405,7 +434,7 @@ impl UIManager {
     }
 
     /// Takes the root out of a window that closes.
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "gpu"))]
     pub(crate) fn take_root(slot: usize) -> Option<Own<RootView>> {
         Self::get().root_view.take_from(slot)
     }
@@ -443,6 +472,7 @@ impl UIManager {
         Self::get().draw_debug_frames.store(false, Ordering::Relaxed);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn should_draw_debug_frames() -> bool {
         Self::get().draw_debug_frames.load(Ordering::Relaxed)
     }
@@ -461,6 +491,7 @@ impl UIManager {
 
     /// Drops the tap squares a human run drew. They stay on screen for
     /// the human, but a probe next to a tap would read the square.
+    #[cfg(feature = "gpu")]
     pub(crate) fn clear_touch_marks() {
         let marks: Vec<WeakView> = Self::get().touch_marks.lock().drain(..).collect();
         for mut mark in marks {
@@ -553,15 +584,18 @@ impl UIManager {
 impl UIManager {
     /// The system reports no end of the hold after a drop, so the drop ends
     /// it here and an app hides its drop mark in 1 place.
+    #[cfg(feature = "gpu")]
     pub(crate) fn trigger_drop_file(file: PathBuf) {
         Self::get().on_hover_file_end.trigger(());
         Self::get().on_drop_file.trigger(file);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn trigger_hover_file(file: PathBuf) {
         Self::get().on_hover_file.trigger(file);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn trigger_hover_file_end() {
         Self::get().on_hover_file_end.trigger(());
     }
@@ -619,17 +653,26 @@ impl UIManager {
                 color.resolve()
             }
         };
+        #[cfg(feature = "gpu")]
         Window::set_clear_color(resolved);
+        #[cfg(not(feature = "gpu"))]
+        {
+            *PLAIN_CLEAR_COLOR.lock() = resolved;
+        }
     }
 
     pub(crate) fn clear_color() -> UIColor {
         match *DYNAMIC_CLEAR_COLOR.lock() {
             Some(color) => UIColor::Dynamic(color),
+            #[cfg(feature = "gpu")]
             None => UIColor::Plain(Window::clear_color()),
+            #[cfg(not(feature = "gpu"))]
+            None => UIColor::Plain(*PLAIN_CLEAR_COLOR.lock()),
         }
     }
 
     pub(crate) fn reapply_clear_color() {
+        #[cfg(feature = "gpu")]
         if let Some(color) = *DYNAMIC_CLEAR_COLOR.lock() {
             Window::set_clear_color(color.resolve());
         }
@@ -640,10 +683,12 @@ impl UIManager {
     }
 
     /// Read by `continuous_render_active`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn has_live_animations() -> bool {
         !ANIMATIONS.lock().is_empty()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn commit_animations() {
         // The steps and the finish handlers run with the list unlocked. A
         // handler that starts the next animation, like the second leg of a

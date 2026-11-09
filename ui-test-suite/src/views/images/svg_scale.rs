@@ -2,13 +2,11 @@ use anyhow::{Result, anyhow};
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::LossyConvert,
+    image::{Image, RASTER_KEEP_FRAMES, Svg},
     refs::{Weak, manage::DataManager},
     ui::{Anchor::Top, ImageView, Setup, Size, UIManager, ViewData, ViewTest, view},
     ui_test::helpers::check_colors,
-    window::{
-        Window,
-        image::{Image, RASTER_KEEP_FRAMES, Svg},
-    },
+    window::Window,
 };
 
 // One svg drawn at three sizes. Each size rasterizes at its own pixel

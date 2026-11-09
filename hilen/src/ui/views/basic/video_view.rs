@@ -12,7 +12,7 @@ use crate::{
     video::{AudioTrack, Player, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats},
 };
 #[cfg(ffmpeg)]
-use crate::{video::VideoPieces, window::image::NoImage};
+use crate::{image::NoImage, video::VideoPieces};
 
 /// Unique per view, so two videos never share a frame texture.
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);

@@ -18,7 +18,7 @@ use crate::{
     gm::LossyConvert,
     system::app_activity::{self, ActivityChange},
     ui::{Cursor, Input, UIManager, privacy_cover},
-    window::{Window, WindowEvents, frame_control, state::State, sync_fullscreen},
+    window::{Window, WindowEvents, frame_control, state::State, sync_fullscreen, winit_keys},
 };
 
 /// Runs the queued callbacks in a turn of the loop that draws no frame, in
@@ -316,7 +316,8 @@ impl AppHandler {
                 self.te_window_events.mouse_moved((position.x, position.y).into());
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                self.te_window_events.mouse_event(state, button);
+                self.te_window_events
+                    .mouse_event(winit_keys::element_state(state), winit_keys::mouse_button(button));
             }
             WindowEvent::CursorLeft { .. } => self.te_window_events.cursor_left(),
             WindowEvent::Focused(focused) => self.te_window_events.focus_changed(focused),
@@ -359,7 +360,8 @@ impl AppHandler {
                 self.te_window_events.mouse_moved((position.x, position.y).into());
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                self.te_window_events.mouse_event(state, button);
+                self.te_window_events
+                    .mouse_event(winit_keys::element_state(state), winit_keys::mouse_button(button));
             }
             WindowEvent::CursorLeft { .. } => {
                 self.te_window_events.cursor_left();

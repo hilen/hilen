@@ -3,7 +3,7 @@ use hilen::{
     dispatch::from_main,
     filesystem::FilePath,
     refs::Weak,
-    ui::{FileBrowser, Label, ModifiersState, Point, Setup, TextAlignment, ViewData, ViewTest, view},
+    ui::{FileBrowser, Label, Modifiers, Point, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_modifiers},
 };
 
@@ -47,7 +47,7 @@ impl ViewTest for FileBrowserSelect {
         assert_eq!(picked(browser), ["readme.md"]);
         check_colors(CHECK_1)?;
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         tap_row(browser, "archive.zip")?;
         assert_eq!(picked(browser), ["archive.zip", "readme.md"]);
         tap_row(browser, "Music")?;
@@ -57,12 +57,12 @@ impl ViewTest for FileBrowserSelect {
         assert_eq!(picked(browser), ["Music", "archive.zip"]);
 
         // The range runs from the row touched last, readme.md.
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         tap_row(browser, "main.rs")?;
         assert_eq!(picked(browser), ["main.rs", "movie.mkv", "readme.md"]);
         check_colors(CHECK_3)?;
 
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         let below =
             from_main(move || browser.row_center("readme.md")).map(|row| Point::new(row.x, row.y + 120.0));
         tap_at(below.unwrap_or_default());

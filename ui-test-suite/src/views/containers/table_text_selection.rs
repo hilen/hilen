@@ -5,7 +5,7 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        CellRegistry, GRAY, Label, MarkdownView, ModifiersState, Setup, TableData, TableView, TextAlignment,
+        CellRegistry, GRAY, Label, MarkdownView, Modifiers, Setup, TableData, TableView, TextAlignment,
         TextSelection, UIManager, VerticalAlignment, View, ViewData, ViewFrame, ViewSubviews, ViewTest,
         WHITE, view,
     },
@@ -866,7 +866,7 @@ impl ViewTest for TableTextSelection {
         check_colors(CHECK_4)?;
 
         // All the text, also of the rows that are not on screen.
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_keys("a");
         assert_eq!(view.show("Cmd or Ctrl with A"), rows_copy(0..ROWS));
         check_colors(CHECK_5)?;
@@ -874,7 +874,7 @@ impl ViewTest for TableTextSelection {
         #[cfg(desktop)]
         from_main(|| Clipboard::set_in_process(true));
         inject_keys("c");
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         #[cfg(desktop)]
         from_main(|| {
             assert_eq!(

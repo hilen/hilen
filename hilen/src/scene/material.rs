@@ -1,4 +1,4 @@
-use crate::{deps::refs::Weak, gm::color::Color, window::image::Image};
+use crate::{deps::refs::Weak, gm::color::Color, image::Image};
 
 /// How the surface of a node meets light, the metallic roughness model
 /// of glTF and Filament.

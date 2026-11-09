@@ -24,7 +24,7 @@ pub(crate) async fn decode(bytes: Vec<u8>) -> Result<RgbaImage> {
 /// decodes, and the wasm build links no jpeg decoder.
 #[cfg(wasm)]
 pub(crate) async fn decode(bytes: Vec<u8>) -> Result<RgbaImage> {
-    let raw = crate::window::image::decode_upright(&bytes, MAX_SIDE).await?;
+    let raw = crate::image::decode_upright(&bytes, MAX_SIDE).await?;
     RgbaImage::from_raw(raw.size.width, raw.size.height, raw.data)
         .ok_or_else(|| anyhow!("The browser gave fewer pixels than the size of the photo"))
 }

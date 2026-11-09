@@ -9,9 +9,8 @@ use hilen::{
         GravityWell, NodeTemplates, Prop, SceneCreation, SceneSetup, SceneTemplates, SceneTest, Sky, Sun,
         Wall, scene, step_scene,
     },
-    ui::Color,
+    ui::{Code, Color},
     ui_test::{checkpoint, hold_key, release_key},
-    window::KeyCode,
 };
 
 const PLANET: f32 = 30.0;
@@ -75,9 +74,9 @@ impl SceneTest for PlanetWalk {
         step_scene(30);
         checkpoint("the player stands on top of the planet")?;
 
-        hold_key(KeyCode::KeyW);
+        hold_key(Code::KeyW);
         step_scene(QUARTER_FRAMES);
-        release_key(KeyCode::KeyW);
+        release_key(Code::KeyW);
         step_scene(5);
 
         let (at, up, camera_up, grounded) = from_main(move || {

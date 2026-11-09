@@ -80,6 +80,7 @@ pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
     error!("A worker thread needs the atomics wasm build, the work was dropped");
 }
 
+#[cfg(feature = "gpu")]
 pub fn block_on<F>(future: F)
 where F: Future<Output = ()> + 'static {
     #[cfg(wasm)]
@@ -91,7 +92,7 @@ where F: Future<Output = ()> + 'static {
     pollster::block_on(future);
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub fn unasync<F, Out>(future: F) -> Out
 where F: Future<Output = Out> {
     pollster::block_on(future)

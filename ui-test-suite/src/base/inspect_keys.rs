@@ -9,7 +9,7 @@ use hilen::{
         protocol::{Key, UIRequest},
     },
     refs::Weak,
-    ui::{KeyCombo, ModifiersState, NamedKey, Setup, UIManager, ViewTest, view},
+    ui::{KeyCombo, Modifiers, NamedKey, Setup, UIManager, ViewTest, view},
 };
 
 /// Keys injected over the inspect protocol must reach the keymap and the
@@ -47,7 +47,7 @@ impl Setup for InspectKeys {
 
 /// The tree in the reply holds `Own` pointers, which must drop on the main
 /// thread like the transports do.
-fn send(keys: Vec<Key>, modifiers: ModifiersState) -> Result<()> {
+fn send(keys: Vec<Key>, modifiers: Modifiers) -> Result<()> {
     let response = InspectService::process_command(UIRequest::Keys { keys, modifiers }.into());
     let result = match &response {
         AppCommand::UI(_) => Ok(()),
@@ -61,22 +61,22 @@ impl ViewTest for InspectKeys {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         let counts = move || from_main(move || (view.plain, view.cmd, view.cmd_enter));
 
-        send(vec![Key::Char('p')], ModifiersState::empty())?;
+        send(vec![Key::Char('p')], Modifiers::empty())?;
         assert_eq!(counts(), (1, 0, 0));
 
-        send(vec![Key::Char('p')], ModifiersState::SUPER)?;
+        send(vec![Key::Char('p')], Modifiers::META)?;
         assert_eq!(counts(), (1, 1, 0));
 
         // The held Cmd released with its request.
         assert!(!from_main(UIManager::command_held));
-        send(vec![Key::Char('p')], ModifiersState::empty())?;
+        send(vec![Key::Char('p')], Modifiers::empty())?;
         assert_eq!(counts(), (2, 1, 0));
 
-        send(vec![Key::Named(NamedKey::Enter)], ModifiersState::SUPER)?;
+        send(vec![Key::Named(NamedKey::Enter)], Modifiers::META)?;
         assert_eq!(counts(), (2, 1, 1));
         assert!(!from_main(UIManager::command_held));
 
-        send(vec![Key::Named(NamedKey::Enter)], ModifiersState::empty())?;
+        send(vec![Key::Named(NamedKey::Enter)], Modifiers::empty())?;
         assert_eq!(counts(), (2, 1, 1));
 
         // A phone types through its screen keyboard, so a field only
@@ -86,7 +86,7 @@ impl ViewTest for InspectKeys {
             from_main(move || view.field.focus());
             send(
                 vec![Key::Char('a'), Key::Char('b'), Key::Char('c')],
-                ModifiersState::empty(),
+                Modifiers::empty(),
             )?;
             assert_eq!(from_main(move || view.field.text().to_string()), "abc");
 
@@ -99,7 +99,7 @@ impl ViewTest for InspectKeys {
                     Key::Named(NamedKey::Enter),
                     Key::Char('z'),
                 ],
-                ModifiersState::empty(),
+                Modifiers::empty(),
             )?;
             assert_eq!(from_main(move || view.field.text().to_string()), "ab");
         }

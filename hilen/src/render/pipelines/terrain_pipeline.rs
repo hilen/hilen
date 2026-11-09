@@ -12,6 +12,7 @@ use crate::{
         color::WHITE,
         flat::{Point, Rect, Vertex2D},
     },
+    image::Image,
     level::{MaterialId, Terrain, terrain::mesh::PartKind},
     render::{
         PipelineShape,
@@ -20,7 +21,7 @@ use crate::{
         uniform::{UniformBind, make_uniform_layout},
         vertex_layout::VertexLayout,
     },
-    window::{Window, image::Image, msaa_sample_count},
+    window::{Window, msaa_sample_count},
 };
 
 #[repr(C)]

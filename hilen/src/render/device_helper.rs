@@ -8,8 +8,9 @@ use wgpu::{
 };
 
 use crate::{
+    image::Texture,
     render::to_bytes::ToBytes,
-    window::{BufferUsages, PolygonMode, image::Texture, msaa_sample_count, surface_texture_format},
+    window::{BufferUsages, PolygonMode, msaa_sample_count, surface_texture_format},
 };
 
 /// The stencil test of everything drawn into the frame. The stencil

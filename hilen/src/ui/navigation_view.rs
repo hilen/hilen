@@ -14,12 +14,12 @@ use crate::{
         flat::{Point, Rect},
     },
     ui::{
-        NamedKey, Setup, Touch, TouchLock, TouchStack, UIAnimation, UIManager, View, ViewData, ViewTouch,
-        WeakView,
+        MouseButton, NamedKey, Setup, Touch, TouchLock, TouchStack, UIAnimation, UIManager, View, ViewData,
+        ViewTouch, WeakView,
         input::TouchEvent,
         view::{ViewFrame, ViewSubviews},
     },
-    window::{MouseButton, slots::WindowLock},
+    window::slots::WindowLock,
 };
 
 /// How far from the left edge of a stack a swipe may start, in points.

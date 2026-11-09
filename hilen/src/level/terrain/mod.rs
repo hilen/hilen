@@ -22,8 +22,8 @@ use crate::{
         color::Color,
         flat::{Point, Rect},
     },
+    image::{Image, ToImage},
     level::{LevelBase, LevelManager},
-    window::image::{Image, ToImage},
 };
 
 /// A material of the ground, an index from `Terrain::add_material`.

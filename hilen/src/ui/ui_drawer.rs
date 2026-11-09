@@ -1,5 +1,6 @@
 #[cfg(feature = "scene")]
 mod behind_views;
+mod draws_itself;
 mod frame;
 
 use std::{
@@ -7,6 +8,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
+pub use draws_itself::DrawsItself;
 use wgpu::RenderPass;
 
 use crate::{
@@ -20,11 +22,12 @@ use crate::{
     render::{
         ImageKey, UIBackdropPipeline, UIBlurPipeline, UIClipPipeline, UIGradientPipeline, UIGroupPipeline,
         UIImageRectPipeline, UIPathPipeline, UIRectPipeline, UIShadowPipeline,
-        data::{PathData, RectView, UIBackdropInstance, UIImageInstance, UIRectInstance, UIShadowInstance},
+        data::{RectView, UIBackdropInstance, UIImageInstance, UIRectInstance, UIShadowInstance},
     },
+    text::TextBrushes,
     ui::{
-        BlurView, DrawingView, ImageView, Label, ScrimView, TextSelection, UIManager, View, ViewData,
-        ViewFrame, ViewLayout, ViewSubviews, WeakView,
+        BlurView, DrawingView, ImageView, Label, PathData, ScrimView, TextSelection, UIManager, View,
+        ViewData, ViewFrame, ViewLayout, ViewSubviews, WeakView,
         damage::{clip_rect, paint_rect},
         label_drawer::TextSections,
         loops,
@@ -217,12 +220,12 @@ impl UIDrawer {
     }
 
     fn flush_text(pass: &mut RenderPass, text_sections: &mut TextSections) {
-        for (mut font, sections) in text_sections.drain(..) {
+        for (font, sections) in text_sections.drain(..) {
             for (section, params) in sections {
-                font.queue_shaped(section, params);
+                TextBrushes::queue(&font, section, params);
             }
-            font.process_queued().unwrap();
-            font.brush.draw(pass);
+            TextBrushes::process(&font).unwrap();
+            TextBrushes::draw(&font, pass);
         }
     }
 
@@ -437,7 +440,7 @@ impl UIDrawer {
         // A partial frame has only views that the engine draws alone, a
         // whole frame is where a view is asked.
         if !ctx.partial {
-            Self::before_render(render_frame, view);
+            Self::draw_custom(render_frame, view);
         }
 
         let parent_scissor = ctx.scissor;

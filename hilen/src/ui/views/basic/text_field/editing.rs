@@ -19,14 +19,13 @@ use crate::{
         flat::{Point, Rect},
     },
     system::Clipboard,
+    text::TextLayout,
     ui::{
-        Container, Input, ScreenKeyboard, TextAlignment, TouchStack, UIManager, VerticalAlignment, View,
-        ViewSubviews, WeakView,
-        selection_drawer::SELECTION_COLOR,
-        text_selection::word_range,
+        Container, Input, NamedKey, ScreenKeyboard, TextAlignment, TouchStack, UIManager, VerticalAlignment,
+        View, ViewSubviews, WeakView,
+        text_selection::{SELECTION_COLOR, word_range},
         view::{ViewData, ViewFrame, ViewTouch, depth_order},
     },
-    window::{NamedKey, TextLayout},
     wipe::joined,
 };
 
@@ -180,7 +179,7 @@ impl TextField {
             return;
         }
 
-        let shift = Input::modifiers().shift_key();
+        let shift = Input::modifiers().shift();
 
         match key {
             // Focus moves even in a multiline field, the way a browser
@@ -423,7 +422,7 @@ impl TextField {
             return;
         }
 
-        if Input::modifiers().shift_key() {
+        if Input::modifiers().shift() {
             self.move_caret(byte, true);
             return;
         }

@@ -106,7 +106,7 @@ impl FileBrowser {
     }
 
     fn step(mut self: Weak<Self>, delta: isize) {
-        let extend = Input::modifiers().shift_key() && self.multi();
+        let extend = Input::modifiers().shift() && self.multi();
         let count = self.shown.len();
         let Some(index) = self.selection.step(delta, count, extend) else {
             return;

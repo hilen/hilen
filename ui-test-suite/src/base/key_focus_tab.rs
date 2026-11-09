@@ -3,8 +3,7 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        Button, Focus, Label, ModifiersState, NamedKey, Setup, View, ViewData, ViewFrame, ViewTest, WeakView,
-        view,
+        Button, Focus, Label, Modifiers, NamedKey, Setup, View, ViewData, ViewFrame, ViewTest, WeakView, view,
     },
     ui_test::{checkpoint, inject_modifiers, inject_named_key},
 };
@@ -50,11 +49,11 @@ impl KeyFocusTab {
 
     fn tab(self: Weak<Self>, shift: bool, expected: &str) -> Result<()> {
         if shift {
-            inject_modifiers(ModifiersState::SHIFT);
+            inject_modifiers(Modifiers::SHIFT);
         }
         inject_named_key(NamedKey::Tab);
         if shift {
-            inject_modifiers(ModifiersState::empty());
+            inject_modifiers(Modifiers::empty());
         }
         wait_for_next_frame();
         let focused = from_main(move || {

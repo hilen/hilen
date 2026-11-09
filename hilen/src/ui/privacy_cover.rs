@@ -8,9 +8,12 @@ use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{debug, info};
+#[cfg(feature = "gpu")]
 use plat::Platform;
 
-use crate::{ui::damage, window::request_frame};
+#[cfg(feature = "gpu")]
+use crate::ui::damage;
+use crate::window::request_frame;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static SHOWN: AtomicBool = AtomicBool::new(false);
@@ -41,17 +44,20 @@ pub(crate) fn enabled() -> bool {
 }
 
 /// The cover is drawn in place of every view.
+#[cfg(feature = "gpu")]
 pub(crate) fn shown() -> bool {
     SHOWN.load(Ordering::Relaxed)
 }
 
 /// Called with every change of `AppActivity`, before the app hears of it.
+#[cfg(feature = "gpu")]
 pub(crate) fn activity_changed(active: bool) {
     set_shown(ENABLED.load(Ordering::Relaxed) && !active && phone_rule());
 }
 
 /// A desktop window that only lost the focus stays as it is. Only a phone
 /// keeps a picture of the app for an app switcher.
+#[cfg(feature = "gpu")]
 fn phone_rule() -> bool {
     #[cfg(feature = "ui-tests")]
     match TEST_RULE.load(Ordering::Relaxed) {
@@ -83,6 +89,7 @@ fn set_shown(shown: bool) {
     if !shown {
         // The frames under the cover drew no view, the kept pixels hold
         // only the cover.
+        #[cfg(feature = "gpu")]
         damage::whole_next("the privacy cover went off");
     }
     // The system text field of an edited field is a view of UIKit over

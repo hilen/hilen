@@ -62,7 +62,7 @@ impl TouchStack {
     }
 
     /// The stack of a window that closes goes with it.
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "gpu"))]
     pub(crate) fn forget_window(slot: usize) {
         drop(STACKS[slot].lock().take());
     }

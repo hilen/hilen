@@ -47,6 +47,7 @@ pub use update_state::{UpdatePhase, UpdateState};
 /// Sets the handlers of the system that need the event loop, before the app
 /// handler runs: the app delegate of iOS for links and push. The call is
 /// empty elsewhere.
+#[cfg(feature = "gpu")]
 pub(crate) fn install_platform_handlers() {
     #[cfg(target_os = "ios")]
     ios_delegate::install();

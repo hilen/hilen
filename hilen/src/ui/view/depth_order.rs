@@ -12,14 +12,15 @@
 //! - `ViewBase::same_depth` puts a view and all it holds at the depth of its
 //!   superview.
 
-use std::{
-    collections::VecDeque,
-    sync::atomic::{AtomicU64, Ordering},
-};
+#[cfg(feature = "gpu")]
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::ui::View;
+#[cfg(feature = "gpu")]
 use crate::{
     deps::refs::Own,
-    ui::{View, ViewFrame, ViewSubviews, WeakView},
+    ui::{ViewFrame, ViewSubviews, WeakView},
 };
 
 /// How much nearer each view is than the one before it in tree order. Text
@@ -27,6 +28,7 @@ use crate::{
 /// sits clearly in front of that. The depth buffer has 24 bits, a step is
 /// about 6 of its units, and the root tree has room for 250000 views before
 /// the modal layer.
+#[cfg(feature = "gpu")]
 pub(crate) const DEPTH_STEP: f32 = 0.000_000_4;
 
 static GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -36,6 +38,7 @@ pub(crate) fn tree_changed() {
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
+#[cfg(feature = "gpu")]
 pub(crate) fn generation() -> u64 {
     GENERATION.load(Ordering::Relaxed)
 }
@@ -66,10 +69,12 @@ pub(crate) fn set_floats(view: &(impl View + ?Sized), floats: bool) {
 }
 
 /// Sets the depth of every view under `root` again.
+#[cfg(feature = "gpu")]
 pub(crate) fn order(root: WeakView) {
     layer(root);
 }
 
+#[cfg(feature = "gpu")]
 fn layer(root: WeakView) {
     let mut walk = Walk {
         cursor: root.z_position() - DEPTH_STEP,
@@ -81,6 +86,7 @@ fn layer(root: WeakView) {
     }
 }
 
+#[cfg(feature = "gpu")]
 fn share(view: WeakView, z: f32) {
     view.__base_view().z_position = z;
     for sub in view.subviews() {
@@ -93,11 +99,13 @@ fn share(view: WeakView, z: f32) {
     }
 }
 
+#[cfg(feature = "gpu")]
 struct Walk {
     cursor: f32,
     floats: VecDeque<WeakView>,
 }
 
+#[cfg(feature = "gpu")]
 impl Walk {
     fn place(&mut self, view: WeakView) {
         view.__base_view().z_position = self.cursor;

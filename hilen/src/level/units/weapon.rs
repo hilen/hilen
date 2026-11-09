@@ -8,8 +8,8 @@ use crate::{
         color::Color,
         flat::{Point, Shape},
     },
+    image::Image,
     level::{Body, LevelManager, Sprite, SpriteData, SpriteTemplates, level::LevelCreation},
-    window::image::Image,
 };
 
 pub struct Weapon {

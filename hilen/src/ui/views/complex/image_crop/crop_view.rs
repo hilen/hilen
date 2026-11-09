@@ -21,11 +21,11 @@ use crate::{
         color::{BLACK, WHITE},
         flat::{FillRule, Point, Rect, Size, StrokeStyle, VectorPath},
     },
+    image::Image,
     ui::{
         DrawingView, Focus, ImageView, NamedKey, Pinch, Scrollable, Setup, Touch, TouchStack, UIEvents,
         UIManager, View, ViewData, ViewFrame, ViewTouch,
     },
-    window::image::Image,
 };
 
 /// Every photo is kept under a name of its own.

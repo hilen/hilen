@@ -8,11 +8,11 @@
 
 #[cfg(target_os = "android")]
 mod android;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 mod desktop;
 #[cfg(target_os = "ios")]
 pub(crate) mod ios;
-#[cfg(macos)]
+#[cfg(all(macos, feature = "gpu"))]
 mod macos;
 #[cfg(wasm)]
 mod web;
@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 
 #[cfg(target_os = "android")]
 pub(crate) use self::android::check_intent;
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 pub(crate) use self::desktop::start as start_desktop;
 #[cfg(wasm)]
 pub(crate) use self::web::receive_start_url;
@@ -76,6 +76,7 @@ impl OpenedLink {
     /// The link for a log line: the scheme, the host and the first part of
     /// the path. The rest of a link can be a secret, like the code of an
     /// invite.
+    #[cfg(feature = "gpu")]
     fn for_log(&self) -> String {
         let (scheme, host, path) = self.parts();
         let (first, more) = match path.split_once('/') {
@@ -107,6 +108,7 @@ impl Links {
 }
 
 /// Takes a link from a platform, from any thread.
+#[cfg(feature = "gpu")]
 pub(crate) fn receive(url: impl Into<String>, source: &str) {
     let link = OpenedLink::new(url);
     info!("link from {source}: {}", link.for_log());
@@ -129,16 +131,18 @@ fn deliver_pending() {
 }
 
 /// Hands `url` to the app the way a platform does, for a test.
+#[cfg(feature = "gpu")]
 pub(crate) fn fake(url: &str) {
     receive(url, "a test");
 }
 
 /// Forgets the links that wait for a subscriber, before a test.
+#[cfg(feature = "gpu")]
 pub(crate) fn drop_pending() {
     PENDING.lock().clear();
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod test {
     use super::OpenedLink;
 

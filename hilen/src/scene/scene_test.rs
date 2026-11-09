@@ -1,6 +1,5 @@
 use anyhow::Result;
 use ui_proc::view;
-use winit::keyboard::KeyCode;
 
 use crate::{
     SCENE_TESTS,
@@ -10,7 +9,7 @@ use crate::{
         flat::{Point, Size},
     },
     scene::{Scene, SceneManager, SceneView},
-    ui::{Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
+    ui::{Code, Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
 
@@ -142,18 +141,12 @@ impl ViewCallbacks for SceneTestView {
         if !self.presenting || SceneManager::no_scene() {
             return;
         }
-        let axis = |negative: [KeyCode; 2], positive: [KeyCode; 2]| {
-            let held = |keys: [KeyCode; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
+        let axis = |negative: [Code; 2], positive: [Code; 2]| {
+            let held = |keys: [Code; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
             held(positive) - held(negative)
         };
-        let forward = axis(
-            [KeyCode::KeyS, KeyCode::ArrowDown],
-            [KeyCode::KeyW, KeyCode::ArrowUp],
-        );
-        let right = axis(
-            [KeyCode::KeyA, KeyCode::ArrowLeft],
-            [KeyCode::KeyD, KeyCode::ArrowRight],
-        );
+        let forward = axis([Code::KeyS, Code::ArrowDown], [Code::KeyW, Code::ArrowUp]);
+        let right = axis([Code::KeyA, Code::ArrowLeft], [Code::KeyD, Code::ArrowRight]);
         if forward == 0.0 && right == 0.0 {
             return;
         }

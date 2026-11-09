@@ -26,7 +26,7 @@ impl Window {
     pub fn set_orientations(orientations: Orientations) {
         debug!("screen orientations: {orientations:?}");
         *ORIENTATIONS.get_mut() = orientations;
-        #[cfg(all(ios, not(tvos)))]
+        #[cfg(all(ios, not(tvos), feature = "gpu"))]
         if let Some(window) = Self::winit_window() {
             use winit::platform::ios::{ValidOrientations, WindowExtIOS};
 
@@ -46,6 +46,7 @@ impl Window {
 
 /// A test that turned the screen and failed must not leave it turned for
 /// the next test.
+#[cfg(feature = "gpu")]
 pub(crate) fn reset_orientations() {
     if *ORIENTATIONS != Orientations::Any {
         Window::set_orientations(Orientations::Any);

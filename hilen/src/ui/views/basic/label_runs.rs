@@ -1,10 +1,11 @@
 use std::ops::Range;
 
+#[cfg(feature = "gpu")]
+use crate::gm::color::Color;
 use crate::{
     deps::refs::{Weak, weak_from_ref},
-    gm::color::Color,
+    text::{Font, FontRun, Room, runs_with_fallbacks},
     ui::Label,
-    window::{Font, FontRun, Room, runs_with_fallbacks},
 };
 
 /// The look of one byte range of a label's text beyond its color. A
@@ -176,6 +177,7 @@ impl Label {
     /// Whether any font this label may draw with has color glyphs, the
     /// base, an explicit run font or a registered or system fallback. The
     /// drawer skips the color glyph pass for every other label.
+    #[cfg(feature = "gpu")]
     pub(crate) fn uses_color_font(&self) -> bool {
         self.font().has_color()
             || self
@@ -186,6 +188,7 @@ impl Label {
     }
 
     /// The underlined byte ranges, clamped like `shaping_runs`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn underline_runs(&self, text: &str) -> Vec<Range<usize>> {
         self.font_runs
             .iter()
@@ -197,6 +200,7 @@ impl Label {
 
     /// The byte ranges with a line through them, clamped like
     /// `shaping_runs`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn strikethrough_runs(&self, text: &str) -> Vec<Range<usize>> {
         self.font_runs
             .iter()
@@ -207,6 +211,7 @@ impl Label {
     }
 
     /// The color the text has at `byte`, the run's when one covers it.
+    #[cfg(feature = "gpu")]
     pub(crate) fn color_at(&self, byte: usize) -> Color {
         self.color_runs()
             .iter()

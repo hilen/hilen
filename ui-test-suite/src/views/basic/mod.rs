@@ -52,6 +52,8 @@ mod theme_switch;
 mod tool_button;
 mod tool_button_fill;
 mod tool_button_look;
+/// The on fills under the pointer, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
 mod tool_button_on_hover;
 mod tool_button_picture;
 /// Hover tooltips need a pointer, the same gate as `hover`.

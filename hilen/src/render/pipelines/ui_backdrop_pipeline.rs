@@ -5,6 +5,7 @@ use wgpu::{
 
 use crate::{
     gm::flat::Point,
+    image::Image,
     render::{
         data::{RectView, UIBackdropInstance},
         device_helper::DeviceHelper,
@@ -13,7 +14,7 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{Window, image::Image},
+    window::Window,
 };
 
 const UI_BACKDROP_CODE: &str = include_str!("shaders/ui_backdrop.wgsl");

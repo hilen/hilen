@@ -1,11 +1,10 @@
 use hilen::{
-    RenderPass, VertexBuffer,
+    VertexBuffer,
     level::LevelManager,
     refs::Weak,
     ui::{
         Anchor::{Height, Top, Width, X},
-        Button, Container, Point, PositionView, Setup, ViewCallbacks, ViewData, ViewFrame, ViewSubviews,
-        WHITE, view,
+        Button, Container, Point, PositionView, Setup, ViewData, ViewFrame, ViewSubviews, WHITE, view,
     },
 };
 
@@ -79,30 +78,5 @@ impl PolygonView {
         self.add_point((200, 200).into());
         self.add_point((200, 500).into());
         self.add_point((500, 200).into());
-    }
-}
-
-impl ViewCallbacks for PolygonView {
-    fn before_render(&self, _pass: &mut RenderPass) {
-        // let drawer = Window::drawer();
-        //
-        // drawer.polygon_test.clear();
-        //
-        // if self.points.is_empty() {
-        //     return;
-        // }
-        //
-        // drawer.polygon_test.add(&self.points, (0, 0).into(), GREEN,
-        // 0.0);
-        //
-        // drawer.polygon_test.draw(
-        //     pass,
-        //     SpriteView {
-        //         camera_pos:      Point::default(),
-        //         resolution:      UIManager::resolution(),
-        //         camera_rotation: 0.0,
-        //         scale:           1.0,
-        //     },
-        // );
     }
 }

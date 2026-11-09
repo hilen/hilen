@@ -3,11 +3,11 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::color::{CLEAR, Color, WHITE},
+    image::{Image, ToImage},
     ui::{
         DynamicColor, ImageView, Setup, Shadow, UIColor, ViewFrame,
         view::{ViewData, ViewTouch},
     },
-    window::image::{Image, ToImage},
 };
 
 // The iOS system greens and grays, converted from their sRGB hex values

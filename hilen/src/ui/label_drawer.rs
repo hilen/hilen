@@ -16,11 +16,11 @@ use crate::{
     },
     pipelines::Pipelines,
     render::data::{UIImageInstance, UIRectInstance},
+    text::{BOX_LAYERS, BoxChars, Font, Room, ShapedLayout, ShapedParams, VerticalAlign, is_box_char},
     ui::{
         Label, TextAlignment, UIManager, VerticalAlignment, ViewFrame,
         ui_drawer::{IMAGE_RECT_DRAWER, UIDrawer},
     },
-    window::{BOX_LAYERS, BoxChars, Font, Room, ShapedLayout, ShapedParams, VerticalAlign, is_box_char},
 };
 
 /// How much nearer each layer of an outlined text sits than the one before,

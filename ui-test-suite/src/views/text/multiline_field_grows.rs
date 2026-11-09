@@ -5,11 +5,12 @@ use hilen::{
     ui::{Label, Setup, TextAlignment, TextField, ViewData, ViewFrame, ViewTest, view},
     ui_test::{
         check_colors, set_record_probe_count,
-        system_input::{press_return, tap, type_text, wait_until},
+        system_input::{press_return, screen_ink, system_input, system_request, tap, type_text, wait_until},
     },
 };
 
 const FIELD_TOP: f32 = 90.0;
+const OUTSIDE: (f32, f32) = (300.0, 540.0);
 /// Room for 1 line of the text.
 const LOW: f32 = 44.0;
 /// Room for about 4 lines.
@@ -56,6 +57,31 @@ impl MultilineFieldGrows {
         self.status.set_text(step);
     }
 
+    /// The look of the field while it is edited. On a phone the system text
+    /// view draws the text then, and a capture of the engine frame holds no
+    /// system view, so there the check reads the screen: the text has to
+    /// show, inside the field.
+    fn check_field(self: Weak<Self>, colors: &str) -> Result<()> {
+        if !system_input() {
+            return check_colors(colors);
+        }
+        let frame = from_main(move || *self.field.absolute_frame());
+        let ink = screen_ink(frame.x(), frame.y(), frame.width(), frame.height())?;
+        ensure!(
+            ink.bottom > ink.top,
+            "the edited field shows no text on the screen"
+        );
+        // The box of the ink counts from the top left of the area read.
+        ensure!(
+            ink.top >= 0.0 && ink.bottom <= frame.height(),
+            "the text of the edited field runs out of it, {} to {} in a field {} high",
+            ink.top,
+            ink.bottom,
+            frame.height()
+        );
+        Ok(())
+    }
+
     /// How far the field could still scroll down, 0 when the last line
     /// sits at its bottom edge.
     fn room_under_the_text(&self) -> f32 {
@@ -79,15 +105,20 @@ impl ViewTest for MultilineFieldGrows {
             view.field.text() == LINES.join("\n")
         })?;
         from_main(move || view.say("room for 1 line: the field shows its last line, six"));
-        check_colors(CHECK_1)?;
-        from_main(move || {
-            ensure!(
-                view.field.scroll_offset() < -100.0,
-                "the low field did not scroll to its last line, offset {}",
-                view.field.scroll_offset()
-            );
-            Ok(())
-        })?;
+        view.check_field(CHECK_1)?;
+        // The system text view of a phone scrolls itself while it edits, the
+        // scroll of the engine field stays where it was, see `check_field`.
+        let engine_scrolls = !system_input();
+        if engine_scrolls {
+            from_main(move || {
+                ensure!(
+                    view.field.scroll_offset() < -100.0,
+                    "the low field did not scroll to its last line, offset {}",
+                    view.field.scroll_offset()
+                );
+                Ok(())
+            })?;
+        }
 
         from_main(move || {
             view.set_field_height(MIDDLE);
@@ -96,19 +127,21 @@ impl ViewTest for MultilineFieldGrows {
         wait_until("the field is higher", move || {
             (view.field.height() - MIDDLE).abs() < 0.5
         })?;
-        check_colors(CHECK_2)?;
-        from_main(move || {
-            ensure!(
-                view.room_under_the_text().abs() < 0.5,
-                "the higher field has {} points of empty room under its text",
-                view.room_under_the_text()
-            );
-            ensure!(
-                view.field.scrolled_to_caret(),
-                "the caret left the view when the field grew"
-            );
-            Ok(())
-        })?;
+        view.check_field(CHECK_2)?;
+        if engine_scrolls {
+            from_main(move || {
+                ensure!(
+                    view.room_under_the_text().abs() < 0.5,
+                    "the higher field has {} points of empty room under its text",
+                    view.room_under_the_text()
+                );
+                ensure!(
+                    view.field.scrolled_to_caret(),
+                    "the caret left the view when the field grew"
+                );
+                Ok(())
+            })?;
+        }
 
         from_main(move || {
             view.set_field_height(HIGH);
@@ -117,15 +150,28 @@ impl ViewTest for MultilineFieldGrows {
         wait_until("the field is at its full height", move || {
             (view.field.height() - HIGH).abs() < 0.5
         })?;
-        check_colors(CHECK_3)?;
-        from_main(move || {
-            ensure!(
-                view.field.scroll_offset().abs() < 0.5,
-                "a field that fits its text is scrolled by {}",
-                view.field.scroll_offset()
-            );
-            Ok(())
-        })
+        view.check_field(CHECK_3)?;
+        if engine_scrolls {
+            from_main(move || {
+                ensure!(
+                    view.field.scroll_offset().abs() < 0.5,
+                    "a field that fits its text is scrolled by {}",
+                    view.field.scroll_offset()
+                );
+                Ok(())
+            })?;
+        }
+
+        // The keyboard goes down before the next test, which taps its own
+        // field.
+        tap(OUTSIDE.0, OUTSIDE.1)?;
+        wait_until("the field is not edited any more", move || {
+            !view.field.is_editing()
+        })?;
+        if system_input() {
+            system_request("keyboard 0")?;
+        }
+        Ok(())
     }
 }
 

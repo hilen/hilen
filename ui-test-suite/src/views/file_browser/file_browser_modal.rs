@@ -3,11 +3,10 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        Button, FileBrowser, FileBrowserControl, FilePick, FilePicker, Label, Setup, TextAlignment,
+        Button, FileBrowser, FileBrowserControl, FilePick, FilePicker, Label, NamedKey, Setup, TextAlignment,
         TouchStack, ViewData, ViewFrame, ViewTest, view,
     },
     ui_test::{check_colors, inject_named_key, inject_touches},
-    window::NamedKey,
 };
 
 use super::{picked, sample, tap_control, tap_row};

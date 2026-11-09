@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Button, ModifiersState, NamedKey, Setup, TextField, ViewData, ViewSubviews, ViewTest, view},
+    ui::{Button, Modifiers, NamedKey, Setup, TextField, ViewData, ViewSubviews, ViewTest, view},
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key},
 };
 
@@ -163,9 +163,9 @@ impl ViewTest for TabFocus {
         check_colors(FILLED_PROBES)?;
 
         // Backward from the first field wraps to the last.
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::Tab);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_keys("z");
 
         check_colors(FINAL_PROBES)?;

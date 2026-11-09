@@ -1,16 +1,18 @@
 //! What the frame loop asks the inspector's frame record and frame step.
 //! Without the `inspect` feature every answer is the normal run.
 
+#[cfg(feature = "gpu")]
 use crate::window::Screenshot;
 #[cfg(feature = "inspect")]
 use crate::window::{frame_record, frame_ring, frame_step};
 
 /// Takes the picture of the frame that was just drawn.
+#[cfg(feature = "gpu")]
 pub(crate) type FrameReader = Box<dyn FnOnce(Screenshot) + Send>;
 
 /// Before a frame that is not held. A record in a window with nothing to
 /// pace its frames waits here for the next step of a screen.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn pace() {
     #[cfg(feature = "inspect")]
     {
@@ -20,12 +22,14 @@ pub(crate) fn pace() {
 }
 
 /// Before the update of a frame that is not held.
+#[cfg(feature = "gpu")]
 pub(crate) fn begin_frame() {
     #[cfg(feature = "inspect")]
     frame_step::begin_frame();
 }
 
 /// After the draw of a frame that is not held.
+#[cfg(feature = "gpu")]
 pub(crate) fn end_frame() {
     #[cfg(feature = "inspect")]
     frame_step::end_frame();
@@ -35,6 +39,7 @@ pub(crate) fn end_frame() {
 /// queued callbacks, so the inspector still gets its answers, and draws
 /// what it has again for a screenshot. It never updates, a layout pass
 /// here would eat a frame the user wants to step.
+#[cfg(feature = "gpu")]
 pub(crate) fn holding() -> bool {
     #[cfg(feature = "inspect")]
     {
@@ -48,7 +53,7 @@ pub(crate) fn holding() -> bool {
 
 /// A step or a record needs its frames even from a covered window, they
 /// are drawn offscreen like a screenshot of one.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn offscreen_wanted() -> bool {
     #[cfg(feature = "inspect")]
     {
@@ -76,6 +81,7 @@ pub(crate) fn presented_handler() -> Option<Box<dyn FnOnce(Option<f64>) + Send>>
 
 /// The reader of the running records for the frame being drawn. A record
 /// after an input and a record from a start to a stop can run together.
+#[cfg(feature = "gpu")]
 pub(crate) fn frame_reader() -> Option<FrameReader> {
     #[cfg(feature = "inspect")]
     {

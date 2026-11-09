@@ -2,7 +2,10 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{BLACK, MarkdownView, Setup, TextSelection, Toast, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{
+        BLACK, MarkdownView, Setup, TextSelection, Toast, UIManager, ViewData, ViewFrame, ViewTest, WHITE,
+        view,
+    },
     ui_test::{check_colors, checkpoint, inject_touches},
 };
 
@@ -230,6 +233,11 @@ impl ViewTest for MarkdownCopyButtons {
         assert_eq!(copied.try_recv().ok().as_deref(), Some("echo copied"));
         check_colors(BLOCK_COPIED)?;
         checkpoint("Copied over the icon of the code block")?;
+
+        // The selection below is the desktop way, a click gives Select All its
+        // view. Where a drag scrolls, on a phone, a tap only drops the
+        // selection and a long press starts one.
+        from_main(|| UIManager::set_drag_scrolling(false));
 
         // Plain text copies nothing.
         inject_touches("50 68 b\n50 68 e");

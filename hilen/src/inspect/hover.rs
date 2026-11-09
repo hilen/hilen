@@ -7,8 +7,8 @@ use crate::{
         weak_to_id,
         window::from_main,
     },
-    ui::{Hover, Input, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
-    window::{MouseButton, frame_control},
+    ui::{Hover, Input, MouseButton, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
+    window::frame_control,
 };
 
 impl InspectService {

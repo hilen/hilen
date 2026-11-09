@@ -467,13 +467,14 @@ pub(crate) struct LayerState {
     /// Which set of pictures the layer shows, the same for loops that share 1.
     pub(crate) pictures_id: usize,
     /// The root layer it is on, the layer of the view of 1 window, see
-    /// `window_root_layer`.
+    /// `window_root_layer`. Only a Mac has a second window to tell apart.
+    #[cfg(macos)]
     pub(crate) root:        usize,
 }
 
 /// The root layer of the current window, what `LayerState::root` of a
 /// layer in that window is.
-#[cfg(feature = "ui-tests")]
+#[cfg(all(feature = "ui-tests", macos))]
 pub(crate) fn window_root_layer() -> Option<usize> {
     super::layer::window_root()
 }

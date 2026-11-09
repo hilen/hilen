@@ -2,6 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::Shape,
+    image::{Image, ToImage},
     level::{
         Banner, LevelCreation, LevelManager, LevelSetup, LevelTest, SpriteTemplates, TileFrames, TileId,
         TileKind, TileMap, level,
@@ -9,7 +10,6 @@ use hilen::{
     refs::Weak,
     ui::{ImageFilter, Point},
     ui_test::{check_colors, checkpoint, set_record_probe_count},
-    window::image::{Image, ToImage},
 };
 
 /// A block world framed like Terraria: a 16 pixel hero 2.6 units tall,

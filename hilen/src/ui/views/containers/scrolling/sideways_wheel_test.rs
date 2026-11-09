@@ -10,10 +10,7 @@ use crate::{
         ToF32,
         color::{BLACK, Color, WHITE},
     },
-    ui::{
-        Container, Label, ModifiersState, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest,
-        view,
-    },
+    ui::{Container, Label, Modifiers, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
     ui_test::{checkpoint, inject_modifiers, inject_scroll, inject_scroll_x, inject_touches},
 };
 
@@ -170,9 +167,9 @@ impl ViewTest for SidewaysWheel {
         view.step("plain wheel the other way by 100, the row moved right")?;
         assert_eq!(view.offsets(), [-600.0, 0.0, 0.0, 0.0]);
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_scroll(100);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         view.step("Shift plus wheel by 100 on the row, right again")?;
         assert_eq!(view.offsets(), [-500.0, 0.0, 0.0, 0.0]);
 
@@ -185,9 +182,9 @@ impl ViewTest for SidewaysWheel {
         view.step("plain wheel by 100 on the grid, it moved up only")?;
         assert_eq!(view.offsets(), [-300.0, 0.0, 0.0, -100.0]);
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_scroll(-100);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         view.step("Shift plus wheel by 100 on the grid, the grid moved left")?;
         assert_eq!(view.offsets(), [-300.0, 0.0, -100.0, -100.0]);
 

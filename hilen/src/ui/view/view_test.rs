@@ -1,8 +1,10 @@
 use anyhow::Result;
 
+#[cfg(feature = "gpu")]
+use crate::ui::Setup;
 use crate::{
     deps::refs::{Own, Weak},
-    ui::{Setup, View},
+    ui::View,
 };
 
 /// Implemented by `#[view]` for every view it can name concretely, which is
@@ -74,6 +76,7 @@ impl<T: View> MaybeUITest for T {
     }
 }
 
+#[cfg(feature = "gpu")]
 impl<T: View + ViewTest + Default + 'static> MaybeUITest for T {
     fn __ui_present() -> Option<fn()> {
         Some(|| {

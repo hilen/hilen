@@ -1,29 +1,29 @@
-use std::{
-    pin::Pin,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::pin::Pin;
+#[cfg(feature = "gpu")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "gpu")]
 use log::info;
 
+#[cfg(feature = "gpu")]
+use crate::app_starter::hilen_start_with_app;
+#[cfg(feature = "gpu")]
+use crate::deps::refs::main_lock::MainLock;
 #[cfg(feature = "updater")]
 use crate::system::{UpdateSource, app_update_source};
-use crate::{
-    app_starter::hilen_start_with_app,
-    deps::refs::{Own, main_lock::MainLock},
-    gm::flat::Size,
-    ui::View,
-    window::WindowPlacement,
-};
+use crate::{deps::refs::Own, gm::flat::Size, ui::View, window::WindowPlacement};
 
 pub type PinnedFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
 
 /// The crates of the engine that log at debug level. Every other crate is
 /// held to warnings, with the `log_targets` of the app let through too.
+#[cfg(feature = "gpu")]
 const ENGINE_LOG_TARGETS: &[&str] = &["hilen", "inspector", "netrun"];
 
 /// True when a log line of `target` comes through at debug level: the crate
 /// is one of the engine or of the app, or a module of one. `hilen_server`
 /// is not `hilen`.
+#[cfg(feature = "gpu")]
 pub(crate) fn is_debug_target(target: &str, app_targets: &[&str]) -> bool {
     ENGINE_LOG_TARGETS.iter().chain(app_targets).any(|name| {
         target
@@ -37,21 +37,26 @@ pub(crate) fn is_debug_target(target: &str, app_targets: &[&str]) -> bool {
 /// It lives here rather than inside `AppRunner` because more than the runner
 /// needs it. A UI test run tears the root view down, and putting it back means
 /// asking the app for a new one long after launch.
+#[cfg(feature = "gpu")]
 static APP: MainLock<Option<Box<dyn App>>> = MainLock::new();
 
+#[cfg(feature = "gpu")]
 pub(crate) fn set_app(app: Box<dyn App>) {
     *APP.get_mut() = Some(app);
 }
 
+#[cfg(feature = "gpu")]
 pub(crate) fn app() -> &'static dyn App {
     APP.get_mut()
         .as_deref()
         .expect("App is not set. `hilen_start_with_app` does that.")
 }
 
+#[cfg(feature = "gpu")]
 static QUIT: AtomicBool = AtomicBool::new(false);
 
 /// Calls `App::will_quit`, once, when the app ends. On the main thread.
+#[cfg(feature = "gpu")]
 pub(crate) fn quit() {
     let Some(app) = APP.get_mut().as_deref() else {
         return;
@@ -132,6 +137,7 @@ pub trait App {
         10
     }
 
+    #[cfg(feature = "gpu")]
     fn start()
     where Self: Default + Sized + 'static {
         hilen_start_with_app(Box::new(Self::default()));
@@ -334,7 +340,7 @@ macro_rules! register_app {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -348,7 +354,7 @@ mod tests {
     #[test]
     fn debug_targets_are_the_engine_and_the_app() {
         assert!(is_debug_target("hilen", &[]));
-        assert!(is_debug_target("hilen::window::image", &[]));
+        assert!(is_debug_target("hilen::image", &[]));
         assert!(is_debug_target("flixen::net", &["flixen"]));
         assert!(!is_debug_target("hilen_server", &[]));
         assert!(!is_debug_target("naga::front::wgsl", &["flixen"]));

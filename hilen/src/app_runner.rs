@@ -354,7 +354,7 @@ impl AppRunner {
         // The shot frame itself showed a picture first, take it again once
         // that landed. Only then, an extra frame moves a running scene.
         #[cfg(wasm)]
-        if crate::window::image::late::pictures_pending() > 0 {
+        if crate::image::late::pictures_pending() > 0 {
             Self::wait_for_browser_pictures();
             return Ok(from_main(|| Window::current().request_screenshot()).recv()?);
         }
@@ -370,8 +370,7 @@ impl AppRunner {
     #[cfg(wasm)]
     fn wait_for_browser_pictures() {
         use crate::{
-            deps::hreads::wait_for_next_frame,
-            window::{image::late::pictures_pending, request_frame},
+            deps::hreads::wait_for_next_frame, image::late::pictures_pending, window::request_frame,
         };
 
         if crate::deps::hreads::is_main_thread() {
@@ -389,7 +388,7 @@ impl AppRunner {
                 wait_for_next_frame();
             }
             if late() {
-                let names = from_main(crate::window::image::late::pending_names);
+                let names = from_main(crate::image::late::pending_names);
                 log::warn!("The shot did not wait any longer for the browser pictures {names:?}");
                 return;
             }

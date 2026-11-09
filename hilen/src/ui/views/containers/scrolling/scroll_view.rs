@@ -252,6 +252,7 @@ impl ScrollView {
 
     /// Whether a vertical wheel move by `delta_y` moves the content, the
     /// clamp of `on_scroll`. At its end the move goes on to the view behind.
+    #[cfg(feature = "gpu")]
     fn takes_wheel_y(&self, delta_y: f32) -> bool {
         let height = self.content.height();
         let size = self.content.content_size.height;
@@ -308,6 +309,7 @@ impl ScrollView {
 
     /// Moves the content up by at most `distance`, as far as it can
     /// scroll, and returns how far it went.
+    #[cfg(feature = "gpu")]
     pub(crate) fn scroll_up_by(&mut self, distance: f32) -> f32 {
         let before = self.content.content_offset();
         self.on_scroll(-distance);
@@ -582,12 +584,13 @@ impl Scrollable for ScrollView {
         range > 0.0 && (offset - self.offset_x).abs() >= f32::EPSILON
     }
 
+    #[cfg(feature = "gpu")]
     fn __takes_wheel(&self, delta: Point) -> bool {
         // The same 2 rules as `__process_wheel_scroll` and `__scroll_by`
         // that send a plain wheel sideways.
         let sideways = delta.x == 0.0
             && self.range_x() > 0.0
-            && (!self.has_vertical_range() || Input::modifiers().shift_key());
+            && (!self.has_vertical_range() || Input::modifiers().shift());
         if sideways {
             return self.__takes_wheel_x(delta.y);
         }
@@ -610,7 +613,7 @@ impl Scrollable for ScrollView {
         // A mouse with no side wheel scrolls sideways with Shift held.
         // macOS turns that into a sideways delta by itself, the other
         // platforms still send it as a vertical one.
-        if delta.x == 0.0 && Input::modifiers().shift_key() && self.range_x() > 0.0 {
+        if delta.x == 0.0 && Input::modifiers().shift() && self.range_x() > 0.0 {
             self.scroll_x(delta.y);
             return;
         }

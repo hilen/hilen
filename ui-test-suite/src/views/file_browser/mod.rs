@@ -28,6 +28,8 @@ use hilen::{
     ui_test::inject_touches,
 };
 
+use crate::text_points::past_double_tap;
+
 fn at(day: u32, hour: u32, minute: u32) -> NaiveDateTime {
     NaiveDate::from_ymd_opt(2026, 10, day)
         .and_then(|date| date.and_hms_opt(hour, minute, 0))
@@ -77,9 +79,12 @@ fn sample() -> Arc<MemoryFiles> {
     Arc::new(sample_tree())
 }
 
+/// 2 rows tapped at once were a double tap on a phone, which opened the
+/// second file.
 fn tap_at(point: Point) {
     let (x, y) = (point.x.round(), point.y.round());
     inject_touches(format!("{x} {y} b\n{x} {y} e"));
+    past_double_tap();
 }
 
 /// Both taps go to the main thread in one trip, so they are a double tap

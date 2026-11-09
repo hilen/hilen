@@ -4,12 +4,12 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::Event},
     google_access::{AccountInfo, GoogleAccess, GoogleAccounts},
+    image::Image,
     sign_in_button::{GOOGLE, Look, sign_in_button},
     ui::{
         Button, ImageView, Label, RingSpinner, Setup, TextAlignment, Theme, ViewCallbacks, ViewData,
         ViewTouch,
     },
-    window::image::Image,
 };
 
 const LINK: Look = Look {

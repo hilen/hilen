@@ -4,8 +4,8 @@ use hilen::{
     filesystem::FilePath,
     refs::Weak,
     ui::{
-        FileBrowser, FileBrowserControl, FileBrowserMode, Label, ModifiersState, Setup, TextAlignment,
-        ViewData, ViewTest, view,
+        FileBrowser, FileBrowserControl, FileBrowserMode, Label, Modifiers, Setup, TextAlignment, ViewData,
+        ViewTest, view,
     },
     ui_test::{check_colors, inject_modifiers},
 };
@@ -83,10 +83,10 @@ impl ViewTest for FileBrowserPick {
         });
         assert_eq!(names(browser).len(), 8);
         assert_eq!(names(browser)[6..], ["main.rs", "readme.md"]);
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         tap_row(browser, "main.rs")?;
         tap_row(browser, "readme.md")?;
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         assert_eq!(choice(), "2 files");
         check_colors(CHECK_4)?;
         tap_control(browser, FileBrowserControl::Choose);

@@ -7,7 +7,7 @@ use hilen::{
         weak_to_id,
     },
     refs::Weak,
-    ui::{Button, Color, Label, ModifiersState, Setup, View, ViewData, ViewFrame, ViewTest, view},
+    ui::{Button, Color, Label, Modifiers, Setup, View, ViewData, ViewFrame, ViewTest, view},
     ui_test::checkpoint,
 };
 
@@ -91,7 +91,7 @@ fn send_tap(view_id: String, force: bool) -> Reply {
     let response = InspectService::process_command(
         UIRequest::Tap {
             view_id,
-            modifiers: ModifiersState::empty(),
+            modifiers: Modifiers::empty(),
             right: false,
             force,
         }

@@ -9,17 +9,17 @@
 //! the pose runs once per frame with the phase of `time::frame_seconds`.
 //! The inside is in `docs/loops.md`.
 
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod fit;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod flipbook;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod key;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod layer;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod on_layer;
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 mod shared;
 #[cfg(feature = "ui-tests")]
 mod shared_test;
@@ -28,24 +28,27 @@ mod test;
 #[cfg(feature = "ui-tests")]
 mod window_test;
 
-use std::{
-    mem::take,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "gpu")]
+use std::{mem::take, sync::atomic::AtomicBool};
 
 use log::warn;
 
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 pub(crate) use self::on_layer::{OwnPictures, PixelOrder, RawFrames, set_test_layers};
+#[cfg(feature = "gpu")]
+use crate::ui::UIDrawer;
+#[cfg(feature = "gpu")]
 use crate::{
     deps::refs::main_lock::MainLock,
+    ui::{UIManager, ViewFrame},
+    window::slots::{MAX_WINDOWS, current},
+};
+use crate::{
     frame_time::frame_seconds,
     gm::{LossyConvert, ToF32},
-    ui::{UIDrawer, UIManager, ViewData, ViewFrame, WeakView},
-    window::{
-        request_frame,
-        slots::{MAX_WINDOWS, current},
-    },
+    ui::{ViewData, WeakView},
+    window::request_frame,
 };
 
 /// What a pose gets, the phase of the loop from 0 to 1.
@@ -54,6 +57,7 @@ pub(crate) type Pose = Box<dyn FnMut(f32) + Send>;
 /// A phase this close below a change time already counts as the change.
 /// Frame stepped time adds 1/60 s in steps, and 6 of them land a hair
 /// under 0.1 s.
+#[cfg(feature = "gpu")]
 const CHANGE_SLACK: f32 = 1e-5;
 
 /// A declared looping animation, for anything that repeats or runs
@@ -75,7 +79,7 @@ pub struct LoopAnimation {
     start:   f32,
     changes: Option<Vec<f32>>,
     pose:    Pose,
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     own:     Option<OwnPictures>,
 }
 
@@ -84,12 +88,12 @@ impl LoopAnimation {
     /// change on every refresh of the screen.
     pub fn new(period: impl ToF32, pose: impl FnMut(f32) + Send + 'static) -> Self {
         Self {
-            period:            f64::from(period.to_f32()),
-            start:             0.0,
-            changes:           None,
-            pose:              Box::new(pose),
-            #[cfg(apple)]
-            own:               None,
+            period:                                  f64::from(period.to_f32()),
+            start:                                   0.0,
+            changes:                                 None,
+            pose:                                    Box::new(pose),
+            #[cfg(all(apple, feature = "gpu"))]
+            own:                                     None,
         }
     }
 
@@ -114,7 +118,7 @@ impl LoopAnimation {
 
     /// Pictures the view already has, 1 for each change time, in place of
     /// pictures the engine draws. An `AnimatedImage` hands its frames so.
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     pub(crate) fn own_pictures(mut self, own: OwnPictures) -> Self {
         self.own = Some(own);
         self
@@ -122,17 +126,19 @@ impl LoopAnimation {
 }
 
 /// A loop on its view.
+#[cfg(feature = "gpu")]
 struct Entry {
     id:      u64,
     view:    WeakView,
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     period:  f64,
     changes: Option<Vec<f32>>,
     pose:    Pose,
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     layer:   on_layer::LayerPath,
 }
 
+#[cfg(feature = "gpu")]
 impl Entry {
     fn alive(&self) -> bool {
         self.view.is_ok() && self.view.__base_view().loop_id == self.id
@@ -163,10 +169,12 @@ impl Entry {
 /// The loops of every window. A loop belongs to the window its view is in,
 /// and the frame of that window steps it, so a view that moves to another
 /// window takes its loop along.
+#[cfg(feature = "gpu")]
 static LOOPS: MainLock<Vec<Entry>> = MainLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Per window slot, a loop on the frame path is on the screen of that
 /// window, so the loop of the app draws on every refresh.
+#[cfg(feature = "gpu")]
 static WANTS_FRAMES: [AtomicBool; MAX_WINDOWS] = [const { AtomicBool::new(false) }; MAX_WINDOWS];
 
 pub(crate) fn start(view: WeakView, animation: LoopAnimation) {
@@ -175,7 +183,7 @@ pub(crate) fn start(view: WeakView, animation: LoopAnimation) {
         start,
         changes,
         pose,
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         own,
     } = animation;
 
@@ -193,16 +201,20 @@ pub(crate) fn start(view: WeakView, animation: LoopAnimation) {
     base.loop_id = id;
     base.loop_clock = (frame_seconds() - f64::from(start) * period, period);
 
+    #[cfg(feature = "gpu")]
     LOOPS.get_mut().push(Entry {
         id,
         view,
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         period,
         changes,
         pose,
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         layer: on_layer::LayerPath::new(own),
     });
+    // A build with no window draws no frame, nothing would pose the view.
+    #[cfg(not(feature = "gpu"))]
+    drop((changes, pose));
     request_frame();
 }
 
@@ -224,13 +236,14 @@ fn phase_at((zero, period): (f64, f64), time: f64) -> f32 {
 }
 
 /// Read by `continuous_render_active`.
+#[cfg(feature = "gpu")]
 pub(crate) fn wants_frames() -> bool {
     WANTS_FRAMES.iter().any(|wants| wants.load(Ordering::Relaxed))
 }
 
 /// A window that closes steps no loop again, its flag must not keep the
 /// app drawing. Its loops go with its views.
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub(crate) fn forget_window(slot: usize) {
     WANTS_FRAMES[slot].store(false, Ordering::Relaxed);
 }
@@ -249,6 +262,7 @@ pub(crate) fn longest_step() -> f64 {
 /// Once a frame of each window, after its layout. Puts every loop of that
 /// window on a layer or on the frame path and poses the ones on the frame
 /// path for this frame.
+#[cfg(feature = "gpu")]
 pub(crate) fn step() {
     #[cfg(all(apple, feature = "ui-tests"))]
     let started = crate::monotonic::monotonic_seconds();
@@ -261,6 +275,7 @@ pub(crate) fn step() {
     }
 }
 
+#[cfg(feature = "gpu")]
 fn step_entries() {
     let slot = current();
     let mut all = take(LOOPS.get_mut());
@@ -287,9 +302,9 @@ fn step_entries() {
             Some(window) if window == slot => entries.push(entry),
             Some(_) => others.push(entry),
             None => {
-                #[cfg(apple)]
+                #[cfg(all(apple, feature = "gpu"))]
                 let mut entry = entry;
-                #[cfg(apple)]
+                #[cfg(all(apple, feature = "gpu"))]
                 entry.leave_layer();
                 others.push(entry);
             }
@@ -297,24 +312,24 @@ fn step_entries() {
     }
 
     let now = frame_seconds();
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     let mut places = on_layer::places(&entries).into_iter();
     let mut wants = false;
 
     for entry in &mut entries {
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         let place = places.next().flatten();
         let phase = phase_at(entry.view.__base_view().loop_clock, now);
 
         // A layer of a loop is over the frame, the privacy cover in the
         // frame cannot hide it.
         if !entry.view.is_visible_on_screen() || crate::ui::privacy_cover::shown() {
-            #[cfg(apple)]
+            #[cfg(all(apple, feature = "gpu"))]
             entry.leave_layer();
             continue;
         }
 
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         if entry.try_layer(place, phase) {
             continue;
         }

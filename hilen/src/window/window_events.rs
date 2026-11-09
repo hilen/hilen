@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use wgpu::CommandEncoder;
 use winit::{
-    event::{ElementState, KeyEvent, MouseButton, Touch, TouchPhase},
+    event::{KeyEvent, Touch, TouchPhase},
     window::Theme,
 };
 
 use crate::{
     gm::flat::{Point, Size},
-    ui::damage::Damage,
+    ui::{ElementState, MouseButton, damage::Damage},
     window::RenderFrame,
 };
 

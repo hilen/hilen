@@ -1,4 +1,5 @@
 mod box_chars;
+#[cfg(feature = "gpu")]
 mod paint;
 
 use std::{fmt::Display, ops::Range, sync::atomic::Ordering};
@@ -14,6 +15,8 @@ use crate::{
         color::{BLACK, Color},
         flat::Size,
     },
+    image::ToImage,
+    text::{BoxChars, Font, Shaping, TextLayout},
     ui::{
         DynamicColor, ImageView, Setup, Style, ToLabel, UIColor, UIManager, View, ViewCallbacks, ViewFrame,
         text_selection::Lead,
@@ -23,7 +26,6 @@ use crate::{
             label_style::{TextOutline, TextShadow},
         },
     },
-    window::{BoxChars, Font, Shaping, TextLayout, image::ToImage},
     wipe::joined,
 };
 
@@ -327,6 +329,7 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn background_runs(&self) -> &[ColorRun] {
         &self.background_runs
     }
@@ -372,6 +375,7 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn color_runs(&self) -> &[ColorRun] {
         &self.color_runs
     }
@@ -411,6 +415,7 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn text_end_color(&self) -> Option<Color> {
         self.text_end_color
     }
@@ -446,6 +451,7 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn letter_spacing(&self) -> f32 {
         self.letter_spacing
     }
@@ -730,6 +736,7 @@ impl Label {
 
     /// The test harness forces its own size and has to put this back, or every
     /// label in the app keeps the harness size after a run.
+    #[cfg(feature = "gpu")]
     pub(crate) fn default_text_size() -> f32 {
         DEFAULT_TEXT_SIZE.load(Ordering::Relaxed)
     }
@@ -740,6 +747,7 @@ impl Label {
         DEFAULT_TEXT_INSET.store(points.to_f32(), Ordering::Relaxed);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn default_text_inset() -> f32 {
         DEFAULT_TEXT_INSET.load(Ordering::Relaxed)
     }

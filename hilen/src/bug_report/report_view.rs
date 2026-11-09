@@ -10,12 +10,12 @@ use crate::{
     bug_report::{BugReport, BugReportAttachment, BugReportScreenshot, BugReportStyle, input_ring::KeyPress},
     deps::{refs::Weak, vents::OnceEvent},
     gm::{color::CLEAR, flat::Size},
+    image::Image,
     ui::{
         Anchor::{Height, Left, Right, Top, Y},
         AnimatedImage, Button, CheckBox, Container, ImageMode, ImageView, Label, ModalView, ScrollView,
         Setup, TextAlignment, TextField, UIImages, UIManager, ViewData, ViewFrame, ViewSubviews,
     },
-    window::image::Image,
 };
 
 /// The description must carry enough to act on, matching the karkas

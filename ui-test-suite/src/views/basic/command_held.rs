@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{BLUE, Container, ModifiersState, Setup, UIManager, ViewData, ViewTest, ViewTouch, view},
+    ui::{BLUE, Container, Modifiers, Setup, UIManager, ViewData, ViewTest, ViewTouch, view},
     ui_test::{inject_modifiers, inject_touches},
 };
 
@@ -42,7 +42,7 @@ impl ViewTest for CommandHeld {
             assert_eq!(view.command, 0);
         });
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_touches("200 200 b\n200 200 e");
         from_main(move || {
             assert_eq!(view.plain, 1);
@@ -50,14 +50,14 @@ impl ViewTest for CommandHeld {
         });
 
         // Ctrl counts as the command key too, the Windows and Linux side.
-        inject_modifiers(ModifiersState::CONTROL);
+        inject_modifiers(Modifiers::CONTROL);
         inject_touches("200 200 b\n200 200 e");
         from_main(move || {
             assert_eq!(view.plain, 1);
             assert_eq!(view.command, 2);
         });
 
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_touches("200 200 b\n200 200 e");
         from_main(move || {
             assert_eq!(view.plain, 2);

@@ -28,6 +28,7 @@ pub(crate) trait Scrollable: View {
     /// on to the scroll view behind it, like a page around a text field
     /// that has nothing to scroll. A view that zooms on the wheel keeps
     /// every move.
+    #[cfg(feature = "gpu")]
     fn __takes_wheel(&self, _delta: Point) -> bool {
         true
     }

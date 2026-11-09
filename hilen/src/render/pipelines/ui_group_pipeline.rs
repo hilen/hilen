@@ -10,15 +10,12 @@ use wgpu::{
 
 use crate::{
     gm::flat::Size,
+    image::{Image, Texture},
     render::{
         device_helper::depth_stencil_state,
         uniform::{UniformBind, make_uniform_layout},
     },
-    window::{
-        PassTarget, Window,
-        image::{Image, Texture},
-        msaa_sample_count, surface_texture_format,
-    },
+    window::{PassTarget, Window, msaa_sample_count, surface_texture_format},
 };
 
 const GROUP_CODE: &str = include_str!("shaders/ui_group.wgsl");

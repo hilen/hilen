@@ -206,7 +206,7 @@ pub(super) enum Command {
     },
     /// Hold physical keys down for a while, then release them, for input
     /// read every frame like walking. A single letter or digit names its
-    /// key, anything else is a winit `KeyCode` name like Space or `ArrowUp`
+    /// key, anything else is a W3C code name like Space or `ArrowUp`
     Hold {
         #[arg(required = true)]
         keys: Vec<String>,
@@ -221,7 +221,7 @@ pub(super) enum Command {
         /// Text to type, every char in order
         #[arg(required_unless_present = "key")]
         text:   Option<String>,
-        /// A named key instead of text, a winit `NamedKey` name like Enter,
+        /// A named key instead of text, a W3C key name like Enter,
         /// Escape, Tab, Backspace or `ArrowDown`
         #[arg(long, conflicts_with = "text")]
         key:    Option<String>,
@@ -375,25 +375,8 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::Damage { state } => damage(client, &state).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
-        Command::App { name, args } => {
-            let AppCommand::Answer(text) = send(client, InspectorCommand::App { name, args }).await? else {
-                bail!("Unexpected response to app");
-            };
-            println!("{text}");
-        }
-        Command::DevLogin { email } => {
-            let AppCommand::LoggedIn { id, email } =
-                send(client, InspectorCommand::DevLogin { email }).await?
-            else {
-                bail!("Unexpected response to dev-login");
-            };
-            println!("logged in as {email}, user {id}, the app shows it at its next start");
-        }
-        Command::Edits => {
-            let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
-                bail!("Unexpected response to edits");
-            };
-            println!("{}", to_string_pretty(&edits)?);
+        answer @ (Command::App { .. } | Command::DevLogin { .. } | Command::Edits) => {
+            run_answer(client, answer).await?;
         }
         Command::Find { query, all } => find(client, &query, all).await?,
         Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
@@ -443,6 +426,35 @@ async fn damage(client: &Client, state: &str) -> Result<()> {
         other => anyhow::bail!("damage takes on or off, not {other}"),
     };
     render_info(client, InspectorCommand::SetDamage { on }).await
+}
+
+/// The commands that print what the app answers, split out of `run` to
+/// keep it readable.
+async fn run_answer(client: &Client, command: Command) -> Result<()> {
+    match command {
+        Command::App { name, args } => {
+            let AppCommand::Answer(text) = send(client, InspectorCommand::App { name, args }).await? else {
+                bail!("Unexpected response to app");
+            };
+            println!("{text}");
+        }
+        Command::DevLogin { email } => {
+            let AppCommand::LoggedIn { id, email } =
+                send(client, InspectorCommand::DevLogin { email }).await?
+            else {
+                bail!("Unexpected response to dev-login");
+            };
+            println!("logged in as {email}, user {id}, the app shows it at its next start");
+        }
+        Command::Edits => {
+            let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
+                bail!("Unexpected response to edits");
+            };
+            println!("{}", to_string_pretty(&edits)?);
+        }
+        _ => unreachable!("run sends only the answer commands here"),
+    }
+    Ok(())
 }
 
 /// The commands that send an input, with the frame record and the frame

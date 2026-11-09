@@ -3,17 +3,18 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use parking_lot::Mutex;
 
 use crate::{
     AppRunner,
+    deps::hreads::from_main,
     gm::color::U8Color,
     ui_test::{
         TEST_NAME,
         human::{human_mode, show_probes},
     },
-    window::Screenshot,
+    window::{Screenshot, msaa_sample_count, set_msaa_sample_count},
 };
 
 static RECORD_COLORS: AtomicBool = AtomicBool::new(false);
@@ -97,9 +98,10 @@ pub(crate) fn next_check_index(test_name: &str) -> usize {
 pub(crate) fn print_recorded_colors() -> Result<()> {
     let screenshot = AppRunner::take_screenshot()?;
     #[cfg(not_wasm)]
-    let skip = svg_edges::pixels();
+    let mut skip = svg_edges::pixels();
     #[cfg(wasm)]
-    let skip = std::collections::HashSet::new();
+    let mut skip = std::collections::HashSet::new();
+    skip.extend(sample_count_edges(&screenshot)?);
     let probes = pick_probes(&screenshot, &skip);
 
     let test_name = TEST_NAME.lock().clone();
@@ -127,6 +129,30 @@ pub(crate) fn print_recorded_colors() -> Result<()> {
 }
 
 type Probe = ((u32, u32), U8Color);
+
+/// The pixels that differ between this frame and the same frame drawn with
+/// the other sample count, 1 for 4 and 4 for 1. A probe has to hold with
+/// both: the edge of a polygon or a scene mesh is a blend with 4 samples and
+/// fully one side with 1. Probes recorded on such edges with 4 failed 32
+/// tests on the iPhone simulator, which draws with 1, see docs/ui-tests.md.
+fn sample_count_edges(shot: &Screenshot) -> Result<std::collections::HashSet<(u32, u32)>> {
+    let count = from_main(msaa_sample_count);
+    let other = if count == 1 { 4 } else { 1 };
+    from_main(move || set_msaa_sample_count(other));
+    let other_shot = AppRunner::take_screenshot();
+    from_main(move || set_msaa_sample_count(count));
+    let other_shot = other_shot?;
+    ensure!(
+        other_shot.size == shot.size,
+        "the frame with {other} samples is {:?}, the first is {:?}",
+        other_shot.size,
+        shot.size
+    );
+    Ok((0..shot.size.height)
+        .flat_map(|y| (0..shot.size.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| shot.get_pixel((x, y)).diff_u8(other_shot.get_pixel((x, y))) > STABLE_TOLERANCE)
+        .collect())
+}
 
 /// Picks stable pixels covering every distinct color region. Candidates
 /// are clustered by color and each cluster gets a share of the probes,
@@ -331,8 +357,8 @@ mod svg_edges {
     use crate::{
         deps::hreads::from_main,
         gm::LossyConvert,
+        image::Svg,
         ui::{ImageView, UIManager, View, ViewData, ViewSubviews},
-        window::image::Svg,
     };
 
     pub(super) fn pixels() -> HashSet<(u32, u32)> {

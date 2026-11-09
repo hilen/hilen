@@ -22,11 +22,11 @@ use crate::{
 const COLOR_FRAMES: usize = 600;
 
 /// What the panel asked of its host, in order.
-type Calls = Arc<Mutex<Vec<String>>>;
+pub(super) type Calls = Arc<Mutex<Vec<String>>>;
 
 /// A host with 1 diff in memory, it notes every call of the panel.
-struct MemoryHost {
-    calls: Calls,
+pub(super) struct MemoryHost {
+    pub(super) calls: Calls,
 }
 
 impl DiffHost for MemoryHost {
@@ -73,7 +73,7 @@ fn line(kind: &str, text: &str, old_no: Option<u32>, new_no: Option<u32>) -> Dif
 
 /// 1 hunk of a Rust file: a changed line, an added line and the context
 /// around them.
-fn sample() -> FileDiff {
+pub(super) fn sample() -> FileDiff {
     FileDiff {
         path:       "src/main.rs".to_string(),
         old_path:   None,
@@ -171,27 +171,27 @@ impl ViewTest for DiffPanelLook {
 const UNIFIED: &str = r"
              592    4 - #ffffff
               40   28 - #c0c0c0
-              60   28 - #9f9f9f
+              64   28 - #787878
               96   28 - #b4b4b4
              540   28 - #ededed
              148   52 - #aaaaaa
              156   52 - #a6a6a6
              188   52 - #b6b6b6
-             128   72 - #d9a8bf
-             148   72 - #8b73af
-             160   72 - #876eac
+             128   72 - #ccbaee
+             148   72 - #2b7dde
+             160   72 - #2378dd
              324   80 - #f5e4e4
-             200   88 - #b64276
-             216   88 - #108cb6
+             200   88 - #986ce0
+             216   88 - #b85d18
              492   88 - #f5e4e4
               12   92 - #f5e4e4
-             172  108 - #b34b7b
+             172  108 - #9673e1
              184  108 - #959f9c
-             200  124 - #b24578
-              92  128 - #dff0ea
+             200  108 - #bcb4e6
+             200  124 - #946ee1
              424  128 - #dff0ea
              556  132 - #dff0ea
-             156  144 - #cee0cc
+             156  144 - #b6d0ee
              184  144 - #a3a3a3
              216  144 - #858585
               32  160 - #898989
@@ -199,7 +199,6 @@ const UNIFIED: &str = r"
              328  300 - #f6f6f6
              148  324 - #f6f6f6
                4  348 - #ffffff
-             464  348 - #f6f6f6
               72  492 - #383838
              236  492 - #1a1a1a
              332  492 - #050505
@@ -208,13 +207,12 @@ const UNIFIED: &str = r"
               84  496 - #242424
              100  496 - #1a1a1a
              140  496 - #000000
-             180  496 - #ffffff
              232  496 - #3d3d3d
              248  496 - #1a1a1a
              272  496 - #ffffff
              288  496 - #3b3b3b
-             300  496 - #000000
              312  496 - #676767
+             344  496 - #bdbdbd
              416  496 - #545454
              456  496 - #ffffff
              484  496 - #000000
@@ -228,10 +226,12 @@ const UNIFIED: &str = r"
               36  516 - #000000
               56  516 - #5b5b5b
               76  516 - #4d4d4d
+             112  516 - #989898
              132  516 - #575757
              164  516 - #ffffff
              192  516 - #d4d4d4
-             212  516 - #808080
+             208  516 - #000000
+             224  516 - #ffffff
              252  516 - #1e1e1e
 ";
 
@@ -246,36 +246,37 @@ const SPLIT: &str = r"
              148   52 - #aaaaaa
              156   52 - #a6a6a6
              188   52 - #b6b6b6
-              88   72 - #d9a8bf
-             108   72 - #8b73af
-             120   72 - #876eac
+              88   72 - #ccbaee
+             108   72 - #2b7dde
+             120   72 - #2378dd
              140   72 - #f6f6f6
-             384   72 - #b84d7f
-             404   72 - #d5cde0
-             420   72 - #947fb5
+             384   72 - #9b74e4
+             400   72 - #adcaed
+             404   72 - #b7d0ef
+             416   72 - #91baea
+             420   72 - #3d88e0
              436   72 - #f6f6f6
-             492   80 - #dff0ea
-             588   80 - #dff0ea
-             160   88 - #b64276
-             176   88 - #108cb6
-             408   88 - #af3c72
-             452   88 - #b24578
+             560   80 - #dff0ea
+             160   88 - #986ce0
+             176   88 - #b85d18
+             408   88 - #9068e1
+             452   88 - #946ee1
              320   92 - #b2bcb8
               12   96 - #f5e4e4
              248   96 - #f5e4e4
-             408  108 - #af3c72
-             416  108 - #b03f74
+             520  100 - #dff0ea
+             408  108 - #9068e1
+             416  108 - #916ae1
              436  108 - #a3aeaa
              440  108 - #abb7b3
-             452  108 - #caa1b5
+             452  108 - #bcb4e6
              360  112 - #dff0ea
-             520  112 - #dff0ea
-             208  220 - #f6f6f6
-             460  260 - #f6f6f6
-             104  296 - #f6f6f6
+             588  112 - #dff0ea
+             484  244 - #f6f6f6
+             104  292 - #f6f6f6
              312  300 - #f6f6f6
-             592  340 - #ffffff
-             516  464 - #ffffff
+             592  332 - #ffffff
+             448  376 - #f6f6f6
               44  500 - #6b6b6b
              196  500 - #3b3b3b
              232  500 - #dadada
@@ -299,6 +300,5 @@ const SPLIT: &str = r"
              332  508 - #010101
              356  508 - #8d8d8d
              372  508 - #747474
-             376  508 - #9e9e9e
              592  592 - #ffffff
 ";

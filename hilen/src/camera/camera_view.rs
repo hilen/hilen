@@ -7,8 +7,8 @@ use crate::{
     camera::{Camera, CameraFrame},
     deps::refs::{Weak, manage::DataManager, weak_from_ref},
     gm::flat::Size,
+    image::{Image, NoImage, Texture},
     ui::{ImageMode, ImageView, Setup, View, ViewCallbacks, ViewData, ViewFrame, keep_frames_exempt},
-    window::image::{Image, NoImage, Texture},
 };
 
 /// Unique per picture, so 2 views never write into 1 texture.

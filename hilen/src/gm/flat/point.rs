@@ -82,10 +82,12 @@ impl Point<f32> {
         }
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn is_positive(self) -> bool {
         self.x >= 0.0 && self.y >= 0.0
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn is_negative(self) -> bool {
         !self.is_positive()
     }
@@ -95,6 +97,7 @@ impl Point<f32> {
         (-self.x, -self.y).into()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn clip_positive(&mut self) {
         self.x = self.x.max(0.0);
         self.y = self.y.max(0.0);

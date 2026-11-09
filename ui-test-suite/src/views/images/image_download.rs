@@ -11,10 +11,10 @@ use std::{
 use anyhow::{Result, anyhow, ensure};
 use hilen::{
     dispatch::{from_main, spawn, wait_for_next_frame},
+    image::Image,
     refs::{Weak, manage::DataManager},
     ui::{ImageView, Label, Setup, ViewFrame, ViewTest, view},
     ui_test::checkpoint,
-    window::image::Image,
 };
 use log::debug;
 

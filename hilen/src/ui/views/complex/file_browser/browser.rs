@@ -682,7 +682,7 @@ impl FileBrowser {
 
         if multi && (Input::command_held() || touch_toggle) {
             self.selection.toggle(index);
-        } else if multi && Input::modifiers().shift_key() {
+        } else if multi && Input::modifiers().shift() {
             self.selection.extend_to(index);
         } else {
             self.selection.only(index);

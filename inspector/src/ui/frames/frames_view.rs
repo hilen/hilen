@@ -9,6 +9,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use hilen::{
     dispatch::{from_main, log_spawn, on_main},
     gm::Animation,
+    image::Image,
     inspect::protocol::{AppCommand, Client, InspectorCommand, KeptFrameRepr, RecordRepr},
     refs::{Weak, manage::DataManager},
     ui::{
@@ -17,7 +18,6 @@ use hilen::{
         TextAlignment, TextDropDown, UIAnimation, UIManager, ViewCallbacks, ViewData, ViewFrame,
         ViewSubviews, ViewTouch, view,
     },
-    window::image::Image,
 };
 use log::{info, warn};
 use tokio::task::spawn_blocking;
@@ -172,7 +172,7 @@ impl Setup for FramesView {
         Focus::set_enabled(false);
         UIManager::keymap().add(self, NamedKey::ArrowLeft, move || self.step(false));
         UIManager::keymap().add(self, NamedKey::ArrowRight, move || self.step(true));
-        UIManager::keymap().add(self, NamedKey::Space, move || self.play_tapped());
+        UIManager::keymap().add(self, ' ', move || self.play_tapped());
 
         self.status.set_text("Connecting");
     }

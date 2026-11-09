@@ -8,8 +8,8 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
+use glyph_brush::ab_glyph::{Font as AbGlyphFont, OutlinedGlyph};
 use hilen_pixels::{blur_coverage, widen_coverage};
-use wgpu_text::glyph_brush::ab_glyph::{Font as AbGlyphFont, OutlinedGlyph};
 
 use crate::{
     deps::refs::{Weak, main_lock::MainLock, manage::DataManager},
@@ -18,13 +18,15 @@ use crate::{
         color::{CLEAR, Color},
         flat::{CornerRadii, Point, Rect, Size},
     },
+    image::Image,
     render::{ImageKey, data::UIImageInstance},
+    text::{ShapedLayout, ShapedParams},
     ui::{
         Label, UIManager, ViewFrame,
         label_drawer::{LAYER_STEP, Under, under_layers},
         ui_drawer::{IMAGE_RECT_DRAWER, UIDrawer},
     },
-    window::{ShapedLayout, ShapedParams, Window, image::Image},
+    window::Window,
 };
 
 /// Frames an effect image stays after its last draw. A label that is hidden

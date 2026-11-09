@@ -1,0 +1,740 @@
+use std::sync::OnceLock;
+#[cfg(feature = "gpu")]
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use anyhow::{Result, anyhow, bail};
+use glyph_brush::{
+    GlyphCalculator, GlyphCalculatorBuilder, GlyphCruncher, Section, Text,
+    ab_glyph::{Font as AbGlyphFont, FontArc, FontRef, PxScale, ScaleFont, VariableFont},
+};
+use log::error;
+use rustybuzz::{
+    Face,
+    ttf_parser::{GlyphId, Tag},
+};
+
+#[cfg(not_wasm)]
+use crate::text::system_fallback;
+use crate::{
+    deps::refs::{
+        Weak,
+        main_lock::MainLock,
+        manage::{DataManager, ResourceLoader},
+        weak_from_ref,
+    },
+    filesystem::read_bytes as read,
+    gm::{ToF32, flat::Size},
+    managed,
+    text::{
+        BoxChars, BoxFrame, MeasureCache, MeasureKey, ShapeCache, ShapedLayout, ShapedParams, Shaping,
+        TextLayout, VerticalAlign, color_check, system_emoji,
+    },
+};
+#[cfg(feature = "gpu")]
+use crate::{
+    text::color_glyph::{self, ColorGlyph},
+    ui::damage::whole_next,
+};
+
+/// The id of the next font made, the drawer keeps its brush by it.
+#[cfg(feature = "gpu")]
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// The tag of 1 axis of a variable font, like `wght`, with its value.
+pub type FontVariation = ([u8; 4], f32);
+
+pub struct Font {
+    pub name:       String,
+    /// The drawer keeps the GPU brush of the font by this id.
+    #[cfg(feature = "gpu")]
+    id:             u64,
+    /// What the brush of the drawer is built with.
+    stem_darkening: f32,
+    /// The same font the brush rasterizes with.
+    ab:             FontArc,
+    /// Lays the glyphs out on the CPU for `measure`, with the layout code
+    /// the brush draws with, so a measured size matches the drawn text.
+    calculator:     GlyphCalculator<FontArc>,
+    face:           Face<'static>,
+    /// The file the font was made from, the face picked in it and the
+    /// axis values, for a system that has to draw with the same font.
+    #[cfg(all(ios, not(tvos)))]
+    data:           &'static [u8],
+    #[cfg(all(ios, not(tvos)))]
+    index:          u32,
+    #[cfg(all(ios, not(tvos)))]
+    variations:     Vec<FontVariation>,
+    /// `ab_glyph` `PxScale` is ascent minus descent in pixels, while text
+    /// sizes everywhere else, CSS included, mean pixels per em. This
+    /// factor converts an em size into the `PxScale` that renders it.
+    em_scale:       f32,
+    shape_cache:    MainLock<ShapeCache>,
+    measure_cache:  MainLock<MeasureCache>,
+    /// The font has COLR layers or PNG strikes, so some of its glyphs
+    /// draw as color images. Plain fonts skip the per glyph lookup.
+    has_color:      bool,
+    /// What the box chars of the font fill, `None` when it has none.
+    box_frame:      Option<BoxFrame>,
+    /// Rasters by glyph and pixel size, `None` for a glyph whose color
+    /// data failed to render so it is not retried every frame.
+    #[cfg(feature = "gpu")]
+    color_glyphs:   MainLock<HashMap<(u16, u32), Option<ColorGlyph>>>,
+}
+
+impl Font {
+    fn new(name: impl ToString, data: &[u8]) -> Result<Self> {
+        Self::new_with_variations(name, data, &[], 0.0)
+    }
+
+    fn new_with_variations(
+        name: impl ToString,
+        data: &[u8],
+        variations: &[FontVariation],
+        stem_darkening: f32,
+    ) -> Result<Self> {
+        // Managed fonts live until process exit, leaking gives the raster
+        // font and the shaping face one shared 'static copy of the data.
+        Self::from_static(name, Vec::leak(data.to_vec()), 0, variations, stem_darkening)
+    }
+
+    /// Data that already lives for the whole process, a leaked buffer or
+    /// a mapped file, so nothing is copied. `index` picks the face of a
+    /// collection, a `.ttc`, and is 0 for a single font file.
+    pub(crate) fn from_static(
+        name: impl ToString,
+        data: &'static [u8],
+        index: u32,
+        variations: &[FontVariation],
+        stem_darkening: f32,
+    ) -> Result<Self> {
+        let mut font = FontRef::try_from_slice_and_index(data, index)?;
+        let mut face = Face::from_slice(data, index)
+            .ok_or_else(|| anyhow!("Failed to parse font '{}' for shaping", name.to_string()))?;
+
+        for (tag, value) in variations {
+            let axis = String::from_utf8_lossy(tag);
+            if !font.set_variation(tag, *value) {
+                bail!("Font '{}' has no {axis} axis", name.to_string());
+            }
+            face.set_variation(Tag::from_bytes(tag), *value)
+                .ok_or_else(|| anyhow!("Shaping face of '{}' rejected {axis} axis", name.to_string()))?;
+        }
+
+        let font = FontArc::new(font);
+
+        let units_per_em = font
+            .units_per_em()
+            .ok_or_else(|| anyhow!("Font '{}' has no units per em", name.to_string()))?;
+        let em_scale = font.height_unscaled() / units_per_em;
+
+        let tables = face.tables();
+        let has_color = tables.colr.is_some() || tables.cbdt.is_some() || tables.sbix.is_some();
+        let box_frame = BoxFrame::of(&face);
+
+        Ok(Self {
+            name: name.to_string(),
+            #[cfg(feature = "gpu")]
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            stem_darkening,
+            calculator: GlyphCalculatorBuilder::using_font(font.clone()).build(),
+            ab: font,
+            face,
+            #[cfg(all(ios, not(tvos)))]
+            data,
+            #[cfg(all(ios, not(tvos)))]
+            index,
+            #[cfg(all(ios, not(tvos)))]
+            variations: variations.to_vec(),
+            em_scale,
+            shape_cache: MainLock::new(),
+            measure_cache: MainLock::new(),
+            has_color,
+            box_frame,
+            #[cfg(feature = "gpu")]
+            color_glyphs: MainLock::new(),
+        })
+    }
+
+    /// The file and the axis values a system text view needs to draw with
+    /// this font. `None` for a face inside a font collection, the system
+    /// would need that face picked out of the file.
+    #[cfg(all(ios, not(tvos)))]
+    pub(crate) fn system_source(&self) -> Option<(&'static [u8], &[FontVariation])> {
+        (self.index == 0).then_some((self.data, self.variations.as_slice()))
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// How much the brush darkens the stems of the glyphs, the value the
+    /// font was made with.
+    pub fn stem_darkening(&self) -> f32 {
+        self.stem_darkening
+    }
+
+    /// Converts a pixels per em text size into the `ab_glyph` `PxScale`
+    /// that renders it.
+    pub(crate) fn em_scale(&self) -> f32 {
+        self.em_scale
+    }
+
+    pub(crate) fn face(&self) -> &Face<'static> {
+        &self.face
+    }
+
+    /// The family name the font file gives itself, like `Helvetica Neue`.
+    /// Older Apple fonts carry it only as a Mac Roman record, which
+    /// `to_string` does not decode, its ASCII range reads as is.
+    #[cfg(all(not_wasm, feature = "ui-tests"))]
+    pub(crate) fn family_name(&self) -> Option<String> {
+        use rustybuzz::ttf_parser::{PlatformId, name::Name, name_id::FAMILY};
+
+        let names: Vec<_> = self.face.names().into_iter().filter(|name| name.name_id == FAMILY).collect();
+        names.iter().find_map(Name::to_string).or_else(|| {
+            names
+                .iter()
+                .find(|name| {
+                    name.platform_id == PlatformId::Macintosh && name.encoding_id == 0 && name.name.is_ascii()
+                })
+                .map(|name| name.name.iter().map(|byte| char::from(*byte)).collect())
+        })
+    }
+
+    pub fn has_glyph(&self, char: char) -> bool {
+        self.face.glyph_index(char).is_some()
+    }
+
+    pub(crate) fn ab(&self) -> &FontArc {
+        &self.ab
+    }
+
+    pub(crate) fn shape_cache(&self) -> &MainLock<ShapeCache> {
+        &self.shape_cache
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn has_color(&self) -> bool {
+        self.has_color
+    }
+
+    pub(crate) fn box_frame(&self) -> Option<BoxFrame> {
+        self.box_frame
+    }
+
+    /// Whether glyph `id` at `px_per_em` draws as a color image through
+    /// the image pipeline instead of through the brush.
+    pub(crate) fn is_color_glyph(&self, id: u16, px_per_em: f32) -> bool {
+        self.has_color && color_check::is_color_glyph(&self.face, GlyphId(id), px_per_em)
+    }
+
+    /// The raster of color glyph `id` at `px_per_em`, built on first use
+    /// and kept for the life of the font like the shaped lines are.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn color_glyph(&self, id: u16, px_per_em: f32) -> Option<ColorGlyph> {
+        self.color_glyphs
+            .get_mut()
+            .entry((id, px_per_em.to_bits()))
+            .or_insert_with(|| color_glyph::rasterize(&self.face, &self.name, GlyphId(id), px_per_em))
+            .clone()
+    }
+
+    fn params(&self, width: Option<f32>, shaping: Shaping) -> ShapedParams {
+        ShapedParams {
+            tracking:    shaping.tracking,
+            multiline:   width.is_some(),
+            h_align:     glyph_brush::HorizontalAlign::Left,
+            v_align:     VerticalAlign::Center,
+            line_height: shaping.line_height,
+            base:        weak_from_ref(self),
+            runs:        shaping.runs,
+            secret:      shaping.secret,
+            grid:        shaping.grid,
+            box_chars:   BoxChars::Glyphs,
+            break_words: shaping.break_words,
+            rooms:       shaping.rooms,
+        }
+    }
+
+    /// The advance of a space and the distance between 2 baselines of
+    /// this font at `size`, in the unit of `size`. What 1 cell of a
+    /// cell grid is made from.
+    pub(crate) fn cell_metrics(&self, size: f32) -> (f32, f32) {
+        let scaled = self.ab().as_scaled(PxScale::from(size * self.em_scale));
+        let advance = self
+            .face()
+            .glyph_index(' ')
+            .and_then(|id| self.face().glyph_hor_advance(id))
+            .map_or(0.0, |units| f32::from(units) * scaled.scale_factor().horizontal);
+        (advance, scaled.ascent() - scaled.descent() + scaled.line_gap())
+    }
+
+    /// Size the text takes when drawn at `size`. `width` bounds wrapping,
+    /// `None` measures a single unbounded line. The runs of `shaping` are
+    /// the byte ranges drawn with other fonts. Layout params must mirror
+    /// `draw_label` or measured sizes will not match rendering.
+    pub(crate) fn measure(
+        &mut self,
+        text: &str,
+        size: impl ToF32,
+        width: Option<f32>,
+        shaping: Shaping,
+    ) -> Size {
+        if text.is_empty() {
+            return Size::default();
+        }
+
+        let key = MeasureKey::of(text, size.to_f32(), width, &shaping);
+        if let Some(key) = &key
+            && let Some(cached) = self.measure_cache.get_mut().get(key)
+        {
+            return cached;
+        }
+
+        // A run in another font draws its glyphs with that font, so the
+        // glyph bounds of this font leave them out, see below. A run in
+        // this font measures like the plain text.
+        // A room has no glyph at all, so it is left out of the bounds too.
+        let has_runs = shaping.runs.iter().any(|run| run.font.name != self.name) || !shaping.rooms.is_empty();
+        let px_scale = size.to_f32() * self.em_scale;
+        let section = Section::new()
+            .add_text(Text::new(text).with_scale(px_scale))
+            .with_bounds((width.unwrap_or(f32::INFINITY), f32::INFINITY));
+
+        let layout = ShapedLayout {
+            emit:   &self.name,
+            params: self.params(width, shaping),
+        };
+
+        // The glyph bounds give only the width. They start at the first
+        // line with a glyph of this font and end at the last one, so
+        // the height comes from the lines of the layout.
+        let bound = width.unwrap_or(f32::INFINITY);
+        let scale = PxScale::from(px_scale);
+        let line_width = || {
+            let lines = layout.text_layout(scale, text, bound).lines;
+            lines.iter().map(|line| line.width).fold(0.0, f32::max)
+        };
+        let bounds = self.calculator.cache_scope().glyph_bounds_custom_layout(section, &layout);
+        let text_width = match bounds {
+            Some(bounds) if !has_runs => bounds.width(),
+            // The glyphs of a run, like a bold title before a plain year,
+            // are not in the bounds of this font. Measured by those alone
+            // a cut title looked as if it fit and drew its ellipsis past
+            // the frame. The lines hold the glyphs of every font.
+            Some(bounds) => bounds.width().max(line_width()),
+            None if text.trim().is_empty() => return Size::default(),
+            // No glyph of this font: every char is drawn by the font of a
+            // run, a text that is bold as a whole. It was measured as
+            // nothing and its label got no room, so the lines give the
+            // width here.
+            None => line_width(),
+        };
+
+        let measured = Size::new(text_width, layout.text_height(scale, text, bound));
+        if let Some(key) = key {
+            self.measure_cache.get_mut().insert(key, measured);
+        }
+        measured
+    }
+
+    /// Line and caret positions of `text` drawn at `size`, in the same
+    /// pixels `measure` reports. `width` bounds wrapping like in `measure`.
+    pub(crate) fn text_layout(
+        &self,
+        text: &str,
+        size: impl ToF32,
+        width: Option<f32>,
+        shaping: Shaping,
+    ) -> TextLayout {
+        let layout = ShapedLayout {
+            emit:   &self.name,
+            params: self.params(width, shaping),
+        };
+
+        let scale = PxScale::from(size.to_f32() * self.em_scale);
+        layout.text_layout(scale, text, width.unwrap_or(f32::INFINITY))
+    }
+
+    /// Drops the cache entries no batch of this frame used. The text
+    /// drawer calls it once per batch, see `shape_cache.rs`.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn sweep_caches(&self) {
+        self.shape_cache.get_mut().sweep();
+        self.measure_cache.get_mut().sweep();
+    }
+}
+
+/// Why the next frame is whole after a change of these fonts, see
+/// `ui::damage`. No label holds them and every label can draw with them.
+#[cfg(feature = "gpu")]
+const FONTS_CHANGED: &str = "the default or the fallback fonts changed";
+
+static DEFAULT_FONT: MainLock<Option<Weak<Font>>> = MainLock::new();
+static FALLBACK_FONTS: MainLock<Vec<Weak<Font>>> = MainLock::new();
+
+impl Font {
+    #[allow(clippy::should_implement_trait)]
+    pub fn default() -> Weak<Font> {
+        if let Some(font) = *DEFAULT_FONT
+            && font.is_ok()
+        {
+            return font;
+        }
+        Self::builtin()
+    }
+
+    /// The font file every text falls back to, in place of Roboto Regular.
+    /// An app built without the `font-roboto` feature calls it in
+    /// `App::before_launch`, before any text is drawn.
+    pub fn set_builtin(data: &'static [u8]) {
+        if BUILTIN_DATA.set(data).is_err() {
+            error!("Font::set_builtin was called twice, the first file stays");
+        }
+    }
+
+    /// The font of [`builtin_font_data`], made on its first call. With no
+    /// file from [`Font::set_builtin`] it is [`Font::roboto`] itself. A
+    /// second instance of the same file under another name made every run
+    /// in `Font::roboto()` a run in another font, and its glyphs moved.
+    fn builtin() -> Weak<Font> {
+        #[cfg(feature = "font-roboto")]
+        if BUILTIN_DATA.get().is_none() {
+            return Self::roboto();
+        }
+        Self::store_with_name("hilen-builtin", || {
+            Self::new("hilen-builtin", builtin_font_data())
+        })
+        .expect("Failed to load the built in font")
+    }
+
+    pub fn set_default(font: Weak<Font>) {
+        *DEFAULT_FONT.get_mut() = Some(font);
+        #[cfg(feature = "gpu")]
+        whole_next(FONTS_CHANGED);
+    }
+
+    pub fn reset_default() {
+        *DEFAULT_FONT.get_mut() = None;
+        #[cfg(feature = "gpu")]
+        whole_next(FONTS_CHANGED);
+    }
+
+    /// Fonts consulted in order for chars the label's font has no glyph
+    /// for. Each missing char shapes with the first fallback covering it.
+    pub fn set_fallbacks(fonts: impl IntoIterator<Item = Weak<Font>>) {
+        *FALLBACK_FONTS.get_mut() = fonts.into_iter().collect();
+        #[cfg(feature = "gpu")]
+        whole_next(FONTS_CHANGED);
+    }
+
+    pub fn reset_fallbacks() {
+        FALLBACK_FONTS.get_mut().clear();
+        #[cfg(feature = "gpu")]
+        whole_next(FONTS_CHANGED);
+    }
+
+    /// After the registered fallbacks, a char is looked up in the fonts
+    /// the OS has installed, so text the app cannot know ahead, from the
+    /// network or the user, draws in any script. On by default. The
+    /// system font folders are walked once, off the main thread, from
+    /// launch. Does nothing in the browser, a page cannot read them.
+    pub fn set_system_fallback(enabled: bool) {
+        #[cfg(feature = "gpu")]
+        whole_next(FONTS_CHANGED);
+        #[cfg(not_wasm)]
+        system_fallback::set_enabled(enabled);
+        #[cfg(wasm)]
+        if enabled {
+            log::debug!("System font fallback is not there in the browser");
+        }
+    }
+
+    /// Whether the system fonts are looked up, always false in the browser.
+    pub fn system_fallback() -> bool {
+        #[cfg(not_wasm)]
+        {
+            system_fallback::enabled()
+        }
+        #[cfg(wasm)]
+        {
+            false
+        }
+    }
+
+    /// Starts the system font walk early, so the first char that needs it
+    /// does not wait on the main thread.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn prepare_system_fallback() {
+        #[cfg(not_wasm)]
+        if system_fallback::enabled() {
+            system_fallback::start_index();
+        }
+    }
+
+    /// Some registered or system fallback has color glyphs.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn fallbacks_have_color() -> bool {
+        #[cfg(not_wasm)]
+        if system_fallback::any_color() {
+            return true;
+        }
+        Self::fallbacks().iter().any(|font| font.has_color())
+    }
+
+    pub(crate) fn fallbacks() -> Vec<Weak<Font>> {
+        FALLBACK_FONTS.iter().copied().filter(Weak::is_ok).collect()
+    }
+
+    /// Loads a variable font with the given axis values, for example
+    /// weight `(*b"wght", 600.0)`, optical size `(*b"opsz", 17.0)` or
+    /// grade `(*b"GRAD", 430.0)`. Each combination is a separate managed
+    /// instance, cache it under a name that includes the values.
+    pub fn with_variations(name: &str, data: &[u8], variations: &[FontVariation]) -> Result<Weak<Font>> {
+        Self::store_with_name(name, || Self::new_with_variations(name, data, variations, 0.0))
+    }
+
+    /// Like [`Font::with_variations`], with the glyph coverage boosted to
+    /// approximate the stem darkening platform rasterizers like `CoreText`
+    /// apply. Ports matching browser text on macOS need it, plain engine
+    /// text does not.
+    pub fn with_variations_darkened(
+        name: &str,
+        data: &[u8],
+        variations: &[FontVariation],
+        darkening: f32,
+    ) -> Result<Weak<Font>> {
+        Self::store_with_name(name, || {
+            Self::new_with_variations(name, data, variations, darkening)
+        })
+    }
+
+    /// The platform's own color emoji font, found on disk at runtime.
+    /// Apple ships Apple Color Emoji with every Mac, iPhone and Apple TV
+    /// and licenses it for that hardware only, so it is never bundled.
+    /// `None` on every other platform and when the file is missing, the
+    /// app then keeps its bundled emoji font.
+    pub fn system_emoji() -> Option<Weak<Font>> {
+        system_emoji::system_emoji()
+    }
+
+    #[cfg(feature = "font-roboto")]
+    pub fn roboto() -> Weak<Font> {
+        Self::store_with_name("Roboto-Regular.ttf", || {
+            Self::new("Roboto-Regular.ttf", ROBOTO_REGULAR)
+        })
+        .expect("Failed to load Roboto font")
+    }
+
+    /// Roboto at weight 700. The engine brings the variable Roboto files,
+    /// upright, italic and mono, so an app has bold, italic and code text
+    /// with no font file of its own. Each one is made on its first call.
+    #[cfg(feature = "font-roboto")]
+    pub fn bold() -> Weak<Font> {
+        Self::bundled("Roboto-700", include_bytes!("fonts/Roboto.ttf"), 700.0)
+    }
+
+    /// Roboto at weight 500, between regular and bold, for a title that
+    /// has to stand out a little, like a menu over a video.
+    #[cfg(feature = "font-roboto")]
+    pub fn medium() -> Weak<Font> {
+        Self::bundled("Roboto-500", include_bytes!("fonts/Roboto.ttf"), 500.0)
+    }
+
+    #[cfg(feature = "font-roboto-italic")]
+    pub fn italic() -> Weak<Font> {
+        Self::bundled(
+            "Roboto-Italic-400",
+            include_bytes!("fonts/Roboto-Italic.ttf"),
+            400.0,
+        )
+    }
+
+    #[cfg(feature = "font-roboto-italic")]
+    pub fn bold_italic() -> Weak<Font> {
+        Self::bundled(
+            "Roboto-Italic-700",
+            include_bytes!("fonts/Roboto-Italic.ttf"),
+            700.0,
+        )
+    }
+
+    /// Roboto Mono, every glyph the same width, for code.
+    #[cfg(feature = "font-roboto-mono")]
+    pub fn mono() -> Weak<Font> {
+        Self::bundled("RobotoMono-400", include_bytes!("fonts/RobotoMono.ttf"), 400.0)
+    }
+
+    #[cfg(feature = "font-roboto-mono")]
+    pub fn mono_bold() -> Weak<Font> {
+        Self::bundled("RobotoMono-700", include_bytes!("fonts/RobotoMono.ttf"), 700.0)
+    }
+
+    /// Latin Modern Math, the font of LaTeX documents, with the MATH
+    /// table that lays out formulas. What `MathView` draws with.
+    #[cfg(feature = "math")]
+    pub fn math() -> Weak<Font> {
+        Self::math_darkened(0.0)
+    }
+
+    /// [`Font::math`] with its stem darkening, the way
+    /// [`Font::with_variations_darkened`] makes it, for formulas with a
+    /// little more ink. Keep it at or under 0.5.
+    #[cfg(feature = "math")]
+    pub fn math_darkened(darkening: f32) -> Weak<Font> {
+        let name = if darkening > 0.0 {
+            format!("LatinModernMath-darkened-{darkening}")
+        } else {
+            "LatinModernMath".to_string()
+        };
+        Self::store_with_name(&name, || {
+            Self::from_static(&name, MATH_FONT_DATA, 0, &[], darkening)
+        })
+        .expect("Failed to load the math font")
+    }
+
+    #[cfg(any(
+        feature = "font-roboto",
+        feature = "font-roboto-italic",
+        feature = "font-roboto-mono"
+    ))]
+    fn bundled(name: &str, data: &[u8], weight: f32) -> Weak<Font> {
+        Self::with_variations(name, data, &[(*b"wght", weight)]).expect("Failed to load a bundled font")
+    }
+
+    /// [`Font::bold`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto")]
+    pub(crate) fn bold_or_default() -> Weak<Font> {
+        Self::bold()
+    }
+
+    #[cfg(not(feature = "font-roboto"))]
+    pub(crate) fn bold_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::italic`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto-italic")]
+    pub(crate) fn italic_or_default() -> Weak<Font> {
+        Self::italic()
+    }
+
+    #[cfg(not(feature = "font-roboto-italic"))]
+    pub(crate) fn italic_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::bold_italic`], or the bold font in a build without its file.
+    #[cfg(feature = "font-roboto-italic")]
+    pub(crate) fn bold_italic_or_default() -> Weak<Font> {
+        Self::bold_italic()
+    }
+
+    #[cfg(not(feature = "font-roboto-italic"))]
+    pub(crate) fn bold_italic_or_default() -> Weak<Font> {
+        Self::bold_or_default()
+    }
+
+    /// [`Font::mono`], or the default font in a build without its file.
+    #[cfg(feature = "font-roboto-mono")]
+    pub(crate) fn mono_or_default() -> Weak<Font> {
+        Self::mono()
+    }
+
+    #[cfg(not(feature = "font-roboto-mono"))]
+    pub(crate) fn mono_or_default() -> Weak<Font> {
+        Self::default()
+    }
+
+    /// [`Font::mono_bold`], or the bold font in a build without its file.
+    #[cfg(feature = "font-roboto-mono")]
+    pub(crate) fn mono_bold_or_default() -> Weak<Font> {
+        Self::mono_bold()
+    }
+
+    #[cfg(not(feature = "font-roboto-mono"))]
+    pub(crate) fn mono_bold_or_default() -> Weak<Font> {
+        Self::bold_or_default()
+    }
+}
+
+managed!(Font);
+
+#[cfg(feature = "font-roboto")]
+static ROBOTO_REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+
+/// Latin Modern Math by GUST, under the GUST Font License, see
+/// `fonts/LatinModernMath-LICENSE.txt`.
+#[cfg(feature = "math")]
+pub(crate) static MATH_FONT_DATA: &[u8] = include_bytes!("fonts/LatinModernMath.otf");
+
+static BUILTIN_DATA: OnceLock<&'static [u8]> = OnceLock::new();
+
+/// The file of [`Font::set_builtin`], else Roboto Regular.
+///
+/// # Panics
+///
+/// In a build without the `font-roboto` feature whose app never called
+/// [`Font::set_builtin`].
+pub(crate) fn builtin_font_data() -> &'static [u8] {
+    BUILTIN_DATA.get().copied().unwrap_or_else(fallback_font_data)
+}
+
+#[cfg(feature = "font-roboto")]
+fn fallback_font_data() -> &'static [u8] {
+    ROBOTO_REGULAR
+}
+
+#[cfg(not(feature = "font-roboto"))]
+fn fallback_font_data() -> &'static [u8] {
+    panic!("hilen is built without the font-roboto feature, call Font::set_builtin in App::before_launch")
+}
+
+impl ResourceLoader for Font {
+    fn load_path(path: &std::path::Path) -> Self {
+        let data = read(path);
+
+        let data = data
+            .as_ref()
+            .map(Vec::as_slice)
+            .inspect_err(|err| {
+                error!(
+                    "Failed to read font file: {}. Error: {err} Returning default font",
+                    path.display()
+                );
+            })
+            .unwrap_or_else(|_| builtin_font_data());
+
+        Self::load_data(data, path.display())
+    }
+
+    fn load_data(data: &[u8], name: impl ToString) -> Self {
+        let name = name.to_string();
+
+        // Bad bytes must degrade like an unreadable file does above. A
+        // corrupt download would otherwise kill a browser session.
+        match Font::new(&name, data) {
+            Ok(font) => font,
+            Err(err) => {
+                error!("Failed to load font {name}: {err}. Returning default font");
+                Font::new(name, builtin_font_data()).expect("Failed to load the built in default font")
+            }
+        }
+    }
+}
+
+#[cfg(all(test, not(feature = "font-roboto")))]
+mod builtin_test {
+    use super::{Font, builtin_font_data};
+
+    #[test]
+    fn the_set_file_is_the_builtin() {
+        static FILE: &[u8] = include_bytes!("fonts/RobotoMono.ttf");
+        Font::set_builtin(FILE);
+        assert!(std::ptr::eq(builtin_font_data(), FILE));
+    }
+}

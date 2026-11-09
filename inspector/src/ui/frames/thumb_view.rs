@@ -1,9 +1,9 @@
 use hilen::{
     Event,
     gm::color::CLEAR,
+    image::Image,
     refs::Weak,
     ui::{ImageView, Setup, ViewData, ViewTouch, view},
-    window::image::Image,
 };
 
 use crate::ui::frames::colors::{Mark, SELECTED, WAITED};

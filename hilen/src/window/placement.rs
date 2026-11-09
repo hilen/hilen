@@ -64,7 +64,7 @@ pub struct MonitorInfo {
 }
 
 impl MonitorInfo {
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "gpu"))]
     fn from_handle(handle: &winit::monitor::MonitorHandle) -> Self {
         let scale = handle.scale_factor();
         let size = handle.size();
@@ -152,7 +152,7 @@ pub fn primary_or_largest(monitors: &[MonitorInfo], reported: Option<MonitorInfo
 
 /// Whether a placement may be saved. Windows moves a minimized window to
 /// -32000 and shrinks it to nothing, restored as is it opens off screen.
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 pub(crate) fn savable(placement: &WindowPlacement, minimized: bool) -> bool {
     !minimized && placement.width > 0.0 && placement.height > 0.0
 }
@@ -168,7 +168,7 @@ fn centered(monitor: &MonitorInfo, width: f64, height: f64) -> WindowPlacement {
     }
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 impl super::Window {
     /// The current placement of the real window. `None` when headless.
     pub fn placement() -> Option<WindowPlacement> {
@@ -236,7 +236,7 @@ impl super::Window {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
 

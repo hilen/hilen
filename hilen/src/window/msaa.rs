@@ -7,8 +7,9 @@ use wgpu::Backend;
 
 use crate::{
     pipelines::Pipelines,
+    text::TextBrushes,
     ui::{damage, ui_drawer},
-    window::{AppHandler, Font, request_frame},
+    window::{AppHandler, request_frame},
 };
 
 static BACKEND: OnceLock<Backend> = OnceLock::new();
@@ -93,8 +94,8 @@ pub fn msaa_sample_count() -> u32 {
 /// Before the window is up this is the count everything is first built
 /// for. In a running app everything built for the old count is dropped
 /// and made again for the new one, and the next frame is drawn whole.
-/// Call it on the main thread and not from inside a draw, like a
-/// `before_render`.
+/// Call it on the main thread and not from inside a draw, like the
+/// `draw` of a `DrawsItself` view.
 ///
 /// A pipeline of an app's own, or a `ShaderLab` view, is not made again
 /// by this. It has to be built after the call.
@@ -121,7 +122,7 @@ pub fn set_msaa_sample_count(count: u32) {
     }
     #[cfg(feature = "scene")]
     crate::scene_drawer::drop_pipelines();
-    Font::rebuild_brushes();
+    TextBrushes::rebuild();
     AppHandler::window().state.sample_count_changed();
 
     damage::whole_next("the sample count changed");

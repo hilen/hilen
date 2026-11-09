@@ -2,27 +2,30 @@ mod cell;
 /// The code of the test is drawn in the bundled mono font.
 #[cfg(all(feature = "ui-tests", feature = "font-roboto-mono"))]
 mod look_test;
+mod menu;
+#[cfg(all(feature = "ui-tests", feature = "font-roboto-mono"))]
+mod menu_test;
 pub(crate) mod selection;
 
 use cell::DiffLineCell;
-use filediff::{DiffHunk, DiffTarget, FileDiff, FileDiffBody, hunk_patch, line_patch};
+use filediff::{DiffHunk, DiffLine, DiffTarget, FileDiff, FileDiffBody, hunk_patch, line_patch};
 use web_time::Instant;
 
 use super::{
     diff_colors as colors,
-    highlight::{self, LineRuns},
+    highlight::{DiffHighlighter, LineRuns},
     icons,
     image_diff::ImageDiff,
 };
 use crate::{
     dispatch::{after, on_main},
     refs::{Weak, weak_from_ref},
+    text::Font,
     ui::{
-        Button, CellRegistry, Color, Container, KeyCombo, Label, Point, RingSpinner, Setup, TableData,
-        TableView, TextAlignment, Theme, UIColor, UIEvents, UIManager, View, ViewData, ViewFrame,
+        Button, CellRegistry, CodeHighlighter, Color, Container, KeyCombo, Label, Point, RingSpinner, Setup,
+        TableData, TableView, TextAlignment, UIColor, UIEvents, UIManager, View, ViewData, ViewFrame,
         ViewSubviews, ViewTooltip, ViewTouch, view,
     },
-    window::Font,
 };
 
 const HEADER_H: f32 = 32.0;
@@ -178,6 +181,11 @@ impl Setup for DiffPanel {
                 self.sel_ended();
             }
         });
+        // The discard buttons show only under a pointer, a phone discards
+        // from this menu.
+        self.touch()
+            .secondary
+            .val(self, move |touch| self.open_discard_menu(touch.position));
         // A click outside the diff clears the selection, the way the
         // browser selection of the original cleared.
         UIEvents::touch_began().val(self, move |touch| {
@@ -275,9 +283,6 @@ impl Setup for DiffPanel {
 
         self.image.place().lbr(0).t(HEADER_H);
         self.image.set_hidden(true);
-
-        // A theme switch swaps the syntect theme, like the isDark watch.
-        UIEvents::theme_changed().val(self, move |_: Theme| self.start_highlight());
 
         self.update_mode_toggle();
     }
@@ -504,13 +509,12 @@ impl DiffPanel {
     }
 
     fn highlight_key(&self) -> String {
-        let file = self.shown.as_ref().map_or("", |s| s.file.as_str());
-        let dark = Theme::current() == Theme::Dark;
-        format!("{file}|{dark}")
+        self.shown.as_ref().map_or("", |s| s.file.as_str()).to_string()
     }
 
     // Tokenizes the whole diff on a background thread, the runs come
-    // back when the shown file and the theme are still the same.
+    // back when the shown file is still the same. The colors are light
+    // and dark pairs, so a theme switch needs no new pass.
     fn start_highlight(self: Weak<Self>) {
         let Some(shown) = self.shown.clone() else {
             return;
@@ -521,16 +525,17 @@ impl DiffPanel {
         let FileDiffBody::Text { hunks } = &diff.body else {
             return;
         };
-        let lines: Vec<String> = hunks.iter().flat_map(|h| h.lines.iter().map(|l| l.text.clone())).collect();
+        let lines: Vec<DiffLine> = hunks.iter().flat_map(|h| h.lines.iter().cloned()).collect();
         if lines.is_empty() {
             return;
         }
-        let dark = Theme::current() == Theme::Dark;
+        // Made here, it reads the style of the app on the main thread.
+        let Some(code) = CodeHighlighter::for_file(&shown.file) else {
+            return;
+        };
         let key = self.highlight_key();
         let work = move || {
-            let Some(runs) = highlight::highlight(&shown.file, &lines, dark) else {
-                return;
-            };
+            let runs = DiffHighlighter::new(code).highlight(&lines);
             on_main(move || {
                 let mut panel = self;
                 if !panel.is_ok() || panel.highlight_key() != key {

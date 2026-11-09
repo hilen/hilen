@@ -109,6 +109,8 @@ mod text_field_browser;
 /// [`screen_keyboard_look`] checks there that it follows the scale.
 #[cfg(not(all(ios, not(tvos))))]
 mod text_field_caret_scale;
+/// Taps and types through the system input, so it runs on a phone too.
+mod text_field_dropped_while_edited;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;

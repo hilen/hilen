@@ -1,5 +1,5 @@
 use super::Label;
-use crate::{deps::refs::weak_from_ref, window::BoxChars};
+use crate::{deps::refs::weak_from_ref, text::BoxChars};
 
 impl Label {
     /// Draws every box char of the text, U+2500 to U+257F, over its whole
@@ -14,6 +14,7 @@ impl Label {
         self
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn box_chars(&self) -> BoxChars {
         self.box_chars
     }

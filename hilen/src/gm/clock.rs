@@ -43,6 +43,7 @@ impl Clock {
     /// stepped test advances the clock and nothing else does, not even the free
     /// running headless render loop. That keeps the frame count a test drives
     /// the only thing that moves an animation.
+    #[cfg(feature = "gpu")]
     pub(crate) fn advance_frame() {
         if STEPPED.load(Ordering::Relaxed) {
             let now = f64::from_bits(VIRTUAL_MS.load(Ordering::Relaxed));

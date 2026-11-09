@@ -1,8 +1,8 @@
 use crate::{
     deps::refs::Weak,
     gm::color::Color,
-    ui::{DynamicColor, UIColor, selection_drawer::SELECTION_COLOR},
-    window::Font,
+    text::Font,
+    ui::{DynamicColor, UIColor, text_selection::SELECTION_COLOR},
 };
 
 /// The look of a `CodeEditor`, set with `CodeEditor::set_style`. Every

@@ -37,14 +37,17 @@ impl Animation {
     }
 
     /// A default animation has no duration, its value would divide by zero.
+    #[cfg(feature = "gpu")]
     pub(crate) fn is_empty(&self) -> bool {
         self.duration.to_bits() == 0
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn finished(&self) -> bool {
         self.finished_at(frame_ms())
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn active(&self) -> bool {
         !self.finished()
     }
@@ -53,6 +56,7 @@ impl Animation {
         self.value_at(frame_ms())
     }
 
+    #[cfg(feature = "gpu")]
     fn finished_at(&self, now: f64) -> bool {
         now >= self.stamp + f64::from(self.duration)
     }
@@ -78,7 +82,7 @@ impl Animation {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod test {
     use std::{thread::sleep, time::Duration};
 

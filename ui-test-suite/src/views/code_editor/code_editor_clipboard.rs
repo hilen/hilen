@@ -4,7 +4,7 @@ use hilen::{
     refs::Weak,
     system::Clipboard,
     ui::{
-        CodeEditor, CodePos, Label, ModifiersState, NamedKey, Setup, UIManager, View, ViewData, ViewFrame,
+        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, UIManager, View, ViewData, ViewFrame,
         ViewTest, WHITE, view,
     },
     ui_test::{
@@ -55,9 +55,9 @@ impl CodeEditorClipboard {
 }
 
 fn command(ch: char) {
-    inject_modifiers(ModifiersState::SUPER);
+    inject_modifiers(Modifiers::META);
     inject_keys(ch);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 impl ViewTest for CodeEditorClipboard {
@@ -70,9 +70,9 @@ impl ViewTest for CodeEditorClipboard {
 
         // `cube(size);` of line 6.
         click_at(view.editor, CodePos::new(5, 8));
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::End);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         command('c');
         let copied = from_main(Clipboard::get_text)?;
         ensure!(copied == "cube(size);", "the copy holds {copied:?}");
@@ -87,10 +87,10 @@ impl ViewTest for CodeEditorClipboard {
 
         // The last line cut whole, with the line break before it.
         click_at(view.editor, CodePos::new(12, 11));
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_named_key(NamedKey::ArrowDown);
         inject_named_key(NamedKey::End);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         command('x');
         let lines = view.show("Shift with Down and End from the end of line 13, and a cut");
         ensure!(

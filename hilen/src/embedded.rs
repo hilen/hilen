@@ -19,6 +19,7 @@ fn by_name() -> &'static HashMap<&'static str, &'static [u8]> {
 }
 
 /// How many files the app packed, 0 for an app with no `embed_assets!`.
+#[cfg(feature = "gpu")]
 pub(crate) fn count() -> usize {
     by_name().len()
 }

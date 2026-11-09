@@ -13,7 +13,7 @@ use hilen::{
     },
     refs::Weak,
     ui::{
-        Button, Container, Label, ModifiersState, Setup, Shadow, UIAnimation, UIManager, View, ViewData,
+        Button, Container, Label, Modifiers, Setup, Shadow, UIAnimation, UIManager, View, ViewData,
         ViewFrame, ViewTest, view,
     },
     ui_test::{checkpoint, system_input::wait_until},
@@ -172,7 +172,7 @@ fn screenshot() -> Result<(f32, [u8; 3])> {
 fn tap(view_id: &str) -> UIRequest {
     UIRequest::Tap {
         view_id:   view_id.into(),
-        modifiers: ModifiersState::empty(),
+        modifiers: Modifiers::empty(),
         right:     false,
         force:     false,
     }

@@ -1,4 +1,6 @@
-use std::{any::type_name, collections::HashMap, mem::take, ops::DerefMut, panic::Location};
+#[cfg(feature = "gpu")]
+use std::mem::take;
+use std::{any::type_name, collections::HashMap, ops::DerefMut, panic::Location};
 
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
@@ -78,10 +80,12 @@ impl Style {
         styles.push(*self);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn take_globals() -> GlobalStyles {
         take(GLOBAL_STYLES.get_mut())
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn restore_globals(styles: GlobalStyles) {
         *GLOBAL_STYLES.get_mut() = styles;
     }

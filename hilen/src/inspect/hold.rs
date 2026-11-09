@@ -4,8 +4,7 @@ use crate::{
         wait::{MAX_WAIT_MS, wait_ms},
         window::from_main,
     },
-    ui::{Input, Keys, NamedKey},
-    window::KeyCode,
+    ui::{Code, Input, Keys, NamedKey},
 };
 
 impl InspectService {
@@ -14,7 +13,7 @@ impl InspectService {
     /// released in one request is never seen held there. A key with a
     /// name also goes down and up as that named key, the way a real key
     /// does, so a held Enter is a long press on the key focus.
-    pub(super) fn hold(keys: Vec<KeyCode>, ms: u32) -> AppCommand {
+    pub(super) fn hold(keys: Vec<Code>, ms: u32) -> AppCommand {
         if ms > MAX_WAIT_MS {
             return AppCommand::Error(format!("Hold must be at most {MAX_WAIT_MS} milliseconds"));
         }
@@ -50,14 +49,14 @@ impl InspectService {
 
 /// The named key a physical key also arrives as. Only the keys the key
 /// focus reads, a letter has no name.
-fn named_key(code: KeyCode) -> Option<NamedKey> {
+fn named_key(code: Code) -> Option<NamedKey> {
     Some(match code {
-        KeyCode::Enter | KeyCode::NumpadEnter => NamedKey::Enter,
-        KeyCode::Escape => NamedKey::Escape,
-        KeyCode::ArrowUp => NamedKey::ArrowUp,
-        KeyCode::ArrowDown => NamedKey::ArrowDown,
-        KeyCode::ArrowLeft => NamedKey::ArrowLeft,
-        KeyCode::ArrowRight => NamedKey::ArrowRight,
+        Code::Enter | Code::NumpadEnter => NamedKey::Enter,
+        Code::Escape => NamedKey::Escape,
+        Code::ArrowUp => NamedKey::ArrowUp,
+        Code::ArrowDown => NamedKey::ArrowDown,
+        Code::ArrowLeft => NamedKey::ArrowLeft,
+        Code::ArrowRight => NamedKey::ArrowRight,
         _ => return None,
     })
 }

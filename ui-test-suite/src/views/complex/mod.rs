@@ -14,6 +14,9 @@ mod context_menu_reopen;
 mod context_menu_style;
 mod dialog_style;
 mod drop_down;
+/// Hover needs a pointer, there is none on a touch screen. `Input` only calls
+/// `Hover::update` on desktop and in a browser, the gate of `hover` in `basic`.
+#[cfg(any(desktop, wasm))]
 mod drop_down_box_hover;
 mod drop_down_cells;
 mod drop_down_dark;

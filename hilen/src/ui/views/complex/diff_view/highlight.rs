@@ -1,123 +1,91 @@
-use std::{ops::Range, sync::OnceLock};
+use std::ops::Range;
 
-use syntect::{
-    easy::HighlightLines,
-    highlighting::ThemeSet,
-    parsing::{SyntaxReference, SyntaxSet},
+use crate::{
+    filediff::DiffLine,
+    ui::{CodeHighlighter, UIColor},
 };
 
-use crate::ui::Color;
-
-// The syntax highlighting from highlight.ts, shiki tokens replaced by
-// syntect over the bundled Sublime defaults. Runs on a background
-// thread, the output is one list of color runs per diff line, applied
-// to the content labels through set_color_runs.
-
-pub type LineRuns = Vec<(Range<usize>, Color)>;
+pub type LineRuns = Vec<(Range<usize>, UIColor)>;
 
 // Tokenizing a moved or generated megabyte file costs seconds, the
 // lines past this stay plain like the original's paged prefix.
 pub const MAX_LINES: usize = 5000;
 
-fn syntaxes() -> &'static SyntaxSet {
-    static SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SET.get_or_init(SyntaxSet::load_defaults_newlines)
+/// The 2 texts of a diff, each colored in its own order, so a removed
+/// line and the line that replaced it never share a comment or a string.
+pub struct DiffHighlighter {
+    old: CodeHighlighter,
+    new: CodeHighlighter,
 }
 
-fn themes() -> &'static ThemeSet {
-    static SET: OnceLock<ThemeSet> = OnceLock::new();
-    SET.get_or_init(ThemeSet::load_defaults)
-}
-
-fn basename(file: &str) -> &str {
-    file.rsplit(['/', '\\']).next().unwrap_or(file)
-}
-
-fn syntax_for(file: &str) -> Option<&'static SyntaxReference> {
-    let set = syntaxes();
-    let name = basename(file);
-    if let Some(syntax) = set.find_syntax_by_extension(name) {
-        return Some(syntax);
-    }
-    let ext = name.rsplit_once('.').map(|(_, e)| e)?;
-    set.find_syntax_by_extension(ext)
-}
-
-// The bundled themes closest to the original's github-dark and
-// github-light pair.
-fn theme_name(dark: bool) -> &'static str {
-    if dark {
-        "base16-ocean.dark"
-    } else {
-        "InspiredGitHub"
-    }
-}
-
-// One run list per input line, None when the file has no known syntax.
-// The lines are highlighted in order as one document, so multi line
-// constructs carry across diff lines the way they do in the original.
-pub fn highlight(file: &str, lines: &[String], dark: bool) -> Option<Vec<LineRuns>> {
-    let syntax = syntax_for(file)?;
-    let theme = themes().themes.get(theme_name(dark))?;
-    let default_fg = theme.settings.foreground;
-    let mut highlighter = HighlightLines::new(syntax, theme);
-
-    let mut result = Vec::with_capacity(lines.len());
-    for line in lines.iter().take(MAX_LINES) {
-        let with_newline = format!("{line}\n");
-        let Ok(spans) = highlighter.highlight_line(&with_newline, syntaxes()) else {
-            result.push(Vec::new());
-            continue;
-        };
-        let mut runs: LineRuns = Vec::new();
-        let mut offset = 0;
-        for (style, text) in spans {
-            let start = offset;
-            offset += text.len();
-            let end = offset.min(line.len());
-            if start >= end || Some(style.foreground) == default_fg {
-                continue;
-            }
-            let fg = style.foreground;
-            runs.push((
-                start..end,
-                Color::rgba(
-                    f32::from(fg.r) / 255.0,
-                    f32::from(fg.g) / 255.0,
-                    f32::from(fg.b) / 255.0,
-                    f32::from(fg.a) / 255.0,
-                ),
-            ));
+impl DiffHighlighter {
+    /// Both texts start from `code`, a highlighter for the file.
+    pub fn new(code: CodeHighlighter) -> Self {
+        Self {
+            new: code.clone(),
+            old: code,
         }
-        result.push(runs);
     }
-    Some(result)
+
+    /// One run list per line, in the order of the lines. A line that
+    /// stayed goes into both texts and takes the colors of the new one.
+    pub fn highlight<'a>(mut self, lines: impl IntoIterator<Item = &'a DiffLine>) -> Vec<LineRuns> {
+        lines
+            .into_iter()
+            .take(MAX_LINES)
+            .map(|line| match line.kind.as_str() {
+                "add" => self.new.color_runs(&line.text),
+                "rem" => self.old.color_runs(&line.text),
+                _ => {
+                    self.old.color_runs(&line.text);
+                    self.new.color_runs(&line.text)
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::highlight;
+mod test {
+    use std::ops::Range;
 
-    #[test]
-    fn highlights_rust() {
-        let lines = vec!["fn main() {".to_string(), "    let x = 1;".to_string()];
-        let runs = highlight("src/main.rs", &lines, true).expect("rust is a bundled syntax");
-        assert_eq!(runs.len(), 2);
-        assert!(!runs[0].is_empty(), "fn keyword should get a color run");
-    }
+    use super::DiffHighlighter;
+    use crate::{
+        filediff::DiffLine,
+        ui::{CodeHighlighter, MarkdownStyle, UIColor},
+    };
 
-    #[test]
-    fn unknown_extension_is_plain() {
-        let lines = vec!["whatever".to_string()];
-        assert!(highlight("notes.zzz", &lines, true).is_none());
-    }
-
-    #[test]
-    fn runs_stay_inside_the_line() {
-        let lines = vec!["let s = \"x\";".to_string()];
-        let runs = highlight("a.rs", &lines, false).expect("rust syntax");
-        for (range, _) in &runs[0] {
-            assert!(range.end <= lines[0].len());
+    fn line(kind: &str, text: &str) -> DiffLine {
+        DiffLine {
+            kind:   kind.to_string(),
+            text:   text.to_string(),
+            old_no: None,
+            new_no: None,
         }
+    }
+
+    fn colored(runs: &[(Range<usize>, UIColor)], text: &str, part: &str) -> bool {
+        let at = text.find(part).unwrap();
+        runs.iter().any(|(range, _)| range.contains(&at))
+    }
+
+    #[test]
+    fn a_removed_comment_does_not_reach_the_new_text() {
+        let lines = [
+            line("rem", "/* old"),
+            line("add", "let n = 2;"),
+            line("ctx", "fn main() {}"),
+        ];
+        let style = MarkdownStyle::DEFAULT;
+        let code = CodeHighlighter::for_file_styled("a.rs", &style).unwrap();
+        let runs = DiffHighlighter::new(code).highlight(&lines);
+
+        assert_eq!(runs.len(), 3);
+        let comment = style.comment;
+        assert_ne!(runs[0], []);
+        assert!(runs[0].iter().all(|(_, color)| *color == comment));
+        assert!(runs[1].iter().all(|(_, color)| *color != comment));
+        assert!(colored(&runs[1], "let n = 2;", "let"));
+        assert!(colored(&runs[2], "fn main() {}", "fn"));
     }
 }

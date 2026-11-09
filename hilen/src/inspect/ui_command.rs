@@ -14,10 +14,9 @@ use crate::{
         window::from_main,
     },
     ui::{
-        Button, Input, Label, ModifiersState, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame,
-        ViewSubviews, WeakView,
+        Button, Input, Label, Modifiers, MouseButton, TextField, Touch, TouchEvent, UIManager, ViewData,
+        ViewFrame, ViewSubviews, WeakView, named_key_char,
     },
-    window::MouseButton,
 };
 
 impl InspectService {
@@ -120,14 +119,14 @@ impl InspectService {
                             // key handler in `app_runner`.
                             Key::Named(key) => {
                                 Input::on_key(key);
-                                if let Some(text) = key.to_text() {
-                                    Input::on_char(text.chars().last().expect("Key text is empty"), None);
+                                if let Some(typed) = named_key_char(key) {
+                                    Input::on_char(typed, None);
                                 }
                                 Input::on_key_up(key);
                             }
                         }
                     }
-                    Input::set_modifiers(ModifiersState::empty());
+                    Input::set_modifiers(Modifiers::empty());
                 });
 
                 // The snapshot runs a frame later, so a palette or page a
@@ -156,12 +155,7 @@ impl InspectService {
     /// success to the client. Refuses a tap point another view sits over
     /// too, that touch once pressed a reset button, `force` sends it
     /// anyway and the reply then carries the covering warning.
-    fn tap(
-        view_id: &str,
-        modifiers: ModifiersState,
-        right: bool,
-        force: bool,
-    ) -> Result<Option<String>, String> {
+    fn tap(view_id: &str, modifiers: Modifiers, right: bool, force: bool) -> Result<Option<String>, String> {
         let view = find_view(view_id)?;
 
         if view.is_hidden_in_tree() {
@@ -217,7 +211,7 @@ impl InspectService {
                 button,
             });
         }
-        Input::set_modifiers(ModifiersState::empty());
+        Input::set_modifiers(Modifiers::empty());
 
         Ok(note)
     }

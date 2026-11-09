@@ -1,11 +1,9 @@
 //! The keys the owner of a text field takes for itself.
 
 use super::TextField;
-use crate::{
-    deps::refs::weak_from_ref,
-    ui::{UIManager, ViewSubviews},
-    window::NamedKey,
-};
+#[cfg(feature = "gpu")]
+use crate::ui::{UIManager, ViewSubviews};
+use crate::{deps::refs::weak_from_ref, ui::NamedKey};
 
 impl TextField {
     /// The owner of the field takes these keys for itself. While the field
@@ -34,12 +32,14 @@ impl TextField {
     }
 
     /// The owner takes a press of `key` now.
+    #[cfg(feature = "gpu")]
     pub(super) fn takes_key(&self, key: NamedKey) -> bool {
         self.is_editing && self.taken_keys.contains(&key)
     }
 
     /// Hands `key` to the owner of the edited field when it takes that
     /// key, and says whether it did. Nothing else sees the press then.
+    #[cfg(feature = "gpu")]
     pub(crate) fn offer_key(key: NamedKey) -> bool {
         let selected = UIManager::selected_view();
         if selected.is_null() {

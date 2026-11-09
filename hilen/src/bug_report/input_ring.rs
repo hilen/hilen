@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use winit::keyboard::{KeyCode, ModifiersState};
+
+use crate::ui::{Code, Modifiers};
 
 /// Enough to show what led to the bug without turning into surveillance.
 const CAPACITY: usize = 20;
@@ -39,12 +40,12 @@ impl KeyPress {
 
 struct RingState {
     events:    VecDeque<KeyPress>,
-    modifiers: ModifiersState,
+    modifiers: Modifiers,
 }
 
 static STATE: Mutex<RingState> = Mutex::new(RingState {
     events:    VecDeque::new(),
-    modifiers: ModifiersState::empty(),
+    modifiers: Modifiers::empty(),
 });
 
 /// A RAM only ring of recent key presses. Attached to a bug report only
@@ -53,17 +54,17 @@ static STATE: Mutex<RingState> = Mutex::new(RingState {
 pub(crate) struct InputRing;
 
 impl InputRing {
-    pub(crate) fn set_modifiers(modifiers: ModifiersState) {
+    pub(crate) fn set_modifiers(modifiers: Modifiers) {
         STATE.lock().modifiers = modifiers;
     }
 
     /// Only the native shortcut reads it, the browser keeps the combo.
     #[cfg(not_wasm)]
-    pub(crate) fn modifiers() -> ModifiersState {
+    pub(crate) fn modifiers() -> Modifiers {
         STATE.lock().modifiers
     }
 
-    pub(crate) fn record(code: KeyCode) {
+    pub(crate) fn record(code: Code) {
         let mut state = STATE.lock();
 
         if !qualifies(code, state.modifiers) {
@@ -72,16 +73,16 @@ impl InputRing {
 
         let mut mods = Vec::new();
 
-        if state.modifiers.control_key() {
+        if state.modifiers.ctrl() {
             mods.push("Ctrl".to_string());
         }
-        if state.modifiers.alt_key() {
+        if state.modifiers.alt() {
             mods.push("Alt".to_string());
         }
-        if state.modifiers.shift_key() {
+        if state.modifiers.shift() {
             mods.push("Shift".to_string());
         }
-        if state.modifiers.super_key() {
+        if state.modifiers.meta() {
             mods.push("Meta".to_string());
         }
 
@@ -107,102 +108,98 @@ impl InputRing {
 /// the key itself is a navigation or control key. Shift plus letter is
 /// capital typing, not a hotkey. A modifier key on its own never
 /// qualifies, holding one would otherwise burn ring slots.
-fn qualifies(code: KeyCode, modifiers: ModifiersState) -> bool {
+fn qualifies(code: Code, modifiers: Modifiers) -> bool {
     if is_modifier(code) {
         return false;
     }
 
-    if modifiers.control_key() || modifiers.alt_key() || modifiers.super_key() {
+    if modifiers.ctrl() || modifiers.alt() || modifiers.meta() {
         return true;
     }
 
     is_navigation(code)
 }
 
-fn is_modifier(code: KeyCode) -> bool {
+fn is_modifier(code: Code) -> bool {
     matches!(
         code,
-        KeyCode::ControlLeft
-            | KeyCode::ControlRight
-            | KeyCode::ShiftLeft
-            | KeyCode::ShiftRight
-            | KeyCode::AltLeft
-            | KeyCode::AltRight
-            | KeyCode::SuperLeft
-            | KeyCode::SuperRight
+        Code::ControlLeft
+            | Code::ControlRight
+            | Code::ShiftLeft
+            | Code::ShiftRight
+            | Code::AltLeft
+            | Code::AltRight
+            | Code::MetaLeft
+            | Code::MetaRight
     )
 }
 
-fn is_navigation(code: KeyCode) -> bool {
+fn is_navigation(code: Code) -> bool {
     matches!(
         code,
-        KeyCode::Escape
-            | KeyCode::Tab
-            | KeyCode::Enter
-            | KeyCode::NumpadEnter
-            | KeyCode::ArrowUp
-            | KeyCode::ArrowDown
-            | KeyCode::ArrowLeft
-            | KeyCode::ArrowRight
-            | KeyCode::Home
-            | KeyCode::End
-            | KeyCode::PageUp
-            | KeyCode::PageDown
-            | KeyCode::F1
-            | KeyCode::F2
-            | KeyCode::F3
-            | KeyCode::F4
-            | KeyCode::F5
-            | KeyCode::F6
-            | KeyCode::F7
-            | KeyCode::F8
-            | KeyCode::F9
-            | KeyCode::F10
-            | KeyCode::F11
-            | KeyCode::F12
+        Code::Escape
+            | Code::Tab
+            | Code::Enter
+            | Code::NumpadEnter
+            | Code::ArrowUp
+            | Code::ArrowDown
+            | Code::ArrowLeft
+            | Code::ArrowRight
+            | Code::Home
+            | Code::End
+            | Code::PageUp
+            | Code::PageDown
+            | Code::F1
+            | Code::F2
+            | Code::F3
+            | Code::F4
+            | Code::F5
+            | Code::F6
+            | Code::F7
+            | Code::F8
+            | Code::F9
+            | Code::F10
+            | Code::F11
+            | Code::F12
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use winit::keyboard::{KeyCode, ModifiersState};
-
     use super::qualifies;
+    use crate::ui::{Code, Modifiers};
 
     #[test]
     fn plain_typing_is_dropped() {
-        assert!(!qualifies(KeyCode::KeyA, ModifiersState::empty()));
-        assert!(!qualifies(KeyCode::Space, ModifiersState::empty()));
-        assert!(!qualifies(KeyCode::Digit5, ModifiersState::empty()));
+        assert!(!qualifies(Code::KeyA, Modifiers::empty()));
+        assert!(!qualifies(Code::Space, Modifiers::empty()));
+        assert!(!qualifies(Code::Digit5, Modifiers::empty()));
     }
 
     #[test]
     fn shift_letter_is_capital_typing_not_a_hotkey() {
-        assert!(!qualifies(KeyCode::KeyA, ModifiersState::SHIFT));
+        assert!(!qualifies(Code::KeyA, Modifiers::SHIFT));
     }
 
     #[test]
     fn modifier_combos_qualify() {
-        assert!(qualifies(KeyCode::KeyC, ModifiersState::CONTROL));
-        assert!(qualifies(
-            KeyCode::KeyR,
-            ModifiersState::SUPER | ModifiersState::SHIFT
-        ));
-        assert!(qualifies(KeyCode::KeyF, ModifiersState::ALT));
+        assert!(qualifies(Code::KeyC, Modifiers::CONTROL));
+        assert!(qualifies(Code::KeyR, Modifiers::META | Modifiers::SHIFT));
+        assert!(qualifies(Code::KeyF, Modifiers::ALT));
     }
 
     #[test]
     fn navigation_keys_qualify_bare() {
-        assert!(qualifies(KeyCode::Escape, ModifiersState::empty()));
-        assert!(qualifies(KeyCode::Enter, ModifiersState::empty()));
-        assert!(qualifies(KeyCode::ArrowLeft, ModifiersState::empty()));
-        assert!(qualifies(KeyCode::F5, ModifiersState::empty()));
+        assert!(qualifies(Code::Escape, Modifiers::empty()));
+        assert!(qualifies(Code::Enter, Modifiers::empty()));
+        assert!(qualifies(Code::ArrowLeft, Modifiers::empty()));
+        assert!(qualifies(Code::F5, Modifiers::empty()));
     }
 
     #[test]
     fn modifier_only_presses_are_dropped() {
-        assert!(!qualifies(KeyCode::ShiftLeft, ModifiersState::SHIFT));
-        assert!(!qualifies(KeyCode::SuperLeft, ModifiersState::SUPER));
-        assert!(!qualifies(KeyCode::ControlLeft, ModifiersState::CONTROL));
+        assert!(!qualifies(Code::ShiftLeft, Modifiers::SHIFT));
+        assert!(!qualifies(Code::MetaLeft, Modifiers::META));
+        assert!(!qualifies(Code::ControlLeft, Modifiers::CONTROL));
     }
 }

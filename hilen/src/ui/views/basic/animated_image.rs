@@ -1,8 +1,8 @@
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 use anyhow::Context;
 use anyhow::Result;
 use ui_proc::view;
@@ -13,13 +13,13 @@ use crate::{
         vents::Event,
     },
     gm::{Clock, LossyConvert},
+    image::{Image, decode_gif},
     ui::{
         ImageMode, ImageView, LoopAnimation, Setup, View, ViewCallbacks, ViewData, ViewFrame,
         keep_frames_exempt,
     },
-    window::image::{Image, decode_gif},
 };
-#[cfg(apple)]
+#[cfg(all(apple, feature = "gpu"))]
 use crate::{
     gm::flat::{CornerRadii, Rect},
     ui::loops::{OwnPictures, PixelOrder, RawFrames},
@@ -53,7 +53,7 @@ pub struct AnimatedImage {
     period: f32,
     /// The file, decoded again for a layer of the system. The frames of
     /// the decoder are not kept, so a gif costs no memory twice.
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     gif:    Option<Arc<[u8]>>,
 
     current: usize,
@@ -114,7 +114,7 @@ impl AnimatedImage {
                 phase
             })
             .collect();
-        #[cfg(apple)]
+        #[cfg(all(apple, feature = "gpu"))]
         {
             this.gif = Some(Arc::from(data));
         }
@@ -223,7 +223,7 @@ impl AnimatedImage {
             let animation = LoopAnimation::new(self.period, move |phase| self.pose(phase))
                 .changes_at(self.starts.clone())
                 .starting_at(start);
-            #[cfg(apple)]
+            #[cfg(all(apple, feature = "gpu"))]
             let animation = animation.own_pictures(self.own_pictures());
             self.run_loop(animation);
             return;
@@ -247,7 +247,7 @@ impl AnimatedImage {
 
     /// The decoded frames of the gif for a layer of the system, where the
     /// layer can show them as the image view would.
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     fn own_pictures(self: Weak<Self>) -> OwnPictures {
         let gif = self.gif.clone();
         OwnPictures {
@@ -267,7 +267,7 @@ impl AnimatedImage {
     /// Where the frames go as they are, in the points of the window. None
     /// when the image view does more than show them stretched over a rect:
     /// a background, a border, round corners, a flip, a crop or a cut.
-    #[cfg(apple)]
+    #[cfg(all(apple, feature = "gpu"))]
     fn picture_area(self: Weak<Self>) -> Option<Rect> {
         if !self.is_ok() {
             return None;

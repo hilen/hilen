@@ -2,14 +2,15 @@
 //! has no console and a Finder or dock launch on mac keeps no terminal, so
 //! stdout alone loses every line the moment something goes wrong.
 
+use std::{env::current_exe, path::PathBuf, sync::OnceLock};
+#[cfg(feature = "gpu")]
 use std::{
-    env::current_exe,
     fs::{create_dir_all, read_dir, remove_file},
-    path::{Path, PathBuf},
-    sync::OnceLock,
+    path::Path,
 };
 
 use anyhow::{Context, Result, bail};
+#[cfg(feature = "gpu")]
 use chrono::Local;
 
 use crate::filesystem::Paths;
@@ -24,6 +25,7 @@ pub fn log_file_path() -> Option<PathBuf> {
 
 /// Picks the file for this launch, creates its dir and prunes old ones, so
 /// that `keep` files are left with the one of this launch counted in.
+#[cfg(feature = "gpu")]
 pub(crate) fn create(keep: usize) -> Result<PathBuf> {
     // Android has no per app log dir the engine could pick and swallows
     // stdout anyway, logcat is the log there.
@@ -41,6 +43,7 @@ pub(crate) fn create(keep: usize) -> Result<PathBuf> {
 
 /// Creates `dir`, removes the logs of `app` that are older than the `keep`
 /// newest, and names the file of this launch.
+#[cfg(feature = "gpu")]
 fn create_in(dir: &Path, app: &str, keep: usize) -> Result<PathBuf> {
     create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     prune(dir, app, keep)?;
@@ -76,6 +79,7 @@ pub fn log_dir(app: &str) -> Result<PathBuf> {
 
 /// Keeps the `keep` newest log files of `app` in `dir`, by name, which
 /// sorts by date because of the name format.
+#[cfg(feature = "gpu")]
 fn prune(dir: &Path, app: &str, keep: usize) -> Result<()> {
     let prefix = format!("{app}-");
     let mut logs: Vec<PathBuf> = read_dir(dir)
@@ -99,7 +103,7 @@ fn prune(dir: &Path, app: &str, keep: usize) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use std::{
         env::temp_dir,

@@ -24,12 +24,12 @@ use crate::{
         color::{BLACK, CLEAR, GRAY, LIGHTER_GRAY, WHITE},
     },
     system::ClipboardImage,
+    text::Font,
     ui::{
-        Container, Label, ScreenKeyboard, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel,
-        UIColor, UIEvents, UIManager, VerticalAlignment, ViewSubviews,
+        Container, Label, NamedKey, ScreenKeyboard, ScrollView, Setup, TextAlignment, TextFieldConstraint,
+        ToLabel, UIColor, UIEvents, UIManager, VerticalAlignment, ViewSubviews,
         view::{DoubleTap, View, ViewData, ViewFrame, ViewTouch},
     },
-    window::{Font, NamedKey},
 };
 
 /// Space above the first line of a multiline field, so the text does not
@@ -122,6 +122,15 @@ pub struct TextField {
 
     #[init]
     scroll: ScrollView,
+}
+
+#[cfg(all(ios, not(tvos)))]
+impl Drop for TextField {
+    fn drop(&mut self) {
+        if self.is_editing {
+            system_field::dropped(self);
+        }
+    }
 }
 
 impl Setup for TextField {

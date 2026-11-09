@@ -1,3 +1,5 @@
+#[cfg(feature = "gpu")]
+use crate::ui::Focus;
 use crate::{
     self as hilen,
     deps::{
@@ -9,15 +11,13 @@ use crate::{
         color::{CLEAR, Color, LIGHT_BLUE},
         flat::{LineCap, LineJoin, Point, StrokeStyle, VectorPath},
     },
+    image::{Image, Tinted, ToImage, tint_svg},
     ui::{
-        Button, CellRegistry, Container, DrawingView, DynamicColor, Focus, ImageView, Label, Setup, Shadow,
+        Button, CellRegistry, Container, DrawingView, DynamicColor, ImageView, Label, Setup, Shadow,
         TableData, TableView, TextAlignment, Theme, TouchStack, UIColor, UIEvents, UIImages, UIManager, View,
         ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view, view::depth_order,
     },
-    window::{
-        image::{Image, Tinted, ToImage, tint_svg},
-        slots::WindowLock,
-    },
+    window::slots::WindowLock,
 };
 
 const ARROW: f32 = 16.0;
@@ -225,6 +225,7 @@ impl DropDown {
 
     /// Closes the open list, true when there was one to close. The ring of a
     /// remote goes back to its box, the rows it was on hide.
+    #[cfg(feature = "gpu")]
     pub(crate) fn escape() -> bool {
         let drop = **OPEN;
         if drop.is_null()

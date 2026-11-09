@@ -63,6 +63,7 @@ pub struct ViewBase {
     /// the view is no group or has nothing to fade. A group draws its own
     /// parts at full strength, so its `tree_opacity` is 1.
     #[educe(Default = 1.0)]
+    #[cfg(feature = "gpu")]
     pub(crate) group_alpha:   f32,
 
     #[educe(Default = crate::ui::UIManager::ROOT_VIEW_Z_OFFSET)]
@@ -173,6 +174,7 @@ pub struct ViewBase {
     /// The frame is erased inside this view, so a browser shows the page
     /// behind the canvas there. Set by a `VideoView` that plays in a
     /// `<video>` element, read only in a browser.
+    #[cfg(feature = "gpu")]
     pub(crate) page_hole: bool,
 
     /// What the key focus keeps for this view, see `ui/focus.rs`.
@@ -199,23 +201,27 @@ pub struct ViewBase {
     pub(crate) loop_clock: (f64, f64),
     /// A layer of the system shows the loop now. The frame then draws
     /// nothing of the view and its subviews.
+    #[cfg(feature = "gpu")]
     pub(crate) loop_layer: bool,
 
     /// Whether the view draws into the pass by itself, learned when it is
     /// first drawn.
+    #[cfg(feature = "gpu")]
     pub(crate) render_probe: RenderProbe,
 }
 
-/// A view with a `before_render` of its own draws what the engine cannot
-/// see, so a frame with one on the screen is drawn whole, see `ui::damage`.
+/// A view that draws itself, see `DrawsItself`, draws what the engine
+/// cannot see, so a frame with one on the screen is drawn whole, see
+/// `ui::damage`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg(feature = "gpu")]
 pub(crate) enum RenderProbe {
     /// Not drawn yet.
     #[default]
     Unknown,
     /// Only the engine draws it.
     Plain,
-    /// It has a `before_render` of its own.
+    /// It draws itself, see `DrawsItself`.
     Custom,
 }
 

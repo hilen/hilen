@@ -125,6 +125,7 @@ impl Paint {
 
     /// A paint whose every stop is fully transparent draws nothing and
     /// is skipped like a fully transparent flat path.
+    #[cfg(feature = "gpu")]
     pub(crate) fn visible(&self) -> bool {
         self.stops[..self.count].iter().any(|(color, _)| color.a >= 0.004)
     }
@@ -136,7 +137,7 @@ impl From<Color> for Paint {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod test {
     use super::*;
     use crate::gm::color::{BLACK, BLUE, GREEN, RED, WHITE};

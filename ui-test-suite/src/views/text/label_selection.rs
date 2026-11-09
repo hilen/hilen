@@ -5,13 +5,13 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        GRAY, Label, ModifiersState, Setup, TextAlignment, TextSelection, UIManager, VerticalAlignment,
-        ViewData, ViewTest, WHITE, view,
+        GRAY, Label, Modifiers, Setup, TextAlignment, TextSelection, UIManager, VerticalAlignment, ViewData,
+        ViewTest, WHITE, view,
     },
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_touches, set_record_probe_count},
 };
 
-use crate::text_points::{click, drag, point_after, point_of, shown};
+use crate::text_points::{click, drag, past_double_tap, point_after, point_of, shown};
 
 const SINGLE: &str = "The quick brown fox jumps over the lazy dog.";
 const FIRST_LINE: &str = "First line of the text.";
@@ -710,15 +710,18 @@ impl ViewTest for LabelSelection {
 
         let (quick, brown_end) =
             from_main(move || (point_of(view.single, "quick"), point_after(view.single, "brown")));
+        past_double_tap();
         inject_touches(drag(quick, brown_end));
         assert_eq!(view.show("drag from quick to the end of brown"), "quick brown");
         check_colors(CHECK_1)?;
 
         // The same 2 ends dragged from the right to the left.
+        past_double_tap();
         inject_touches(drag(brown_end, quick));
         assert_eq!(view.show("the same drag from right to left"), "quick brown");
 
         let fox = from_main(move || point_of(view.single, "ox jumps"));
+        past_double_tap();
         inject_touches(click(fox));
         inject_touches(click(fox));
         assert_eq!(view.show("double click on fox"), "fox");
@@ -729,6 +732,7 @@ impl ViewTest for LabelSelection {
         assert_eq!(view.show("triple click on fox"), SINGLE);
 
         let wraps = from_main(move || point_of(view.wrapped, "wrap at"));
+        past_double_tap();
         inject_touches(click(wraps));
         inject_touches(click(wraps));
         inject_touches(click(wraps));
@@ -745,11 +749,13 @@ impl ViewTest for LabelSelection {
             )
         });
         // Not at the place of the clicks before, this must be a single click.
+        past_double_tap();
         inject_touches(click(line));
         assert_eq!(view.show("click in the first line"), "");
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
+        past_double_tap();
         inject_touches(click(third));
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         assert_eq!(
             view.show("Shift and a click in the third line"),
             format!("line of the text.\n{SECOND_LINE}\nThird")
@@ -759,13 +765,16 @@ impl ViewTest for LabelSelection {
         copy_and_check("line of the text.");
 
         // The selection of the wrapped label goes when another label gets one.
+        past_double_tap();
         inject_touches(drag(quick, brown_end));
         assert_eq!(view.show("drag in the first label again"), "quick brown");
         check_colors(CHECK_5)?;
 
         let (not, at) = from_main(move || (point_of(view.plain, "not"), point_after(view.plain, "at all")));
+        past_double_tap();
         inject_touches(click(not));
         assert_eq!(view.show("click on the label that is not selectable"), "");
+        past_double_tap();
         inject_touches(drag(not, at));
         assert_eq!(view.show("drag over the label that is not selectable"), "");
         check_colors(CHECK_6)?;
@@ -779,9 +788,9 @@ fn copy_and_check(start: &'static str) {
     #[cfg(desktop)]
     from_main(|| Clipboard::set_in_process(true));
 
-    inject_modifiers(ModifiersState::SUPER);
+    inject_modifiers(Modifiers::META);
     inject_keys("c");
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 
     // Only a desktop has a clipboard a test can keep to itself and read.
     #[cfg(desktop)]

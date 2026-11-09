@@ -7,10 +7,7 @@ use crate::{
         refs::Weak,
     },
     gm::color::{Color, WHITE},
-    ui::{
-        Label, ModifiersState, ScrollView, Setup, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest,
-        view,
-    },
+    ui::{Label, Modifiers, ScrollView, Setup, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
     ui_test::{check_colors, checkpoint, inject_modifiers, inject_scroll, inject_scroll_x, inject_touches},
 };
 
@@ -110,9 +107,9 @@ impl ViewTest for HorizontalScroll {
         assert!((first_tile - (50.0 - 100.0)).abs() < 0.001);
         check_colors(CHECK_3)?;
 
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_scroll(-100);
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         view.say("Shift plus wheel, 100 more to the left, not down");
         assert_eq!(view.offsets(), (-200.0, 0.0));
         check_colors(CHECK_4)?;

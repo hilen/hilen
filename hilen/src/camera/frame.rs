@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 
 #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos", test))]
 use crate::gm::flat::Point;
-use crate::{gm::flat::Size, window::image::fitted_size};
+use crate::{gm::flat::Size, image::fitted_size};
 
 /// A picture of the live stream of a camera, RGBA with 4 bytes a pixel.
 #[derive(Debug, Clone)]

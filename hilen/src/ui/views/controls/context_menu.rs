@@ -7,16 +7,13 @@ use crate::{
         color::{BLACK, CLEAR, Color, WHITE},
         flat::{Point, Rect},
     },
+    image::{Tinted, ToImage, tint_svg},
     ui::{
         BlurTail, BlurView, Container, DrawingView, DynamicColor, FillRule, Font, ImageView, Input, Label,
-        Setup, Shadow, StrokeStyle, TailEdge, TextAlignment, Touch, TouchStack, UIColor, UIManager,
+        NamedKey, Setup, Shadow, StrokeStyle, TailEdge, TextAlignment, Touch, TouchStack, UIColor, UIManager,
         VectorPath, View, ViewCallbacks, ViewData, ViewFocus, ViewFrame, ViewSubviews, ViewTouch, view,
     },
-    window::{
-        NamedKey,
-        image::{Tinted, ToImage, tint_svg},
-        slots::WindowLock,
-    },
+    window::slots::WindowLock,
 };
 
 const BACKGROUND: DynamicColor = DynamicColor::new(WHITE, Color::rgb(0.173, 0.173, 0.18));

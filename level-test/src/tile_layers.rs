@@ -2,6 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::Shape,
+    image::ToImage,
     level::{
         Banner, LevelCreation, LevelManager, LevelSetup, LevelTest, SpriteTemplates, TileCollision, TileKind,
         TileMap, level,
@@ -9,7 +10,6 @@ use hilen::{
     refs::Weak,
     ui::{ImageFilter, Point},
     ui_test::{check_colors, set_record_probe_count},
-    window::image::ToImage,
 };
 
 const TILE: f32 = 5.0;

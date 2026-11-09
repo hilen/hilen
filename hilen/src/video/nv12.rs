@@ -19,9 +19,10 @@ use wgpu::{
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::flat::Size,
+    image::Image,
     render::uniform::{UniformBind, make_uniform_layout},
     video::decoder::{Matrix, Transfer, VideoFrame},
-    window::{Window, image::Image},
+    window::Window,
 };
 
 const SHADER: &str = include_str!("nv12.wgsl");

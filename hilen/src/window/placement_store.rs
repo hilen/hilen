@@ -3,8 +3,9 @@
 //! `App::window_placement_changed` feeds it, so an app that writes neither
 //! hook opens where it was closed.
 
+#[cfg(feature = "gpu")]
+use std::env::var_os;
 use std::{
-    env::var_os,
     fs::{create_dir_all, read_to_string, rename, write},
     io::ErrorKind,
     mem::replace,
@@ -18,17 +19,23 @@ use std::{
 };
 
 use anyhow::Result;
-use log::{debug, info, warn};
+#[cfg(feature = "gpu")]
+use log::info;
+use log::{debug, warn};
 use parking_lot::Mutex;
 
-use crate::{filesystem::Paths, window::WindowPlacement};
+#[cfg(feature = "gpu")]
+use crate::filesystem::Paths;
+use crate::window::WindowPlacement;
 
 /// The name of the file in the data folder of the app.
+#[cfg(feature = "gpu")]
 pub(crate) const FILE: &str = "window_placement.json";
 
 /// How long a changed placement waits for the next one before it is
 /// written. A drag of the window edge fires many times a second, all of
 /// them inside one wait end as 1 write.
+#[cfg(feature = "gpu")]
 const WRITE_DELAY: Duration = Duration::from_millis(500);
 
 /// Set once at start, and only for a real launch with a window. While it
@@ -41,18 +48,21 @@ static PAUSED: AtomicBool = AtomicBool::new(false);
 /// Whether this launch keeps its window. A run with no window has
 /// nothing to keep, and a test window has to open at the size the test
 /// asks for, never at one a run before it left behind.
+#[cfg(feature = "gpu")]
 fn remembered(headless: bool, test_storage: bool, test_env: bool) -> bool {
     !headless && !test_storage && !test_env
 }
 
 /// The spellings that turn a real app into a test run, see
 /// `AppRunner::spawn_test_autorun`.
+#[cfg(feature = "gpu")]
 pub(crate) fn test_env() -> bool {
     var_os("HILEN_RUN_TESTS").is_some() || var_os("HILEN_PRESENT").is_some()
 }
 
 /// Turns the memory on for this launch, when it is one that keeps its
 /// window.
+#[cfg(feature = "gpu")]
 pub(crate) fn open(headless: bool) {
     if !remembered(headless, Paths::test_storage(), test_env()) {
         debug!("window placement is not kept in a headless or test run");
@@ -84,6 +94,7 @@ pub(crate) fn save(placement: &WindowPlacement) {
 /// Writes what still waits, on the calling thread. The event loop calls
 /// it on its way out, so the last placement is on disk when the process
 /// ends.
+#[cfg(feature = "gpu")]
 pub(crate) fn flush() {
     if let Some(store) = STORE.get() {
         store.flush();
@@ -92,10 +103,12 @@ pub(crate) fn flush() {
 
 /// A UI test run started inside a real app resizes the window of that
 /// app. Those sizes are not what the user chose.
+#[cfg(feature = "gpu")]
 pub(crate) fn pause() {
     PAUSED.store(true, Ordering::Relaxed);
 }
 
+#[cfg(feature = "gpu")]
 pub(crate) fn resume() {
     PAUSED.store(false, Ordering::Relaxed);
 }
@@ -148,6 +161,7 @@ struct PlacementStore {
 }
 
 impl PlacementStore {
+    #[cfg(feature = "gpu")]
     fn new(file: PathBuf, delay: Duration) -> Arc<Self> {
         Arc::new(Self {
             file,
@@ -195,6 +209,7 @@ impl PlacementStore {
         }
     }
 
+    #[cfg(feature = "gpu")]
     fn flush(&self) {
         self.write(Queue::take, "at the exit");
     }
@@ -229,7 +244,7 @@ fn write_file(file: &Path, placement: &WindowPlacement) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use std::{env::temp_dir, fs::remove_dir_all, time::Instant};
 

@@ -9,7 +9,7 @@
 
 use std::{
     ffi::{CStr, c_char},
-    ptr::null,
+    ptr::{from_ref, null},
     sync::Once,
 };
 
@@ -124,6 +124,15 @@ pub(super) fn end() {
     // SAFETY: takes no argument and does nothing when no field is edited.
     unsafe { hilen_ios_text_end() };
     *EDITED.lock() = Weak::default();
+}
+
+/// `field` is dropped. A field removed while it was edited, like on a page
+/// left in the middle of typing, left the system field and its keyboard on
+/// screen, where the system field took the taps meant for the next page.
+pub(super) fn dropped(field: &TextField) {
+    if EDITED.lock().addr() == from_ref(field).addr() {
+        end();
+    }
 }
 
 /// The engine changed the text of the edited field itself.

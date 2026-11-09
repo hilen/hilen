@@ -9,7 +9,7 @@ use crate::{
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Cursor, Keys, PinchInput, Setup, UIManager, View, ViewData},
+    ui::{Button, Code, Cursor, Keys, PinchInput, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
         capture::{save_shot, shots_enabled},
@@ -18,7 +18,7 @@ use crate::{
         human_pause,
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
-    window::{KeyCode, Window, request_frame},
+    window::{Window, request_frame},
 };
 
 /// Opens the app with `url`, the way a tap on a link of the app does on a
@@ -31,11 +31,11 @@ pub fn open_link(url: &str) {
 
 /// Press a key and keep it down until `release_key`, what a player
 /// reads while walking. The run resets held keys before every test.
-pub fn hold_key(code: KeyCode) {
+pub fn hold_key(code: Code) {
     from_main(move || Keys::set(code, true));
 }
 
-pub fn release_key(code: KeyCode) {
+pub fn release_key(code: Code) {
     from_main(move || Keys::set(code, false));
 }
 

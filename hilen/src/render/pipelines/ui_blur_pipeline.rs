@@ -10,8 +10,9 @@ use wgpu::{
 
 use crate::{
     gm::flat::{Point, Size},
+    image::Image,
     render::uniform::{UniformBind, make_uniform_layout},
-    window::{Window, image::Image, surface_texture_format},
+    window::{Window, surface_texture_format},
 };
 
 const BLUR_CODE: &str = include_str!("shaders/blur.wgsl");

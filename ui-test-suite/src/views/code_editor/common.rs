@@ -4,8 +4,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        CodeEditor, CodePos, Color, DynamicColor, Label, ModifiersState, TextAlignment, UIColor, View,
-        ViewData, ViewFrame, ViewSubviews, WeakView,
+        CodeEditor, CodePos, Color, DynamicColor, Label, Modifiers, TextAlignment, UIColor, View, ViewData,
+        ViewFrame, ViewSubviews, WeakView,
     },
     ui_test::{inject_keys, inject_modifiers, inject_touches},
 };
@@ -112,27 +112,27 @@ pub(super) fn quoted(lines: &[String]) -> String {
 
 /// `key` with the command modifier, Cmd on a Mac and Ctrl elsewhere, and
 /// with `more` held too.
-pub(super) fn command_with(more: ModifiersState, key: char) {
-    inject_modifiers(ModifiersState::SUPER | more);
+pub(super) fn command_with(more: Modifiers, key: char) {
+    inject_modifiers(Modifiers::META | more);
     inject_keys(key);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 pub(super) fn command(key: char) {
-    command_with(ModifiersState::empty(), key);
+    command_with(Modifiers::empty(), key);
 }
 
 /// The keys that show the replace row of the find bar: Cmd Alt F on a
 /// Mac, Ctrl H elsewhere.
 pub(super) fn replace_keys() {
     let (modifiers, key) = if cfg!(target_os = "macos") {
-        (ModifiersState::SUPER | ModifiersState::ALT, 'f')
+        (Modifiers::META | Modifiers::ALT, 'f')
     } else {
-        (ModifiersState::CONTROL, 'h')
+        (Modifiers::CONTROL, 'h')
     };
     inject_modifiers(modifiers);
     inject_keys(key);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 /// The middle of a part of the find bar on the screen, `name` is its

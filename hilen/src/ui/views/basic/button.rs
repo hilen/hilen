@@ -9,12 +9,13 @@ use crate::{
         color::{CLEAR, Color, WHITE},
         flat::Size,
     },
+    image::ToImage,
+    text::Font,
     ui::{
         DynamicColor, ImageView, Label, Setup, Style, Tinted, ToLabel, UIColor, UIEvent, UIManager, View,
         ViewCallbacks, ViewSubviews, ViewTransition,
         view::{ViewData, ViewTouch},
     },
-    window::{Font, image::ToImage},
 };
 
 /// The look a disabled button falls back to when the app sets no override.

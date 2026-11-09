@@ -5,8 +5,7 @@ use crate::{
         wait::{MAX_WAIT_MS, wait_ms},
         window::from_main,
     },
-    ui::{Input, Touch, TouchEvent, UIManager},
-    window::MouseButton,
+    ui::{Input, MouseButton, Touch, TouchEvent, UIManager},
 };
 
 impl InspectService {

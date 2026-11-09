@@ -4,7 +4,8 @@
 use super::{SCENE_TEXTURE_USAGE, State, surface_texture_format};
 use crate::{
     gm::{LossyConvert, flat::Size},
-    window::{Window, image::Texture, msaa::msaa_sample_count},
+    image::Texture,
+    window::{Window, msaa::msaa_sample_count},
 };
 
 impl State {

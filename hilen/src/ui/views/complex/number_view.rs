@@ -9,8 +9,8 @@ use crate::{
         CheckedSub, MyAdd, ToF32,
         color::{CLEAR, Color, LIGHT_GRAY},
     },
+    image::NoImage,
     ui::{Button, Container, Setup, Style, ToLabel, UIColor, UIImages, view::ViewData},
-    window::image::NoImage,
 };
 
 #[view]

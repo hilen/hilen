@@ -1,7 +1,7 @@
 use crate::{
     gm::flat::Point,
-    ui::{NO_TOUCH_ID, Touch, TouchStack, ViewSubviews, WeakView, input::TouchEvent},
-    window::{MouseButton, slots::WindowLock},
+    ui::{MouseButton, NO_TOUCH_ID, Touch, TouchStack, ViewSubviews, WeakView, input::TouchEvent},
+    window::slots::WindowLock,
 };
 
 /// One step of a pinch, what a view gets from `touch().pinch` after
@@ -35,6 +35,7 @@ pub(crate) struct PinchInput;
 impl PinchInput {
     /// A pinch begins at `center`, in screen points. The view under it
     /// gets every step until `end`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn begin(center: Point) {
         *TARGET.get_mut() = TouchStack::pinch_view_at(center).unwrap_or_default();
     }
@@ -131,6 +132,7 @@ impl PinchInput {
     }
 
     /// A new test starts with no finger down.
+    #[cfg(feature = "gpu")]
     pub(crate) fn reset() {
         FINGERS.get_mut().clear();
         *PAIR.get_mut() = None;

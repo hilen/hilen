@@ -11,7 +11,7 @@ static PROGRESS: MainLock<Event<f32>> = MainLock::new();
 pub struct Assets;
 
 impl Assets {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "gpu"))]
     pub(crate) fn init(root_path: impl Into<PathBuf>) {
         use crate::deps::refs::manage::DataManager;
 
@@ -23,10 +23,10 @@ impl Assets {
 
         let paths = crate::assets_paths::AssetsPaths::new(root_path);
 
-        crate::window::image::Image::set_root_path(&paths.images);
+        crate::image::Image::set_root_path(&paths.images);
         #[cfg(sound)]
         crate::audio::Sound::set_root_path(&paths.sounds);
-        crate::window::Font::set_root_path(&paths.fonts);
+        crate::text::Font::set_root_path(&paths.fonts);
         #[cfg(feature = "scene")]
         crate::scene::Model::set_root_path(&paths.models);
     }
@@ -133,7 +133,7 @@ mod web_assets {
             hreads::on_main,
             refs::manage::{DataManager, fetch_bytes},
         },
-        window::Font,
+        text::Font,
     };
 
     static BOOT_DONE: AtomicBool = AtomicBool::new(false);
@@ -275,7 +275,7 @@ mod web_assets {
             // Only the bytes, a picture is decoded when a view first
             // asks for it, see `window/image/pending.rs`.
             "images" => {
-                crate::window::image::pending::download(&entry.name, &url).await?;
+                crate::image::pending::download(&entry.name, &url).await?;
             }
             "fonts" => {
                 Font::download(&entry.name, &url).await?;

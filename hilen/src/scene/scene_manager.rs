@@ -14,11 +14,11 @@ use crate::{
         color::Color,
         flat::{Point, Size},
     },
+    image::Image,
     scene::{Camera, Scene, SceneDepth, ScenePhoto, SceneView, photo, scene::ScenePhysics},
     scene_drawer::SceneDrawer,
     time::frame_seconds,
     ui::{UIManager, ViewFrame},
-    window::image::Image,
 };
 
 static SELF: MainLock<SceneManager> = MainLock::new();

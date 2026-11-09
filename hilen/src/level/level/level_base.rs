@@ -12,8 +12,8 @@ use crate::{
         color::{Color, WHITE},
         flat::Point,
     },
+    image::Image,
     level::{Level, LevelManager, Light, Sprite, Terrain, TileMap, level::level_physics::LevelPhysics},
-    window::image::Image,
 };
 
 #[derive(Educe)]

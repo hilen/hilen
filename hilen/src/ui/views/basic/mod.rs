@@ -21,7 +21,7 @@ pub use animated_image::AnimatedImage;
 pub use button::Button;
 pub use checkbox::*;
 pub use circle_view::CircleView;
-pub use image_cut::CutAxis;
+pub use image_cut::{CutAxis, ImageCut};
 pub use image_view::*;
 pub use label::*;
 pub use label_runs::RunStyle;

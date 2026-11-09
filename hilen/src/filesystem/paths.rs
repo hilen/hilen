@@ -1,5 +1,7 @@
+#[cfg(all(desktop, feature = "gpu"))]
+use std::env::temp_dir;
 #[cfg(desktop)]
-use std::env::{temp_dir, var_os};
+use std::env::var_os;
 use std::path::PathBuf;
 
 use parking_lot::Mutex;
@@ -104,7 +106,7 @@ impl Paths {
     /// Points `storage` at a temp folder. The test runners start an app of
     /// the engine itself, which has no project name and must not touch the
     /// folder of a real app.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "gpu"))]
     pub(crate) fn use_test_storage() {
         *TEST_STORAGE.lock() = Some(temp_dir().join("hilen-test-storage"));
     }
@@ -123,7 +125,7 @@ impl Paths {
     }
 
     /// Whether this run stores in the temp folder of the test runners.
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "gpu"))]
     pub(crate) fn test_storage() -> bool {
         TEST_STORAGE.lock().is_some()
     }

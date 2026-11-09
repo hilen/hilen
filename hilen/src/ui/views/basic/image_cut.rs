@@ -1,3 +1,4 @@
+#[cfg(feature = "gpu")]
 use crate::gm::flat::{Rect, Size};
 
 /// The direction an image is cut along, see `ImageView::set_cut`.
@@ -9,8 +10,9 @@ pub enum CutAxis {
     Vertical,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ImageCut {
+/// How an `ImageView` cuts its image, see `ImageView::set_cut`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImageCut {
     pub axis:  CutAxis,
     /// The length of the first end, in pixels of the image.
     pub start: f32,
@@ -21,6 +23,7 @@ pub(crate) struct ImageCut {
 /// 1 of the 3 parts the image is cut into, where it draws along the cut axis
 /// and what part of the image it shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(feature = "gpu")]
 struct Span {
     position:    f32,
     length:      f32,
@@ -28,9 +31,11 @@ struct Span {
     uv_length:   f32,
 }
 
+#[cfg(feature = "gpu")]
 impl ImageCut {
     /// How many points 1 pixel of the image takes. The image scales as a
     /// whole to the size of the view across the cut axis.
+    #[cfg(feature = "gpu")]
     fn points_per_pixel(&self, frame: Rect, image: Size) -> f32 {
         let (view, image) = match self.axis {
             CutAxis::Horizontal => (frame.height(), image.height),
@@ -41,6 +46,7 @@ impl ImageCut {
 
     /// The size the whole image has at the scale of this view, the size an
     /// svg rasterizes at.
+    #[cfg(feature = "gpu")]
     pub(crate) fn scaled_size(&self, frame: Rect, image: Size) -> Size {
         image * self.points_per_pixel(frame, image)
     }
@@ -48,6 +54,7 @@ impl ImageCut {
     /// The parts to draw, each a frame and its UV rect. The cuts land on whole
     /// physical pixels, because the image shader fades the last pixel of every
     /// quad edge and 2 faded edges on 1 pixel would show as a seam.
+    #[cfg(feature = "gpu")]
     pub(crate) fn parts(&self, frame: Rect, image: Size, scale: f32) -> Vec<(Rect, Rect)> {
         let points_per_pixel = self.points_per_pixel(frame, image);
 
@@ -72,6 +79,7 @@ impl ImageCut {
             .collect()
     }
 
+    #[cfg(feature = "gpu")]
     fn spans(&self, origin: f32, length: f32, image: f32, points_per_pixel: f32, scale: f32) -> [Span; 3] {
         let start = self.start.clamp(0.0, image);
         let end = self.end.clamp(0.0, image - start);
@@ -128,7 +136,7 @@ impl ImageCut {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod test {
     use super::{CutAxis, ImageCut};
     use crate::gm::flat::{Rect, Size};

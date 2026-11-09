@@ -2,10 +2,10 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::color::Color,
+    image::Image,
     refs::Weak,
     ui::{Container, DynamicColor, Label, Setup, Theme, ThemeMode, ToolButton, ViewData, ViewTest, view},
     ui_test::{check_colors, checkpoint},
-    window::image::Image,
 };
 
 const BAR: DynamicColor = DynamicColor::new(Color::hex("#F4F4F6"), Color::hex("#27272A"));

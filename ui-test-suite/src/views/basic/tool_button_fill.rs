@@ -2,14 +2,14 @@ use anyhow::{Result, ensure};
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{
-        BLACK, Container, Hover, Label, Setup, ToolButton, ViewData, ViewFrame, ViewSubviews, ViewTest,
-        WHITE, view,
-    },
+    ui::{Container, Hover, Label, Setup, ToolButton, ViewData, ViewFrame, ViewTest, WHITE, view},
     ui_test::checkpoint,
 };
 #[cfg(any(desktop, wasm))]
-use hilen::{ui::ViewTouch, ui_test::inject_touches};
+use hilen::{
+    ui::{BLACK, ViewSubviews, ViewTouch},
+    ui_test::inject_touches,
+};
 
 const COLUMN: f32 = 300.0;
 const ROW: f32 = 44.0;

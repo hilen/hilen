@@ -8,9 +8,9 @@ pub use crate::render::shader_data::SpriteView;
 pub(crate) use crate::render::shader_data::{MAX_SPRITE_LIGHTS, SpriteLight};
 #[cfg(feature = "scene")]
 mod bind_cache;
-mod buffer_helper;
+pub(crate) mod buffer_helper;
 pub mod data;
-mod device_helper;
+pub(crate) mod device_helper;
 #[cfg(feature = "scene")]
 pub(crate) mod frustum;
 #[cfg(feature = "scene")]

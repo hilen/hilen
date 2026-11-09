@@ -13,9 +13,8 @@ use hilen::{
         DayNightSky, Fog, Model, Motion, Node, NodeTemplates, Prop, SceneCreation, SceneSetup, SceneTest,
         ThirdPerson, scene,
     },
-    ui::{Color, Keys},
+    ui::{Code, Color, Keys},
     ui_test::check_colors,
-    window::KeyCode,
 };
 
 use self::{
@@ -124,7 +123,7 @@ impl SceneSetup for TerrainShadows {
         let Some(player) = self.player.as_mut() else {
             return;
         };
-        player.speed = if Keys::held(KeyCode::ShiftLeft) || Keys::held(KeyCode::ShiftRight) {
+        player.speed = if Keys::held(Code::ShiftLeft) || Keys::held(Code::ShiftRight) {
             AFTERBURNER
         } else {
             CRUISE

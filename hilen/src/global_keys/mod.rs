@@ -10,15 +10,16 @@ mod tests;
 use std::{fmt, str::FromStr};
 
 use anyhow::{Result, bail};
-use serde::{Deserialize, Serialize, de::value::StrDeserializer};
-use winit::keyboard::KeyCode;
+use serde::{Deserialize, Serialize};
+
+use crate::ui::Code;
 
 /// A key with the modifiers held with it, like Cmd+Shift+P. The text form
 /// is what `Display` writes and `FromStr` reads, the way a settings file
 /// keeps it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GlobalCombo {
-    pub key:     KeyCode,
+    pub key:     Code,
     /// Cmd on a Mac, the Windows key elsewhere.
     pub command: bool,
     pub shift:   bool,
@@ -28,7 +29,7 @@ pub struct GlobalCombo {
 }
 
 impl GlobalCombo {
-    pub const fn new(key: KeyCode) -> Self {
+    pub const fn new(key: Code) -> Self {
         Self {
             key,
             command: false,
@@ -62,9 +63,9 @@ impl GlobalCombo {
         self.command || self.shift || self.control || self.option
     }
 
-    /// The name of the key as winit writes it, like `KeyP` or `Digit2`.
+    /// The W3C name of the key, like `KeyP` or `Digit2`.
     fn code_name(self) -> String {
-        format!("{:?}", self.key)
+        self.key.to_string()
     }
 }
 
@@ -127,16 +128,15 @@ impl<'de> Deserialize<'de> for GlobalCombo {
     }
 }
 
-/// `P` or `KeyP`, `2` or `Digit2`, or any other winit name like `Space`.
-fn key_code(name: &str) -> Result<KeyCode> {
+/// `P` or `KeyP`, `2` or `Digit2`, or any other W3C name like `Space`.
+fn key_code(name: &str) -> Result<Code> {
     let mut chars = name.chars();
     let name = match (chars.next(), chars.next()) {
         (Some(letter), None) if letter.is_ascii_alphabetic() => format!("Key{}", letter.to_ascii_uppercase()),
         (Some(digit), None) if digit.is_ascii_digit() => format!("Digit{digit}"),
         _ => name.to_string(),
     };
-    KeyCode::deserialize(StrDeserializer::<serde::de::value::Error>::new(&name))
-        .map_err(|err| anyhow::anyhow!("{name:?} is no key: {err}"))
+    Code::from_str(&name).map_err(|err| anyhow::anyhow!("{name:?} is no key: {err:?}"))
 }
 
 /// A key combination registered with the system. `action` runs on the main

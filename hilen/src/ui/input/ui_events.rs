@@ -1,8 +1,7 @@
 use crate::{
     deps::{refs::main_lock::MainLock, vents::Event},
     gm::{flat::Point, volume::GyroData},
-    ui::{ScreenKeyboardMove, Theme, Touch, UIEvent},
-    window::NamedKey,
+    ui::{NamedKey, ScreenKeyboardMove, Theme, Touch, UIEvent},
 };
 
 static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
@@ -13,6 +12,7 @@ pub struct UIEvents {
     touch_began:     UIEvent<Touch>,
     on_scroll:       UIEvent<Point>,
     on_debug_touch:  Event<Touch>,
+    #[cfg(feature = "gpu")]
     size_changed:    UIEvent<()>,
     theme_changed:   UIEvent<Theme>,
     gyro:            UIEvent<GyroData>,
@@ -44,6 +44,7 @@ impl UIEvents {
         &UI_EVENTS.on_debug_touch
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn size_changed() -> &'static UIEvent<()> {
         &UI_EVENTS.size_changed
     }

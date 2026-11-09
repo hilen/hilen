@@ -22,12 +22,12 @@ use web_sys::{
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::{LossyConvert, flat::Rect},
+    image::Image,
     ui::{ImageMode, UIManager},
     video::{
         AudioTrack, PlayerEvent, SubtitleTrack, VideoSource, VideoState, VideoStats,
         cues::{self, TextCue},
     },
-    window::image::Image,
 };
 
 /// `HTMLMediaElement.readyState`: the length and the size are known, a seek

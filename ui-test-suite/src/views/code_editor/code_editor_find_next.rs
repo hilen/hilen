@@ -3,8 +3,7 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        CodeEditor, CodePos, Label, ModifiersState, NamedKey, Setup, ViewData, ViewFrame, ViewTest, WHITE,
-        view,
+        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, ViewData, ViewFrame, ViewTest, WHITE, view,
     },
     ui_test::{
         checkpoint, inject_keys, inject_modifiers, inject_named_key,
@@ -100,9 +99,9 @@ impl CodeEditorFindNext {
 }
 
 fn shift_enter() {
-    inject_modifiers(ModifiersState::SHIFT);
+    inject_modifiers(Modifiers::SHIFT);
     inject_named_key(NamedKey::Enter);
-    inject_modifiers(ModifiersState::empty());
+    inject_modifiers(Modifiers::empty());
 }
 
 impl ViewTest for CodeEditorFindNext {
@@ -125,7 +124,7 @@ impl ViewTest for CodeEditorFindNext {
         view.at_match(0, "Shift Enter: back to 1 of 4")?;
         command('g');
         view.at_match(1, "Cmd G: 2 of 4")?;
-        command_with(ModifiersState::SHIFT, 'G');
+        command_with(Modifiers::SHIFT, 'G');
         view.at_match(0, "Cmd Shift G: 1 of 4")?;
         shift_enter();
         view.at_match(3, "Shift Enter from the first: round to 4 of 4, line 98")?;

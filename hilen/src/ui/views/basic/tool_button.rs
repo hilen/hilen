@@ -8,14 +8,12 @@ use crate::{
         ToF32,
         color::{CLEAR, Color},
     },
+    image::{Image, tint_svg},
+    text::Font,
     ui::{
         DynamicColor, ImageView, Label, Setup, Tinted, ToLabel, Touch, UIColor, UIEvent, View, ViewCallbacks,
         ViewSubviews,
         view::{ViewData, ViewFrame, ViewTouch},
-    },
-    window::{
-        Font,
-        image::{Image, tint_svg},
     },
 };
 

@@ -12,22 +12,22 @@ use std::{
     env::{current_dir, temp_dir},
     fs::{read_dir, write},
     path::{Path, PathBuf},
+    str::FromStr,
     time::{Duration, UNIX_EPOCH},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
 use commands::{Command, run};
 use hilen::{
     inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest, UIResponse, ui::ViewRepr},
     refs::{Own, hreads::set_current_thread_as_main},
-    ui::NamedKey,
-    window::KeyCode,
+    ui::{Code, NamedKey},
 };
 use hot::Target;
 use reach::{NO_APPS, apps, connect, given, save_cache};
-use serde_json::{Value, from_value, json, to_string_pretty, to_value};
+use serde_json::{Value, json, to_string_pretty, to_value};
 use tokio::time::{Instant, timeout};
 use window::send;
 
@@ -432,32 +432,22 @@ async fn hold(client: &Client, names: &[String], ms: u32) -> Result<()> {
     Ok(())
 }
 
-/// `w` is `KeyW` and `1` is `Digit1`, the rest go through the serde
-/// form of `KeyCode`, the plain variant name.
-fn parse_key_code(name: &str) -> Result<KeyCode> {
+/// `w` is `KeyW` and `1` is `Digit1`, the rest is a W3C code name.
+fn parse_key_code(name: &str) -> Result<Code> {
     let mut chars = name.chars();
     let full = match (chars.next(), chars.next()) {
         (Some(ch), None) if ch.is_ascii_alphabetic() => format!("Key{}", ch.to_ascii_uppercase()),
         (Some(ch), None) if ch.is_ascii_digit() => format!("Digit{ch}"),
         _ => name.to_string(),
     };
-    match from_value(Value::String(full)) {
-        Ok(code) => Ok(code),
-        Err(_) => {
-            bail!("Unknown key: {name}. Use a letter, a digit or a winit KeyCode name like Space or ArrowUp")
-        }
-    }
+    Code::from_str(&full).map_err(|_| {
+        anyhow!("Unknown key: {name}. Use a letter, a digit or a W3C code name like Space or ArrowUp")
+    })
 }
 
-/// `NamedKey` has no `FromStr`, its serde form is the plain variant name,
-/// so the name round trips through a JSON string.
 fn parse_named_key(name: &str) -> Result<NamedKey> {
-    match from_value(Value::String(name.to_string())) {
-        Ok(key) => Ok(key),
-        Err(_) => {
-            bail!("Unknown key: {name}. Use a winit NamedKey name like Enter, Escape, Tab or ArrowDown")
-        }
-    }
+    NamedKey::from_str(name)
+        .map_err(|_| anyhow!("Unknown key: {name}. Use a W3C key name like Enter, Escape, Tab or ArrowDown"))
 }
 
 async fn run_tests(client: &Client, only: Option<String>, seconds: u64) -> Result<()> {
@@ -783,7 +773,7 @@ mod tests {
     use hilen::{
         inspect::ViewRepr,
         refs::{Own, hreads::set_current_thread_as_main},
-        window::KeyCode,
+        ui::Code,
     };
 
     use super::{Freshness, freshness, located_tree, parse_key_code};
@@ -852,11 +842,11 @@ mod tests {
 
     #[test]
     fn key_names_map_to_physical_keys() {
-        assert_eq!(parse_key_code("w").unwrap(), KeyCode::KeyW);
-        assert_eq!(parse_key_code("W").unwrap(), KeyCode::KeyW);
-        assert_eq!(parse_key_code("1").unwrap(), KeyCode::Digit1);
-        assert_eq!(parse_key_code("Space").unwrap(), KeyCode::Space);
-        assert_eq!(parse_key_code("ArrowUp").unwrap(), KeyCode::ArrowUp);
+        assert_eq!(parse_key_code("w").unwrap(), Code::KeyW);
+        assert_eq!(parse_key_code("W").unwrap(), Code::KeyW);
+        assert_eq!(parse_key_code("1").unwrap(), Code::Digit1);
+        assert_eq!(parse_key_code("Space").unwrap(), Code::Space);
+        assert_eq!(parse_key_code("ArrowUp").unwrap(), Code::ArrowUp);
         assert!(parse_key_code("Foo").is_err());
     }
 }
