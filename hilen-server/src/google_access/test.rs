@@ -55,7 +55,14 @@ async fn token(State(received): State<Received>, body: String) -> Response {
     received.lock().expect("the test lock").push(body.clone());
 
     if body.contains("refresh_token=revoked") {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_grant" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "invalid_grant",
+                "error_description": "Token has been expired or revoked.",
+            })),
+        )
+            .into_response();
     }
 
     let (subject, email, scope) = if body.contains("main") {

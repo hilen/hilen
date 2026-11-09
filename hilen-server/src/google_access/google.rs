@@ -143,6 +143,24 @@ pub(crate) struct Renewed {
     pub subject:      Option<String>,
 }
 
+/// The error answer of the Google token endpoint.
+#[derive(Deserialize)]
+struct Refusal {
+    error:             String,
+    error_description: Option<String>,
+}
+
+/// The log line of a refresh token Google no longer takes, `None` for any
+/// other answer. Only Google's own error fields go in, so no token can.
+fn refusal_line(body: &str) -> Option<String> {
+    let refusal: Refusal = from_str(body).ok()?;
+    if refusal.error != "invalid_grant" {
+        return None;
+    }
+    let reason = refusal.error_description.as_deref().unwrap_or("no description");
+    Some(format!("Google refused a refresh token: invalid_grant, {reason}"))
+}
+
 /// `None` when Google no longer takes the refresh token: it was revoked, it
 /// ran out, or the user changed the password.
 pub(crate) async fn renew(
@@ -161,7 +179,10 @@ pub(crate) async fn renew(
         ],
     )
     .await?;
-    if status == 400 && body.contains("invalid_grant") {
+    if status == 400
+        && let Some(line) = refusal_line(&body)
+    {
+        tracing::warn!("{line}");
         return Ok(None);
     }
     if status != 200 {
@@ -196,7 +217,7 @@ pub(crate) async fn revoke(http: &Client, config: &GoogleAccessConfig, token: &s
 mod test {
     use anyhow::Result;
 
-    use super::auth_url;
+    use super::{auth_url, refusal_line};
     use crate::google_access::{GoogleAccessConfig, wire::Role};
 
     fn config() -> GoogleAccessConfig {
@@ -217,5 +238,22 @@ mod test {
         let linked = auth_url(&config(), Role::Linked, "state")?;
         assert!(linked.contains("scope=openid+email+profile+scope%2Fcalendar&"));
         Ok(())
+    }
+
+    #[test]
+    fn a_refused_token_logs_the_reason_and_no_token() {
+        let body = r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked.","refresh_token":"1//secret"}"#;
+        let line = refusal_line(body).expect("an invalid_grant answer");
+        assert!(line.contains("Token has been expired or revoked."));
+        assert!(!line.contains("secret"));
+
+        let bare = refusal_line(r#"{"error":"invalid_grant"}"#).expect("an invalid_grant answer");
+        assert!(bare.contains("no description"));
+    }
+
+    #[test]
+    fn other_answers_are_no_refusal() {
+        assert!(refusal_line(r#"{"error":"invalid_client"}"#).is_none());
+        assert!(refusal_line("not json").is_none());
     }
 }

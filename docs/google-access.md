@@ -32,7 +32,8 @@ backend, and every refresh token works on every device.
 4. To renew an access token the app posts its refresh token to
    `/google/refresh`. The server adds the client secret, asks Google, answers
    and forgets both tokens. A 401 means Google no longer takes the refresh
-   token, the account signs in again.
+   token, the account signs in again. The server then logs 1 warn line with
+   Google's reason, like `Token has been expired or revoked.`, and no token.
 5. `/google/revoke` ends a refresh token at Google.
 
 A sealed text is base64url of `server public key, 32 bytes | nonce, 12 bytes |
