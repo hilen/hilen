@@ -197,6 +197,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
   way back of a page: `push`, `pop`, the `BackButton`, Escape and the swipe from the left
   edge, a stack in a shell, and why the page under a swipe is a flat layer. Read before
   touching `navigation_view.rs`, `root_view.rs` or the touch path in `input.rs`.
+- [docs/accent-card.md](docs/accent-card.md) — `AccentCard`, a rounded block with a bar
+  of color on 1 edge, cut by the round corners of the card. Read before drawing an
+  event, a quote or any block with a colored side bar.
 - [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
   view, also over a scroll view that moves up and down. Read before touching
   `side_swipe.rs` or the order of the swipes in `input.rs`.

@@ -1,3 +1,4 @@
+mod accent_card;
 mod background;
 mod button;
 mod button_disabled;

@@ -1,3 +1,4 @@
+mod accent_card;
 mod animated_image;
 mod button;
 mod checkbox;
@@ -17,6 +18,7 @@ mod tool_button;
 #[cfg(feature = "video")]
 mod video_view;
 
+pub use accent_card::{AccentCard, BarSide};
 pub use animated_image::AnimatedImage;
 pub use button::Button;
 pub use checkbox::*;
