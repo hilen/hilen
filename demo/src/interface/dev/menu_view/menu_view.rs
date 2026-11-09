@@ -165,6 +165,11 @@ impl MenuView {
                 Alert::show(picked_text(Paths::pick_image("Image").await));
             });
         });
+        Self::button(ui, "Pick images", || {
+            spawn(async {
+                Alert::show(picked_list(&Paths::pick_images("Images", 0).await));
+            });
+        });
         Self::button(ui, "Scroll test", || {
             let view = InfiniteScrollTest::new().after_setup(|mut v| {
                 v.add_view::<Button>()
@@ -322,4 +327,15 @@ fn picked_text(picked: Option<PickedFile>) -> String {
         || "Nothing picked".to_string(),
         |file| format!("{}\n{}\n{} bytes", file.name, file.content_type, file.bytes.len()),
     )
+}
+
+fn picked_list(picked: &[PickedFile]) -> String {
+    if picked.is_empty() {
+        return "Nothing picked".to_string();
+    }
+    picked
+        .iter()
+        .map(|file| format!("{} {} bytes", file.name, file.bytes.len()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

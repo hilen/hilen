@@ -1,4 +1,4 @@
-//! The photo picker of Android 13 and later for an image,
+//! The photo picker of Android 13 and later for 1 image or several,
 //! `ACTION_GET_CONTENT` before it and for a file of any kind, and
 //! `ACTION_CREATE_DOCUMENT` for a file to save. Only Java
 //! gets an activity result, so the launch goes through the
@@ -26,6 +26,11 @@ const DEX: &[u8] = include_bytes!("../../../android/native_handler.dex");
 /// The photo picker action, `MediaStore.ACTION_PICK_IMAGES` from API 33.
 const PICK_IMAGES: &str = "android.provider.action.PICK_IMAGES";
 const PICK_IMAGES_API: i32 = 33;
+/// `MediaStore.EXTRA_PICK_IMAGES_MAX`, more than 1 and at most
+/// `MediaStore.getPickImagesMaxLimit`, else the picker refuses to open.
+const PICK_IMAGES_MAX: &str = "android.provider.extra.PICK_IMAGES_MAX";
+/// `Intent.EXTRA_ALLOW_MULTIPLE`, it takes no limit.
+const ALLOW_MULTIPLE: &str = "android.intent.extra.ALLOW_MULTIPLE";
 
 /// `Activity.RESULT_OK`.
 const RESULT_OK: i32 = -1;
@@ -41,10 +46,18 @@ const CHUNK: usize = 64 * 1024;
 
 type Uri = Global<JObject<'static>>;
 
+/// A picked file on its way to the waiting pick. jni makes `JObject` `Send`
+/// only for `'static`, and a future that holds a `Uri` across an await
+/// cannot prove that, `spawn` refused every pick with a higher-ranked
+/// lifetime error. A type with no lifetime of its own passes the check.
+struct Picked(Uri);
+
 /// What the chooser offers.
 #[derive(Clone, Copy)]
 pub(super) enum Kind<'a> {
     Image,
+    /// At most this many images, 0 for the most the system allows.
+    Images(usize),
     /// The MIME types a file may have, none for every file.
     File(&'a [String]),
 }
@@ -53,7 +66,7 @@ impl Kind<'_> {
     /// The name of a pick whose provider tells none.
     fn fallback_name(self) -> &'static str {
         match self {
-            Self::Image => "image",
+            Self::Image | Self::Images(_) => "image",
             Self::File(_) => "file",
         }
     }
@@ -62,7 +75,8 @@ impl Kind<'_> {
 /// The loaded `NativeHandler` class, its native method registered.
 static HANDLER: Mutex<Option<Global<JClass<'static>>>> = Mutex::new(None);
 /// The waiting `pick`. A new pick drops the old sender, which answers None.
-static ANSWER: Mutex<Option<Sender<Option<Uri>>>> = Mutex::new(None);
+/// A cancel is an empty list.
+static ANSWER: Mutex<Option<Sender<Vec<Picked>>>> = Mutex::new(None);
 /// The intent the next `run` on the UI thread launches.
 static INTENT: Mutex<Option<Global<JObject<'static>>>> = Mutex::new(None);
 /// Unregistered once the result arrived.
@@ -78,6 +92,12 @@ const CALL: NativeMethod = native_method! {
 };
 
 pub(super) async fn pick(title: &str, kind: Kind<'_>) -> Option<PickedFile> {
+    pick_many(title, kind).await.into_iter().next()
+}
+
+/// The picked files in the order the system gives them. A file that fails
+/// to read is logged and left out.
+pub(super) async fn pick_many(title: &str, kind: Kind<'_>) -> Vec<PickedFile> {
     let (answer, answered) = channel();
     *ANSWER.lock() = Some(answer);
 
@@ -86,16 +106,21 @@ pub(super) async fn pick(title: &str, kind: Kind<'_>) -> Option<PickedFile> {
     {
         error!("picker failed to open: {err}");
         ANSWER.lock().take();
-        return None;
+        return Vec::new();
     }
 
-    let uri = answered.await.ok().flatten()?;
+    let picked = answered.await.unwrap_or_default();
 
-    with_activity(|env, activity| {
-        read(env, activity, &uri, kind.fallback_name()).inspect_err(|_| clear_exception(env))
-    })
-    .inspect_err(|err| error!("picked file failed to read: {err}"))
-    .ok()
+    picked
+        .iter()
+        .filter_map(|Picked(uri)| {
+            with_activity(|env, activity| {
+                read(env, activity, uri, kind.fallback_name()).inspect_err(|_| clear_exception(env))
+            })
+            .inspect_err(|err| error!("picked file failed to read: {err}"))
+            .ok()
+        })
+        .collect()
 }
 
 /// Lets the user pick where `bytes` go as a file named `name` of the type
@@ -115,7 +140,7 @@ pub(super) async fn save(name: &str, mime: &str, bytes: &[u8]) -> Option<SavedFi
         return None;
     }
 
-    let uri = answered.await.ok().flatten()?;
+    let Picked(uri) = answered.await.ok()?.into_iter().next()?;
 
     with_activity(|env, activity| {
         write(env, activity, &uri, bytes, name).inspect_err(|_| clear_exception(env))
@@ -128,7 +153,8 @@ pub(super) async fn save(name: &str, mime: &str, bytes: &[u8]) -> Option<SavedFi
 /// registry and `startActivityForResult` belong.
 fn start(env: &mut Env, activity: &JObject, title: &str, kind: Kind<'_>) -> Result<()> {
     let intent = match kind {
-        Kind::Image => image_intent(env, title)?,
+        Kind::Image => image_intent(env, title, 1)?,
+        Kind::Images(max) => image_intent(env, title, max)?,
         Kind::File(types) => file_intent(env, title, types)?,
     };
     post(env, activity, &intent)
@@ -149,7 +175,8 @@ fn post(env: &mut Env, activity: &JObject, intent: &JObject) -> Result<()> {
     Ok(())
 }
 
-fn image_intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'local>> {
+/// `max` as in `Kind::Images`.
+fn image_intent<'local>(env: &mut Env<'local>, title: &str, max: usize) -> Result<JObject<'local>> {
     let api = env
         .get_static_field(
             jni_str!("android/os/Build$VERSION"),
@@ -159,10 +186,44 @@ fn image_intent<'local>(env: &mut Env<'local>, title: &str) -> Result<JObject<'l
         .i()?;
 
     if api >= PICK_IMAGES_API {
-        return typed_intent(env, PICK_IMAGES, "image/*");
+        let intent = typed_intent(env, PICK_IMAGES, "image/*")?;
+        if max != 1 {
+            let limit = env
+                .call_static_method(
+                    jni_str!("android/provider/MediaStore"),
+                    jni_str!("getPickImagesMaxLimit"),
+                    jni_sig!("()I"),
+                    &[],
+                )?
+                .i()?;
+            let count = if max == 0 {
+                limit
+            } else {
+                limit.min(i32::try_from(max)?)
+            };
+            if count > 1 {
+                let key = env.new_string(PICK_IMAGES_MAX)?;
+                env.call_method(
+                    &intent,
+                    jni_str!("putExtra"),
+                    jni_sig!("(Ljava/lang/String;I)Landroid/content/Intent;"),
+                    &[JValue::Object(&key), JValue::Int(count)],
+                )?;
+            }
+        }
+        return Ok(intent);
     }
 
     let intent = typed_intent(env, GET_CONTENT, "image/*")?;
+    if max != 1 {
+        let key = env.new_string(ALLOW_MULTIPLE)?;
+        env.call_method(
+            &intent,
+            jni_str!("putExtra"),
+            jni_sig!("(Ljava/lang/String;Z)Landroid/content/Intent;"),
+            &[JValue::Object(&key), JValue::Bool(true)],
+        )?;
+    }
     chooser(env, &intent, title)
 }
 
@@ -285,7 +346,8 @@ fn call<'local>(
     if let Err(err) = done {
         clear_exception(env);
         error!("picker {method} failed: {err}");
-        // Nothing comes after a failed step, the waiting pick ends with None.
+        // Nothing comes after a failed step, the waiting pick ends with
+        // nothing.
         ANSWER.lock().take();
     }
 
@@ -354,13 +416,10 @@ fn answer(env: &mut Env, args: &JObjectArray) -> Result<()> {
         )?
         .l()?;
 
-    let uri = if code == RESULT_OK && !data.is_null() {
-        let uri = env
-            .call_method(&data, jni_str!("getData"), jni_sig!("()Landroid/net/Uri;"), &[])?
-            .l()?;
-        (!uri.is_null()).then(|| env.new_global_ref(&uri)).transpose()?
+    let uris = if code == RESULT_OK && !data.is_null() {
+        result_uris(env, &data)?
     } else {
-        None
+        Vec::new()
     };
 
     if let Some(launcher) = LAUNCHER.lock().take() {
@@ -368,12 +427,55 @@ fn answer(env: &mut Env, args: &JObjectArray) -> Result<()> {
     }
 
     if let Some(answer) = ANSWER.lock().take()
-        && answer.send(uri).is_err()
+        && answer.send(uris.into_iter().map(Picked).collect()).is_err()
     {
         warn!("file picked after the caller stopped waiting");
     }
 
     Ok(())
+}
+
+/// Several files come in the `ClipData` of the result, 1 file in its data.
+fn result_uris(env: &mut Env, data: &JObject) -> Result<Vec<Uri>> {
+    let clip = env
+        .call_method(
+            data,
+            jni_str!("getClipData"),
+            jni_sig!("()Landroid/content/ClipData;"),
+            &[],
+        )?
+        .l()?;
+
+    if clip.is_null() {
+        let uri = env
+            .call_method(data, jni_str!("getData"), jni_sig!("()Landroid/net/Uri;"), &[])?
+            .l()?;
+        return Ok((!uri.is_null())
+            .then(|| env.new_global_ref(&uri))
+            .transpose()?
+            .into_iter()
+            .collect());
+    }
+
+    let count = env.call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?.i()?;
+    let mut uris = Vec::new();
+    for index in 0..count {
+        let item = env
+            .call_method(
+                &clip,
+                jni_str!("getItemAt"),
+                jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                &[JValue::Int(index)],
+            )?
+            .l()?;
+        let uri = env
+            .call_method(&item, jni_str!("getUri"), jni_sig!("()Landroid/net/Uri;"), &[])?
+            .l()?;
+        if !uri.is_null() {
+            uris.push(env.new_global_ref(&uri)?);
+        }
+    }
+    Ok(uris)
 }
 
 fn read(env: &mut Env, activity: &JObject, uri: &Uri, fallback_name: &str) -> Result<PickedFile> {

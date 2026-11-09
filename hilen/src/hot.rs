@@ -162,9 +162,10 @@ pub extern "C" fn hilen_stop() {
 /// The classes objc2 made at run time for this build, besides the 3 of winit.
 /// A class the build never made, like the camera ones without the `camera`
 /// feature, is skipped.
-const CLASSES: [&CStr; 5] = [
+const CLASSES: [&CStr; 6] = [
     c"RawWindowMetalLayer",
     c"HilenImagePickerDelegate",
+    c"HilenPhotosPickerDelegate",
     c"HilenDocumentPickerDelegate",
     c"HilenCameraFrames",
     c"HilenCameraPhoto",

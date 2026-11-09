@@ -182,6 +182,15 @@ through a delegate that objc2 makes at run time.
   call is marked deprecated and would be a warning.
 - Apple TV has no picker, both calls answer `None` there.
 
+`Paths::pick_images` opens `PHPickerViewController` from iOS 14, in
+`picker/ios_photos.rs`, with `selectionLimit` and the images filter. objc2 binds the
+controller only on macOS, so it is made by name with `msg_send!`, and a missing class
+is how iOS 12 and 13 are told apart, they get the picker of 1 photo. The picker asks
+for the compatible form of a photo, so a HEIC one comes as a JPEG. Each photo is
+read from the file `loadFileRepresentationForTypeIdentifier` hands over, inside its
+handler, since iOS deletes the file once the handler returns. The crate
+`objc2-photos-ui` links PhotosUI, which iOS has since iOS 8.
+
 `Paths::save_file_bytes` opens the same controller made to export, in
 `picker/ios_save.rs`. The bytes go into a file with the suggested name in the temp
 folder of the app, the sheet copies it to where the user says, and the copy in the

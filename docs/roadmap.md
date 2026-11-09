@@ -31,6 +31,17 @@ original is the acceptance bar. Their ports drove the gaps below.
   Android App Actions and the Shortcuts app of macOS are later entries.
 - Blocks: trust in the Siri intents of every app, the lock screen remote of nome.
 
+## Several photos at once, the proof on a phone
+
+- Current: `Paths::pick_images(title, max)` gives the picked images in the order of the
+  pick, see the pickers of `docs/ios.md` and `docs/android.md`. It builds for iOS and
+  Android, and the demo has a "Pick images" button in its menu. Neither picker was
+  opened on a phone yet.
+- Needed: on an iPhone with iOS 14 or later, 3 photos picked at once, a HEIC one among
+  them, come back as 3 files in the order of the pick, the HEIC one as a JPEG. On an
+  Android phone the same with `max` 2 stops the pick at 2.
+- Blocks: trust in the photo button of the compose box of banda on iOS.
+
 ## A packed mesh vertex
 
 - Current: `Vertex3D` is 36 bytes, the position, the normal and the uv as full floats

@@ -23,6 +23,13 @@ pub(super) async fn pick_image(title: &str) -> Option<PickedFile> {
     pick(dialog).await
 }
 
+pub(super) async fn pick_images(title: &str) -> Vec<PickedFile> {
+    let dialog = AsyncFileDialog::new().set_title(title).add_filter("Images", IMAGE_EXTENSIONS);
+
+    let handles = dialog.pick_files().await.unwrap_or_default();
+    handles.iter().filter_map(|handle| read_file(handle.path())).collect()
+}
+
 pub(super) async fn pick_file(title: &str, extensions: &[String]) -> Option<PickedFile> {
     let dialog = AsyncFileDialog::new().set_title(title);
 

@@ -40,6 +40,16 @@ template clone or fail every anonymous fetch. Forcing `http.version=HTTP/1.1` th
 the `GIT_CONFIG_COUNT` environment variables on the container fixes it, CI runners
 have no such proxy.
 
+The container runs uv with `UV_PROJECT_ENVIRONMENT=/tmp/build-venv`. A venv it made
+in `build/.venv` of the bind mount belongs to root and points at a Python of the
+container, and the next uv run on the host failed with `Permission denied`.
+
+uv puts its Python 3.14 first on the path of the build, which is the Python that
+the linker wrapper of rust-android-gradle runs in. Its 0.9.4 imports `pipes`, gone
+since Python 3.13, so every link failed. The template has 0.9.6, and
+`fix_root_gradle` of `build/py/shared/android.py` writes it in for a template
+clone that still has 0.9.4.
+
 ## Logging
 
 Android goes through the same fern dispatch as every other platform, with
@@ -82,15 +92,18 @@ game activity of the template does not pass it on. So the engine ships one
 small Java class, `hilen/android/NativeHandler.java`, built into
 `hilen/android/native_handler.dex` and loaded at run time with
 `InMemoryDexClassLoader`, API 26 and up. It lets Rust stand in for a Java
-interface through `java.lang.reflect.Proxy`, which `Paths::pick_image` and
-`Paths::pick_file_bytes` use for the result callback. After a change to the Java
+interface through `java.lang.reflect.Proxy`, which `Paths::pick_image`,
+`Paths::pick_images` and `Paths::pick_file_bytes` use for the result callback. After a change to the Java
 file run `make android-dex`, it builds in the android docker image, and commit the
 dex with it. A rotation while the picker is open recreates the activity and loses
 the result, the pick then never finishes.
 
 Both calls share `hilen/src/filesystem/picker/android.rs`, so 1 pick waits at a
 time, a second one ends the first with `None`. An image goes to the photo picker of
-Android 13 and later. A file goes to `ACTION_GET_CONTENT` with the type `*/*`. Its
+Android 13 and later. Several images ask it for `EXTRA_PICK_IMAGES_MAX`, at most
+`MediaStore.getPickImagesMaxLimit`, and an older Android gets `ACTION_GET_CONTENT`
+with `EXTRA_ALLOW_MULTIPLE`, which takes no limit. Several files come back in the
+`ClipData` of the result, 1 file in its data. A file goes to `ACTION_GET_CONTENT` with the type `*/*`. Its
 extensions become MIME types by `mime_guess`: 1 type is the type of the intent,
 more go into `EXTRA_MIME_TYPES`. When 1 extension has no known type there is no
 filter at all, a file of that kind would be greyed out otherwise. A provider that
@@ -101,3 +114,8 @@ the suggested name by `mime_guess` and the name in `EXTRA_TITLE`. The system sho
 own screen, no chooser. The bytes go out through `openOutputStream` of the content
 resolver, and the name is read back, a provider may change it to keep 2 files apart.
 It shares the 1 waiting pick, a save and a pick end each other with `None`.
+
+The picked uris go to the waiting future wrapped in `Picked`, a type with no
+lifetime. jni makes `JObject` `Send` only for `'static`, and a future that holds a
+`Global<JObject<'static>>` across an await cannot prove it, so `spawn` refused every
+pick with a higher-ranked lifetime error.

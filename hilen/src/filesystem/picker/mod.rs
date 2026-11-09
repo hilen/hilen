@@ -11,6 +11,8 @@ mod ios;
 #[cfg(all(ios, not(tvos)))]
 mod ios_document;
 #[cfg(all(ios, not(tvos)))]
+mod ios_photos;
+#[cfg(all(ios, not(tvos)))]
 mod ios_save;
 mod save;
 #[cfg(wasm)]
@@ -73,6 +75,7 @@ fn content_type_of(name: &str) -> String {
 pub(crate) fn stop() {
     ios::stop();
     ios_document::stop();
+    ios_photos::stop();
     ios_save::stop();
 }
 
@@ -242,16 +245,66 @@ impl Paths {
 
         picked
     }
+
+    /// Lets the user pick up to `max` images at once, 0 for no limit, and
+    /// reads them in the order they were picked. Empty when the user
+    /// cancels. An image that fails to read is logged and left out. iOS 12
+    /// and 13 and an Android before 13 that ignores the ask give 1 image.
+    /// The rest is as in `pick_image`.
+    pub async fn pick_images(title: &str, max: usize) -> Vec<PickedFile> {
+        debug!("image picker for {max} images opens: {title}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_images(title).await;
+        #[cfg(all(ios, not(tvos)))]
+        let picked = if ios_photos::available() {
+            ios_photos::pick(max).await
+        } else {
+            ios::pick().await.into_iter().collect()
+        };
+        #[cfg(tvos)]
+        let picked: Vec<PickedFile> = std::future::ready(Vec::new()).await;
+        #[cfg(android)]
+        let picked = android::pick_many(title, android::Kind::Images(max)).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many("image/*", false).await;
+
+        let picked = at_most(picked, max);
+        info!("{} images picked", picked.len());
+        picked
+    }
+}
+
+/// A desktop dialog, a browser and an older Android take no limit.
+fn at_most(mut picked: Vec<PickedFile>, max: usize) -> Vec<PickedFile> {
+    if max > 0 && picked.len() > max {
+        debug!("{} images picked, {max} kept", picked.len());
+        picked.truncate(max);
+    }
+    picked
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{PickedFile, accept_of, clean_extensions, folder_of, mime_types};
+    use super::{PickedFile, accept_of, at_most, clean_extensions, folder_of, mime_types};
 
     const NONE: [String; 0] = [];
 
     fn cleaned(extensions: &[&str]) -> Vec<String> {
         clean_extensions(extensions)
+    }
+
+    #[test]
+    fn images_over_the_limit_are_left_out() {
+        let picked = || {
+            ["a.png", "b.png", "c.png"]
+                .map(|name| PickedFile::new(name.to_string(), None, vec![1]))
+                .to_vec()
+        };
+        let names = |files: Vec<PickedFile>| files.into_iter().map(|file| file.name).collect::<Vec<_>>();
+        assert_eq!(names(at_most(picked(), 2)), ["a.png", "b.png"]);
+        assert_eq!(names(at_most(picked(), 0)), ["a.png", "b.png", "c.png"]);
+        assert_eq!(names(at_most(picked(), 5)), ["a.png", "b.png", "c.png"]);
     }
 
     #[test]

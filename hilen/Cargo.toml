@@ -415,6 +415,10 @@ objc2-ui-kit = { workspace = true }
 objc2-user-notifications = { workspace = true, optional = true }
 wgpu-hal = { workspace = true, optional = true }
 
+# PhotosUI, which tvOS lacks.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-photos-ui = { workspace = true }
+
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 arboard = { workspace = true }

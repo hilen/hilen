@@ -3391,6 +3391,7 @@ dependencies = [
  "objc2-local-authentication",
  "objc2-media-player",
  "objc2-metal 0.3.2",
+ "objc2-photos-ui",
  "objc2-quartz-core 0.3.2",
  "objc2-ui-kit 0.3.2",
  "objc2-user-notifications 0.3.2",
@@ -6013,6 +6014,17 @@ checksum = "bb82bed227edf5201dfedf072bba4015a33d3d4a98519837295a90f0a23f676d"
 dependencies = [
  "objc2 0.6.5",
  "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-photos-ui"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdddde9dfb986546746e3115021a85c4a83e1c5e9037b3c865a688fe9bf94ebb"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2 0.6.5",
  "objc2-foundation 0.3.2",
 ]
 

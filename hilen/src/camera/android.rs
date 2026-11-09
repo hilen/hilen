@@ -689,8 +689,9 @@ impl Session for AndroidSession {
             return;
         }
         let point = sensor_point(point, self.shared.quarters);
-        let at_x: i32 = x + (point.x * width.lossy_convert()).lossy_convert();
-        let at_y: i32 = y + (point.y * height.lossy_convert()).lossy_convert();
+        let (wide, high): (f32, f32) = (width.lossy_convert(), height.lossy_convert());
+        let (along, down): (i32, i32) = ((point.x * wide).lossy_convert(), (point.y * high).lossy_convert());
+        let (at_x, at_y) = (x + along, y + down);
         let half = width.min(height) / 10;
         self.region = Some([
             (at_x - half).max(x),
