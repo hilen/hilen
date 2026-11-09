@@ -85,6 +85,8 @@ pub mod gm;
 pub mod google_access;
 pub mod image;
 pub mod inspect;
+#[cfg(feature = "intents")]
+pub mod intents;
 #[cfg(feature = "level")]
 pub mod level;
 #[cfg(feature = "login")]

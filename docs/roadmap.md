@@ -19,6 +19,18 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## Siri intents, the proof on a phone
+
+- Current: the `intents` feature and the `[[intent]]` tables of `hilen-mobile` make
+  App Intents that call Rust handlers, see `docs/intents.md`. Shopping builds with 1
+  for the simulator and for a device, Apple took its phrases, and it is on TestFlight.
+  Nothing of it ran on a phone yet.
+- Needed: on a phone, "Hey Siri, add to Shopping list", the answer "milk", and the
+  item in the list. Once with the app closed, so iOS starts it in the background with
+  no window, and once with the phone locked. The item must reach the server in both.
+  Android App Actions and the Shortcuts app of macOS are later entries.
+- Blocks: trust in the Siri intents of every app, the lock screen remote of nome.
+
 ## A packed mesh vertex
 
 - Current: `Vertex3D` is 36 bytes, the position, the normal and the uv as full floats

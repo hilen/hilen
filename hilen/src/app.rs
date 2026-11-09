@@ -199,8 +199,16 @@ unsafe extern "C" {
 unsafe extern "Rust" {
     #[cfg(any(hot, feature = "bug-report"))]
     pub(crate) safe fn hilen_project_name() -> &'static str;
-    #[cfg(any(feature = "bug-report", feature = "google-access"))]
     pub(crate) safe fn hilen_app_version() -> &'static str;
+}
+
+/// The version of the app the user has, for an About line, a log line or a
+/// request header. It is the `version` of `hilen.toml` on iOS, tvOS and
+/// Android, whose projects are stamped with it, and the version of
+/// `Cargo.toml` on a desktop, which its releases and its updater use.
+/// `env!("CARGO_PKG_VERSION")` in an app is the desktop number on a phone too.
+pub fn app_version() -> &'static str {
+    hilen_app_version()
 }
 
 #[cfg(not(ios))]

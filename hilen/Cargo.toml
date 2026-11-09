@@ -169,6 +169,10 @@ screen-capture = ["gpu", "dep:xcap"]
 # it has no push. Off by default, an app with no push links no
 # UserNotifications and no call to register for it.
 push = ["dep:futures-channel", "dep:hex", "dep:objc2-user-notifications"]
+# Actions the system runs in the app, like a sentence said to Siri, see
+# docs/intents.md. iOS only for now, the Swift comes from the [[intent]]
+# tables of hilen.toml.
+intents = []
 # Video playback through a prebuilt static ffmpeg, hardware decode through
 # VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
 # browser through a video element, see docs/video.md. Off by default.
