@@ -2,8 +2,10 @@
 //!
 //! The trunk dist is embedded into the server binary with rust-embed and
 //! served with SPA fallback, an unknown path returns `index.html` so page
-//! reloads and deep links work. The `.wasm` file must go out as
-//! `application/wasm`, `mime_guess` resolves that from the path.
+//! reloads and deep links work. An unknown path under `/api/` or `/auth/`
+//! is a route a client got wrong and answers the json 404 of [`AppError`]. The
+//! `.wasm` file must go out as `application/wasm`, `mime_guess` resolves that
+//! from the path.
 //!
 //! For the dev loop, set [`WEB_DEV_PROXY_ENV`] to a running `trunk serve`
 //! url and page requests proxy there instead of the embedded dist, so
@@ -22,6 +24,8 @@ use axum::{
 use rust_embed::RustEmbed;
 use rustls::crypto::ring::default_provider;
 use tracing::debug;
+
+use crate::AppError;
 
 /// The inspect marker of `hilen/src/inspect/mod.rs` in two pieces. They are
 /// joined at run time, so this binary never holds the whole string and a scan
@@ -88,7 +92,15 @@ where
         tracing::info!("serving web through dev proxy at {target}");
         install_tls_provider();
         let client = reqwest::Client::new();
-        Router::new().fallback(move |req: Request| proxy(client.clone(), target.clone(), req))
+        Router::new().fallback(move |req: Request| {
+            let (client, target) = (client.clone(), target.clone());
+            async move {
+                if is_route_path(req.uri().path()) {
+                    return missing_route(req.uri().path());
+                }
+                proxy(client, target, req).await
+            }
+        })
     } else {
         if !cfg!(debug_assertions) {
             refuse_inspect::<A>();
@@ -153,6 +165,19 @@ fn fnv1a(data: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+/// A path under `/api/` or `/auth/` names a route of the server, never a page.
+fn is_route_path(path: &str) -> bool {
+    ["/api", "/auth"].iter().any(|root| {
+        path.strip_prefix(root)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
+}
+
+fn missing_route(path: &str) -> Response {
+    debug!("no route for {path:?}");
+    AppError::NotFound.into_response()
+}
+
 /// A path whose last part has an extension asks for a file, never for a page.
 fn names_a_file(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|name| name.contains('.'))
@@ -178,6 +203,9 @@ fn etag(file: &rust_embed::EmbeddedFile) -> String {
 }
 
 async fn embedded<A: RustEmbed>(req: Request) -> Response {
+    if is_route_path(req.uri().path()) {
+        return missing_route(req.uri().path());
+    }
     let path = req.uri().path().trim_start_matches('/');
     // Pair the asset with the path used to look it up, so mime_guess gets
     // the right extension. An SPA route like /nodes falls back to
@@ -265,9 +293,14 @@ async fn proxy(client: reqwest::Client, target: String, req: Request) -> Respons
 
 #[cfg(test)]
 mod test {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
+    };
     use rust_embed::RustEmbed;
+    use tower::ServiceExt;
 
-    use super::{INSPECT_MARKER_PARTS, find_inspect, is_hashed, names_a_file};
+    use super::{INSPECT_MARKER_PARTS, find_inspect, is_hashed, is_route_path, names_a_file, web_mount_with};
 
     #[derive(RustEmbed)]
     #[folder = "tests/inspect-dist/"]
@@ -303,6 +336,49 @@ mod test {
         assert!(!is_hashed("assets/assets.json"));
         assert!(!is_hashed("my-photo.png"));
         assert!(!is_hashed("app-43E87976AD5E47AD.js"));
+    }
+
+    #[test]
+    fn routes_live_under_api_and_auth() {
+        assert!(is_route_path("/api"));
+        assert!(is_route_path("/api/metrics"));
+        assert!(is_route_path("/auth/nope"));
+        assert!(!is_route_path("/apiary"));
+        assert!(!is_route_path("/authors/ann"));
+        assert!(!is_route_path("/thread/12"));
+        assert!(!is_route_path("/"));
+    }
+
+    async fn answer(path: &str) -> (StatusCode, Option<String>, String) {
+        let response = web_mount_with::<Clean, ()>(None)
+            .oneshot(Request::get(path).body(Body::empty()).expect("request"))
+            .await
+            .expect("answer");
+        let status = response.status();
+        let kind = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|kind| kind.to_str().ok())
+            .map(ToOwned::to_owned);
+        let body = to_bytes(response.into_body(), usize::MAX).await.expect("body");
+        (status, kind, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// A client that calls a route the server lacks must see a failure, not
+    /// the page with a 200.
+    #[tokio::test]
+    async fn an_unknown_route_is_a_json_404_and_a_page_path_the_page() {
+        let (status, kind, body) = answer("/api/metrics").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(kind.as_deref(), Some("application/json"));
+        assert_eq!(body, r#"{"error":"not found"}"#);
+
+        let (status, ..) = answer("/auth/nope").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, kind, _) = answer("/thread/12").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(kind.as_deref(), Some("text/html"));
     }
 
     #[test]

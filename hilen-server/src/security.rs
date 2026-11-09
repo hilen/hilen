@@ -4,12 +4,12 @@
 //! carries `nosniff`, a `Referrer-Policy`, a frame block, and a closed
 //! `Content-Security-Policy` when the route set none. A backend that serves a
 //! trunk page adds [`PageCsp`] on top, which gives every html answer a policy
-//! the page can run under: its own scripts and wasm, the inline scripts of
-//! its `index.html` by their hashes, and the pictures of the login providers.
+//! the page can run under, its own scripts and wasm and the inline scripts of
+//! its `index.html` by their hashes, and `Cross-Origin-Opener-Policy`.
 
 use axum::{
     Router,
-    http::{HeaderMap, HeaderValue, header},
+    http::{HeaderMap, HeaderName, HeaderValue, header},
     middleware::map_response,
     response::Response,
 };
@@ -21,9 +21,10 @@ use sha2::{Digest, Sha256};
 /// nothing and runs nothing, and no other site can frame it.
 const CLOSED_CSP: &str = "default-src 'none'; frame-ancestors 'none'";
 
-/// Where the pictures of the accounts of the login providers come from, the
-/// page downloads them with `fetch`.
-const LOGIN_PICTURE_ORIGINS: [&str; 2] = ["https://*.googleusercontent.com", "https://cdn.discordapp.com"];
+/// A page another site opened with `window.open` gets no handle back to that
+/// site, and that site none to the page, so it cannot send the tab of the page
+/// to a fake sign in page later.
+const OPENER_POLICY: HeaderName = HeaderName::from_static("cross-origin-opener-policy");
 
 /// Puts the headers every answer needs, unless the route set them itself.
 pub(crate) fn base(router: Router) -> Router {
@@ -96,12 +97,14 @@ impl PageCsp {
         );
         Self {
             script_hashes,
-            connect: LOGIN_PICTURE_ORIGINS.iter().map(ToString::to_string).collect(),
+            connect: Vec::new(),
             images: Vec::new(),
         }
     }
 
     /// Lets the page `fetch` from `origin`, like `https://api.example.com`.
+    /// A page that downloads the account picture of a login provider names
+    /// its host here, like `https://*.googleusercontent.com`.
     #[must_use]
     pub fn connect(mut self, origin: &str) -> Self {
         self.connect.push(origin.to_string());
@@ -143,8 +146,8 @@ impl PageCsp {
             .expect("an origin of the page policy has a character a header cannot hold")
     }
 
-    /// Gives every html answer of `router` this policy, unless the route set
-    /// its own.
+    /// Gives every html answer of `router` this policy and
+    /// `Cross-Origin-Opener-Policy: same-origin`, unless the route set its own.
     pub fn layer<S>(self, router: Router<S>) -> Router<S>
     where S: Clone + Send + Sync + 'static {
         let value = self.value();
@@ -157,7 +160,9 @@ impl PageCsp {
                     .and_then(|kind| kind.to_str().ok())
                     .is_some_and(|kind| kind.starts_with("text/html"));
                 if is_page {
-                    set_missing(response.headers_mut(), header::CONTENT_SECURITY_POLICY, value);
+                    let headers = response.headers_mut();
+                    set_missing(headers, header::CONTENT_SECURITY_POLICY, value);
+                    set_missing(headers, OPENER_POLICY, HeaderValue::from_static("same-origin"));
                 }
                 response
             }
@@ -217,10 +222,9 @@ mod test {
         assert!(policy.contains(&boot), "{policy}");
         assert!(policy.contains("'wasm-unsafe-eval'"), "{policy}");
         assert!(
-            policy.contains("connect-src 'self' https://*.googleusercontent.com"),
+            policy.contains("connect-src 'self' https://api.example.com;"),
             "{policy}"
         );
-        assert!(policy.contains("https://api.example.com"), "{policy}");
         assert!(policy.contains("frame-ancestors 'none'"), "{policy}");
         assert!(!policy.contains("script-src 'self' 'unsafe-inline'"), "{policy}");
     }
@@ -252,6 +256,7 @@ mod test {
         assert_eq!(page[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         assert_eq!(page[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(page[header::REFERRER_POLICY], "strict-origin-when-cross-origin");
+        assert_eq!(page["cross-origin-opener-policy"], "same-origin");
 
         let api = headers_of(app(), "/api").await;
         assert_eq!(
@@ -259,6 +264,18 @@ mod test {
             "default-src 'none'; frame-ancestors 'none'"
         );
         assert_eq!(api[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert!(!api.contains_key("cross-origin-opener-policy"));
+    }
+
+    /// A page that never fetches from another site lets no script send data
+    /// there.
+    #[test]
+    fn the_page_policy_fetches_only_from_its_own_origin() {
+        let policy = PageCsp::for_html(PAGE).value();
+        let policy = policy.to_str().expect("ascii");
+        assert!(policy.contains("connect-src 'self';"), "{policy}");
+        assert!(!policy.contains("googleusercontent"), "{policy}");
+        assert!(!policy.contains("discordapp"), "{policy}");
     }
 
     #[tokio::test]

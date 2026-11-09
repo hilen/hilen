@@ -22,7 +22,8 @@ base routes and helpers over axum, sqlx and redis, on Postgres or on SQLite
 through its `Db` type, Redis optional. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
-page requests at a running `trunk serve` for the dev loop. Its `auth` module is
+page requests at a running `trunk serve` for the dev loop. A path under `/api/` or
+`/auth/` that no route took answers the json 404 of `AppError`, never the page. Its `auth` module is
 the server half of the Google, Apple and Discord login, see [docs/login.md](docs/login.md). Its
 `prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
 the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
@@ -30,7 +31,8 @@ route behind a Bearer token, since a stack with a public host has only one port
 to share. Its `security` module puts `nosniff`, a `Referrer-Policy`, a frame block and
 a closed `Content-Security-Policy` on every answer that `serve` gives, and `PageCsp`
 gives the html of a trunk page a policy it can run under, its inline scripts allowed
-by their hashes. It never
+by their hashes, `fetch` only to its own origin unless the app adds one with
+`.connect`, and `Cross-Origin-Opener-Policy: same-origin`. It never
 links the `hilen` UI crate, a backend and a client only share the wire.
 Its own queries use the plain `query` functions of sqlx, because the login code runs
 the same query on both databases through `Db` and a checked macro can check against
