@@ -18,7 +18,7 @@ use crate::{
         session::{self, hash},
         store,
         user::bearer_token,
-        wire::{CodeRequest, CodeResponse, PollRequest, PollResponse, UserInfo},
+        wire::{CodeRequest, CodeResponse, LinkRequest, PollRequest, PollResponse, Providers, UserInfo},
     },
 };
 
@@ -49,6 +49,10 @@ const PENDING_MINUTES: i32 = 10;
 ///
 /// [`AuthConfig::with_code_login`]: crate::auth::AuthConfig::with_code_login
 /// - `GET /auth/me` is the user of a session.
+/// - `POST /auth/link` marks the next login of a signed in app as a link of a
+///   second provider to its user.
+/// - `GET /auth/providers` is what a user signs in with and what this server
+///   offers.
 /// - `POST /auth/logout` ends a session.
 /// - `POST /auth/delete` removes the user of a session for good.
 /// - `POST /auth/dev` logs into a dev account with no password, only in a build
@@ -65,6 +69,8 @@ pub fn auth_routes<S>(state: AuthState) -> Router<S> {
         .route("/auth/code", post(make_code).get(code_page))
         .route("/auth/poll", post(poll))
         .route("/auth/me", get(me))
+        .route("/auth/link", post(link))
+        .route("/auth/providers", get(providers))
         .route("/auth/logout", post(logout))
         .route("/auth/logout/all", post(logout_all))
         .route("/auth/delete", post(delete));
@@ -345,13 +351,20 @@ async fn finish(
     oauth_state: &str,
     exchange: impl Future<Output = anyhow::Result<Identity>>,
 ) -> anyhow::Result<Option<Finished>> {
-    let Some((challenge, hand_back)) = store::waiting(&state.db, oauth_state, PENDING_MINUTES).await? else {
+    let Some((challenge, hand_back, link)) = store::waiting(&state.db, oauth_state, PENDING_MINUTES).await?
+    else {
         return Ok(None);
     };
     let hand_back = HandBack::parse(&hand_back)?;
 
     let identity = exchange.await?;
-    let user_id = store::login_user_limited(&state.db, &identity, state.config.login_rules()).await?;
+    let user_id = store::login_user_limited(&state.db, &identity, state.config.login_rules(), link).await?;
+    if link.is_some() {
+        tracing::info!(
+            "user {user_id} linked {} to the account",
+            identity.provider.name()
+        );
+    }
     let code = match hand_back {
         HandBack::Code => None,
         HandBack::Loopback(_) | HandBack::Page => Some(session::new_token()?),
@@ -394,16 +407,28 @@ fn outcome_page(
         ),
         Err(error) => {
             if let Some(refused) = error.downcast_ref::<store::LoginRefused>() {
-                tracing::warn!("{} login refused: {refused}", provider.name());
+                tracing::warn!(
+                    "{} login refused, {:?}: {refused}",
+                    provider.name(),
+                    refused.reason
+                );
                 let allowed: Vec<&str> = refused.allowed.iter().map(|one| one.title()).collect();
-                return page(
-                    app,
-                    "Sign in did not work",
-                    &format!(
+                let title = provider.title();
+                let text = match refused.reason {
+                    store::Refusal::Providers => format!(
                         "This account signs in only with {}. Go back to the app and use that.",
                         allowed.join(" or ")
                     ),
-                );
+                    store::Refusal::OtherUser => {
+                        format!(
+                            "This {title} account belongs to another account of {app}. Nothing was changed."
+                        )
+                    }
+                    store::Refusal::OtherEmail => format!(
+                        "This {title} account has another email than your account of {app}. Only an account with the same email can be added. Nothing was changed."
+                    ),
+                };
+                return page(app, "Sign in did not work", &text);
             }
             tracing::error!("{} login failed: {error:?}", provider.name());
             page(app, "Sign in did not work", "Go back to the app and try again.")
@@ -476,6 +501,41 @@ async fn poll(
 
 async fn me(user: User) -> Json<UserInfo> {
     Json(user.into())
+}
+
+/// The app of a signed in user asks before it opens the provider. Only it
+/// knows the challenge, so only its next login becomes the link.
+async fn link(
+    State(state): State<AuthState>,
+    user: User,
+    Json(request): Json<LinkRequest>,
+) -> Result<(), AppError> {
+    if !is_challenge(&request.challenge) {
+        return Err(AppError::BadRequest(
+            "the challenge is not a SHA-256 in hex".to_owned(),
+        ));
+    }
+    store::prune_pending(&state.db, PENDING_MINUTES).await?;
+    let placeholder = session::new_token()?;
+    if !store::link_pending(&state.db, &request.challenge, &placeholder, user.id).await? {
+        return Err(AppError::BadRequest("this login is already finished".to_owned()));
+    }
+    tracing::info!("user {} starts a link of a second provider", user.id);
+    Ok(())
+}
+
+async fn providers(State(state): State<AuthState>, user: User) -> Result<Json<Providers>, AppError> {
+    let mut offered = vec![Provider::Google.name().to_owned()];
+    if state.config.apple.is_some() {
+        offered.push(Provider::Apple.name().to_owned());
+    }
+    if state.config.discord.is_some() {
+        offered.push(Provider::Discord.name().to_owned());
+    }
+    Ok(Json(Providers {
+        linked: store::providers_of(&state.db, user.id).await?,
+        offered,
+    }))
 }
 
 async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<(), AppError> {

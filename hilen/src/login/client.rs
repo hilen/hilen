@@ -15,7 +15,9 @@ use crate::{
     },
     login::{
         hand_back::HandBack,
-        wire::{CodeRequest, CodeResponse, LoginUser, PollRequest, PollResponse},
+        wire::{
+            CodeRequest, CodeResponse, LinkRequest, LoginUser, PollRequest, PollResponse, ProvidersResponse,
+        },
     },
     store::SessionStore,
     ui::UIEvent,
@@ -71,6 +73,43 @@ impl Provider {
             Self::Apple => "apple",
             Self::Discord => "discord",
         }
+    }
+
+    /// The provider of a route name, none for one this build does not know.
+    fn of_route(route: &str) -> Option<Self> {
+        [Self::Google, Self::Apple, Self::Discord]
+            .into_iter()
+            .find(|provider| provider.route() == route)
+    }
+
+    /// The name a person reads, like `Google`.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Google => "Google",
+            Self::Apple => "Apple",
+            Self::Discord => "Discord",
+        }
+    }
+}
+
+/// How the signed in user signs in, see [`Login::providers`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LinkedProviders {
+    /// The providers the user signs in with.
+    pub linked:  Vec<Provider>,
+    /// The providers the server offers. One that is not in `linked` can be
+    /// added with [`Login::link`].
+    pub offered: Vec<Provider>,
+}
+
+impl LinkedProviders {
+    /// The providers the user can still add.
+    pub fn missing(&self) -> Vec<Provider> {
+        self.offered
+            .iter()
+            .copied()
+            .filter(|provider| !self.linked.contains(provider))
+            .collect()
     }
 }
 
@@ -130,11 +169,52 @@ impl Login {
         Self::start_with_close(provider, done, || {});
     }
 
+    /// How the signed in user signs in, and what the server offers.
+    pub fn providers(done: impl FnOnce(Result<LinkedProviders>) + Send + 'static) {
+        spawn(async move {
+            let result = fetch_providers().await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Adds `provider` to the signed in user, so both sign in ways open the
+    /// same account. It runs like [`Login::start`]: the login page of the
+    /// provider opens, and `done` gets the user. The server takes the link
+    /// only for an account of the provider with the email of the user, and
+    /// only from this session, any other ends on a page that says why.
+    pub fn link(provider: Provider, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        let verifier = match new_verifier() {
+            Ok(verifier) => verifier,
+            Err(error) => return done(Err(error)),
+        };
+        spawn(async move {
+            let asked = ask_link(&verifier).await;
+            on_main(move || match asked {
+                Ok(()) => {
+                    log::info!("the server takes a link of {}", provider.route());
+                    Self::begin(provider, Some(verifier), done, || {});
+                }
+                Err(error) => done(Err(error)),
+            });
+        });
+    }
+
     /// `start` for a login button. `closed` runs when the user closed the
     /// browser sheet by hand with the login not done, so the button can end
     /// its waiting look. Only an iPhone has such a sheet.
     pub(crate) fn start_with_close(
         provider: Provider,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+        closed: impl FnOnce() + Send + 'static,
+    ) {
+        Self::begin(provider, None, done, closed);
+    }
+
+    /// Starts the login with `verifier`, a new one when none is given. A
+    /// link has its verifier already, the server knows its challenge.
+    fn begin(
+        provider: Provider,
+        verifier: Option<String>,
         done: impl FnOnce(Result<LoginUser>) + Send + 'static,
         closed: impl FnOnce() + Send + 'static,
     ) {
@@ -144,7 +224,7 @@ impl Login {
         #[cfg(wasm)]
         {
             drop(closed);
-            if let Err(error) = server().and_then(|server| same_tab::leave(&server, provider)) {
+            if let Err(error) = server().and_then(|server| same_tab::leave(&server, provider, verifier)) {
                 done(Err(error));
             }
         }
@@ -154,7 +234,10 @@ impl Login {
             let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
 
             let opened = server().and_then(|server| {
-                let verifier = new_verifier()?;
+                let verifier = match verifier {
+                    Some(verifier) => verifier,
+                    None => new_verifier()?,
+                };
                 let challenge = challenge(&verifier);
                 let hand_back = HandBack::open(&server, &challenge)?;
                 log::info!("{} login started", provider.route());
@@ -523,6 +606,27 @@ async fn poll(server: &str, verifier: &str, code: Option<&str>) -> Result<PollRe
     }
 }
 
+/// Tells the server that the login of this verifier is a link for the user
+/// of the active session.
+async fn ask_link(verifier: &str) -> Result<()> {
+    let call = Call::post(format!("{}/auth/link", server()?)).body(LinkRequest {
+        challenge: &challenge(verifier),
+    });
+    Ok(Login::send::<()>(call).await?)
+}
+
+async fn fetch_providers() -> Result<LinkedProviders> {
+    let call = Call::get(format!("{}/auth/providers", server()?));
+    let answer: ProvidersResponse = Login::send(call).await?;
+    let known = |routes: &[String]| -> Vec<Provider> {
+        routes.iter().filter_map(|route| Provider::of_route(route)).collect()
+    };
+    Ok(LinkedProviders {
+        linked:  known(&answer.linked),
+        offered: known(&answer.offered),
+    })
+}
+
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
     let Some(token) = SessionStore::load() else {
         return Ok(None);
@@ -638,8 +742,11 @@ mod same_tab {
             .ok_or_else(|| anyhow!("no localStorage"))
     }
 
-    pub(super) fn leave(server: &str, provider: Provider) -> Result<()> {
-        let verifier = new_verifier()?;
+    pub(super) fn leave(server: &str, provider: Provider, verifier: Option<String>) -> Result<()> {
+        let verifier = match verifier {
+            Some(verifier) => verifier,
+            None => new_verifier()?,
+        };
         let challenge = challenge(&verifier);
         // Checks that the page is on the origin of its server, the last page
         // can write only there.

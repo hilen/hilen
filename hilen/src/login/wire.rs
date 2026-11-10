@@ -35,6 +35,21 @@ pub(crate) struct CodeResponse {
     pub code: String,
 }
 
+/// Asks that the login of this challenge adds its provider to the user of
+/// the session that sends it.
+#[derive(Debug, Serialize)]
+pub(crate) struct LinkRequest<'a> {
+    pub challenge: &'a str,
+}
+
+/// The providers of the user and the ones the server offers, by their route
+/// names.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ProvidersResponse {
+    pub linked:  Vec<String>,
+    pub offered: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum PollResponse {

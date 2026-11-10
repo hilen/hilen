@@ -208,7 +208,17 @@ that off for an app: such a login is refused, nothing of it is saved, and the br
 ends on "This account signs in only with Google". Without it, whoever takes over the
 account of a user at 1 provider gets into the user of the app too, also when that user
 never signed in there. Users joined before stay joined, and a known identity signs in
-as before. A way to add a second provider from a signed in session is not built yet.
+as before.
+
+A signed in user adds a second provider with `Login::link(provider, done)`. The app
+first sends `POST /auth/link` with its session and the challenge of a new verifier, the
+server marks that challenge in `pending_logins.link_user`, migration `0005`. Then the
+login runs like any other, and the identity that comes back lands in that user. Only
+the app knows the challenge, so only its own next login is the link. The server takes
+it only for an account of the provider with the same email as the user, and never for
+an identity another user has: the page then says so and nothing changes.
+`Login::providers` gives what the user signs in with and what the server offers, from
+`GET /auth/providers`, for a settings page that shows a button for the missing one.
 
 ## A user limited to some providers
 

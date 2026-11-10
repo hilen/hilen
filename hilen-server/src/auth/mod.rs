@@ -29,6 +29,8 @@ mod discord;
 mod google;
 pub(crate) mod hand_back;
 pub(crate) mod identity;
+#[cfg(test)]
+mod join_test;
 pub(crate) mod routes;
 #[cfg(test)]
 mod routes_test;

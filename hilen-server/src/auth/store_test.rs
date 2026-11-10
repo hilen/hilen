@@ -57,7 +57,7 @@ pub(crate) async fn sqlite() -> Result<(SqlitePool, Db)> {
 
 /// Runs `test` on a fresh Postgres database with the login tables and
 /// drops the database afterwards, passed or not.
-async fn on_postgres<Test>(test: Test) -> Result<()>
+pub(crate) async fn on_postgres<Test>(test: Test) -> Result<()>
 where Test: AsyncFnOnce(Db) -> Result<()> {
     on_empty_postgres(async |pool: PgPool| {
         migrate(&pool).await?;
@@ -122,7 +122,7 @@ async fn seconds_left(db: &Db, token: &str) -> Result<i64> {
     Ok(seconds)
 }
 
-fn identity(name: &str) -> Identity {
+pub(crate) fn identity(name: &str) -> Identity {
     Identity {
         provider:      Provider::Google,
         subject:       "google-sub-1".to_owned(),
@@ -145,7 +145,7 @@ fn apple_identity(email: &str, name: Option<&str>, refresh_token: &str) -> Ident
     }
 }
 
-async fn count(db: &Db, sql: &'static str) -> Result<i64> {
+pub(crate) async fn count(db: &Db, sql: &'static str) -> Result<i64> {
     let (count,): (i64,) = match db {
         Db::Postgres(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
         Db::Sqlite(pool) => sqlx::query_as(sql).fetch_one(pool).await?,
@@ -160,7 +160,7 @@ async fn a_login_runs_from_start_to_session(db: Db) -> Result<()> {
     assert_eq!(store::waiting(&db, "state-1", 10).await?, None);
     assert_eq!(
         store::waiting(&db, "state-2", 10).await?,
-        Some(("challenge".to_owned(), "port:5001".to_owned()))
+        Some(("challenge".to_owned(), "port:5001".to_owned(), None))
     );
 
     // Nothing to hand over before Google has answered.
@@ -293,7 +293,7 @@ async fn google_and_apple_on_one_email_are_one_user(db: Db) -> Result<()> {
 }
 
 /// A Discord login on the email of the user, the way an admin was joined.
-fn discord_identity(subject: &str, email: &str) -> Identity {
+pub(crate) fn discord_identity(subject: &str, email: &str) -> Identity {
     Identity {
         provider:      Provider::Discord,
         subject:       subject.to_owned(),
@@ -314,8 +314,13 @@ async fn a_limited_user_signs_in_only_with_its_providers(db: Db) -> Result<()> {
         joins_by_email: true,
     };
 
-    let refused =
-        store::login_user_limited(&db, &discord_identity("discord-1", "ana@example.com"), rules).await;
+    let refused = store::login_user_limited(
+        &db,
+        &discord_identity("discord-1", "ana@example.com"),
+        rules,
+        None,
+    )
+    .await;
     let error = refused.expect_err("Discord is not a provider of Ana");
     let refused = error.downcast_ref::<store::LoginRefused>().context("a refused login")?;
     assert_eq!(refused.allowed, vec![Provider::Google]);
@@ -331,77 +336,18 @@ async fn a_limited_user_signs_in_only_with_its_providers(db: Db) -> Result<()> {
     assert_eq!(user.name, "Ana", "the refused login did not change the name");
 
     assert_eq!(
-        store::login_user_limited(&db, &identity("Ana"), rules).await?,
+        store::login_user_limited(&db, &identity("Ana"), rules, None).await?,
         ana,
         "Google still works"
     );
-    let bob =
-        store::login_user_limited(&db, &discord_identity("discord-2", "bob@example.com"), rules).await?;
+    let bob = store::login_user_limited(
+        &db,
+        &discord_identity("discord-2", "bob@example.com"),
+        rules,
+        None,
+    )
+    .await?;
     assert_ne!(bob, ana, "another user signs in with Discord as before");
-    Ok(())
-}
-
-// The failure this prevents: whoever took over the Discord account of a
-// user got into the user of the app too, though that user only ever signed
-// in with Google.
-async fn with_no_join_a_new_provider_does_not_open_the_user_of_its_email(db: Db) -> Result<()> {
-    let ana = store::login_user(&db, &identity("Ana")).await?;
-    let rules = LoginRules {
-        limits:         &[],
-        joins_by_email: false,
-    };
-
-    let refused =
-        store::login_user_limited(&db, &discord_identity("discord-1", "Ana@Example.com"), rules).await;
-    let error = refused.expect_err("Discord must not join the user of Google");
-    let refused = error.downcast_ref::<store::LoginRefused>().context("a refused login")?;
-    assert_eq!(refused.provider, Provider::Discord);
-    assert_eq!(
-        refused.allowed,
-        vec![Provider::Google],
-        "the page names the way in"
-    );
-    assert_eq!(
-        count(&db, "SELECT count(*) FROM identities").await?,
-        1,
-        "nothing of the refused login is saved"
-    );
-
-    assert_eq!(
-        store::login_user_limited(&db, &identity("Ana"), rules).await?,
-        ana,
-        "Google still works"
-    );
-    let bob =
-        store::login_user_limited(&db, &discord_identity("discord-2", "bob@example.com"), rules).await?;
-    assert_ne!(bob, ana, "an email with no user makes a new one");
-    assert_eq!(
-        store::login_user_limited(&db, &discord_identity("discord-2", "bob@example.com"), rules).await?,
-        bob,
-        "a known identity signs in as before"
-    );
-    Ok(())
-}
-
-// Users joined before the rule keep both ways in.
-async fn with_no_join_a_user_joined_before_keeps_both_providers(db: Db) -> Result<()> {
-    let ana = store::login_user(&db, &identity("Ana")).await?;
-    let discord = discord_identity("discord-1", "ana@example.com");
-    assert_eq!(
-        store::login_user(&db, &discord).await?,
-        ana,
-        "joined by the email"
-    );
-
-    let rules = LoginRules {
-        limits:         &[],
-        joins_by_email: false,
-    };
-    assert_eq!(store::login_user_limited(&db, &discord, rules).await?, ana);
-    assert_eq!(
-        store::login_user_limited(&db, &identity("Ana"), rules).await?,
-        ana
-    );
     Ok(())
 }
 
@@ -626,16 +572,6 @@ async fn sqlite_a_limited_user_signs_in_only_with_its_providers() -> Result<()> 
 }
 
 #[tokio::test]
-async fn sqlite_with_no_join_a_new_provider_does_not_open_the_user_of_its_email() -> Result<()> {
-    with_no_join_a_new_provider_does_not_open_the_user_of_its_email(sqlite().await?.1).await
-}
-
-#[tokio::test]
-async fn sqlite_with_no_join_a_user_joined_before_keeps_both_providers() -> Result<()> {
-    with_no_join_a_user_joined_before_keeps_both_providers(sqlite().await?.1).await
-}
-
-#[tokio::test]
 async fn sqlite_another_email_is_another_user() -> Result<()> {
     another_email_is_another_user(sqlite().await?.1).await
 }
@@ -760,18 +696,6 @@ async fn postgres_google_and_apple_on_one_email_are_one_user() -> Result<()> {
 #[ignore = "needs a Postgres, see the top of this file"]
 async fn postgres_a_limited_user_signs_in_only_with_its_providers() -> Result<()> {
     on_postgres(a_limited_user_signs_in_only_with_its_providers).await
-}
-
-#[tokio::test]
-#[ignore = "needs a Postgres, see the top of this file"]
-async fn postgres_with_no_join_a_new_provider_does_not_open_the_user_of_its_email() -> Result<()> {
-    on_postgres(with_no_join_a_new_provider_does_not_open_the_user_of_its_email).await
-}
-
-#[tokio::test]
-#[ignore = "needs a Postgres, see the top of this file"]
-async fn postgres_with_no_join_a_user_joined_before_keeps_both_providers() -> Result<()> {
-    on_postgres(with_no_join_a_user_joined_before_keeps_both_providers).await
 }
 
 #[tokio::test]

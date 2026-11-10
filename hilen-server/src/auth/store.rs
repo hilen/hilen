@@ -40,6 +40,18 @@ impl LoginRules<'_> {
 pub(crate) struct LoginRefused {
     pub provider: Provider,
     pub allowed:  Vec<Provider>,
+    pub reason:   Refusal,
+}
+
+/// Why a login was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// The user signs in only with the providers of `allowed`.
+    Providers,
+    /// A link of a second provider: that account belongs to another user.
+    OtherUser,
+    /// A link of a second provider: that account has another email.
+    OtherEmail,
 }
 
 impl std::fmt::Display for LoginRefused {
@@ -199,15 +211,15 @@ pub(crate) async fn waiting(
     db: &Db,
     state: &str,
     minutes: i32,
-) -> Result<Option<(String, String)>, sqlx::Error> {
+) -> Result<Option<(String, String, Option<Uuid>)>, sqlx::Error> {
     on_db!(
         db,
         r"
-SELECT challenge, hand_back FROM pending_logins
+SELECT challenge, hand_back, link_user FROM pending_logins
 WHERE state = $1 AND user_id IS NULL AND hand_back IS NOT NULL
 AND created_at > now() - make_interval(mins => $2)",
         r"
-SELECT challenge, hand_back FROM pending_logins
+SELECT challenge, hand_back, link_user FROM pending_logins
 WHERE state = $1 AND user_id IS NULL AND hand_back IS NOT NULL
 AND created_at > unixepoch() - $2 * 60",
         |sql, pool| sqlx::query_as(sql).bind(state).bind(minutes).fetch_optional(pool).await
@@ -271,9 +283,10 @@ RETURNING user_id",
 /// The body of `login_user`, the same statements on either database inside
 /// one transaction.
 macro_rules! login_user_on {
-    ($pool:expr, $identity:expr, $rules:expr) => {{
+    ($pool:expr, $identity:expr, $rules:expr, $link:expr) => {{
         let identity: &Identity = $identity;
         let rules: LoginRules = $rules;
+        let link: Option<Uuid> = $link;
         let limits = rules.limits;
         let provider = identity.provider.name();
         let mut transaction = $pool.begin().await?;
@@ -286,6 +299,14 @@ macro_rules! login_user_on {
                 .await?;
 
         let user_id = if let Some((user_id,)) = known {
+            if link.is_some_and(|linked| linked != user_id) {
+                return Err(LoginRefused {
+                    provider: identity.provider,
+                    allowed:  Vec::new(),
+                    reason:   Refusal::OtherUser,
+                }
+                .into());
+            }
             sqlx::query(
                 r"
 UPDATE users SET email = $2, name = COALESCE($3, name), picture = COALESCE($4, picture)
@@ -328,8 +349,21 @@ ORDER BY created_at LIMIT 1",
                 None
             };
 
+            // A link lands only in the user who asked for it, and only with
+            // the same email: the user proved both accounts in 1 browser.
+            if let Some(linked) = link
+                && same_email.map(|(user_id,)| user_id) != Some(linked)
+            {
+                return Err(LoginRefused {
+                    provider: identity.provider,
+                    allowed:  Vec::new(),
+                    reason:   Refusal::OtherEmail,
+                }
+                .into());
+            }
+
             let user_id = if let Some((user_id,)) = same_email {
-                if !rules.joins_by_email {
+                if !rules.joins_by_email && link.is_none() {
                     let names: Vec<(String,)> = sqlx::query_as(
                         "SELECT provider FROM identities WHERE user_id = $1 ORDER BY provider",
                     )
@@ -339,6 +373,7 @@ ORDER BY created_at LIMIT 1",
                     return Err(LoginRefused {
                         provider: identity.provider,
                         allowed:  names.iter().filter_map(|(name,)| Provider::of_name(name)).collect(),
+                        reason:   Refusal::Providers,
                     }
                     .into());
                 }
@@ -376,6 +411,7 @@ ORDER BY created_at LIMIT 1",
             return Err(LoginRefused {
                 provider: identity.provider,
                 allowed:  allowed.clone(),
+                reason:   Refusal::Providers,
             }
             .into());
         }
@@ -394,17 +430,67 @@ ORDER BY created_at LIMIT 1",
 /// it, its email is not verified by anyone.
 #[cfg(any(test, feature = "dev-login"))]
 pub(crate) async fn login_user(db: &Db, identity: &Identity) -> Result<Uuid> {
-    login_user_limited(db, identity, LoginRules::OPEN).await
+    login_user_limited(db, identity, LoginRules::OPEN, None).await
 }
 
 /// The same under `rules`. A user of its limits signs in only with its own
 /// providers, and with no join by email a new provider does not land in the
-/// user of its email. Such a login fails with [`LoginRefused`].
-pub(crate) async fn login_user_limited(db: &Db, identity: &Identity, rules: LoginRules<'_>) -> Result<Uuid> {
+/// user of its email. Such a login fails with [`LoginRefused`]. With `link`
+/// the login adds its provider to that user, who asked for it while signed
+/// in, see `link_pending`, and to no other.
+pub(crate) async fn login_user_limited(
+    db: &Db,
+    identity: &Identity,
+    rules: LoginRules<'_>,
+    link: Option<Uuid>,
+) -> Result<Uuid> {
     Ok(match db {
-        Db::Postgres(pool) => login_user_on!(pool, identity, rules),
-        Db::Sqlite(pool) => login_user_on!(pool, identity, rules),
+        Db::Postgres(pool) => login_user_on!(pool, identity, rules, link),
+        Db::Sqlite(pool) => login_user_on!(pool, identity, rules, link),
     })
+}
+
+/// Marks the login that will start with `challenge` as a link for `user`,
+/// who asked with a session. Only that app knows the challenge, it made the
+/// verifier behind it. `state` is a placeholder that no provider brings
+/// back, the start of the login sets the real one, and a row with no way
+/// back cannot finish. False when a login of this challenge has its user
+/// already.
+pub(crate) async fn link_pending(
+    db: &Db,
+    challenge: &str,
+    state: &str,
+    user: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let linked = on_db!(
+        db,
+        r"
+INSERT INTO pending_logins (challenge, state, link_user) VALUES ($1, $2, $3)
+ON CONFLICT (challenge) DO UPDATE SET link_user = EXCLUDED.link_user, created_at = now()
+WHERE pending_logins.user_id IS NULL",
+        r"
+INSERT INTO pending_logins (challenge, state, link_user) VALUES ($1, $2, $3)
+ON CONFLICT (challenge) DO UPDATE SET link_user = excluded.link_user, created_at = unixepoch()
+WHERE pending_logins.user_id IS NULL",
+        |sql, pool| sqlx::query(sql)
+            .bind(challenge)
+            .bind(state)
+            .bind(user)
+            .execute(pool)
+            .await
+            .map(|done| done.rows_affected())
+    )?;
+    Ok(linked > 0)
+}
+
+/// The providers `user` signs in with, by their column names.
+pub(crate) async fn providers_of(db: &Db, user: Uuid) -> Result<Vec<String>, sqlx::Error> {
+    let both = "SELECT provider FROM identities WHERE user_id = $1 ORDER BY provider";
+    let names: Vec<(String,)> = on_db!(db, both, both, |sql, pool| sqlx::query_as(sql)
+        .bind(user)
+        .fetch_all(pool)
+        .await)?;
+    Ok(names.into_iter().map(|(name,)| name).collect())
 }
 
 /// What Apple has to be told to forget before the user goes.

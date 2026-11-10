@@ -20,7 +20,7 @@ mod qr_code_view;
 mod qr_code_view_test;
 mod wire;
 
-pub use client::{Login, LoginCode, Provider};
+pub use client::{LinkedProviders, Login, LoginCode, Provider};
 pub use login_button::{AppleLoginButton, DiscordLoginButton, GoogleLoginButton};
 pub use qr_code_view::QrCodeView;
 pub use wire::LoginUser;

@@ -347,6 +347,114 @@ async fn a_discord_login_gives_the_app_its_session() -> Result<()> {
     Ok(())
 }
 
+/// The session token a finished login gives its app.
+async fn session_of(app: &Router, verifier: &str, code: &str) -> Result<String> {
+    #[derive(Serialize)]
+    struct Poll<'a> {
+        verifier: &'a str,
+        code:     &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Session {
+        token: String,
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_string(&Poll { verifier, code })?))?,
+        )
+        .await?;
+    let session: Session = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    Ok(session.token)
+}
+
+// The failure this prevents: with the join by email off, a user of Apple
+// could never add Discord. And a link must land only in the user whose
+// session asked for it.
+#[tokio::test]
+async fn a_signed_in_user_links_a_second_provider() -> Result<()> {
+    #[derive(Deserialize)]
+    struct Providers {
+        linked:  Vec<String>,
+        offered: Vec<String>,
+    }
+
+    let discord_origin = fake_discord(
+        r#"{"id":"228","username":"ana.","global_name":"Ana","email":"ana@example.com","verified":true}"#,
+    )
+    .await?;
+    let mut discord = DiscordConfig::new("the client", "the secret");
+    discord.token_url = format!("{discord_origin}/token");
+    discord.user_url = format!("{discord_origin}/user");
+    let app = apple_app(|config| config.with_discord(discord).with_no_email_join()).await?;
+
+    let first = "the verifier of the first sign in";
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=40000", challenge_of(first)),
+    )
+    .await?;
+    let token = session_of(&app, first, &query_value(&location(&response)?, "code")?).await?;
+
+    // Discord on the same email, with no link asked: refused.
+    let plain = "a sign in with no link";
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(plain)),
+    )
+    .await?;
+    assert!(text_of(response).await?.contains("signs in only with Apple"));
+
+    // Nobody asks for a link without a session.
+    let linked = "the verifier of the link";
+    let body = format!(r#"{{"challenge":"{}"}}"#, challenge_of(linked));
+    let ask = |bearer: Option<String>| {
+        let mut builder = request("POST", "/auth/link").header(CONTENT_TYPE, "application/json");
+        if let Some(bearer) = bearer {
+            builder = builder.header("authorization", format!("Bearer {bearer}"));
+        }
+        builder.body(Body::from(body.clone()))
+    };
+    let response = app.clone().oneshot(ask(None)?).await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app.clone().oneshot(ask(Some(token.clone()))?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(linked)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+    assert_eq!(poll_status(&app, linked, Some(&code)).await?, "done");
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("GET", "/auth/providers")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let providers: Providers = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    assert_eq!(providers.linked, ["apple", "discord"]);
+    assert_eq!(providers.offered, ["google", "apple", "discord"]);
+
+    // From now on Discord signs in to the same user with no link.
+    let later = "a later sign in with discord";
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(later)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+    assert_eq!(poll_status(&app, later, Some(&code)).await?, "done");
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_discord_account_with_no_verified_email_gets_no_session() -> Result<()> {
     let app = discord_app(r#"{"id":"228","username":"vladasz.","email":"ana@example.com","verified":false}"#)
