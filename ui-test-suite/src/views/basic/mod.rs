@@ -5,6 +5,7 @@ mod button_disabled;
 mod button_icon;
 mod button_title_size;
 mod checkbox;
+mod checkbox_disabled;
 mod command_held;
 mod corner_radii;
 mod dynamic_clear_color;
