@@ -18,9 +18,9 @@ use crate::{
     },
 };
 
-/// The description must carry enough to act on, matching the karkas
-/// dialog's rule.
-const MIN_DESCRIPTION_CHARS: usize = 20;
+/// A few words are enough to act on, a longer minimum made people pad
+/// a short idea with junk to get Send on.
+const MIN_DESCRIPTION_CHARS: usize = 5;
 
 /// Every open uploads the screenshot as a fresh managed texture. Managed
 /// resources are never freed, the pipelines rely on that, so the name
@@ -97,7 +97,10 @@ impl Setup for BugReportForm {
         self.email.set_placeholder("you@example.com");
         self.email.place().anchor(Top, self.email_label, 6).lr(24).h(36);
 
-        Self::caption(self.desc_label, "Describe the bug (required, min 20 chars)");
+        Self::caption(
+            self.desc_label,
+            &format!("Describe the bug (required, min {MIN_DESCRIPTION_CHARS} chars)"),
+        );
         self.desc_label.place().anchor(Top, self.email, 14).l(24).size(300, 16);
 
         Self::field(self.description);

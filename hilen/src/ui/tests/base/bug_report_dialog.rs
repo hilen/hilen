@@ -17,36 +17,36 @@ use crate::{
 const OPEN_PROBES: &str = r"
              592    4 - #f7f8fa
               84   20 - #17191d
-             236   20 - #d4d7db
               60   24 - #17191d
               84   24 - #17191d
+             232   24 - #bec1c7
              324   48 - #e0e2e6
              416   48 - #e0e2e6
-             508   48 - #e0e2e6
-              92   72 - #848a93
-             212  148 - #7e848d
-              60  176 - #d1d1d2
-             152  176 - #bcbcbc
+              92   72 - #8b9199
+             160  108 - #cacacb
+              44  144 - #f7f8fa
+             152  144 - #5d6570
+             172  176 - #cccccd
              284  176 - #ececef
-              68  272 - #f7f8fa
-             592  292 - #f7f8fa
-             148  300 - #b5b9be
-             404  328 - #f7f8fa
-             156  456 - #f3f4f6
+              60  272 - #f7f8fa
+             592  288 - #f7f8fa
+             148  300 - #bcc0c5
+             400  336 - #f7f8fa
+              80  456 - #5f6772
+             144  456 - #818790
               32  480 - #464e61
               36  480 - #464e61
-              36  484 - #273549
               32  488 - #273549
               36  488 - #273549
               40  488 - #273549
               28  492 - #273549
               36  492 - #273549
-              88  520 - #d7d9dd
-             220  520 - #616974
-             320  520 - #636b75
-             376  520 - #666e78
-             428  572 - #a1a6ad
-             536  572 - #8e8e93
+              68  520 - #bec1c7
+             208  520 - #a5aab0
+             220  520 - #68707a
+             336  520 - #dcdfe2
+             544  568 - #a6a6aa
+             428  572 - #9da2a9
 ";
 
 const FILLED_PROBES: &str = r"
@@ -204,7 +204,7 @@ impl ViewTest for BugReportDialog {
                 dialog.form.keys_preview.text(),
                 "+0.00s  Meta+KeyS\n+1.50s  Escape"
             );
-            assert_eq!(dialog.form.counter.text(), "0 / 20 (20 more)");
+            assert_eq!(dialog.form.counter.text(), "0 / 5 (5 more)");
         });
 
         check_colors(OPEN_PROBES)?;
@@ -260,7 +260,7 @@ impl ViewTest for BugReportDialog {
         wait_for_next_frame();
 
         from_main(move || {
-            assert_eq!(dialog.form.counter.text(), "34 / 20");
+            assert_eq!(dialog.form.counter.text(), "34 / 5");
         });
 
         check_colors(FILLED_PROBES)?;
