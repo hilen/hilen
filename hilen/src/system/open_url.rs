@@ -7,9 +7,10 @@ use anyhow::{Result, anyhow};
 /// The schemes a link may open. Any other, like `javascript:`, `data:` or a
 /// handler an app registered on the desktop, can run code, so text a stranger
 /// wrote must never open one.
-const SAFE_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
+/// A `tel:` address only hands a number to the call app of the system.
+const SAFE_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
 
-/// Whether `url` is an absolute `http`, `https` or `mailto` address.
+/// Whether `url` is an absolute `http`, `https`, `mailto` or `tel` address.
 ///
 /// The scheme is read the way a browser reads it: spaces and control
 /// characters before it are dropped, and a tab or a line break inside it is
@@ -80,8 +81,8 @@ pub fn open_url(url: impl ToString) -> Result<()> {
     let url = url.to_string();
 
     if is_refused(&url) {
-        log::warn!("refused to open {url:?}, only http, https and mailto links open");
-        return Err(anyhow!("Only http, https and mailto links open"));
+        log::warn!("refused to open {url:?}, only http, https, mailto and tel links open");
+        return Err(anyhow!("Only http, https, mailto and tel links open"));
     }
 
     #[cfg(desktop)]
@@ -200,12 +201,14 @@ mod tests {
     }
 
     #[test]
-    fn only_http_https_and_mailto_are_safe() {
+    fn only_http_https_mailto_and_tel_are_safe() {
         for url in [
             "https://a.b/c",
             "http://a.b",
             "HTTPS://A.B",
             "mailto:a@b.c",
+            "tel:+351%2021%20121%201917;785423662%23",
+            "TEL:+37060000000",
             " \u{1}https://a.b",
         ] {
             assert!(is_safe_link(url), "{url:?} is a safe link");
@@ -244,6 +247,7 @@ mod tests {
         for url in [
             "https://a.b",
             "mailto:a@b.c",
+            "tel:+37060000000",
             "/Users/me/game",
             "C:\\Users\\me",
             "folder/sub",
