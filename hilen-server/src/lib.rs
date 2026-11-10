@@ -29,7 +29,7 @@ pub use project_proc::project_name;
 pub use prometheus::{install_metrics, metrics_mount};
 pub use redis;
 pub use rust_embed;
-pub use security::PageCsp;
+pub use security::{PageCsp, request_timeout};
 pub use sqlx;
 pub use tls::{LocalCert, serve_tls};
 pub use tokio;

@@ -3436,6 +3436,7 @@ dependencies = [
  "ui-proc",
  "unicode-linebreak",
  "unicode-width",
+ "url",
  "usvg",
  "uuid",
  "wasm-bindgen-futures",

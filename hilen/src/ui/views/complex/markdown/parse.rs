@@ -3,7 +3,10 @@ use std::mem::take;
 use linkify::{LinkFinder, LinkKind};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
-use super::model::{Block, Face, Item, Kind, Link, Marker, Span, Style, Styled};
+use super::{
+    link_host::outside_host,
+    model::{Block, Face, Item, Kind, Link, Marker, Span, Style, Styled},
+};
 use crate::system::is_safe_link;
 
 /// Stands right after every link when the view shows copy buttons, the
@@ -17,16 +20,42 @@ pub(crate) fn parse(text: &str) -> Vec<Block> {
     parse_lines(text, false, false)
 }
 
-/// Like `parse`. With `keeps_line_breaks` a line break inside a paragraph
-/// stays one, markdown itself reads it as a space. With `copy_rooms` a
-/// `COPY_ROOM` follows every link.
+/// Like `parse`, with a line break kept and a copy room, see `Reading`.
+#[cfg(test)]
 pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool, copy_rooms: bool) -> Vec<Block> {
+    read(
+        text,
+        Reading {
+            keeps_line_breaks,
+            copy_rooms,
+            hosts_but: None,
+        },
+    )
+}
+
+/// How a text is read, next to the text itself.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Reading<'a> {
+    /// A line break inside a paragraph stays one, markdown itself reads it
+    /// as a space.
+    pub keeps_line_breaks: bool,
+    /// A `COPY_ROOM` follows every link.
+    pub copy_rooms:        bool,
+    /// Set to show the host after a link, see `MarkdownLinkHosts`. It
+    /// names the host of the app itself, whose links show none, and is
+    /// empty for an app with no site.
+    pub hosts_but:         Option<&'a str>,
+}
+
+/// GitHub flavored markdown as blocks, read the way `reading` says.
+pub(crate) fn read(text: &str, reading: Reading) -> Vec<Block> {
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     #[cfg(feature = "math")]
     let options = options | Options::ENABLE_MATH;
     let mut builder = Builder {
-        copy_rooms,
-        soft_break: if keeps_line_breaks { "\n" } else { " " },
+        copy_rooms: reading.copy_rooms,
+        soft_break: if reading.keeps_line_breaks { "\n" } else { " " },
+        hosts_but: reading.hosts_but.map(str::to_owned),
         ..Builder::default()
     };
     // The parser can hand 1 text over in several pieces, a url among them,
@@ -36,6 +65,12 @@ pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool, copy_rooms: bool)
     }
     builder.finish()
 }
+
+/// How many quotes and lists can stand inside each other. The view lays a
+/// block out by recursion, 1 round per level, and a text of 9999 `>` made a
+/// tree that deep. A quote or a list past the limit adds no level, its
+/// blocks land in the last one that fits.
+pub(crate) const MAX_NESTING: usize = 16;
 
 /// What blocks are collected into right now.
 enum Frame {
@@ -86,9 +121,21 @@ struct Builder {
     /// What a line break inside a paragraph becomes.
     soft_break:   &'static str,
     copy_rooms:   bool,
+    /// The open quotes and lists past `MAX_NESTING`, which got no frame.
+    too_deep:     usize,
+    /// See `Reading::hosts_but`.
+    hosts_but:    Option<String>,
 }
 
 impl Builder {
+    /// The open quotes and lists that have a frame.
+    fn nesting(&self) -> usize {
+        self.frames
+            .iter()
+            .filter(|frame| matches!(frame, Frame::Quote(_) | Frame::List { .. }))
+            .count()
+    }
+
     fn event(&mut self, event: Event) {
         match event {
             Event::Start(tag) => self.start(tag),
@@ -127,6 +174,12 @@ impl Builder {
                 self.heading = Some(level as u8);
                 self.inline = Some(Styled::default());
             }
+            Tag::BlockQuote(_) | Tag::List(_) if self.nesting() >= MAX_NESTING => {
+                self.flush();
+                self.too_deep += 1;
+            }
+            // An item of a list that got no frame, its blocks stay.
+            Tag::Item if self.too_deep > 0 => self.flush(),
             Tag::BlockQuote(_) => {
                 self.flush();
                 self.frames.push(Frame::Quote(Vec::new()));
@@ -191,6 +244,13 @@ impl Builder {
                 let level = self.heading.take().unwrap_or(1);
                 self.push(Block::Heading { level, text });
             }
+            // Every quote and list past the limit is inside the last one
+            // that fits, so these ends are theirs.
+            TagEnd::BlockQuote(_) | TagEnd::List(_) if self.too_deep > 0 => {
+                self.flush();
+                self.too_deep -= 1;
+            }
+            TagEnd::Item if self.too_deep > 0 => self.flush(),
             TagEnd::BlockQuote(_) => {
                 self.flush();
                 if let Some(Frame::Quote(blocks)) = self.frames.pop() {
@@ -251,11 +311,13 @@ impl Builder {
                     && let Some(text) = &mut self.inline
                     && start < text.text.len()
                 {
+                    let shown = text.text[start..].to_owned();
                     text.links.push(Link {
                         range: start..text.text.len(),
-                        url,
+                        url:   url.clone(),
                     });
                     self.copy_room();
+                    self.host_after(&url, &shown);
                 }
             }
             _ => {}
@@ -314,6 +376,30 @@ impl Builder {
         styled.spans.push(Span {
             range: start..styled.text.len(),
             style,
+        });
+    }
+
+    /// Adds the host a link goes to after it, when the reading asks for it
+    /// and the link leaves the site with a text that does not say so.
+    fn host_after(&mut self, url: &str, shown: &str) {
+        let Some(own) = &self.hosts_but else {
+            return;
+        };
+        let Some(host) = outside_host(url, shown, own) else {
+            return;
+        };
+        let Some(styled) = &mut self.inline else {
+            return;
+        };
+        styled.text.push(' ');
+        let start = styled.text.len();
+        styled.text.push_str(&host);
+        styled.spans.push(Span {
+            range: start..styled.text.len(),
+            style: Style {
+                kind: Kind::Host,
+                ..Style::default()
+            },
         });
     }
 
@@ -382,7 +468,7 @@ fn formula_parses(_source: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{COPY_ROOM, parse, parse_lines};
+    use super::{COPY_ROOM, MAX_NESTING, Reading, parse, parse_lines, read};
     use crate::ui::views::complex::markdown::model::{Block, Face, Kind, Marker, Style};
 
     #[test]
@@ -619,5 +705,87 @@ mod tests {
         assert_eq!(code, "fn main() {}");
         assert_eq!(head.len(), 2);
         assert_eq!(rows[0][1].text, "2");
+    }
+
+    fn depth_of(blocks: &[Block]) -> usize {
+        blocks
+            .iter()
+            .map(|block| match block {
+                Block::Quote(inner) => 1 + depth_of(inner),
+                Block::List(items) => 1 + items.iter().map(|item| depth_of(&item.blocks)).max().unwrap_or(0),
+                _ => 0,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    // A post of 9999 `>` and 1 word made a tree 9999 levels deep, and the
+    // view lays a block out by recursion.
+    #[test]
+    fn quotes_and_lists_stop_nesting_at_a_fixed_depth() {
+        let quotes = format!("{}deep", ">".repeat(9999));
+        let blocks = parse(&quotes);
+        assert_eq!(depth_of(&blocks), MAX_NESTING);
+        assert!(
+            format!("{blocks:?}").contains("deep"),
+            "the text of the deepest quote stays"
+        );
+
+        let mut lists = String::new();
+        for level in 0..100 {
+            lists.push_str(&"  ".repeat(level));
+            lists.push_str(&format!("- item {level}\n"));
+        }
+        let blocks = parse(&lists);
+        assert_eq!(depth_of(&blocks), MAX_NESTING);
+        let shown = format!("{blocks:?}");
+        assert!(
+            shown.contains("item 0") && shown.contains("item 99"),
+            "no item is lost"
+        );
+
+        let few = parse("> a\n>\n> > b\n\nafter");
+        assert_eq!(depth_of(&few), 2, "a normal text keeps its levels");
+    }
+
+    // A link said one address and opened another, and a canvas shows no
+    // address under the mouse.
+    #[test]
+    fn the_host_of_a_link_that_leaves_the_site_stands_after_it() {
+        let reading = Reading {
+            hosts_but: Some("site.example"),
+            ..Reading::default()
+        };
+        let text = "[my guide](https://evil.example/x), [a thread](https://site.example/thread/5) and \
+                    [https://evil.example/y](https://evil.example/y)";
+        let blocks = read(text, reading);
+        let [Block::Paragraph(styled)] = blocks.as_slice() else {
+            panic!("not 1 paragraph: {blocks:?}");
+        };
+        assert_eq!(
+            styled.text,
+            "my guide evil.example, a thread and https://evil.example/y"
+        );
+        let hosts: Vec<&str> = styled
+            .spans
+            .iter()
+            .filter(|span| span.style.kind == Kind::Host)
+            .map(|span| &styled.text[span.range.clone()])
+            .collect();
+        assert_eq!(hosts, ["evil.example"]);
+        assert!(
+            styled
+                .spans
+                .iter()
+                .all(|span| span.style.kind != Kind::Host || !span.style.link),
+            "the host is no part of the link"
+        );
+        assert_eq!(&styled.text[styled.links[0].range.clone()], "my guide");
+
+        let hidden = parse("[my guide](https://evil.example/x)");
+        let [Block::Paragraph(styled)] = hidden.as_slice() else {
+            panic!("not 1 paragraph: {hidden:?}");
+        };
+        assert_eq!(styled.text, "my guide", "no host unless the reading asks for it");
     }
 }

@@ -120,6 +120,9 @@ pub struct AuthConfig {
     /// Users who may sign in only with some providers, see
     /// [`AuthConfig::with_only_providers`].
     pub provider_limits:      Vec<(Uuid, Vec<Provider>)>,
+    /// A first login through a new provider joins the user of the same
+    /// email, on by default, see [`AuthConfig::with_no_email_join`].
+    pub joins_by_email:       bool,
 }
 
 impl AuthConfig {
@@ -140,6 +143,7 @@ impl AuthConfig {
             discord:              None,
             code_login:           false,
             provider_limits:      Vec::new(),
+            joins_by_email:       true,
         }
     }
 
@@ -171,6 +175,25 @@ impl AuthConfig {
     pub fn with_only_providers(mut self, user: Uuid, providers: &[Provider]) -> Self {
         self.provider_limits.push((user, providers.to_vec()));
         self
+    }
+
+    /// A first login through a new provider no more joins the user of the
+    /// same email. It is refused, and the page names the providers that
+    /// user signs in with. Without this, whoever takes over the account of
+    /// a user at 1 provider gets into the user of the app too, also when
+    /// that user never signed in there. Users joined before stay joined.
+    #[must_use]
+    pub fn with_no_email_join(mut self) -> Self {
+        self.joins_by_email = false;
+        self
+    }
+
+    /// The rules a login is checked by.
+    pub(crate) fn login_rules(&self) -> store::LoginRules<'_> {
+        store::LoginRules {
+            limits:         &self.provider_limits,
+            joins_by_email: self.joins_by_email,
+        }
     }
 
     /// Turns the Discord login on.

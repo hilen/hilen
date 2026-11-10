@@ -32,7 +32,8 @@ to share. Its `security` module puts `nosniff`, a `Referrer-Policy`, a frame blo
 a closed `Content-Security-Policy` on every answer that `serve` gives, and `PageCsp`
 gives the html of a trunk page a policy it can run under, its inline scripts allowed
 by their hashes, `fetch` only to its own origin unless the app adds one with
-`.connect`, and `Cross-Origin-Opener-Policy: same-origin`. It never
+`.connect`, and `Cross-Origin-Opener-Policy: same-origin`. `request_timeout` ends a request with no
+answer after a limit, an app with no long poll puts its router through it. It never
 links the `hilen` UI crate, a backend and a client only share the wire.
 Its own queries use the plain `query` functions of sqlx, because the login code runs
 the same query on both databases through `Db` and a checked macro can check against

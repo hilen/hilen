@@ -200,6 +200,16 @@ that user, anything else makes a new user. Both providers hand out verified emai
 An Apple account with a hidden email has a relay address and becomes a user of its own.
 A user with a `dev` identity is left out of that email join, see the next section.
 
+## No join by the email
+
+A first login through a new provider joins the user of the same email, so a person
+with Google and Apple on 1 email is 1 user. `AuthConfig::with_no_email_join()` turns
+that off for an app: such a login is refused, nothing of it is saved, and the browser
+ends on "This account signs in only with Google". Without it, whoever takes over the
+account of a user at 1 provider gets into the user of the app too, also when that user
+never signed in there. Users joined before stay joined, and a known identity signs in
+as before. A way to add a second provider from a signed in session is not built yet.
+
 ## A user limited to some providers
 
 `AuthConfig::with_only_providers(user_id, &[Provider::Google])` lets 1 user sign in only

@@ -31,6 +31,7 @@ mod embedded;
 mod level_drawer;
 #[cfg(feature = "scene")]
 mod scene_drawer;
+mod visit_text;
 mod web;
 mod web_log;
 mod web_visit;

@@ -25,6 +25,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use web_sys::wasm_bindgen::{JsCast, closure::Closure};
 
+use crate::visit_text::{holds_requests, without_query};
+
 const KEY: &str = "hilen_visit";
 const HEARTBEAT_SECS: f32 = 5.0;
 const LOG_LINES: usize = 40;
@@ -144,7 +146,7 @@ pub(crate) fn start(path: &str) {
     let mut visit = Visit {
         id: format!("{started:.0}-{}", random.trim_start_matches("0.")),
         started,
-        url: window.location().href().unwrap_or_default(),
+        url: without_query(&window.location().href().unwrap_or_default()).to_owned(),
         agent: window.navigator().user_agent().unwrap_or_default(),
         screen: format!(
             "{}x{} at {}",
@@ -222,8 +224,8 @@ pub(crate) fn frame() {
 
 /// Keeps the line for the record. It is written with the next step or
 /// heartbeat, never on its own, a log line can come often.
-pub(crate) fn push_log(level: log::Level, line: &str) {
-    if PATH.get().is_none() {
+pub(crate) fn push_log(level: log::Level, target: &str, line: &str) {
+    if PATH.get().is_none() || holds_requests(target) {
         return;
     }
     // The logger can run inside a locked change of the visit.

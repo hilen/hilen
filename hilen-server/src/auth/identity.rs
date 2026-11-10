@@ -30,6 +30,19 @@ impl Provider {
         }
     }
 
+    /// The provider of a `provider` column, none for a name of another
+    /// build, like `dev` in a release.
+    pub(crate) fn of_name(name: &str) -> Option<Self> {
+        match name {
+            "google" => Some(Self::Google),
+            "apple" => Some(Self::Apple),
+            "discord" => Some(Self::Discord),
+            #[cfg(feature = "dev-login")]
+            "dev" => Some(Self::Dev),
+            _ => None,
+        }
+    }
+
     /// The name a person reads, like `Google`.
     pub(crate) const fn title(self) -> &'static str {
         match self {

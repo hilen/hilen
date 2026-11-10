@@ -15,8 +15,27 @@ use crate::{
     },
 };
 
+/// What decides whether a login may land in a user.
+#[derive(Clone, Copy)]
+pub(crate) struct LoginRules<'a> {
+    /// Users who may sign in only with some providers.
+    pub limits:         &'a [(Uuid, Vec<Provider>)],
+    /// A first login through a new provider joins the user of its email.
+    pub joins_by_email: bool,
+}
+
+impl LoginRules<'_> {
+    /// No limit, and a new provider joins by the email.
+    #[cfg(any(test, feature = "dev-login"))]
+    pub(crate) const OPEN: LoginRules<'static> = LoginRules {
+        limits:         &[],
+        joins_by_email: true,
+    };
+}
+
 /// A login through a provider its user may not use, see
-/// `AuthConfig::with_only_providers`. Nothing of it was saved.
+/// `AuthConfig::with_only_providers` and `with_no_email_join`. Nothing of
+/// it was saved.
 #[derive(Debug)]
 pub(crate) struct LoginRefused {
     pub provider: Provider,
@@ -252,9 +271,10 @@ RETURNING user_id",
 /// The body of `login_user`, the same statements on either database inside
 /// one transaction.
 macro_rules! login_user_on {
-    ($pool:expr, $identity:expr, $limits:expr) => {{
+    ($pool:expr, $identity:expr, $rules:expr) => {{
         let identity: &Identity = $identity;
-        let limits: &[(Uuid, Vec<Provider>)] = $limits;
+        let rules: LoginRules = $rules;
+        let limits = rules.limits;
         let provider = identity.provider.name();
         let mut transaction = $pool.begin().await?;
 
@@ -309,6 +329,19 @@ ORDER BY created_at LIMIT 1",
             };
 
             let user_id = if let Some((user_id,)) = same_email {
+                if !rules.joins_by_email {
+                    let names: Vec<(String,)> = sqlx::query_as(
+                        "SELECT provider FROM identities WHERE user_id = $1 ORDER BY provider",
+                    )
+                    .bind(user_id)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+                    return Err(LoginRefused {
+                        provider: identity.provider,
+                        allowed:  names.iter().filter_map(|(name,)| Provider::of_name(name)).collect(),
+                    }
+                    .into());
+                }
                 user_id
             } else {
                 let user_id = new_id()?;
@@ -361,19 +394,16 @@ ORDER BY created_at LIMIT 1",
 /// it, its email is not verified by anyone.
 #[cfg(any(test, feature = "dev-login"))]
 pub(crate) async fn login_user(db: &Db, identity: &Identity) -> Result<Uuid> {
-    login_user_limited(db, identity, &[]).await
+    login_user_limited(db, identity, LoginRules::OPEN).await
 }
 
-/// The same, and a user of `limits` signs in only with its own providers. Any
-/// other login of that user fails with [`LoginRefused`].
-pub(crate) async fn login_user_limited(
-    db: &Db,
-    identity: &Identity,
-    limits: &[(Uuid, Vec<Provider>)],
-) -> Result<Uuid> {
+/// The same under `rules`. A user of its limits signs in only with its own
+/// providers, and with no join by email a new provider does not land in the
+/// user of its email. Such a login fails with [`LoginRefused`].
+pub(crate) async fn login_user_limited(db: &Db, identity: &Identity, rules: LoginRules<'_>) -> Result<Uuid> {
     Ok(match db {
-        Db::Postgres(pool) => login_user_on!(pool, identity, limits),
-        Db::Sqlite(pool) => login_user_on!(pool, identity, limits),
+        Db::Postgres(pool) => login_user_on!(pool, identity, rules),
+        Db::Sqlite(pool) => login_user_on!(pool, identity, rules),
     })
 }
 

@@ -256,6 +256,7 @@ sysinfo = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
 two-face = { workspace = true, optional = true }
+url = { workspace = true }
 web-time = { workspace = true }
 wgpu = { workspace = true, optional = true }
 wgpu_text = { workspace = true, optional = true }

@@ -144,6 +144,9 @@ fn is_hashed(path: &str) -> bool {
     })
 }
 
+/// Where trunk copies the asset files of an app, see `assets.rs` of hilen.
+const ASSETS_FOLDER: &str = "assets/";
+
 /// An asset of the engine comes as `assets/<kind>/<name>?h=<hash>`, the hash
 /// of `assets.json`. Only a hash of these very bytes may keep it for good,
 /// an old address must never pin new bytes.
@@ -224,7 +227,11 @@ async fn embedded<A: RustEmbed>(req: Request) -> Response {
     let Some(a) = asset else {
         return (StatusCode::NOT_FOUND, "no index.html in the embedded dist").into_response();
     };
-    let for_good = is_hashed(mime_path) || names_its_hash(req.uri().query(), &a.data);
+    // Only an asset of the engine comes with its hash. The hash of
+    // `index.html` is public, and a link that named it made a browser keep
+    // the page for a year, past every later deploy.
+    let asset_by_hash = mime_path.starts_with(ASSETS_FOLDER) && names_its_hash(req.uri().query(), &a.data);
+    let for_good = is_hashed(mime_path) || asset_by_hash;
     let cache = if for_good {
         "public, max-age=31536000, immutable"
     } else {
@@ -300,7 +307,9 @@ mod test {
     use rust_embed::RustEmbed;
     use tower::ServiceExt;
 
-    use super::{INSPECT_MARKER_PARTS, find_inspect, is_hashed, is_route_path, names_a_file, web_mount_with};
+    use super::{
+        INSPECT_MARKER_PARTS, find_inspect, fnv1a, is_hashed, is_route_path, names_a_file, web_mount_with,
+    };
 
     #[derive(RustEmbed)]
     #[folder = "tests/inspect-dist/"]
@@ -379,6 +388,39 @@ mod test {
         let (status, kind, _) = answer("/thread/12").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(kind.as_deref(), Some("text/html"));
+    }
+
+    async fn cache_of(path: &str) -> String {
+        let response = web_mount_with::<Clean, ()>(None)
+            .oneshot(Request::get(path).body(Body::empty()).expect("request"))
+            .await
+            .expect("answer");
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|cache| cache.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    /// A link with the hash of `index.html` in its query made a browser keep
+    /// the page for a year.
+    #[tokio::test]
+    async fn only_an_asset_is_kept_for_good_by_its_hash() {
+        let index = Clean::get("index.html").expect("the test dist has a page");
+        let hash = fnv1a(&index.data);
+        for path in [
+            format!("/?h={hash}"),
+            format!("/settings?h={hash}"),
+            format!("/index.html?h={hash}"),
+        ] {
+            assert_eq!(cache_of(&path).await, "no-cache", "{path}");
+        }
+
+        let asset = Clean::get("assets/assets.json").expect("the test dist has an asset");
+        let path = format!("/assets/assets.json?h={}", fnv1a(&asset.data));
+        assert_eq!(cache_of(&path).await, "public, max-age=31536000, immutable");
+        assert_eq!(cache_of("/assets/assets.json?h=0").await, "no-cache");
     }
 
     #[test]

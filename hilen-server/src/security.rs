@@ -7,15 +7,18 @@
 //! the page can run under, its own scripts and wasm and the inline scripts of
 //! its `index.html` by their hashes, and `Cross-Origin-Opener-Policy`.
 
+use std::time::Duration;
+
 use axum::{
     Router,
-    http::{HeaderMap, HeaderName, HeaderValue, header},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     middleware::map_response,
     response::Response,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rust_embed::RustEmbed;
 use sha2::{Digest, Sha256};
+use tower_http::timeout::TimeoutLayer;
 
 /// The policy of an answer that is not a page, like json or a file. It loads
 /// nothing and runs nothing, and no other site can frame it.
@@ -54,6 +57,16 @@ fn set_missing(headers: &mut HeaderMap, name: header::HeaderName, value: HeaderV
     if !headers.contains_key(&name) {
         headers.insert(name, value);
     }
+}
+
+/// Ends every request of `router` that has no answer after `limit`, with a
+/// 408. Without it a sender that stops in the middle of a request holds its
+/// connection and its memory for good. [`serve`](crate::serve) sets no limit
+/// by itself, a long poll or a big download of an app must stay open. An app
+/// with neither puts its whole router through this.
+pub fn request_timeout<S>(router: Router<S>, limit: Duration) -> Router<S>
+where S: Clone + Send + Sync + 'static {
+    router.layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, limit))
 }
 
 /// The `Content-Security-Policy` of a trunk page.
@@ -192,18 +205,21 @@ fn inline_scripts(html: &str) -> impl Iterator<Item = &str> {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
     use axum::{
         Router,
         body::Body,
-        http::{Request, header},
+        http::{Request, StatusCode, header},
         response::Html,
         routing::get,
     };
     use base64::{Engine, engine::general_purpose::STANDARD};
     use sha2::{Digest, Sha256};
+    use tokio::time::sleep;
     use tower::ServiceExt;
 
-    use super::{PageCsp, base, inline_scripts};
+    use super::{PageCsp, base, inline_scripts, request_timeout};
 
     const PAGE: &str = r#"<html><head><script>boot()</script><script type="module" src="/app.js"></script>
 <script type="module">import init from '/app.js'; init();</script></head><body></body></html>"#;
@@ -276,6 +292,29 @@ mod test {
         assert!(policy.contains("connect-src 'self';"), "{policy}");
         assert!(!policy.contains("googleusercontent"), "{policy}");
         assert!(!policy.contains("discordapp"), "{policy}");
+    }
+
+    #[tokio::test]
+    async fn a_request_with_no_answer_ends_at_the_limit() {
+        let routes = Router::new().route("/fast", get(|| async { "ok" })).route(
+            "/slow",
+            get(|| async {
+                sleep(Duration::from_secs(5)).await;
+                "late"
+            }),
+        );
+        let app = request_timeout(routes, Duration::from_millis(50));
+        let status = |path: &'static str| {
+            let app = app.clone();
+            async move {
+                app.oneshot(Request::builder().uri(path).body(Body::empty()).expect("request"))
+                    .await
+                    .expect("answer")
+                    .status()
+            }
+        };
+        assert_eq!(status("/fast").await, StatusCode::OK);
+        assert_eq!(status("/slow").await, StatusCode::REQUEST_TIMEOUT);
     }
 
     #[tokio::test]

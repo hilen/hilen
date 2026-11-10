@@ -21,13 +21,14 @@ use crate::{
     },
     system::{Clipboard, open_url},
     ui::{
-        Container, DrawingView, ImageView, Label, MarkdownListMarkers, MarkdownStyle, RunStyle, Setup,
-        TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment, ViewCallbacks, ViewFrame,
-        ViewSubviews,
+        Container, DrawingView, ImageView, Label, MarkdownLinkHosts, MarkdownListMarkers, MarkdownStyle,
+        RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment,
+        ViewCallbacks, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
+            link_host::own_host,
             model::{Block, Item, Kind, Marker, Styled},
-            parse::{COPY_ROOM, parse_lines},
+            parse::{COPY_ROOM, Reading, read},
             selection::marker_text,
         },
     },
@@ -162,10 +163,15 @@ impl MarkdownView {
     /// GitHub flavored markdown, with tables, task lists and strikethrough.
     pub fn set_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
         self.source = Some(text.to_string());
-        self.blocks = parse_lines(
+        let style = MarkdownStyle::current();
+        let own = own_host();
+        self.blocks = read(
             text,
-            MarkdownStyle::current().keeps_line_breaks,
-            self.copy_buttons,
+            Reading {
+                keeps_line_breaks: style.keeps_line_breaks,
+                copy_rooms:        self.copy_buttons,
+                hosts_but:         (style.link_hosts == MarkdownLinkHosts::Outside).then_some(own.as_str()),
+            },
         );
         self.changed();
         self
@@ -452,6 +458,8 @@ impl MarkdownView {
                 style.link
             } else if span.style.kind == Kind::Code {
                 style.inline_code
+            } else if span.style.kind == Kind::Host {
+                style.dim_text
             } else {
                 return None;
             };

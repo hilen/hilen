@@ -98,6 +98,9 @@ impl Image {
     #[cfg(all(wasm, feature = "net"))]
     pub(crate) async fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
         if Svg::is_svg(&data) {
+            // `load` stops the app on an svg that does not parse, and this
+            // one came from the network.
+            Svg::parse(&data)?;
             return Ok(Self::load(&data, name));
         }
         match crate::image::browser_decode::decode(&data, max_side).await {
@@ -114,6 +117,9 @@ impl Image {
     #[cfg(all(not_wasm, feature = "net"))]
     pub(crate) fn decode_download(name: &str, data: Vec<u8>, max_side: u32) -> Result<Weak<Image>> {
         if Svg::is_svg(&data) {
+            // `load` stops the app on an svg that does not parse, and this
+            // one came from the network.
+            Svg::parse(&data)?;
             return Ok(Self::load(&data, name));
         }
         Self::decode_here(name, &data, max_side)
@@ -308,4 +314,17 @@ pub enum ImageFilter {
     #[default]
     Linear,
     Nearest,
+}
+
+#[cfg(all(test, not_wasm, feature = "net"))]
+mod test {
+    use super::Image;
+
+    /// A file from the network that starts like an svg and does not parse
+    /// stopped the whole app in `load`.
+    #[test]
+    fn a_downloaded_svg_that_does_not_parse_is_an_error() {
+        let broken = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><rect".to_vec();
+        assert!(Image::decode_download("broken.svg", broken, 0).is_err());
+    }
 }

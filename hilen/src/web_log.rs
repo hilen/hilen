@@ -31,7 +31,7 @@ impl Log for WebLogger {
         }
         console_log::log(record);
 
-        crate::web_visit::push_log(record.level(), &record.args().to_string());
+        crate::web_visit::push_log(record.level(), record.target(), &record.args().to_string());
 
         // The bug report ring keeps the same lines the console shows, like
         // the native dispatch does.

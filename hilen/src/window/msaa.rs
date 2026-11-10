@@ -75,15 +75,24 @@ pub fn msaa_sample_count() -> u32 {
         cfg!(target_os = "ios"),
     );
 
-    let count = value.map_or(default, |value| {
-        value.parse().unwrap_or_else(|_| panic!("Invalid HILEN_MSAA value: {value}"))
-    });
-    assert!(
-        matches!(count, 1 | 2 | 4),
-        "HILEN_MSAA must be 1, 2 or 4, got {count}"
-    );
+    let count = asked_count(value.as_deref(), default);
     COUNT.store(count, Ordering::Relaxed);
     count
+}
+
+/// The count `value` asks for, or `default` when it asks for none or for
+/// one that does not exist. The value of a page comes from its address,
+/// which anyone can write into a link, so a bad one must not stop the page.
+fn asked_count(value: Option<&str>, default: u32) -> u32 {
+    let Some(value) = value else {
+        return default;
+    };
+    if let Ok(count @ (1 | 2 | 4)) = value.parse() {
+        count
+    } else {
+        log::warn!("The sample count {value:?} is not 1, 2 or 4, the default {default} stays");
+        default
+    }
 }
 
 /// Sets the samples per pixel, 1, 2 or 4, the smoothing of edges that a
@@ -148,7 +157,18 @@ fn default_sample_count(backend: Option<Backend>, browser: bool, iphone: bool) -
 mod test {
     use wgpu::Backend;
 
-    use super::default_sample_count;
+    use super::{asked_count, default_sample_count};
+
+    // A link with `?hilen_msaa=9` stopped the page of whoever opened it.
+    #[test]
+    fn a_bad_count_keeps_the_default() {
+        assert_eq!(asked_count(None, 4), 4);
+        assert_eq!(asked_count(Some("1"), 4), 1);
+        assert_eq!(asked_count(Some("2"), 4), 2);
+        assert_eq!(asked_count(Some("9"), 4), 4);
+        assert_eq!(asked_count(Some("x"), 1), 1);
+        assert_eq!(asked_count(Some(""), 4), 4);
+    }
 
     #[test]
     fn a_browser_on_webgl_draws_one_sample() {

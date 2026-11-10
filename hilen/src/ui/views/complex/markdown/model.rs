@@ -87,6 +87,9 @@ pub(crate) enum Kind {
     Code,
     /// An inline formula, its text is the LaTeX source in `$` signs.
     Math,
+    /// The host a link goes to, added after the link, see
+    /// `MarkdownLinkHosts`. No part of the text that was written.
+    Host,
 }
 
 /// The weight and the slant of a piece of text.

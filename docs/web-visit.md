@@ -25,6 +25,13 @@ that path.
 - `closed`, `pagehide` came, the visit ended normally,
 - `log`, the last 40 log lines, each cut to 300 characters.
 
+The record goes to the server of the app, so it holds nothing a visitor
+typed. `url` is the address with no query and no fragment. The lines of the
+request code, `netrun`, stay out of `log`: each names the address of a
+request, with a search word or a name in it. The rules are `visit_text.rs`.
+The path of the page and the lines of the app itself are kept as they are,
+an app that puts a name there has to say so in its privacy text.
+
 A step is written at once, before the next call can hang. A heartbeat writes
 the record every 5 seconds. A log line is only kept in memory and goes out with
 the next step or heartbeat, a log line can come often.

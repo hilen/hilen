@@ -297,9 +297,17 @@ fn move_file_in() -> Result<Option<String>> {
 
 #[cfg(all(not_wasm, not(tvos)))]
 pub(crate) mod platform {
+    #[cfg(not(unix))]
+    use std::fs::write as write_file;
+    #[cfg(unix)]
     use std::{
-        fs::{create_dir_all, read as read_file, remove_file, write as write_file},
-        io::ErrorKind,
+        fs::{OpenOptions, Permissions},
+        io::Write,
+        os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    };
+    use std::{
+        fs::{create_dir_all, read as read_file, remove_file},
+        io::{self, ErrorKind},
         path::{Path, PathBuf},
         sync::{Mutex, PoisonError},
     };
@@ -330,7 +338,28 @@ pub(crate) mod platform {
         if let Some(parent) = path.parent() {
             create_dir_all(parent).context("failed to create the session folder")?;
         }
-        write_file(path, sealed).context("failed to write the session file")
+        write_private(&path, sealed).context("failed to write the session file")
+    }
+
+    /// Only the user of the app may read the file. Its key is the key in the
+    /// binary and the id of the machine, which every user of a shared
+    /// computer has. A file of an older version gets the new rights too.
+    #[cfg(unix)]
+    fn write_private(path: &Path, sealed: &[u8]) -> io::Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.set_permissions(Permissions::from_mode(0o600))?;
+        file.write_all(sealed)
+    }
+
+    /// Windows keeps a file under the profile of a user away from the others.
+    #[cfg(not(unix))]
+    fn write_private(path: &Path, sealed: &[u8]) -> io::Result<()> {
+        write_file(path, sealed)
     }
 
     pub(crate) fn remove(file: &str) -> Result<()> {
@@ -436,6 +465,29 @@ mod test {
     fn use_test_root() -> Result<()> {
         SecretStore::keep_in_files();
         SessionStore::set_root(temp_dir().join("hilen-session-test"));
+        platform::remove(FILE)
+    }
+
+    /// Another user of the same computer could read a file with the default
+    /// rights, also one that an older version wrote.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn only_the_user_reads_the_session_file() -> Result<()> {
+        use std::{
+            fs::{Permissions, metadata, set_permissions},
+            os::unix::fs::PermissionsExt,
+        };
+
+        use_test_root()?;
+        let path = temp_dir().join("hilen-session-test").join(FILE);
+        platform::write(FILE, b"sealed")?;
+        assert_eq!(metadata(&path)?.permissions().mode() & 0o777, 0o600);
+
+        set_permissions(&path, Permissions::from_mode(0o644))?;
+        platform::write(FILE, b"sealed again")?;
+        assert_eq!(metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        assert_eq!(platform::read(FILE)?.as_deref(), Some(b"sealed again".as_slice()));
         platform::remove(FILE)
     }
 

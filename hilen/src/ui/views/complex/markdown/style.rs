@@ -30,6 +30,8 @@ pub struct MarkdownStyle {
     pub item_gap:          f32,
     /// How the markers of a list stand, in 1 column by default.
     pub list_markers:      MarkdownListMarkers,
+    /// Whether the host of a link stands after it, not by default.
+    pub link_hosts:        MarkdownLinkHosts,
     /// The points from one line of the text to the next, the pitch of
     /// the font when not set. It is given for `text_size`: a paragraph,
     /// a list and a table cell take it as it is, a heading takes it
@@ -79,6 +81,22 @@ pub struct MarkdownStyle {
     /// The stem darkening of the math font, for formulas with a little
     /// more ink, see `Font::math_darkened`. 0 by default.
     pub math_darkening:    f32,
+}
+
+/// Whether a link shows where it really goes. A text is drawn on a canvas,
+/// so no browser shows the address under the mouse, and a link can say
+/// `https://my.site/settings` and open another site.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownLinkHosts {
+    /// A link shows only its own text.
+    #[default]
+    Hidden,
+    /// The host of a link stands right after it in the dim text, like
+    /// `my guide evil.example`, for a text other people wrote. Only a web
+    /// link to another site gets it, and only when its text is not an
+    /// address of that host already. In a browser the site of the page is
+    /// the own one, an app with a window has none.
+    Outside,
 }
 
 /// How the markers of a list stand, the bullets, the numbers and the
@@ -138,6 +156,7 @@ impl MarkdownStyle {
         block_gap:         10.0,
         item_gap:          4.0,
         list_markers:      MarkdownListMarkers::Column,
+        link_hosts:        MarkdownLinkHosts::Hidden,
         line_height:       None,
         keeps_line_breaks: false,
         text_inset:        None,

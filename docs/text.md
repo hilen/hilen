@@ -297,6 +297,16 @@ join above, below, left and right, at any text size and line height. Off by defa
 A `MarkdownView` turns it on in every code block, and in a text when
 `keeps_line_breaks` is set.
 
+A `MarkdownView` shows where a link really goes when `link_hosts` of `MarkdownStyle`
+is `MarkdownLinkHosts::Outside`, for a text other people wrote. A canvas shows no
+address under the mouse, so a link could say one address and open another. The host
+stands after the link in the dim text, like `my guide evil.example`, only for a web
+link to another site whose text is not an address of that host already. In a browser
+the site of the page is the own one. The host is read with the `url` crate, the way a
+browser reads it, `markdown/link_host.rs`. Quotes and lists nest at most
+`MAX_NESTING` deep, 16, a deeper one adds no level: the view lays a block out by
+recursion and a text of 9999 `>` made a tree that deep.
+
 2 things broke such a table before:
 
 - All glyphs of 1 label share 1 depth, and the brush writes depth over the whole box of
