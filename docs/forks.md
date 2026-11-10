@@ -1,8 +1,8 @@
 # Forks
 
-Hilen replaces 5 crates.io crates with forks, all declared in the root `Cargo.toml`.
+Hilen replaces 7 crates.io crates with forks, all declared in the root `Cargo.toml`.
 `wgpu` and `winit` come from crates.io under the `hilen-` prefix, `wgpu_text`,
-`ffmpeg-next` and `ffmpeg-sys-next` are git dependencies pinned by rev. Every fork clone lives in `~/dev/forks/<name>` with an
+`ffmpeg-next`, `ffmpeg-sys-next`, `openxr` and `openxr-sys` are git dependencies pinned by rev. Every fork clone lives in `~/dev/forks/<name>` with an
 `upstream` remote next to `origin`. Why each fork exists is in [ios.md](ios.md) for wgpu
 and wgpu_text and in [tvos.md](tvos.md) for winit. This file tracks what each fork
 carries against upstream and how a fix goes upstream.
@@ -164,6 +164,24 @@ on top, both git dependencies pinned by rev. The `video` feature links them, see
   `ld: ignoring file` warning. Upstream candidate, not sent yet.
 - `rust-ffmpeg`: takes `ffmpeg-sys-next` from the sys fork by rev, so the tree holds
   one copy of the bindings. Fork only. 5 commits on top.
+
+## openxr and openxr-sys
+
+Branch `static-crt` at github.com/VladasZ/openxrs, on the upstream commit `eba4c6a`
+that published `openxr` 0.22.0 and `openxr-sys` 0.14.0, 1 commit on top. `openxr`
+takes `openxr-sys` by path inside the repo, so 1 git dependency on `openxr` brings
+both. The `xr` feature links them, see the doc of `hilen::xr`.
+
+- The `static` feature builds the OpenXR loader with cmake. The SDK's
+  `src/loader/CMakeLists.txt` forces the DLL C runtime on a static loader with MSVC,
+  and hilen links the static one through `+crt-static`, so the link missed `fgetpos`,
+  `modf` and 3 more. The build script writes a `CMAKE_PROJECT_INCLUDE` file that
+  defers `MSVC_RUNTIME_LIBRARY MultiThreaded` on `openxr_loader` to the end of the
+  configure, only for an MSVC target with `crt-static`. Upstream candidate, not sent
+  yet.
+- Upstream `master` after 0.22.0, at `7914f1f` on 2026-11-11, does not build the static
+  loader on Windows: its search path `build/src/loader` misses the `Release` folder of
+  the Visual Studio generator. So the branch stays on the release commit.
 
 ## Updating a fork to the newest upstream
 

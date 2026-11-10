@@ -40,7 +40,7 @@ pub use rapier3d::dynamics::CoefficientCombineRule;
 pub use self::scene_test::step_scene;
 pub use self::{
     atmosphere::Atmosphere,
-    camera::{Camera, Projection},
+    camera::{Camera, Fov, Projection},
     collider_shape::{BuiltTriMesh, ColliderShape, Heightfield},
     convex_hull::ConvexHull,
     day_night_sky::DayNightSky,

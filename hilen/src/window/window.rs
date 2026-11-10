@@ -256,7 +256,8 @@ impl Window {
             .request_device(&DeviceDescriptor {
                 required_features,
                 // Doesn't work on some Androids
-                // required_features: Features::POLYGON_MODE_LINE, // | Features::POLYGON_MODE_POINT,
+                // required_features: Features::POLYGON_MODE_LINE, // |
+                // Features::POLYGON_MODE_POINT,
                 required_limits,
                 label: None,
                 memory_hints: MemoryHints::Performance,
@@ -352,7 +353,13 @@ impl Window {
         #[cfg(wasm)]
         crate::web_visit::step("instance");
 
+        #[cfg(all(windows, feature = "xr"))]
+        let xr = crate::xr::boot();
+
         let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
+
+        #[cfg(all(windows, feature = "xr"))]
+        let adapter = crate::xr::adapter_for(&instance, xr.as_ref(), adapter).await;
 
         let info = adapter.get_info();
         set_adapter(&info);
@@ -372,6 +379,11 @@ impl Window {
         let (device, queue) = Self::request_device(&adapter).await?;
         #[cfg(wasm)]
         crate::web_visit::step("device");
+
+        #[cfg(all(windows, feature = "xr"))]
+        if let Some(xr) = xr {
+            crate::xr::start(xr, &device);
+        }
 
         // A browser reports a failed pipeline or a bad draw through this
         // event and otherwise carries on, every later frame of the page
@@ -651,6 +663,11 @@ impl Window {
             VSYNC.store(enable, Ordering::Relaxed);
             Self::reconfigure_surface();
         });
+    }
+
+    #[cfg(all(windows, feature = "xr"))]
+    pub(crate) fn vsync() -> bool {
+        VSYNC.load(Ordering::Relaxed)
     }
 
     /// How many frames the GPU is allowed to buffer ahead of the display.

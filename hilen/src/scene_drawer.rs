@@ -1,3 +1,6 @@
+#[cfg(all(windows, feature = "xr"))]
+mod eye;
+
 use std::array::from_fn;
 
 use glam::DMat4;
@@ -487,7 +490,7 @@ impl SceneDrawer {
             sun_view_proj: cascades.map(|cascade| cascade.view_proj),
             camera_pos: camera.position.extend(2.0 * (camera.fov_y / 2.0).tan()),
             eye: camera.forward().extend(match camera.projection {
-                Projection::Perspective => 0.0,
+                Projection::Perspective | Projection::Fov(_) => 0.0,
                 Projection::Orthographic { height } => height,
             }),
             sun_dir: sun.direction.normalize_or_zero().extend(0.0),

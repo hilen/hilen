@@ -91,7 +91,8 @@ impl<'de> Deserialize<'de> for Placer {
                         Field::rules => rules = Some(map.next_value()?),
                         Field::all_tiling_rules => all_tiling_rules = Some(map.next_value()?),
                         // Field::view => view = Some(map.next_value()?),
-                        // Field::s_content => s_content = Some(map.next_value()?),
+                        // Field::s_content => s_content =
+                        // Some(map.next_value()?),
                         Field::all_margin => all_margin = Some(map.next_value()?),
                         Field::has => has = Some(map.next_value()?),
                         Field::fit_text => fit_text = Some(map.next_value()?),

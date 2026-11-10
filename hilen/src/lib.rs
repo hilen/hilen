@@ -111,6 +111,8 @@ pub mod system;
 pub mod text;
 pub mod ui;
 pub mod window;
+#[cfg(feature = "xr")]
+pub mod xr;
 
 pub use app::*;
 #[cfg(feature = "gpu")]

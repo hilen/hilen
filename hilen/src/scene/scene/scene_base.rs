@@ -231,6 +231,13 @@ impl SceneBase {
         self.hit(self.ray(point)).map(|(_, node)| node)
     }
 
+    /// The nearest node a ray in the world hits and the world point of the
+    /// hit, the way `node_at` picks under a pixel. A ray of a controller in
+    /// a headset picks with it, see `HandState::ray` of `hilen::xr`.
+    pub fn hit_by(&self, ray: Ray) -> Option<(Weak<dyn Node>, Vec3)> {
+        self.hit(ray).map(|(distance, node)| (node, ray.at(distance)))
+    }
+
     fn hit(&self, ray: Ray) -> Option<(f32, Weak<dyn Node>)> {
         self.nodes
             .iter()

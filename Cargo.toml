@@ -182,6 +182,10 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNUserNotificationCenter"] }
 open = "5.4"
+# The OpenXR loader built into the exe, a release exe needs no DLL that a
+# clean Windows lacks. The build needs cmake. The fork builds the loader on
+# the static C runtime under `crt-static`, see docs/forks.md.
+openxr = { git = "https://github.com/VladasZ/openxrs", rev = "b7aaba44922781b9569d2ba632bba4275009581d", default-features = false, features = ["static"] }
 # Already in the build through sentry-contexts on Windows, the engine reads the
 # Windows version and edition from it for a Sentry event.
 os_info = { version = "3", default-features = false }
@@ -327,6 +331,8 @@ web-sys = { version = "0.3", features = [
 ] }
 web-time = "1.1"
 webpki-roots = "1.0"
+# The same version as the DX12 backend of wgpu-hal, so its COM types match.
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry"] }
 wgpu = { package = "hilen-wgpu", version = "30.0" }
 # Asked for by name on Apple systems, where the frame record of the inspector needs

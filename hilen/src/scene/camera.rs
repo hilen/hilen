@@ -1,13 +1,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use glam::camera::rh::{
-    proj::directx::{orthographic, perspective, perspective_infinite_reverse},
+    proj::directx::{frustum, orthographic, perspective, perspective_infinite_reverse},
     view::look_at_mat4,
 };
 
 use crate::gm::{
     flat::{Point, Size},
-    volume::{Mat4, Ray, Vec3, Vec4},
+    volume::{Mat4, Quat, Ray, Vec3, Vec4},
 };
 
 /// Orbiting stops this close to straight up or down, where the up vector
@@ -29,6 +29,21 @@ pub enum Projection {
     /// along the line to its target, from its near plane on, so it stands
     /// outside what it shows.
     Orthographic { height: f32 },
+    /// A perspective view whose 4 edges each have their own angle, the
+    /// view of 1 eye in a headset. The angles hold the shape of the view,
+    /// so the aspect of the area it draws into is not used.
+    Fov(Fov),
+}
+
+/// The angles of the 4 edges of a view from the line of sight, in
+/// radians. `left` and `down` are below 0 for an edge on that side, the
+/// way `OpenXR` gives them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fov {
+    pub left:  f32,
+    pub right: f32,
+    pub up:    f32,
+    pub down:  f32,
 }
 
 /// Where the scene is seen from. A right handed world with y up, the
@@ -72,6 +87,20 @@ impl Camera {
         }
     }
 
+    /// A camera at `position` turned by `rotation` from looking down -z
+    /// with y up, seeing the view of `fov`, how a headset gives an eye.
+    pub fn from_pose(position: impl Into<Vec3>, rotation: Quat, fov: Fov) -> Self {
+        let position = position.into();
+        Self {
+            position,
+            target: position + rotation * Vec3::NEG_Z,
+            up: rotation * Vec3::Y,
+            fov_y: fov.up - fov.down,
+            projection: Projection::Fov(fov),
+            ..Self::default()
+        }
+    }
+
     pub fn view(&self) -> Mat4 {
         look_at_mat4(self.position, self.target, self.up)
     }
@@ -93,6 +122,18 @@ impl Camera {
                 perspective_infinite_reverse(self.fov_y, aspect, self.near)
             }
             Projection::Perspective => reverse_depth(perspective(self.fov_y, aspect, self.near, self.far)),
+            Projection::Fov(fov) if self.far.is_infinite() => off_center_infinite_reverse(fov, self.near),
+            Projection::Fov(fov) => {
+                let n = self.near;
+                reverse_depth(frustum(
+                    fov.left.tan() * n,
+                    fov.right.tan() * n,
+                    fov.down.tan() * n,
+                    fov.up.tan() * n,
+                    n,
+                    self.far,
+                ))
+            }
             Projection::Orthographic { height } => {
                 let half = height / 2.0;
                 reverse_depth(orthographic(
@@ -112,6 +153,7 @@ impl Camera {
     pub fn view_height(&self, depth: f32) -> f32 {
         match self.projection {
             Projection::Perspective => 2.0 * depth * (self.fov_y / 2.0).tan(),
+            Projection::Fov(fov) => depth * (fov.up.tan() - fov.down.tan()),
             Projection::Orthographic { height } => height,
         }
     }
@@ -138,7 +180,7 @@ impl Camera {
         // The depth is reversed, the near plane is at 1.
         let on_near = inverse.project_point3(Vec3::new(x, y, 1.0));
         match self.projection {
-            Projection::Perspective => Ray {
+            Projection::Perspective | Projection::Fov(_) => Ray {
                 origin:    self.position,
                 direction: (on_near - self.position).normalize_or(Vec3::NEG_Z),
             },
@@ -158,7 +200,7 @@ impl Camera {
         // The w of a perspective point is its depth, an orthographic one
         // keeps w at 1 and needs the depth asked for.
         let depth = match self.projection {
-            Projection::Perspective => clip.w,
+            Projection::Perspective | Projection::Fov(_) => clip.w,
             Projection::Orthographic { .. } => (world - self.position).dot(self.forward()),
         };
         if depth <= self.near * 0.5 {
@@ -209,6 +251,25 @@ impl Camera {
         self.position =
             self.target + Vec3::new(pitch.cos() * yaw.sin(), pitch.sin(), pitch.cos() * yaw.cos()) * radius;
     }
+}
+
+/// The view of `fov` with no far plane and the depth reversed, 1 on the
+/// near plane and 0 at infinity. glam has this only for a view centered on
+/// the line of sight.
+fn off_center_infinite_reverse(fov: Fov, near: f32) -> Mat4 {
+    let (left, right) = (fov.left.tan(), fov.right.tan());
+    let (down, up) = (fov.down.tan(), fov.up.tan());
+    Mat4::from_cols(
+        Vec4::new(2.0 / (right - left), 0.0, 0.0, 0.0),
+        Vec4::new(0.0, 2.0 / (up - down), 0.0, 0.0),
+        Vec4::new(
+            (right + left) / (right - left),
+            (up + down) / (up - down),
+            0.0,
+            -1.0,
+        ),
+        Vec4::new(0.0, 0.0, near, 0.0),
+    )
 }
 
 /// `projection` with its depth turned round: z becomes w minus z, so the
@@ -431,5 +492,76 @@ mod test {
         let offset = camera.position - camera.target;
         assert!(offset.y < offset.length());
         assert!(offset.x.abs() + offset.z.abs() > 0.0);
+    }
+
+    /// A view of 60 degrees up and down and as wide as `aspect` gives.
+    fn centered_fov(aspect: f32) -> Fov {
+        let half = 30.0_f32.to_radians();
+        let side = (half.tan() * aspect).atan();
+        Fov {
+            left:  -side,
+            right: side,
+            up:    half,
+            down:  -half,
+        }
+    }
+
+    fn assert_same(a: Mat4, b: Mat4) {
+        for (x, y) in a.to_cols_array().iter().zip(b.to_cols_array()) {
+            assert!((x - y).abs() < 1e-5, "{a} is not {b}");
+        }
+    }
+
+    #[test]
+    fn a_centered_fov_is_the_perspective_of_the_same_angle() {
+        let aspect = 1.6;
+        for far in [500.0, f32::INFINITY] {
+            let perspective = Camera {
+                far,
+                ..Camera::default()
+            };
+            let fov = Camera {
+                far,
+                projection: Projection::Fov(centered_fov(aspect)),
+                ..Camera::default()
+            };
+            assert_same(fov.projection(aspect), perspective.projection(aspect));
+        }
+    }
+
+    #[test]
+    fn the_edges_of_an_off_center_fov_land_on_the_edges_of_the_view() {
+        let fov = Fov {
+            left:  -50.0_f32.to_radians(),
+            right: 40.0_f32.to_radians(),
+            up:    45.0_f32.to_radians(),
+            down:  -55.0_f32.to_radians(),
+        };
+        for far in [500.0, f32::INFINITY] {
+            let camera = Camera::from_pose(Vec3::ZERO, Quat::IDENTITY, fov);
+            let camera = Camera { far, ..camera };
+            let projection = camera.projection(1.0);
+            let at = |x: f32, y: f32| projection.project_point3(Vec3::new(x, y, -1.0) * 7.0);
+            assert!((at(fov.right.tan(), 0.0).x - 1.0).abs() < 1e-5);
+            assert!((at(fov.left.tan(), 0.0).x + 1.0).abs() < 1e-5);
+            assert!((at(0.0, fov.up.tan()).y - 1.0).abs() < 1e-5);
+            assert!((at(0.0, fov.down.tan()).y + 1.0).abs() < 1e-5);
+            assert!((depth_at(&camera, camera.near) - 1.0).abs() < 1e-5);
+            assert!(depth_at(&camera, 100.0) < depth_at(&camera, 10.0));
+        }
+    }
+
+    #[test]
+    fn a_pose_turns_the_line_of_sight_and_the_up() {
+        let fov = centered_fov(1.0);
+        let ahead = Camera::from_pose(Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY, fov);
+        assert!((ahead.forward() - Vec3::NEG_Z).length() < 1e-6);
+        assert_eq!(ahead.up, Vec3::Y);
+
+        let left = Camera::from_pose(Vec3::ZERO, Quat::from_rotation_y(FRAC_PI_2), fov);
+        assert!((left.forward() - Vec3::NEG_X).length() < 1e-6);
+
+        let tilted = Camera::from_pose(Vec3::ZERO, Quat::from_rotation_x(0.5), fov);
+        assert!(tilted.forward().y > 0.0 && tilted.up.z > 0.0);
     }
 }

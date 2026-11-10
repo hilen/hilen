@@ -20,6 +20,9 @@ scene = ["dep:scene-test-suite", "hilen/scene", "hilen/scene-tests"]
 
 webgl = ["hilen/webgl"]
 
+# VR through OpenXR, the 3D page in a headset, see the doc of `hilen::xr`.
+xr = ["scene", "hilen/xr"]
+
 # Compiles in the UI benchmark (benchmark_view, its system-load guard and GPU
 # timing). Off in shipped builds. `make bench` builds demo with it.
 bench = ["dep:sysinfo", "dep:serde_json", "hilen/bench"]

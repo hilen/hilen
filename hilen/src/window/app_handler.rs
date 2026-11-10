@@ -164,6 +164,9 @@ impl AppHandler {
         window.state.render();
         frame_time::end_frame();
         frame_control::end_frame();
+        // Out of the frame time, it waits for the headset.
+        #[cfg(all(windows, feature = "xr"))]
+        crate::xr::frame();
     }
 
     /// Work that needs every frame lives, and the app is not paused.

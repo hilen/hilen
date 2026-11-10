@@ -188,6 +188,10 @@ scene = ["gpu", "dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf", "dep:f
 # rapier and scalar glam so a pinned physics rest lands on the same bits
 # on every lane, glam's SIMD sums in another order per architecture. A
 # game on `scene` alone keeps the fast path.
+# VR through OpenXR, the running scene in a headset with its controllers,
+# see the doc of `hilen::xr`. SteamVR on Windows through DX12, every other system
+# answers that VR is not there.
+xr = ["scene", "dep:openxr", "dep:windows"]
 scene-tests = ["scene", "ui-tests", "level-proc/scene-tests", "rapier3d/enhanced-determinism", "glam/scalar-math"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
@@ -379,7 +383,9 @@ xcap = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { workspace = true, optional = true, features = ["input-msmf"] }
+openxr = { workspace = true, optional = true }
 os_info = { workspace = true, optional = true }
+windows = { workspace = true, optional = true }
 windows-sys = { workspace = true }
 
 # The systems where `speech` hears the microphone and recognizes it.
