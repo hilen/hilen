@@ -1,7 +1,10 @@
 use crate::{
     self as hilen,
     deps::{refs::Weak, vents::Event},
-    gm::{ToF32, flat::Point},
+    gm::{
+        ToF32,
+        flat::{Point, Rect},
+    },
     ui::{Pinch, Scrollable, Setup, Touch, TouchStack, UIManager, View, ViewTouch, view},
 };
 
@@ -25,6 +28,8 @@ pub struct CanvasView {
     min_zoom:  f32,
     max_zoom:  f32,
     offset:    Point,
+    /// The part of the subviews that has to stay in view, see `set_bounds`.
+    bounds:    Option<Rect>,
     /// Where the finger of a drag was last, in the points of this view.
     drag_from: Option<Point>,
 
@@ -59,6 +64,17 @@ impl CanvasView {
         self
     }
 
+    /// Keeps `bounds`, a rect in the points of the subviews, on the
+    /// screen, like a picture that must not be panned away. Across a side
+    /// where it is drawn smaller than the view it stays in the middle,
+    /// else its edges never come inside the view. None lets it go
+    /// anywhere, the default.
+    pub fn set_bounds(&mut self, bounds: Option<Rect>) -> &mut Self {
+        self.bounds = bounds;
+        self.apply();
+        self
+    }
+
     /// The smallest and the biggest zoom, 0.1 and 10 at the start.
     pub fn set_zoom_limits(&mut self, min: impl ToF32, max: impl ToF32) -> &mut Self {
         self.min_zoom = min.to_f32();
@@ -83,10 +99,35 @@ impl CanvasView {
     }
 
     fn apply(&mut self) {
+        self.keep_bounds();
         let base = self.__base_view();
         base.content_scale = self.zoom;
         base.content_shift = self.offset;
         self.on_change.trigger(());
+    }
+
+    fn keep_bounds(&mut self) {
+        let Some(bounds) = self.bounds else {
+            return;
+        };
+        let size = self.__base_view().frame.size;
+        // Not laid out yet, a later change keeps the bounds.
+        if size.width <= 0.0 || size.height <= 0.0 {
+            return;
+        }
+        let zoom = self.zoom;
+        let axis = |offset: f32, start: f32, length: f32, room: f32| {
+            let drawn = length * zoom;
+            if drawn <= room {
+                (room - drawn) / 2.0 - start * zoom
+            } else {
+                offset.clamp(room - (start + length) * zoom, -start * zoom)
+            }
+        };
+        self.offset = Point::new(
+            axis(self.offset.x, bounds.origin.x, bounds.size.width, size.width),
+            axis(self.offset.y, bounds.origin.y, bounds.size.height, size.height),
+        );
     }
 
     fn drag(&mut self, touch: Touch) {

@@ -12,6 +12,11 @@ are laid out as in any view, in its own points at zoom 1. The code is
   the points of the canvas.
 - `content_point(point)` gives the point of the subviews drawn at a point of the canvas.
 - The event `on_change` fires when the zoom or the offset changes.
+- `set_bounds(Some(rect))` keeps that rect of the subviews on the screen, like a picture
+  that must not be panned away. Narrower than the canvas it stays in the middle, wider
+  its edges never come inside. It is applied inside the change, so `on_change` never has
+  to move the offset back, a `set_offset` there fires the event again inside itself and
+  panics.
 
 A drag on the empty area pans. The wheel zooms at the cursor. A pinch zooms at the
 fingers and pans with them. The canvas clips its subviews to its frame.

@@ -10,6 +10,7 @@ mod file_browser;
 #[cfg(feature = "plot")]
 mod formula_plot;
 mod image_crop;
+mod image_viewer;
 mod log_view;
 mod markdown;
 #[cfg(feature = "math")]
@@ -34,6 +35,7 @@ pub use file_browser::{
 #[cfg(feature = "plot")]
 pub use formula_plot::{Graph, GraphView, formula, graphs};
 pub use image_crop::{CropShape, ImageCropPrompt, ImageCropRequest, ImageCropView};
+pub use image_viewer::{ImageViewer, ImageViewerPage, ImageViewerRequest};
 pub use log_view::{LogData, LogLine, LogStyle, LogView};
 pub(crate) use markdown::COPY_ROOM;
 pub use markdown::{MarkdownFonts, MarkdownLinkHosts, MarkdownListMarkers, MarkdownStyle, MarkdownView};

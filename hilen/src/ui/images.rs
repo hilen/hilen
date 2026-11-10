@@ -37,6 +37,25 @@ impl UIImages {
         tint_svg(include_bytes!("images/x.svg"), "x.svg", tint)
     }
 
+    /// The Lucide chevron left, drawn in `tint`. The same file as the one
+    /// of the file browser, so the same name.
+    pub(crate) fn chevron_left(tint: Color) -> Weak<Image> {
+        tint_svg(
+            include_bytes!("images/fb_chevron_left.svg"),
+            "fb_chevron_left.svg",
+            tint,
+        )
+    }
+
+    /// The Lucide chevron right, drawn in `tint`.
+    pub(crate) fn chevron_right(tint: Color) -> Weak<Image> {
+        tint_svg(
+            include_bytes!("images/fb_chevron_right.svg"),
+            "fb_chevron_right.svg",
+            tint,
+        )
+    }
+
     /// The Lucide copy, drawn in `tint`.
     pub(crate) fn copy(tint: Color) -> Weak<Image> {
         tint_svg(include_bytes!("images/copy.svg"), "copy.svg", tint)
