@@ -22,8 +22,8 @@ use crate::{
     pipelines::Pipelines,
     ui::{
         Cursor, ElementState, Focus, Hover, Input, MouseButton, NamedKey, ScreenKeyboard, Theme, Touch,
-        TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews, WeakView, damage::Damage,
-        latin_candidate, privacy_cover,
+        TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
+        damage::Damage, latin_candidate, privacy_cover,
     },
     window::{RenderFrame, Theme as OsTheme, Window, slots, winit_keys},
 };
@@ -197,6 +197,9 @@ impl crate::window::WindowEvents for AppRunner {
         #[cfg(feature = "level")]
         LevelManager::set_scale(UIManager::display_scale());
         UIEvents::size_changed().trigger(());
+        if let Some(class) = crate::ui::width_class::changed_to(UIManager::root_view().width()) {
+            UIEvents::width_class_changed().trigger(class);
+        }
         self.update();
     }
 

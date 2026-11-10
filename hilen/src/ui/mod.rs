@@ -50,6 +50,7 @@ mod ui_event;
 mod ui_manager;
 mod view;
 mod views;
+pub(crate) mod width_class;
 mod with_header;
 
 pub mod mobile;
@@ -90,6 +91,7 @@ pub use self::{
     ui_manager::*,
     view::*,
     views::*,
+    width_class::WidthClass,
     with_header::*,
 };
 #[cfg(feature = "gpu")]

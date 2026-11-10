@@ -41,7 +41,7 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         scrim.place().back();
         scrim.add_subview(view);
 
-        weak.place().size(size.width, size.height).center();
+        place_modal(weak, size);
 
         UIManager::keymap().add(weak, NamedKey::Escape, move || {
             // Only the topmost modal, a menu or a modal over it takes the
@@ -109,8 +109,7 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
     /// whose fields show and hide, `modal_size` is only the size it opens
     /// with.
     fn set_modal_size(self: Weak<Self>, size: impl Into<Size>) {
-        let size = size.into();
-        self.place().clear().size(size.width, size.height).center();
+        place_modal(self, size.into());
     }
 
     /// The color of the fullscreen backdrop behind the modal.
@@ -127,4 +126,41 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
     }
 
     fn setup_input(self: Weak<Self>, _: In) {}
+}
+
+/// The room a modal keeps to the edges of a window smaller than it.
+const MODAL_MARGIN: f32 = 12.0;
+
+/// The size a modal that asks for `size` gets in the window now: that size,
+/// or the window minus a margin where the window is smaller, like a desktop
+/// form on a phone. A modal that asks for the whole window, like the bug
+/// report, keeps it. A modal that measures text while it builds, like the
+/// height of a wrapped paragraph, measures it at this width.
+pub fn fitted_modal_size(size: impl Into<Size>) -> Size {
+    let size = size.into();
+    let root = UIManager::root_view();
+    Size::new(
+        fit_side(size.width, root.width()),
+        fit_side(size.height, root.height()),
+    )
+}
+
+fn fit_side(asked: f32, room: f32) -> f32 {
+    if (asked - room).abs() < 0.5 {
+        return room;
+    }
+    asked.min(room - 2.0 * MODAL_MARGIN).max(0.0)
+}
+
+/// The modal in the middle of the window at its fitted size, see
+/// `fitted_modal_size`. The modal lays out its own content to the width it
+/// gets.
+fn place_modal<T: View>(view: Weak<T>, size: Size) {
+    view.place().clear().custom(move |frame| {
+        let root = UIManager::root_view();
+        let fitted = fitted_modal_size(size);
+        frame.origin.x = (root.width() - fitted.width) / 2.0;
+        frame.origin.y = (root.height() - fitted.height) / 2.0;
+        frame.size = fitted;
+    });
 }

@@ -76,16 +76,6 @@ original is the acceptance bar. Their ports drove the gaps below.
   gives the focus back when it closes.
 - Blocks: the screenshot of banda on Windows and Linux.
 
-## A width class for the window
-
-- Current: nothing in the engine says whether a window is narrow or wide. An app
-  compares the width of its root with its own constant, like `const WIDE: f32 = 700.0`
-  in `demo/src/interface/home_view.rs`, and every app would copy it.
-- Needed: `UIManager::width_class()` that gives narrow under 600 points, medium from 600
-  and wide from 840, an event when it changes, and the class printed by
-  `hilen-inspect tree`.
-- Blocks: every screen that changes its layout between a phone, an iPad and a desktop.
-
 ## A shell with tabs when narrow and a sidebar when wide
 
 - Current: `TabShell` puts the bar of tabs at the bottom on every width. A sidebar is

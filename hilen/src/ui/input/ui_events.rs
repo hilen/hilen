@@ -1,7 +1,7 @@
 use crate::{
     deps::{refs::main_lock::MainLock, vents::Event},
     gm::{flat::Point, volume::GyroData},
-    ui::{NamedKey, ScreenKeyboardMove, Theme, Touch, UIEvent},
+    ui::{NamedKey, ScreenKeyboardMove, Theme, Touch, UIEvent, WidthClass},
 };
 
 static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
@@ -15,6 +15,7 @@ pub struct UIEvents {
     #[cfg(feature = "gpu")]
     size_changed:    UIEvent<()>,
     theme_changed:   UIEvent<Theme>,
+    width_class:     UIEvent<WidthClass>,
     gyro:            UIEvent<GyroData>,
     keyboard_input:  UIEvent<char>,
     keyboard_key:    UIEvent<NamedKey>,
@@ -52,6 +53,12 @@ impl UIEvents {
     /// Triggered after the effective theme changes, with the new theme.
     pub fn theme_changed() -> &'static UIEvent<Theme> {
         &UI_EVENTS.theme_changed
+    }
+
+    /// The main window crossed a border of `WidthClass`, with the new
+    /// class. A resize inside 1 class does not fire it.
+    pub fn width_class_changed() -> &'static UIEvent<WidthClass> {
+        &UI_EVENTS.width_class
     }
 
     /// Every typed character of the app, pressed keys only, with the

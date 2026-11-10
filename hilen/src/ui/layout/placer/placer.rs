@@ -76,6 +76,7 @@ impl Placer {
         *self.wrap_around.borrow_mut() = None;
         *self.has.borrow_mut() = Size::default();
         *self.fit_text.borrow_mut() = Size::default();
+        *self.custom.borrow_mut() = None;
         self
     }
 

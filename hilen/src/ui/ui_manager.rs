@@ -413,6 +413,13 @@ impl UIManager {
         Self::root_view_static().system_insets()
     }
 
+    /// How much room the window of the engine has across, from the width of
+    /// its app views in points, see `WidthClass`.
+    pub fn width_class() -> crate::ui::WidthClass {
+        use crate::ui::ViewFrame;
+        crate::ui::WidthClass::of(Self::root_view_static().width())
+    }
+
     /// The root of the window the engine works on, the main window unless
     /// an extra window handles its event or draws its frame.
     pub fn root_view() -> Weak<RootView> {

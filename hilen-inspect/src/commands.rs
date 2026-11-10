@@ -351,6 +351,8 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::Windows => windows(client).await?,
         Command::Tree => {
             let (_, root) = get_ui(client).await?;
+            let class = hilen::ui::WidthClass::of(root.frame.size.width);
+            println!("width class: {}", format!("{class:?}").to_lowercase());
             print_tree(&root, 0);
         }
         Command::View { query } => {
