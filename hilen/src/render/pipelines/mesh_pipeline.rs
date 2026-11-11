@@ -96,6 +96,8 @@ pub(crate) struct MeshKey {
     /// Whether the material has a cutout or a fade below 1. The threshold
     /// and the fade are the instance's own.
     pub cutout:                 bool,
+    /// Whether the maps are read from 3 sides, see `Material::triplanar`.
+    pub triplanar:              bool,
 }
 
 impl MeshKey {
@@ -117,6 +119,7 @@ impl MeshKey {
     /// of its own.
     pub(crate) fn base_only(&self) -> bool {
         self.texture.is_some()
+            && !self.triplanar
             && self.normal_map.is_none()
             && self.metallic_roughness_map.is_none()
             && self.occlusion_map.is_none()

@@ -101,6 +101,7 @@ mod third_person_camera;
 mod transform_handle;
 mod transparency;
 mod triangle_picking;
+mod triplanar;
 mod unlit;
 mod vertex_colors;
 mod view_points;

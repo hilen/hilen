@@ -675,6 +675,60 @@ fn sample_maps(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tin
     return sample_with_normal(pos, uv, normal, index, tint, map);
 }
 
+// The share of each of the 3 sides a triplanar read takes, by the normal
+// in the node's space. The power keeps the blend to a narrow band at the
+// edges between the sides, a wide one smears 2 pictures into each other.
+fn triplanar_weights(n: vec3<f32>) -> vec3<f32> {
+    let w = pow(abs(n), vec3<f32>(4.0));
+    return w / max(w.x + w.y + w.z, 1e-5);
+}
+
+// A side's uv and its derivatives. The x side reads zy, the y side xz and
+// the z side xy, each mirrored on its back so a picture is never read in
+// reverse.
+struct Plane {
+    uv: vec2<f32>,
+    dx: vec2<f32>,
+    dy: vec2<f32>,
+}
+
+fn triplanar_plane(axis: u32, p: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, n: vec3<f32>, repeats: f32) -> Plane {
+    var out: Plane;
+    if axis == 0u {
+        let flip = vec2<f32>(select(-1.0, 1.0, n.x >= 0.0), 1.0) * repeats;
+        out = Plane(p.zy * flip, dx.zy * flip, dy.zy * flip);
+    } else if axis == 1u {
+        let flip = vec2<f32>(select(-1.0, 1.0, n.y >= 0.0), 1.0) * repeats;
+        out = Plane(p.xz * flip, dx.xz * flip, dy.xz * flip);
+    } else {
+        let flip = vec2<f32>(select(1.0, -1.0, n.z >= 0.0), 1.0) * repeats;
+        out = Plane(p.xy * flip, dx.xy * flip, dy.xy * flip);
+    }
+    return out;
+}
+
+fn triplanar_read(t: texture_2d<f32>, s: sampler, x: Plane, y: Plane, z: Plane, w: vec3<f32>) -> vec4<f32> {
+    return textureSampleGrad(t, s, x.uv, x.dx, x.dy) * w.x
+        + textureSampleGrad(t, s, y.uv, y.dx, y.dy) * w.y
+        + textureSampleGrad(t, s, z.uv, z.dx, z.dy) * w.z;
+}
+
+// The normal map of each side laid on the surface by the whiteout blend of
+// Ben Golus, "Normal Mapping for a Triplanar Shader", in the node's space.
+// A mirrored side mirrors its slope with it.
+fn triplanar_normal(x: Plane, y: Plane, z: Plane, w: vec3<f32>, n: vec3<f32>, scale: f32) -> vec3<f32> {
+    var tx = textureSampleGrad(normal_texture, normal_sampler, x.uv, x.dx, x.dy).xyz * 2.0 - 1.0;
+    var ty = textureSampleGrad(normal_texture, normal_sampler, y.uv, y.dx, y.dy).xyz * 2.0 - 1.0;
+    var tz = textureSampleGrad(normal_texture, normal_sampler, z.uv, z.dx, z.dy).xyz * 2.0 - 1.0;
+    tx.x *= select(-1.0, 1.0, n.x >= 0.0);
+    ty.x *= select(-1.0, 1.0, n.y >= 0.0);
+    tz.x *= select(1.0, -1.0, n.z >= 0.0);
+    let bx = vec3<f32>(tx.xy * scale + n.zy, abs(tx.z) * n.x);
+    let by = vec3<f32>(ty.xy * scale + n.xz, abs(ty.z) * n.y);
+    let bz = vec3<f32>(tz.xy * scale + n.xy, abs(tz.z) * n.z);
+    return normalize(bx.zyx * w.x + by.xzy * w.y + bz.xyz * w.z);
+}
+
 // `sample_maps` with the normal map already read.
 fn sample_with_normal(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>, read: vec3<f32>) -> Sampled {
     let instance = instances[index];
@@ -697,8 +751,38 @@ fn sample_with_normal(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u
     let offset = camera_offset(pos);
     let world_pos = view.camera_pos.xyz + offset;
     let flat = normalize(normal);
-    let bent = perturb_normal(flat, world_pos, uv, map);
-    return Sampled(base, alpha, metallic, perceptual, occlusion, offset, world_pos, flat, bent);
+    var bent = perturb_normal(flat, world_pos, uv, map);
+    var out = Sampled(base, alpha, metallic, perceptual, occlusion, offset, world_pos, flat, bent);
+
+    // The node's own space, so the maps stay on a node that turns: the
+    // inverse of the model's turn is the transpose of the normal matrix.
+    // The derivatives come before the branch, they need every fragment.
+    let model = instance.model;
+    let turn = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
+    let unturn = transpose(mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz));
+    let local = unturn * (offset - (model[3].xyz - view.camera_pos.xyz));
+    let local_dx = dpdx(local);
+    let local_dy = dpdy(local);
+    let repeats = instance.normal1.w;
+    if repeats > 0.0 {
+        let n = normalize(transpose(turn) * flat);
+        let w = triplanar_weights(n);
+        let px = triplanar_plane(0u, local, local_dx, local_dy, n, repeats);
+        let py = triplanar_plane(1u, local, local_dx, local_dy, n, repeats);
+        let pz = triplanar_plane(2u, local, local_dx, local_dy, n, repeats);
+        let texel3 = triplanar_read(base_texture, base_sampler, px, py, pz, w);
+        out.base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel3.rgb);
+        out.alpha = instance.color.a * tint.a * texel3.a;
+        let mr3 = triplanar_read(metallic_roughness_texture, metallic_roughness_sampler, px, py, pz, w);
+        out.metallic = instance.metallic * mr3.b;
+        out.perceptual = clamp(instance.roughness * mr3.g, 0.045, 1.0);
+        let occ3 = triplanar_read(occlusion_texture, occlusion_sampler, px, py, pz, w).r;
+        out.occlusion = 1.0 + instance.occlusion_strength * (occ3 - 1.0);
+        let local_bent = triplanar_normal(px, py, pz, w, n, instance.normal_scale);
+        let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
+        out.normal = normalize(normal_matrix * local_bent);
+    }
+    return out;
 }
 
 fn shade_sampled(in: Sampled, index: u32) -> vec4<f32> {

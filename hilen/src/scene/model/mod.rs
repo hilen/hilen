@@ -137,6 +137,7 @@ impl Model {
                     cutout:                 material.cutout,
                     fade:                   1.0,
                     fade_flip:              false,
+                    triplanar:              0.0,
                 }),
             })
             .collect();

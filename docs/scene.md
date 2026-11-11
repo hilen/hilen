@@ -320,6 +320,23 @@ texture, which draws exactly as before. The loader is
 `hilen/src/scene/model/material_source.rs`, and the scene test `Metal roughness`
 checks a quad whose 1 texture has a metal half, a rough half and an occluded half.
 
+`triplanar`, or `set_triplanar(repeats)` on a node, reads the texture and every map
+from 3 sides of the node's own space in place of the uv, `repeats` times a unit, and
+blends the 3 by the normal raised to the 4th power. So a mesh made in code needs no uv,
+and a texture stays on a node that turns or rolls. 0 reads by the uv as before. The
+normal maps of the 3 sides are laid on the surface by the whiteout blend of Ben
+Golus, "Normal Mapping for a Triplanar Shader", and a side seen from its back is
+mirrored, so no picture is read in reverse. It adds no value between the stages, so
+the A7 limit holds: the fragment works out its place in the node's space from the
+world position it already rebuilds and the transpose of the normal matrix, the
+inverse of the model's turn. The setting rides in `normal1.w` of `MeshInstance`, so
+the instance stays 208 bytes. Each map is read 3 times with `textureSampleGrad`, its
+derivatives taken before the branch, so the branch needs no uniform control flow. A
+triplanar material with only a base texture still takes the full path,
+`MeshKey::triplanar` keeps it off `f_base_opaque`. A flowing mesh ignores it. The
+scene test `Triplanar` holds a turned box and a ball with a checker and a ridged
+normal map, whole squares on every face of the box.
+
 `cutout` cuts a node out by its alpha, leaves on a quad: `set_cutout(threshold)`,
 `Material::CUTOUT` is the usual 0.5. A fragment whose alpha, the color's times the
 vertex color's times the texel's, is under the threshold is not drawn. The rest is

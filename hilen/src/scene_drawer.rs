@@ -207,6 +207,7 @@ impl NodeDraws<'_> {
             occlusion_map: material.occlusion_map,
             flow_map: material.flow_map,
             cutout,
+            triplanar: material.triplanar > 0.0,
         };
         let instance = MeshInstance::new(model, material, self.lights, joint_base);
         // A cut out node is solid where it is drawn, whatever its alpha.

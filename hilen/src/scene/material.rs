@@ -78,6 +78,12 @@ pub struct Material {
     /// flipped one fading out at the same place, with fades that add up to
     /// 1, cover every pixel once, a cross fade with no hole.
     pub fade_flip:              bool,
+    /// Reads the texture and every map from 3 sides in the node's own
+    /// space and blends them by the normal, so a mesh needs no uv and a
+    /// texture stays on a node that turns. The number is how often a map
+    /// repeats in 1 unit of the mesh, 0 reads by the uv as before. Each
+    /// map is read 3 times. A flowing mesh ignores it.
+    pub triplanar:              f32,
 }
 
 impl Material {
@@ -105,6 +111,7 @@ impl Default for Material {
             cutout:                 None,
             fade:                   1.0,
             fade_flip:              false,
+            triplanar:              0.0,
         }
     }
 }

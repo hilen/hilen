@@ -186,6 +186,9 @@ pub trait NodeTemplates {
     fn set_unlit(&mut self, unlit: bool) -> &mut Self;
     /// Reflects like moon dust, see `Material::dust`.
     fn set_dust(&mut self, dust: bool) -> &mut Self;
+    /// Reads the maps from 3 sides of the node's own space, `repeats`
+    /// times a unit, 0 by the uv, see `Material::triplanar`.
+    fn set_triplanar(&mut self, repeats: impl ToF32) -> &mut Self;
     /// Cuts the node out by its alpha, fragments under `threshold` are
     /// not drawn, see `Material::cutout`.
     fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self;
@@ -286,6 +289,11 @@ impl<T: ?Sized + Node> NodeTemplates for T {
 
     fn set_dust(&mut self, dust: bool) -> &mut Self {
         self.material.dust = dust;
+        self
+    }
+
+    fn set_triplanar(&mut self, repeats: impl ToF32) -> &mut Self {
+        self.material.triplanar = repeats.to_f32();
         self
     }
 

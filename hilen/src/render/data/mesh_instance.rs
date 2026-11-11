@@ -66,7 +66,7 @@ impl MeshInstance {
             model,
             normal: [
                 normal.x_axis.extend(if material.dust { 1.0 } else { 0.0 }),
-                normal.y_axis.extend(0.0),
+                normal.y_axis.extend(material.triplanar),
                 normal.z_axis.extend(0.0),
             ],
             color: material.color,

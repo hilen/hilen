@@ -360,6 +360,7 @@ impl Grass {
                         occlusion_map:          self.material.occlusion_map,
                         flow_map:               None,
                         cutout:                 self.material.cutout.is_some(),
+                        triplanar:              self.material.triplanar > 0.0,
                     },
                     blades: blades.clone(),
                     count,
