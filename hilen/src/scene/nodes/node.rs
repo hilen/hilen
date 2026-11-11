@@ -18,7 +18,10 @@ use crate::{
         color::Color,
         volume::{Mat4, Quat, Ray, Shape3, Vec3},
     },
-    scene::{ColliderShape, Material, NodeData, Playback, SceneManager, ToCollider, fade::FadeRun},
+    scene::{
+        ColliderShape, Contact, Joint, JointPose, Material, NodeData, Playback, SceneManager, ToCollider,
+        fade::FadeRun, model::joints,
+    },
 };
 
 pub trait Node: Deref<Target = NodeData> + DerefMut {
@@ -136,6 +139,13 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
         SceneManager::physics()
             .colliding_nodes
             .insert(weak.collider_handle().unwrap(), weak);
+    }
+
+    /// Where this node touches `other` now, `None` when they do not touch
+    /// or 1 of them has no collider. Inside `on_collision` it is the blow
+    /// that started the touch.
+    fn contact_with(&self, other: Weak<dyn Node>) -> Option<Contact> {
+        SceneManager::physics().contact(self.collider_handle()?, other.collider_handle()?)
     }
 
     fn color(&self) -> &Color {
@@ -259,6 +269,28 @@ pub trait NodeTemplates {
     /// Whether a clip is moving the node, false once a clip played once
     /// has reached its end.
     fn is_animating(&self) -> bool;
+    /// The node of the model's tree called `name`, as a handle for the
+    /// joint calls below. The same as `Model::joint`, and it logs an
+    /// error for a node without a rigged model and for an unknown name.
+    /// Look a name up once and keep the handle.
+    fn joint(&self, name: &str) -> Option<Joint>;
+    /// Puts `joint` at `translation` and `rotation` in the space of its
+    /// parent in the model's tree, in place of its rest ones, until
+    /// `clear_joint`. Its scale stays. Every node below it in the tree
+    /// moves with it. It needs no clip, and over a playing clip the set
+    /// joint wins for that joint. A handle of another model logs an error.
+    fn set_joint(&mut self, joint: Joint, translation: impl Into<Vec3>, rotation: Quat) -> &mut Self;
+    /// Gives `joint` back to its rest pose, or to the playing clip.
+    fn clear_joint(&mut self, joint: Joint) -> &mut Self;
+    /// `clear_joint` for every set joint.
+    fn clear_joints(&mut self) -> &mut Self;
+    /// Where `joint` is now in the model's own space, with the playing
+    /// clip and the set joints, the pose the node draws. The node's place,
+    /// turn and scale are not in it: `position() + rotation() * (point *
+    /// world_scale())` takes a point of it into the world. It walks the
+    /// whole tree at each call. `None` with a logged error for a node
+    /// without a rigged model and for a handle of another model.
+    fn joint_transform(&self, joint: Joint) -> Option<Mat4>;
 }
 
 impl<T: ?Sized + Node> NodeTemplates for T {
@@ -474,6 +506,34 @@ impl<T: ?Sized + Node> NodeTemplates for T {
             (Some(playback), Some(duration)) => !playback.finished(duration),
             _ => false,
         }
+    }
+
+    fn joint(&self, name: &str) -> Option<Joint> {
+        joints::find_joint(self.shape, name)
+    }
+
+    fn set_joint(&mut self, joint: Joint, translation: impl Into<Vec3>, rotation: Quat) -> &mut Self {
+        let pose = JointPose {
+            translation: translation.into(),
+            rotation,
+        };
+        let shape = self.shape;
+        joints::set_joint(shape, &mut self.joint_poses, joint, pose);
+        self
+    }
+
+    fn clear_joint(&mut self, joint: Joint) -> &mut Self {
+        joints::clear_joint(&mut self.joint_poses, joint);
+        self
+    }
+
+    fn clear_joints(&mut self) -> &mut Self {
+        self.joint_poses.clear();
+        self
+    }
+
+    fn joint_transform(&self, joint: Joint) -> Option<Mat4> {
+        joints::joint_transform(self.shape, self.playback, &self.joint_poses, joint)
     }
 }
 

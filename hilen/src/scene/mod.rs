@@ -32,6 +32,7 @@ mod space_sky;
 mod surface_plot;
 mod third_person;
 mod to_collider;
+mod weld;
 
 pub use level_proc::scene;
 pub use rapier3d::dynamics::CoefficientCombineRule;
@@ -52,7 +53,7 @@ pub use self::{
     line::{AXIS_COLORS, Line3},
     material::Material,
     mesh::Mesh,
-    model::{Clip, MeshData, Model, PreparedMesh},
+    model::{Clip, Joint, MeshData, Model, PreparedMesh},
     node_data::NodeData,
     nodes::*,
     occluder::Occluder,
@@ -71,11 +72,13 @@ pub use self::{
     surface_plot::SurfacePlotView,
     third_person::ThirdPerson,
     to_collider::ToCollider,
+    weld::{Contact, Weld},
 };
 pub(crate) use self::{
     atmosphere::{AtmosphereTables, Table, half_bits},
     collider_lines::collider_lines,
     light::{LightPick, pick_lights},
+    model::JointPose,
     occluder::MAX_OCCLUDERS,
     shadow::sun_cascades,
 };

@@ -1,6 +1,7 @@
 mod code_mesh;
 mod edges;
 mod images;
+pub(crate) mod joints;
 mod material_source;
 mod merge;
 mod parse;
@@ -14,11 +15,12 @@ use std::path::Path;
 use log::{debug, error};
 
 use self::parse::{ModelSource, parse_glb};
-pub(crate) use self::rig::Rig;
 pub use self::{
     code_mesh::{MeshData, PreparedMesh},
+    joints::Joint,
     rig::Clip,
 };
+pub(crate) use self::{joints::JointPose, rig::Rig};
 use crate::{
     deps::{
         hreads::from_main,
@@ -28,7 +30,7 @@ use crate::{
         },
     },
     filesystem::read_bytes,
-    gm::volume::{Bounds, Mat4, Vec3},
+    gm::volume::{Bounds, Mat4, Quat, Vec3},
     image::Image,
     managed,
     scene::{Material, Mesh},
@@ -83,6 +85,25 @@ impl Model {
     /// The clip called `name`, as an index into `clips`.
     pub fn clip(&self, name: &str) -> Option<usize> {
         self.clips().iter().position(|clip| clip.name == name)
+    }
+
+    /// The node of the file called `name`, as a handle to keep, see
+    /// `NodeTemplates::set_joint`. Every named node of a model with a skin
+    /// or a clip is found, a joint of a skin and any other node. `None`
+    /// for an unknown name and for a static model, which keeps no nodes.
+    pub fn joint(&self, name: &str) -> Option<Joint> {
+        self.rig.as_ref()?.joint(name)
+    }
+
+    /// The names `joint` finds, in the node order of the file.
+    pub fn joint_names(&self) -> impl Iterator<Item = &str> {
+        self.rig.iter().flat_map(Rig::joint_names)
+    }
+
+    /// The translation and the rotation of `joint` at rest, in the space of
+    /// its parent node. `None` for a handle of another model.
+    pub fn joint_rest(&self, joint: Joint) -> Option<(Vec3, Quat)> {
+        self.rig.as_ref()?.joint_rest(joint)
     }
 
     fn empty() -> Self {

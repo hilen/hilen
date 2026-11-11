@@ -3,7 +3,7 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{ColliderShape, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
+    scene::{ColliderShape, JointPose, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
 };
 
 #[derive(Educe)]
@@ -37,6 +37,11 @@ pub struct NodeData {
     /// The clip of the model playing on this node, see
     /// `NodeTemplates::play`. Without one a model draws at rest.
     pub(crate) playback: Option<Playback>,
+
+    /// The joints of the model an app placed itself, by the node index of
+    /// the model's tree, see `NodeTemplates::set_joint`. Empty while none
+    /// is set.
+    pub(crate) joint_poses: Vec<Option<JointPose>>,
 
     /// The fade running on the node, see `NodeTemplates::fade_to`.
     pub(crate) fade_run: Option<FadeRun>,

@@ -24,8 +24,9 @@ use crate::{
         frustum::{self, Frustum},
     },
     scene::{
-        Atmosphere, Camera, DayNightSky, Fog, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh, Model, Node,
-        Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights, sun_cascades,
+        Atmosphere, Camera, DayNightSky, Fog, JointPose, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh,
+        Model, Node, Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights,
+        sun_cascades,
     },
     ui::{
         UIManager,
@@ -239,21 +240,19 @@ impl NodeDraws<'_> {
         }
     }
 
-    /// Every part of a model at the pose its node plays, or at rest.
-    /// A skinned part draws through its joint matrices, queued once per
-    /// skin, and an unskinned one at its node's posed place.
+    /// Every part of a model at the pose its node plays and its set
+    /// `joints` give, or at rest. A skinned part draws through its joint
+    /// matrices, queued once per skin, and an unskinned one at its node's
+    /// posed place.
     fn push_model(
         &mut self,
         model: &Model,
         model_matrix: Mat4,
         material: Material,
         playback: Option<Playback>,
+        joints: &[Option<JointPose>],
     ) {
-        let posed = model
-            .rig
-            .as_ref()
-            .zip(playback)
-            .map(|(rig, playback)| rig.pose(Some((&rig.clips[playback.clip], playback.time))));
+        let posed = model.rig.as_ref().and_then(|rig| rig.posed(playback, joints));
         let mut bases: Vec<Option<u32>> = vec![None; model.rest_joints.len()];
 
         for part in &model.parts {
@@ -583,7 +582,13 @@ impl SceneDrawer {
 
             match shape {
                 Shape3::Model(model) if model.is_ok() => {
-                    draws.push_model(&model, model_matrix, node.material, node.playback);
+                    draws.push_model(
+                        &model,
+                        model_matrix,
+                        node.material,
+                        node.playback,
+                        &node.joint_poses,
+                    );
                 }
                 _ => {
                     if let Some(mesh) = node.mesh {

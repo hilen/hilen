@@ -46,6 +46,9 @@ mod geometry;
 mod glow;
 mod grass;
 mod grass_on_a_planet;
+/// Shadow edges on `SwiftShader`, see `animations`.
+#[cfg(not_wasm)]
+mod joint_poses;
 mod leaves;
 mod light_past_the_air;
 mod lights;

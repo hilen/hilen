@@ -449,6 +449,10 @@ fn rig(document: &Document, blob: &[u8], name: &str) -> Result<Option<Rig>> {
 
     Ok(Some(Rig {
         nodes,
+        names: document
+            .nodes()
+            .map(|node| node.name().unwrap_or_default().to_string())
+            .collect(),
         order,
         skins,
         clips,

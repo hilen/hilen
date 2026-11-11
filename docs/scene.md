@@ -45,6 +45,24 @@ bouncy collider, `Prop` is only drawn. `NodeTemplates` carries `set_color`,
 a `Body` has `set_velocity`, `add_impulse` and `set_damping`. Rapier has no rolling
 resistance, so a ball on a plane rolls forever without damping.
 
+A `Body` also has `angular_velocity` and `set_angular_velocity`, `mass` and `set_mass`,
+and `set_gravity_scale`. A collider from its shape weighs what its volume gives at a
+density of 1, a few grams for a stone, so a game that wants real pushes sets the mass.
+With a gravity scale of 0 a body floats, and a game moves it by its speed, like a hand:
+it still pushes what it meets and is pushed back.
+
+`Weld::new(a, b)` holds 2 bodies together as 1 rigid thing, in the pose they have to
+each other at that moment, the grip of a hand on a stone. The 2 do not collide with
+each other while it lasts. `strain()` is the impulse it needed in the last step, in
+N s, so a game can let go of a thing that is hit too hard. `release()` ends it, and it
+also ends when 1 of the bodies leaves the scene.
+
+`node.contact_with(other)` gives a `Contact` while the 2 nodes touch: the deepest point
+of the touch in the world, the normal from the node toward the other, and the impulse
+of the last step. In `on_collision` it gives the point of the blow. The impulse there
+is still 0, the touch only starts in that step, so a game that needs the speed of a
+blow keeps the speeds of the bodies from the step before.
+
 `set_pose` sets the place and the turn in 1 write to the physics, for a world that
 moves every node each frame. `set_mesh_scale(Vec3)` stretches only the drawn mesh
 along each of its axes, on top of `set_scale`, so props of 1 shape stretched each
@@ -284,6 +302,46 @@ back to rest, and `animation_time` and `is_animating` to ask. The time moves wit
 the scene's update steps, the same clock as the physics. The bounds, and with
 them the collider and picking, are the rest pose. `Fox.glb` is the Khronos glTF
 sample fox with its Survey, Walk and Run clips, see `Fox.license.md` next to it.
+
+An app can also place the joints of a model itself, with no clip, like a hand whose
+fingers close from the mouse wheel:
+
+```rust
+let model = Model::get("hand.glb");
+let knuckle = model.joint("index-finger-phalanx-proximal").expect("the hand has the joint");
+let (place, turn) = model.joint_rest(knuckle).expect("a joint of this model");
+hand.set_joint(knuckle, place, turn * Quat::from_rotation_x(0.6));
+let tip = hand.joint_transform(knuckle).map(|joint| joint.transform_point3(Vec3::ZERO));
+```
+
+- `Model::joint(name)` gives a `Joint`, a handle that holds for every node that draws
+  that model. Look a name up once and keep the handle. It finds every named node of the
+  file, the joints of a skin and any other node, like the armature or a mesh node. An
+  unknown name gives `None`. `Model::joint_names` lists the names. A static model, with
+  no skin and no clip, keeps no nodes, so it has no joints.
+- `NodeTemplates::joint(name)` is the same lookup on a node. It logs an error for an
+  unknown name and for a node with no such model, like `play` does.
+- `Model::joint_rest(joint)` gives the translation and the rotation of the joint at
+  rest, in the space of its parent node in the file.
+- `set_joint(joint, translation, rotation)` on a node puts the joint there, in the
+  space of its parent, in place of the rest values. The scale stays. Every node below
+  it in the tree moves with it. `clear_joint(joint)` gives it back, `clear_joints`
+  gives all back.
+- Over a playing clip a set joint wins for that joint: its translation and rotation
+  are the set ones, its scale is the clip's, and every other joint plays on.
+  `stop_animation` leaves the set joints as they are.
+- `joint_transform(joint)` on a node is where the joint is now, with the clip and the
+  set joints, the pose that is drawn. It is in the space of the model, without the
+  place, the turn and the scale of the node, so a point `p` of it is at
+  `node.position() + node.rotation() * (p * node.world_scale())` in the world. Each
+  call walks the whole tree of the model.
+- Not every model has its joints in a tree. The WebXR generic hand has all 25 joints
+  side by side under 1 root, each placed in the space of the whole hand. There a set
+  joint moves only itself, and the app sets every joint of a finger.
+- A node with a set joint draws like one that plays a clip: the drawer walks the tree
+  each frame, the shadow pass draws the same pose, and no pass leaves the node out by
+  its rest bounds. The bounds, the collider and picking stay the rest pose. The code is
+  `hilen/src/scene/model/joints.rs`.
 
 The Blender sources sit next to the exports in `assets/models`. One file exports
 with `blender --background --python deps/models/export_glb.py -- assets/models/tree.blend`,
@@ -1043,7 +1101,9 @@ bounds, `Shadows` a post, a ball, a floating crate and the monkey under a low su
 `Picking` taps landing on the nearest node and on the sky, `Player walk` a
 player shoving a crate into a wall and jumping, `Animations` a skinned bar
 bending, the fox running and a windmill spinning, checked at rest, frozen mid
-clip and held after a single run, `Cascades` a thin pole and a row of posts down
+clip and held after a single run, `Joint poses` the same bar with a bone turned, a
+bone moved, a bone given back and a bone held over the frozen bend clip, all set from
+code and read back with `joint_transform`, `Cascades` a thin pole and a row of posts down
 a field hundreds of units long with the camera walking it, its middle check on
 the spot where a floor pixel too coarse for the maps holding it once fell through
 to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,

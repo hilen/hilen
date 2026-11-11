@@ -33,17 +33,17 @@ pub(crate) struct ScenePhysics {
     pub(crate) wells:   Vec<GravityWell>,
 
     #[educe(Default = ccd_parameters())]
-    integration_parameters: IntegrationParameters,
+    pub(crate) integration_parameters: IntegrationParameters,
 
     physics_pipeline: PhysicsPipeline,
 
-    island_manager:          IslandManager,
-    pub(crate) broad_phase:  BroadPhaseBvh,
-    pub(crate) narrow_phase: NarrowPhase,
-    impulse_joints:          ImpulseJointSet,
-    multibody_joints:        MultibodyJointSet,
-    soft_bodies:             SoftBodySet,
-    ccd_solver:              CCDSolver,
+    island_manager:            IslandManager,
+    pub(crate) broad_phase:    BroadPhaseBvh,
+    pub(crate) narrow_phase:   NarrowPhase,
+    pub(crate) impulse_joints: ImpulseJointSet,
+    multibody_joints:          MultibodyJointSet,
+    soft_bodies:               SoftBodySet,
+    ccd_solver:                CCDSolver,
 
     pub(crate) events: EventHandler,
 }
