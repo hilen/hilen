@@ -130,3 +130,37 @@ async fn a_text_that_is_no_email_is_refused() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn a_dev_login_can_keep_its_session_in_a_cookie() -> Result<()> {
+    let (app, _db) = dev_app().await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/dev")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "email": "ana@test", "cookie": true }).to_string(),
+                ))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(axum::http::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        set_cookie.starts_with("hilen_session=") && set_cookie.contains("HttpOnly"),
+        "{set_cookie}"
+    );
+    let body = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
+    assert!(
+        body.starts_with(r#"{"status":"kept""#) && !body.contains("token"),
+        "{body}"
+    );
+    Ok(())
+}

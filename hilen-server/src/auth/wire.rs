@@ -32,6 +32,9 @@ pub(crate) struct PollRequest {
     pub verifier: String,
     #[serde(default)]
     pub code:     Option<String>,
+    /// A page in a browser asks for its session as a cookie, see `cookie.rs`.
+    #[serde(default)]
+    pub cookie:   bool,
 }
 
 /// A device with no keyboard asks for a short code a person types on a
@@ -66,7 +69,14 @@ pub(crate) struct Providers {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum PollResponse {
     Pending,
-    Done { token: String, user: UserInfo },
+    Done {
+        token: String,
+        user:  UserInfo,
+    },
+    /// The session went into a cookie, the answer has no token.
+    Kept {
+        user: UserInfo,
+    },
 }
 
 #[cfg(test)]
@@ -84,7 +94,9 @@ mod test {
             ("v", Some("c"))
         );
         let request: PollRequest = from_str(r#"{"verifier":"v"}"#)?;
-        assert_eq!(request.code, None);
+        assert_eq!((request.code, request.cookie), (None, false));
+        let request: PollRequest = from_str(r#"{"verifier":"v","code":"c","cookie":true}"#)?;
+        assert!(request.cookie);
         Ok(())
     }
 
@@ -120,6 +132,14 @@ mod test {
         assert_eq!(
             to_string(&done)?,
             r#"{"status":"done","token":"t","user":{"id":"1","email":"a@b.c","name":"A","picture":null}}"#
+        );
+
+        let PollResponse::Done { user, .. } = done else {
+            unreachable!("built as done above")
+        };
+        assert_eq!(
+            to_string(&PollResponse::Kept { user })?,
+            r#"{"status":"kept","user":{"id":"1","email":"a@b.c","name":"A","picture":null}}"#
         );
         Ok(())
     }

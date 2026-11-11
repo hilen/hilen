@@ -5,6 +5,11 @@
 pub use hilen_session::LoginUser;
 use serde::{Deserialize, Serialize};
 
+/// The header a page sends with every request that uses its session cookie,
+/// the same as `cookie::HEADER` and `cookie::HEADER_VALUE` of the server.
+pub(crate) const COOKIE_HEADER: &str = "x-hilen-session";
+pub(crate) const COOKIE_HEADER_VALUE: &str = "cookie";
+
 /// `code` is the one time code that came back to the app at the end of the
 /// login. Only the login of a device with no keyboard has none.
 #[derive(Debug, Serialize)]
@@ -12,6 +17,10 @@ pub(crate) struct PollRequest<'a> {
     pub verifier: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code:     Option<&'a str>,
+    /// A page in a browser asks for its session as a cookie no script can
+    /// read, see `Login::keep_session_in_cookie`. A server before the cookie
+    /// ignores it and answers with a token.
+    pub cookie:   bool,
 }
 
 /// Asks for a short code a person types on a phone, for a device with no
@@ -60,6 +69,10 @@ pub(crate) enum PollResponse {
         token: String,
         user:  LoginUser,
     },
+    /// The server put the session into a cookie, the answer has no token.
+    Kept {
+        user: LoginUser,
+    },
 }
 
 #[cfg(test)]
@@ -89,15 +102,17 @@ mod test {
             to_string(&PollRequest {
                 verifier: "abc",
                 code:     None,
+                cookie:   false,
             })?,
-            r#"{"verifier":"abc"}"#
+            r#"{"verifier":"abc","cookie":false}"#
         );
         assert_eq!(
             to_string(&PollRequest {
                 verifier: "abc",
                 code:     Some("c0de"),
+                cookie:   true,
             })?,
-            r#"{"verifier":"abc","code":"c0de"}"#
+            r#"{"verifier":"abc","code":"c0de","cookie":true}"#
         );
         Ok(())
     }
@@ -117,6 +132,12 @@ mod test {
         assert_eq!(token, "t");
         assert_eq!(user.name, "A");
         assert_eq!(user.picture, None);
+
+        let kept = r#"{"status":"kept","user":{"id":"1","email":"a@b.c","name":"A","picture":null}}"#;
+        let PollResponse::Kept { user } = from_str(kept)? else {
+            panic!("a kept response parsed as another one");
+        };
+        assert_eq!(user.email, "a@b.c");
         Ok(())
     }
 }

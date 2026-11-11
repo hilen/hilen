@@ -107,6 +107,35 @@ the token of the active session as `Authorization: Bearer`. With no active sessi
 sends nothing and gives `Unauthorized`. It never clears the session, the URL may be
 another server. `Call` does not log a request body, the poll carries the verifier in it.
 
+## A session in a cookie
+
+A page in a browser keeps its token in `localStorage`, which every script of the origin
+can read, also a bad script of another page on the same host. `Login::keep_session_in_cookie()`,
+called before `Login::set_server`, keeps the session in a cookie no script can read. It
+works only for a page in a browser, an app on any other platform keeps its token.
+
+- The poll sends `"cookie": true`. The server sets the token as the cookie
+  `hilen_session` and answers `{"status":"kept","user":...}` with no token,
+  `hilen-server/src/auth/cookie.rs`. The cookie is `HttpOnly`, `SameSite=Strict`,
+  `Secure` on https, 90 days long, and lives on the path of `PUBLIC_ORIGIN`, so an app
+  behind a proxy at `/control-center` gets a cookie only that path sees.
+- A request counts the cookie only with the header `x-hilen-session: cookie`. A page of
+  another site cannot send that header unless CORS allows it, so a form or a link from
+  there never acts with the cookie. The `User` extractor, `/auth/logout`,
+  `/auth/logout/all` and `/auth/delete` take it, the last 3 also drop the cookie.
+- `Login::send` adds the header in place of the bearer token. `Login::token` is always
+  `None`. The page has 1 login, held only in memory, so it knows its user after
+  `Login::current_user` at each start and after a login came back.
+- The dev login takes the same `"cookie": true`.
+- A server before the cookie ignores the field and answers with a token, which the page
+  then keeps as before, with a warning in the log.
+- The cookie is not renewed on use, a user who comes back after 90 days logs in again.
+- `a_page_gets_its_session_as_a_cookie_no_script_can_read` and
+  `a_dev_login_can_keep_its_session_in_a_cookie` test the server,
+  `a_login_in_cookie_mode_keeps_no_token`, `send_in_cookie_mode_marks_the_request_and_sends_no_token`
+  and `current_user_and_logout_work_in_cookie_mode` the client. Not proven in a real
+  browser yet: that it stores the cookie of the poll and sends it back.
+
 ## Several logins on 1 device
 
 Several people can be logged in on 1 device at once, like the account switch of

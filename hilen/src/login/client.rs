@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use anyhow::{Result, anyhow, bail};
 use parking_lot::Mutex;
@@ -16,7 +16,8 @@ use crate::{
     login::{
         hand_back::HandBack,
         wire::{
-            CodeRequest, CodeResponse, LinkRequest, LoginUser, PollRequest, PollResponse, ProvidersResponse,
+            COOKIE_HEADER, COOKIE_HEADER_VALUE, CodeRequest, CodeResponse, LinkRequest, LoginUser,
+            PollRequest, PollResponse, ProvidersResponse,
         },
     },
     store::SessionStore,
@@ -37,6 +38,58 @@ const GIVE_UP_SECONDS: f64 = 600.0;
 const MAX_FAILURES: u32 = 5;
 
 static SERVER: Mutex<Option<String>> = Mutex::new(None);
+
+/// Set by `Login::keep_session_in_cookie` on a page in a browser.
+static COOKIE: AtomicBool = AtomicBool::new(false);
+
+/// The user of the cookie session. The page holds no token, so it learns its
+/// user again from `current_user` at each start.
+static COOKIE_USER: Mutex<Option<LoginUser>> = Mutex::new(None);
+
+/// How a request proves its session.
+enum Credential {
+    /// The browser sends the cookie by itself, the request adds the header
+    /// the server wants with it.
+    Cookie,
+    Bearer(String),
+}
+
+impl Credential {
+    fn on(self, call: Call) -> Call {
+        match self {
+            Self::Cookie => call.header(COOKIE_HEADER, COOKIE_HEADER_VALUE),
+            Self::Bearer(token) => call.bearer(token),
+        }
+    }
+}
+
+fn cookie_mode() -> bool {
+    COOKIE.load(Ordering::SeqCst)
+}
+
+/// The credential of the active session, none when nobody is logged in. A
+/// cookie session always has one, only the server knows if it is still live.
+fn credential() -> Option<Credential> {
+    if cookie_mode() {
+        Some(Credential::Cookie)
+    } else {
+        SessionStore::load().map(Credential::Bearer)
+    }
+}
+
+fn set_cookie_user(user: Option<LoginUser>) {
+    *COOKIE_USER.lock() = user;
+}
+
+/// Forgets the active session here, the others stay.
+fn clear_active() -> Result<()> {
+    if cookie_mode() {
+        set_cookie_user(None);
+        Ok(())
+    } else {
+        SessionStore::clear()
+    }
+}
 
 /// Every `start` and every `cancel` moves it on. A poll loop that sees another
 /// number than its own knows it is no longer wanted.
@@ -148,6 +201,24 @@ impl Login {
         *SERVER.lock() = Some(server.clone());
         #[cfg(wasm)]
         same_tab::resume(server);
+    }
+
+    /// Keeps the session of a page in a browser in a cookie of its server that
+    /// no script can read, in place of a token in `localStorage`. Call it at
+    /// launch, before `set_server`. Only a page in a browser does it, an app on
+    /// any other platform keeps its token as before.
+    ///
+    /// The page has 1 login then. It holds no token, so `token` is always
+    /// `None`, and it knows its user only after `current_user`. The backend
+    /// needs a `hilen-server` with the cookie session, see `auth/cookie.rs`
+    /// there. An older backend answers with a token, which is kept as before.
+    pub fn keep_session_in_cookie() {
+        if cfg!(wasm) {
+            COOKIE.store(true, Ordering::SeqCst);
+            log::info!("the session of this page is kept in a cookie");
+        } else {
+            log::debug!("only a page in a browser keeps its session in a cookie, this app keeps a token");
+        }
     }
 
     /// Triggered when a login finished on its own, with no `done` to call: a
@@ -323,12 +394,18 @@ impl Login {
     /// The token of the active session, for the `Authorization: Bearer`
     /// header of the app's own requests. `None` when nobody is logged in.
     pub fn token() -> Option<String> {
+        if cookie_mode() {
+            return None;
+        }
         SessionStore::load()
     }
 
     /// Everybody logged in on this device, in the order they logged in. A
     /// new login adds to the list, it does not log the others out.
     pub fn accounts() -> Vec<LoginUser> {
+        if cookie_mode() {
+            return COOKIE_USER.lock().clone().into_iter().collect();
+        }
         SessionStore::sessions()
             .into_iter()
             .filter_map(|session| session.user)
@@ -338,12 +415,21 @@ impl Login {
     /// The user of the active session as it was stored, with no request.
     /// `None` when nobody is active. `current_user` asks the server.
     pub fn active_user() -> Option<LoginUser> {
+        if cookie_mode() {
+            return COOKIE_USER.lock().clone();
+        }
         SessionStore::active_user()
     }
 
     /// Makes the session of this user, an `id` of `accounts`, the active one.
     /// Every request after it goes out as that user.
     pub fn switch(id: &str) -> Result<()> {
+        if cookie_mode() {
+            if Self::active_user().is_some_and(|user| user.id == id) {
+                return Ok(());
+            }
+            bail!("a page with its session in a cookie has 1 login");
+        }
         SessionStore::switch(id)?;
         log::info!("the active login is now user {id}");
         Ok(())
@@ -367,8 +453,8 @@ impl Login {
     /// longer knows, so 1 match arm sends the user back to the login.
     /// It runs on the calling task, call it inside `spawn`.
     pub async fn send<Out: DeserializeOwned>(call: Call) -> Result<Out, RequestError> {
-        match Self::token() {
-            Some(token) => call.bearer(token).send().await,
+        match credential() {
+            Some(credential) => credential.on(call).send().await,
             None => Err(RequestError::Unauthorized),
         }
     }
@@ -377,8 +463,8 @@ impl Login {
     /// log only the logged in user may read. Save them with
     /// `Paths::save_file_bytes`.
     pub async fn send_bytes(call: Call) -> Result<Vec<u8>, RequestError> {
-        match Self::token() {
-            Some(token) => call.bearer(token).send_bytes().await,
+        match credential() {
+            Some(credential) => credential.on(call).send_bytes().await,
             None => Err(RequestError::Unauthorized),
         }
     }
@@ -454,6 +540,9 @@ async fn dev_login(email: &str) -> Result<LoginUser> {
             Ok(user)
         }
         Ok(PollResponse::Pending) => bail!("the server gave no session for the dev login"),
+        Ok(PollResponse::Kept { .. }) => {
+            bail!("the server put the dev login into a cookie, it asked for a token")
+        }
         Err(error) => {
             log::warn!("the dev login of {email} failed: {error}");
             bail!("the dev login failed, a server needs the dev-login feature for it: {error}")
@@ -526,8 +615,16 @@ async fn wait_for_login(server: &str, verifier: &str, hand_back: Option<&HandBac
         // poll, so a closed sheet still gets 1 poll.
         match poll(server, verifier, code.as_deref()).await {
             Ok(PollResponse::Done { token, user }) => {
+                if cookie_mode() {
+                    log::warn!("the server gave a token, it keeps no session in a cookie yet");
+                }
                 log::info!("login done");
                 return Waited::Done(SessionStore::add(&token, user.clone()).map(|()| user));
+            }
+            Ok(PollResponse::Kept { user }) => {
+                log::info!("login done, the session is in a cookie");
+                set_cookie_user(Some(user.clone()));
+                return Waited::Done(Ok(user));
             }
             Ok(PollResponse::Pending) if closed => {
                 log::info!("the login sheet was closed before the login was done, the wait ends");
@@ -597,7 +694,11 @@ fn login_code(server: &str, code: String) -> LoginCode {
 }
 
 async fn poll(server: &str, verifier: &str, code: Option<&str>) -> Result<PollResponse> {
-    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest { verifier, code });
+    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest {
+        verifier,
+        code,
+        cookie: cookie_mode(),
+    });
 
     match call.send().await {
         Ok(response) => Ok(response),
@@ -628,20 +729,27 @@ async fn fetch_providers() -> Result<LinkedProviders> {
 }
 
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
-    let Some(token) = SessionStore::load() else {
+    let Some(credential) = credential() else {
         return Ok(None);
     };
+    let token = match &credential {
+        Credential::Bearer(token) => Some(token.clone()),
+        Credential::Cookie => None,
+    };
 
-    let call = Call::get(format!("{}/auth/me", server()?)).bearer(token.clone());
+    let call = credential.on(Call::get(format!("{}/auth/me", server()?)));
     match call.send::<LoginUser>().await {
         Ok(user) => {
-            // A session of an engine with 1 login gets its user here, and a
-            // new name or picture reaches the list of accounts.
-            SessionStore::set_user(&token, user.clone())?;
+            match token {
+                // A session of an engine with 1 login gets its user here, and
+                // a new name or picture reaches the list of accounts.
+                Some(token) => SessionStore::set_user(&token, user.clone())?,
+                None => set_cookie_user(Some(user.clone())),
+            }
             Ok(Some(user))
         }
         Err(RequestError::Unauthorized) => {
-            SessionStore::clear()?;
+            clear_active()?;
             Ok(None)
         }
         Err(error) => Err(error.into()),
@@ -649,37 +757,41 @@ async fn fetch_current_user() -> Result<Option<LoginUser>> {
 }
 
 async fn end_session() -> Result<()> {
-    let Some(token) = SessionStore::load() else {
+    let Some(credential) = credential() else {
         return Ok(());
     };
-    SessionStore::clear()?;
-    logout_on_server(token).await
+    clear_active()?;
+    logout_on_server(credential).await
 }
 
 async fn end_every_session() -> Result<()> {
-    let Some(token) = SessionStore::load() else {
+    let Some(credential) = credential() else {
         bail!("nobody is logged in");
     };
-    let call = Call::post(format!("{}/auth/logout/all", server()?)).bearer(token);
+    let call = credential.on(Call::post(format!("{}/auth/logout/all", server()?)));
     // An unknown session has nothing left to end on the server.
     match call.send::<()>().await {
         Ok(()) | Err(RequestError::Unauthorized) => {}
         Err(error) => return Err(error.into()),
     }
     log::info!("every session of the active user is ended on the server");
-    SessionStore::clear()
+    clear_active()
 }
 
 async fn forget_session(id: &str) -> Result<()> {
+    if cookie_mode() {
+        let active = Login::active_user().is_some_and(|user| user.id == id);
+        return if active { end_session().await } else { Ok(()) };
+    }
     let Some(token) = SessionStore::remove(id)? else {
         return Ok(());
     };
     log::info!("the login of user {id} is forgotten on this device");
-    logout_on_server(token).await
+    logout_on_server(Credential::Bearer(token)).await
 }
 
-async fn logout_on_server(token: String) -> Result<()> {
-    let call = Call::post(format!("{}/auth/logout", server()?)).bearer(token);
+async fn logout_on_server(credential: Credential) -> Result<()> {
+    let call = credential.on(Call::post(format!("{}/auth/logout", server()?)));
 
     // An unknown session is as logged out as it gets.
     match call.send::<()>().await {
@@ -689,7 +801,7 @@ async fn logout_on_server(token: String) -> Result<()> {
 }
 
 async fn delete_user() -> Result<()> {
-    if SessionStore::load().is_none() {
+    if credential().is_none() {
         bail!("nobody is logged in");
     }
 
@@ -697,7 +809,7 @@ async fn delete_user() -> Result<()> {
     match Login::send::<()>(Call::post(format!("{}/auth/delete", server()?))).await {
         Ok(()) | Err(RequestError::Unauthorized) => {
             log::info!("the account is deleted");
-            SessionStore::clear()
+            clear_active()
         }
         Err(error) => Err(error.into()),
     }

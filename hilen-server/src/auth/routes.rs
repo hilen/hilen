@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     AppError,
     auth::{
-        AppleConfig, AuthState, DiscordConfig, User, apple, discord, google,
+        AppleConfig, AuthState, DiscordConfig, User, apple, cookie, discord, google,
         hand_back::HandBack,
         identity::{Identity, Provider},
         session::{self, hash},
@@ -480,23 +480,32 @@ fn done(app: &str) -> Response {
 async fn poll(
     State(state): State<AuthState>,
     Json(request): Json<PollRequest>,
-) -> Result<Json<PollResponse>, AppError> {
+) -> Result<Response, AppError> {
     let challenge = hex::encode(Sha256::digest(request.verifier.as_bytes()));
     let code_hash = request.code.as_deref().map(hash);
 
     let Some(user_id) =
         store::take_finished(&state.db, &challenge, code_hash.as_deref(), PENDING_MINUTES).await?
     else {
-        return Ok(Json(PollResponse::Pending));
+        return Ok(Json(PollResponse::Pending).into_response());
     };
 
     let token = session::create(&state.db, user_id).await?;
     let user = session::user_of(&state.db, &token).await?.ok_or(AppError::Unauthorized)?;
 
+    if request.cookie {
+        tracing::info!("user {} gets a session in a cookie", user.id);
+        return cookie::keep(
+            &state.config,
+            &token,
+            Json(PollResponse::Kept { user: user.into() }),
+        );
+    }
     Ok(Json(PollResponse::Done {
         token,
         user: user.into(),
-    }))
+    })
+    .into_response())
 }
 
 async fn me(user: User) -> Json<UserInfo> {
@@ -538,24 +547,34 @@ async fn providers(State(state): State<AuthState>, user: User) -> Result<Json<Pr
     }))
 }
 
-async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<(), AppError> {
-    let token = bearer_token(&headers).ok_or(AppError::Unauthorized)?;
+async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<Response, AppError> {
+    let token = bearer_token(&headers)
+        .or_else(|| cookie::token(&headers))
+        .ok_or(AppError::Unauthorized)?;
     session::delete(&state.db, token).await?;
-    Ok(())
+    cookie::ended(&state.config, &headers)
 }
 
 /// Ends every session of the user, the one that asks included, so a session
 /// stolen from another device stops working at once.
-async fn logout_all(State(state): State<AuthState>, user: User) -> Result<(), AppError> {
+async fn logout_all(
+    State(state): State<AuthState>,
+    user: User,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let ended = store::delete_user_sessions(&state.db, user.id).await?;
     tracing::info!("user {} ended all {ended} of their sessions", user.id);
-    Ok(())
+    cookie::ended(&state.config, &headers)
 }
 
 /// Removes the user for good. Apple is told first to forget what it gave out
 /// for the user. A revoke that fails is logged and the user still goes, a
 /// person must be able to leave also when Apple is down.
-async fn delete(State(state): State<AuthState>, user: User) -> Result<(), AppError> {
+async fn delete(
+    State(state): State<AuthState>,
+    user: User,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let tokens = store::apple_refresh_tokens(&state.db, user.id).await?;
 
     match &state.config.apple {
@@ -577,7 +596,7 @@ async fn delete(State(state): State<AuthState>, user: User) -> Result<(), AppErr
 
     store::delete_user(&state.db, user.id).await?;
     tracing::info!("user {} deleted", user.id);
-    Ok(())
+    cookie::ended(&state.config, &headers)
 }
 
 pub(crate) fn is_challenge(text: &str) -> bool {

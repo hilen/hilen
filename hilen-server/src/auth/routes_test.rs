@@ -11,7 +11,7 @@ use axum::{
     extract::State,
     http::{
         HeaderMap, Request, StatusCode,
-        header::{AUTHORIZATION, CONTENT_TYPE, LOCATION},
+        header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
         request::Builder,
     },
     response::Response,
@@ -29,7 +29,7 @@ use tower::ServiceExt;
 
 use crate::{
     apple_key::test_key,
-    auth::{AppleConfig, AuthConfig, AuthState, DiscordConfig, auth_routes, store_test::sqlite},
+    auth::{AppleConfig, AuthConfig, AuthState, DiscordConfig, auth_routes, cookie, store_test::sqlite},
 };
 
 #[derive(Serialize)]
@@ -720,5 +720,104 @@ async fn the_dev_login_is_not_there_without_the_feature() -> Result<()> {
         )
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+/// The answer of a poll that asks for its session as a cookie.
+async fn poll_for_cookie(app: &Router, verifier: &str, code: &str) -> Result<Response> {
+    #[derive(Serialize)]
+    struct Poll<'a> {
+        verifier: &'a str,
+        code:     &'a str,
+        cookie:   bool,
+    }
+    Ok(app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_string(&Poll {
+                    verifier,
+                    code,
+                    cookie: true,
+                })?))?,
+        )
+        .await?)
+}
+
+/// `GET /auth/me` with the cookie, with or without the marker header.
+async fn me_with_cookie(app: &Router, cookie: &str, marked: bool) -> Result<StatusCode> {
+    let mut builder = request("GET", "/auth/me").header(COOKIE, cookie);
+    if marked {
+        builder = builder.header(cookie::HEADER, cookie::HEADER_VALUE);
+    }
+    Ok(app.clone().oneshot(builder.body(Body::empty())?).await?.status())
+}
+
+// The failure this prevents: a page in a browser that keeps its token where
+// any script of the origin can read it.
+#[tokio::test]
+async fn a_page_gets_its_session_as_a_cookie_no_script_can_read() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let verifier = "the secret of the page";
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+
+    let response = poll_for_cookie(&app, verifier, &code).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(SET_COOKIE)
+        .context("the poll set no cookie")?
+        .to_str()?
+        .to_owned();
+    let body = text_of(response).await?;
+    assert!(body.starts_with(r#"{"status":"kept","user":{"#), "{body}");
+    assert!(!body.contains("token"), "the answer holds the token: {body}");
+    for attribute in [
+        "HttpOnly",
+        "SameSite=Strict",
+        "Secure",
+        "Path=/;",
+        "Max-Age=7776000",
+    ] {
+        assert!(
+            set_cookie.contains(attribute),
+            "{attribute} is missing in {set_cookie}"
+        );
+    }
+    let cookie = set_cookie.split(';').next().context("the cookie has no value")?.to_owned();
+
+    assert_eq!(me_with_cookie(&app, &cookie, true).await?, StatusCode::OK);
+    assert_eq!(
+        me_with_cookie(&app, &cookie, false).await?,
+        StatusCode::UNAUTHORIZED,
+        "a request a page of another site could make counts the cookie"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/logout")
+                .header(COOKIE, &cookie)
+                .header(cookie::HEADER, cookie::HEADER_VALUE)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cleared = response
+        .headers()
+        .get(SET_COOKIE)
+        .context("the logout kept the cookie")?
+        .to_str()?;
+    assert!(cleared.starts_with("hilen_session=; Max-Age=0;"), "{cleared}");
+    assert_eq!(
+        me_with_cookie(&app, &cookie, true).await?,
+        StatusCode::UNAUTHORIZED
+    );
     Ok(())
 }

@@ -21,6 +21,7 @@
 //! only.
 
 mod apple;
+pub mod cookie;
 #[cfg(feature = "dev-login")]
 mod dev;
 #[cfg(all(test, feature = "dev-login"))]

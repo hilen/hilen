@@ -4,10 +4,15 @@ use axum::{
 };
 use sqlx::types::Uuid;
 
-use crate::{AppError, Db, auth::session};
+use crate::{
+    AppError, Db,
+    auth::{cookie, session},
+};
 
 /// The logged in user. Put it in the arguments of a route and the route only
-/// runs for a request with a live session, everybody else gets a 401.
+/// runs for a request with a live session, everybody else gets a 401. The
+/// session comes from the bearer header, or from the cookie of a page in a
+/// browser, see `cookie.rs`.
 ///
 /// ```ignore
 /// async fn my_mods(user: User, State(db): State<PgPool>) -> Result<Json<Mods>, AppError> {
@@ -34,7 +39,9 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let token = bearer_token(&parts.headers).ok_or(AppError::Unauthorized)?;
+        let token = bearer_token(&parts.headers)
+            .or_else(|| cookie::token(&parts.headers))
+            .ok_or(AppError::Unauthorized)?;
         let db = Db::from_ref(state);
 
         session::user_of(&db, token).await?.ok_or(AppError::Unauthorized)

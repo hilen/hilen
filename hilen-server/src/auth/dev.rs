@@ -8,13 +8,18 @@
 //! same email, in either direction, see `store::login_user`. So the route
 //! reaches only the accounts it made itself.
 
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{
+    Json, Router,
+    extract::State,
+    response::{IntoResponse, Response},
+    routing::post,
+};
 use serde::Deserialize;
 
 use crate::{
     AppError,
     auth::{
-        AuthState,
+        AuthState, cookie,
         identity::{Identity, Provider},
         session, store,
         wire::PollResponse,
@@ -26,7 +31,10 @@ const MAX_EMAIL: usize = 254;
 
 #[derive(Debug, Deserialize)]
 struct DevRequest {
-    email: String,
+    email:  String,
+    /// The session as a cookie, like the poll of a page, see `cookie.rs`.
+    #[serde(default)]
+    cookie: bool,
 }
 
 pub(crate) fn add_route(router: Router<AuthState>) -> Router<AuthState> {
@@ -40,7 +48,7 @@ pub(crate) fn add_route(router: Router<AuthState>) -> Router<AuthState> {
 async fn dev_login(
     State(state): State<AuthState>,
     Json(request): Json<DevRequest>,
-) -> Result<Json<PollResponse>, AppError> {
+) -> Result<Response, AppError> {
     let email = request.email.trim().to_lowercase();
     if !is_email(&email) {
         return Err(AppError::BadRequest(
@@ -61,10 +69,18 @@ async fn dev_login(
     let user = session::user_of(&state.db, &token).await?.ok_or(AppError::Unauthorized)?;
     tracing::warn!("dev login for user {user_id}, {}", user.email);
 
+    if request.cookie {
+        return cookie::keep(
+            &state.config,
+            &token,
+            Json(PollResponse::Kept { user: user.into() }),
+        );
+    }
     Ok(Json(PollResponse::Done {
         token,
         user: user.into(),
-    }))
+    })
+    .into_response())
 }
 
 fn is_email(text: &str) -> bool {

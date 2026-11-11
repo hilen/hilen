@@ -532,3 +532,145 @@ async fn send_bytes_gives_the_file_only_with_the_session_token() -> Result<()> {
 
     Ok(())
 }
+
+/// Cookie mode for 1 test, off again when the test ends, also on a panic.
+#[cfg(not_wasm)]
+struct CookieMode;
+
+#[cfg(not_wasm)]
+impl CookieMode {
+    fn on() -> Self {
+        super::COOKIE.store(true, Ordering::SeqCst);
+        Self
+    }
+}
+
+#[cfg(not_wasm)]
+impl Drop for CookieMode {
+    fn drop(&mut self) {
+        super::COOKIE.store(false, Ordering::SeqCst);
+        super::set_cookie_user(None);
+    }
+}
+
+/// Stands in for a backend with the cookie session. It answers a poll that
+/// asks for a cookie with `kept`, and `/auth/me` and `/auth/logout` only for
+/// a request with the cookie header. It keeps every poll body.
+#[cfg(not_wasm)]
+async fn cookie_server() -> Result<(String, Arc<Mutex<Vec<Value>>>)> {
+    let polls = Arc::new(Mutex::new(Vec::new()));
+    let kept = polls.clone();
+    let marked = |headers: &HeaderMap| {
+        headers.get("x-hilen-session").and_then(|value| value.to_str().ok()) == Some("cookie")
+            && headers.get("authorization").is_none()
+    };
+
+    let app = Router::new()
+        .route(
+            "/auth/poll",
+            post(move |Json(body): Json<Value>| async move {
+                let cookie = body["cookie"] == json!(true);
+                kept.lock().push(body);
+                if cookie {
+                    Json(json!({ "status": "kept", "user": user("ann") }))
+                } else {
+                    Json(json!({ "status": "done", "token": "token-ann", "user": user("ann") }))
+                }
+            }),
+        )
+        .route(
+            "/auth/me",
+            get(move |headers: HeaderMap| async move {
+                if marked(&headers) {
+                    Ok(Json(user("ann")))
+                } else {
+                    Err(StatusCode::UNAUTHORIZED)
+                }
+            }),
+        )
+        .route(
+            "/auth/logout",
+            post(move |headers: HeaderMap| async move {
+                if marked(&headers) {
+                    Ok(Json(()))
+                } else {
+                    Err(StatusCode::UNAUTHORIZED)
+                }
+            }),
+        );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    Login::set_server(&origin);
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the cookie server stopped: {error}");
+        }
+    });
+    Ok((origin, polls))
+}
+
+// The failure this prevents: a page in cookie mode that still writes the
+// token of its session where any script of the origin can read it.
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn a_login_in_cookie_mode_keeps_no_token() -> Result<()> {
+    let (server, polls) = cookie_server().await?;
+    fresh_root("hilen-login-cookie-test")?;
+    let _mode = CookieMode::on();
+    let attempt = closed_attempt();
+
+    let Waited::Done(result) = wait_for_login(&server, "verifier", None, attempt).await else {
+        panic!("a kept login did not end the wait as done");
+    };
+
+    assert_eq!(result?.id, "ann");
+    assert_eq!(polls.lock()[0]["cookie"], json!(true));
+    assert_eq!(
+        SessionStore::load(),
+        None,
+        "the token went into the session store"
+    );
+    assert_eq!(Login::token(), None);
+    assert_eq!(account_ids(), ["ann"]);
+    Ok(())
+}
+
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn send_in_cookie_mode_marks_the_request_and_sends_no_token() -> Result<()> {
+    let base_url = start_test_server().await;
+    test_root("hilen-login-cookie-send-test");
+    SessionStore::add("token-7", user("ann"))?;
+    let _mode = CookieMode::on();
+
+    let marker: Option<String> = Login::send(Call::get(format!("{base_url}/header/x-hilen-session"))).await?;
+    assert_eq!(marker.as_deref(), Some("cookie"));
+    let bearer: Option<String> = Login::send(Call::get(format!("{base_url}/header/authorization"))).await?;
+    assert_eq!(bearer, None, "a page in cookie mode sent the stored token");
+
+    SessionStore::clear()?;
+    Ok(())
+}
+
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn current_user_and_logout_work_in_cookie_mode() -> Result<()> {
+    cookie_server().await?;
+    fresh_root("hilen-login-cookie-user-test")?;
+    let _mode = CookieMode::on();
+
+    assert_eq!(Login::active_user(), None);
+    assert_eq!(
+        fetch_current_user().await?.map(|user| user.id).as_deref(),
+        Some("ann")
+    );
+    assert_eq!(Login::active_user().map(|user| user.id).as_deref(), Some("ann"));
+
+    end_session().await?;
+    assert_eq!(Login::active_user(), None);
+    Ok(())
+}
