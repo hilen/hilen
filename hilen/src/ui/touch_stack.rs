@@ -160,6 +160,12 @@ impl TouchStack {
         Self::in_window_of(view, || Self::get().layer_for(view).add(view));
     }
 
+    /// The view its layer asks after every other one, like the scrim of
+    /// a modal, see `TouchLayer::add_backdrop`.
+    pub(crate) fn enable_for_backdrop(view: WeakView) {
+        Self::in_window_of(view, || Self::get().layer_for(view).add_backdrop(view));
+    }
+
     pub(crate) fn enable_for_low_priority(view: WeakView) {
         Self::in_window_of(view, || Self::get().layer_for(view).add_low_priority(view));
     }
@@ -316,8 +322,12 @@ impl TouchStack {
         if layer.to_bits() == own.to_bits() {
             return false;
         }
+        // The backdrop lies behind everything of its layer and covers the
+        // whole window, it covers no view, see `TouchLayer::add_backdrop`.
+        let backdrop = Self::get().stack.last().backdrop();
         Self::touch_views().any(|other| {
             other.is_ok()
+                && backdrop.is_none_or(|backdrop| backdrop.raw() != other.raw())
                 && !other.is_hidden_in_tree()
                 && other.contains_visible(point)
                 && depth_key(other).0 < layer

@@ -49,6 +49,11 @@ pub(crate) struct TouchLayer {
     /// and registration order alone would hand the divider's touches to
     /// that content.
     high_priority:   Vec<WeakView>,
+    /// Checked after every other view of the layer, whenever registered.
+    /// The scrim of a modal covers the whole window to hear a press
+    /// outside the modal. In the low priority tier it came before the
+    /// low priority views of the modal, like a table, and took their taps.
+    backdrop:        Option<WeakView>,
     hovered:         Vec<WeakView>,
     high_hovered:    Vec<WeakView>,
     pinched:         Vec<WeakView>,
@@ -91,6 +96,18 @@ impl TouchLayer {
         self.listeners.insert(0, view);
     }
 
+    /// The view the layer asks last, see `backdrop`.
+    pub(crate) fn add_backdrop(&mut self, view: WeakView) {
+        self.listeners.retain(|l| l.raw() != view.raw());
+        self.high_priority.retain(|l| l.raw() != view.raw());
+        self.backdrop = Some(view);
+    }
+
+    /// The view the layer asks last, see `backdrop`.
+    pub(crate) fn backdrop(&self) -> Option<WeakView> {
+        self.backdrop
+    }
+
     /// A plain listener that turns high priority on moves to the tier.
     pub(crate) fn add_high_priority(&mut self, view: WeakView) {
         self.listeners.retain(|l| l.raw() != view.raw());
@@ -101,7 +118,11 @@ impl TouchLayer {
     }
 
     fn is_listed(&self, view: WeakView) -> bool {
-        self.listeners.iter().chain(&self.high_priority).any(|l| l.raw() == view.raw())
+        self.listeners
+            .iter()
+            .chain(&self.high_priority)
+            .chain(&self.backdrop)
+            .any(|l| l.raw() == view.raw())
     }
 
     pub(crate) fn add_hover(&mut self, view: WeakView) {
@@ -128,6 +149,9 @@ impl TouchLayer {
     pub(crate) fn remove(&mut self, view: WeakView) {
         self.listeners.retain(|a| a.raw() != view.raw());
         self.high_priority.retain(|a| a.raw() != view.raw());
+        if self.backdrop.is_some_and(|backdrop| backdrop.raw() == view.raw()) {
+            self.backdrop = None;
+        }
     }
 
     /// Takes `view` out of every list: its touch, its hover, its pinch and
@@ -254,10 +278,12 @@ impl TouchLayer {
         }
     }
 
-    /// Plain listeners first, the high priority tier after them. Dispatch
-    /// iterates the result reversed, so the tier is checked first.
+    /// The backdrop first, then the plain listeners, the high priority
+    /// tier after them. Dispatch iterates the result reversed, so the tier
+    /// is checked first and the backdrop last.
     pub(crate) fn views(&self) -> Vec<WeakView> {
-        let mut views = self.listeners.clone();
+        let mut views: Vec<WeakView> = self.backdrop.into_iter().collect();
+        views.extend_from_slice(&self.listeners);
         views.extend_from_slice(&self.high_priority);
         views
     }
@@ -286,6 +312,9 @@ impl TouchLayer {
         assert!(self.root.is_ok());
         self.listeners.remove_freed();
         self.high_priority.remove_freed();
+        if self.backdrop.is_some_and(|backdrop| !backdrop.is_ok()) {
+            self.backdrop = None;
+        }
         self.hovered.remove_freed();
         self.high_hovered.remove_freed();
         self.pinched.remove_freed();
@@ -299,6 +328,7 @@ impl From<WeakView> for TouchLayer {
             root,
             listeners: vec![],
             high_priority: vec![],
+            backdrop: None,
             hovered: vec![],
             high_hovered: vec![],
             pinched: vec![],

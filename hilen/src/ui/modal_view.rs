@@ -43,10 +43,11 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         // The layer goes up before the modal registers its touches, a view
         // joins the top layer that holds it at registration time.
         TouchStack::push_layer(scrim);
-        // Every control of the modal takes a press first. A press that
-        // reaches the scrim outside the modal closes it the way Escape does,
-        // a modal with no cancel result stays.
-        scrim.enable_touch_low_priority();
+        // Every view of the modal takes a press first, a table too, which
+        // takes its taps at low priority. A press that reaches the scrim
+        // outside the modal closes it the way Escape does, a modal with no
+        // cancel result stays.
+        TouchStack::enable_for_backdrop(scrim);
         scrim.touch().began.val(move |_| {
             let outside = !weak.absolute_frame().contains(UIManager::cursor_position());
             if outside
