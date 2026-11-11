@@ -674,3 +674,31 @@ async fn current_user_and_logout_work_in_cookie_mode() -> Result<()> {
     assert_eq!(Login::active_user(), None);
     Ok(())
 }
+
+// The failure this prevents: a page in cookie mode that came back from the
+// login asked `/auth/me` before its poll set the cookie, got a 401 and showed
+// its login again.
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn current_user_waits_for_a_login_that_came_back() -> Result<()> {
+    use std::time::Duration;
+
+    cookie_server().await?;
+    fresh_root("hilen-login-resume-test")?;
+    let _mode = CookieMode::on();
+
+    super::RESUMING.store(true, Ordering::SeqCst);
+    let waiting = tokio::time::timeout(Duration::from_millis(300), fetch_current_user()).await;
+    assert!(
+        waiting.is_err(),
+        "current_user asked the server while the login still finished"
+    );
+
+    super::RESUMING.store(false, Ordering::SeqCst);
+    assert_eq!(
+        fetch_current_user().await?.map(|user| user.id).as_deref(),
+        Some("ann")
+    );
+    Ok(())
+}

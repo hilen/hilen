@@ -42,6 +42,9 @@ static SERVER: Mutex<Option<String>> = Mutex::new(None);
 /// Set by `Login::keep_session_in_cookie` on a page in a browser.
 static COOKIE: AtomicBool = AtomicBool::new(false);
 
+/// True while a login that came back to this page in the same tab finishes.
+static RESUMING: AtomicBool = AtomicBool::new(false);
+
 /// The user of the cookie session. The page holds no token, so it learns its
 /// user again from `current_user` at each start.
 static COOKIE_USER: Mutex<Option<LoginUser>> = Mutex::new(None);
@@ -728,7 +731,18 @@ async fn fetch_providers() -> Result<LinkedProviders> {
     })
 }
 
+/// A login that came back to this page finishes first. Asked before it, the
+/// server has no session yet: the answer was a 401 that cleared the user the
+/// login set a moment later, and a page in cookie mode showed its login again.
+async fn wait_for_resume() {
+    let give_up_at = now() + GIVE_UP_SECONDS;
+    while RESUMING.load(Ordering::SeqCst) && now() < give_up_at {
+        sleep(LOOK_SECONDS).await;
+    }
+}
+
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
+    wait_for_resume().await;
     let Some(credential) = credential() else {
         return Ok(None);
     };
@@ -831,7 +845,7 @@ mod same_tab {
     use anyhow::{Result, anyhow};
     use web_sys::{Storage, window};
 
-    use super::{ATTEMPT, CHANGED, Provider, Waited, challenge, new_verifier, wait_for_login};
+    use super::{ATTEMPT, CHANGED, Provider, RESUMING, Waited, challenge, new_verifier, wait_for_login};
     use crate::{
         deps::hreads::{on_main, spawn},
         login::hand_back::HandBack,
@@ -924,8 +938,11 @@ mod same_tab {
         let verifier = verifier.to_owned();
         let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
         log::info!("the login of this tab came back, it finishes");
+        RESUMING.store(true, Ordering::SeqCst);
         spawn(async move {
-            match wait_for_login(&server, &verifier, Some(&hand_back), attempt).await {
+            let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
+            RESUMING.store(false, Ordering::SeqCst);
+            match waited {
                 Waited::Done(Ok(_)) => on_main(|| CHANGED.trigger(())),
                 Waited::Done(Err(error)) => log::warn!("the login of this tab failed: {error}"),
                 Waited::Closed | Waited::Cancelled => {}
