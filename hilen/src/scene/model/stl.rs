@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
 
-use super::{MeshData, PreparedMesh, parse::parse_glb};
+use super::{MeshData, PreparedMesh, images, merge, parse::parse_glb};
 use crate::gm::{
     flat::Point,
     volume::{Vec3, Vertex3D},
@@ -47,7 +47,9 @@ impl PreparedMesh {
     /// parse is an error, not a panic, for a model the app did not ship.
     /// Any thread.
     pub fn from_glb(data: &[u8], name: &str) -> Result<Self> {
-        parse_glb(data, name).map(Self)
+        let mut source = merge::static_parts(parse_glb(data, name)?);
+        images::decode(&mut source);
+        Ok(Self(source))
     }
 }
 

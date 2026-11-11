@@ -818,6 +818,34 @@ fn f_plain_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(shade_sampled(sampled, in.instance).rgb, 1.0);
 }
 
+// A solid node whose material has a base color texture and no other map,
+// `f_opaque` with the white metallic, roughness and occlusion texels
+// folded in: 1 texture read and no normal frame. A map converted from an
+// old game has only such materials, and the 3 other reads and the frame
+// were most of its fragment time. The flat normal is the one
+// `f_plain_opaque` takes. The light pass of a cut out node takes it too.
+@fragment
+fn f_base_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let tint = unpack4x8unorm(in.color);
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    let texel = textureSample(base_texture, base_sampler, in.uv);
+    let offset = camera_offset(in.pos);
+    let flat = normalize(in.normal);
+    let sampled = Sampled(
+        srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb),
+        instance.color.a * tint.a * texel.a,
+        instance.metallic,
+        clamp(instance.roughness, 0.045, 1.0),
+        1.0,
+        offset,
+        view.camera_pos.xyz + offset,
+        flat,
+        flat,
+    );
+    return vec4<f32>(shade_sampled(sampled, in.instance).rgb, 1.0);
+}
+
 // A cut out node, see `Material::cutout`, or a fading one, see
 // `Material::fade`. Its own entry, so a plain opaque draw carries no
 // discard. The color it returns goes nowhere, `f_opaque` lights what

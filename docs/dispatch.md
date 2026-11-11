@@ -100,9 +100,14 @@ safe from any thread. Window and input events call it, and so does the dispatch 
 `hreads` fires on every background `on_main`/`from_main` enqueue, so a queued closure never
 waits on an idle loop.
 
-Continuous work keeps the loop running by itself. While a live animation or a loaded level
-exists, `continuous_render_active` is true and `about_to_wait` asks for a frame on every
-iteration. Once neither exists the loop goes back to `ControlFlow::Wait` and sleeps. The choice
+Continuous work keeps the loop running by itself. While a live animation, a loaded level or
+a running scene exists, `continuous_render_active` is true and `about_to_wait` asks for a
+frame on every iteration. Once none exists the loop goes back to `ControlFlow::Wait` and
+sleeps. A scene was left out until 2026-11-11 and only asked for its next frame, so on a Mac
+the redraw of the window system paced it, not the present. In a game on an M1 18 percent of
+the frames came 20 to 52 ms apart, with the main thread idle in the event loop. As
+continuous work 0 frames of 20 s came over 25 ms apart, measured with Metal System Trace in
+a window in front. The choice
 keys off the presence of the work, not a per-frame flag, because `about_to_wait` also runs on
 iterations that draw nothing and a flag would read false there.
 

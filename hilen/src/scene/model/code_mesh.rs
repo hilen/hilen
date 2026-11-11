@@ -163,6 +163,7 @@ pub(super) fn mesh_source(mesh: MeshData, colors: Colors) -> ModelSource {
         rig: None,
         rest_joints: vec![],
         picking: true,
+        triangles: None,
     }
 }
 

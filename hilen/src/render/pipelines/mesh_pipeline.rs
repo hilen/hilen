@@ -111,6 +111,19 @@ impl MeshKey {
             && !self.mesh.smooth_colors
             && !self.mesh.flowing
     }
+
+    /// Whether its light reads only a base color texture, see
+    /// `f_base_opaque`. A mesh with fading colors or a flow has pipelines
+    /// of its own.
+    pub(crate) fn base_only(&self) -> bool {
+        self.texture.is_some()
+            && self.normal_map.is_none()
+            && self.metallic_roughness_map.is_none()
+            && self.occlusion_map.is_none()
+            && self.flow_map.is_none()
+            && !self.mesh.smooth_colors
+            && !self.mesh.flowing
+    }
 }
 
 /// The sky cube, its sampler and the shadow map a view bind holds.
@@ -182,6 +195,8 @@ pub struct MeshPipeline {
     opaque:       [RenderPipeline; 2],
     /// `opaque` for a material with no maps, see `MeshKey::plain`.
     plain:        [RenderPipeline; 2],
+    base:         [RenderPipeline; 2],
+    base_cutout:  [RenderPipeline; 2],
     cutout:       [RenderPipeline; 2],
     cutout_depth: [RenderPipeline; 2],
     translucent:  [RenderPipeline; 2],
@@ -344,6 +359,8 @@ impl MeshPipeline {
         };
         let opaque = draws("mesh", MeshDraw::Opaque);
         let plain = draws("mesh_plain", MeshDraw::PlainOpaque);
+        let base = draws("mesh_base", MeshDraw::BaseOpaque);
+        let base_cutout = draws("mesh_base_cutout", MeshDraw::BaseCutout);
         let cutout = draws("mesh_cutout", MeshDraw::Cutout);
         let cutout_depth = draws("mesh_cutout_depth", MeshDraw::CutoutDepth);
         let translucent = draws("mesh_translucent", MeshDraw::Translucent);
@@ -363,6 +380,8 @@ impl MeshPipeline {
             samples,
             opaque,
             plain,
+            base,
+            base_cutout,
             cutout,
             cutout_depth,
             translucent,

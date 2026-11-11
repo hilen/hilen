@@ -25,6 +25,53 @@ pub(crate) struct MaterialSource {
     pub unlit:              bool,
 }
 
+/// Every field of a `MaterialSource` as bits, equal for materials that
+/// draw the same.
+pub(crate) type MaterialKey = (
+    [u32; 4],
+    u32,
+    u32,
+    Option<usize>,
+    Option<usize>,
+    Option<usize>,
+    u32,
+    Option<usize>,
+    u32,
+    Option<u32>,
+    bool,
+);
+
+impl MaterialSource {
+    pub fn key(&self) -> MaterialKey {
+        let Self {
+            color,
+            metallic,
+            roughness,
+            texture,
+            metallic_roughness,
+            normal_map,
+            normal_scale,
+            occlusion,
+            occlusion_strength,
+            cutout,
+            unlit,
+        } = *self;
+        (
+            [color.r, color.g, color.b, color.a].map(f32::to_bits),
+            metallic.to_bits(),
+            roughness.to_bits(),
+            texture,
+            metallic_roughness,
+            normal_map,
+            normal_scale.to_bits(),
+            occlusion,
+            occlusion_strength.to_bits(),
+            cutout.map(f32::to_bits),
+            unlit,
+        )
+    }
+}
+
 pub(crate) fn material_source(material: &gltf::Material) -> Option<MaterialSource> {
     // The default material has no index, the node's material stands in.
     material.index()?;

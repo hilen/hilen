@@ -154,8 +154,10 @@ impl MeshPipeline {
                         if key.cutout { cutout } else { plain }
                     }
                     Round::Solid if key.plain() => &self.plain,
+                    Round::Solid if key.base_only() && !key.cutout => &self.base,
                     Round::Solid => &self.opaque,
                     Round::CutoutDepth => &self.cutout_depth,
+                    Round::CutoutColor if key.base_only() => &self.base_cutout,
                     Round::CutoutColor => &self.cutout,
                 };
                 set_mesh(render_pass, &key.mesh, pipelines);

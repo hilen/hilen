@@ -39,6 +39,11 @@ pub(crate) enum MeshDraw {
     Opaque,
     /// `Opaque` for a material with no maps, it reads no texture.
     PlainOpaque,
+    /// `Opaque` for a material with a base color texture and no other map,
+    /// it reads that 1 texture, see `f_base_opaque`.
+    BaseOpaque,
+    /// `Cutout` for a material with a base color texture and no other map.
+    BaseCutout,
     /// The depth alone of the fragments that stay of a cut out node, see
     /// `Material::cutout`. Far trees are layers of quads, a fragment only
     /// pays for its light in `Cutout`, once it is known to be on top.
@@ -443,6 +448,7 @@ impl DeviceHelper for Device {
                     MeshDraw::CutoutDepth => "f_cutout_depth",
                     MeshDraw::Opaque | MeshDraw::Cutout => "f_opaque",
                     MeshDraw::PlainOpaque => "f_plain_opaque",
+                    MeshDraw::BaseOpaque | MeshDraw::BaseCutout => "f_base_opaque",
                     MeshDraw::Translucent => "f_main",
                     MeshDraw::Depth => "f_depth",
                     MeshDraw::DepthCutout => "f_depth_cutout",
@@ -488,13 +494,17 @@ impl DeviceHelper for Device {
             },
             depth_stencil:  DepthStencilState {
                 depth_write_enabled: Some(
-                    !transparent && !wireframe && !matches!(draw, MeshDraw::Cutout | MeshDraw::Grass),
+                    !transparent
+                        && !wireframe
+                        && !matches!(draw, MeshDraw::Cutout | MeshDraw::BaseCutout | MeshDraw::Grass),
                 ),
-                depth_compare: Some(if matches!(draw, MeshDraw::Cutout | MeshDraw::Grass) {
-                    CompareFunction::Equal
-                } else {
-                    SCENE_DEPTH_COMPARE
-                }),
+                depth_compare: Some(
+                    if matches!(draw, MeshDraw::Cutout | MeshDraw::BaseCutout | MeshDraw::Grass) {
+                        CompareFunction::Equal
+                    } else {
+                        SCENE_DEPTH_COMPARE
+                    },
+                ),
                 ..depth_stencil_state()
             }
             .into(),

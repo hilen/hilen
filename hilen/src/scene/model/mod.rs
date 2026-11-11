@@ -1,6 +1,8 @@
 mod code_mesh;
 mod edges;
+mod images;
 mod material_source;
+mod merge;
 mod parse;
 mod rig;
 mod split;
@@ -93,12 +95,15 @@ impl Model {
         }
     }
 
-    fn upload(source: ModelSource) -> Self {
-        let triangles = triangles::kept(&source);
+    fn upload(mut source: ModelSource) -> Self {
+        let triangles = triangles::kept(&mut source);
         let images: Vec<_> = source
             .images
-            .iter()
-            .map(|image| Image::load(&image.bytes, &image.name))
+            .iter_mut()
+            .map(|image| match image.levels.take() {
+                Some(levels) => Image::store_levels(&image.name, levels),
+                None => Image::load(&image.bytes, &image.name),
+            })
             .collect();
 
         let parts = source
@@ -165,9 +170,12 @@ impl ResourceLoader for Model {
 
         let source =
             parse_glb(data, &name).unwrap_or_else(|err| panic!("Failed to load model {name}. Err: {err}"));
+        let primitives = source.parts.len();
+        let mut source = merge::static_parts(source);
+        images::decode(&mut source);
         let materials = || source.parts.iter().filter_map(|part| part.material);
         debug!(
-            "Model {name}: {} parts, {} images, {} materials with a metallic roughness texture, {} with an occlusion texture",
+            "Model {name}: {} parts from {primitives}, {} images, {} materials with a metallic roughness texture, {} with an occlusion texture",
             source.parts.len(),
             source.images.len(),
             materials().filter(|material| material.metallic_roughness.is_some()).count(),

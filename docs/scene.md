@@ -5,7 +5,8 @@ The `scene` module is the 3D twin of `level`, behind the `scene` cargo feature. 
 scene, nodes are `Own<dyn Node>` the way sprites are, and `SceneDrawer` draws them
 with `MainLock` pipelines on `VecBuffer`. Physics is `rapier3d`, math is glam
 re-exported from `gm::volume`. The scene draws every frame while one is loaded,
-like a level.
+like a level, and counts as continuous work for the pacing of the loop, see
+[dispatch.md](dispatch.md).
 
 1 world unit is 1 meter. Gravity is 9.81 down, a speed is meters per second, a
 light's range and a camera's `near` and `far` are meters, and a depth photo reads
@@ -248,6 +249,20 @@ an error for a file that does not parse, where `Model::load` panics.
 per face, also with an error for a bad file. A binary STL is told by its size, since
 many start with `solid` like an ASCII one. `Model::from_prepared` then uploads it on
 the main thread. The code is `hilen/src/scene/model/stl.rs`.
+
+Both loaders of a `.glb` join the parts of a static model that draw the same, the
+same material and the same vertex color mode, into 1 mesh with every part's place
+baked into its vertices, `merge::static_parts` in `hilen/src/scene/model/merge.rs`.
+A map of 4798 primitives with 1468 materials draws about 1550 meshes so, and the
+main thread of its frame went from 10.4 to 5.1 ms on an M1, measured with the Time
+Profiler of Instruments in a window in front on 2026-11-11. A model with a skin or a
+clip keeps its parts, a clip moves them 1 by 1. Picking keeps the triangles in the
+order of the file, they are taken before the join. Translucent parts of 2 materials
+draw in the order of their materials after the join, not in the order of the file.
+Both loaders also decode the embedded images and build their mips on the calling
+thread, spread over the cores, `images::decode`, so the upload on the main thread
+only makes the textures. On wasm the upload decodes them, a browser decodes a jpeg
+itself.
 
 ## Skins and animations
 
@@ -905,7 +920,12 @@ count changes, the sky or the shadow map is replaced or an image dies, see
 mesh with no maps the plain one, and `prepare` checks the images of each bind once a
 frame, the draws read it by an index with no check. A solid node whose material has
 no maps draws through `f_plain_opaque`, which reads no texture and builds no normal
-frame, the cost of every pixel of a ground that sets only a color. The plain normal
+frame, the cost of every pixel of a ground that sets only a color. A solid node whose
+material has a base color texture and no other map draws through `f_base_opaque`,
+which reads that 1 texture and builds no normal frame, `MeshKey::base_only`, and so
+does the light pass of such a cut out node. The other 3 maps read white there. A map
+converted from an old game has only such materials, the cost of that path is not
+measured yet. The plain normal
 texel of 128 was a hair off flat, so a surface with a uv may move by a color step,
 no recorded test did. Indices are 16 bit so every lane
 draws them. Back faces are culled, so every primitive is wound counter clockwise

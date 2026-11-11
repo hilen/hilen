@@ -24,12 +24,11 @@ pub(super) fn of_parts(parts: &[PartSource]) -> Vec<[Vec3; 3]> {
 
 /// The triangles a model keeps for picking, none for a mesh made
 /// `without_picking`.
-pub(super) fn kept(source: &ModelSource) -> Vec<[Vec3; 3]> {
-    if source.picking {
-        of_parts(&source.parts)
-    } else {
-        vec![]
+pub(super) fn kept(source: &mut ModelSource) -> Vec<[Vec3; 3]> {
+    if !source.picking {
+        return vec![];
     }
+    source.triangles.take().unwrap_or_else(|| of_parts(&source.parts))
 }
 
 impl Model {
@@ -168,9 +167,9 @@ mod test {
     // A streamed ground kept a copy of every triangle it was never picked by.
     #[test]
     fn a_mesh_without_picking_keeps_no_triangles() {
-        assert_eq!(kept(&PreparedMesh::new(one_triangle()).0), vec![TRIANGLE]);
+        assert_eq!(kept(&mut PreparedMesh::new(one_triangle()).0), vec![TRIANGLE]);
         assert_eq!(
-            kept(&PreparedMesh::new(one_triangle()).without_picking().0),
+            kept(&mut PreparedMesh::new(one_triangle()).without_picking().0),
             Vec::<[Vec3; 3]>::new()
         );
     }

@@ -147,6 +147,19 @@ impl Image {
         }
     }
 
+    /// A mip chain decoded on another thread, stored under `name` like
+    /// `Image::load` stores a file, or the image already stored there.
+    /// Only the texture is made here. Main thread.
+    #[cfg(feature = "scene")]
+    pub(crate) fn store_levels(name: &str, levels: TextureLevels) -> Weak<Image> {
+        match Self::store_with_name(name, || {
+            Ok::<_, Infallible>(Self::with_levels(levels, name, None))
+        }) {
+            Ok(image) => image,
+            Err(never) => match never {},
+        }
+    }
+
     /// How the image samples when drawn at another size than its bitmap,
     /// for every view and sprite that draws it. Set it once after the
     /// load, `Nearest` keeps pixel art sharp.

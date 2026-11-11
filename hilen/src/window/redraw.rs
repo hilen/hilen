@@ -148,19 +148,30 @@ pub(crate) fn needs_render() -> bool {
     NEEDS_REDRAW.load(Ordering::Relaxed)
 }
 
-/// True while something must redraw every frame, a live animation or a loaded
-/// level. The loop keeps drawing while this holds, by the `Pacer` of the
-/// platform, then sleeps in Wait once it clears. A redraw requested from
-/// `about_to_wait` does not re-arm a loop already asleep in Wait, so a
-/// per-frame flag is not enough to keep continuous work drawing. The presence
-/// of the work is.
+/// True while something must redraw every frame, a live animation, a loaded
+/// level or a running scene. The loop keeps drawing while this holds, by the
+/// `Pacer` of the platform, then sleeps in Wait once it clears. A redraw
+/// requested from `about_to_wait` does not re-arm a loop already asleep in
+/// Wait, so a per-frame flag is not enough to keep continuous work drawing.
+/// The presence of the work is.
+///
+/// A scene that only asked for its next frame was paced by the redraw of the
+/// window system on a Mac, not by the present. 18 percent of the frames of a
+/// game came 20 to 52 ms apart with the main thread idle in the event loop.
 #[cfg(feature = "gpu")]
 pub(crate) fn continuous_render_active() -> bool {
     #[cfg(feature = "level")]
     let level_running = !crate::level::LevelManager::no_level();
     #[cfg(not(feature = "level"))]
     let level_running = false;
-    crate::ui::UIManager::has_live_animations() || crate::ui::loops::wants_frames() || level_running
+    #[cfg(feature = "scene")]
+    let scene_running = !crate::scene::SceneManager::no_scene();
+    #[cfg(not(feature = "scene"))]
+    let scene_running = false;
+    crate::ui::UIManager::has_live_animations()
+        || crate::ui::loops::wants_frames()
+        || level_running
+        || scene_running
 }
 
 /// The window is minimized, fully covered or on another desktop, so nothing

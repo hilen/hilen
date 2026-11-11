@@ -15,9 +15,12 @@ use super::{
     rig::{Channel, Clip, Interpolation, Rig, RigNode, Skin, Track},
     split::split_u16,
 };
-use crate::gm::{
-    flat::Point,
-    volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+use crate::{
+    gm::{
+        flat::Point,
+        volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+    },
+    image::TextureLevels,
 };
 
 /// Everything a `.glb` holds, decoded on the CPU and ready to upload.
@@ -33,6 +36,10 @@ pub(crate) struct ModelSource {
     /// Whether the model keeps its triangles for `Model::hit_triangle`,
     /// see `PreparedMesh::without_picking`.
     pub picking:     bool,
+    /// The picking triangles taken before `merge::static_parts` joined
+    /// the parts, so a triangle keeps its index. None takes them from
+    /// the parts.
+    pub triangles:   Option<Vec<[Vec3; 3]>>,
 }
 
 /// One primitive of one node, or a slice of a primitive too big for 16
@@ -61,8 +68,11 @@ pub(crate) struct PartSource {
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
 pub(crate) struct EmbeddedImage {
-    pub name:  String,
-    pub bytes: Vec<u8>,
+    pub name:   String,
+    pub bytes:  Vec<u8>,
+    /// The pixels with every mip level, decoded by `images::decode` off
+    /// the main thread. None leaves the decode to the upload.
+    pub levels: Option<TextureLevels>,
 }
 
 /// The vertex arrays of one primitive before the 16 bit split.
@@ -93,8 +103,9 @@ pub(crate) fn parse_glb(data: &[u8], name: &str) -> Result<ModelSource> {
         .images()
         .map(|image| match image.source() {
             image::Source::View { view, .. } => Ok(EmbeddedImage {
-                name:  format!("{name}#{}", image.index()),
-                bytes: blob[view.offset()..view.offset() + view.length()].to_vec(),
+                name:   format!("{name}#{}", image.index()),
+                bytes:  blob[view.offset()..view.offset() + view.length()].to_vec(),
+                levels: None,
             }),
             image::Source::Uri { uri, .. } => Err(anyhow!(
                 "{name}: image {} is the external file {uri}, only embedded images load",
@@ -138,6 +149,7 @@ pub(crate) fn parse_glb(data: &[u8], name: &str) -> Result<ModelSource> {
         rig,
         rest_joints,
         picking: true,
+        triangles: None,
     })
 }
 
