@@ -77,6 +77,15 @@ fn is_code(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// The scheme, the host and the port of an address, with no path. A server
+/// behind a proxy at a path, like `https://host/control-center`, has the
+/// origin `https://host`.
+#[cfg(any(wasm, test))]
+fn origin_of(url: &str) -> &str {
+    let host_start = url.find("://").map_or(0, |at| at + 3);
+    url[host_start..].find('/').map_or(url, |at| &url[..host_start + at])
+}
+
 #[cfg(not_wasm)]
 mod loopback {
     use std::{
@@ -225,7 +234,7 @@ mod page {
                 .location()
                 .origin()
                 .map_err(|error| anyhow!("the page has no origin: {error:?}"))?;
-            if origin.trim_end_matches('/') != server {
+            if origin.trim_end_matches('/') != super::origin_of(server) {
                 bail!(
                     "a login in a browser needs the page on the origin of its server {server}, this page is on {origin}"
                 );
@@ -285,10 +294,23 @@ mod test {
         net::TcpStream,
     };
 
-    use super::{HandBack, loopback::code_of};
+    use super::{HandBack, loopback::code_of, origin_of};
 
     fn code() -> String {
         "ab".repeat(32)
+    }
+
+    // The failure this prevents: a page behind a proxy at a path refused
+    // every login, its origin never equals the address of its server.
+    #[test]
+    fn the_origin_of_a_server_drops_its_path() {
+        assert_eq!(
+            origin_of("https://host.example/control-center"),
+            "https://host.example"
+        );
+        assert_eq!(origin_of("https://host.example/a/b/"), "https://host.example");
+        assert_eq!(origin_of("http://localhost:8080"), "http://localhost:8080");
+        assert_eq!(origin_of("http://localhost:8080/x"), "http://localhost:8080");
     }
 
     #[test]
