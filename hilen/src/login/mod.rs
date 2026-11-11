@@ -18,9 +18,11 @@ mod login_button_texts_test;
 mod qr_code_view;
 #[cfg(feature = "ui-tests")]
 mod qr_code_view_test;
+mod view;
 mod wire;
 
 pub use client::{LinkedProviders, Login, LoginCode, Provider};
 pub use login_button::{AppleLoginButton, DiscordLoginButton, GoogleLoginButton};
 pub use qr_code_view::QrCodeView;
+pub use view::View;
 pub use wire::LoginUser;

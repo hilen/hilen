@@ -15,6 +15,7 @@ use crate::{
     },
     login::{
         hand_back::HandBack,
+        view::{self, View},
         wire::{
             COOKIE_HEADER, COOKIE_HEADER_VALUE, CodeRequest, CodeResponse, LinkRequest, LoginUser,
             PollRequest, PollResponse, ProvidersResponse,
@@ -26,7 +27,7 @@ use crate::{
 
 /// Triggered on the main thread when a login that came back to this page
 /// in the same tab was done, see `Login::changed`.
-static CHANGED: MainLock<UIEvent<()>> = MainLock::new();
+pub(super) static CHANGED: MainLock<UIEvent<()>> = MainLock::new();
 
 const POLL_SECONDS: f32 = 2.0;
 /// How often a wait between 2 polls looks for a cancel and for a closed
@@ -50,7 +51,7 @@ static RESUMING: AtomicBool = AtomicBool::new(false);
 static COOKIE_USER: Mutex<Option<LoginUser>> = Mutex::new(None);
 
 /// How a request proves its session.
-enum Credential {
+pub(super) enum Credential {
     /// The browser sends the cookie by itself, the request adds the header
     /// the server wants with it.
     Cookie,
@@ -58,7 +59,7 @@ enum Credential {
 }
 
 impl Credential {
-    fn on(self, call: Call) -> Call {
+    pub(super) fn on(self, call: Call) -> Call {
         match self {
             Self::Cookie => call.header(COOKIE_HEADER, COOKIE_HEADER_VALUE),
             Self::Bearer(token) => call.bearer(token),
@@ -72,7 +73,7 @@ fn cookie_mode() -> bool {
 
 /// The credential of the active session, none when nobody is logged in. A
 /// cookie session always has one, only the server knows if it is still live.
-fn credential() -> Option<Credential> {
+pub(super) fn credential() -> Option<Credential> {
     if cookie_mode() {
         Some(Credential::Cookie)
     } else {
@@ -292,6 +293,10 @@ impl Login {
         done: impl FnOnce(Result<LoginUser>) + Send + 'static,
         closed: impl FnOnce() + Send + 'static,
     ) {
+        if let Err(error) = view::refuse_change("a login") {
+            return done(Err(error));
+        }
+
         // A page in a browser goes to the provider in the same tab, a second
         // tab looked like the login hung. The page is gone then, so `done`
         // is called only when the login could not start.
@@ -363,6 +368,7 @@ impl Login {
 
         spawn(async move {
             let started = async {
+                view::refuse_change("a login")?;
                 let server = server()?;
                 let verifier = new_verifier()?;
                 let code = ask_code(&server, &challenge(&verifier), provider).await?;
@@ -396,8 +402,12 @@ impl Login {
 
     /// The token of the active session, for the `Authorization: Bearer`
     /// header of the app's own requests. `None` when nobody is logged in.
+    ///
+    /// In a view of another user it is still the token of the own session,
+    /// and a request sent with it by hand is no view. In a view of a visitor
+    /// it is `None`.
     pub fn token() -> Option<String> {
-        if cookie_mode() {
+        if cookie_mode() || view::current() == Some(View::SignedOut) {
             return None;
         }
         SessionStore::load()
@@ -406,6 +416,9 @@ impl Login {
     /// Everybody logged in on this device, in the order they logged in. A
     /// new login adds to the list, it does not log the others out.
     pub fn accounts() -> Vec<LoginUser> {
+        if let Some(view) = view::current() {
+            return view.user().into_iter().collect();
+        }
         if cookie_mode() {
             return COOKIE_USER.lock().clone().into_iter().collect();
         }
@@ -416,8 +429,12 @@ impl Login {
     }
 
     /// The user of the active session as it was stored, with no request.
-    /// `None` when nobody is active. `current_user` asks the server.
+    /// `None` when nobody is active. `current_user` asks the server. In a
+    /// view it is the user the app is shown as, see `Login::view_as`.
     pub fn active_user() -> Option<LoginUser> {
+        if let Some(view) = view::current() {
+            return view.user();
+        }
         if cookie_mode() {
             return COOKIE_USER.lock().clone();
         }
@@ -427,6 +444,7 @@ impl Login {
     /// Makes the session of this user, an `id` of `accounts`, the active one.
     /// Every request after it goes out as that user.
     pub fn switch(id: &str) -> Result<()> {
+        view::refuse_change("a switch of the login")?;
         if cookie_mode() {
             if Self::active_user().is_some_and(|user| user.id == id) {
                 return Ok(());
@@ -455,9 +473,13 @@ impl Login {
     /// `RequestError::Unauthorized`, the same as a session the server no
     /// longer knows, so 1 match arm sends the user back to the login.
     /// It runs on the calling task, call it inside `spawn`.
+    ///
+    /// In a view the request goes out as the app is shown, see
+    /// `Login::view_as`: with the header of the view, or not at all for a
+    /// visitor.
     pub async fn send<Out: DeserializeOwned>(call: Call) -> Result<Out, RequestError> {
-        match credential() {
-            Some(credential) => credential.on(call).send().await,
+        match view::dress(call) {
+            Some(call) => call.send().await,
             None => Err(RequestError::Unauthorized),
         }
     }
@@ -466,8 +488,8 @@ impl Login {
     /// log only the logged in user may read. Save them with
     /// `Paths::save_file_bytes`.
     pub async fn send_bytes(call: Call) -> Result<Vec<u8>, RequestError> {
-        match credential() {
-            Some(credential) => credential.on(call).send_bytes().await,
+        match view::dress(call) {
+            Some(call) => call.send_bytes().await,
             None => Err(RequestError::Unauthorized),
         }
     }
@@ -535,6 +557,7 @@ impl Login {
 async fn dev_login(email: &str) -> Result<LoginUser> {
     use crate::login::wire::DevRequest;
 
+    view::refuse_change("a login")?;
     let call = Call::post(format!("{}/auth/dev", server()?)).body(DevRequest { email });
     match call.send::<PollResponse>().await {
         Ok(PollResponse::Done { token, user }) => {
@@ -564,7 +587,7 @@ impl Login {
     }
 }
 
-fn server() -> Result<String> {
+pub(super) fn server() -> Result<String> {
     SERVER
         .lock()
         .clone()
@@ -743,6 +766,10 @@ async fn wait_for_resume() {
 
 async fn fetch_current_user() -> Result<Option<LoginUser>> {
     wait_for_resume().await;
+    // A view never asks: a 401 for it must not drop the own session.
+    if let Some(view) = view::current() {
+        return Ok(view.user());
+    }
     let Some(credential) = credential() else {
         return Ok(None);
     };
@@ -771,6 +798,7 @@ async fn fetch_current_user() -> Result<Option<LoginUser>> {
 }
 
 async fn end_session() -> Result<()> {
+    view::refuse_change("a logout")?;
     let Some(credential) = credential() else {
         return Ok(());
     };
@@ -779,6 +807,7 @@ async fn end_session() -> Result<()> {
 }
 
 async fn end_every_session() -> Result<()> {
+    view::refuse_change("a logout")?;
     let Some(credential) = credential() else {
         bail!("nobody is logged in");
     };
@@ -793,6 +822,7 @@ async fn end_every_session() -> Result<()> {
 }
 
 async fn forget_session(id: &str) -> Result<()> {
+    view::refuse_change("a logout")?;
     if cookie_mode() {
         let active = Login::active_user().is_some_and(|user| user.id == id);
         return if active { end_session().await } else { Ok(()) };
@@ -815,6 +845,7 @@ async fn logout_on_server(credential: Credential) -> Result<()> {
 }
 
 async fn delete_user() -> Result<()> {
+    view::refuse_change("a delete of the account")?;
     if credential().is_none() {
         bail!("nobody is logged in");
     }
@@ -832,6 +863,10 @@ async fn delete_user() -> Result<()> {
 #[cfg(test)]
 #[path = "client_test.rs"]
 mod test;
+
+#[cfg(all(test, not_wasm))]
+#[path = "view_test.rs"]
+mod view_test;
 
 /// The login of a page in a browser in 1 tab. Before the page leaves for the
 /// provider it keeps the verifier and its own address. The last page of the

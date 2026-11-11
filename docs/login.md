@@ -261,6 +261,40 @@ account that must not be as weak as its weakest provider, like an admin. The tes
 `a_limited_user_signs_in_only_with_its_providers` in `store_test.rs`, on SQLite and on
 Postgres.
 
+## The app as another user
+
+A few users, like the admin, can see an app the way another user sees it. The server
+half is `hilen-server/src/auth/view_as.rs`, the client half `hilen/src/login/view.rs`.
+
+The viewer stays signed in as themselves. A request carries the header
+`x-hilen-view-as` with the id of another user, and the `User` extractor gives the
+route that user. No session of the other user is ever made.
+
+- `ViewAs::new(viewers)` names the only users whose header counts.
+  `view_as.layer(router)` turns the view on for the routes of `router`, and
+  `AuthConfig::with_view_as` for `/auth/me` and `/auth/providers`.
+- The header counts only for a viewer, on a route inside the layer, on a `GET` or a
+  `HEAD`. Everything else is a 403 and a warning in the log, so a view never writes
+  and a route outside the layer is never seen as somebody else. `/auth/logout` takes
+  no `User` and refuses the header by itself.
+- A route that takes no user ignores the header, its answer is the same for everybody.
+- A route takes an `Option<User>` when it also answers a visitor. It is `None` with no
+  session, and the user of the view in a view.
+- A read that saves something, like a mark of what the user has seen, takes a
+  `Viewing` and skips that write when it is true.
+- Each `/auth/me` of a view logs `user <viewer> starts a view as user <other>`.
+- `Login::view_as(id, done)` starts a view in the app, `Login::view_signed_out()` shows
+  the app as a visitor, which sends no session at all, and `Login::stop_view()` ends
+  both. `Login::view()` is the view that is on. Each change triggers
+  `Login::changed()`.
+- While a view is on, `Login::send` carries the header and `Login::active_user` is the
+  shown user. `Login::send_own` still asks as the viewer, for the list to pick from.
+  `Login::current_user` asks nobody, so a 401 for the view never drops the own session.
+  A login, a logout, a switch and a delete of the account give an error.
+- The view is kept in memory only. A new start of the app is the own user again.
+- `view_as_test.rs` tests the server on SQLite and on Postgres, `view_test.rs` the
+  client against small stand in servers.
+
 ## The dev login
 
 A dev server, a backend for testing an app with no Google account, logs in with no

@@ -40,6 +40,9 @@ pub(crate) mod store;
 #[cfg(test)]
 pub(crate) mod store_test;
 mod user;
+pub mod view_as;
+#[cfg(test)]
+mod view_as_test;
 mod wire;
 
 use std::{
@@ -53,7 +56,13 @@ use axum::extract::FromRef;
 use reqwest::Client;
 use sqlx::types::Uuid;
 
-pub use self::{identity::Provider, routes::auth_routes, user::User, wire::UserInfo};
+pub use self::{
+    identity::Provider,
+    routes::auth_routes,
+    user::User,
+    view_as::{ViewAs, Viewing},
+    wire::UserInfo,
+};
 use crate::{Db, web::install_tls_provider};
 
 const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -126,6 +135,9 @@ pub struct AuthConfig {
     /// A first login through a new provider joins the user of the same
     /// email, on by default, see [`AuthConfig::with_no_email_join`].
     pub joins_by_email:       bool,
+    /// Who may ask `/auth/me` and `/auth/providers` as another user, see
+    /// [`AuthConfig::with_view_as`].
+    pub view_as:              Option<ViewAs>,
 }
 
 impl AuthConfig {
@@ -147,7 +159,19 @@ impl AuthConfig {
             code_login:           false,
             provider_limits:      Vec::new(),
             joins_by_email:       true,
+            view_as:              None,
         }
+    }
+
+    /// Lets the users of `view_as` ask `/auth/me` and `/auth/providers` as
+    /// another user, so the app of a viewer learns the name, the picture
+    /// and the sign in ways of the user it shows. Each such `/auth/me` is
+    /// the start of a view and is logged. The routes of the app itself take
+    /// the view through [`ViewAs::layer`].
+    #[must_use]
+    pub fn with_view_as(mut self, view_as: ViewAs) -> Self {
+        self.view_as = Some(view_as);
+        self
     }
 
     /// Turns on the login of a device with no keyboard, a TV, through a

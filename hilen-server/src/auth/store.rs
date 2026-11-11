@@ -623,6 +623,21 @@ WHERE token_hash = $1",
     }))
 }
 
+/// The user of an id, `None` when there is none.
+pub(crate) async fn user(db: &Db, id: Uuid) -> Result<Option<User>, sqlx::Error> {
+    const SQL: &str = "SELECT id, email, name, picture FROM users WHERE id = $1";
+
+    let found: Option<(Uuid, String, String, Option<String>)> = on_db!(db, SQL, SQL, |sql, pool| {
+        sqlx::query_as(sql).bind(id).fetch_optional(pool).await
+    })?;
+    Ok(found.map(|(id, email, name, picture)| User {
+        id,
+        email,
+        name,
+        picture,
+    }))
+}
+
 /// Ends every session of the user, on every device.
 pub(crate) async fn delete_user_sessions(db: &Db, user_id: Uuid) -> Result<u64, sqlx::Error> {
     let both = "DELETE FROM sessions WHERE user_id = $1";

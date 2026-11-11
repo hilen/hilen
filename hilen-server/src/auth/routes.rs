@@ -1,5 +1,5 @@
 use axum::{
-    Form, Json, Router,
+    Extension, Form, Json, Router,
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, header},
     response::{Html, IntoResponse, Redirect, Response},
@@ -18,6 +18,7 @@ use crate::{
         session::{self, hash},
         store,
         user::bearer_token,
+        view_as::{Seen, is_view},
         wire::{CodeRequest, CodeResponse, LinkRequest, PollRequest, PollResponse, Providers, UserInfo},
     },
 };
@@ -58,6 +59,14 @@ const PENDING_MINUTES: i32 = 10;
 /// - `POST /auth/dev` logs into a dev account with no password, only in a build
 ///   with the `dev-login` feature, see `dev.rs`.
 pub fn auth_routes<S>(state: AuthState) -> Router<S> {
+    // The 2 reads of the login a view may make, see `view_as.rs`.
+    let (me, providers) = match &state.config.view_as {
+        Some(view_as) => (
+            get(me).layer(Extension(view_as.clone())),
+            get(providers).layer(Extension(view_as.clone())),
+        ),
+        None => (get(me), get(providers)),
+    };
     let router = Router::new()
         .route("/auth/google", get(start_google))
         .route("/auth/google/callback", get(google_callback))
@@ -68,9 +77,9 @@ pub fn auth_routes<S>(state: AuthState) -> Router<S> {
         .route("/auth/done", get(done_page))
         .route("/auth/code", post(make_code).get(code_page))
         .route("/auth/poll", post(poll))
-        .route("/auth/me", get(me))
+        .route("/auth/me", me)
         .route("/auth/link", post(link))
-        .route("/auth/providers", get(providers))
+        .route("/auth/providers", providers)
         .route("/auth/logout", post(logout))
         .route("/auth/logout/all", post(logout_all))
         .route("/auth/delete", post(delete));
@@ -508,8 +517,11 @@ async fn poll(
     .into_response())
 }
 
-async fn me(user: User) -> Json<UserInfo> {
-    Json(user.into())
+async fn me(seen: Seen) -> Json<UserInfo> {
+    if let Some(viewer) = seen.viewer {
+        tracing::info!("user {viewer} starts a view as user {}", seen.user.id);
+    }
+    Json(seen.user.into())
 }
 
 /// The app of a signed in user asks before it opens the provider. Only it
@@ -548,6 +560,11 @@ async fn providers(State(state): State<AuthState>, user: User) -> Result<Json<Pr
 }
 
 async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Result<Response, AppError> {
+    // This route takes no `User`, so nothing else refuses the write of a view.
+    if is_view(&headers) {
+        tracing::warn!("a logout came as a view of another user and was refused");
+        return Err(AppError::Forbidden);
+    }
     let token = bearer_token(&headers)
         .or_else(|| cookie::token(&headers))
         .ok_or(AppError::Unauthorized)?;

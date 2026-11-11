@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 pub(crate) const COOKIE_HEADER: &str = "x-hilen-session";
 pub(crate) const COOKIE_HEADER_VALUE: &str = "cookie";
 
+/// The header of a view of another user, its value is the id of that user,
+/// the same as `view_as::HEADER` of the server.
+pub(crate) const VIEW_HEADER: &str = "x-hilen-view-as";
+
 /// `code` is the one time code that came back to the app at the end of the
 /// login. Only the login of a device with no keyboard has none.
 #[derive(Debug, Serialize)]
