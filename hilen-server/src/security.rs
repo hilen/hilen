@@ -44,11 +44,16 @@ pub(crate) fn base(router: Router) -> Router {
             HeaderValue::from_static("strict-origin-when-cross-origin"),
         );
         set_missing(headers, header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-        set_missing(
-            headers,
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(CLOSED_CSP),
-        );
+        // A browser copies the headers of a 304 onto the answer it keeps, so a
+        // closed policy here replaced the page policy of a cached page, and
+        // the page ran no script after a reload.
+        if response.status() != StatusCode::NOT_MODIFIED {
+            set_missing(
+                response.headers_mut(),
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(CLOSED_CSP),
+            );
+        }
         response
     }))
 }
@@ -260,7 +265,8 @@ mod test {
             .route(
                 "/file",
                 get(|| async { ([(header::CONTENT_SECURITY_POLICY, "sandbox")], "bytes") }),
-            );
+            )
+            .route("/cached", get(|| async { StatusCode::NOT_MODIFIED }));
         base(PageCsp::for_html(PAGE).layer(routes))
     }
 
@@ -315,6 +321,16 @@ mod test {
         };
         assert_eq!(status("/fast").await, StatusCode::OK);
         assert_eq!(status("/slow").await, StatusCode::REQUEST_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn a_not_modified_answer_keeps_the_policy_the_browser_stored() {
+        let cached = headers_of(app(), "/cached").await;
+        assert!(
+            !cached.contains_key(header::CONTENT_SECURITY_POLICY),
+            "{cached:?}"
+        );
+        assert_eq!(cached[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     }
 
     #[tokio::test]
