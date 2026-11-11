@@ -102,8 +102,9 @@ pub struct TextField {
     /// A paste that found a picture in the clipboard and no text, with
     /// that picture as a png file. The field itself takes nothing from
     /// it, the owner keeps the picture. It fires a moment after the keys,
-    /// the png file is made on another thread. Only the paste shortcut
-    /// of a desktop fires it, see `Clipboard::get_image` for the rest.
+    /// the png file is made on another thread. The paste shortcut of a
+    /// desktop fires it, and a paste of a png in a browser. iOS and Android
+    /// do not, see `Clipboard::get_image`.
     pub image_pasted: Event<ClipboardImage>,
 
     /// A press of a key named with `take_keys`, while the field is

@@ -1,12 +1,16 @@
 use anyhow::{Result, ensure};
 use hilen::{
-    dispatch::from_main,
+    dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{Label, Setup, TextField, UIManager, ViewData, ViewTest, view},
+    system::ClipboardImage,
+    ui::{Label, Setup, TextField, UIManager, ViewData, ViewTest, ui_test::system_input::wait_until, view},
 };
 use web_sys::{
-    CompositionEvent, CompositionEventInit, Document, Event, HtmlElement, HtmlInputElement,
-    HtmlTextAreaElement, KeyboardEvent, KeyboardEventInit, wasm_bindgen::JsCast,
+    ClipboardEvent, ClipboardEventInit, CompositionEvent, CompositionEventInit, DataTransfer, Document,
+    Event, File, FilePropertyBag, HtmlElement, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent,
+    KeyboardEventInit,
+    js_sys::{Array, Uint8Array},
+    wasm_bindgen::JsCast,
 };
 
 /// A field in a browser edits through a real element of the page. So what
@@ -15,6 +19,9 @@ use web_sys::{
 /// way a paste and a keyboard do, with a real `input` event.
 #[view]
 struct TextFieldBrowser {
+    /// The size of every picture `image_pasted` gave the area.
+    pasted: Vec<(u32, u32)>,
+
     #[init]
     title: Label,
     line:  TextField,
@@ -29,6 +36,10 @@ impl Setup for TextFieldBrowser {
         self.line.place().t(90).lr(20).h(50);
         self.area.set_multiline(true).set_text_size(24);
         self.area.place().t(160).lr(20).h(160);
+        self.area.image_pasted.val(move |image| {
+            let mut this = self;
+            this.pasted.push((image.width, image.height));
+        });
     }
 }
 
@@ -101,6 +112,28 @@ fn composing_value(value: &str) {
     element.dispatch_event(&event).expect("Failed to send an input event");
 }
 
+/// A `paste` event like the one of Cmd or Ctrl and V, with a file of the
+/// type `kind` and a text when `text` is not empty. True when the browser may
+/// paste by itself, false when the engine stopped it.
+fn paste(bytes: &[u8], kind: &str, text: &str) -> bool {
+    let parts = Array::of1(&Uint8Array::from(bytes));
+    let options = FilePropertyBag::new();
+    options.set_type(kind);
+    let file = File::new_with_u8_array_sequence_and_options(&parts, "pasted", &options)
+        .expect("Failed to build a file");
+    let data = DataTransfer::new().expect("Failed to build a DataTransfer");
+    data.items().add_with_file(&file).expect("Failed to add the file");
+    if !text.is_empty() {
+        data.set_data("text/plain", text).expect("Failed to add the text");
+    }
+    let init = ClipboardEventInit::new();
+    init.set_bubbles(true);
+    init.set_cancelable(true);
+    init.set_clipboard_data(Some(&data));
+    let event = ClipboardEvent::new_with_event_init_dict("paste", &init).expect("Failed to build a paste");
+    active().dispatch_event(&event).expect("Failed to send a paste")
+}
+
 fn selection() -> (u32, u32) {
     let element = active();
     if let Some(input) = element.dyn_ref::<HtmlInputElement>() {
@@ -116,6 +149,60 @@ fn selection() -> (u32, u32) {
         area.selection_start().expect("no start").expect("no start"),
         area.selection_end().expect("no end").expect("no end"),
     )
+}
+
+/// A picture pasted with no text goes to `image_pasted`, the text of the
+/// field stays. Its file is read in a promise, some frames later. A text that
+/// comes with a picture pastes as always, a picture of another type is not
+/// taken, nothing fires for either.
+fn check_paste(view: Weak<TextFieldBrowser>) -> Result<()> {
+    let png = ClipboardImage::from_rgba(&[255, 0, 0, 255, 0, 0, 255, 128], 2, 1)?.png;
+    let png_bytes = png.clone();
+    ensure!(
+        !from_main(move || paste(&png_bytes, "image/png", "")),
+        "a pasted png was left to the browser"
+    );
+    wait_until("a pasted png", move || !view.pasted.is_empty())?;
+    let (pasted, text) = from_main(move || (view.pasted.clone(), view.area.text().to_owned()));
+    ensure!(pasted == vec![(2, 1)], "image_pasted gave {pasted:?}");
+    ensure!(
+        text == "one\ntwo",
+        "a pasted picture changed the text to {text:?}"
+    );
+
+    let png_bytes = png.clone();
+    ensure!(
+        from_main(move || paste(&png_bytes, "image/png", "words")),
+        "a paste with a text was stopped"
+    );
+    ensure!(
+        !from_main(move || paste(&png, "image/jpeg", "")),
+        "a pasted jpeg was left to the browser"
+    );
+    for _ in 0..10 {
+        wait_for_next_frame();
+    }
+    let pasted = from_main(move || view.pasted.clone());
+    ensure!(
+        pasted == vec![(2, 1)],
+        "a text or a jpeg fired image_pasted: {pasted:?}"
+    );
+    Ok(())
+}
+
+/// Escape ends the editing and takes the element out of the page.
+fn check_escape(view: Weak<TextFieldBrowser>) -> Result<()> {
+    from_main(move || -> Result<()> {
+        ensure!(!key("Escape", false), "the browser kept Escape");
+        ensure!(!view.area.is_editing(), "Escape did not end the editing");
+        ensure!(active_tag() == "canvas", "the focus is on {}", active_tag());
+        ensure!(
+            document().query_selector("input, textarea").expect("query").is_none(),
+            "an element stayed in the page"
+        );
+        UIManager::unselect_view();
+        Ok(())
+    })
 }
 
 impl ViewTest for TextFieldBrowser {
@@ -226,16 +313,11 @@ impl ViewTest for TextFieldBrowser {
             );
             ensure!(!key("ArrowUp", false), "the browser kept the arrow");
             ensure!(view.area.caret() == 3, "up gave {}", view.area.caret());
-
-            ensure!(!key("Escape", false), "the browser kept Escape");
-            ensure!(!view.area.is_editing(), "Escape did not end the editing");
-            ensure!(active_tag() == "canvas", "the focus is on {}", active_tag());
-            ensure!(
-                document().query_selector("input, textarea").expect("query").is_none(),
-                "an element stayed in the page"
-            );
-            UIManager::unselect_view();
             Ok(())
-        })
+        })?;
+
+        check_paste(view)?;
+
+        check_escape(view)
     }
 }

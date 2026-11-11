@@ -39,6 +39,7 @@ mod log_view_trim;
 mod log_view_wrap;
 mod modal_blur;
 mod modal_escape;
+mod modal_outside;
 mod modal_resize;
 mod modal_scrim;
 mod modal_scrim_picture;

@@ -628,7 +628,7 @@ is edited. It is cleared when the editing ends, the memory it used is not wiped.
 ## A picture pasted into a text field
 
 A paste with a picture in the clipboard and no text fires `TextField::image_pasted` with
-the picture as a png file, on desktop. The text of the field does not change. See
+the picture as a png file, on desktop and in a browser. The text of the field does not change. See
 [clipboard.md](clipboard.md).
 
 ## Keys the owner of a text field takes

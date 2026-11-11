@@ -73,8 +73,9 @@ So the event fires on desktop only:
   It offers no paste for a picture, so nothing fires.
 - Android: `get_image` answers `None`.
 - Browser: the element of the page that takes the keys pastes a text by itself, see
-  [browser-text.md](browser-text.md). A picture fires nothing, the page cannot read the
-  clipboard at once.
+  [browser-text.md](browser-text.md). The page cannot read the clipboard at once, but
+  the `paste` event of that element carries the files of the clipboard. A png in it
+  with no text fires `image_pasted` too, see A picture pasted in a browser there.
 
 ## A text put in by the app
 

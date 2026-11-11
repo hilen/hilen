@@ -7,7 +7,7 @@ use crate::{
     gm::{LossyConvert, color::CLEAR, flat::Size},
     ui::{
         BlurView, NamedKey, ScrimView, Setup, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
-        view::ViewSubviews,
+        ViewTouch, view::ViewSubviews,
     },
 };
 
@@ -21,13 +21,14 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         view.set_z_position(z);
         let size = Self::modal_size();
         let weak = view.weak();
-        TouchStack::push_layer(weak.weak_view());
 
         // The scrim owns the modal, so hiding removes both at once.
         // It sits one subview step behind the modal and in front of
-        // everything else. It is not a touch layer, the modal already
-        // blocks touches under it. With a blur it is a BlurView, which
-        // blurs the whole scene and tints it with the scrim color.
+        // everything else. It is the root of the touch layer, so it
+        // blocks touches under it and hears a press outside the modal,
+        // like the backdrop of a context menu. With a blur it is a
+        // BlurView, which blurs the whole scene and tints it with the
+        // scrim color.
         let mut scrim: Own<dyn View> = if Self::modal_blur() > 0.0 {
             let mut blur = BlurView::new();
             blur.set_blur_radius(Self::modal_blur());
@@ -39,6 +40,22 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         let scrim = UIManager::root_view().add_subview_to_root(scrim);
         scrim.set_color(Self::modal_scrim_color());
         scrim.place().back();
+        // The layer goes up before the modal registers its touches, a view
+        // joins the top layer that holds it at registration time.
+        TouchStack::push_layer(scrim);
+        // Every control of the modal takes a press first. A press that
+        // reaches the scrim outside the modal closes it the way Escape does,
+        // a modal with no cancel result stays.
+        scrim.enable_touch_low_priority();
+        scrim.touch().began.val(move |_| {
+            let outside = !weak.absolute_frame().contains(UIManager::cursor_position());
+            if outside
+                && TouchStack::top_layer_root().raw() == scrim.raw()
+                && let Some(result) = weak.modal_cancel()
+            {
+                weak.hide_modal(result);
+            }
+        });
         scrim.add_subview(view);
 
         place_modal(weak, size);
@@ -46,7 +63,7 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         UIManager::keymap().add(weak, NamedKey::Escape, move || {
             // Only the topmost modal, a menu or a modal over it takes the
             // key first, and a text field ends its editing first.
-            if TouchStack::top_layer_root().raw() != weak.raw() || UIManager::text_editing() {
+            if TouchStack::top_layer_root().raw() != weak.superview().raw() || UIManager::text_editing() {
                 return;
             }
             if let Some(result) = weak.modal_cancel() {
@@ -89,16 +106,17 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
     where Out: Send {
         on_main(move || {
             let mut scrim = *self.superview();
+            TouchStack::pop_layer(scrim);
             scrim.remove_from_superview();
-            TouchStack::pop_layer(self.weak_view());
             self.modal_event().trigger(result);
         });
     }
 
     fn modal_event(&self) -> &OnceEvent<Out>;
 
-    /// The result Escape ends the modal with, the same as its cancel
-    /// button gives. `None`, the default, leaves Escape off.
+    /// The result Escape and a press outside the modal end it with, the
+    /// same as its cancel button gives. `None`, the default, leaves both
+    /// off.
     fn modal_cancel(self: Weak<Self>) -> Option<Out> {
         None
     }

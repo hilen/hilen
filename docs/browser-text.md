@@ -34,6 +34,15 @@ system field, see The system text field in [ios.md](ios.md).
 - At the end of the editing every listener comes off, the element leaves the page and
   the canvas gets the focus back.
 
+## A picture pasted in a browser
+
+The element also listens to `paste`. A paste with a text, also one that brings a
+picture along, is left to the browser. A paste with no text and a picture file stops
+the default and reads the file in a promise, `paste_listener` and `read_pasted`. A png
+fires `TextField::image_pasted` with its size read from its header, like on desktop. A
+browser hands a copied picture or a screenshot over as a png, Chrome does. Another type
+is logged and dropped, the page links no decoder for it.
+
 ## Tests
 
 `Text field browser` in `ui-test-suite/src/views/text/text_field_browser.rs`, on the
@@ -41,10 +50,12 @@ browser lane only. It puts text in with `document.execCommand("insertText")`, th
 paste and a key of a phone do, with a real `input` event: Latin, Japanese and an emoji,
 the arrows with and without Shift, a paste over a selection, undo, composed text with
 an Enter of the input method, the focus that comes back from the canvas, `set_text`, Tab
-into a multiline field and Escape. Firefox under a bare Xvfb gives the window no focus
+into a multiline field and Escape. Then 3 built `paste` events: a png with no text fires
+`image_pasted` with its size, a png with a text and a jpeg fire nothing. Firefox under a bare Xvfb gives the window no focus
 of the system and then fires no focus event, there the step of the canvas is left out
 with a warning. The unit tests of `utf16.rs` cover the places.
 
-Passed on 2026-11-02 in Chromium and Firefox on the Linux builder. Not run: a real
+Passed on 2026-11-02 in Chromium and Firefox on the Linux builder. The paste steps
+passed on 2026-11-11 in Chrome on the Linux builder, not run in Firefox or Safari. Not run: a real
 phone, a real input method, a long press. The element takes no touches, so a long press
 on a phone offers no Paste, only the bar of the keyboard can paste there.

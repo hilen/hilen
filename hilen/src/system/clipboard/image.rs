@@ -1,12 +1,12 @@
 //! A picture of the clipboard, kept as the bytes of a png file.
 
-#[cfg(ios)]
+#[cfg(any(ios, wasm))]
 use std::io::Cursor;
 
 use anyhow::{Result, ensure};
-#[cfg(ios)]
+#[cfg(any(ios, wasm))]
 use image::ImageFormat;
-#[cfg(ios)]
+#[cfg(any(ios, wasm))]
 use image::ImageReader;
 use image::{
     ExtendedColorType, ImageEncoder,
@@ -84,10 +84,11 @@ impl ClipboardImage {
     }
 }
 
-#[cfg(ios)]
+#[cfg(any(ios, wasm))]
 impl ClipboardImage {
-    /// A png file the system made, its size is read from its header.
-    pub(super) fn from_png(png: Vec<u8>) -> Result<Self> {
+    /// A png file the system or the browser made, its size is read from its
+    /// header.
+    pub(crate) fn from_png(png: Vec<u8>) -> Result<Self> {
         let (width, height) =
             ImageReader::with_format(Cursor::new(&png), ImageFormat::Png).into_dimensions()?;
         Ok(Self { png, width, height })

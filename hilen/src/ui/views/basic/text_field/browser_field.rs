@@ -10,8 +10,9 @@
 use std::{cell::Cell, rc::Rc};
 
 use web_sys::{
-    Event, FocusEvent, FocusOptions, HtmlElement, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent,
-    js_sys::Function,
+    ClipboardEvent, Event, File, FocusEvent, FocusOptions, HtmlElement, HtmlInputElement,
+    HtmlTextAreaElement, KeyboardEvent,
+    js_sys::{Function, Uint8Array},
     wasm_bindgen::{JsCast, closure::Closure},
     window,
 };
@@ -24,6 +25,7 @@ use super::{
 use crate::{
     deps::refs::{Weak, main_lock::MainLock},
     gm::LossyConvert,
+    system::ClipboardImage,
     ui::{Input, Modifiers, NamedKey, ScreenKeyboard, UIManager, view::ViewFrame},
     web::{canvas, canvas_css_origin},
     window::request_frame,
@@ -115,6 +117,7 @@ struct Edited {
     on_select:       Listener<Event>,
     on_compose:      Listener<Event>,
     on_composed:     Listener<Event>,
+    on_paste:        Listener<ClipboardEvent>,
     on_canvas_focus: Listener<FocusEvent>,
 }
 
@@ -300,6 +303,62 @@ fn key_listener(field: Weak<TextField>, composing: Rc<Cell<bool>>) -> Closure<dy
     })
 }
 
+/// A paste with a picture and no text gives the picture to `image_pasted`,
+/// as the paste shortcut of a desktop does. The file of a `paste` event can
+/// be read without a prompt, the clipboard of the page cannot. A browser hands
+/// a copied picture or a screenshot over as a png. Another type is not
+/// decoded here, the page links no decoder for it, see `window/image/late.rs`.
+fn paste_listener(field: Weak<TextField>) -> Closure<dyn FnMut(ClipboardEvent)> {
+    Closure::<dyn FnMut(ClipboardEvent)>::new(move |event: ClipboardEvent| {
+        let Some(data) = event.clipboard_data() else {
+            return;
+        };
+        // A text pastes as always, also when a picture comes with it.
+        if data.get_data("text/plain").is_ok_and(|text| !text.is_empty()) {
+            return;
+        }
+        let Some(files) = data.files() else {
+            return;
+        };
+        let Some(file) = (0..files.length())
+            .filter_map(|index| files.get(index))
+            .find(|file| file.type_().starts_with("image/"))
+        else {
+            return;
+        };
+        // Nothing to insert, the element would take nothing anyway.
+        event.prevent_default();
+        if file.type_() != "image/png" {
+            log::warn!(
+                "A pasted picture of the type {} is not taken, only png is",
+                file.type_()
+            );
+            return;
+        }
+        wasm_bindgen_futures::spawn_local(read_pasted(field, file));
+    })
+}
+
+async fn read_pasted(field: Weak<TextField>, file: File) {
+    let bytes = match wasm_bindgen_futures::JsFuture::from(file.array_buffer()).await {
+        Ok(buffer) => Uint8Array::new(&buffer).to_vec(),
+        Err(error) => {
+            log::warn!("Failed to read a pasted picture: {error:?}");
+            return;
+        }
+    };
+    match ClipboardImage::from_png(bytes) {
+        // The field can be gone by now.
+        Ok(image) if field.is_ok() => {
+            log::debug!("Pasted a picture of {} by {} pixels", image.width, image.height);
+            field.image_pasted.trigger(image);
+            request_frame();
+        }
+        Ok(_) => log::debug!("A pasted picture came after its text field was gone"),
+        Err(error) => log::warn!("A pasted png did not read: {error}"),
+    }
+}
+
 /// A caret moved by the system, like after an undo or a word guess.
 fn select_listener(
     field: Weak<TextField>,
@@ -355,6 +414,8 @@ pub(super) fn begin(field: Weak<TextField>) {
 
     let on_select = select_listener(field, editor.clone(), composing.clone());
 
+    let on_paste = paste_listener(field);
+
     let on_compose = Closure::<dyn FnMut(Event)>::new({
         let composing = composing.clone();
         move |_| composing.set(true)
@@ -408,6 +469,7 @@ pub(super) fn begin(field: Weak<TextField>) {
     add("select", on_select.as_ref().unchecked_ref());
     add("compositionstart", on_compose.as_ref().unchecked_ref());
     add("compositionend", on_composed.as_ref().unchecked_ref());
+    add("paste", on_paste.as_ref().unchecked_ref());
     if let Some(document) = window().and_then(|window| window.document())
         && let Err(error) =
             document.add_event_listener_with_callback("selectionchange", on_select.as_ref().unchecked_ref())
@@ -425,6 +487,7 @@ pub(super) fn begin(field: Weak<TextField>) {
         on_select,
         on_compose,
         on_composed,
+        on_paste,
         on_canvas_focus,
     });
 
@@ -447,6 +510,7 @@ fn end_listening() {
         ("select", edited.on_select.as_ref().unchecked_ref()),
         ("compositionstart", edited.on_compose.as_ref().unchecked_ref()),
         ("compositionend", edited.on_composed.as_ref().unchecked_ref()),
+        ("paste", edited.on_paste.as_ref().unchecked_ref()),
     ] {
         if let Err(error) = html.remove_event_listener_with_callback(name, listener) {
             log::warn!("Failed to stop listening to {name} of a text field in the page: {error:?}");
