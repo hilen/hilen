@@ -574,6 +574,29 @@ impl Font {
         Self::bundled("RobotoMono-700", include_bytes!("fonts/RobotoMono.ttf"), 700.0)
     }
 
+    /// The fonts a char falls back to after the fallbacks of the app and
+    /// before the system fonts: stars, check marks, arrows, shapes and key
+    /// symbols from Noto, which Roboto lacks. A browser has no system fonts,
+    /// so without them these chars draw as empty boxes there.
+    #[cfg(feature = "font-symbols")]
+    pub(crate) fn symbol_fallbacks() -> Vec<Weak<Font>> {
+        [
+            ("NotoSansSymbols2-Subset.ttf", SYMBOLS_DATA),
+            ("NotoSansMath-Arrows.ttf", ARROWS_DATA),
+        ]
+        .into_iter()
+        .map(|(name, data)| {
+            Self::store_with_name(name, || Self::new(name, data))
+                .expect("Failed to load a bundled symbol font")
+        })
+        .collect()
+    }
+
+    #[cfg(not(feature = "font-symbols"))]
+    pub(crate) fn symbol_fallbacks() -> Vec<Weak<Font>> {
+        vec![]
+    }
+
     /// Latin Modern Math, the font of LaTeX documents, with the MATH
     /// table that lays out formulas. What `MathView` draws with.
     #[cfg(feature = "math")]
@@ -666,6 +689,13 @@ managed!(Font);
 
 #[cfg(feature = "font-roboto")]
 static ROBOTO_REGULAR: &[u8] = include_bytes!("fonts/Roboto-Regular.ttf");
+
+/// Subsets of Noto Sans Symbols 2 and Noto Sans Math, under the SIL Open
+/// Font License, see `fonts/NotoSymbols-LICENSE.txt`.
+#[cfg(feature = "font-symbols")]
+static SYMBOLS_DATA: &[u8] = include_bytes!("fonts/NotoSansSymbols2-Subset.ttf");
+#[cfg(feature = "font-symbols")]
+static ARROWS_DATA: &[u8] = include_bytes!("fonts/NotoSansMath-Arrows.ttf");
 
 /// Latin Modern Math by GUST, under the GUST Font License, see
 /// `fonts/LatinModernMath-LICENSE.txt`.

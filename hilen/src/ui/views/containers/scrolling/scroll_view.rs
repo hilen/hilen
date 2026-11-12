@@ -129,18 +129,20 @@ impl ScrollView {
     /// A drag no longer scrolls, the wheel and `set_content_offset` still
     /// do. For a host that needs the drag itself, like a text field
     /// selecting text.
-    pub fn disable_drag(&mut self) -> &mut Self {
-        self.drag_disabled = true;
+    pub fn disable_drag(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.drag_disabled = true;
         self
     }
 
-    pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
-        self.content.__base_view().__content_offset = offset.to_f32();
+    pub fn set_content_offset(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.content.__base_view().__content_offset = offset.to_f32();
 
-        if self.content.__base_view().__content_offset < self.max_offset() {
-            self.content.__base_view().__content_offset = self.max_offset();
+        if this.content.__base_view().__content_offset < this.max_offset() {
+            this.content.__base_view().__content_offset = this.max_offset();
         }
-        self.note_end();
+        this.note_end();
 
         self
     }
@@ -152,9 +154,10 @@ impl ScrollView {
     /// from the end keeps its offset. Content that fits the view shows
     /// its end, so a view that is filled later starts at its end. Off by
     /// default.
-    pub fn set_keeps_end(&mut self, keeps: bool) -> &mut Self {
-        self.end.kept = keeps;
-        self.note_end();
+    pub fn set_keeps_end(&self, keeps: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.end.kept = keeps;
+        this.note_end();
         self
     }
 
@@ -204,28 +207,31 @@ impl ScrollView {
         self.on_scroll.trigger(offset);
     }
 
-    pub fn set_content_size(&mut self, size: impl Into<Size>) -> &mut Self {
-        let before = self.content.content_size.height;
-        self.manual_content.width = true;
-        self.manual_content.height = true;
-        self.content.content_size = size.into();
-        self.clamp_offset_x();
-        self.content_resized(before);
+    pub fn set_content_size(&self, size: impl Into<Size>) -> &Self {
+        let mut this = weak_from_ref(self);
+        let before = this.content.content_size.height;
+        this.manual_content.width = true;
+        this.manual_content.height = true;
+        this.content.content_size = size.into();
+        this.clamp_offset_x();
+        this.content_resized(before);
         self
     }
 
-    pub fn set_content_width(&mut self, width: impl ToF32) -> &mut Self {
-        self.manual_content.width = true;
-        self.content.content_size.width = width.to_f32();
-        self.clamp_offset_x();
+    pub fn set_content_width(&self, width: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.manual_content.width = true;
+        this.content.content_size.width = width.to_f32();
+        this.clamp_offset_x();
         self
     }
 
     /// Sets the sideways scroll position: 0 is the left edge, negative
     /// values scroll right. Clamped to the scrollable range.
-    pub fn set_content_offset_x(&mut self, offset: impl ToF32) -> &mut Self {
-        self.offset_x = offset.to_f32().clamp(-self.range_x(), 0.0);
-        self.apply_offset_x();
+    pub fn set_content_offset_x(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.offset_x = offset.to_f32().clamp(-this.range_x(), 0.0);
+        this.apply_offset_x();
         self
     }
 
@@ -287,12 +293,13 @@ impl ScrollView {
         self.on_scroll_x.trigger(min);
     }
 
-    pub fn set_content_height(&mut self, height: impl ToF32) -> &mut Self {
-        let before = self.content.content_size.height;
-        self.manual_content.height = true;
-        self.content.content_size.height = height.to_f32();
-        if !self.content_resized(before) {
-            self.clamp_offset();
+    pub fn set_content_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        let before = this.content.content_size.height;
+        this.manual_content.height = true;
+        this.content.content_size.height = height.to_f32();
+        if !this.content_resized(before) {
+            this.clamp_offset();
         }
         self
     }

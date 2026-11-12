@@ -126,7 +126,7 @@ impl Tooltip {
             return;
         };
 
-        let (mut view, size): (Own<dyn View>, _) = match content {
+        let (view, size): (Own<dyn View>, _) = match content {
             TooltipContent::Text(text) => {
                 let label = Label::new();
                 label.set_text(text).set_text_size(TEXT_SIZE).set_text_color(TEXT);

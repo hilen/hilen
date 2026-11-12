@@ -18,7 +18,7 @@ struct DropDownTestView {
 }
 
 impl Setup for DropDownTestView {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         [self.top, self.bot].apply(|v| {
             v.on_changed(|val| {
                 append_state(format!("{val}\n"));
@@ -58,14 +58,14 @@ impl ViewTest for DropDownTestView {
         let picked = get_state::<String>();
 
         assert!(from_main(move || {
-            let mut bot = view.bot;
+            let bot = view.bot;
             bot.set_value("Plane")
         }));
         assert_eq!(view.bot.value(), "Plane");
         assert_eq!(view.bot.text(), "Plane");
 
         assert!(!from_main(move || {
-            let mut bot = view.bot;
+            let bot = view.bot;
             bot.set_value("Train")
         }));
         assert_eq!(view.bot.value(), "Plane");
@@ -74,14 +74,14 @@ impl ViewTest for DropDownTestView {
         // A rebuilt list falls back to the first entry, and set_value is
         // what puts the old pick back.
         from_main(move || {
-            let mut bot = view.bot;
+            let bot = view.bot;
             bot.set_values(vec!["Car", "Plane", "Rocket"]);
         });
         assert_eq!(view.bot.value(), "Car");
         assert_eq!(view.bot.text(), "Car");
 
         assert!(from_main(move || {
-            let mut bot = view.bot;
+            let bot = view.bot;
             bot.set_value("Plane")
         }));
         assert_eq!(view.bot.value(), "Plane");

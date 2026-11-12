@@ -78,7 +78,7 @@ impl BugReportForm {
         label.set_alignment(TextAlignment::Left);
     }
 
-    fn field(mut field: Weak<TextField>) {
+    fn field(field: Weak<TextField>) {
         let style = BugReportStyle::current();
         field.set_color(style.panel).set_corner_radius(8);
         field.set_text_color(style.text).set_selected_color(style.field_selected);
@@ -221,7 +221,7 @@ impl BugReportView {
         self.form.counter.set_text(counter);
 
         let valid = self.valid();
-        let mut this = self;
+        let this = self;
         this.send.set_enabled(valid);
     }
 }
@@ -275,7 +275,7 @@ impl Setup for BugReportView {
             .set_text_color(style.accent_text)
             .set_corner_radius(8);
         if let Some((color, text)) = style.disabled_send {
-            let mut send = self.send;
+            let send = self.send;
             send.set_disabled_color(color).set_disabled_text_color(text);
         }
         self.send.place().size(120, 36).br(10);

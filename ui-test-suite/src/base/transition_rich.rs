@@ -31,7 +31,7 @@ struct TransitionRich {
 }
 
 impl Setup for TransitionRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         FIRST_SETUPS.fetch_add(1, Ordering::Relaxed);
 
         self.set_color("#C0392B");
@@ -109,7 +109,7 @@ struct SwitchedRich {
 }
 
 impl Setup for SwitchedRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color("#16A085");
 
         self.title.set_text("Switched");
@@ -228,14 +228,14 @@ const FIRST: &str = r"
              252  124 - #e5ada7
              312  124 - #c0392b
              352  124 - #d4796f
-              56  160 - #464e61
+              56  160 - #c7c7cc
              344  160 - #01feff
              432  160 - #912e21
              244  164 - #0df2ff
              548  164 - #2f180d
              564  164 - #902d21
              268  168 - #18e7ff
-              24  172 - #464e61
+              24  172 - #c7c7cc
              292  172 - #23dcff
              324  172 - #23dcff
              420  176 - #73271b
@@ -243,20 +243,20 @@ const FIRST: &str = r"
              488  176 - #3e2f29
              528  176 - #3f302a
              568  176 - #2e180d
-              44  180 - #5894f2
-              48  180 - #5894f2
+              44  180 - #0a84ff
+              48  180 - #0a84ff
              308  180 - #3ac5ff
              336  180 - #3ac5ff
-              44  184 - #5894f2
-              48  184 - #5894f2
+              44  184 - #0a84ff
+              48  184 - #0a84ff
              252  184 - #45baff
              276  184 - #45baff
              352  184 - #45baff
              508  184 - #902d21
-              24  192 - #464e61
+              24  192 - #c7c7cc
              436  192 - #544137
              552  192 - #5f493e
-              64  196 - #273549
+              64  196 - #ffffff
              240  196 - #6798ff
              528  196 - #b6aa9a
              280  200 - #738cff
@@ -391,29 +391,29 @@ const SWITCHED: &str = r"
              388  120 - #16a085
              328  124 - #40b19b
              328  128 - #40b19b
-              44  160 - #464e61
-              56  160 - #464e61
+              44  160 - #c7c7cc
+              56  160 - #c7c7cc
              120  160 - #0000e7
              144  160 - #0000e7
              444  160 - #fe0100
              492  160 - #fe0100
              520  160 - #fe0100
-              32  164 - #273549
+              32  164 - #ffffff
              428  168 - #e91600
              472  172 - #df2000
              544  172 - #df2000
-              24  176 - #464e61
-              44  180 - #273549
+              24  176 - #c7c7cc
+              44  180 - #ffffff
              112  180 - #0000e7
              136  180 - #0000e7
              500  180 - #cb3400
              444  184 - #c13e00
-              64  188 - #273549
+              64  188 - #ffffff
              424  188 - #b64900
              524  188 - #b64900
-              24  192 - #464e61
+              24  192 - #c7c7cc
              460  196 - #a25d00
-              44  200 - #273549
+              44  200 - #ffffff
              548  200 - #986700
              480  204 - #8e7100
              516  204 - #8e7100

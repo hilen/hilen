@@ -300,7 +300,7 @@ fn finger(view: Weak<TableRowMoves>) -> Result<()> {
         last = offset;
     }
     from_main(move || {
-        let mut table = view.table;
+        let table = view.table;
         table.set_content_offset(0);
     });
     wait_for_next_frame();

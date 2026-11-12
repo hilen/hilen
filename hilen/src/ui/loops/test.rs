@@ -50,7 +50,7 @@ struct DeclaredLoop {
 }
 
 impl Setup for DeclaredLoop {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.track.set_color(TRACK).set_frame((20, 40, 300, 40));
         let bar = self.track.add_view::<Container>();
         bar.set_color(BAR).set_frame((0, 0, 40, 40));
@@ -436,14 +436,14 @@ mod layers {
         let before = builds(ring_view);
         view.say("a new ring color, new pictures");
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.ring.set_ring_color(COVER);
         });
         wait_until("new pictures of the ring", move || {
             layer_state(ring_view).is_some_and(|state| state.builds > before)
         })?;
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.ring.set_ring_color(RING);
         });
 

@@ -266,7 +266,7 @@ impl ViewTest for CanvasZoom {
         // Zoom 2 around the top left corner: the same scene fills the
         // canvas, every part twice as big.
         from_main(move || {
-            let mut canvas = view.canvas;
+            let canvas = view.canvas;
             canvas.zoom_at((0, 0), 2.0);
         });
         check_colors(CHECK_2)?;

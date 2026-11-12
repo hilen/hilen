@@ -98,7 +98,7 @@ impl SceneSetup for Cutout {
 impl SceneTest for Cutout {
     fn overlay(scene: Weak<Self>, view: Weak<SceneTestView>) {
         for (x, y, text) in FIXTURES {
-            let mut label = view.add_view::<Label>();
+            let label = view.add_view::<Label>();
             label.set_text(text).set_text_size(16);
             label.set_text_color(Color::hex("#ffffff"));
             label

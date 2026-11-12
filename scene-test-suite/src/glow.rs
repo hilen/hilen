@@ -57,7 +57,7 @@ impl SceneSetup for Glow {
 impl SceneTest for Glow {
     fn overlay(scene: Weak<Self>, view: Weak<SceneTestView>) {
         for (x, glow) in FLAMES {
-            let mut label = view.add_view::<Label>();
+            let label = view.add_view::<Label>();
             label.set_text(format!("glow {glow}")).set_text_size(16);
             label.set_text_color(Color::hex("#ffffff"));
             label

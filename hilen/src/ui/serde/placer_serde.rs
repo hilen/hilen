@@ -11,7 +11,8 @@ use crate::{deps::refs::Rglica, gm::RefCell, ui::Placer};
 impl Serialize for Placer {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer {
-        let mut state = serializer.serialize_struct("Placer", 5)?;
+        let padding = *self.padding.borrow();
+        let mut state = serializer.serialize_struct("Placer", if padding == 0.0 { 5 } else { 6 })?;
 
         // Use .borrow() to access the inner value of RefCells
         state.serialize_field("rules", &*self.rules.borrow())?;
@@ -21,6 +22,11 @@ impl Serialize for Placer {
         state.serialize_field("all_margin", &*self.all_margin.borrow())?;
         state.serialize_field("has", &*self.has.borrow())?;
         state.serialize_field("fit_text", &*self.fit_text.borrow())?;
+        // An inspector CLI older than stacks refuses a field it does not
+        // know, so a placer with no padding is written the way it was.
+        if padding != 0.0 {
+            state.serialize_field("padding", &padding)?;
+        }
 
         state.end()
     }
@@ -39,6 +45,7 @@ impl<'de> Deserialize<'de> for Placer {
             all_margin,
             has,
             fit_text,
+            padding,
         }
 
         impl<'de> Deserialize<'de> for Field {
@@ -60,6 +67,7 @@ impl<'de> Deserialize<'de> for Placer {
                             "all_margin" => Ok(Field::all_margin),
                             "has" => Ok(Field::has),
                             "fit_text" => Ok(Field::fit_text),
+                            "padding" => Ok(Field::padding),
                             _ => Err(de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -85,6 +93,7 @@ impl<'de> Deserialize<'de> for Placer {
                 let mut all_margin = None;
                 let mut has = None;
                 let mut fit_text = None;
+                let mut padding = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -96,6 +105,7 @@ impl<'de> Deserialize<'de> for Placer {
                         Field::all_margin => all_margin = Some(map.next_value()?),
                         Field::has => has = Some(map.next_value()?),
                         Field::fit_text => fit_text = Some(map.next_value()?),
+                        Field::padding => padding = Some(map.next_value()?),
                     }
                 }
 
@@ -111,6 +121,8 @@ impl<'de> Deserialize<'de> for Placer {
                     all_margin:       RefCell::new(
                         all_margin.ok_or_else(|| de::Error::missing_field("all_margin"))?,
                     ),
+                    // A placer saved before stacks had padding has none.
+                    padding:          RefCell::new(padding.unwrap_or(0.0)),
                     wrap_around:      RefCell::new(None),
                     has:              RefCell::new(has.ok_or_else(|| de::Error::missing_field("has"))?),
                     fit_text:         RefCell::new(
@@ -129,6 +141,7 @@ impl<'de> Deserialize<'de> for Placer {
             "all_margin",
             "has",
             "fit_text",
+            "padding",
         ];
         deserializer.deserialize_struct("Placer", FIELDS, PlacerVisitor)
     }

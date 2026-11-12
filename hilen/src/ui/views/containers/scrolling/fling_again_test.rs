@@ -21,7 +21,7 @@ struct FlingAgain {
 }
 
 impl Setup for FlingAgain {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.scroll.set_content_size((600, 100_000));
         self.scroll.place().back();
     }

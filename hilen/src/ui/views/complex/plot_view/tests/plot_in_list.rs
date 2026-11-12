@@ -45,7 +45,7 @@ impl Setup for PlotInList {
         name.set_text("cell, a tap counts").set_text_size(14).set_text_color("#1B1F24");
         name.place().lrt(8).h(24);
 
-        let mut plot = cell.add_view::<PlotView>();
+        let plot = cell.add_view::<PlotView>();
         plot.set_color("#FFFFFF");
         plot.place().lr(8).t(36).b(8);
         plot.set_x_range(-5.0, 5.0, 0.0).add_function(f64::sin, "#1F5FBF");

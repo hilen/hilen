@@ -32,7 +32,7 @@ struct MultilineFieldGrows {
 }
 
 impl Setup for MultilineFieldGrows {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.title.set_text("a text area that its owner makes higher").set_text_size(18);
         self.title.set_alignment(TextAlignment::Left);
         self.title.place().t(60).lr(20).h(26);

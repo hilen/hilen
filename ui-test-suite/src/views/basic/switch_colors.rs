@@ -132,7 +132,7 @@ struct SwitchColors {
 }
 
 impl Setup for SwitchColors {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WOOD);
 
         let rows = [

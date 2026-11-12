@@ -20,7 +20,7 @@ struct WheelSwipeBrowser {
 }
 
 impl Setup for WheelSwipeBrowser {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.list.place().l(20).t(80).size(300, 200);
         self.list.set_content_size((900, 200));
         let wide = self.list.add_view::<Label>();

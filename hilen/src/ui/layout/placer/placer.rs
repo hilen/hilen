@@ -26,6 +26,9 @@ pub struct Placer {
 
     pub(crate) all_margin: RefCell<f32>,
 
+    /// The space a stack keeps inside its edges, see `padding`.
+    pub(crate) padding: RefCell<f32>,
+
     /// A subview that `all_wrap` keeps out of its rows.
     pub(crate) wrap_around: RefCell<Option<WeakView>>,
 
@@ -45,6 +48,7 @@ impl Placer {
             view:             Rglica::default(),
             s_content:        Rglica::default(),
             all_margin:       RefCell::new(0.0),
+            padding:          RefCell::new(0.0),
             wrap_around:      RefCell::new(None),
             has:              RefCell::new(Size::default()),
             fit_text:         RefCell::new(Size::default()),

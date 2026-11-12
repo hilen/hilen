@@ -56,7 +56,7 @@ struct SideSwipeTest {
 
 impl SideSwipeTest {
     fn swiped(mut self: Weak<Self>, event: SideSwipeEvent) {
-        let mut page = self.page;
+        let page = self.page;
         match event {
             SideSwipeEvent::Moved(offset) => {
                 self.moves += 1;
@@ -104,7 +104,7 @@ impl Setup for SideSwipeTest {
         });
 
         self.strip = self.add_view::<ScrollView>();
-        let mut strip = self.strip;
+        let strip = self.strip;
         strip.set_color(Color::rgb(0.3, 0.7, 0.4));
         strip.place().lrb(0).h(120);
         strip.set_content_width(1500);
@@ -330,7 +330,7 @@ fn sideways_strip(view: Weak<SideSwipeTest>) -> Result<()> {
 
 /// The last steps scroll the page up, a fling under a later tap would only
 /// stop it.
-fn scrolls_up_and_down(mut view: Weak<SideSwipeTest>) -> Result<()> {
+fn scrolls_up_and_down(view: Weak<SideSwipeTest>) -> Result<()> {
     let moves = view.moves;
     inject_touches("300 440 b\n302 425 m\n400 420 m\n450 420 e");
     ensure!(view.moves == moves, "a drag that went up first started a swipe");

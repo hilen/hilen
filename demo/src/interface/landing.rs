@@ -28,7 +28,7 @@ pub struct Landing {
 }
 
 impl Setup for Landing {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         LevelManager::set_level(ChamberLevel::default());
 
         self.speed.set_horizontal().place().b(20).center_x().size(220, 32);

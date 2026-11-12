@@ -110,7 +110,7 @@ impl SceneSetup for MippedPicture {
 impl SceneTest for MippedPicture {
     fn overlay(scene: Weak<Self>, view: Weak<SceneTestView>) {
         for (y, text) in [(PLAIN_Y, "plain"), (MIPPED_Y, "mipped")] {
-            let mut label = view.add_view::<Label>();
+            let label = view.add_view::<Label>();
             label.set_text(text).set_text_size(16);
             label.set_text_color(Color::hex("#ffffff"));
             label

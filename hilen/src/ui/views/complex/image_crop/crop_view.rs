@@ -13,7 +13,7 @@ use crate::{
     self as hilen,
     deps::{
         hreads::{on_main, spawn},
-        refs::{Weak, manage::DataManager},
+        refs::{Weak, manage::DataManager, weak_from_ref},
         vents::Event,
     },
     gm::{
@@ -107,10 +107,11 @@ impl ImageCropView {
         self.shape
     }
 
-    pub fn set_shape(&mut self, shape: CropShape) -> &mut Self {
-        self.shape = shape;
-        self.mask_size = Size::default();
-        self.draw_mask();
+    pub fn set_shape(&self, shape: CropShape) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.shape = shape;
+        this.mask_size = Size::default();
+        this.draw_mask();
         self
     }
 
@@ -125,10 +126,11 @@ impl ImageCropView {
     }
 
     /// Zooms and keeps the middle of the hole where it is.
-    pub fn set_zoom(&mut self, zoom: f32) -> &mut Self {
-        let side = self.hole_side();
-        self.crop.set_zoom(zoom, side);
-        self.changed();
+    pub fn set_zoom(&self, zoom: f32) -> &Self {
+        let mut this = weak_from_ref(self);
+        let side = this.hole_side();
+        this.crop.set_zoom(zoom, side);
+        this.changed();
         self
     }
 

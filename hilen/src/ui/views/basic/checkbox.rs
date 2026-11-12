@@ -15,9 +15,9 @@ use crate::{
 
 const CHECK: &[u8] = include_bytes!("../../images/check.svg");
 
-const FILL: Color = Color::hex("#273549");
-const BORDER: Color = Color::hex("#464E61");
-const DOT: Color = Color::hex("#5894F2");
+const FILL: DynamicColor = DynamicColor::new(Color::hex("#FFFFFF"), Color::hex("#273549"));
+const BORDER: DynamicColor = DynamicColor::new(Color::hex("#C7C7CC"), Color::hex("#464E61"));
+const DOT: DynamicColor = DynamicColor::new(Color::hex("#0A84FF"), Color::hex("#5894F2"));
 
 const DISABLED_FILL: DynamicColor = DynamicColor::new(Color::hex("#F2F2F4"), Color::hex("#2A2A2E"));
 const DISABLED_BORDER: DynamicColor = DynamicColor::new(Color::hex("#D1D1D6"), Color::hex("#48484E"));
@@ -94,9 +94,10 @@ impl CheckBox {
         self
     }
 
-    pub fn set_on(&mut self, on: bool) {
-        self.on = on;
-        self.refresh();
+    pub fn set_on(&self, on: bool) {
+        let mut this = weak_from_ref(self);
+        this.on = on;
+        this.refresh();
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -142,7 +143,7 @@ impl ViewCallbacks for CheckBox {
 }
 
 impl Setup for CheckBox {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.enable_touch();
 
         self.set_border_width(2).set_corner_radius(10);

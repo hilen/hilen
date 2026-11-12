@@ -44,7 +44,7 @@ struct ScrollBarDrag {
 }
 
 impl Setup for ScrollBarDrag {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.status.set_text_size(18).set_multiline(true);
         self.status.set_text("nothing was dragged, both bars are at their start");

@@ -6,9 +6,11 @@ mod button_icon;
 mod button_title_size;
 mod checkbox;
 mod checkbox_disabled;
+mod chips_segmented;
 mod command_held;
 mod corner_radii;
 mod dynamic_clear_color;
+mod form_fields;
 mod gradient;
 mod group_opacity;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`

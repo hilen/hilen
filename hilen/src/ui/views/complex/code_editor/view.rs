@@ -12,7 +12,10 @@ use super::{
 };
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
         CellRegistry, Container, Label, Setup, TableData, TableView, ToLabel, UIColor, View, ViewCallbacks,
@@ -117,16 +120,17 @@ impl ViewCallbacks for CodeEditor {
 impl CodeEditor {
     /// Puts a new text in, with the cursor at the start, no colors, no
     /// marks and no undo history.
-    pub fn set_text(&mut self, text: &str) -> &mut Self {
-        self.text.set_text(text);
-        let count = self.text.line_count();
-        self.decor = vec![LineDecor::default(); count];
-        self.widths = self.text.lines().iter().map(|line| columns_of(line)).collect();
-        self.relayout();
-        self.table.set_content_offset(0);
-        self.table.set_content_offset_x(0);
-        if self.find.open {
-            self.search();
+    pub fn set_text(&self, text: &str) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.text.set_text(text);
+        let count = this.text.line_count();
+        this.decor = vec![LineDecor::default(); count];
+        this.widths = this.text.lines().iter().map(|line| columns_of(line)).collect();
+        this.relayout();
+        this.table.set_content_offset(0);
+        this.table.set_content_offset_x(0);
+        if this.find.open {
+            this.search();
         }
         self
     }
@@ -146,10 +150,11 @@ impl CodeEditor {
 
     /// The colors of the code on `line`, byte ranges of that line. A
     /// change of the line by the user drops them.
-    pub fn set_color_runs(&mut self, line: usize, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) {
-        if let Some(decor) = self.decor.get_mut(line) {
+    pub fn set_color_runs(&self, line: usize, runs: impl IntoIterator<Item = (Range<usize>, UIColor)>) {
+        let mut this = weak_from_ref(self);
+        if let Some(decor) = this.decor.get_mut(line) {
             decor.runs = runs.into_iter().collect();
-            self.refresh();
+            this.refresh();
         }
     }
 
@@ -163,10 +168,11 @@ impl CodeEditor {
     /// the message in the mark color and the line on its own background.
     /// A mark moves with its line when lines are added or taken out above
     /// it.
-    pub fn set_mark(&mut self, line: usize, message: impl ToLabel) {
-        if let Some(decor) = self.decor.get_mut(line) {
+    pub fn set_mark(&self, line: usize, message: impl ToLabel) {
+        let mut this = weak_from_ref(self);
+        if let Some(decor) = this.decor.get_mut(line) {
             decor.mark = Some(message.to_label());
-            self.refresh();
+            this.refresh();
         }
     }
 
@@ -191,9 +197,10 @@ impl CodeEditor {
 
     /// Lights the lines of `lines` with the highlight color, like the
     /// lines of a part picked in a 3D view. `None` lights none.
-    pub fn set_highlight(&mut self, lines: Option<Range<usize>>) {
-        self.highlight = lines;
-        self.refresh();
+    pub fn set_highlight(&self, lines: Option<Range<usize>>) {
+        let mut this = weak_from_ref(self);
+        this.highlight = lines;
+        this.refresh();
     }
 
     pub fn highlight(&self) -> Option<Range<usize>> {
@@ -204,15 +211,17 @@ impl CodeEditor {
         self.style
     }
 
-    pub fn set_style(&mut self, style: CodeEditorStyle) -> &mut Self {
-        self.style = style;
-        self.use_style();
+    pub fn set_style(&self, style: CodeEditorStyle) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.style = style;
+        this.use_style();
         self
     }
 
     /// How many spaces Tab puts in and Shift Tab takes out, 4 by default.
-    pub fn set_tab_width(&mut self, spaces: usize) -> &mut Self {
-        self.text.set_tab_width(spaces);
+    pub fn set_tab_width(&self, spaces: usize) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.text.set_tab_width(spaces);
         self
     }
 
@@ -225,9 +234,10 @@ impl CodeEditor {
     }
 
     /// Puts the cursor at `pos` and scrolls to it. The selection goes.
-    pub fn set_cursor(&mut self, pos: CodePos) {
-        self.text.move_to(pos, false);
-        self.cursor_changed();
+    pub fn set_cursor(&self, pos: CodePos) {
+        let mut this = weak_from_ref(self);
+        this.text.move_to(pos, false);
+        this.cursor_changed();
     }
 
     /// Selects from `from` to `to`, the cursor at `to`.

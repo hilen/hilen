@@ -66,8 +66,7 @@ stays when its rows scroll out and come back.
 The scope of a selection is the table around the pressed text when that table has
 selectable text, else the markdown view, else the label.
 
-No view subscribes to an event for it, `touch().began` has room for 1 subscriber and
-that one belongs to the app. The input code calls the module: `check_touch` on a press
+No view subscribes to an event for it, the touch events belong to the app. The input code calls the module: `check_touch` on a press
 and on a right click, `LongPress::fire` on a hold, `Input::process_touch_event` for
 every move and release, `Input::on_char` for the keys. `TextSelection::tick` runs once
 a frame from `UIDrawer::update`, follows the pointer and scrolls the table. The pointer

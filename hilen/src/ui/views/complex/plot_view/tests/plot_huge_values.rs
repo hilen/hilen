@@ -20,7 +20,7 @@ struct PlotHugeValues {
 }
 
 impl Setup for PlotHugeValues {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color("#FFFFFF");
 
         self.status
@@ -40,7 +40,7 @@ impl Setup for PlotHugeValues {
 }
 
 impl ViewTest for PlotHugeValues {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         wait_for_next_frame();
         from_main(move || {
             view.plot.zoom_at((300, 300), 0.001);

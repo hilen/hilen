@@ -64,7 +64,7 @@ impl KeyFocusPointerMenu {
 
     fn move_pointer(self: Weak<Self>, x: f32, y: f32) {
         from_main(move || {
-            let mut pointer = self.pointer;
+            let pointer = self.pointer;
             pointer.set_hidden(false);
             pointer.set_center((x, y));
         });
@@ -120,7 +120,7 @@ impl Setup for KeyFocusPointerMenu {
         self.state.place().lrb(10).h(40);
 
         // The z of the engine's own touch marks, set before it is added.
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer.set_color("#e0457b").set_corner_radius(7).set_size(14, 14);
         pointer.set_hidden(true);

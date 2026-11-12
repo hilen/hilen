@@ -513,11 +513,11 @@ impl ContextMenu {
     fn present(items: Vec<MenuItem>, placement: Placement, style: &MenuStyle) -> Weak<Self> {
         Self::dismiss_open();
 
-        let mut backdrop = Container::new();
+        let backdrop = Container::new();
         backdrop.set_color(CLEAR);
         backdrop.set_z_position(UIManager::MENU_Z_OFFSET);
 
-        let mut menu = Own::new(Self::default());
+        let menu = Own::new(Self::default());
         menu.set_z_position(UIManager::MENU_Z_OFFSET - UIManager::subview_z_offset());
         let weak = menu.weak();
 
@@ -671,7 +671,7 @@ impl ContextMenu {
 
         if style.blur > 0.0 {
             self.set_color(CLEAR);
-            let mut blur = self.add_view::<BlurView>();
+            let blur = self.add_view::<BlurView>();
             blur.set_blur_radius(style.blur);
             blur.set_color(style.background).set_corner_radius(style.corner_radius);
             blur.place().back();
@@ -689,7 +689,7 @@ impl ContextMenu {
         self.set_color(CLEAR);
 
         if style.blur > 0.0 {
-            let mut blur = self.add_view::<BlurView>();
+            let blur = self.add_view::<BlurView>();
             blur.set_blur_radius(style.blur);
             blur.set_color(style.background)
                 .set_border_color(style.border)
@@ -730,7 +730,7 @@ impl ContextMenu {
             TailEdge::Top => (height, 0.0),
         };
 
-        let mut drawing = self.arrow;
+        let drawing = self.arrow;
         drawing.remove_all_paths();
         let shape = VectorPath::polygon([(0.0, base), (half * 2.0, base), (half, tip)]);
         drawing.add_fill(&shape, style.background.resolve(), FillRule::NonZero);
@@ -760,7 +760,7 @@ impl ContextMenu {
         };
 
         if self.blur.is_ok() {
-            let mut blur = self.blur;
+            let blur = self.blur;
             blur.set_tail(Some(BlurTail {
                 edge,
                 x: middle,

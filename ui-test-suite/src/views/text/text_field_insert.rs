@@ -27,7 +27,7 @@ struct TextFieldInsert {
 }
 
 impl Setup for TextFieldInsert {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.title.set_text("field, a path goes in at the caret").set_text_size(18);
         self.title.set_alignment(TextAlignment::Left);
         self.title.place().t(60).lr(20).h(26);

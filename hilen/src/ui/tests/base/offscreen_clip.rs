@@ -15,7 +15,7 @@ struct OffscreenClip {
 }
 
 impl Setup for OffscreenClip {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.scroll.set_content_size((200, 200));
         self.scroll.place().size(100, 100).tl(5000);
     }

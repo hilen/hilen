@@ -151,7 +151,7 @@ impl Setup for Toolbar {
             .set_text_size(TEXT_SIZE)
             .set_text_color(TEXT)
             .set_selected_color(FIELD);
-        let mut search = self.search;
+        let search = self.search;
         search.set_alignment(TextAlignment::Left);
         self.search.set_color(FIELD);
         self.search.changed.val(move |text| self.search_changed.trigger(text));

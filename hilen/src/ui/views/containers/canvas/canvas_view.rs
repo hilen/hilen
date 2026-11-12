@@ -1,6 +1,9 @@
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::{
         ToF32,
         flat::{Point, Rect},
@@ -49,18 +52,21 @@ impl CanvasView {
     }
 
     /// Sets the zoom and keeps the middle of the view where it is.
-    pub fn set_zoom(&mut self, zoom: impl ToF32) -> &mut Self {
+    pub fn set_zoom(&self, zoom: impl ToF32) -> &Self {
+        let this = weak_from_ref(self);
         let middle = Point::new(
-            self.__base_view().frame.size.width,
-            self.__base_view().frame.size.height,
+            this.__base_view().frame.size.width,
+            this.__base_view().frame.size.height,
         ) / 2.0;
-        let factor = zoom.to_f32() / self.zoom;
-        self.zoom_at(middle, factor)
+        let factor = zoom.to_f32() / this.zoom;
+        this.zoom_at(middle, factor);
+        self
     }
 
-    pub fn set_offset(&mut self, offset: impl Into<Point>) -> &mut Self {
-        self.offset = offset.into();
-        self.apply();
+    pub fn set_offset(&self, offset: impl Into<Point>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.offset = offset.into();
+        this.apply();
         self
     }
 
@@ -69,27 +75,31 @@ impl CanvasView {
     /// where it is drawn smaller than the view it stays in the middle,
     /// else its edges never come inside the view. None lets it go
     /// anywhere, the default.
-    pub fn set_bounds(&mut self, bounds: Option<Rect>) -> &mut Self {
-        self.bounds = bounds;
-        self.apply();
+    pub fn set_bounds(&self, bounds: Option<Rect>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.bounds = bounds;
+        this.apply();
         self
     }
 
     /// The smallest and the biggest zoom, 0.1 and 10 at the start.
-    pub fn set_zoom_limits(&mut self, min: impl ToF32, max: impl ToF32) -> &mut Self {
-        self.min_zoom = min.to_f32();
-        self.max_zoom = max.to_f32();
-        self.zoom_at(Point::default(), 1.0)
+    pub fn set_zoom_limits(&self, min: impl ToF32, max: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.min_zoom = min.to_f32();
+        this.max_zoom = max.to_f32();
+        this.zoom_at(Point::default(), 1.0);
+        self
     }
 
     /// Zooms by `factor` and keeps what is under `point` where it is.
     /// `point` is in the points of this view.
-    pub fn zoom_at(&mut self, point: impl Into<Point>, factor: impl ToF32) -> &mut Self {
+    pub fn zoom_at(&self, point: impl Into<Point>, factor: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
         let point = point.into();
-        let zoom = (self.zoom * factor.to_f32()).clamp(self.min_zoom, self.max_zoom);
-        self.offset = point - (point - self.offset) * (zoom / self.zoom);
-        self.zoom = zoom;
-        self.apply();
+        let zoom = (this.zoom * factor.to_f32()).clamp(this.min_zoom, this.max_zoom);
+        this.offset = point - (point - this.offset) * (zoom / this.zoom);
+        this.zoom = zoom;
+        this.apply();
         self
     }
 

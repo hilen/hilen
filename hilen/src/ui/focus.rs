@@ -593,7 +593,7 @@ impl Focus {
         let state = STATE.get_mut();
 
         if state.ring.is_null() {
-            let mut ring = FocusRing::new();
+            let ring = FocusRing::new();
             ring.set_z_position(UIManager::RING_Z_OFFSET);
             let mut ring = UIManager::root_view().add_subview_to_root(ring);
             ring.set_label("Focus ring");

@@ -259,9 +259,7 @@ narrower, the row stays at its start and the selected tab is out of sight.
 - Current: `ScrollView::set_content_offset_x` in
   `hilen/src/ui/views/containers/scrolling/scroll_view.rs` clamps the offset against the
   frame the view has now. In a `size_changed` handler of the screen the frame of the
-  scroll view is still the old one, so a wide old frame clamps the offset to 0. The
-  `size_changed` event of the scroll view takes 1 subscriber, and the scroll view uses it
-  itself, so an app panics with `Event already has a subscriber` when it subscribes. No
+  scroll view is still the old one, so a wide old frame clamps the offset to 0. No
   call scrolls a subview into sight, and no event runs after layout.
 - Needed: a call on `ScrollView`, and `TableView`, that keeps a subview in sight, both
   ways, like `scroll_to_row` keeps a row. It holds until the next layout, so it also

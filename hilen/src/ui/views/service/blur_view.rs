@@ -1,6 +1,6 @@
 use ui_proc::view;
 
-use crate::gm::ToF32;
+use crate::{deps::refs::weak_from_ref, gm::ToF32};
 
 /// Shows a blurred copy of everything drawn before it in tree order,
 /// inside its own frame and corner radii. Its color is a tint mixed
@@ -39,8 +39,9 @@ impl BlurView {
         self.blur_radius
     }
 
-    pub fn set_blur_radius(&mut self, radius: impl ToF32) -> &mut Self {
-        self.blur_radius = radius.to_f32();
+    pub fn set_blur_radius(&self, radius: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.blur_radius = radius.to_f32();
         self
     }
 
@@ -48,8 +49,9 @@ impl BlurView {
         self.tail
     }
 
-    pub fn set_tail(&mut self, tail: Option<BlurTail>) -> &mut Self {
-        self.tail = tail;
+    pub fn set_tail(&self, tail: Option<BlurTail>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.tail = tail;
         self
     }
 

@@ -284,7 +284,7 @@ impl TableView {
     /// reloads the table. Escape, and a reload while the row is held, put
     /// it back with no call. Sticky rows do not move. A table of 1 column
     /// only. Off by default.
-    pub fn set_row_moves(&mut self, on: bool) -> &mut Self {
+    pub fn set_row_moves(&self, on: bool) -> &Self {
         RowDrag::register(weak_from_ref(self), on);
         self
     }

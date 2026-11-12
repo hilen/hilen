@@ -72,7 +72,7 @@ impl Setup for SidewaysWheel {
         self.grid.place().t(270).l(50).size(500, 300);
         Self::add_tiles(self.grid, GRID_ROWS, GRID_TILE_HEIGHT);
 
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer
             .set_color(BLACK)
@@ -108,7 +108,7 @@ impl SidewaysWheel {
     fn point_at(self: Weak<Self>, x: u32, y: u32) {
         inject_touches(format!("{x} {y} m"));
         from_main(move || {
-            let mut pointer = self.pointer;
+            let pointer = self.pointer;
             pointer.set_hidden(false);
             pointer.set_center((x, y));
         });

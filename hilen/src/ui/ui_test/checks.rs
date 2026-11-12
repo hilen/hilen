@@ -21,7 +21,7 @@ pub(super) fn check_pixel_color(screenshot: &Screenshot, pos: Point, color: U8Co
 
     if diff > max_diff {
         from_main(move || {
-            let mut high = HighlightView::new();
+            let high = HighlightView::new();
             high.set_z_position(0.1);
 
             UIManager::root_view()

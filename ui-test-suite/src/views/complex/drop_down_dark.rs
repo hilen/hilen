@@ -95,7 +95,7 @@ struct DropDownDark {
 }
 
 impl Setup for DropDownDark {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.page.set_color(PAGE);
         self.page.place().back();
 

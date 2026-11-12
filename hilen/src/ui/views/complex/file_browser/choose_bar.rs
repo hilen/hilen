@@ -29,7 +29,7 @@ pub(super) struct ChooseBar {
 impl ChooseBar {
     /// The text of what Choose would give, empty while there is nothing,
     /// and Choose is off then.
-    pub(super) fn set_picked(mut self: Weak<Self>, text: &str) {
+    pub(super) fn set_picked(self: Weak<Self>, text: &str) {
         self.picked.set_text(text);
         self.choose.set_enabled(!text.is_empty());
     }
@@ -40,7 +40,7 @@ impl ChooseBar {
 }
 
 impl Setup for ChooseBar {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(PANEL);
 
         self.line.set_color(BORDER);

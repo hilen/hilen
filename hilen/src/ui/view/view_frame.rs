@@ -28,7 +28,7 @@ pub trait ViewFrame {
     /// Starts a layer of its own at `z` over the whole window, smaller is
     /// nearer, like a toast. The tree order puts every other view in front
     /// or behind, a later sibling is in front of an earlier one.
-    fn set_z_position(&mut self, z: f32) -> &mut Self;
+    fn set_z_position(&self, z: f32) -> &Self;
     fn frame(&self) -> &Rect;
     fn absolute_frame(&self) -> &Rect;
     fn contains_visible(&self, point: Point) -> bool;
@@ -40,14 +40,15 @@ pub trait ViewFrame {
     fn size(&self) -> Size;
     fn width(&self) -> f32;
     fn height(&self) -> f32;
-    fn set_x(&mut self, x: impl ToF32) -> &mut Self;
-    fn set_y(&mut self, y: impl ToF32) -> &mut Self;
-    fn set_height(&mut self, height: impl ToF32) -> &mut Self;
+    fn set_x(&self, x: impl ToF32) -> &Self;
+    fn set_y(&self, y: impl ToF32) -> &Self;
+    fn set_width(&self, width: impl ToF32) -> &Self;
+    fn set_height(&self, height: impl ToF32) -> &Self;
     fn set_position(&self, origin: impl Into<Point>) -> &Self;
-    fn set_center(&mut self, center: impl Into<Point>) -> &mut Self;
+    fn set_center(&self, center: impl Into<Point>) -> &Self;
     fn set_frame(&self, rect: impl Into<Rect>) -> &Self;
     fn set_size(&self, width: impl ToF32, height: impl ToF32) -> &Self;
-    fn edit_frame(&mut self, edit: impl FnOnce(&mut Rect)) -> &mut Self;
+    fn edit_frame(&self, edit: impl FnOnce(&mut Rect)) -> &Self;
     fn trigger_events(&mut self);
 }
 
@@ -56,7 +57,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         self.__base_view().z_position
     }
 
-    fn set_z_position(&mut self, z: f32) -> &mut Self {
+    fn set_z_position(&self, z: f32) -> &Self {
         assert!(
             self.superview().is_null(),
             "Z position must be set before adding to superview"
@@ -142,7 +143,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         self.frame().size.height
     }
 
-    fn set_x(&mut self, x: impl ToF32) -> &mut Self {
+    fn set_x(&self, x: impl ToF32) -> &Self {
         let x = x.to_f32();
         let frame = &mut self.__base_view().frame;
         // Bit compare: any value change counts, epsilon would miss tiny moves.
@@ -153,7 +154,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         self
     }
 
-    fn set_y(&mut self, y: impl ToF32) -> &mut Self {
+    fn set_y(&self, y: impl ToF32) -> &Self {
         let y = y.to_f32();
         let frame = &mut self.__base_view().frame;
         let pos_changed = frame.origin.y.to_bits() != y.to_bits();
@@ -163,7 +164,17 @@ impl<T: ?Sized + View> ViewFrame for T {
         self
     }
 
-    fn set_height(&mut self, height: impl ToF32) -> &mut Self {
+    fn set_width(&self, width: impl ToF32) -> &Self {
+        let width = width.to_f32();
+        let frame = &mut self.__base_view().frame;
+        let size_changed = frame.size.width.to_bits() != width.to_bits();
+        frame.size.width = width;
+        self.__base_view().trigger_size_changed |= size_changed;
+
+        self
+    }
+
+    fn set_height(&self, height: impl ToF32) -> &Self {
         let height = height.to_f32();
         let frame = &mut self.__base_view().frame;
         let size_changed = frame.size.height.to_bits() != height.to_bits();
@@ -183,7 +194,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         self
     }
 
-    fn set_center(&mut self, center: impl Into<Point>) -> &mut Self {
+    fn set_center(&self, center: impl Into<Point>) -> &Self {
         let center = center.into();
         let frame = &mut self.__base_view().frame;
         let pos_changed = frame.center() != center;
@@ -221,7 +232,7 @@ impl<T: ?Sized + View> ViewFrame for T {
         self
     }
 
-    fn edit_frame(&mut self, edit: impl FnOnce(&mut Rect)) -> &mut Self {
+    fn edit_frame(&self, edit: impl FnOnce(&mut Rect)) -> &Self {
         let frame = &mut self.__base_view().frame;
         let prev_frame = *frame;
         edit(frame);

@@ -136,7 +136,7 @@ impl ViewTest for BugReportStyled {
         check_colors(EMPTY_FORM)?;
 
         from_main(move || {
-            let mut form = dialog.form;
+            let form = dialog.form;
             form.description.set_text("The game froze on the map screen");
             form.attach_keys.set_on(true);
         });

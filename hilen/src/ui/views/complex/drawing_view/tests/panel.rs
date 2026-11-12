@@ -15,12 +15,7 @@ use crate::{
 pub(super) const SHADE: Color = Color::hex("#0d0f12");
 pub(super) const LED_GREEN: Color = Color::hex("#2eea62");
 
-pub(super) fn circle(
-    mut drawing: Weak<DrawingView>,
-    center: (f32, f32),
-    radius: f32,
-    paint: impl Into<Paint>,
-) {
+pub(super) fn circle(drawing: Weak<DrawingView>, center: (f32, f32), radius: f32, paint: impl Into<Paint>) {
     drawing.add_fill(&VectorPath::circle(center, radius), paint, FillRule::NonZero);
 }
 
@@ -28,13 +23,7 @@ fn rect(x: f32, y: f32, width: f32, height: f32) -> VectorPath {
     VectorPath::polygon([(x, y), (x + width, y), (x + width, y + height), (x, y + height)])
 }
 
-fn line(
-    mut drawing: Weak<DrawingView>,
-    from: (f32, f32),
-    to: (f32, f32),
-    paint: impl Into<Paint>,
-    width: f32,
-) {
+fn line(drawing: Weak<DrawingView>, from: (f32, f32), to: (f32, f32), paint: impl Into<Paint>, width: f32) {
     drawing.add_stroke(
         &VectorPath::polyline([from, to]),
         paint,
@@ -45,7 +34,7 @@ fn line(
 /// The machined knob: soft shadow, a vertical metal ramp under a conic
 /// sheen, the knurled grip, the recess whose wall shades the top of
 /// the face dome, a gloss fade, a rim light and the pointer groove.
-pub(super) fn knob(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
+pub(super) fn knob(drawing: Weak<DrawingView>, x: f32, y: f32) {
     circle(
         drawing,
         (x, y + 8.0),
@@ -130,7 +119,7 @@ pub(super) fn knob(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
 /// A recessed screw, see the slot over the machined dome. The strokes
 /// over the dome are the exact stroke over fill case that used to
 /// disappear.
-pub(super) fn screw(mut drawing: Weak<DrawingView>, x: f32, y: f32, angle: f32) {
+pub(super) fn screw(drawing: Weak<DrawingView>, x: f32, y: f32, angle: f32) {
     circle(
         drawing,
         (x, y + 3.0),
@@ -228,7 +217,7 @@ pub(super) fn screw(mut drawing: Weak<DrawingView>, x: f32, y: f32, angle: f32) 
 /// a hot core to a deep rim, no offset shading and no bubble specular.
 /// A lit lamp gets two bloom layers, an internal glow ring and light
 /// spilling onto its collar, an unlit one only the dark lens.
-pub(super) fn lamp(mut drawing: Weak<DrawingView>, x: f32, y: f32, glow: Color, lens: Paint, lit: bool) {
+pub(super) fn lamp(drawing: Weak<DrawingView>, x: f32, y: f32, glow: Color, lens: Paint, lit: bool) {
     if lit {
         circle(
             drawing,
@@ -314,7 +303,7 @@ pub(super) fn red_lens(x: f32, y: f32) -> Paint {
 /// bottom, tick marks and a red zone on an arc, the needle over them,
 /// its pivot cap, an inner top shadow and a glass gloss over the top
 /// half.
-pub(super) fn vu_meter(mut drawing: Weak<DrawingView>, x: f32, y: f32, width: f32) {
+pub(super) fn vu_meter(drawing: Weak<DrawingView>, x: f32, y: f32, width: f32) {
     // x, y is the top left of the frame, 125 tall.
     drawing.add_fill(
         &rect(x, y, width, 125.0),
@@ -423,7 +412,7 @@ fn seg_digit(drawing: Weak<DrawingView>, x: f32, y: f32, mask: u8) {
 /// The digit display: a beveled dark window and two seven segment
 /// digits, the off segments faintly visible like a real LED display,
 /// glowing "42" over them, under a glass gloss.
-pub(super) fn seven_segment(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
+pub(super) fn seven_segment(drawing: Weak<DrawingView>, x: f32, y: f32) {
     // x, y is the top left of the 260 by 80 frame.
     drawing.add_fill(
         &rect(x, y, 260.0, 80.0),
@@ -469,7 +458,7 @@ pub(super) fn seven_segment(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
 
 /// The fader: a recessed track with a dark slit, and the metal thumb
 /// with its grip line, riding partway down.
-pub(super) fn fader(mut drawing: Weak<DrawingView>, x: f32, top: f32, bottom: f32, thumb: f32) {
+pub(super) fn fader(drawing: Weak<DrawingView>, x: f32, top: f32, bottom: f32, thumb: f32) {
     drawing.add_stroke(
         &VectorPath::polyline([(x, top), (x, bottom)]),
         Paint::linear(
@@ -536,7 +525,7 @@ pub(super) fn fader(mut drawing: Weak<DrawingView>, x: f32, top: f32, bottom: f3
 
 /// The red push button: a machined well and a glossy convex cap with a
 /// hot top light, a dark lower reflection band and a crisp gloss edge.
-pub(super) fn push_button(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
+pub(super) fn push_button(drawing: Weak<DrawingView>, x: f32, y: f32) {
     circle(
         drawing,
         (x, y + 3.0),
@@ -609,7 +598,7 @@ pub(super) fn push_button(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
 
 /// The speaker grille: rows of drilled holes, each a dark bore with
 /// the lower rim catching the light.
-pub(super) fn grille(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
+pub(super) fn grille(drawing: Weak<DrawingView>, x: f32, y: f32) {
     for row in 0u8..5 {
         for column in 0u8..10 {
             let center = (
@@ -665,7 +654,7 @@ pub(super) fn vents(drawing: Weak<DrawingView>, x: f32, y: f32, width: f32) {
 
 /// A hex bolt head: the soft shadow, the six sided head on a vertical
 /// metal ramp, its outline, and the round boss in the middle.
-pub(super) fn hex_bolt(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
+pub(super) fn hex_bolt(drawing: Weak<DrawingView>, x: f32, y: f32) {
     let corners: Vec<(f32, f32)> = (0u8..6)
         .map(|i| {
             let angle = f32::from(i).mul_add(60.0, -90.0).to_radians();
@@ -710,7 +699,7 @@ pub(super) fn hex_bolt(mut drawing: Weak<DrawingView>, x: f32, y: f32) {
 
 /// The brushed nameplate: a metal plate with grain, a lit top edge, a
 /// shaded bottom edge and two rivets.
-pub(super) fn nameplate(mut drawing: Weak<DrawingView>, x: f32, y: f32, width: f32, height: f32) {
+pub(super) fn nameplate(drawing: Weak<DrawingView>, x: f32, y: f32, width: f32, height: f32) {
     drawing.add_fill(
         &rect(x, y + 2.0, width, height),
         BLACK.with_alpha(0.35),

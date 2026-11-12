@@ -32,7 +32,7 @@ struct SampleCountSwitch {
 }
 
 impl Setup for SampleCountSwitch {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(LIGHT_GRAY);
 
         self.title.set_text("sample count switch").set_text_size(22);

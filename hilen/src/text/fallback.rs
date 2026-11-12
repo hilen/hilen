@@ -1,7 +1,8 @@
 //! Glyph fallback. A char the effective font has no glyph for is drawn
-//! with the first registered fallback font that covers it, then with a
-//! system font when the app turned that on, through a synthesized font
-//! run, so wrapping and measuring follow automatically.
+//! with the first registered fallback font that covers it, then with the
+//! bundled symbol fonts, then with a system font when the app turned that on,
+//! through a synthesized font run, so wrapping and measuring follow
+//! automatically.
 
 use std::ops::Range;
 
@@ -18,7 +19,8 @@ use crate::{
 /// come back untouched. Whitespace and control chars stay
 /// with their font, shapers handle them without a glyph.
 pub(crate) fn runs_with_fallbacks(text: &str, base: Weak<Font>, runs: Vec<FontRun>) -> Vec<FontRun> {
-    let fallbacks = Font::fallbacks();
+    let mut fallbacks = Font::fallbacks();
+    fallbacks.extend(Font::symbol_fallbacks());
     if (fallbacks.is_empty() && !system_enabled()) || text.is_empty() {
         return runs;
     }

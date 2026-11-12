@@ -33,6 +33,9 @@ enum Width {
     Fit,
     /// The width its owner gives it.
     Fill,
+    /// The width its owner gives it, with the icon and the text in the
+    /// middle, see `set_centered`.
+    Centered,
 }
 
 const PADDING: f32 = 10.0;
@@ -206,6 +209,20 @@ impl ToolButton {
         self
     }
 
+    /// The icon and the text as 1 block in the middle of the button, like a
+    /// segment of a `SegmentedControl`, in place of at the left. Only a
+    /// button that fills a width has room for it.
+    pub fn set_centered(&self, centered: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.width = match (centered, this.width) {
+            (true, Width::Fill) => Width::Centered,
+            (false, Width::Centered) => Width::Fill,
+            (_, width) => width,
+        };
+        self.relayout();
+        self
+    }
+
     pub fn is_on(&self) -> bool {
         self.on
     }
@@ -329,8 +346,24 @@ impl ToolButton {
     fn relayout(&self) {
         let (icon, gap, text) = self.parts();
         let (left, side) = self.icon_frame();
-        self.icon.place().clear().l(left).center_y().size(side, side);
-        self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
+        if self.width == Width::Centered {
+            let start = -(icon + gap + text) / 2.0;
+            self.icon
+                .place()
+                .clear()
+                .center_x_offset(start + side / 2.0)
+                .center_y()
+                .size(side, side);
+            self.label
+                .place()
+                .clear()
+                .center_x_offset(start + icon + gap + text / 2.0)
+                .tb(0)
+                .w(text);
+        } else {
+            self.icon.place().clear().l(left).center_y().size(side, side);
+            self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
+        }
         if self.width == Width::Fit {
             self.place().w(self.fit_width());
         }

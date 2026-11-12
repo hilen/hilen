@@ -86,7 +86,7 @@ impl Setup for NamePrompt {
             .set_text_size(TEXT_SIZE)
             .set_text_color(TEXT)
             .set_selected_color(FIELD);
-        let mut field = self.field;
+        let field = self.field;
         field.set_alignment(TextAlignment::Left);
         self.field
             .set_color(FIELD)

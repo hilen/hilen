@@ -481,7 +481,7 @@ struct BenchPanel {
 }
 
 impl Setup for BenchPanel {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         let i = PANEL_INDEX.fetch_add(1, Ordering::Relaxed);
 
         self.set_gradient(shade(i, 0), shade(i, 1));

@@ -70,7 +70,7 @@ pub(super) fn runs(line: &str) -> Vec<(Range<usize>, UIColor)> {
 }
 
 /// Colors every line of the editor.
-pub(super) fn color_all(mut editor: Weak<CodeEditor>) {
+pub(super) fn color_all(editor: Weak<CodeEditor>) {
     let lines = editor.lines().to_vec();
     for (index, line) in lines.iter().enumerate() {
         editor.set_color_runs(index, runs(line));

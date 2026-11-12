@@ -93,7 +93,7 @@ impl TextFonts {
     /// and grows back, so the text rewraps while it moves. The frame is
     /// set on every tick from the live parent width, a window resize
     /// moves the ends with it.
-    fn add_wrapping_label(mut self: Weak<Self>) {
+    fn add_wrapping_label(self: Weak<Self>) {
         let label = self.scroll.add_view::<Label>();
         label
             .set_text(WRAPPING_TEXT)

@@ -1,7 +1,10 @@
 use ui_proc::view;
 
 use crate::{
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::{ToF32, color::WHITE, converter::Converter},
     ui::{
         CircleView, Color, Container, Point, Setup, Shadow, Touch, UIColor, ViewCallbacks, ViewData,
@@ -60,60 +63,65 @@ impl Slider {
         self.converter.convert(self.raw_value)
     }
 
-    pub fn set_value(&mut self, val: impl ToF32) -> &mut Self {
-        self.set_value_without_event(val);
-        self.value_changed();
+    /// Moves the thumb. `on_change` fires only for the user, never for this
+    /// call, so code that shows a value does not run the handler of a drag.
+    pub fn set_value(&self, val: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.raw_value = this.converter.reverse_convert(val);
+        this.layout_parts();
         self
     }
 
-    pub fn set_horizontal(&mut self) -> &mut Self {
-        self.horizontal = true;
-        self.layout_parts();
+    pub fn set_horizontal(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.horizontal = true;
+        this.layout_parts();
         self
     }
 
-    pub fn set_track_thickness(&mut self, thickness: impl ToF32) -> &mut Self {
-        self.track_thickness = thickness.to_f32();
-        self.track.set_corner_radius(self.track_thickness / 2.0);
-        self.fill.set_corner_radius(self.track_thickness / 2.0);
-        self.layout_parts();
+    pub fn set_track_thickness(&self, thickness: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.track_thickness = thickness.to_f32();
+        this.track.set_corner_radius(this.track_thickness / 2.0);
+        this.fill.set_corner_radius(this.track_thickness / 2.0);
+        this.layout_parts();
         self
     }
 
-    pub fn set_thumb_radius(&mut self, radius: impl ToF32) -> &mut Self {
-        self.thumb_radius = radius.to_f32();
-        self.layout_parts();
+    pub fn set_thumb_radius(&self, radius: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.thumb_radius = radius.to_f32();
+        this.layout_parts();
         self
     }
 
-    pub fn set_track_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.track.set_color(color);
+    pub fn set_track_color(&self, color: impl Into<UIColor>) -> &Self {
+        let this = weak_from_ref(self);
+        this.track.set_color(color);
         self
     }
 
-    pub fn set_fill_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.fill.set_color(color);
+    pub fn set_fill_color(&self, color: impl Into<UIColor>) -> &Self {
+        let this = weak_from_ref(self);
+        this.fill.set_color(color);
         self
     }
 
-    pub fn set_thumb_color(&mut self, color: Color) -> &mut Self {
-        self.circle.set_circle_color(color);
+    pub fn set_thumb_color(&self, color: Color) -> &Self {
+        let this = weak_from_ref(self);
+        this.circle.set_circle_color(color);
         self
     }
 
-    pub fn set_thumb_shadow(&mut self, shadow: impl Into<Option<Shadow>>) -> &mut Self {
-        self.circle.set_shadow(shadow);
+    pub fn set_thumb_shadow(&self, shadow: impl Into<Option<Shadow>>) -> &Self {
+        let this = weak_from_ref(self);
+        this.circle.set_shadow(shadow);
         self
     }
 
-    pub fn set_thumb_border(&mut self, width: impl ToF32, color: impl Into<UIColor>) -> &mut Self {
-        self.circle.set_border_width(width).set_border_color(color);
-        self
-    }
-
-    pub(crate) fn set_value_without_event(&mut self, val: impl ToF32) -> &mut Self {
-        self.raw_value = self.converter.reverse_convert(val);
-        self.layout_parts();
+    pub fn set_thumb_border(&self, width: impl ToF32, color: impl Into<UIColor>) -> &Self {
+        let this = weak_from_ref(self);
+        this.circle.set_border_width(width).set_border_color(color);
         self
     }
 
@@ -148,21 +156,21 @@ impl Slider {
         if self.horizontal { center.x } else { center.y }
     }
 
-    pub fn set_range(&mut self, min: impl ToF32, max: impl ToF32) -> &mut Self {
-        self.set_min(min).set_max(max);
-        self.value_changed();
+    pub fn set_range(&self, min: impl ToF32, max: impl ToF32) -> &Self {
+        let this = weak_from_ref(self);
+        this.set_min(min).set_max(max);
         self
     }
 
-    pub fn set_min(&mut self, min: impl ToF32) -> &mut Self {
-        self.converter.set_min(min);
-        self.value_changed();
+    pub fn set_min(&self, min: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.converter.set_min(min);
         self
     }
 
-    pub(crate) fn set_max(&mut self, max: impl ToF32) -> &mut Self {
-        self.converter.set_max(max);
-        self.value_changed();
+    pub(crate) fn set_max(&self, max: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.converter.set_max(max);
         self
     }
 

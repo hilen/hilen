@@ -21,7 +21,7 @@ struct SwitchLook {
 }
 
 impl Setup for SwitchLook {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.off.place().t(20).l(20).size(64, 32);
         self.on.place().t(80).l(20).size(64, 32);
         self.on.set_on(true);
@@ -124,7 +124,7 @@ impl ViewTest for SwitchLook {
         )?;
 
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.off.set_on(false);
         });
 

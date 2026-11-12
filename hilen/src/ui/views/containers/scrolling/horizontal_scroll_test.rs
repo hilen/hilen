@@ -27,7 +27,7 @@ struct HorizontalScroll {
 }
 
 impl Setup for HorizontalScroll {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.status.set_text_size(20).set_color(WHITE);
         self.status.place().tl(0).size(600, 60);
 
@@ -82,7 +82,7 @@ impl ViewTest for HorizontalScroll {
         UIManager::set_drag_scrolling(true);
     }
 
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         inject_touches("250 230 m");
 
         view.say("content as wide as the view, no bottom bar");

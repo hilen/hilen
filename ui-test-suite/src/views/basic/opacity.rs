@@ -131,7 +131,7 @@ struct OpacityCard {
 }
 
 impl Setup for OpacityCard {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE)
             .set_border_color(BLACK)
             .set_border_width(4)

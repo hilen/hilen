@@ -77,7 +77,7 @@ fn graph_points() -> Vec<Point> {
 }
 
 impl Setup for DrawingPaths {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.drawing.place().back();
 

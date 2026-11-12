@@ -22,7 +22,7 @@ struct DropDownOverDeepView {
 }
 
 impl Setup for DropDownOverDeepView {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.drop.set_frame((20, 20, 240, 40));
         self.drop.set_values(["first", "second", "third"]);
 

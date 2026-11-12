@@ -704,7 +704,7 @@ struct TableTextSelection {
 }
 
 impl Setup for TableTextSelection {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
 
         self.role
@@ -850,7 +850,7 @@ impl ViewTest for TableTextSelection {
         // How far the drag got depends on the time it had. The check looks
         // at rows it passed for sure, at a place that is always the same.
         from_main(move || {
-            let mut view = view;
+            let view = view;
             view.table.set_content_offset(-300);
         });
         let grown = view.show("drag from row 1 to under the bottom edge, held there");

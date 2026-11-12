@@ -488,7 +488,7 @@ impl TextField {
 
     /// Sizes the label to the field, or in multiline mode to its lines
     /// when they need more, so the scroll content grows with the text.
-    pub(super) fn update_layout(mut self: Weak<Self>) {
+    pub(super) fn update_layout(self: Weak<Self>) {
         let width = self.width();
         let height = self.height();
 
@@ -512,7 +512,7 @@ impl TextField {
         }
     }
 
-    pub(super) fn update_caret(mut self: Weak<Self>) {
+    pub(super) fn update_caret(self: Weak<Self>) {
         self.update_layout();
 
         if !self.is_editing || SYSTEM_EDITS {

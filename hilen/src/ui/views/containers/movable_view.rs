@@ -4,7 +4,7 @@ use plat::Platform;
 use ui_proc::view;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     gm::{
         color::WHITE,
         flat::{Point, Size},
@@ -74,8 +74,9 @@ impl<T: View + Default> MovableView<T> {
         self.title_label.text()
     }
 
-    pub fn set_title(&mut self, title: &str) {
-        self.title_label.set_text(title);
+    pub fn set_title(&self, title: &str) {
+        let this = weak_from_ref(self);
+        this.title_label.set_text(title);
     }
 }
 

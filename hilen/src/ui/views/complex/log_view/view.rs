@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     self as hilen,
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     gm::{LossyConvert, flat::Size},
     ui::{
         CellRegistry, Label, Setup, TableData, TableView, TextAlignment, View, ViewCallbacks, ViewData,
@@ -133,10 +133,11 @@ impl LogView {
         self.style
     }
 
-    pub fn set_style(&mut self, style: LogStyle) -> &mut Self {
-        self.style = style;
-        self.use_style();
-        self.reload();
+    pub fn set_style(&self, style: LogStyle) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.style = style;
+        this.use_style();
+        this.reload();
         self
     }
 

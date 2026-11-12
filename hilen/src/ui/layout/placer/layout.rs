@@ -183,15 +183,92 @@ impl Placer {
 
         match tiling {
             Tiling::Background => *frame = s_content.into(),
-            Tiling::Horizontally => place_horizontally(self.view.subviews(), *self.all_margin.borrow()),
-            Tiling::Vertically => place_vertically(self.view.subviews(), *self.all_margin.borrow()),
+            Tiling::Horizontally => {
+                place_horizontally(
+                    self.view.subviews(),
+                    *self.all_margin.borrow(),
+                    *self.padding.borrow(),
+                );
+            }
+            Tiling::Vertically => {
+                place_vertically(
+                    self.view.subviews(),
+                    *self.all_margin.borrow(),
+                    *self.padding.borrow(),
+                );
+            }
             Tiling::LeftHalf => *frame = (0, 0, s_content.width / 2.0, s_content.height).into(),
             Tiling::RightHalf => {
                 *frame = (s_content.width / 2.0, 0, s_content.width / 2.0, s_content.height).into();
             }
             Tiling::Distribute(ratio) => distribute_with_ratio(frame.size, self.view.subviews(), ratio),
             Tiling::Wrap => self.wrap_layout(frame),
+            Tiling::StackVertically => self.stack_ver_layout(frame),
+            Tiling::StackHorizontally => self.stack_hor_layout(frame),
         }
+    }
+
+    /// See `Placer::stack_ver`. Like a wrap, the parent lays out before its
+    /// children, so each child runs its own rules here, after it got its
+    /// width, and the stack reads the height they give.
+    fn stack_ver_layout(&mut self, frame: RMut) {
+        let gap = *self.all_margin.borrow();
+        let pad = *self.padding.borrow();
+        let width = (frame.width() - pad * 2.0).max(0.0);
+
+        let mut y = pad;
+        let mut first = true;
+
+        for view in self.view.subviews() {
+            let mut view = view.weak();
+            if view.is_hidden() {
+                continue;
+            }
+            if !first {
+                y += gap;
+            }
+            first = false;
+
+            view.set_frame((pad, y, width, view.height()));
+            view.layout();
+            let height = own_height(view, width);
+            view.set_frame((pad, y, width, height));
+            y += height;
+        }
+
+        frame.size.height = y + pad;
+    }
+
+    /// See `Placer::stack_hor`.
+    fn stack_hor_layout(&mut self, frame: RMut) {
+        let gap = *self.all_margin.borrow();
+        let pad = *self.padding.borrow();
+
+        let mut sizes = vec![];
+        for view in self.view.subviews() {
+            let mut view = view.weak();
+            if view.is_hidden() {
+                continue;
+            }
+            view.layout();
+            let mut size = view.frame().size;
+            if let Some(fit) = label_fit(view, None) {
+                size = fit;
+            }
+            sizes.push((view, size));
+        }
+
+        let row = sizes.iter().map(|(_, size)| size.height).fold(0.0, f32::max);
+        let mut x = pad;
+        for (index, (view, size)) in sizes.iter().enumerate() {
+            if index > 0 {
+                x += gap;
+            }
+            view.set_frame((x, pad + (row - size.height) / 2.0, size.width, size.height));
+            x += size.width;
+        }
+
+        frame.size.height = row + pad * 2.0;
     }
 
     /// Rows of subviews in declaration order. A child keeps its own size,
@@ -296,6 +373,24 @@ impl Placer {
     }
 }
 
+/// The height a stack child gives at `width`: its own rules, or the height
+/// of its text for a label with no height rule.
+fn own_height(view: WeakView, width: f32) -> f32 {
+    label_fit(view, Some(width)).map_or(view.height(), |size| size.height)
+}
+
+/// The size of a label's text when its placer sets no size of its own, at
+/// `width` or on 1 line.
+fn label_fit(view: WeakView, width: Option<f32>) -> Option<Size> {
+    let has = *view.__base_view().placer.has();
+    let label = view.as_any().downcast_ref::<Label>()?;
+    match width {
+        Some(width) if !has.height => Some(label.size_for_width(width)),
+        None if !has.width && !has.height => Some(label.size_for_width(f32::MAX)),
+        _ => None,
+    }
+}
+
 /// The frame of the view a wrap keeps clear, laid out now for the same
 /// reason as the children of the wrap.
 fn corner_frame(view: Option<WeakView>) -> Option<Rect> {
@@ -324,24 +419,31 @@ fn row_span(corner: Option<Rect>, width: f32, margin: f32, y: f32, height: f32) 
     }
 }
 
-fn place_vertically(views: &[Own<dyn View>], margin: f32) {
-    distribute::<{ Axis::Y }>(views, margin);
+fn place_vertically(views: &[Own<dyn View>], margin: f32, padding: f32) {
+    distribute::<{ Axis::Y }>(views, margin, padding);
 }
 
-fn place_horizontally(views: &[Own<dyn View>], margin: f32) {
-    distribute::<{ Axis::X }>(views, margin);
+fn place_horizontally(views: &[Own<dyn View>], margin: f32, padding: f32) {
+    distribute::<{ Axis::X }>(views, margin, padding);
 }
 
-fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32) {
+/// Tiles `views` in equal parts along `AXIS`, `margin` between them and
+/// `padding` inside the edges of the superview.
+fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32, padding: f32) {
     let Some(last) = views.last() else {
         return;
     };
 
-    let super_frame = *last.superview().frame();
+    let full = last.superview().frame().with_zero_origin();
+    let super_frame = Rect::new(
+        full.origin.x + padding,
+        full.origin.y + padding,
+        (full.width() - padding * 2.0).max(0.0),
+        (full.height() - padding * 2.0).max(0.0),
+    );
 
     if views.len() == 1 {
-        let back = super_frame.with_zero_origin();
-        last.set_frame(back);
+        last.set_frame(super_frame);
         return;
     }
 
@@ -352,13 +454,13 @@ fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32) {
     let length = left_length / views.len().lossy_convert();
     let other_length = super_frame.other_length::<AXIS>();
 
-    let mut last_pos: f32 = 0.0;
+    let mut last_pos: f32 = padding;
 
     for view in views {
         let mut frame = *view.frame();
 
         frame.set_position::<AXIS>(last_pos);
-        frame.set_other_position::<AXIS>(0);
+        frame.set_other_position::<AXIS>(padding);
         frame.set_length::<AXIS>(length);
         frame.set_other_length::<AXIS>(other_length);
 

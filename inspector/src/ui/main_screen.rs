@@ -196,7 +196,7 @@ impl MainScreen {
         self.reload_clients();
     }
 
-    fn reload_clients(mut self: Weak<Self>) {
+    fn reload_clients(self: Weak<Self>) {
         let ids: Vec<String> = self.apps.iter().map(|(id, _)| id.clone()).collect();
         self.clients.set_values(ids);
     }

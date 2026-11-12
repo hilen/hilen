@@ -7,7 +7,7 @@ use crate::{
     self as hilen,
     deps::{
         netrun::Function,
-        refs::{Own, Weak},
+        refs::{Own, Weak, weak_from_ref},
     },
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
@@ -150,21 +150,24 @@ impl TableView {
         self.layout_cells(LayoutMode::Full);
     }
 
-    pub fn set_columns(&mut self, columns: usize) -> &mut Self {
-        self.columns = columns;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_columns(&self, columns: usize) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.columns = columns;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
-    pub fn set_cell_spacing(&mut self, spacing: impl ToF32) -> &mut Self {
-        self.cell_spacing = spacing.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_cell_spacing(&self, spacing: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.cell_spacing = spacing.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
-    pub fn set_cell_margins(&mut self, left: impl ToF32, right: impl ToF32) -> &mut Self {
-        self.cell_margins = (left.to_f32(), right.to_f32());
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_cell_margins(&self, left: impl ToF32, right: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.cell_margins = (left.to_f32(), right.to_f32());
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -179,26 +182,29 @@ impl TableView {
     /// of its first cell. Off by default, where `cell_height(0)` is the
     /// height of every row and the table never walks the data. Turning
     /// it on costs one `cell_height` call per row on every `reload_data`.
-    pub fn set_variable_heights(&mut self, variable: bool) -> &mut Self {
-        self.variable_heights = variable;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_variable_heights(&self, variable: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.variable_heights = variable;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
     /// Reserves space above the first row for header views. The header
     /// scrolls away with the content.
-    pub fn set_header_height(&mut self, height: impl ToF32) -> &mut Self {
-        self.header_height = height.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_header_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.header_height = height.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
     /// Space after the last row, so the content can scroll past it by
     /// this much. Gives the bottom of a list the same breathing room the
     /// cell spacing gives every other row, and holds the footer view.
-    pub fn set_footer_height(&mut self, height: impl ToF32) -> &mut Self {
-        self.footer_height = height.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_footer_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.footer_height = height.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -239,12 +245,13 @@ impl TableView {
 
     /// Where the sticky header view rides in the header, its top from
     /// the content top and its height.
-    pub fn set_sticky_header_place(&mut self, top: impl ToF32, height: impl ToF32) -> &mut Self {
-        if let Some(header) = &mut self.sticky_header {
+    pub fn set_sticky_header_place(&self, top: impl ToF32, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        if let Some(header) = &mut this.sticky_header {
             header.1 = top.to_f32();
             header.2 = height.to_f32();
         }
-        self.place_sticky_header();
+        this.place_sticky_header();
         self
     }
 
@@ -293,9 +300,10 @@ impl TableView {
     /// Sets the scroll position: 0 is the top, negative values scroll
     /// down. Clamped to the scrollable range on both ends, so call it
     /// after `reload_data` when the row set changed.
-    pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
-        self.scroll.set_content_offset(offset.to_f32().min(0.0));
-        self.layout_cells(LayoutMode::Scroll);
+    pub fn set_content_offset(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_content_offset(offset.to_f32().min(0.0));
+        this.layout_cells(LayoutMode::Scroll);
         self
     }
 
@@ -311,8 +319,9 @@ impl TableView {
     /// table scrolled away from the end keeps its offset. A table that
     /// is filled later starts at its end. Off by default, see
     /// `ScrollView::set_keeps_end`.
-    pub fn set_keeps_end(&mut self, keeps: bool) -> &mut Self {
-        self.scroll.set_keeps_end(keeps);
+    pub fn set_keeps_end(&self, keeps: bool) -> &Self {
+        let this = weak_from_ref(self);
+        this.scroll.set_keeps_end(keeps);
         self
     }
 
@@ -328,17 +337,19 @@ impl TableView {
     /// a bar on the bottom edge. The cells keep the table width and stay
     /// in place, only the views a cell marks with `set_moves_sideways`
     /// move, all by the same offset.
-    pub fn set_content_width(&mut self, width: impl ToF32) -> &mut Self {
-        self.scroll.set_sideways_width(width.to_f32());
-        self.apply_sideways();
+    pub fn set_content_width(&self, width: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_sideways_width(width.to_f32());
+        this.apply_sideways();
         self
     }
 
     /// Sets the sideways scroll position: 0 is the left edge, negative
     /// values scroll right. Clamped to the scrollable range.
-    pub fn set_content_offset_x(&mut self, offset: impl ToF32) -> &mut Self {
-        self.scroll.set_content_offset_x(offset);
-        self.apply_sideways();
+    pub fn set_content_offset_x(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_content_offset_x(offset);
+        this.apply_sideways();
         self
     }
 
@@ -352,9 +363,10 @@ impl TableView {
     /// the viewport while their section scrolls by, and the next sticky
     /// row pushes the pinned one away. Off by default, turning it on
     /// walks `is_sticky` over the data on every `reload_data`.
-    pub fn set_sticky_rows(&mut self, sticky: bool) -> &mut Self {
-        self.sticky_enabled = sticky;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_sticky_rows(&self, sticky: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.sticky_enabled = sticky;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -590,7 +602,7 @@ mod test {
     }
 
     impl ViewTest for TableView2Test {
-        fn perform_test(mut view: Weak<Self>) -> Result<()> {
+        fn perform_test(view: Weak<Self>) -> Result<()> {
             inject_touches(TOUCHES_1);
 
             assert_eq!(TEST_DATA.lock().deref(), "|0||1||2||3||4||5|");

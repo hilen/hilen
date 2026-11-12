@@ -35,7 +35,7 @@ fn rect(x: f32, y: f32, width: f32, height: f32) -> VectorPath {
 }
 
 impl Setup for DrawingGradients {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.drawing.place().back();
 

@@ -89,12 +89,13 @@ impl NumberView {
 }
 
 impl NumberView {
-    pub fn set_labels(&mut self, up: impl ToLabel, down: impl ToLabel) -> &mut Self {
-        self.up.set_image(NoImage);
-        self.up.set_text(up);
+    pub fn set_labels(&self, up: impl ToLabel, down: impl ToLabel) -> &Self {
+        let this = weak_from_ref(self);
+        this.up.set_image(NoImage);
+        this.up.set_text(up);
 
-        self.down.set_image(NoImage);
-        self.down.set_text(down);
+        this.down.set_image(NoImage);
+        this.down.set_text(down);
 
         self
     }
@@ -105,10 +106,16 @@ impl NumberView {
         self.value
     }
 
+    /// Shows a value. `on_change` fires only for the taps of the user, never
+    /// for this call.
     pub fn set_value(&self, val: impl ToF32) -> &Self {
         weak_from_ref(self).value = val.to_f32();
-        self.on_change_event.trigger(self.value);
         self
+    }
+
+    fn tapped_to(self: Weak<Self>, val: f32) {
+        self.set_value(val);
+        self.on_change_event.trigger(self.value);
     }
 
     pub fn set_min(&self, min: impl ToF32) -> &Self {
@@ -124,13 +131,13 @@ impl NumberView {
 
     fn up_tap(self: Weak<Self>) {
         let val = self.value.my_add(&self.step);
-        self.set_value(val);
+        self.tapped_to(val);
         self.up_event.trigger(());
     }
 
     fn down_tap(self: Weak<Self>) {
         let val = self.value.sub_and_check(&self.step, &self.min);
-        self.set_value(val.unwrap_or(0.0));
+        self.tapped_to(val.unwrap_or(0.0));
         self.down_event.trigger(());
     }
 

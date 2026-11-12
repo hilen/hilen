@@ -121,7 +121,7 @@ pub(crate) fn show_probes(probes: &[((u32, u32), U8Color)], test_name: &str, ind
         let mut markers: Vec<WeakView> = vec![];
 
         let mut add = |frame: (f32, f32, f32, f32), fill, border| {
-            let mut view = Container::new();
+            let view = Container::new();
             view.set_z_position(0.1);
             view.set_color(fill)
                 .set_border_color(border)
@@ -197,7 +197,7 @@ const PROMPT_BAR_HEIGHT: f32 = 40.0;
 
 fn show_tap_prompt(prompt: String) -> WeakView {
     from_main(move || {
-        let mut overlay = Button::new();
+        let overlay = Button::new();
         overlay.set_z_position(0.05);
 
         let overlay = UIManager::root_view().add_subview_to_root(overlay);

@@ -75,7 +75,7 @@ impl ViewTest for ScreenKeyboardScroll {
         (600, 1000)
     }
 
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         tap(FIELD.0, FIELD.1)?;
         wait_until("the field is edited", move || view.field.is_editing())?;
         screen_keyboard(true, KEYBOARD_TOP)?;

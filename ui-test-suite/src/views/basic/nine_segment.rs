@@ -14,7 +14,7 @@ struct NineSegment {
 }
 
 impl Setup for NineSegment {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.segment.set_frame((50, 50, 200, 200));
 
         self.segment.set_resizing_image("button");
@@ -188,7 +188,7 @@ fn check_tall_segment(view: Weak<NineSegment>) -> Result<()> {
     )
 }
 
-fn check_button_resizing_image(mut view: Weak<NineSegment>) -> Result<()> {
+fn check_button_resizing_image(view: Weak<NineSegment>) -> Result<()> {
     from_main(move || {
         view.button.set_image(NoImage);
         view.button.set_resizing_image("button");

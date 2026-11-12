@@ -38,7 +38,7 @@ struct PresentRich {
 }
 
 impl Setup for PresentRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         *CURRENT_FIRST.lock() = Some(self);
 
         self.set_color("#E67E22");
@@ -118,7 +118,7 @@ struct PresentedRich {
 }
 
 impl Setup for PresentedRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         *CURRENT_PRESENTED.lock() = Some(self);
 
         self.set_color("#8E44AD");

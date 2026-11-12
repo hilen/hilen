@@ -27,7 +27,7 @@ struct ScreenKeyboardMultiline {
 }
 
 impl Setup for ScreenKeyboardMultiline {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         let title = |label: Weak<Label>, text: &str, y: f32| {
             label.set_text(text).set_text_size(18);
             label.set_alignment(TextAlignment::Left);

@@ -126,7 +126,7 @@ impl ViewTest for ImageCrop {
 
         // The square mask at zoom 1, the photo dragged to its right edge.
         from_main(move || {
-            let mut crop = view.crop;
+            let crop = view.crop;
             crop.set_shape(CropShape::Square);
             crop.set_zoom(1.0);
         });

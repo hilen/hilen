@@ -49,7 +49,7 @@ impl Setup for AutoContentTest {
 }
 
 impl ViewTest for AutoContentTest {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         wait_for_next_frame();
         wait_for_next_frame();
 

@@ -62,7 +62,7 @@ impl RootView {
         // 1 sibling step nearer than the background, the depth the app
         // views always had.
         let background_z = self.background.z_position();
-        let mut screen = ScreenLayer::new();
+        let screen = ScreenLayer::new();
         screen.set_z_position(background_z - UIManager::additional_z_offset());
         self.screen = self
             .__add_subview_internal(screen, true)

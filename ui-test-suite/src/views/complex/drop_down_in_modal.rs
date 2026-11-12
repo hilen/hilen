@@ -22,7 +22,7 @@ struct DropDownModal {
 }
 
 impl Setup for DropDownModal {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.set_corner_radius(16);
 

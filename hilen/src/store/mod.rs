@@ -8,4 +8,4 @@ pub use hilen_session::SecretStore;
 #[cfg(feature = "login")]
 pub use hilen_session::SessionStore;
 
-pub use self::on_disk::OnDisk;
+pub use self::on_disk::{OnDisk, StoreError};

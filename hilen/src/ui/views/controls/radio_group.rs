@@ -1,6 +1,9 @@
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::color::{CLEAR, Color},
     ui::{
         Anchor::Left, Container, DynamicColor, Label, Setup, TextAlignment, ToLabel, ViewData, ViewSubviews,
@@ -110,23 +113,24 @@ impl<T: ToLabel + Clone + 'static> RadioGroup<T> {
         self.options.get(self.selected_index).map_or("", |option| option.text())
     }
 
-    pub fn set_values(&mut self, values: Vec<T>) {
-        for mut option in self.options.drain(..) {
+    pub fn set_values(&self, values: Vec<T>) {
+        let mut this = weak_from_ref(self);
+        for mut option in this.options.drain(..) {
             option.remove_from_superview();
         }
 
-        self.values = values;
-        self.selected_index = 0;
+        this.values = values;
+        this.selected_index = 0;
 
-        let this = self.weak();
+        let mut this = this.weak();
 
-        for index in 0..self.values.len() {
-            let value = self.values[index].clone();
-            let option = self.add_view::<RadioOption>();
+        for index in 0..this.values.len() {
+            let value = this.values[index].clone();
+            let option = this.add_view::<RadioOption>();
             option.set_text(value);
             option.set_selected(index == 0);
             option.tapped.sub(move || this.pick(index));
-            self.options.push(option);
+            this.options.push(option);
         }
     }
 
@@ -153,12 +157,13 @@ impl<T: ToLabel + Clone + PartialEq + 'static> RadioGroup<T> {
     /// Points the group at `value` without firing `changed`, so restoring
     /// a selection is never mistaken for a user pick. Returns false and
     /// changes nothing when the value is not among the current ones.
-    pub fn set_value(&mut self, value: &T) -> bool {
-        let Some(index) = self.values.iter().position(|existing| existing == value) else {
+    pub fn set_value(&self, value: &T) -> bool {
+        let mut this = weak_from_ref(self);
+        let Some(index) = this.values.iter().position(|existing| existing == value) else {
             return false;
         };
 
-        self.select_index(index);
+        this.select_index(index);
 
         true
     }

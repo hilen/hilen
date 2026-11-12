@@ -78,7 +78,7 @@ impl ViewPoints {
         }
         let ball = Vec3::new(self.angle.cos(), 0.0, -self.angle.sin()) * CIRCLE_RADIUS + Vec3::Y * 0.7;
         self.ball.set_position(ball);
-        for (mut label, node) in [(self.ball_label, ball), (self.post_label, self.post.position())] {
+        for (label, node) in [(self.ball_label, ball), (self.post_label, self.post.position())] {
             let point = self.view_point(node + Vec3::Y * LIFT);
             label.set_hidden(point.is_none());
             if let Some(point) = point {

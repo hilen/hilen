@@ -123,7 +123,7 @@ struct TextDropDownIcons {
 }
 
 impl Setup for TextDropDownIcons {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.title.set_text_size(18).set_alignment(TextAlignment::Left);
         self.title.set_text("a drop down with an icon before each text");
         self.title.place().t(30).lr(20).h(26);

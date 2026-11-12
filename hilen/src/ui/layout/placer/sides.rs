@@ -88,7 +88,7 @@ impl Placer {
 }
 
 impl Placer {
-    pub(crate) fn tlb(&self, offset: impl ToF32) -> &Self {
+    pub fn tlb(&self, offset: impl ToF32) -> &Self {
         self.t(offset).l(offset).b(offset)
     }
 

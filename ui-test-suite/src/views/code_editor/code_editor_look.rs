@@ -23,7 +23,7 @@ struct CodeEditorLook {
 }
 
 impl Setup for CodeEditorLook {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.editor.place().t(10).lr(10).h(380);
         self.editor.set_text(SCAD);

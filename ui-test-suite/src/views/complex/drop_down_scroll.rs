@@ -17,7 +17,7 @@ struct DropDownScroll {
 }
 
 impl Setup for DropDownScroll {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(Color::rgb(0.92, 0.94, 0.97));
 
         self.long.set_values((1..=40).map(|row| format!("Row {row}")));

@@ -173,42 +173,45 @@ impl Button {
     /// The colors it had are put back when it is enabled again. Set the
     /// normal colors while the button is enabled, a `set_color` call made
     /// while it is disabled is overwritten by that restore.
-    pub fn set_enabled(&mut self, enabled: bool) -> &mut Self {
-        if self.enabled == enabled {
+    pub fn set_enabled(&self, enabled: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        if this.enabled == enabled {
             return self;
         }
 
-        self.enabled = enabled;
+        this.enabled = enabled;
 
         if enabled {
-            if let Some(color) = self.enabled_color.take() {
-                self.set_color(color);
+            if let Some(color) = this.enabled_color.take() {
+                this.set_color(color);
             }
-            if let Some(color) = self.enabled_text_color.take() {
-                self.set_text_color(color);
+            if let Some(color) = this.enabled_text_color.take() {
+                this.set_text_color(color);
             }
         } else {
-            self.enabled_color = Some(self.ui_color());
-            self.enabled_text_color = Some(self.label.ui_text_color());
-            self.set_color(self.disabled_color.unwrap_or(DISABLED_COLOR.into()));
-            self.set_text_color(self.disabled_text_color.unwrap_or(DISABLED_TEXT_COLOR.into()));
+            this.enabled_color = Some(this.ui_color());
+            this.enabled_text_color = Some(this.label.ui_text_color());
+            this.set_color(this.disabled_color.unwrap_or(DISABLED_COLOR.into()));
+            this.set_text_color(this.disabled_text_color.unwrap_or(DISABLED_TEXT_COLOR.into()));
         }
 
         self
     }
 
-    pub fn set_disabled_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.disabled_color = Some(color.into());
-        if !self.enabled {
-            self.set_color(self.disabled_color.unwrap());
+    pub fn set_disabled_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.disabled_color = Some(color.into());
+        if !this.enabled {
+            this.set_color(this.disabled_color.unwrap());
         }
         self
     }
 
-    pub fn set_disabled_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.disabled_text_color = Some(color.into());
-        if !self.enabled {
-            self.set_text_color(self.disabled_text_color.unwrap());
+    pub fn set_disabled_text_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.disabled_text_color = Some(color.into());
+        if !this.enabled {
+            this.set_text_color(this.disabled_text_color.unwrap());
         }
         self
     }
@@ -227,10 +230,11 @@ impl Button {
         self
     }
 
-    pub fn set_resizing_image(&mut self, name: impl Display) -> &mut Self {
-        self.set_color(CLEAR);
-        self.image.set_hidden(false);
-        self.image.set_resizing_image(name);
+    pub fn set_resizing_image(&self, name: impl Display) -> &Self {
+        let this = weak_from_ref(self);
+        this.set_color(CLEAR);
+        this.image.set_hidden(false);
+        this.image.set_resizing_image(name);
         self
     }
 }

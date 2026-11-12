@@ -108,6 +108,20 @@ impl Placer {
         self
     }
 
+    /// A height rule that takes the place of the one before, for a view
+    /// that sets its own height again and again, like a chart that follows
+    /// its rows.
+    pub(crate) fn replace_h(&self, height: impl ToF32) -> &Self {
+        self.rules().retain(|rule| !rule.height());
+        self.h(height)
+    }
+
+    /// A width rule that takes the place of the one before, see `replace_h`.
+    pub(crate) fn replace_w(&self, width: impl ToF32) -> &Self {
+        self.rules().retain(|rule| !rule.width());
+        self.w(width)
+    }
+
     pub fn fit_text_height(&self) -> &Self {
         self.has().height = true;
         self.rules().retain(|r| !r.height());
@@ -206,6 +220,38 @@ impl Placer {
     /// container is not known while it is laid out.
     pub fn wrap_around(&self, view: impl Deref<Target = impl View + ?Sized>) -> &Self {
         *self.wrap_around.borrow_mut() = Some(view.weak_view());
+        self
+    }
+
+    /// Subviews stack top to bottom in declaration order. Each one takes
+    /// the width of the container inside its padding and keeps the height
+    /// its own rules give it, like `h(44)`, `fit_text_height()` or a stack
+    /// or a wrap of its own. A `Label` with no height rule fits its text.
+    /// Hidden subviews take no space. `all(gap)` is the space between them,
+    /// `padding(p)` the space around them. The container height is set to
+    /// fit them, so a stack in a `ScrollView` scrolls exactly as far as it
+    /// is tall. A subview of a stack has no edge or center rules.
+    pub fn stack_ver(&self) -> &Self {
+        self.has().height = true;
+        self.all_tiling_rules().push(Tiling::StackVertically.into());
+        self
+    }
+
+    /// Subviews stand left to right in declaration order, each at the size
+    /// its own rules give it, in the middle of the row's height. A `Label`
+    /// with no size rules fits its text. `all(gap)` is the space between
+    /// them, `padding(p)` the space around them. The container height is
+    /// set to the tallest subview, its width stays the one its rules give.
+    pub fn stack_hor(&self) -> &Self {
+        self.has().height = true;
+        self.all_tiling_rules().push(Tiling::StackHorizontally.into());
+        self
+    }
+
+    /// The space a `stack_ver`, `stack_hor`, `all_ver` or `all_hor` keeps
+    /// inside its edges.
+    pub fn padding(&self, padding: impl ToF32) -> &Self {
+        *self.padding.borrow_mut() = padding.to_f32();
         self
     }
 

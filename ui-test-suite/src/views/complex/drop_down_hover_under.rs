@@ -107,7 +107,7 @@ impl Setup for DropDownHoverUnder {
         self.fruits.place().t(70).l(80).size(240, ROW);
         // The engine's own touch marks take this z, set before the mark is
         // added. It is no hover view, so it never takes the hover itself.
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer.set_color(POINTER).set_corner_radius(5);
         pointer.set_frame((560, 560, 10, 10));

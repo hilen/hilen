@@ -37,7 +37,7 @@ impl Setup for DrawingLayers {
     fn setup(self: Weak<Self>) {
         self.set_color(Color::hex("#26282d"));
         self.drawing.place().back();
-        let mut drawing = self.drawing.weak();
+        let drawing = self.drawing.weak();
 
         // The panel, one vertical ramp with a vignette over it and a
         // chamfered edge, lit on top, shaded at the bottom.

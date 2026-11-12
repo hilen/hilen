@@ -23,7 +23,7 @@ struct EscapeListForm {
 }
 
 impl Setup for EscapeListForm {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE).set_corner_radius(12);
         self.title.set_text("Escape closes the list first").set_text_size(18);
         self.title.place().lrt(10).h(30);

@@ -249,7 +249,7 @@ impl Setup for PathBar {
             .set_text_size(TEXT_SIZE)
             .set_text_color(TEXT)
             .set_selected_color(FIELD);
-        let mut field = self.field;
+        let field = self.field;
         field.set_alignment(TextAlignment::Left);
         self.field.set_color(FIELD).set_corner_radius(RADIUS - 1.0);
         self.field.place().all_sides(1);

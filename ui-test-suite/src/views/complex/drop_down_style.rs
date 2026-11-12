@@ -16,7 +16,7 @@ struct DropDownStyle {
 }
 
 impl Setup for DropDownStyle {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.card.set_color(Color::rgb(0.92, 0.94, 0.97)).set_corner_radius(16);
         self.card.place().tl(40).size(300, 260);
 

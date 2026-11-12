@@ -532,7 +532,17 @@ path. Whitespace and control chars stay with their font, shapers handle them
 without a glyph. The runner resets the fallbacks between tests, `GlyphFallback`
 covers the plain label and the split inside an explicit run.
 
-After the registered fallbacks come the fonts the OS has installed, so text from
+After the registered fallbacks come 2 bundled symbol fonts of the `font-symbols`
+feature, on by default, about 100 KB: a subset of Noto Sans Symbols 2 with
+technical keys like ⌘ and ⏎, shapes, stars, weather and warning signs, dingbats
+like ✓ and ✗ and the arrows of the misc block, and the arrow block ← ↑ → ↓ of
+Noto Sans Math. Roboto has none of them. They come before the system fonts, so
+these chars draw the same everywhere, in a browser too, which has no system fonts.
+`Font::symbol_fallbacks` in `text/font.rs` hands them out, the license is
+`fonts/NotoSymbols-LICENSE.txt`. `Symbol fallback` pins them with the system
+fallback off.
+
+After them come the fonts the OS has installed, so text from
 the network in any script draws. `window/text/system_fallback.rs` walks the
 system font folders once through fontdb, on a thread started right after
 `before_launch`, and asks every face for the char in a fixed order: a short list

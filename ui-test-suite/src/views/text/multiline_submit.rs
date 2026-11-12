@@ -23,7 +23,7 @@ struct MultilineSubmit {
 }
 
 impl Setup for MultilineSubmit {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.chat_title
             .set_text("chat box, Enter sends, Shift and Enter is a new line")
             .set_text_size(18);

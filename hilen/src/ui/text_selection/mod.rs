@@ -507,7 +507,7 @@ impl TextSelection {
 
         Self::follow(pointer);
 
-        let Scope::Table(mut table) = scope else {
+        let Scope::Table(table) = scope else {
             return;
         };
         let frame = *table.absolute_frame();

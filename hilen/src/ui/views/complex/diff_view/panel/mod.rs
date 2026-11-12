@@ -502,7 +502,7 @@ impl DiffPanel {
 
     // The width of a row with nothing cut off: the pinned parts plus the
     // widest line. The table scrolls sideways by what does not fit.
-    fn update_content_width(mut self: Weak<Self>) {
+    fn update_content_width(self: Weak<Self>) {
         let side = if self.split { self.width() / 2.0 } else { 0.0 };
         let width = side + content_x(self.split) + reserved_w(self.can_discard) + self.text_width;
         self.table.set_content_width(width);

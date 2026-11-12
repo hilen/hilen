@@ -603,7 +603,7 @@ struct MultilineTextField {
 }
 
 impl Setup for MultilineTextField {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.field.set_multiline(true).set_text_size(32);
         self.field.set_alignment(TextAlignment::Left);
         self.field.set_placeholder("Type here");

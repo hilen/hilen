@@ -182,7 +182,7 @@ impl TablePinnedColumn {
 const MARK_X: f32 = TABLE_WIDTH - 12.0 - 44.0;
 
 impl ViewTest for TablePinnedColumn {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         inject_touches("200 300 m");
 
         view.say("at the left edge, numbers pinned, bar at the left");

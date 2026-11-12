@@ -128,7 +128,7 @@ impl ModalView<ImageCropRequest, Option<Vec<u8>>> for ImageCropPrompt {
 }
 
 impl ImageCropPrompt {
-    fn photo_loaded(mut self: Weak<Self>, ok: bool) {
+    fn photo_loaded(self: Weak<Self>, ok: bool) {
         self.status.set_hidden(ok);
         if !ok {
             self.status.set_text("This photo could not be opened.");
@@ -153,7 +153,7 @@ impl ImageCropPrompt {
         self.syncing = false;
     }
 
-    fn step_zoom(mut self: Weak<Self>, factor: f32) {
+    fn step_zoom(self: Weak<Self>, factor: f32) {
         let zoom = self.crop.zoom() * factor;
         self.crop.set_zoom(zoom);
     }
@@ -189,7 +189,7 @@ fn fitted_width(window: Size) -> f32 {
 }
 
 impl Setup for ImageCropPrompt {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         let style = DialogStyle::current();
         self.set_corner_radius(14);
         self.set_color(style.background);

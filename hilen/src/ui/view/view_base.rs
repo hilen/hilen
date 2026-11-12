@@ -141,6 +141,9 @@ pub struct ViewBase {
 
     pub view_label: String,
 
+    /// What a screen reader says for the view, see `ViewAccessibility`.
+    pub(crate) accessibility_label: Option<String>,
+
     #[educe(Debug(ignore))]
     #[educe(Default = Placer::empty())]
     pub(crate) placer: Placer,

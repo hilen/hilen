@@ -155,7 +155,7 @@ impl FileList {
     }
 
     /// A newly opened folder starts at its first row.
-    pub(super) fn scroll_to_top(mut self: Weak<Self>) {
+    pub(super) fn scroll_to_top(self: Weak<Self>) {
         self.table.set_content_offset(0);
     }
 
@@ -170,7 +170,7 @@ impl FileList {
     }
 
     /// Scrolls just enough to bring the row of `index` fully into view.
-    pub(super) fn reveal(mut self: Weak<Self>, index: usize) {
+    pub(super) fn reveal(self: Weak<Self>, index: usize) {
         let row: f32 = (index / self.columns_per_row()).lossy_convert();
         let (height, spacing) = self.cell_metrics();
         let top = row * (height + spacing);
@@ -248,7 +248,7 @@ impl FileList {
         self.retry_button.set_hidden(!failed);
     }
 
-    fn layout(mut self: Weak<Self>) {
+    fn layout(self: Weak<Self>) {
         let width = self.width();
         let height = self.height();
         if width <= 0.0 || height <= 0.0 {
@@ -326,7 +326,7 @@ impl ViewCallbacks for FileList {
 }
 
 impl Setup for FileList {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(BACKGROUND);
 
         self.header.set_color(BACKGROUND);

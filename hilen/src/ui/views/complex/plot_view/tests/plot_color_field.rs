@@ -30,7 +30,7 @@ fn field(x: f64, y: f64) -> Color {
 }
 
 impl Setup for PlotColorField {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color("#FFFFFF");
 
         self.status
@@ -49,7 +49,7 @@ impl Setup for PlotColorField {
 }
 
 impl ViewTest for PlotColorField {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         set_record_probe_count(64);
         check_colors(CHECK_1)?;
 

@@ -7,4 +7,6 @@ mod gallery_grid;
 mod min_width;
 mod near_layout;
 mod relative_layout;
+mod size_changed_subviews;
+mod stack_layout;
 mod tiling_layout;

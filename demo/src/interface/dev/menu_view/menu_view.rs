@@ -171,7 +171,7 @@ impl MenuView {
             });
         });
         Self::button(ui, "Scroll test", || {
-            let view = InfiniteScrollTest::new().after_setup(|mut v| {
+            let view = InfiniteScrollTest::new().after_setup(|v| {
                 v.add_view::<Button>()
                     .set_text("Back")
                     .on_tap(|| UIManager::set_view(HomeView::new()))

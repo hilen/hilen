@@ -1,3 +1,4 @@
+mod accessibility_tree;
 mod async_calls;
 mod border_blend;
 mod clipboard;

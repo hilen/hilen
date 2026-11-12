@@ -1,6 +1,9 @@
 use crate::{
     self as hilen,
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::{
         ToF32,
         color::{CLEAR, Color},
@@ -51,45 +54,51 @@ impl TextDropDown {
     }
 
     /// Replaces the texts. The pick falls back to the first one.
-    pub fn set_values<T: ToString>(&mut self, values: impl IntoIterator<Item = T>) {
-        self.values = values.into_iter().map(|value| value.to_string()).collect();
-        self.drop.select(0);
-        self.drop.reload();
+    pub fn set_values<T: ToString>(&self, values: impl IntoIterator<Item = T>) {
+        let mut this = weak_from_ref(self);
+        this.values = values.into_iter().map(|value| value.to_string()).collect();
+        this.drop.select(0);
+        this.drop.reload();
     }
 
     /// An icon before each text, in the order of the texts, in the open list
     /// and in the closed box. A text past the end of the list has none.
-    pub fn set_icons(&mut self, icons: impl IntoIterator<Item = RowIcon>) {
-        self.icons = icons.into_iter().collect();
-        self.drop.reload();
+    pub fn set_icons(&self, icons: impl IntoIterator<Item = RowIcon>) {
+        let mut this = weak_from_ref(self);
+        this.icons = icons.into_iter().collect();
+        this.drop.reload();
     }
 
     /// Points the drop down at `value` and updates the collapsed text.
     /// The list stays closed and `changed` does not fire, so restoring a
     /// selection is never mistaken for a user pick. Returns false and
     /// changes nothing when the value is not among the current ones.
-    pub fn set_value(&mut self, value: &str) -> bool {
-        let Some(index) = self.values.iter().position(|existing| existing == value) else {
+    pub fn set_value(&self, value: &str) -> bool {
+        let this = weak_from_ref(self);
+        let Some(index) = this.values.iter().position(|existing| existing == value) else {
             return false;
         };
-        self.drop.select(index)
+        this.drop.select(index)
     }
 
     /// Text color of the collapsed label and the rows.
-    pub fn set_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.drop.set_text_color(color);
+    pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
+        let this = weak_from_ref(self);
+        this.drop.set_text_color(color);
         self
     }
 
-    pub fn set_text_size(&mut self, size: impl ToF32) -> &mut Self {
-        self.drop.set_text_size(size);
+    pub fn set_text_size(&self, size: impl ToF32) -> &Self {
+        let this = weak_from_ref(self);
+        this.drop.set_text_size(size);
         self
     }
 
     /// The color of the picked row, the check mark, the hover wash and
     /// the border while hovered or open.
-    pub fn set_accent_color(&mut self, color: impl Into<Color>) -> &mut Self {
-        self.drop.set_accent_color(color);
+    pub fn set_accent_color(&self, color: impl Into<Color>) -> &Self {
+        let this = weak_from_ref(self);
+        this.drop.set_accent_color(color);
         self
     }
 }
@@ -113,7 +122,7 @@ impl DropDownData for TextDropDown {
 }
 
 impl Setup for TextDropDown {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(super::drop_down::FILL);
 
         self.drop.set_color(CLEAR);

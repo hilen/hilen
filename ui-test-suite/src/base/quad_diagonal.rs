@@ -49,7 +49,7 @@ impl Setup for Clip {
 }
 
 impl Setup for QuadDiagonal {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.rect.set_color(RED).set_frame((40, 40, SIDE, SIDE));
 
         self.bordered

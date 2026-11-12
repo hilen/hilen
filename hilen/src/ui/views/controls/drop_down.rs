@@ -244,24 +244,27 @@ impl DropDown {
     }
 
     /// Text color of the collapsed label and the default rows.
-    pub fn set_text_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
+    pub fn set_text_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
         let color = color.into();
-        self.text_color = Some(color);
-        self.label.set_text_color(color);
+        this.text_color = Some(color);
+        this.label.set_text_color(color);
         self
     }
 
-    pub fn set_text_size(&mut self, size: impl ToF32) -> &mut Self {
+    pub fn set_text_size(&self, size: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
         let size = size.to_f32();
-        self.text_size = Some(size);
-        self.label.set_text_size(size);
+        this.text_size = Some(size);
+        this.label.set_text_size(size);
         self
     }
 
     /// The color of the picked default row, its check mark, the hover
     /// wash and the border while hovered or open.
-    pub fn set_accent_color(&mut self, color: impl Into<Color>) -> &mut Self {
-        self.accent = color.into();
+    pub fn set_accent_color(&self, color: impl Into<Color>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.accent = color.into();
         self
     }
 
@@ -271,8 +274,9 @@ impl DropDown {
 
     /// A view around the drop down draws the box, so its color, border
     /// and corners are the look the panel copies and the hover lights.
-    pub fn set_look_source(&mut self, view: WeakView) -> &mut Self {
-        self.look = view;
+    pub fn set_look_source(&self, view: WeakView) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.look = view;
         self
     }
 

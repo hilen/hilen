@@ -718,9 +718,10 @@ impl Label {
         self
     }
 
-    pub fn set_resizing_image(&mut self, name: impl Display) -> &mut Self {
-        self.remove_all_subviews();
-        let mut image_view = self.add_view::<ImageView>();
+    pub fn set_resizing_image(&self, name: impl Display) -> &Self {
+        let this = weak_from_ref(self);
+        this.remove_all_subviews();
+        let image_view = this.add_view::<ImageView>();
         image_view.place().back();
         image_view.set_resizing_image(name);
         depth_order::set_same_depth(&*image_view);

@@ -1,6 +1,5 @@
 //! The find and replace calls of a `CodeEditor` and what it does for the
 //! commands of its find bar.
-
 use super::{
     find::{FindError, FindOptions, Finder},
     find_bar::{FindBar, FindCommand},
@@ -8,7 +7,7 @@ use super::{
     view::CodeEditor,
 };
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     ui::{ViewData, ViewSubviews},
 };
 
@@ -63,11 +62,12 @@ impl CodeEditor {
 
     /// The options of the find bar, its toggles show them. An open bar
     /// searches again.
-    pub fn set_find_options(&mut self, options: FindOptions) {
-        self.find.options = options;
-        self.find_bar.show_options(options);
-        if self.find.open {
-            self.search();
+    pub fn set_find_options(&self, options: FindOptions) {
+        let mut this = weak_from_ref(self);
+        this.find.options = options;
+        this.find_bar.show_options(options);
+        if this.find.open {
+            this.search();
         }
     }
 

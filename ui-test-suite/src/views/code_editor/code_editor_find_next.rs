@@ -44,7 +44,7 @@ struct CodeEditorFindNext {
 }
 
 impl Setup for CodeEditorFindNext {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         // Below the top 40 points, a tap there hits the status bar of a
         // phone.

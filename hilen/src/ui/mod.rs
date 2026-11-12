@@ -1,3 +1,4 @@
+mod accessibility;
 #[cfg(feature = "code-colors")]
 mod code_highlighter;
 #[cfg(feature = "gpu")]
@@ -65,8 +66,8 @@ pub use ui_proc::*;
 pub use self::code_highlighter::CodeHighlighter;
 #[cfg(feature = "gpu")]
 pub use self::ui_drawer::{DrawsItself, UIDrawer};
-pub(crate) use self::{focus::FocusData, touch_layer::*};
 pub use self::{
+    accessibility::{Accessibility, AccessibleNode, AccessibleRole, ViewAccessibility},
     focus::{Focus, FocusDirection, ViewFocus},
     gradient::*,
     hover::*,
@@ -94,6 +95,7 @@ pub use self::{
     width_class::WidthClass,
     with_header::*,
 };
+pub(crate) use self::{focus::FocusData, touch_layer::*};
 #[cfg(feature = "gpu")]
 pub use crate::window::PolygonMode;
 pub use crate::{

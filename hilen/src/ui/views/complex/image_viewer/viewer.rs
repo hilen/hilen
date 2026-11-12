@@ -382,7 +382,7 @@ impl ImageViewer {
         }
     }
 
-    fn reset_zoom(mut self: Weak<Self>, max_zoom: f32) {
+    fn reset_zoom(self: Weak<Self>, max_zoom: f32) {
         self.canvas.set_zoom_limits(1, max_zoom);
         self.canvas.set_zoom(1);
         self.canvas.set_offset(Point::default());
@@ -402,7 +402,7 @@ impl ImageViewer {
         self.close();
     }
 
-    fn double_tapped(mut self: Weak<Self>, touch: Touch) {
+    fn double_tapped(self: Weak<Self>, touch: Touch) {
         let Some((image, _)) = self.image else {
             return;
         };

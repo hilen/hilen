@@ -187,7 +187,11 @@ mod web_assets {
             match fetch_manifest().await {
                 Ok(manifest) => {
                     let manifest = MANIFEST.get_or_init(|| manifest);
-                    if let Err(err) = load_entries(manifest, "boot").await {
+                    // An app whose files all sit in named groups, or a new
+                    // one with none yet, has no boot group, that is no error.
+                    if !manifest.files.iter().any(|file| file.group == "boot") {
+                        log::debug!("The asset manifest has no boot group, nothing to preload");
+                    } else if let Err(err) = load_entries(manifest, "boot").await {
                         error!("Boot asset preload failed: {err}");
                     }
                 }

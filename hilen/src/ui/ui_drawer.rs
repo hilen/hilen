@@ -152,6 +152,9 @@ impl UIDrawer {
         // it is shown, see `ui::loops`. Each window steps the loops of its
         // own views.
         loops::step();
+        if main {
+            crate::ui::Accessibility::tick();
+        }
     }
 
     /// Lays out and updates 1 view and its subviews again, after the pose
@@ -378,6 +381,17 @@ impl UIDrawer {
         view.layout();
         view.calculate_absolute_frame();
         view.update();
+        // A `size_changed` handler reads the frames of the subviews, which
+        // their own `place()` rules set only when the walk reaches them. So
+        // they are placed first, else a handler sees the old sizes, often 0.
+        if view.__base_view().trigger_size_changed {
+            let mut i = 0;
+            while i < view.subviews().len() {
+                let mut child = view.subviews()[i].weak();
+                child.layout();
+                i += 1;
+            }
+        }
         view.trigger_events();
 
         if let Some(blur) = view.as_any().downcast_ref::<BlurView>()

@@ -92,6 +92,7 @@ mod screen_keyboard_typed_frames;
 #[cfg(desktop)]
 mod secure_text_field;
 mod stem_darkening;
+mod symbol_fallback;
 /// Apple Color Emoji ships with Apple hardware only, `Font::system_emoji`
 /// is `None` everywhere else.
 #[cfg(apple)]

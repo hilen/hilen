@@ -57,7 +57,7 @@ impl Setup for WheelThroughField {
 
         // The engine's own touch marks take this z, set before the mark is
         // added. It takes no touch.
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer.set_color(POINTER).set_corner_radius(5);
         pointer.set_frame((560, 560, 10, 10));

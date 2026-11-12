@@ -13,9 +13,39 @@ use crate::{filesystem::Paths, store::storable::Storable};
 static ROOT_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 fn set_value<T: serde::ser::Serialize>(value: T, path: &Path) {
-    let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
-    backend::write(path, &json);
+    if let Err(error) = try_set_value(value, path) {
+        // A native store is a file of the app, a failed write there is a
+        // broken install. A browser or a TV can refuse a write any time.
+        #[cfg(all(not_wasm, not(tvos)))]
+        panic!("{error}");
+        #[cfg(any(wasm, tvos))]
+        log::warn!("{error}");
+    }
 }
+
+fn try_set_value<T: serde::ser::Serialize>(value: T, path: &Path) -> Result<(), StoreError> {
+    let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
+    backend::write(path, &json).map_err(|reason| StoreError {
+        path: path.to_owned(),
+        reason,
+    })
+}
+
+/// A write the platform refused, like a full disk or a browser storage that
+/// is over its quota or blocked. `reason` is the text of the platform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreError {
+    pub path:   PathBuf,
+    pub reason: String,
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to save {}: {}", self.path.display(), self.reason)
+    }
+}
+
+impl std::error::Error for StoreError {}
 
 fn get_value<T: Storable>(path: &Path) -> Option<T> {
     let json = backend::read(path)?;
@@ -46,11 +76,11 @@ mod backend {
         Some(read_to_string(path).expect("Failed to read file"))
     }
 
-    pub(super) fn write(path: &Path, json: &str) {
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            create_dir_all(parent).unwrap();
+            create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        write_file(path, json).expect("Failed to write to file");
+        write_file(path, json).map_err(|error| error.to_string())
     }
 
     /// A store that was never written, or was reset before, has no file.
@@ -92,7 +122,7 @@ mod backend {
         Some(text.to_string())
     }
 
-    pub(super) fn write(path: &Path, json: &str) {
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
         if json.len() > BIG {
             log::warn!(
                 "{} is {} bytes, the user defaults of tvOS hold 1 MB in all",
@@ -102,6 +132,7 @@ mod backend {
         }
         let text = NSString::from_str(json);
         unsafe { NSUserDefaults::standardUserDefaults().setObject_forKey(Some(&text), &key(path)) };
+        Ok(())
     }
 
     pub(super) fn remove(path: &Path) {
@@ -141,13 +172,13 @@ mod backend {
         }
     }
 
-    pub(super) fn write(path: &Path, json: &str) {
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
         let Some(storage) = storage() else {
-            return;
+            return Err("this browser gives no localStorage".to_string());
         };
-        if let Err(error) = storage.set_item(&key(path), json) {
-            log::warn!("failed to write {} to localStorage: {error:?}", path.display());
-        }
+        storage
+            .set_item(&key(path), json)
+            .map_err(|error| format!("localStorage refused the write: {error:?}"))
     }
 
     pub(super) fn remove(path: &Path) {
@@ -179,6 +210,12 @@ impl<T: Storable> OnDisk<T> {
         set_value(val, &rooted(&self.path));
     }
 
+    /// `set` that gives the refusal back, so the app can tell the user that
+    /// nothing was saved, like when a browser storage is full.
+    pub fn try_set(&self, val: impl Into<T>) -> Result<(), StoreError> {
+        try_set_value(val.into(), &rooted(&self.path))
+    }
+
     pub fn get(&self) -> Option<T> {
         get_value(&rooted(&self.path))
     }
@@ -202,6 +239,13 @@ impl<T: Storable + Default> OnDisk<T> {
         let mut val = self.get_or_init();
         edit(&mut val);
         self.set(val);
+    }
+
+    /// `edit` that gives a refused write back, see `try_set`.
+    pub fn try_edit(&self, edit: impl FnOnce(&mut T)) -> Result<(), StoreError> {
+        let mut val = self.get().unwrap_or_default();
+        edit(&mut val);
+        self.try_set(val)
     }
 
     pub fn get_or_init(&self) -> T {
@@ -294,6 +338,27 @@ mod test {
         assert_eq!(INITIALIZED.get_or_init(), 0);
         assert_eq!(INITIALIZED.get(), Some(0));
         INITIALIZED.reset();
+    }
+
+    #[test]
+    #[serial(on_disk_root)]
+    fn a_refused_write_is_an_error() {
+        let root = std::env::temp_dir().join(format!("hilen_refused_write_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // A file where the store wants a folder makes every write fail.
+        std::fs::write(root.join("blocked"), "").unwrap();
+        OnDisk::<()>::set_root_path(&root);
+
+        let store = OnDisk::<i32>::new("blocked/value.json");
+        let error = store.try_set(5).unwrap_err();
+        assert!(error.path.ends_with("blocked/value.json"), "{error}");
+        assert!(store.try_edit(|value| *value += 1).is_err());
+
+        let fine = OnDisk::<i32>::new("fine.json");
+        fine.try_set(5).unwrap();
+        assert_eq!(fine.get(), Some(5));
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

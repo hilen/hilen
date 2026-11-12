@@ -78,7 +78,7 @@ impl SceneSetup for NodeFade {
 }
 
 fn label(view: Weak<SceneTestView>, scene: Weak<NodeFade>, (x, y, text): (f32, f32, &str)) {
-    let mut label = view.add_view::<Label>();
+    let label = view.add_view::<Label>();
     label.set_text(text).set_text_size(16);
     label.set_text_color(Color::hex("#ffffff"));
     label

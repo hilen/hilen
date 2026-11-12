@@ -24,7 +24,7 @@ struct ScrollClipTest {
 }
 
 impl Setup for ScrollClipTest {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.header.set_text("HEADER").set_color(GRAY_BLUE).set_text_color(WHITE);
         self.header.place().tl(0).size(600, 100);
 

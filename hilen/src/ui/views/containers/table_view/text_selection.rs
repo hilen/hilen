@@ -28,8 +28,9 @@ impl TableView {
     /// its rows scroll out and come back. A copy and Select All call
     /// `setup_cell` for the selected rows that are not on screen, to read
     /// their text.
-    pub fn set_text_selectable(&mut self, selectable: bool) -> &mut Self {
-        self.text_selectable = selectable;
+    pub fn set_text_selectable(&self, selectable: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.text_selectable = selectable;
         self
     }
 

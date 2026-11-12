@@ -394,7 +394,7 @@ fn add_picture(host: Weak<RectOverPicture>, picture: usize, frame: (f32, f32, f3
             gradient.weak_view()
         }
         _ => {
-            let mut drawing = host.add_view::<DrawingView>();
+            let drawing = host.add_view::<DrawingView>();
             let square = VectorPath::polygon([(0.0, 0.0), (TILE, 0.0), (TILE, TILE), (0.0, TILE)]);
             drawing.add_fill(&square, PICTURE, FillRule::NonZero);
             drawing.weak_view()

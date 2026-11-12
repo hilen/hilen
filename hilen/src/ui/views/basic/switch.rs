@@ -1,7 +1,10 @@
 use ui_proc::view;
 
 use crate::{
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::color::{CLEAR, Color, WHITE},
     image::{Image, ToImage},
     ui::{
@@ -67,67 +70,75 @@ impl Switch {
         self
     }
 
-    pub fn set_on(&mut self, on: bool) -> &mut Self {
-        self.on = on;
-        self.paint();
-        self.layout_knob();
+    pub fn set_on(&self, on: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.on = on;
+        this.paint();
+        this.layout_knob();
         self
     }
 
     /// The color of the track while the switch is on.
-    pub fn set_on_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.on_color = Some(color.into());
-        self.paint();
+    pub fn set_on_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.on_color = Some(color.into());
+        this.paint();
         self
     }
 
     /// The color of the track while the switch is off.
-    pub fn set_off_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.off_color = Some(color.into());
-        self.paint();
+    pub fn set_off_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.off_color = Some(color.into());
+        this.paint();
         self
     }
 
-    pub fn set_knob_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.knob_color = Some(color.into());
-        self.paint();
+    pub fn set_knob_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.knob_color = Some(color.into());
+        this.paint();
         self
     }
 
     /// A picture of the whole track for each state. It fills the switch and
     /// replaces the track color, so the picture brings its own shape.
-    pub fn set_track_images(&mut self, on: impl ToImage, off: impl ToImage) -> &mut Self {
-        self.track_images = Some(StateImages {
+    pub fn set_track_images(&self, on: impl ToImage, off: impl ToImage) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.track_images = Some(StateImages {
             on:  on.to_image(),
             off: off.to_image(),
         });
-        self.paint();
+        this.paint();
         self
     }
 
     /// A picture of the knob for each state. It fills the knob, cut to its
     /// circle, and replaces the knob color. The shadow stays,
     /// `set_knob_shadow` changes it.
-    pub fn set_knob_images(&mut self, on: impl ToImage, off: impl ToImage) -> &mut Self {
-        self.knob_images = Some(StateImages {
+    pub fn set_knob_images(&self, on: impl ToImage, off: impl ToImage) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.knob_images = Some(StateImages {
             on:  on.to_image(),
             off: off.to_image(),
         });
-        self.paint();
+        this.paint();
         self
     }
 
     /// The gap between the knob and the edge of the track, 2 points when not
     /// set. A negative inset makes the knob bigger than the track.
-    pub fn set_knob_inset(&mut self, inset: f32) -> &mut Self {
-        self.knob_inset = Some(inset);
-        self.layout_knob();
+    pub fn set_knob_inset(&self, inset: f32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.knob_inset = Some(inset);
+        this.layout_knob();
         self
     }
 
     /// The shadow under the knob. A shadow with radius 0 removes it.
-    pub fn set_knob_shadow(&mut self, shadow: Shadow) -> &mut Self {
-        self.knob.set_shadow(shadow);
+    pub fn set_knob_shadow(&self, shadow: Shadow) -> &Self {
+        let this = weak_from_ref(self);
+        this.knob.set_shadow(shadow);
         self
     }
 

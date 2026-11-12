@@ -87,14 +87,15 @@ impl ImageView {
         self.cut
     }
 
-    pub fn set_resizing_image(&mut self, name: impl Display) -> &mut Self {
-        if !self.nine_segment.was_initialized() {
-            self.nine_segment = self.add_view();
-            self.nine_segment.place().back();
-            depth_order::set_same_depth(&*self.nine_segment);
+    pub fn set_resizing_image(&self, name: impl Display) -> &Self {
+        let mut this = weak_from_ref(self);
+        if !this.nine_segment.was_initialized() {
+            this.nine_segment = this.add_view();
+            this.nine_segment.place().back();
+            depth_order::set_same_depth(&*this.nine_segment);
         }
 
-        self.nine_segment.set_image(name);
+        this.nine_segment.set_image(name);
 
         self
     }

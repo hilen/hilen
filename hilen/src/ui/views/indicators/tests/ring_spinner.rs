@@ -27,7 +27,7 @@ struct RingSpinnerTest {
 }
 
 impl Setup for RingSpinnerTest {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.card.set_color(CARD).place().tl(20).size(300, 300);
 
         self.big.set_ring_color(RING).set_line_width(24).set_speed(0);
@@ -156,7 +156,7 @@ impl ViewTest for RingSpinnerTest {
         check_colors(GAP_TOP_PROBES)?;
 
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.big.set_angle(0.5);
             this.small.set_angle(0.5);
         });
@@ -175,7 +175,7 @@ impl ViewTest for RingSpinnerTest {
         ensure!(!continuous, "a held ring must let the loop sleep");
 
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.big.set_speed(1);
             this.big.set_angle(0.0);
         });

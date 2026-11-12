@@ -27,7 +27,7 @@ struct CodeEditorClipboard {
 }
 
 impl Setup for CodeEditorClipboard {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.editor.place().t(10).lr(10).h(340);
         self.editor.set_text(SCAD);

@@ -64,14 +64,14 @@ impl Setup for ToolButtonFill {
         // marks, set before it is added, and is not a hover view.
         #[cfg(any(desktop, wasm))]
         {
-            let mut pointer = Container::new();
+            let pointer = Container::new();
             pointer.set_z_position(0.1);
             pointer
                 .set_color(BLACK)
                 .set_border_width(3)
                 .set_border_color(WHITE)
                 .set_size(16, 16);
-            let mut pointer = self.add_subview(pointer);
+            let pointer = self.add_subview(pointer);
             pointer.set_center(POINTER);
         }
     }

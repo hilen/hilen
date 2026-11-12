@@ -247,7 +247,7 @@ impl Input {
         }
 
         if (DRAW_TOUCHES || UIManager::draw_touches()) && !touch.is_moved() {
-            let mut view = Container::new();
+            let view = Container::new();
             view.set_z_position(0.1);
             view.set_size(5, 5).set_color(Color::random());
             view.set_center(touch.position);

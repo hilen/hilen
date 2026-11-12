@@ -4,7 +4,7 @@ use super::grid::{label, lines, nice_step};
 use crate::{
     self as hilen,
     deps::{
-        refs::{Weak, manage::DataManager},
+        refs::{Weak, manage::DataManager, weak_from_ref},
         vents::Event,
     },
     gm::{
@@ -86,79 +86,84 @@ pub struct PlotView {
 impl PlotView {
     /// Adds a curve of `y = function(x)`. A value that is not finite,
     /// like `ln(x)` below 0, leaves a gap.
-    pub fn add_function(
-        &mut self,
-        function: impl Fn(f64) -> f64 + 'static,
-        color: impl Into<UIColor>,
-    ) -> &mut Self {
-        self.curves.push(Curve {
+    pub fn add_function(&self, function: impl Fn(f64) -> f64 + 'static, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.curves.push(Curve {
             source: Source::Function(Box::new(function)),
             color:  color.into(),
         });
-        self.redraw();
+        this.redraw();
         self
     }
 
     /// Adds a line through the points in their order.
     pub fn add_points(
-        &mut self,
+        &self,
         points: impl IntoIterator<Item = (f64, f64)>,
         color: impl Into<UIColor>,
-    ) -> &mut Self {
-        self.curves.push(Curve {
+    ) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.curves.push(Curve {
             source: Source::Points(points.into_iter().collect()),
             color:  color.into(),
         });
-        self.redraw();
+        this.redraw();
         self
     }
 
     /// Removes every curve, the grid and the axes stay.
-    pub fn remove_curves(&mut self) -> &mut Self {
-        self.curves.clear();
-        self.redraw();
+    pub fn remove_curves(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.curves.clear();
+        this.redraw();
         self
     }
 
     /// Fills the plot under the grid with the color of `field(x, y)` at
     /// each point, like a heat map or the domain coloring of a complex
     /// function. It is sampled every 2 points again on each pan and zoom.
-    pub fn set_color_field(&mut self, field: impl Fn(f64, f64) -> Color + 'static) -> &mut Self {
-        self.color_field = Some(Box::new(field));
-        self.redraw();
+    pub fn set_color_field(&self, field: impl Fn(f64, f64) -> Color + 'static) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.color_field = Some(Box::new(field));
+        this.redraw();
         self
     }
 
-    pub fn remove_color_field(&mut self) -> &mut Self {
-        self.color_field = None;
-        self.redraw();
+    pub fn remove_color_field(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.color_field = None;
+        this.redraw();
         self
     }
 
     /// Shows x from `min` to `max` around the middle `y`.
-    pub fn set_x_range(&mut self, min: f64, max: f64, y: f64) -> &mut Self {
-        self.center_x = f64::midpoint(min, max);
-        self.center_y = y;
-        self.x_span = (max - min).clamp(MIN_SPAN, MAX_SPAN);
-        self.changed();
+    pub fn set_x_range(&self, min: f64, max: f64, y: f64) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.center_x = f64::midpoint(min, max);
+        this.center_y = y;
+        this.x_span = (max - min).clamp(MIN_SPAN, MAX_SPAN);
+        this.changed();
         self
     }
 
-    pub fn set_line_width(&mut self, width: impl ToF32) -> &mut Self {
-        self.line_width = width.to_f32();
-        self.redraw();
+    pub fn set_line_width(&self, width: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.line_width = width.to_f32();
+        this.redraw();
         self
     }
 
-    pub fn set_grid_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.grid_color = color.into();
-        self.redraw();
+    pub fn set_grid_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.grid_color = color.into();
+        this.redraw();
         self
     }
 
-    pub fn set_axis_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
-        self.axis_color = color.into();
-        self.redraw();
+    pub fn set_axis_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.axis_color = color.into();
+        this.redraw();
         self
     }
 
@@ -206,14 +211,15 @@ impl PlotView {
 
     /// Zooms by `factor`, more than 1 zooms in, and keeps the graph point
     /// under `point` where it is. `point` is in the points of this view.
-    pub fn zoom_at(&mut self, point: impl Into<Point>, factor: f64) -> &mut Self {
+    pub fn zoom_at(&self, point: impl Into<Point>, factor: f64) -> &Self {
+        let mut this = weak_from_ref(self);
         let point = point.into();
-        let (x, y) = self.graph_point(point);
-        self.x_span = (self.x_span / factor).clamp(MIN_SPAN, MAX_SPAN);
-        let (moved_x, moved_y) = self.graph_point(point);
-        self.center_x += x - moved_x;
-        self.center_y += y - moved_y;
-        self.changed();
+        let (x, y) = this.graph_point(point);
+        this.x_span = (this.x_span / factor).clamp(MIN_SPAN, MAX_SPAN);
+        let (moved_x, moved_y) = this.graph_point(point);
+        this.center_x += x - moved_x;
+        this.center_y += y - moved_y;
+        this.changed();
         self
     }
 

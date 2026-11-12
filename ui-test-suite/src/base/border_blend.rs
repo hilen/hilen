@@ -448,7 +448,7 @@ fn build_row(panel: Weak<Container>, case: &Case, index: usize) {
                     image.weak_view()
                 }
                 _ => {
-                    let mut blur = panel.add_view::<BlurView>();
+                    let blur = panel.add_view::<BlurView>();
                     blur.set_blur_radius(4).set_color(case.fill);
                     blur.weak_view()
                 }

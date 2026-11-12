@@ -44,7 +44,7 @@ struct LogViewResize {
 }
 
 impl Setup for LogViewResize {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
 
         self.log.set_style(test_style());

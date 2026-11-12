@@ -50,14 +50,14 @@ impl Setup for HoverScroll {
         // A nested view draws over a later sibling, so the marker takes the
         // z of the engine's own touch marks, set before it is added. It is
         // not a hover view, so it never takes the hover itself.
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer
             .set_color(BLACK)
             .set_border_width(3)
             .set_border_color(WHITE)
             .set_size(20, 20);
-        let mut pointer = self.add_subview(pointer);
+        let pointer = self.add_subview(pointer);
         pointer.set_center(POINTER);
     }
 }

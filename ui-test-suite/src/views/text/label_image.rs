@@ -62,7 +62,7 @@ impl TableData for LabelImage {
     }
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
-        let mut cell = registry.cell::<Label>();
+        let cell = registry.cell::<Label>();
         cell.set_text(index);
         cell.set_text_size(50);
         cell.set_text_color(WHITE);
@@ -114,7 +114,7 @@ fn check_initial_images() -> Result<()> {
     )
 }
 
-fn check_label_resizing_image(mut view: Weak<LabelImage>) -> Result<()> {
+fn check_label_resizing_image(view: Weak<LabelImage>) -> Result<()> {
     from_main(move || {
         view.label.set_resizing_image("button");
         view.label.set_text_color(WHITE);

@@ -46,7 +46,7 @@ struct LogViewColors {
 }
 
 impl Setup for LogViewColors {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(DynamicColor::new(Color::hex("#ffffff"), Color::hex("#1c1c1e")));
 
         self.log.set_style(test_style());

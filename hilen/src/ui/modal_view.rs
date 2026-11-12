@@ -13,7 +13,7 @@ use crate::{
 
 pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default {
     fn show_modally(view: Self) -> Weak<Self> {
-        let mut view = Own::new(view);
+        let view = Own::new(view);
         // Stacked modals must not share one z position, or the top one
         // interleaves with the modal under it in the depth test.
         let depth: f32 = TouchStack::overlay_count().lossy_convert();
@@ -29,8 +29,8 @@ pub trait ModalView<In = (), Out: 'static + Send = ()>: 'static + View + Default
         // like the backdrop of a context menu. With a blur it is a
         // BlurView, which blurs the whole scene and tints it with the
         // scrim color.
-        let mut scrim: Own<dyn View> = if Self::modal_blur() > 0.0 {
-            let mut blur = BlurView::new();
+        let scrim: Own<dyn View> = if Self::modal_blur() > 0.0 {
+            let blur = BlurView::new();
             blur.set_blur_radius(Self::modal_blur());
             blur
         } else {

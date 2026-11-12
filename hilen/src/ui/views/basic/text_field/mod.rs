@@ -245,8 +245,9 @@ impl ViewCallbacks for TextField {
 }
 
 impl TextField {
-    pub fn set_alignment(&mut self, alignment: TextAlignment) -> &mut Self {
-        self.label.set_alignment(alignment);
+    pub fn set_alignment(&self, alignment: TextAlignment) -> &Self {
+        let this = weak_from_ref(self);
+        this.label.set_alignment(alignment);
         self
     }
 
@@ -512,8 +513,9 @@ impl TextField {
         self.text().is_empty()
     }
 
-    pub fn float_only(&mut self) -> &mut Self {
-        self.constraint = TextFieldConstraint::Float.into();
+    pub fn float_only(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.constraint = TextFieldConstraint::Float.into();
         self
     }
 
@@ -557,6 +559,11 @@ impl TextField {
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
         self.label.set_text_size(size);
         self
+    }
+
+    /// The hint shown while the field is empty.
+    pub fn placeholder(&self) -> &str {
+        &self.placeholder
     }
 
     pub fn set_placeholder(&self, placeholder: impl ToLabel) -> &Self {

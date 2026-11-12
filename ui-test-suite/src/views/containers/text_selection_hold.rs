@@ -447,7 +447,7 @@ struct TextSelectionHold {
 }
 
 impl Setup for TextSelectionHold {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
 
         self.role

@@ -690,7 +690,7 @@ impl MarkdownView {
             return;
         }
         square.set_color(style.link);
-        let mut check = self.add_view::<DrawingView>();
+        let check = self.add_view::<DrawingView>();
         check.set_frame((x, y, TASK_BOX, TASK_BOX));
         // White in both themes, the square under it has a strong color in both.
         check.add_stroke(

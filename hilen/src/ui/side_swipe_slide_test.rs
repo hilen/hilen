@@ -54,7 +54,7 @@ impl SideSwipeSlide {
     fn swiped(self: Weak<Self>, event: SideSwipeEvent) {
         match event {
             SideSwipeEvent::Moved(offset) => {
-                let mut page = self.page;
+                let page = self.page;
                 page.set_x(offset);
             }
             SideSwipeEvent::Ended(SideSwipeEnd::Left) => self.slide(-self.width(), Some(1)),
@@ -76,7 +76,7 @@ impl SideSwipeSlide {
     }
 
     fn slid(mut self: Weak<Self>, to: f32, then: Option<isize>) {
-        let mut page = self.page;
+        let page = self.page;
         let Some(step) = then else {
             page.set_x(0);
             self.arrived += 1;

@@ -134,7 +134,7 @@ struct JumpTable {
 }
 
 impl Setup for JumpTable {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.table.place().back();
         self.table.set_data_source(self).register_cell::<Label>();
         self.table.set_header_height(HEADER).set_cell_spacing(SPACING);

@@ -161,13 +161,15 @@ fn drag_above_top_clamps_to_one(view: Weak<Slider>) {
     assert_eq!(view.label.text(), "1.00");
 }
 
-fn set_range_updates_value(mut view: Weak<Slider>) {
+fn set_range_updates_value(view: Weak<Slider>) {
     from_main(move || {
         view.slider.set_range(-5, 5);
     });
 
     assert!((view.slider.value() - 5.0).abs() < f32::EPSILON);
-    assert_eq!(view.label.text(), "5.00");
+    // A setter called by code never fires `on_change`, so the label still
+    // shows the last value the user picked.
+    assert_eq!(view.label.text(), "1.00");
 }
 
 fn drag_to_bottom_of_range(view: Weak<Slider>) {
@@ -187,11 +189,11 @@ fn drag_to_bottom_of_range(view: Weak<Slider>) {
     assert_eq!(view.label.text(), "-5.00");
 }
 
-fn check_labels_at_indicator_positions(mut view: Weak<Slider>) -> Result<()> {
+fn check_labels_at_indicator_positions(view: Weak<Slider>) -> Result<()> {
     for i in -5..=5 {
         from_main(move || {
             view.slider.set_value(i);
-            let mut label = view.add_view::<Label>();
+            let label = view.add_view::<Label>();
             label.set_text(i);
             label.set_color(WHITE);
             label.set_size(50, 20);
@@ -219,12 +221,14 @@ fn check_labels_at_indicator_positions(mut view: Weak<Slider>) -> Result<()> {
              364  264 - #828282
              364  268 - #828282
              296  280 - #0a84ff
-             160  288 - #303030
-             212  292 - #010101
-             196  300 - #9c9c9c
+               188  292 - #000000
+               216  292 - #000000
+               152  300 - #0b0b0b
+               204  300 - #666666
              348  300 - #ffffff
              360  300 - #4a4a4a
              372  300 - #d2d2d2
+               172  304 - #010101
              380  336 - #ffffff
              276  348 - #ffffff
              356  376 - #8c8c8c

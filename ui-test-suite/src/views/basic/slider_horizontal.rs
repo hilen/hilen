@@ -15,7 +15,7 @@ pub struct SliderHorizontal {
 }
 
 impl Setup for SliderHorizontal {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.slider.set_horizontal().set_color(WHITE).place().size(400, 50).center();
         self.slider.on_change.val(move |a| {
             self.label.set_text(a);
@@ -87,13 +87,15 @@ fn drag_past_right_clamps_to_one(view: Weak<SliderHorizontal>) {
     assert_eq!(view.label.text(), "1.00");
 }
 
-fn set_range_updates_value(mut view: Weak<SliderHorizontal>) {
+fn set_range_updates_value(view: Weak<SliderHorizontal>) {
     from_main(move || {
         view.slider.set_range(-5, 5);
     });
 
     assert!((view.slider.value() - 5.0).abs() < f32::EPSILON);
-    assert_eq!(view.label.text(), "5.00");
+    // A setter called by code never fires `on_change`, so the label still
+    // shows the last value the user picked.
+    assert_eq!(view.label.text(), "1.00");
 }
 
 fn drag_to_left_of_range(view: Weak<SliderHorizontal>) {
@@ -111,11 +113,11 @@ fn drag_to_left_of_range(view: Weak<SliderHorizontal>) {
     assert_eq!(view.label.text(), "-5.00");
 }
 
-fn check_labels_at_indicator_positions(mut view: Weak<SliderHorizontal>) -> Result<()> {
+fn check_labels_at_indicator_positions(view: Weak<SliderHorizontal>) -> Result<()> {
     for i in -5..=5 {
         from_main(move || {
             view.slider.set_value(i);
-            let mut label = view.add_view::<Label>();
+            let label = view.add_view::<Label>();
             label.set_text(i);
             label.set_color(WHITE);
             label.set_size(30, 20);
@@ -136,7 +138,6 @@ fn check_labels_at_indicator_positions(mut view: Weak<SliderHorizontal>) -> Resu
              452  244 - #000000
              132  248 - #597c95
              160  248 - #474747
-             240  300 - #0a84ff
              292  248 - #cecece
              304  248 - #464646
              364  248 - #ffffff
@@ -145,17 +146,19 @@ fn check_labels_at_indicator_positions(mut view: Weak<SliderHorizontal>) -> Resu
              180  252 - #8c8c8c
              216  252 - #8c8c8c
              492  252 - #000000
-             240  264 - #597c95
              292  256 - #ffffff
              336  256 - #b6b6b6
+             240  264 - #597c95
+             240  300 - #0a84ff
              348  300 - #0a84ff
              424  300 - #0a84ff
              484  316 - #cfcfcf
              128  324 - #ffffff
              204  324 - #ffffff
-             280  380 - #242424
-             324  392 - #ffffff
-             304  400 - #010101
+             284  380 - #2e2e2e
+             332  384 - #000000
+             304  388 - #b2b2b2
+             312  388 - #dddddd
                4  592 - #597c95
              592  592 - #597c95
             ",

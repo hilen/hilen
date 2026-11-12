@@ -107,7 +107,7 @@ impl ModalView<String> for Alert {
 /// `modal_size` cannot see the text, so the dialog resizes to it here,
 /// the way an iOS alert grows with its content. A text higher than its
 /// room scrolls inside the dialog, so no part of a message is lost.
-pub(super) fn fit_to_text(dialog: &dyn View, mut scroll: Weak<ScrollView>, label: Weak<Label>) {
+pub(super) fn fit_to_text(dialog: &dyn View, scroll: Weak<ScrollView>, label: Weak<Label>) {
     let text_height = label.size_for_width(ALERT_WIDTH - PADDING * 2.0).height.max(MIN_TEXT_HEIGHT);
 
     let chrome = PADDING * 2.0 + BUTTON_HEIGHT;

@@ -40,7 +40,7 @@ impl Setup for HoverWithin {
         self.caption.set_text_size(20).set_text_color(BLACK);
         self.caption.place().t(300).lr(20).h(40);
 
-        let mut pointer = Container::new();
+        let pointer = Container::new();
         pointer.set_z_position(0.1);
         pointer
             .set_color(BLACK)
@@ -85,7 +85,7 @@ impl HoverWithin {
     fn move_to(view: Weak<Self>, x: u32, y: u32, step: &str) -> Result<String> {
         inject_touches(format!("{x} {y} m"));
         from_main(move || {
-            let mut pointer = view.pointer;
+            let pointer = view.pointer;
             pointer.set_hidden(false);
             pointer.set_center((x, y));
         });

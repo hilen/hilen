@@ -172,7 +172,7 @@ impl ViewTest for TableSplitRegions {
         UIManager::set_drag_scrolling(true);
     }
 
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         inject_touches("300 300 m");
 
         view.say("both sides at their start");

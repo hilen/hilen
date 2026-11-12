@@ -865,7 +865,7 @@ impl TableData for TableStickyRows {
 }
 
 impl ViewTest for TableStickyRows {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         set_record_probe_count(128);
         // Unscrolled, every row sits at its natural position.
         inject_touches(

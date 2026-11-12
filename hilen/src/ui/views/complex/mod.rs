@@ -1,5 +1,6 @@
 mod alert;
 mod alert_err;
+mod charts;
 mod code_editor;
 mod dialog_style;
 #[cfg(feature = "diff-view")]
@@ -23,6 +24,7 @@ mod tab_shell;
 
 pub use alert::*;
 pub use alert_err::*;
+pub use charts::*;
 pub use code_editor::{CodeEditor, CodeEditorStyle, CodePos, FindError, FindOptions};
 pub use dialog_style::DialogStyle;
 #[cfg(feature = "diff-view")]

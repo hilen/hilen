@@ -212,7 +212,7 @@ impl FindBar {
     pub(super) fn set_look(mut self: Weak<Self>, style: &CodeEditorStyle) {
         self.toggle_on = style.find_toggle;
         self.set_color(style.find_bar);
-        for mut field in [self.query, self.replacement] {
+        for field in [self.query, self.replacement] {
             field.set_alignment(TextAlignment::Left);
             field.set_font(style.regular_font());
             field.set_text_size(style.text_size);

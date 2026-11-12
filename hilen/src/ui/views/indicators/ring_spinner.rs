@@ -3,7 +3,7 @@ use std::f32::consts::TAU;
 use ui_proc::view;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     gm::{
         ToF32,
         color::{Color, GRAY},
@@ -37,34 +37,38 @@ pub struct RingSpinner {
 
 impl RingSpinner {
     /// Not `set_color`, which is the `ViewData` background setter.
-    pub fn set_ring_color(&mut self, color: impl Into<UIColor>) -> &mut Self {
+    pub fn set_ring_color(&self, color: impl Into<UIColor>) -> &Self {
+        let mut this = weak_from_ref(self);
         let color = color.into();
-        self.ring_color = color;
-        self.color = color.resolve();
-        self.redraw();
+        this.ring_color = color;
+        this.color = color.resolve();
+        this.redraw();
         self
     }
 
-    pub fn set_line_width(&mut self, width: impl ToF32) -> &mut Self {
-        self.line_width = width.to_f32();
-        self.redraw();
+    pub fn set_line_width(&self, width: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.line_width = width.to_f32();
+        this.redraw();
         self
     }
 
     /// Turns per second. Zero holds the ring still at its current angle.
-    pub fn set_speed(&mut self, turns_per_second: impl ToF32) -> &mut Self {
-        let angle = self.angle();
-        self.speed = turns_per_second.to_f32();
-        self.weak().turn(angle);
+    pub fn set_speed(&self, turns_per_second: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        let angle = this.angle();
+        this.speed = turns_per_second.to_f32();
+        this.weak().turn(angle);
         self
     }
 
     /// Where the gap sits, in turns clockwise from the top. A turning ring
     /// turns on from there.
-    pub fn set_angle(&mut self, turns: impl ToF32) -> &mut Self {
-        self.angle = turns.to_f32().rem_euclid(1.0);
-        self.redraw();
-        self.weak().turn(self.angle);
+    pub fn set_angle(&self, turns: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.angle = turns.to_f32().rem_euclid(1.0);
+        this.redraw();
+        this.weak().turn(this.angle);
         self
     }
 

@@ -56,7 +56,7 @@ struct CodeEditorLongFile {
 }
 
 impl Setup for CodeEditorLongFile {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color(WHITE);
         self.editor.place().t(10).lr(10).h(400);
         self.editor.set_text(&long_file());
@@ -82,7 +82,7 @@ impl ViewTest for CodeEditorLongFile {
         ensure!(count < MOST_LABELS, "{count} labels for 10 000 lines");
 
         from_main(move || {
-            let mut editor = view.editor;
+            let editor = view.editor;
             editor.set_cursor(CodePos::new(LONG, 0));
             view.status.set_text("the cursor set to line 5000, it scrolls there");
         });

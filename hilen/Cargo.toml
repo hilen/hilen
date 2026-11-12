@@ -25,6 +25,7 @@ default = [
   "font-roboto",
   "font-roboto-italic",
   "font-roboto-mono",
+  "font-symbols",
   "gpu",
   "infisical",
   "net",
@@ -88,6 +89,9 @@ noise = ["dep:contour", "dep:noise"]
 font-roboto = []
 font-roboto-italic = []
 font-roboto-mono = []
+# Stars, check marks, arrows, shapes and key symbols, about 100 KB, a char
+# the label font lacks falls back to them, in a browser too, see docs/text.md.
+font-symbols = []
 # LaTeX math in `MarkdownView` and `MathView`, drawn with Latin Modern Math,
 # a 730 KB font file. Without it a formula shows as its text.
 math = []

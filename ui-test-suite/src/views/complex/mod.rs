@@ -4,6 +4,7 @@ mod alert_long_text;
 mod alert_over_modal;
 mod backdrop_blur;
 mod buttons_on_table;
+mod charts;
 mod context_menu;
 mod context_menu_above;
 mod context_menu_arrow;

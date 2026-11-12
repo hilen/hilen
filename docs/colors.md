@@ -14,7 +14,8 @@ UI frame, is the upgrade if a scene ever needs it.
 
 - `Color` floats hold encoded sRGB values, the exact 0..1 fractions a CSS
   value means. `Color::hex("#22c55e")` is the canonical constructor, const,
-  usable in a `pub const`. `with_alpha` matches CSS `rgba()`.
+  usable in a `pub const`. 8 digits carry the alpha, `#00000055`, like CSS.
+  Any other length panics. `with_alpha` matches CSS `rgba()`.
 - Render targets are plain Unorm, `Bgra8Unorm` on desktop, `Rgba8Unorm` on
   android, the browser's preferred canvas format on wasm. Never an sRGB
   format. WebGL prefers `Rgba8UnormSrgb`, so `plain_format` in `window/state.rs`

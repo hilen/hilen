@@ -117,6 +117,9 @@ pub mod xr;
 pub use app::*;
 #[cfg(feature = "gpu")]
 pub use app_starter::*;
+/// The dates and times of `DateField` and `TimeField`, so an app uses the
+/// same version.
+pub use chrono;
 pub use educe;
 /// The data of a file diff that `ui::DiffPanel` draws.
 #[cfg(feature = "diff-view")]

@@ -84,7 +84,7 @@ impl Setup for VideoPage {
         self.video.on_state.val(move |state| self.report(state));
         MediaSession::on_command().val(self, move |command| self.obey(command));
 
-        for (mut drop, left, width) in [(self.track, 28, 200), (self.speed, 240, 110)] {
+        for (drop, left, width) in [(self.track, 28, 200), (self.speed, 240, 110)] {
             drop.set_text_color(TEXT_DIM);
             drop.set_color(SURFACE_ALT).set_corner_radius(10);
             drop.place().l(left).b(148).size(width, 36);
@@ -199,7 +199,7 @@ impl VideoPage {
 
     /// The next sound track of the source, around to the first, for the
     /// next key of a keyboard.
-    fn next_track(mut self: Weak<Self>) {
+    fn next_track(self: Weak<Self>) {
         let tracks = self.video.audio_tracks();
         let now = self.video.audio_track();
         let at = tracks.iter().position(|track| Some(track.index) == now).unwrap_or(0);

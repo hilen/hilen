@@ -49,7 +49,7 @@ struct InspectFrames {
 
 impl InspectFrames {
     /// Everything the animation draws, from the place of the card.
-    fn show(mut self: Weak<Self>, x: f32) {
+    fn show(self: Weak<Self>, x: f32) {
         let way = (x - START_X) / TRAVEL;
         let top = rainbow(way);
         self.card.set_x(x);

@@ -18,7 +18,7 @@ struct PlotPanZoom {
 }
 
 impl Setup for PlotPanZoom {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.set_color("#FFFFFF");
 
         self.status.set_text_size(20).set_text_color("#1B1F24");
