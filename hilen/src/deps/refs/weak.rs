@@ -32,7 +32,24 @@ impl<T: ?Sized> Clone for Weak<T> {
     }
 }
 
+/// The start of the name an `#[init]` field of a view holds until its view
+/// is added, see [`Weak::init_field`].
+#[cfg(feature = "checks")]
+const INIT_FIELD: &str = "#[init] ";
+
 impl<T> Weak<T> {
+    /// The value of an `#[init]` field before `add_subview` or
+    /// `UIManager::set_view` makes its view. `label` is `#[init] View.field`.
+    /// A call through it panics with that name and the fix, instead of the
+    /// plain message of a pointer that was never set.
+    pub const fn init_field(label: &'static str) -> Self {
+        Self {
+            ptr:       null_mut(),
+            stamp:     0,
+            type_name: label,
+        }
+    }
+
     pub const fn const_default() -> Self {
         Self {
             ptr:       null_mut(),
@@ -160,9 +177,9 @@ impl<T: ?Sized> Weak<T> {
         );
 
         if self.ptr.is_null() {
-            error!("Dereferencing never initialized weak pointer: {}", self.type_name);
-            // backtrace();
-            panic!("Dereferencing never initialized weak pointer: {}", self.type_name);
+            let message = never_set_message(self.type_name);
+            error!("{message}");
+            panic!("{message}");
         }
 
         if self.is_null() {
@@ -240,6 +257,18 @@ impl<T: ?Sized> DerefMut for Weak<T> {
         #[cfg(feature = "checks")]
         self.check(true);
         unsafe { self.deref_unchecked_mut() }
+    }
+}
+
+#[cfg(feature = "checks")]
+fn never_set_message(type_name: &str) -> String {
+    match type_name.strip_prefix(INIT_FIELD) {
+        Some(field) => format!(
+            "The #[init] view {field} is used before its view was added. #[init] views are made \
+             when the view is added with add_subview or UIManager::set_view, so call this after the \
+             add, or keep the value in a data field and use it in setup"
+        ),
+        None => format!("Dereferencing never initialized weak pointer: {type_name}"),
     }
 }
 

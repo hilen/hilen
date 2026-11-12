@@ -54,11 +54,9 @@ fn svg_data(name: &str) -> Option<Vec<u8>> {
 
 #[cfg(wasm)]
 fn svg_data(name: &str) -> Option<Vec<u8>> {
-    let data = svg_sources::get(name);
-    if data.is_none() {
-        error!("No downloaded SVG data for {name}. Is its asset group loaded?");
-    }
-    data
+    // A missing file is noted in `image/early.rs`, which logs an error once it
+    // is sure that no asset group has it.
+    svg_sources::get(name)
 }
 
 impl ToImage for Tinted {
@@ -72,9 +70,29 @@ impl ToImage for Tinted {
 
         match svg_data(&self.name) {
             Some(data) => tint_svg(&data, &self.name, self.tint),
-            None => Image::from_file_data(DEFAULT_IMAGE_DATA, &tinted_name(&self.name, self.tint)),
+            None => missing(&self.name, self.tint),
         }
     }
+}
+
+#[cfg(not_wasm)]
+fn missing(name: &str, tint: Color) -> Weak<Image> {
+    Image::from_file_data(DEFAULT_IMAGE_DATA, &tinted_name(name, tint))
+}
+
+/// The svg can still come with an asset group. The image is made see-through
+/// under its real name and gets its picture when the file lands.
+#[cfg(wasm)]
+fn missing(name: &str, tint: Color) -> Weak<Image> {
+    let stored = tinted_name(name, tint);
+    crate::image::early::note(name, stored.clone(), Some(tint.as_hex()));
+    Image::from_file_data(crate::image::image::WAITING_IMAGE_DATA, &stored)
+}
+
+/// The svg text with its black, `#000000`, put in as `hex`. `None` when the
+/// bytes are no text.
+pub(crate) fn tint_text(data: &[u8], hex: &str) -> Option<Vec<u8>> {
+    from_utf8(data).ok().map(|text| text.replace("#000000", hex).into_bytes())
 }
 
 fn tinted_name(name: &str, tint: Color) -> String {
@@ -90,17 +108,12 @@ pub fn tint_svg(data: &[u8], name: &str, tint: Color) -> Weak<Image> {
         return cached;
     }
 
-    match from_utf8(data) {
-        Ok(text) => {
-            let tinted = text.replace("#000000", &tint.as_hex());
-            Image::from_file_data(tinted.as_bytes(), &stored_name)
-        }
-        Err(err) => {
-            error!(
-                "Data for tinted image {name} is not a valid string. Most likely is not an SVG: {err}. \
-                 Returning default image"
-            );
-            Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name)
-        }
+    if let Some(tinted) = tint_text(data, &tint.as_hex()) {
+        Image::from_file_data(&tinted, &stored_name)
+    } else {
+        error!(
+            "Data for tinted image {name} is not a valid string, most likely no SVG. Returning default image"
+        );
+        Image::from_file_data(DEFAULT_IMAGE_DATA, &stored_name)
     }
 }

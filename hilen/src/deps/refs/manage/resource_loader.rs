@@ -12,4 +12,9 @@ pub trait ResourceLoader: Sized {
 
     /// `name` is in the store now, its pending bytes can go.
     fn pending_loaded(_name: &str) {}
+
+    /// Nothing held the bytes of `name` when `DataManager::get` asked, so it
+    /// loads from a path. In a browser that path does not exist, and the
+    /// bytes can still come with an asset group.
+    fn pending_missing(_name: &str) {}
 }

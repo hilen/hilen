@@ -217,9 +217,11 @@ pub trait DataManager<T: Managed> {
         // The pending bytes stay until the entry is stored. Two threads
         // asking at once then both decode the real file, and neither
         // falls through to a path that a browser does not have.
-        let new = Own::new(match T::pending_data(&name) {
-            Some(data) => T::load_data(&data, &name),
-            None => T::load_path(&Self::full_path(&name)),
+        let new = Own::new(if let Some(data) = T::pending_data(&name) {
+            T::load_data(&data, &name)
+        } else {
+            T::pending_missing(&name);
+            T::load_path(&Self::full_path(&name))
         });
 
         let stored = insert_or_existing(Self::storage_mut(), name.clone(), new);

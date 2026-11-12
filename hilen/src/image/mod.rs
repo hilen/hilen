@@ -5,6 +5,8 @@
 mod browser_decode;
 #[cfg(all(not_wasm, feature = "net"))]
 mod disk_cache;
+#[cfg(any(wasm, test))]
+pub(crate) mod early;
 mod gif;
 #[cfg(feature = "gpu")]
 mod gpu;
@@ -33,7 +35,7 @@ mod svg_gpu;
 mod svg_size;
 #[cfg(feature = "gpu")]
 mod texture;
-mod tinted_image;
+pub(crate) mod tinted_image;
 mod to_image;
 
 #[cfg(wasm)]

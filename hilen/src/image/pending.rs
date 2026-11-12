@@ -50,7 +50,8 @@ pub(crate) async fn download(name: &str, url: &str) -> Result<()> {
     let waiter = {
         let mut slots = SLOTS.lock();
 
-        if Image::get_existing(name).is_some() {
+        // An image made before its file came waits for these bytes.
+        if Image::get_existing(name).is_some() && !crate::image::early::is_waiting(name) {
             return Ok(());
         }
 
@@ -94,6 +95,7 @@ pub(crate) async fn download(name: &str, url: &str) -> Result<()> {
     let result = fetched.map(|data| {
         // A tint needs the svg text before anything decoded the picture.
         svg_sources::store(name, &data);
+        crate::image::early::landed(name, &data);
         slots.insert(name.to_string(), Slot::Ready(data));
     });
 

@@ -62,6 +62,12 @@ The `#[view]` macro rewrites `#[init]` fields to `Weak<Field>`. Real ownership l
 `ViewBase.subviews: Vec<Own<dyn View>>` — the view tree owns children, like in Swift.
 Methods take `self: Weak<Self>`, so closures capture `self` by copy.
 
+The children of `#[init]` fields are made when the view is added, by `add_subview` or
+`UIManager::set_view`, never by `new()`. Until then each field holds
+`Weak::init_field("#[init] View.field")`, and a call through it panics with
+`The #[init] view View.field is used before its view was added` and the fix, instead
+of the plain message of a pointer that was never set.
+
 This is also why Hilen requires nightly Rust. `Weak<Self>` is a custom smart-pointer method
 receiver, enabled by `arbitrary_self_types`. Replacing it with a stable receiver would change the
 framework's method syntax and callback ownership model rather than being a mechanical toolchain

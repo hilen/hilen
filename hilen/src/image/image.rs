@@ -236,6 +236,11 @@ managed!(Image);
 
 pub(crate) static DEFAULT_IMAGE_DATA: &[u8] = include_bytes!("delete.png");
 
+/// A 1 by 1 see-through picture. A browser draws it for an image whose file
+/// can still come with an asset group, see `image/early.rs`.
+#[cfg(wasm)]
+pub(crate) static WAITING_IMAGE_DATA: &[u8] = include_bytes!("clear.png");
+
 impl ResourceLoader for Image {
     fn load_path(path: &Path) -> Self {
         let data = read(path);
@@ -249,7 +254,7 @@ impl ResourceLoader for Image {
                     path.display()
                 );
             })
-            .unwrap_or(DEFAULT_IMAGE_DATA);
+            .unwrap_or(MISSING_IMAGE_DATA);
 
         Self::load_data(data, path.display())
     }
@@ -304,7 +309,20 @@ impl ResourceLoader for Image {
     fn pending_loaded(name: &str) {
         crate::image::pending::forget(name);
     }
+
+    #[cfg(wasm)]
+    fn pending_missing(name: &str) {
+        crate::image::early::note(name, name.to_string(), None);
+    }
 }
+
+/// What a file that is not there draws. On a desktop the file is read at
+/// once, so it is really missing. In a browser it can still come with an
+/// asset group, and `image/early.rs` puts it in then.
+#[cfg(not_wasm)]
+const MISSING_IMAGE_DATA: &[u8] = DEFAULT_IMAGE_DATA;
+#[cfg(wasm)]
+const MISSING_IMAGE_DATA: &[u8] = WAITING_IMAGE_DATA;
 
 /// An svg in a browser with no `gpu` feature: the size of its fixed
 /// raster, no picture.

@@ -133,6 +133,15 @@ fn const_weak_default() {
 }
 
 #[serial]
+#[should_panic(expected = "The #[init] view Screen.title is used before its view was added")]
+#[wasm_bindgen_test(unsupported = test)]
+fn deref_unset_init_field() {
+    set_current_thread_as_main();
+    let field = Weak::<u32>::init_field("#[init] Screen.title");
+    let _ = field.deref();
+}
+
+#[serial]
 #[should_panic(expected = "Dereferencing never initialized weak pointer: u32")]
 #[wasm_bindgen_test(unsupported = test)]
 fn deref_null() {

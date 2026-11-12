@@ -79,7 +79,7 @@ impl Assets {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web_assets::start_boot_preload;
+pub(crate) use web_assets::{has_file, start_boot_preload};
 
 #[cfg(target_arch = "wasm32")]
 impl Assets {
@@ -157,6 +157,14 @@ mod web_assets {
         BOOT_DONE.load(Ordering::Acquire)
     }
 
+    /// Whether an asset group has the file `name`, `None` before the
+    /// manifest came.
+    pub(crate) fn has_file(name: &str) -> Option<bool> {
+        MANIFEST
+            .get()
+            .map(|manifest| manifest.files.iter().any(|file| file.name == name))
+    }
+
     /// The listener registers before the flag re-check, so a trigger
     /// firing between the two is never missed.
     pub(crate) async fn await_boot() {
@@ -191,6 +199,7 @@ mod web_assets {
 
             BOOT_DONE.store(true, Ordering::Release);
             BOOT_EVENT.notify(usize::MAX);
+            crate::image::early::report_unknown();
             on_main(|| super::PROGRESS.trigger(1.0));
 
             log::debug!("Boot assets ready in {} ms", boot_started.elapsed().as_millis());

@@ -8,6 +8,9 @@ mod bug_report_dialog;
 #[cfg(feature = "bug-report")]
 mod bug_report_style;
 mod double_tap;
+/// Only a browser gets a file later than a view asks for it.
+#[cfg(wasm)]
+mod early_icon;
 mod even_frame_time;
 mod focus_ring_place;
 mod frame_stepped_animation;
