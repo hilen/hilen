@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::Own,
     inspect::protocol::ui::ViewRepr,
-    ui::{Button, Label, TextField, View, ViewData, ViewFrame, ViewSubviews, WeakView},
+    ui::{Button, Label, TextField, ToolButton, View, ViewData, ViewFrame, ViewSubviews, WeakView},
 };
 
 pub trait ViewToInspect {
@@ -39,6 +39,12 @@ pub(crate) fn text_of(view: WeakView) -> Option<String> {
     }
     if let Some(field) = view.downcast::<TextField>() {
         return Some(field.text().to_string());
+    }
+    // The label of a tool button is a system view the tree leaves out, so
+    // the button carries its text, or no menu entry, chip or tab could be
+    // found or tapped by what it says.
+    if let Some(button) = view.downcast::<ToolButton>() {
+        return Some(button.text().to_string());
     }
     None
 }

@@ -32,6 +32,8 @@ mod inspect_keys;
 mod inspect_tap_covered;
 #[cfg(not_wasm)]
 mod inspect_tap_modifiers;
+#[cfg(not_wasm)]
+mod inspect_tool_button;
 /// Only a desktop has a second window, `AppWindow`.
 #[cfg(desktop)]
 mod inspect_window;
