@@ -106,7 +106,12 @@ pub(crate) fn landed(file: &str, data: &[u8]) {
                 log::debug!("{stored} got its picture after the file {file} came");
             }
         }
-        crate::image::pending::forget(&file);
+        // The bytes stay for a later plain `Image::get` while only tinted
+        // copies took them, and a task that waits for the same download sees
+        // them as the sign that it landed.
+        if ready.iter().any(|(stored, _)| *stored == file) {
+            crate::image::pending::forget(&file);
+        }
         #[cfg(feature = "gpu")]
         if !ready.is_empty() {
             crate::ui::damage::whole_next("a picture asked for before its file came");
