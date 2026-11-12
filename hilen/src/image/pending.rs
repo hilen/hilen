@@ -92,15 +92,21 @@ pub(crate) async fn download(name: &str, url: &str) -> Result<()> {
         return Err(anyhow!("The fetch slot of '{name}' is gone"));
     };
 
+    // An image made before its file came waits for these bytes. It gets them
+    // once the lock of the slots is free: in a browser the swap runs at once
+    // and forgets the slot, a second lock there panics in parking_lot.
+    let early = fetched.as_ref().ok().filter(|_| crate::image::early::is_waiting(name)).cloned();
     let result = fetched.map(|data| {
         // A tint needs the svg text before anything decoded the picture.
         svg_sources::store(name, &data);
-        crate::image::early::landed(name, &data);
         slots.insert(name.to_string(), Slot::Ready(data));
     });
 
     drop(slots);
     event.notify(usize::MAX);
+    if let Some(data) = early {
+        crate::image::early::landed(name, &data);
+    }
 
     result
 }

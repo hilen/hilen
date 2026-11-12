@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 use std::{convert::Infallible, path::Path};
 
 use anyhow::Result;
-use log::error;
 
 use crate::{
     deps::{
@@ -248,12 +247,7 @@ impl ResourceLoader for Image {
         let data = data
             .as_ref()
             .map(Vec::as_slice)
-            .inspect_err(|err| {
-                error!(
-                    "Failed to read image file: {}. Error: {err} Returning default image",
-                    path.display()
-                );
-            })
+            .inspect_err(|err| missing_file(path, err))
             .unwrap_or(MISSING_IMAGE_DATA);
 
         Self::load_data(data, path.display())
@@ -321,6 +315,21 @@ impl ResourceLoader for Image {
 /// asset group, and `image/early.rs` puts it in then.
 #[cfg(not_wasm)]
 const MISSING_IMAGE_DATA: &[u8] = DEFAULT_IMAGE_DATA;
+
+#[cfg(not_wasm)]
+fn missing_file(path: &Path, err: &impl std::fmt::Display) {
+    log::error!(
+        "Failed to read image file: {}. Error: {err} Returning default image",
+        path.display()
+    );
+}
+
+/// A browser has no file to read, the file comes with an asset group or
+/// `image/early.rs` logs an error for it.
+#[cfg(wasm)]
+fn missing_file(path: &Path, err: &impl std::fmt::Display) {
+    log::debug!("No file yet for image {}: {err}", path.display());
+}
 #[cfg(wasm)]
 const MISSING_IMAGE_DATA: &[u8] = WAITING_IMAGE_DATA;
 
