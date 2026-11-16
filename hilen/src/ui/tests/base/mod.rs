@@ -29,7 +29,6 @@ mod sample_count_switch;
 mod screen_orientation;
 mod script_wrap;
 mod second_window;
-mod shot_of_still_page;
 /// Typing goes through the screen keyboard on a phone, a field takes
 /// injected chars on desktop only.
 #[cfg(desktop)]

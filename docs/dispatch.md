@@ -25,7 +25,8 @@ work must use `on_main` or `from_main` before triggering a UI event.
 - `from_main(action)` — same, but blocks the calling thread and returns the result.
   On a multithread tokio worker it uses `block_in_place`, so a blocked worker hands its queued
   tasks to other workers and does not starve the runtime.
-- `after(delay, action)` — run a closure on main after a delay.
+- `after(delay, action)` — run a closure on main after a delay. On a page its timer runs
+  on the main thread also when a worker calls it, a worker that blocks never runs a task.
 - `wait_async(future)` — run a future on tokio and block until it finishes.
   Panics when called on the main thread: the future may need `from_main`, which needs the frame
   loop, which the blocked main thread cannot run. That is a guaranteed deadlock.

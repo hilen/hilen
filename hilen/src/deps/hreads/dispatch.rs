@@ -127,6 +127,15 @@ pub(crate) fn on_main_later(action: impl FnOnce() + Send + 'static) {
 }
 
 pub fn after(delay: f32, action: impl FnOnce() + Send + 'static) {
+    // A task of a page runs on the thread that spawned it. A worker that then
+    // blocks, like the tests waiting for a frame record that only this timer
+    // ends, never runs it, and `Inspect frames` hung in every browser. The main
+    // thread of a page never blocks, so the timer runs there.
+    #[cfg(wasm)]
+    if !crate::deps::hreads::is_main_thread() {
+        on_main(move || after(delay, action));
+        return;
+    }
     crate::deps::hreads::spawn(async move {
         crate::deps::hreads::sleep(delay).await;
         CALLBACKS.lock().push(Box::new(action));
