@@ -89,6 +89,7 @@ impl UIDrawer {
                 .into_iter()
                 .map(|room| Room {
                     width: room.width * scale,
+                    reach: (room.reach.0 * scale, room.reach.1 * scale),
                     ..room
                 })
                 .collect(),
@@ -389,8 +390,7 @@ impl UIDrawer {
                 TextAlignment::Center => frame.x() + (frame.width() - line.width) / 2.0,
                 TextAlignment::Right => frame.max_x() - inset - line.width,
             };
-            let count: f32 = index.lossy_convert();
-            let baseline = top + layout.ascent + count * layout.line_height;
+            let baseline = top + layout.ascent + layout.line_top(index);
 
             for (ranges, (position, thickness)) in
                 [(&underlined, layout.underline), (&struck, layout.strikeout)]

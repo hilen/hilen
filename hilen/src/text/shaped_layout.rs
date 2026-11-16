@@ -44,6 +44,12 @@ pub(crate) struct Room {
     pub width: f32,
     /// The glyph drawn there, `None` for empty room.
     pub glyph: Option<u16>,
+    /// How far the view over the room reaches above and below the
+    /// baseline, in the unit of `width`, both positive. A line whose box
+    /// is too small for it grows by the difference, only that line, the
+    /// way a line box of a browser grows for a tall inline block. An
+    /// inline formula with a fraction overlapped the lines next to it.
+    pub reach: (f32, f32),
 }
 
 /// How a label shapes a text, what `Font::measure` and `Font::text_layout`
@@ -136,6 +142,8 @@ impl Hash for ShapedLayout<'_> {
             room.range.hash(state);
             room.width.to_bits().hash(state);
             room.glyph.hash(state);
+            room.reach.0.to_bits().hash(state);
+            room.reach.1.to_bits().hash(state);
         }
     }
 }
@@ -200,6 +208,9 @@ struct ShapedLine {
     start:  usize,
     end:    usize,
     glyphs: Vec<ShapedGlyph>,
+    /// The highest `Room::reach` above and below the baseline of the
+    /// rooms on the line.
+    reach:  (f32, f32),
 }
 
 /// One wrapped piece of a line. `end` is where its text stops, before
@@ -507,10 +518,12 @@ impl ShapedLayout<'_> {
 
             for chunk in chunks {
                 let start = chunk.glyphs.first().map_or(offset, |g| g.cluster);
+                let reach = self.reach_of(&chunk.glyphs);
                 lines.push(ShapedLine {
                     start,
                     end: chunk.end.unwrap_or(line_end),
                     glyphs: chunk.glyphs,
+                    reach,
                 });
             }
 
@@ -518,6 +531,46 @@ impl ShapedLayout<'_> {
         }
 
         lines
+    }
+
+    /// The highest reach of the rooms among `glyphs`. A room is 1 glyph
+    /// at the first byte of its range, see `make_rooms`.
+    fn reach_of(&self, glyphs: &[ShapedGlyph]) -> (f32, f32) {
+        let mut reach = (0.0_f32, 0.0_f32);
+        for room in &self.params.rooms {
+            if glyphs.iter().any(|glyph| glyph.cluster == room.range.start) {
+                reach = (reach.0.max(room.reach.0), reach.1.max(room.reach.1));
+            }
+        }
+        reach
+    }
+
+    /// From the top of a line box down to its baseline.
+    fn rise<S: ScaleFont<F>, F: AbGlyphFont>(&self, scaled: &S) -> f32 {
+        self.params.line_height.map_or(scaled.ascent(), |height| {
+            (height - (scaled.ascent() - scaled.descent())) / 2.0 + scaled.ascent()
+        })
+    }
+
+    /// How much each line grows above and below its box, so the rooms on
+    /// it fit. The box of the last line ends where `text_height` ends
+    /// it, under the descent of the font with no line gap.
+    fn growth<S: ScaleFont<F>, F: AbGlyphFont>(&self, scaled: &S, lines: &[ShapedLine]) -> Vec<(f32, f32)> {
+        let rise = self.rise(scaled);
+        let pitch = self.line_pitch(scaled);
+        let last = lines.len().saturating_sub(1);
+        lines
+            .iter()
+            .enumerate()
+            .map(|(index, line)| {
+                let below = if index == last && self.params.line_height.is_none() {
+                    -scaled.descent()
+                } else {
+                    pitch - rise
+                };
+                ((line.reach.0 - rise).max(0.0), (line.reach.1 - below).max(0.0))
+            })
+            .collect()
     }
 
     /// The baseline pitch: the custom line box when one is set, the
@@ -528,11 +581,14 @@ impl ShapedLayout<'_> {
             .unwrap_or_else(|| scaled.ascent() - scaled.descent() + scaled.line_gap())
     }
 
+    /// The baseline of the first line without its growth. `grown` is the
+    /// growth of all lines together, a centered text is that much taller.
     fn first_baseline<S: ScaleFont<F>, F: AbGlyphFont>(
         &self,
         scaled: &S,
         screen_y: f32,
         line_count: usize,
+        grown: f32,
     ) -> f32 {
         let count: f32 = line_count.lossy_convert();
 
@@ -544,12 +600,12 @@ impl ShapedLayout<'_> {
             return match self.params.v_align {
                 #[cfg(feature = "gpu")]
                 VerticalAlign::Top => screen_y + first,
-                VerticalAlign::Center => screen_y - count * line_height / 2.0 + first,
+                VerticalAlign::Center => screen_y - f32::midpoint(count * line_height, grown) + first,
             };
         }
 
         let line_height = scaled.ascent() - scaled.descent() + scaled.line_gap();
-        let total_height = count * line_height - scaled.line_gap();
+        let total_height = count * line_height - scaled.line_gap() + grown;
 
         match self.params.v_align {
             #[cfg(feature = "gpu")]
@@ -573,16 +629,16 @@ impl ShapedLayout<'_> {
         let lines = self.shape_text(text, sources, bound_w);
 
         let line_height = self.line_pitch(&scaled);
-        let mut baseline = self.first_baseline(&scaled, screen.1, lines.len());
+        let growth = self.growth(&scaled, &lines);
+        let grown = growth.iter().map(|(above, below)| above + below).sum();
+        let mut baseline = self.first_baseline(&scaled, screen.1, lines.len(), grown);
         let fits = self.params.box_chars != BoxChars::Glyphs;
-        // From the top of a line box down to its baseline.
-        let rise = self.params.line_height.map_or(scaled.ascent(), |height| {
-            (height - (scaled.ascent() - scaled.descent())) / 2.0 + scaled.ascent()
-        });
+        let rise = self.rise(&scaled);
 
         let mut result = vec![];
 
-        for (line_index, line) in lines.into_iter().enumerate() {
+        for ((line_index, line), (above, below)) in lines.into_iter().enumerate().zip(growth) {
+            baseline += above;
             let line_width: f32 = line.glyphs.iter().map(|g| g.x_advance).sum();
 
             let mut x = match self.params.h_align {
@@ -610,7 +666,7 @@ impl ShapedLayout<'_> {
                 x += glyph.x_advance;
             }
 
-            baseline += line_height;
+            baseline += line_height + below;
         }
 
         result
@@ -687,10 +743,13 @@ impl ShapedLayout<'_> {
     pub(crate) fn text_height(&self, scale: PxScale, text: &str, bound_w: f32) -> f32 {
         let scaled = self.params.base.ab().as_scaled(scale);
         let sources = self.sources(scale);
-        let lines = self.shape_text(text, &sources, bound_w).len();
+        let shaped = self.shape_text(text, &sources, bound_w);
+        let lines = shaped.len();
+        let growth = self.growth(&scaled, &shaped);
+        let grown: f32 = growth.iter().map(|(above, below)| above + below).sum();
 
         let pitch = self.line_pitch(&scaled);
-        let first = self.first_baseline(&scaled, 0.0, lines);
+        let first = self.first_baseline(&scaled, 0.0, lines, grown);
         let mut last = first;
         for _ in 1..lines {
             last += pitch;
@@ -704,10 +763,13 @@ impl ShapedLayout<'_> {
 
         // With a custom line box the glyphs of the last line give way to
         // one box, which makes the height the count of boxes.
-        match self.params.line_height {
-            Some(line_height) => glyphs - scale.y + line_height,
-            None => glyphs,
-        }
+        // The growth goes on top, so a text with no tall room keeps its
+        // height to the last bit.
+        grown
+            + match self.params.line_height {
+                Some(line_height) => glyphs - scale.y + line_height,
+                None => glyphs,
+            }
     }
 
     /// Lines and caret positions of `text` at the base font's `scale`.
@@ -715,11 +777,16 @@ impl ShapedLayout<'_> {
         let base = self.params.base;
         let scaled = base.ab().as_scaled(scale);
         let sources = self.sources(scale);
+        let pitch = self.line_pitch(&scaled);
 
-        let lines = self
-            .shape_text(text, &sources, bound_w)
+        let shaped = self.shape_text(text, &sources, bound_w);
+        let growth = self.growth(&scaled, &shaped);
+        let mut grown_before = 0.0;
+        let lines = shaped
             .into_iter()
-            .map(|line| {
+            .zip(growth)
+            .enumerate()
+            .map(|(index, (line, grow))| {
                 let mut boundaries = vec![];
                 let mut x = 0.0;
                 for glyph in &line.glyphs {
@@ -729,12 +796,17 @@ impl ShapedLayout<'_> {
                     x += glyph.x_advance;
                 }
                 boundaries.push((line.end, x));
-                TextLine {
+                let row: f32 = index.lossy_convert();
+                let line = TextLine {
                     start: line.start,
                     end: line.end,
                     boundaries,
                     width: x,
-                }
+                    top: row * pitch + grown_before,
+                    grow,
+                };
+                grown_before += grow.0 + grow.1;
+                line
             })
             .collect();
 
@@ -764,7 +836,7 @@ impl ShapedLayout<'_> {
             lines,
             ascent: scaled.ascent(),
             descent: scaled.descent(),
-            line_height: self.line_pitch(&scaled),
+            line_height: pitch,
             underline,
             strikeout,
         }

@@ -4,6 +4,7 @@ use linkify::{LinkFinder, LinkKind};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
 use super::{
+    box_table::real_tables,
     link_host::outside_host,
     model::{Block, Face, Item, Kind, Link, Marker, Span, Style, Styled},
 };
@@ -29,6 +30,7 @@ pub(crate) fn parse_lines(text: &str, keeps_line_breaks: bool, copy_rooms: bool)
             keeps_line_breaks,
             copy_rooms,
             hosts_but: None,
+            box_tables: false,
         },
     )
 }
@@ -45,6 +47,9 @@ pub(crate) struct Reading<'a> {
     /// names the host of the app itself, whose links show none, and is
     /// empty for an app with no site.
     pub hosts_but:         Option<&'a str>,
+    /// A code block or a paragraph that is a table drawn with box chars
+    /// becomes a table, see `MarkdownBoxTables::Table`.
+    pub box_tables:        bool,
 }
 
 /// GitHub flavored markdown as blocks, read the way `reading` says.
@@ -63,7 +68,12 @@ pub(crate) fn read(text: &str, reading: Reading) -> Vec<Block> {
     for event in TextMergeStream::new(Parser::new_ext(text, options)) {
         builder.event(event);
     }
-    builder.finish()
+    let blocks = builder.finish();
+    if reading.box_tables {
+        real_tables(blocks)
+    } else {
+        blocks
+    }
 }
 
 /// How many quotes and lists can stand inside each other. The view lays a

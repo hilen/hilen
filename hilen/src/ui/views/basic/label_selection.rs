@@ -6,7 +6,7 @@
 use std::ops::Range;
 
 #[cfg(feature = "gpu")]
-use crate::gm::{LossyConvert, color::Color, flat::Rect};
+use crate::gm::{color::Color, flat::Rect};
 use crate::{
     deps::refs::weak_from_ref,
     gm::flat::Point,
@@ -147,7 +147,7 @@ impl Label {
     pub(crate) fn selection_rects(&self, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
         let drawn = self.display_text(self.width());
         let layout = self.text_layout_for(drawn);
-        self.range_rects(drawn, &layout, range, goes_on)
+        self.range_rects(drawn, &layout, range, goes_on, true)
     }
 
     /// The rects behind every background run of the label, each with
@@ -169,7 +169,7 @@ impl Label {
             .map_or(0.0, |height| (height - (layout.ascent - layout.descent)) / 2.0);
         runs.iter()
             .flat_map(|run| {
-                self.range_rects(drawn, &layout, run.range.clone(), false)
+                self.range_rects(drawn, &layout, run.range.clone(), false, false)
                     .into_iter()
                     .map(|rect| {
                         let boxed = Rect::new(rect.x(), rect.y() - above, rect.width(), rect.height());
@@ -182,7 +182,14 @@ impl Label {
     /// One rect per line of `range` of the full text, on a `layout` of
     /// the text as it is `drawn`.
     #[cfg(feature = "gpu")]
-    fn range_rects(&self, drawn: &str, layout: &TextLayout, range: Range<usize>, goes_on: bool) -> Vec<Rect> {
+    fn range_rects(
+        &self,
+        drawn: &str,
+        layout: &TextLayout,
+        range: Range<usize>,
+        goes_on: bool,
+        whole_box: bool,
+    ) -> Vec<Rect> {
         let cut = Cut::of(&self.text, drawn);
         let start = cut.drawn_byte(drawn.len(), range.start);
         let end = cut.drawn_byte(drawn.len(), range.end);
@@ -214,12 +221,18 @@ impl Label {
                 continue;
             }
 
-            let row: f32 = index.lossy_convert();
+            // A selection fills the whole box of a line that grew for a
+            // tall room, a background only the row of its text.
+            let (y, height) = if whole_box {
+                (layout.line_box_top(index), layout.line_box_height(index))
+            } else {
+                (layout.line_top(index), layout.line_height)
+            };
             rects.push(Rect::new(
                 self.line_left(layout, index) + from,
-                top + row * layout.line_height,
+                top + y,
                 width,
-                layout.line_height,
+                height,
             ));
         }
 

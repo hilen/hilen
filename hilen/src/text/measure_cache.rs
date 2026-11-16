@@ -17,6 +17,10 @@ const SWEEP_EVERY: Duration = Duration::from_secs(1);
 /// Everything `Font::measure` depends on. Float bits stand in for the
 /// floats themselves, which are not `Eq`. Runs are keyed by font name
 /// and byte range, the two parts of a run that change the result.
+/// A room as a key: its range, its width, its glyph and its reach, the
+/// numbers as bits.
+pub(crate) type RoomKey = (usize, usize, u32, Option<u16>, (u32, u32));
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MeasureKey {
     pub text:        String,
@@ -27,7 +31,7 @@ pub(crate) struct MeasureKey {
     pub grid:        Option<u32>,
     pub break_words: bool,
     pub runs:        Vec<(String, usize, usize)>,
-    pub rooms:       Vec<(usize, usize, u32, Option<u16>)>,
+    pub rooms:       Vec<RoomKey>,
 }
 
 impl MeasureKey {
@@ -55,7 +59,15 @@ impl MeasureKey {
             rooms:       shaping
                 .rooms
                 .iter()
-                .map(|room| (room.range.start, room.range.end, room.width.to_bits(), room.glyph))
+                .map(|room| {
+                    (
+                        room.range.start,
+                        room.range.end,
+                        room.width.to_bits(),
+                        room.glyph,
+                        (room.reach.0.to_bits(), room.reach.1.to_bits()),
+                    )
+                })
                 .collect(),
         })
     }

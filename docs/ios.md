@@ -182,6 +182,16 @@ through a delegate that objc2 makes at run time.
   call is marked deprecated and would be a warning.
 - Apple TV has no picker, both calls answer `None` there.
 
+`Paths::take_photo` opens the same `UIImagePickerController` on its camera source,
+the camera screen of iOS. It needs `NSCameraUsageDescription`, which the build writes
+from `usage` of `[camera]` in `hilen.toml`. iOS stops an app that opens the camera
+with none. The camera screen asks for the camera itself. A photo of the camera has no
+file, so it is the JPEG of the image at quality 0.9. A PNG of it was many times bigger
+and drops the turn the phone was held at, which the JPEG keeps in its EXIF orientation.
+`Paths::can_take_photo` is false in the simulator, which has no camera, and in an app
+with no usage text, so an app shows a camera button only where it opens. The Android
+and the desktop screens are an entry of [roadmap.md](roadmap.md).
+
 `Paths::pick_images` opens `PHPickerViewController` from iOS 14, in
 `picker/ios_photos.rs`, with `selectionLimit` and the images filter. objc2 binds the
 controller only on macOS, so it is made by name with `msg_send!`, and a missing class

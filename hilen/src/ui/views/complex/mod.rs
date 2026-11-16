@@ -40,7 +40,9 @@ pub use image_crop::{CropShape, ImageCropPrompt, ImageCropRequest, ImageCropView
 pub use image_viewer::{ImageViewer, ImageViewerPage, ImageViewerRequest};
 pub use log_view::{LogData, LogLine, LogStyle, LogView};
 pub(crate) use markdown::COPY_ROOM;
-pub use markdown::{MarkdownFonts, MarkdownLinkHosts, MarkdownListMarkers, MarkdownStyle, MarkdownView};
+pub use markdown::{
+    MarkdownBoxTables, MarkdownFonts, MarkdownLinkHosts, MarkdownListMarkers, MarkdownStyle, MarkdownView,
+};
 #[cfg(feature = "math")]
 pub use math::MathView;
 pub use number_view::*;

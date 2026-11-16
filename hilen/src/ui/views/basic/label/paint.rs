@@ -50,7 +50,10 @@ impl Label {
                 key.hash(&font.name);
             }
             if let Some(width) = run.style.room {
-                key.hash(&width.to_bits()).hash(&run.style.glyph);
+                key.hash(&width.to_bits())
+                    .hash(&run.style.glyph)
+                    .hash(&run.style.reach.0.to_bits())
+                    .hash(&run.style.reach.1.to_bits());
             }
         }
     }

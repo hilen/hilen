@@ -354,7 +354,12 @@ that is bold as a whole. It was measured as nothing and its label got no room.
 item` pins it.
 
 `RunStyle::room(width)` draws its range as nothing, 1 piece `width` points wide
-that never breaks, for a view the owner places over it. `RunStyle::glyph(id, width)`
+that never breaks, for a view the owner places over it. `.reaching(ascent, depth)` says
+how far that view reaches above and below the baseline. A line whose box is too low
+for it grows by the difference, only that line, the way a line box of a browser grows
+for a tall inline block. `TextLayout::line_top` stays the top of the text of a line,
+`line_box_top` and `line_box_height` give its grown box. A text with no tall room
+keeps its layout to the last bit. `RunStyle::glyph(id, width)`
 draws 1 glyph of the label font there, picked by its id, for a glyph no char maps to,
 like a bigger variant of a bracket in a math font. `ShapedLayout::make_rooms` turns
 the glyphs of the range into 1 glyph of that width at its first byte, the way a tab
@@ -412,9 +417,17 @@ in `hilen/src/ui/views/complex/markdown`.
   `height_for_width` lays the text out at a width and gives the height, the way a
   table asks for the height of a cell. A change of the text or its color lays out
   once on the next turn of the main loop, and a change of the width lays out again.
-  A code line longer than the block wraps, a word too long for a line breaks inside it,
-  and a table wider than its room shrinks
-  every column by the same share.
+  A code line longer than the block wraps, a word too long for a line breaks inside it.
+  A table wider than its room is squeezed the way a browser lays out a table, `fit`:
+  the labels of its cells lose their inset and keep a padding of 6, every column gets
+  its widest word, and the rest of the room goes to the columns by how much more
+  their text wants. When even the widest words do not fit, only the widest columns
+  shrink, to 1 width, so a column of short words keeps them whole. A word wider than
+  its cell breaks at the letter that overflows. The widths come from the advances of
+  the glyphs, `Label::widest_line`. The ink a measure gives is a little less, and a
+  cell that wide wrapped its last letter. Until 2026-11-16 every column shrank by the
+  same share, and a column of short words broke them letter by letter.
+  `Markdown box table` pins it.
 - A tap on a link is mapped to a byte through `Label::text_layout_for`, fires
   `link_tapped` with the address and opens it with `open_url`. `set_opens_links(false)`
   leaves only the event, for an app with links of its own and for a test.
@@ -434,6 +447,16 @@ in `hilen/src/ui/views/complex/markdown`.
   that is the default. A table drawn with box chars and no code fence around it
   stands only with it, and with a mono font. A view reads it when it gets its text.
   `Markdown line breaks` pins it.
+- `box_tables` of the style says how a table drawn with box chars is shown.
+  `MarkdownBoxTables::Typed`, the default, draws it as typed. On a screen narrower
+  than the table every line of it wraps and the table falls apart, it did on a phone.
+  `MarkdownBoxTables::Table` makes it a real table, `box_table.rs`: a code block, or
+  a paragraph whose line breaks stay, whose every line is a rule of box chars or a
+  line of cells between bars, with a rule first and last, at least 2 columns and the
+  same count of cells on every line. Its first row is the head, the lines of 1 row
+  join into its cells, and a paragraph keeps the marks of its text in them. A box
+  around a note or a drawing stays as typed. A view reads it when it gets its text.
+  `Markdown box table` pins it.
 - `text_inset` of the style is the space between the left edge of the view and its
   text, a paragraph, a heading, a list and a quote, and where the box of a code
   block starts. `None` by default, the default inset of a `Label`. `Some(0.0)` puts
@@ -500,7 +523,11 @@ code is in `hilen/src/ui/views/complex/math`.
   text brush and not through `DrawingView` paths for the same reason, a path with
   1 sample lost the thin strokes of a big sum sign.
 - An inline formula is its LaTeX source in `$` signs in the text of its label, with
-  a room run as wide as the formula. After the layout `place_maths` puts a
+  a room run as wide as the formula that reaches as high and as low as the formula,
+  plus a tenth of its size, the 1 pt `\lineskip` of TeX at 10 pt. So a line with a
+  fraction grows and the fraction covers no other line. Until 2026-11-15 it covered
+  the lines next to it. A list marker goes down with a first line that grew. After
+  the layout `place_maths` puts a
   `MathView` over every room, its baseline on the baseline of the line. So a copy of
   a selection gives the source.
 - A formula is as big as the text when the x heights of the 2 fonts match, at most
@@ -510,7 +537,8 @@ code is in `hilen/src/ui/views/complex/math`.
   percent at most. A formula takes the color of the text around it.
 
 `Markdown math` pins the placement of inline and display formulas and the broken
-one, `Markdown math style` the 2 style values.
+one, `Markdown math style` the 2 style values, `Markdown tall formula` the lines that
+grow for fractions in a list and in a wrapped paragraph.
 
 ## Selectable text
 

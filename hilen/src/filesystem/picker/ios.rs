@@ -1,6 +1,8 @@
 //! `UIImagePickerController` on its default source, the photo library. It
 //! runs out of process, so it needs no photo permission, and it exists on
 //! every iOS the engine runs on. `PHPickerViewController` starts at iOS 14.
+//! The same controller on the camera source is the camera screen of iOS,
+//! which needs the camera usage text and asks for the camera itself.
 
 use std::{cell::RefCell, fs::read, path::Path};
 
@@ -11,11 +13,11 @@ use objc2::{
     rc::Retained,
     runtime::{AnyObject, NSObject, NSObjectProtocol},
 };
-use objc2_foundation::{NSDictionary, NSURL};
+use objc2_foundation::{NSBundle, NSDictionary, NSString, NSURL};
 use objc2_ui_kit::{
     UIImage, UIImagePickerController, UIImagePickerControllerDelegate, UIImagePickerControllerImageURL,
-    UIImagePickerControllerInfoKey, UIImagePickerControllerOriginalImage, UINavigationControllerDelegate,
-    UIViewController,
+    UIImagePickerControllerInfoKey, UIImagePickerControllerOriginalImage, UIImagePickerControllerSourceType,
+    UINavigationControllerDelegate, UIViewController,
 };
 use tokio::sync::oneshot::{Sender, channel};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -27,6 +29,21 @@ use crate::{
 };
 
 type Answer = Sender<Option<PickedFile>>;
+
+/// The text iOS shows when it asks for the camera. With none it stops the
+/// app at the first open of the camera screen.
+const CAMERA_USAGE_KEY: &str = "NSCameraUsageDescription";
+
+/// The quality of the JPEG a photo of the camera is saved as, what the
+/// camera app of iOS keeps too.
+const CAMERA_JPEG_QUALITY: f64 = 0.9;
+
+/// Where the picker takes the image from.
+#[derive(Clone, Copy, Debug)]
+enum Source {
+    Library,
+    Camera,
+}
 
 /// The picker holds its delegate weakly, so the last one lives here until
 /// the next pick replaces it.
@@ -40,11 +57,37 @@ pub(crate) fn stop() {
 }
 
 pub(super) async fn pick() -> Option<PickedFile> {
+    open(Source::Library).await
+}
+
+pub(super) async fn take_photo() -> Option<PickedFile> {
+    open(Source::Camera).await
+}
+
+/// Whether the camera screen opens: the device has a camera, which the
+/// simulator has not, and the app has the usage text. Asked on the main
+/// thread, anywhere else it says false.
+pub(super) fn can_take_photo() -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        warn!("whether the camera screen opens is asked off the main thread");
+        return false;
+    };
+    UIImagePickerController::isSourceTypeAvailable(UIImagePickerControllerSourceType::Camera, mtm)
+        && has_camera_usage_text()
+}
+
+fn has_camera_usage_text() -> bool {
+    NSBundle::mainBundle()
+        .objectForInfoDictionaryKey(&NSString::from_str(CAMERA_USAGE_KEY))
+        .is_some()
+}
+
+async fn open(source: Source) -> Option<PickedFile> {
     let (answer, answered) = channel();
 
     on_main(move || {
-        if let Err(err) = present(answer) {
-            error!("image picker failed to open: {err}");
+        if let Err(err) = present(source, answer) {
+            error!("image picker on {source:?} failed to open: {err}");
         }
     });
 
@@ -52,11 +95,22 @@ pub(super) async fn pick() -> Option<PickedFile> {
     answered.await.ok().flatten()
 }
 
-fn present(answer: Answer) -> Result<()> {
+fn present(source: Source, answer: Answer) -> Result<()> {
     let mtm = MainThreadMarker::new().ok_or_else(|| anyhow!("not on the main thread"))?;
     let root = root_view_controller()?;
 
     let picker = UIImagePickerController::new(mtm);
+    if let Source::Camera = source {
+        if !UIImagePickerController::isSourceTypeAvailable(UIImagePickerControllerSourceType::Camera, mtm) {
+            return Err(anyhow!("the device has no camera"));
+        }
+        if !has_camera_usage_text() {
+            return Err(anyhow!(
+                "the app has no {CAMERA_USAGE_KEY}, set usage of [camera] in hilen.toml"
+            ));
+        }
+        picker.setSourceType(UIImagePickerControllerSourceType::Camera);
+    }
 
     let delegate = PickerDelegate::new(mtm, answer);
     let object: &AnyObject = &delegate;
@@ -84,8 +138,14 @@ pub(super) fn root_view_controller() -> Result<Retained<UIViewController>> {
 }
 
 /// The file iOS writes for the pick, a JPEG export of the photo. A photo
-/// with no such file still has the image itself, sent as a PNG.
-fn picked_file(info: &NSDictionary<UIImagePickerControllerInfoKey, AnyObject>) -> Result<PickedFile> {
+/// with no such file still has the image itself, sent as a PNG. A photo of
+/// the camera has no file and is a JPEG: a PNG of it was many times
+/// bigger, and a PNG drops the turn the phone was held at, which the JPEG
+/// keeps in its EXIF orientation.
+fn picked_file(
+    info: &NSDictionary<UIImagePickerControllerInfoKey, AnyObject>,
+    camera: bool,
+) -> Result<PickedFile> {
     if let Some(path) = info
         .objectForKey(unsafe { UIImagePickerControllerImageURL })
         .and_then(|url| url.downcast::<NSURL>().ok())
@@ -104,6 +164,16 @@ fn picked_file(info: &NSDictionary<UIImagePickerControllerInfoKey, AnyObject>) -
         .objectForKey(unsafe { UIImagePickerControllerOriginalImage })
         .and_then(|image| image.downcast::<UIImage>().ok())
         .ok_or_else(|| anyhow!("the pick has neither a file nor an image"))?;
+    if camera {
+        let jpeg = image
+            .jpeg_representation(CAMERA_JPEG_QUALITY)
+            .ok_or_else(|| anyhow!("the photo has no JPEG form"))?;
+        return Ok(PickedFile::new(
+            "photo.jpeg".to_string(),
+            Some("image/jpeg".to_string()),
+            jpeg.to_vec(),
+        ));
+    }
     let png = image.png_representation().ok_or_else(|| anyhow!("the image has no PNG form"))?;
 
     Ok(PickedFile::new(
@@ -137,7 +207,8 @@ define_class!(
             picker: &UIImagePickerController,
             info: &NSDictionary<UIImagePickerControllerInfoKey, AnyObject>,
         ) {
-            let picked = picked_file(info)
+            let camera = picker.sourceType() == UIImagePickerControllerSourceType::Camera;
+            let picked = picked_file(info, camera)
                 .inspect_err(|err| error!("picked image failed to read: {err}"))
                 .ok();
             self.close(picker, picked);

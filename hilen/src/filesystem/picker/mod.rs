@@ -246,6 +246,50 @@ impl Paths {
         picked
     }
 
+    /// Whether `take_photo` opens a camera screen here. True on an iPhone
+    /// and an iPad with a camera and the `[camera] usage` text in
+    /// `hilen.toml`, and in a browser, false in the iOS simulator, on a
+    /// desktop, on tvOS and on Android for now. Ask it on the main thread,
+    /// to show a camera button only where it works.
+    pub fn can_take_photo() -> bool {
+        has_camera_screen()
+    }
+
+    /// Opens the camera screen of the system, lets the user take 1 photo
+    /// and reads it. On iOS the camera of `UIImagePickerController`, which
+    /// asks for the camera itself, and the photo is a JPEG that keeps the
+    /// turn the phone was held at in its EXIF orientation. In a browser the
+    /// file chooser with `capture`, which a phone browser opens as its
+    /// camera and a desktop browser as its chooser. `None` when the user
+    /// cancels, where `can_take_photo` is false, and when the read fails,
+    /// a failure is logged. Await it inside `spawn`, then go back with
+    /// `on_main`. In a browser start it from a tap, like `pick_image`.
+    pub async fn take_photo(title: &str) -> Option<PickedFile> {
+        debug!("camera screen opens: {title}");
+
+        #[cfg(all(ios, not(tvos)))]
+        let photo = ios::take_photo().await;
+        #[cfg(wasm)]
+        let photo = web::take_photo().await;
+        #[cfg(not(any(all(ios, not(tvos)), wasm)))]
+        let photo = {
+            log::warn!("no camera screen on this platform, see Paths::can_take_photo");
+            std::future::ready(None::<PickedFile>).await
+        };
+
+        match &photo {
+            Some(file) => info!(
+                "photo taken: {} {} {} bytes",
+                file.name,
+                file.content_type,
+                file.bytes.len()
+            ),
+            None => debug!("camera screen closed with no photo"),
+        }
+
+        photo
+    }
+
     /// Lets the user pick up to `max` images at once, 0 for no limit, and
     /// reads them in the order they were picked. Empty when the user
     /// cancels. An image that fails to read is logged and left out. iOS 12
@@ -275,6 +319,21 @@ impl Paths {
     }
 }
 
+#[cfg(all(ios, not(tvos)))]
+fn has_camera_screen() -> bool {
+    ios::can_take_photo()
+}
+
+#[cfg(wasm)]
+fn has_camera_screen() -> bool {
+    true
+}
+
+#[cfg(not(any(all(ios, not(tvos)), wasm)))]
+fn has_camera_screen() -> bool {
+    false
+}
+
 /// A desktop dialog, a browser and an older Android take no limit.
 fn at_most(mut picked: Vec<PickedFile>, max: usize) -> Vec<PickedFile> {
     if max > 0 && picked.len() > max {
@@ -287,6 +346,13 @@ fn at_most(mut picked: Vec<PickedFile>, max: usize) -> Vec<PickedFile> {
 #[cfg(test)]
 mod tests {
     use super::{PickedFile, accept_of, at_most, clean_extensions, folder_of, mime_types};
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_desktop_has_no_camera_screen_and_answers_at_once() {
+        assert!(!crate::filesystem::Paths::can_take_photo());
+        assert!(pollster::block_on(crate::filesystem::Paths::take_photo("photo")).is_none());
+    }
 
     const NONE: [String; 0] = [];
 

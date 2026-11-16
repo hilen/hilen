@@ -42,6 +42,9 @@ pub struct MarkdownStyle {
     /// terminal shows a text. Markdown itself reads it as a space, and that
     /// is the default. A view reads it when it gets its text.
     pub keeps_line_breaks: bool,
+    /// How a table drawn with box chars is shown, as typed by default. A
+    /// view reads it when it gets its text.
+    pub box_tables:        MarkdownBoxTables,
     /// The points between the left edge of the view and its text: a
     /// paragraph, a heading, a list, a quote and the box of a code block.
     /// The default inset of a `Label` when not set. The code inside its
@@ -115,6 +118,23 @@ pub enum MarkdownListMarkers {
     Inline,
 }
 
+/// How a table drawn with box chars like `│` and `─` is shown, in a code
+/// block or in a paragraph whose line breaks stay.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownBoxTables {
+    /// As typed, every char where it was written, the way a terminal shows
+    /// it. On a screen narrower than the table every line of it wraps and
+    /// the table falls apart.
+    #[default]
+    Typed,
+    /// As a real table, like a markdown table: its lines are drawn as lines
+    /// and the text of a cell wraps inside its column, so it holds at any
+    /// width. Only a block whose every line is a line of the table counts,
+    /// with at least 2 columns and the same count of cells on every line.
+    /// Its first row is the head.
+    Table,
+}
+
 /// The 6 fonts a markdown text is drawn with.
 #[derive(Clone, Copy)]
 pub struct MarkdownFonts {
@@ -159,6 +179,7 @@ impl MarkdownStyle {
         link_hosts:        MarkdownLinkHosts::Hidden,
         line_height:       None,
         keeps_line_breaks: false,
+        box_tables:        MarkdownBoxTables::Typed,
         text_inset:        None,
         text:              dynamic("#1a1d24", "#eceff4"),
         dim_text:          dynamic("#6b7280", "#9aa3b2"),

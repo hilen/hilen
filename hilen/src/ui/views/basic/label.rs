@@ -550,6 +550,19 @@ impl Label {
         self.font().text_layout(text, self.text_size, bound, self.shaping(text))
     }
 
+    /// The widest line of the text wrapped in `width`, by the advances of
+    /// its glyphs, which the wrap counts, and with the margin the frame
+    /// needs. `size_for_width` gives the ink of the glyphs, a little less,
+    /// and a frame that wide wrapped its last letter.
+    pub(crate) fn widest_line(&self, width: f32) -> f32 {
+        let margin = self.alignment_margin();
+        let bound = self.multiline.then_some(width - margin);
+        let layout = self
+            .font()
+            .text_layout(&self.text, self.text_size, bound, self.shaping(&self.text));
+        layout.lines.iter().map(|line| line.width).fold(0.0, f32::max) + margin
+    }
+
     /// Where the drawn text starts inside the frame, in points: the inset
     /// for left and right aligned text, 0 for centered text. Public so a
     /// view can lay a selection highlight over the text.

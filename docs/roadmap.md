@@ -19,6 +19,20 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
+## The camera screen on Android and on a desktop
+
+- Current: `Paths::take_photo(title)` opens the camera screen of iOS,
+  `UIImagePickerController` on its camera source, and in a browser the file chooser
+  with `capture`. On Android, on a desktop and on tvOS it answers `None` at once and
+  `Paths::can_take_photo()` says false, see `hilen/src/filesystem/picker/mod.rs`.
+- Needed: on Android the camera app of the system through
+  `MediaStore.ACTION_IMAGE_CAPTURE`, with a file of the app as `EXTRA_OUTPUT`, so the
+  photo comes at full size and not as the small picture of the result. On a desktop
+  a capture view on the `camera` feature: the live picture in a `CameraView`, a button
+  that takes the photo and a way back. Both answer through `take_photo`, and
+  `can_take_photo` turns true where a camera is found.
+- Blocks: a camera button of any app on Android and on a desktop.
+
 ## Siri intents, the proof on a phone
 
 - Current: the `intents` feature and the `[[intent]]` tables of `hilen-mobile` make

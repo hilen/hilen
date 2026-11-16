@@ -12,6 +12,12 @@ pub(crate) struct TextLine {
     /// per cluster.
     pub boundaries: Vec<(usize, f32)>,
     pub width:      f32,
+    /// The top of the box of the line from the top of the text, the
+    /// growth of the lines before it included.
+    pub top:        f32,
+    /// How much the box of the line grew above and below for a tall room
+    /// on it, see `Room::reach`. Its text sits under the growth above.
+    pub grow:       (f32, f32),
 }
 
 /// Where the glyphs of a text land, in the pixels of the size it was
@@ -33,7 +39,8 @@ pub struct TextLayout {
 impl TextLayout {
     pub(crate) fn total_height(&self) -> f32 {
         let count: f32 = self.lines.len().lossy_convert();
-        count * self.line_height - (self.line_height - self.ascent + self.descent)
+        let grown: f32 = self.lines.iter().map(|line| line.grow.0 + line.grow.1).sum();
+        count * self.line_height - (self.line_height - self.ascent + self.descent) + grown
     }
 
     /// The line that shows `byte`, the last line for a byte past the text.
@@ -54,17 +61,46 @@ impl TextLayout {
         line.start..line.end
     }
 
-    /// The top of `line` from the top of the text.
+    /// The top of the text of `line` from the top of the text. Its glyphs
+    /// sit in 1 line height from there, also in a line whose box grew for
+    /// a tall room, see `line_box_top`.
     pub fn line_top(&self, line: usize) -> f32 {
-        let line: f32 = line.lossy_convert();
-        line * self.line_height
+        self.lines.get(line).map_or_else(
+            || {
+                let line: f32 = line.lossy_convert();
+                line * self.line_height
+            },
+            |line| line.top + line.grow.0,
+        )
+    }
+
+    /// The top of the box of `line` from the top of the text, above the
+    /// growth of the line for a tall room. The same as `line_top` for a
+    /// line that did not grow.
+    pub fn line_box_top(&self, line: usize) -> f32 {
+        self.lines.get(line).map_or_else(|| self.line_top(line), |line| line.top)
+    }
+
+    /// The height of the box of `line`, the line height and the growth
+    /// for a tall room on it.
+    pub fn line_box_height(&self, line: usize) -> f32 {
+        self.line_height + self.lines.get(line).map_or(0.0, |line| line.grow.0 + line.grow.1)
+    }
+
+    /// The bottom of the box of the last line from the top of the text.
+    pub fn lines_bottom(&self) -> f32 {
+        let last = self.lines.len().saturating_sub(1);
+        if self.lines.is_empty() {
+            0.0
+        } else {
+            self.line_box_top(last) + self.line_box_height(last)
+        }
     }
 
     /// The line at `y` from the top of the text, clamped to the first
     /// and last line so a position outside the text lands on an edge.
     pub fn line_at_y(&self, y: f32) -> usize {
-        let line: usize = (y / self.line_height).max(0.0).lossy_convert();
-        line.min(self.lines.len().saturating_sub(1))
+        self.lines.iter().rposition(|line| line.top <= y).unwrap_or(0)
     }
 
     /// The caret position closest to `x` on `line`.
@@ -106,14 +142,16 @@ mod tests {
     use super::*;
 
     fn layout() -> TextLayout {
-        let line = |start, end, width| TextLine {
+        let line = |start, end, width, top| TextLine {
             start,
             end,
             boundaries: vec![(start, 0.0), (end, width)],
             width,
+            top,
+            grow: (0.0, 0.0),
         };
         TextLayout {
-            lines:       vec![line(0, 5, 50.0), line(5, 9, 40.0)],
+            lines:       vec![line(0, 5, 50.0, 0.0), line(5, 9, 40.0, 12.0)],
             ascent:      8.0,
             descent:     2.0,
             line_height: 12.0,
@@ -140,5 +178,25 @@ mod tests {
         assert_eq!(layout.line_at_y(11.9), 0);
         assert_eq!(layout.line_at_y(12.0), 1);
         assert_eq!(layout.line_at_y(100.0), 1);
+    }
+
+    #[test]
+    fn a_grown_line_moves_the_lines_under_it() {
+        let mut layout = layout();
+        // The first line grew 5 above and 3 below for a tall room, so
+        // the second one starts 8 lower.
+        layout.lines[0].grow = (5.0, 3.0);
+        layout.lines[1].top = 20.0;
+        let near = |a: f32, b: f32| (a - b).abs() < f32::EPSILON;
+
+        assert!(near(layout.line_box_top(0), 0.0));
+        assert!(near(layout.line_top(0), 5.0));
+        assert!(near(layout.line_box_height(0), 20.0));
+        assert!(near(layout.line_top(1), 20.0));
+        assert!(near(layout.line_box_height(1), 12.0));
+        assert!(near(layout.lines_bottom(), 32.0));
+        assert!(near(layout.total_height(), 26.0));
+        assert_eq!(layout.line_at_y(19.9), 0);
+        assert_eq!(layout.line_at_y(20.0), 1);
     }
 }

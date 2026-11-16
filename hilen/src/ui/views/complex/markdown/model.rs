@@ -56,6 +56,37 @@ impl Styled {
             links: Vec::new(),
         }
     }
+
+    /// The pieces of this text at `ranges`, joined by a space, with the
+    /// parts of the spans and the links that fall in them.
+    pub fn pieces(&self, ranges: &[Range<usize>]) -> Self {
+        let mut out = Self::default();
+        for range in ranges {
+            if !out.text.is_empty() {
+                out.text.push(' ');
+            }
+            let base = out.text.len();
+            out.text.push_str(&self.text[range.clone()]);
+            let moved = |part: &Range<usize>| {
+                let start = part.start.max(range.start);
+                let end = part.end.min(range.end);
+                (start < end).then(|| base + start - range.start..base + end - range.start)
+            };
+            out.spans.extend(self.spans.iter().filter_map(|span| {
+                moved(&span.range).map(|range| Span {
+                    range,
+                    style: span.style,
+                })
+            }));
+            out.links.extend(self.links.iter().filter_map(|link| {
+                moved(&link.range).map(|range| Link {
+                    range,
+                    url: link.url.clone(),
+                })
+            }));
+        }
+        out
+    }
 }
 
 /// The byte range of a link and where it goes.

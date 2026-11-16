@@ -84,6 +84,33 @@ pub(super) async fn pick(accept: &str) -> Option<PickedFile> {
     }
 }
 
+/// The chooser with `capture`, a phone browser opens its camera for it.
+/// The back camera, the one a photo of a thing is taken with.
+pub(super) async fn take_photo() -> Option<PickedFile> {
+    let chosen = match file_input("image/*") {
+        Ok(input) => match input.set_attribute("capture", "environment") {
+            Ok(()) => Ok(input),
+            Err(err) => Err(anyhow!("failed to ask for the camera: {err:?}")),
+        },
+        Err(err) => Err(err),
+    };
+    let input = match chosen {
+        Ok(input) => input,
+        Err(err) => {
+            error!("camera chooser failed: {err}");
+            return None;
+        }
+    };
+    if !answered(&input).await {
+        return None;
+    }
+    let file = input.files().and_then(|files| files.get(0))?;
+    read(&file)
+        .await
+        .inspect_err(|err| error!("photo {} failed to read: {err}", file.name()))
+        .ok()
+}
+
 /// `accept` as in `pick`, every file with `folder` false. With it the chooser
 /// asks for a folder and gives each file in it.
 pub(super) async fn pick_many(accept: &str, folder: bool) -> Vec<PickedFile> {

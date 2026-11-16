@@ -13,7 +13,10 @@ use crate::ui::{
     views::complex::math::{self, MathBox},
 };
 use crate::{
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Own, Weak},
+        vents::Event,
+    },
     gm::{
         LossyConvert,
         color::WHITE,
@@ -21,9 +24,9 @@ use crate::{
     },
     system::{Clipboard, open_url},
     ui::{
-        Container, DrawingView, ImageView, Label, MarkdownLinkHosts, MarkdownListMarkers, MarkdownStyle,
-        RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages, VerticalAlignment,
-        ViewCallbacks, ViewFrame, ViewSubviews,
+        Container, DrawingView, ImageView, Label, MarkdownBoxTables, MarkdownLinkHosts, MarkdownListMarkers,
+        MarkdownStyle, RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages,
+        VerticalAlignment, ViewCallbacks, ViewFrame, ViewSubviews,
         view::{ViewData, ViewTouch},
         views::complex::markdown::{
             link_host::own_host,
@@ -41,6 +44,8 @@ const QUOTE_BAR: f32 = 3.0;
 const MARKER_GAP: f32 = 6.0;
 const TASK_BOX: f32 = 14.0;
 const CELL_PAD_X: f32 = 10.0;
+/// The padding of a cell in a table squeezed into a narrow column.
+const SQUEEZED_PAD_X: f32 = 6.0;
 const CELL_PAD_Y: f32 = 6.0;
 const MIN_COLUMN: f32 = 48.0;
 /// No text is laid out narrower, a deep list in a small window still
@@ -171,6 +176,7 @@ impl MarkdownView {
                 keeps_line_breaks: style.keeps_line_breaks,
                 copy_rooms:        self.copy_buttons,
                 hosts_but:         (style.link_hosts == MarkdownLinkHosts::Outside).then_some(own.as_str()),
+                box_tables:        style.box_tables == MarkdownBoxTables::Table,
             },
         );
         self.changed();
@@ -303,10 +309,9 @@ impl MarkdownView {
                 Some(height) => (height - (layout.ascent - layout.descent)) / 2.0 + layout.ascent,
                 None => layout.ascent,
             };
-            let top: f32 = line.lossy_convert();
             let frame = *label.frame();
             let x = frame.origin.x + label.text_inset() + layout.x_on_line(line, start);
-            let y = frame.origin.y + top * layout.line_height + rise - laid.ascent;
+            let y = frame.origin.y + layout.line_top(line) + rise - laid.ascent;
             let view = self.add_view::<MathView>();
             view.set_color(color);
             view.set_font(crate::text::Font::math_darkened(
@@ -329,10 +334,9 @@ impl MarkdownView {
             let left = layout.x_on_line(line, room);
             let right = layout.x_on_line(line, room + COPY_ROOM.len_utf8());
             let size = ((right - left).min(layout.line_height) * ICON_SHARE).round();
-            let top: f32 = line.lossy_convert();
             let frame = *label.frame();
             let x = frame.origin.x + label.text_inset() + left + (right - left - size) / 2.0;
-            let y = frame.origin.y + top * layout.line_height + (layout.line_height - size) / 2.0;
+            let y = frame.origin.y + layout.line_top(line) + (layout.line_height - size) / 2.0;
             self.copy_button(style, url, (x, y, size, size));
         }
     }
@@ -526,9 +530,15 @@ impl MarkdownView {
             .filter(|span| span.style.kind == Kind::Math)
             .filter_map(|span| {
                 let source = text.text[span.range.clone()].trim_matches('$').to_string();
-                let width = math_width(&source, size)?;
+                let (width, ascent, depth) = math_extent(&source, size)?;
                 self.pending_maths.push((label, span.range.start, source, size, color));
-                Some((span.range.clone(), RunStyle::room(width)))
+                // The gap TeX keeps between a tall line and its neighbor,
+                // its 1 pt `\lineskip` at 10 pt.
+                let gap = size * 0.1;
+                Some((
+                    span.range.clone(),
+                    RunStyle::room(width).reaching(ascent + gap, depth + gap),
+                ))
             })
             .collect()
     }
@@ -666,19 +676,37 @@ impl MarkdownView {
                 space: column.space,
             };
             if let Some(marker) = marker {
-                marker.set_frame((column.x, top, marker_width, line_height));
                 self.note_text(marker);
+            }
+            let first = self.subviews().len();
+            self.blocks(style, &item.blocks, inner, y);
+            // A first line that grew for a tall formula has its text lower,
+            // the marker goes down with it.
+            let grown = self.first_line_growth(first, top);
+            if let Some(marker) = marker {
+                marker.set_frame((column.x, top + grown, marker_width, line_height));
             }
             if let Marker::Task(done) = item.marker {
                 // In the middle of the first line when the style sets the
                 // pitch.
                 let drop = style.line_height.map_or(1.0, |height| ((height - TASK_BOX) / 2.0).round());
-                self.task_box(style, done, column.x + margin, top + drop);
+                self.task_box(style, done, column.x + margin, top + grown + drop);
             }
-            self.blocks(style, &item.blocks, inner, y);
             // An item with no text still takes its line.
             *y = y.max(top + line_height);
         }
+    }
+
+    /// How much the first line of the text at `top` grew above its box,
+    /// for the first label made since the subview at index `first`.
+    fn first_line_growth(self: Weak<Self>, first: usize, top: f32) -> f32 {
+        self.subviews()
+            .get(first..)
+            .unwrap_or_default()
+            .iter()
+            .find_map(Own::downcast_weak::<Label>)
+            .filter(|label| (label.frame().origin.y - top).abs() < 0.5)
+            .map_or(0.0, |label| label.text_layout_for(label.text()).line_top(0))
     }
 
     fn task_box(self: Weak<Self>, style: &MarkdownStyle, done: bool, x: f32, y: f32) {
@@ -746,17 +774,21 @@ impl MarkdownView {
                 *width = width.max(natural);
             }
         }
-        // A table wider than its room gives every column the same share
-        // less, the texts wrap inside their cells.
         let total: f32 = widths.iter().sum();
         let left = column.x + column.margin;
         let room = (column.width - column.margin * 2.0).max(MIN_WIDTH);
-        if total > room {
-            for width in &mut widths {
-                *width *= room / total;
-            }
+        let pad = if total > room {
+            widths = squeezed(&cells, columns, room);
+            SQUEEZED_PAD_X
+        } else {
+            CELL_PAD_X
+        };
+        // A word wider than its cell, in a narrow column of a phone,
+        // breaks at the letter that overflows and stays inside its cell.
+        for label in cells.iter().flatten() {
+            label.set_breaks_long_words(true);
         }
-        let total = total.min(room);
+        let total: f32 = widths.iter().sum();
         let min_row = style.body_line();
 
         let top = *y;
@@ -764,7 +796,7 @@ impl MarkdownView {
             let height = row
                 .iter()
                 .zip(&widths)
-                .map(|(label, width)| label.size_for_width(width - CELL_PAD_X * 2.0).height)
+                .map(|(label, width)| label.size_for_width(width - pad * 2.0).height)
                 .fold(min_row, f32::max)
                 + CELL_PAD_Y * 2.0;
             if index == 0 {
@@ -775,9 +807,9 @@ impl MarkdownView {
             let mut x = left;
             for (label, width) in row.iter().zip(&widths) {
                 label.set_frame((
-                    x + CELL_PAD_X,
+                    x + pad,
                     *y + CELL_PAD_Y,
-                    width - CELL_PAD_X * 2.0,
+                    width - pad * 2.0,
                     height - CELL_PAD_Y * 2.0,
                 ));
                 x += width;
@@ -855,8 +887,7 @@ fn text_runs(style: &MarkdownStyle, text: &Styled, heading: bool) -> Vec<(Range<
                         font,
                         underline: run.link,
                         strikethrough: run.strike,
-                        room: None,
-                        glyph: None,
+                        ..RunStyle::default()
                     },
                 )
             })
@@ -895,14 +926,79 @@ fn math_box(source: &str, size: f32, display: bool) -> Option<MathBox> {
     math::lay_out(&nodes, size, display).ok()
 }
 
+/// The width of an inline formula and how far it reaches above and below
+/// its baseline.
 #[cfg(feature = "math")]
-fn math_width(source: &str, size: f32) -> Option<f32> {
-    math_box(source, size, false).map(|laid| laid.width)
+fn math_extent(source: &str, size: f32) -> Option<(f32, f32, f32)> {
+    math_box(source, size, false).map(|laid| (laid.width, laid.ascent, laid.depth))
 }
 
 #[cfg(not(feature = "math"))]
-fn math_width(_source: &str, _size: f32) -> Option<f32> {
+fn math_extent(_source: &str, _size: f32) -> Option<(f32, f32, f32)> {
     None
+}
+
+/// The widths of the columns of a table wider than its `room`. The labels
+/// of its cells lose their inset, and a cell keeps only `SQUEEZED_PAD_X`
+/// on each side.
+/// Then every column gets its widest word, and what is left of the room
+/// goes to the columns by how much more their text wants, see `fit`.
+/// Every column used to shrink by the same share, and a column of short
+/// words broke them letter by letter next to a column of long texts.
+fn squeezed(cells: &[Vec<Weak<Label>>], columns: usize, room: f32) -> Vec<f32> {
+    let mut least = vec![0.0_f32; columns];
+    let mut most = vec![0.0_f32; columns];
+    for row in cells {
+        for ((least, most), label) in least.iter_mut().zip(most.iter_mut()).zip(row) {
+            label.set_text_inset(0);
+            // Wrapped at every space, the widest line is the widest word.
+            *least = least.max(label.widest_line(1.0).ceil() + SQUEEZED_PAD_X * 2.0);
+            *most = most.max(label.widest_line(UNBOUND).ceil() + SQUEEZED_PAD_X * 2.0);
+        }
+    }
+    fit(&least, &most, room)
+}
+
+/// Column widths for `room` from the least width of each column and the
+/// most it wants, the way a browser lays out a table. All at their most
+/// when that fits. Else every column gets its least and the rest of the
+/// room by how much more it wants. When even the least do not fit, the
+/// widest columns shrink to 1 width that fills the room, so a column of
+/// short words keeps them whole and only the longest words break.
+fn fit(least: &[f32], most: &[f32], room: f32) -> Vec<f32> {
+    let floor: f32 = least.iter().sum();
+    let top: f32 = most.iter().sum();
+    if top <= room {
+        return most.to_vec();
+    }
+    if floor >= room {
+        let cap = cap_for(least, room);
+        return least.iter().map(|width| width.min(cap)).collect();
+    }
+    let wanted = top - floor;
+    least
+        .iter()
+        .zip(most)
+        .map(|(least, most)| least + (most - least) * (room - floor) / wanted)
+        .collect()
+}
+
+/// The width no column may pass so that `widths`, each cut to it, fill
+/// `room`.
+fn cap_for(widths: &[f32], room: f32) -> f32 {
+    let mut sorted = widths.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    let mut left = room;
+    let mut count = sorted.len();
+    for width in sorted {
+        let count_f: f32 = count.lossy_convert();
+        if width * count_f > left {
+            return left / count_f;
+        }
+        left -= width;
+        count -= 1;
+    }
+    f32::MAX
 }
 
 /// The range of text drawn at a point of a label, and the rect of its
@@ -910,16 +1006,14 @@ fn math_width(_source: &str, _size: f32) -> Option<f32> {
 /// wraps is hit on every line it has a piece on.
 fn piece_at(label: Weak<Label>, ranges: &[Range<usize>], point: Point) -> Option<(usize, Rect)> {
     let layout = label.text_layout_for(label.text());
-    let count: f32 = layout.line_count().lossy_convert();
     // The label draws its text from its top edge.
-    if point.y < 0.0 || point.y >= count * layout.line_height {
+    if point.y < 0.0 || point.y >= layout.lines_bottom() {
         return None;
     }
     let line = layout.line_at_y(point.y);
     let on_line = layout.line_range(line);
     let inset = label.text_inset();
     let x = point.x - inset;
-    let top: f32 = line.lossy_convert();
     ranges.iter().enumerate().find_map(|(index, range)| {
         let start = range.start.max(on_line.start);
         let end = range.end.min(on_line.end);
@@ -933,11 +1027,39 @@ fn piece_at(label: Weak<Label>, ranges: &[Range<usize>], point: Point) -> Option
                 index,
                 Rect::new(
                     inset + left,
-                    top * layout.line_height,
+                    layout.line_box_top(line),
                     right - left,
-                    layout.line_height,
+                    layout.line_box_height(line),
                 ),
             )
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit;
+
+    fn near(widths: &[f32], wanted: &[f32]) -> bool {
+        widths.len() == wanted.len() && widths.iter().zip(wanted).all(|(a, b)| (a - b).abs() < 0.01)
+    }
+
+    #[test]
+    fn a_table_that_fits_gets_its_widths() {
+        assert!(near(&fit(&[20.0, 30.0], &[40.0, 50.0], 100.0), &[40.0, 50.0]));
+    }
+
+    #[test]
+    fn the_room_left_goes_to_the_columns_that_want_more() {
+        // A column of short words keeps them whole, the long text wraps.
+        let widths = fit(&[40.0, 60.0], &[40.0, 260.0], 200.0);
+        assert!(near(&widths, &[40.0, 160.0]), "{widths:?}");
+    }
+
+    #[test]
+    fn words_wider_than_the_room_break_only_in_the_widest_columns() {
+        // The short word keeps its column, the 2 wide ones share the rest.
+        let widths = fit(&[40.0, 100.0, 300.0], &[40.0, 200.0, 600.0], 200.0);
+        assert!(near(&widths, &[40.0, 80.0, 80.0]), "{widths:?}");
+    }
 }

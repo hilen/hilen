@@ -23,6 +23,11 @@ pub struct RunStyle {
     /// room, picked by its id. For a glyph no char maps to, like a bigger
     /// variant of a bracket in a math font.
     pub glyph:         Option<u16>,
+    /// With `room`, how far the view over it reaches above and below the
+    /// baseline, in points, both positive. A line too low for it grows by
+    /// the difference, only that line, so a tall view like a fraction
+    /// never covers the lines next to it.
+    pub reach:         (f32, f32),
 }
 
 impl RunStyle {
@@ -63,6 +68,13 @@ impl RunStyle {
             glyph: Some(id),
             ..Self::default()
         }
+    }
+
+    /// The room holds a view that reaches `ascent` points above the
+    /// baseline and `depth` below it, see `reach`.
+    pub fn reaching(mut self, ascent: f32, depth: f32) -> Self {
+        self.reach = (ascent.max(0.0), depth.max(0.0));
+        self
     }
 
     pub fn underlined(mut self) -> Self {
@@ -169,6 +181,7 @@ impl Label {
                     range,
                     width,
                     glyph: run.style.glyph,
+                    reach: run.style.reach,
                 })
             })
             .collect()
