@@ -21,7 +21,12 @@ use std::{
 use anyhow::{Context, Result};
 use image::{ExtendedColorType, ImageEncoder, RgbImage, codecs::qoi::QoiEncoder, imageops::thumbnail};
 use log::{debug, error, info, warn};
+#[cfg(not_wasm)]
 use parking_lot::{Condvar, Mutex, MutexGuard};
+// The main thread of a page shares `STORE` with the packer workers, and a
+// contended parking lock there traps on `Atomics.wait`, see docs/dispatch.md.
+#[cfg(wasm)]
+use spin::{Mutex, MutexGuard};
 use web_time::Instant;
 
 #[cfg(wasm)]
@@ -45,12 +50,16 @@ const MAX_WAITING: u32 = 16;
 
 /// How long the app waits for the packers before it gives a frame up. It
 /// is the only way a frame is lost, and it means the packers are dead.
-#[cfg(not_wasm)]
 const STALL_WAIT: Duration = Duration::from_secs(2);
-/// A browser does not let its main thread block, so a page gives a frame up
-/// at once when the line of the packers is full.
+
+/// How long `wait_for_room` blocks the main thread.
+#[cfg(not_wasm)]
+const ROOM_WAIT: Duration = STALL_WAIT;
+/// A browser does not let its main thread block. A page waits before the
+/// frame instead, see `page_waits`, so a line still full here is a wait
+/// that ran out.
 #[cfg(wasm)]
-const STALL_WAIT: Duration = Duration::ZERO;
+const ROOM_WAIT: Duration = Duration::ZERO;
 
 /// How long a reader of a stopped record waits for its last frames.
 const PACK_WAIT: Duration = Duration::from_secs(10);
@@ -119,6 +128,10 @@ struct Live {
     /// The frame that is drawn and not on its way to the screen yet.
     #[cfg(apple)]
     drawing:  Option<u32>,
+    /// Since when a page draws no frame because the line of the packers
+    /// is full, see `page_waits`.
+    #[cfg(wasm)]
+    held:     Option<Instant>,
     raw:      Sender<RawFrame>,
     /// The hash of the layout kept last.
     layout:   Option<u64>,
@@ -161,6 +174,7 @@ static STORE: Mutex<Store> = Mutex::new(Store {
     layouts:  Vec::new(),
 });
 
+#[cfg(not_wasm)]
 static PACKED: Condvar = Condvar::new();
 
 /// A frame that was asked from the GPU and is not with a packer yet. A
@@ -211,6 +225,7 @@ pub(crate) fn start(pictures: bool) -> Result<(), String> {
         store.record
     };
     // A packer of the old record that waits for room goes on.
+    #[cfg(not_wasm)]
     PACKED.notify_all();
 
     let (raw, frames) = channel();
@@ -230,6 +245,8 @@ pub(crate) fn start(pictures: bool) -> Result<(), String> {
         due: now,
         #[cfg(apple)]
         drawing: None,
+        #[cfg(wasm)]
+        held: None,
         raw,
         layout: None,
         pictures,
@@ -268,7 +285,8 @@ pub(crate) fn running() -> bool {
 pub(crate) fn kept() -> Result<Kept, String> {
     let mut store = STORE.lock();
     if !store.running && store.waiting > 0 {
-        let timed_out = wait_while_for(&mut store, |store| store.waiting > 0, PACK_WAIT);
+        let timed_out;
+        (store, timed_out) = wait_while_for(store, |store| store.waiting > 0, PACK_WAIT);
         if timed_out {
             return Err(format!(
                 "{} frames of the record are still not packed",
@@ -332,6 +350,23 @@ pub(crate) fn pace() {
     }
 }
 
+/// Asked by the frame loop of a page before each frame. A page cannot block
+/// to wait for the packers, so while their line is full it draws no frame,
+/// and the next refresh asks again. True when this frame is held. After
+/// `STALL_WAIT` it draws again and gives its frames up, the packers are
+/// dead then.
+#[cfg(wasm)]
+pub(crate) fn page_waits() -> bool {
+    let Some(live) = LIVE.get_mut().as_mut() else {
+        return false;
+    };
+    if !live.pictures || STORE.lock().waiting < MAX_WAITING {
+        return false;
+    }
+    let since = *live.held.get_or_insert_with(Instant::now);
+    since.elapsed() < STALL_WAIT
+}
+
 /// Called once per drawn frame, the reader of a running record for it.
 pub(crate) fn take_frame() -> Option<FrameReader> {
     // A paused app draws a frame again for a screenshot, that is no new
@@ -353,7 +388,11 @@ pub(crate) fn take_frame() -> Option<FrameReader> {
         return None;
     }
 
-    let stalled = wait_for_room(record, index)?;
+    #[cfg(not_wasm)]
+    let held = false;
+    #[cfg(wasm)]
+    let held = live.held.take().is_some();
+    let stalled = wait_for_room(record, index, held)?;
 
     // After the wait, the frame is drawn now.
     let ms = live.started.elapsed().as_secs_f32() * 1000.0;
@@ -394,18 +433,22 @@ pub(crate) fn take_frame() -> Option<FrameReader> {
 
 /// Takes a place in the line of the packers for a frame. With a full
 /// line the app waits here, the engine rule against a blocked main thread
-/// is broken on purpose: a record that loses frames tells nothing. The
-/// answer is whether it waited, `None` when the frame is given up.
-fn wait_for_room(record: u64, index: u32) -> Option<bool> {
+/// is broken on purpose: a record that loses frames tells nothing. A page
+/// waited before the frame, `held` says so. The answer is whether the app
+/// waited, `None` when the frame is given up.
+fn wait_for_room(record: u64, index: u32, held: bool) -> Option<bool> {
     let mut store = STORE.lock();
     store.drawn += 1;
-    let stalled = store.waiting >= MAX_WAITING;
-    if stalled {
+    let full = store.waiting >= MAX_WAITING;
+    if held || full {
         store.stalled += 1;
-        let timed_out = wait_while_for(
-            &mut store,
+    }
+    if full {
+        let timed_out;
+        (store, timed_out) = wait_while_for(
+            store,
             |store| store.record == record && store.waiting >= MAX_WAITING,
-            STALL_WAIT,
+            ROOM_WAIT,
         );
         if timed_out {
             if store.skipped == 0 {
@@ -416,7 +459,7 @@ fn wait_for_room(record: u64, index: u32) -> Option<bool> {
         }
     }
     store.waiting += 1;
-    Some(stalled)
+    Some(held || full)
 }
 
 /// Keeps the view tree of the frame `index` when it differs from the one
@@ -452,11 +495,12 @@ fn note_layout(live: &mut Live, index: u32) {
 /// the time ran out.
 #[cfg(not_wasm)]
 fn wait_while_for(
-    store: &mut MutexGuard<'_, Store>,
+    mut store: MutexGuard<'static, Store>,
     condition: impl FnMut(&mut Store) -> bool,
     timeout: Duration,
-) -> bool {
-    PACKED.wait_while_for(store, condition, timeout).timed_out()
+) -> (MutexGuard<'static, Store>, bool) {
+    let timed_out = PACKED.wait_while_for(&mut store, condition, timeout).timed_out();
+    (store, timed_out)
 }
 
 /// The same for a page. The timed wait of `parking_lot` reads the clock of
@@ -465,19 +509,21 @@ fn wait_while_for(
 /// sleeps, the main thread of a page must not.
 #[cfg(wasm)]
 fn wait_while_for(
-    store: &mut MutexGuard<'_, Store>,
+    mut store: MutexGuard<'static, Store>,
     mut condition: impl FnMut(&mut Store) -> bool,
     timeout: Duration,
-) -> bool {
+) -> (MutexGuard<'static, Store>, bool) {
     const POLL: Duration = Duration::from_millis(5);
     let started = Instant::now();
-    while condition(store) {
+    while condition(&mut store) {
         if started.elapsed() >= timeout {
-            return true;
+            return (store, true);
         }
-        MutexGuard::unlocked(store, || std::thread::sleep(POLL));
+        drop(store);
+        std::thread::sleep(POLL);
+        store = STORE.lock();
     }
-    false
+    (store, false)
 }
 
 /// The size of a picture with 1 pixel per point.
@@ -586,6 +632,7 @@ fn packed(record: u64, frame: Option<PackedFrame>) {
         }
         store.skipped += 1;
     }
+    #[cfg(not_wasm)]
     PACKED.notify_all();
 }
 

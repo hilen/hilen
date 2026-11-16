@@ -21,6 +21,20 @@ pub(crate) fn pace() {
     }
 }
 
+/// A page draws no frame while a record waits for its packers, see
+/// `frame_ring::page_waits`.
+#[cfg(all(wasm, feature = "gpu"))]
+pub(crate) fn page_waits() -> bool {
+    #[cfg(feature = "inspect")]
+    {
+        frame_ring::page_waits()
+    }
+    #[cfg(not(feature = "inspect"))]
+    {
+        false
+    }
+}
+
 /// Before the update of a frame that is not held.
 #[cfg(feature = "gpu")]
 pub(crate) fn begin_frame() {

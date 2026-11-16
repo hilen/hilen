@@ -194,9 +194,11 @@ in `Inspect record`.
 - No frame is left out. Every frame the app draws is taken, the answer says how many
   the app drew and how many the record took. When the app cannot pack the frames
   fast enough it waits for its packers, and the frame it drew after the wait is
-  marked `stalled`, so the record shows its own cost. A frame is lost only when the
-  packers do not answer for 2 seconds, `skipped` counts those and is 0 in a healthy
-  app.
+  marked `stalled`, so the record shows its own cost. A page cannot block, so it
+  draws no frame while the line of the packers is full, `page_waits` in
+  `frame_ring.rs`, and the frame it draws after that is the `stalled` one. A frame is
+  lost only when the packers do not answer for 2 seconds, `skipped` counts those and
+  is 0 in a healthy app.
 - A frame is kept at 1 pixel per point, so half the size on a screen with scale 2,
   with no loss, in the QOI format.
 - A frame has 2 times. `ms` is when the engine drew it. `shown_ms` is when it

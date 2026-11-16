@@ -124,19 +124,36 @@ fn card_x(layout: &LayoutRepr) -> Result<f32> {
 /// moves through them.
 fn check_layouts(stopped: &RecordRepr) -> Result<()> {
     let layouts = layouts()?;
-    // The frames after the card arrived change nothing. A page at 25 frames
-    // a second has 3 of them in its 56, which alone broke the share.
+    // The share counts the frames from the first move of the card to the
+    // last. The frames after the card arrived change nothing, a page at 25
+    // frames a second has 3 of them in its 56. The frames before the first
+    // move change nothing either: the slide starts by a call to the main
+    // thread after the record started, and its first step leaves the card
+    // where it stood. A page that waits for its packers draws 20 frames, and
+    // its standing frames 1 and 2 alone broke the share.
+    let moved = layouts.get(1).map_or(0, |layout| layout.index);
     let last = layouts.last().map_or(0, |layout| layout.index);
-    let moving = stopped.frames.iter().filter(|frame| frame.index <= last).count();
+    let moving: Vec<u32> = stopped
+        .frames
+        .iter()
+        .map(|frame| frame.index)
+        .filter(|index| (moved..=last).contains(index))
+        .collect();
+    let changes = layouts.len().saturating_sub(1);
     info!(
-        "Layouts of the slide: {} for {moving} frames up to the last change of {}",
-        layouts.len(),
+        "Layouts of the slide: {changes} changes for {} frames from frame {moved} to {last} of {}",
+        moving.len(),
         stopped.frames.len()
     );
+    let same: Vec<u32> = moving
+        .iter()
+        .copied()
+        .filter(|index| layouts.iter().all(|layout| layout.index != *index))
+        .collect();
     ensure!(
-        layouts.len() * 10 >= moving * 9,
-        "Only {} layouts for {moving} frames of a moving card",
-        layouts.len()
+        changes * 10 >= moving.len() * 9,
+        "Only {changes} layouts for {} frames of a moving card, no new layout in frames {same:?}",
+        moving.len()
     );
     ensure!(
         layouts

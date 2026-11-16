@@ -158,6 +158,11 @@ impl AppHandler {
 
         #[cfg(not_wasm)]
         frame_control::pace();
+        #[cfg(wasm)]
+        if frame_control::page_waits() {
+            crate::window::request_frame();
+            return;
+        }
         frame_control::begin_frame();
         frame_time::begin_frame();
         window.state.update();

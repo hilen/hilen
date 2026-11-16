@@ -189,8 +189,10 @@ flood, which freezes the app. A normal wasm build is single threaded. The browse
 spawns real workers through `spawn_thread`, and they drive the main thread like native
 background threads. Workers may block, the browser main thread must never block on a contended
 lock, `Atomics.wait` traps there. That rule is why the hottest shared locks spin on wasm
-instead of parking: the refs pointer stamp map, the managed asset storages and the hreads
-dispatch queue. A full suite run used to die at Navigation rich exactly this way, a main
+instead of parking: the refs pointer stamp map, the managed asset storages, the hreads
+dispatch queue and the store of a frame record that its packers share, see `frame_ring.rs`.
+With a parking lock there a page in Chrome stopped dead while its record waited for the
+packers. A full suite run used to die at Navigation rich exactly this way, a main
 thread read of the stamp map parked while a worker held it for a write.
 
 The `Animation drives frames` UI test guards the part of this that can be pinned down. It starts
