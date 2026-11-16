@@ -1,5 +1,10 @@
 //! The accounts of one user on 2 devices, against the real routes of
 //! `hilen-server` and a stand in for the app folder of Google Drive.
+//!
+//! A test here sets the 1 folder of `SessionStore` for the whole process,
+//! like the login tests, so it takes their key `on_disk_root` too. With its
+//! own key alone a login test moved the folder in the middle of a test here,
+//! and both found an empty store.
 
 use std::{
     collections::HashMap,
@@ -160,7 +165,7 @@ fn start_device(drive_url: &str) {
 }
 
 #[tokio::test]
-#[serial(google_access_server)]
+#[serial(google_access_server, on_disk_root)]
 async fn linked_accounts_follow_the_main_account_to_another_device() -> Result<()> {
     SessionStore::set_root(temp_dir().join("hilen-google-accounts-test"));
     SecretStore::keep_in_files();
@@ -256,7 +261,7 @@ async fn linked_accounts_follow_the_main_account_to_another_device() -> Result<(
 }
 
 #[tokio::test]
-#[serial(google_access_server)]
+#[serial(google_access_server, on_disk_root)]
 async fn two_files_from_two_devices_become_one_list() -> Result<()> {
     SessionStore::set_root(temp_dir().join("hilen-google-accounts-test"));
     SecretStore::keep_in_files();
@@ -297,7 +302,7 @@ async fn two_files_from_two_devices_become_one_list() -> Result<()> {
 }
 
 #[tokio::test]
-#[serial(google_access_server)]
+#[serial(google_access_server, on_disk_root)]
 async fn app_data_follows_the_main_account_to_another_device() -> Result<()> {
     SessionStore::set_root(temp_dir().join("hilen-google-accounts-test"));
     SecretStore::keep_in_files();

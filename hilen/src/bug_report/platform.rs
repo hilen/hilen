@@ -636,7 +636,9 @@ mod tests {
             assert!(platform.build.is_some());
             let model = platform.model.expect("a Mac model");
             assert!(model.contains(','), "{model}");
-            assert!(platform.family.expect("a Mac family").starts_with("Mac"));
+            // A Mac in a VM, like a CI runner on Tart, is a VirtualMac2,1.
+            let family = platform.family.expect("a Mac family");
+            assert!(family.starts_with("Mac") || family == "VirtualMac", "{family}");
         }
 
         #[cfg(target_os = "linux")]
