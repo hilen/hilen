@@ -49,7 +49,11 @@ A `Body` also has `angular_velocity` and `set_angular_velocity`, `mass` and `set
 and `set_gravity_scale`. A collider from its shape weighs what its volume gives at a
 density of 1, a few grams for a stone, so a game that wants real pushes sets the mass.
 With a gravity scale of 0 a body floats, and a game moves it by its speed, like a hand:
-it still pushes what it meets and is pushed back.
+it still pushes what it meets and is pushed back. `sleep()` puts a body to sleep: it
+stays where it is, also on a slope, and the ground does not wake it. The touch of a body
+that moves wakes it, and so do a push, a speed or a weld, the way rapier has it. A thing
+a game lays down still starts this way, a round stone on a slope rolls off at once
+otherwise. `is_sleeping()` asks.
 
 `Weld::new(a, b)` holds 2 bodies together as 1 rigid thing, in the pose they have to
 each other at that moment, the grip of a hand on a stone. The 2 do not collide with
@@ -59,7 +63,9 @@ also ends when 1 of the bodies leaves the scene.
 
 `node.contact_with(other)` gives a `Contact` while the 2 nodes touch: the deepest point
 of the touch in the world, the normal from the node toward the other, and the impulse
-of the last step. In `on_collision` it gives the point of the blow. The impulse there
+of the last step. Like `on_collision` it follows rapier and answers from up to 0.02
+before the touch, or sooner for 2 bodies that meet within the step. In `on_collision`
+it gives the point of the blow. The impulse there
 is still 0, the touch only starts in that step, so a game that needs the speed of a
 blow keeps the speeds of the bodies from the step before.
 
@@ -628,6 +634,12 @@ A scene steps by the real time of its frames, measured on `frame_seconds`, at mo
 1/15 s a frame, each frame in `PHYSICS_SUBSTEPS` parts. A fixed step of 1/60 s a frame
 ran the whole scene in slow motion under 60 frames a second. A stepped scene test keeps
 the fixed 1/60 s, so its frames stay exact.
+
+`motion` set to `Motion::Parked` takes the player out of the physics and holds it still,
+a hero that sits down. Its capsule touches nothing, so bodies can lie inside its radius,
+no key, mouse, drift or fall moves it, and the scene leaves the camera to the game,
+which puts it in the head of the seated body. Back to `Motion::Walk`, the capsule
+collides again and the player walks on from where it was.
 
 `motion` set to `Motion::Fly` makes the player fly, a jet or a free camera: no gravity, no jump, no
 snap to the ground and no step up ledges. `w` and `s` move it along its whole

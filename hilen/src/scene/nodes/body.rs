@@ -59,6 +59,20 @@ impl Body {
         self
     }
 
+    /// Puts the body to sleep. It stays where it is, also on a slope, and
+    /// the ground does not wake it. The touch of a body that moves does,
+    /// and so do a push, a speed or a weld. A thing laid down in a scene
+    /// starts still this way.
+    pub fn sleep(&mut self) -> &mut Self {
+        SceneManager::physics().sleep(self.rigid_handle);
+        self
+    }
+
+    /// Whether the body sleeps, see `sleep`.
+    pub fn is_sleeping(&self) -> bool {
+        self.rigid_body().is_sleeping()
+    }
+
     /// How fast motion dies out on its own, per second. Rapier has no
     /// rolling resistance, so a ball on a plane rolls forever without
     /// angular damping.

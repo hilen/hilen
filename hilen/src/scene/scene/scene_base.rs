@@ -13,7 +13,7 @@ use crate::{
         volume::{Ray, Vec3},
     },
     scene::{
-        Camera, DayNightSky, Fog, Grass, GravityWell, Light, Line3, Node, Occluder, Player, Scene,
+        Camera, DayNightSky, Fog, Grass, GravityWell, Light, Line3, Motion, Node, Occluder, Player, Scene,
         SceneManager, Sky, SpaceSky, Sun, TransformHandle, Wind, follow_parent,
         scene::scene_physics::ScenePhysics,
     },
@@ -167,11 +167,14 @@ impl SceneBase {
 
     /// Puts the camera where the player's view wants it: out of its eyes,
     /// or behind it over the shoulder and pulled in front of any wall on
-    /// the way, see `ThirdPerson`.
+    /// the way, see `ThirdPerson`. A parked player leaves it to the game.
     fn follow_player(&mut self) {
         let (Some(player), Some(physics)) = (&self.player, &self.physics) else {
             return;
         };
+        if player.motion == Motion::Parked {
+            return;
+        }
         let (direction, up) = (player.direction(), player.up());
         let position = match &player.third_person {
             None => player.eye(physics),

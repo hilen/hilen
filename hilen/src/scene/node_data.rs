@@ -57,6 +57,10 @@ pub struct NodeData {
     /// The unit mesh of a primitive shape. A model draws its own
     /// meshes, see `Shape3::Model`.
     pub mesh:         Option<Weak<Mesh>>,
+    /// A touch of another node starts, after the step that found it. It
+    /// follows rapier and fires from up to 0.02 before the touch, or
+    /// sooner for 2 bodies that meet within the step, so a fast blow is
+    /// seen before the solver slows it.
     pub on_collision: Event<Weak<dyn Node>>,
     /// A touch that no view took landed on this node, the nearest one
     /// under the finger. Carries the point hit in the world.

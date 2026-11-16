@@ -3,7 +3,8 @@ use std::{cell::RefCell, collections::HashMap};
 use educe::Educe;
 use rapier3d::{
     dynamics::{
-        CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, SoftBodySet,
+        CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, RigidBodyHandle,
+        SoftBodySet,
     },
     geometry::{ColliderHandle, CollisionEvent, NarrowPhase},
     pipeline::PhysicsPipeline,
@@ -31,6 +32,8 @@ pub(crate) struct ScenePhysics {
     pub(crate) gravity: Vec3,
     /// Masses that pull toward their centers on top of `gravity`.
     pub(crate) wells:   Vec<GravityWell>,
+    /// Bodies put to sleep since the last step, see `sleep`.
+    sleep_after_step:   Vec<RigidBodyHandle>,
 
     #[educe(Default = ccd_parameters())]
     pub(crate) integration_parameters: IntegrationParameters,
@@ -81,6 +84,16 @@ impl ScenePhysics {
         }
     }
 
+    /// Puts `body` to sleep, now and once more after the next step. A new
+    /// body asleep was woken by the first contact its step found, a ball
+    /// made at rest on a slope rolled off.
+    pub(crate) fn sleep(&mut self, body: RigidBodyHandle) {
+        if let Some(body) = self.sets.rigid_bodies.get_mut(body) {
+            body.sleep();
+        }
+        self.sleep_after_step.push(body);
+    }
+
     pub fn update_physics(&mut self, nodes: &[Own<dyn Node>], frame_time: f32) {
         self.integration_parameters.dt = frame_time;
         self.pull_by_wells(frame_time);
@@ -100,6 +113,11 @@ impl ScenePhysics {
             &(),
             &self.events.handler,
         );
+        for body in self.sleep_after_step.drain(..) {
+            if let Some(body) = self.sets.rigid_bodies.get_mut(body) {
+                body.sleep();
+            }
+        }
 
         self.handle_collisions(nodes);
     }
@@ -180,7 +198,7 @@ mod test {
     };
 
     use super::*;
-    use crate::gm::LossyConvert;
+    use crate::gm::{LossyConvert, volume::Quat};
 
     const DT: f32 = 1.0 / 240.0;
 
@@ -247,5 +265,60 @@ mod test {
             physics.update_physics(&[], DT);
         }
         assert_eq!(place(&physics, ball), start);
+    }
+
+    /// A slope of 20 degrees under a planet of a well, and a ball made at
+    /// rest on it at `x`, put to sleep at once when `asleep`.
+    fn ball_on_slope(physics: &mut ScenePhysics, x: f32, asleep: bool) -> RigidBodyHandle {
+        let tilt = Quat::from_rotation_x(0.35);
+        let at = tilt * Vec3::new(x, 0.2, 0.0);
+        let (ball, _) = physics.sets.insert(
+            RigidBodyBuilder::dynamic().translation(at).build(),
+            ColliderBuilder::ball(0.1).build(),
+        );
+        if asleep {
+            physics.sleep(ball);
+        }
+        ball
+    }
+
+    // A round stone that a game made a body on a slope rolled off at once.
+    #[test]
+    fn a_sleeping_ball_stays_on_a_slope_until_a_touch_wakes_it() {
+        let tilt = Quat::from_rotation_x(0.35);
+        let mut physics = ScenePhysics {
+            gravity: Vec3::ZERO,
+            wells: vec![GravityWell::with_surface_gravity(
+                Vec3::new(0.0, -1000.0, 0.0),
+                1000.0,
+                9.81,
+            )],
+            ..ScenePhysics::default()
+        };
+        let slab = ColliderBuilder::cuboid(10.0, 0.1, 10.0).rotation(tilt.to_scaled_axis()).build();
+        physics.sets.colliders.insert(slab);
+        let asleep = ball_on_slope(&mut physics, -2.0, true);
+        let awake = ball_on_slope(&mut physics, 2.0, false);
+        let (asleep_at, awake_at) = (place(&physics, asleep), place(&physics, awake));
+        for _ in 0..240 {
+            physics.update_physics(&[], DT);
+        }
+        let stayed = place(&physics, asleep).distance(asleep_at);
+        let rolled = place(&physics, awake).distance(awake_at);
+        assert!(stayed < 1e-3, "the sleeping ball moved {stayed}");
+        assert!(physics.sets.rigid_bodies[asleep].is_sleeping());
+        assert!(rolled > 0.5, "the awake ball rolled only {rolled}");
+
+        let up = tilt * Vec3::Y;
+        let thrown = RigidBodyBuilder::dynamic()
+            .translation(asleep_at + up * 0.6)
+            .linvel(-up * 3.0)
+            .build();
+        physics.sets.insert(thrown, ColliderBuilder::ball(0.1).build());
+        for _ in 0..240 {
+            physics.update_physics(&[], DT);
+        }
+        let moved = place(&physics, asleep).distance(asleep_at);
+        assert!(moved > 0.05, "the ball that was hit moved only {moved}");
     }
 }

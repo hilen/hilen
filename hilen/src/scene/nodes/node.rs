@@ -141,9 +141,11 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
             .insert(weak.collider_handle().unwrap(), weak);
     }
 
-    /// Where this node touches `other` now, `None` when they do not touch
-    /// or 1 of them has no collider. Inside `on_collision` it is the blow
-    /// that started the touch.
+    /// Where this node touches `other` now, `None` when they are apart or
+    /// 1 of them has no collider. Like `on_collision` it follows rapier and
+    /// answers from up to 0.02 before the touch, or sooner for 2 bodies
+    /// that meet within the step. Inside `on_collision` it is the blow that
+    /// started the touch.
     fn contact_with(&self, other: Weak<dyn Node>) -> Option<Contact> {
         SceneManager::physics().contact(self.collider_handle()?, other.collider_handle()?)
     }
