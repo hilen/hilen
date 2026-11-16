@@ -382,10 +382,7 @@ mod test {
     /// The mono font of the engine has wider letters than Roboto.
     #[test]
     fn a_text_in_a_font_file_takes_that_font() {
-        let mono = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/window/text/fonts/RobotoMono.ttf"
-        );
+        let mono = concat!(env!("CARGO_MANIFEST_DIR"), "/src/text/fonts/RobotoMono.ttf");
         let frame = Size::new(640.0, 360.0);
         let plain = VideoOverlay::text("Railroads", WHITE).with_size(0.1);
         let in_mono = plain.clone().with_font_file(mono).expect("the font file reads");

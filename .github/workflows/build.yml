@@ -36,6 +36,12 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
+
       - name: Install quality tools
         uses: taiki-e/install-action@v2
         with:
@@ -69,6 +75,12 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
+
       - name: Install trunk
         uses: taiki-e/install-action@v2
         with:
@@ -98,6 +110,12 @@ jobs:
       - name: Add the NixOS tool folders to PATH
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
+
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
 
       - name: Run UI tests
         run: cargo run -p ui-test -- --headless
@@ -129,6 +147,12 @@ jobs:
       - name: Add the NixOS tool folders to PATH
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
+
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
 
       - uses: oven-sh/setup-bun@v2
 
@@ -175,6 +199,12 @@ jobs:
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
 
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
+
       - name: Setup uv
         uses: astral-sh/setup-uv@v10.3.3
 
@@ -212,6 +242,12 @@ jobs:
       - name: Add the NixOS tool folders to PATH
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
+
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v10.3.3
@@ -257,6 +293,12 @@ jobs:
       - name: Add the NixOS tool folders to PATH
         if: runner.os == 'Linux'
         run: echo "/run/current-system/sw/bin" >> "$GITHUB_PATH"
+
+      # The checkout cleans the main repo only. A venv a container left in the
+      # build submodule links into that container and stops every later uv run.
+      - name: Clean the submodules
+        if: runner.os == 'Linux'
+        run: git submodule foreach --recursive git clean -ffdx
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v10.3.3
