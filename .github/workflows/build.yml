@@ -162,6 +162,9 @@ jobs:
           curl -sfL -b "$RUNNER_TEMP/apple.jar" -o "$dmg" "https://download.developer.apple.com$path"
           xcrun simctl runtime add "$dmg"
           rm "$dmg"
+          # A runtime added here may have no dyld shared cache yet. Built now,
+          # it is not built while the input helper starts.
+          xcrun simctl runtime dyld_shared_cache update --all
           xcrun simctl runtime list
 
       - name: Setup uv

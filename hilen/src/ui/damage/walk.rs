@@ -22,6 +22,10 @@ pub(super) struct Paint {
     key:  u64,
     /// The pixels the view can touch, cut at every clip it is inside.
     rect: Rect<u32>,
+    /// Out of the key. A view added or removed moves the depth of every
+    /// view after it, and a removed mark of 40 by 40 in `Partial frames`
+    /// repainted 95432 pixels for it.
+    z:    f32,
 }
 
 /// By the address of the view. A freed view and a new one at its address
@@ -43,6 +47,10 @@ pub(super) struct Walk<'a> {
     /// what the views hold, a video draws a new picture into its image.
     volatile:    bool,
     frame:       u64,
+    /// The depths before and now of the views that drew the same paint.
+    depths:      Vec<(f32, f32)>,
+    /// The views of those whose depth moved.
+    moved:       Vec<Rect<u32>>,
 }
 
 impl<'a> Walk<'a> {
@@ -63,9 +71,19 @@ impl<'a> Walk<'a> {
             root_frame: *root.frame(),
             volatile: false,
             frame: Window::render_frame(),
+            depths: Vec::new(),
+            moved: Vec::new(),
         };
 
         walk.visit(root);
+
+        // A view moved in depth shows the same pixels while the order of
+        // the views around it stays.
+        if !walk.moved.is_empty() && !same_order(&mut walk.depths) {
+            for rect in walk.moved {
+                walk.regions.add(rect);
+            }
+        }
 
         // A view that is gone leaves its pixels behind.
         for (id, paint) in walk.last {
@@ -131,11 +149,17 @@ impl<'a> Walk<'a> {
         let paint = Paint {
             key:  self.key(view, &frame, scale, opacity, clips),
             rect: paint_rect(view, &frame, scale, self.resolution, self.scissor),
+            z:    view.z_position(),
         };
         let id = std::ptr::from_ref(view).addr();
 
         match self.last.get(&id) {
-            Some(old) if old.key == paint.key && old.rect == paint.rect => {}
+            Some(old) if old.key == paint.key && old.rect == paint.rect => {
+                self.depths.push((old.z, paint.z));
+                if old.z.to_bits() != paint.z.to_bits() {
+                    self.moved.push(paint.rect);
+                }
+            }
             Some(old) => {
                 self.regions.add(old.rect);
                 self.regions.add(paint.rect);
@@ -168,7 +192,6 @@ impl<'a> Walk<'a> {
             .pod(view.border_color())
             .pod(&view.border_width())
             .pod(&view.corner_radii())
-            .pod(&view.z_position())
             .pod(&self.scissor)
             .hash(&clips)
             .hash(&base.flat_depth);
@@ -231,5 +254,46 @@ impl<'a> Walk<'a> {
         if let Some(cut) = view.cut() {
             key.debug(&cut);
         }
+    }
+}
+
+/// Whether the views are in the same order in depth as before. A view
+/// that drew the same paint on both sides of a change of order shows other
+/// pixels where it overlaps another such view.
+fn same_order(depths: &mut [(f32, f32)]) -> bool {
+    depths.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    depths.windows(2).all(|pair| {
+        let ((before, now), (next_before, next_now)) = (pair[0], pair[1]);
+        if before.to_bits() == next_before.to_bits() {
+            now.to_bits() == next_now.to_bits()
+        } else {
+            now < next_now
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_order;
+
+    #[test]
+    fn a_removed_view_keeps_the_order_of_the_rest() {
+        // The views after the removed one move 1 step back, all of them.
+        let mut depths = [(0.5, 0.5), (0.4, 0.4), (0.2, 0.3), (0.1, 0.2)];
+        assert!(same_order(&mut depths));
+    }
+
+    #[test]
+    fn a_raised_view_changes_the_order() {
+        let mut depths = [(0.5, 0.5), (0.4, 0.1), (0.3, 0.4)];
+        assert!(!same_order(&mut depths));
+    }
+
+    #[test]
+    fn views_at_one_depth_must_stay_together() {
+        let mut together = [(0.3, 0.2), (0.3, 0.2), (0.1, 0.1)];
+        assert!(same_order(&mut together));
+        let mut apart = [(0.3, 0.2), (0.3, 0.25), (0.1, 0.1)];
+        assert!(!same_order(&mut apart));
     }
 }

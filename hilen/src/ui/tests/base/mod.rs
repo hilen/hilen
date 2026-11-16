@@ -26,6 +26,7 @@ mod offscreen_clip;
 mod outline;
 mod overlay_touch_layer;
 mod partial_frames;
+mod removal_repaints_little;
 mod removed_view_is_freed;
 mod sample_count_switch;
 mod screen_orientation;

@@ -15,6 +15,12 @@ and has to be drawn again.
    draw that view, and the rect of pixels the view can touch.
 2. A view whose key or rect differs from the frame before adds its old and its new
    rect to the damage. A view that is gone adds its old rect.
+   The depth of a view is kept beside the key, not in it. A view added or removed
+   moves the depth of every view after it, with no pixel of theirs changed, and a
+   removed mark of 40 by 40 repainted 95432 pixels. A view whose key and rect stayed
+   but whose depth moved adds its rect only when the views that kept their paint are
+   in another order in depth than before, like after a raise. `Removal repaints
+   little` covers it. A `DrawingView` still has its depth in the key of its path.
 3. Rects closer than 24 pixels become 1 region. More than 12 regions become 1 rect
    around all of them.
 4. The pass keeps the color of the frame before and clears depth and stencil. For each
