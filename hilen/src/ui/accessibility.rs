@@ -251,7 +251,7 @@ mod web {
         nodes:   HashMap<(usize, u64), Mirror>,
         order:   Vec<(usize, u64)>,
         last:    f64,
-        /// A frame is asked for, see `frame_later`.
+        /// A sync waits on a timer, see `sync_later`.
         pending: bool,
     }
 
@@ -310,8 +310,8 @@ mod web {
         let due = STATE.with_borrow(|state| now - state.last >= EVERY_MS);
         if !due {
             // A page draws only when something changed, so the last change
-            // may come before the layer is due. 1 more frame then catches it.
-            frame_later();
+            // may come before the layer is due. A timer catches it then.
+            sync_later();
             return;
         }
         let nodes = Accessibility::nodes();
@@ -356,7 +356,10 @@ mod web {
         });
     }
 
-    fn frame_later() {
+    /// Syncs the layer once it is due. The timer runs on the main thread
+    /// between frames and draws none, a frame for it was 1 more frame of a
+    /// still screen, which `Idle draws no frame` counted in Chrome.
+    fn sync_later() {
         let pending = STATE.with_borrow(|state| state.pending);
         let Some(window) = window() else {
             return;
@@ -366,7 +369,7 @@ mod web {
         }
         let wake = Closure::once_into_js(|| {
             STATE.with_borrow_mut(|state| state.pending = false);
-            crate::window::request_frame();
+            tick();
         });
         if window
             .set_timeout_with_callback_and_timeout_and_arguments_0(wake.unchecked_ref(), EVERY_MS_INT)

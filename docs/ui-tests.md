@@ -90,7 +90,7 @@ happen, `web_log.rs` forwards them, so the driver prints `Started` and `OK` live
 desktop lane and keeps them in `target/web-test/app-<browser>.log`. A test that never
 finishes is caught by the driver's stall watchdog: after `--stall` seconds of silence,
 180 by default, it names the last line the app said, takes the failure screenshot and
-exits, instead of sitting out the 15 minute report timeout. Every asset group downloads
+exits, instead of sitting out the 40 minute report timeout of the whole suite. Every asset group downloads
 before the suite starts and a miss is fatal, a suite on the default font would fail on
 pixels far from the cause, which is how a cut font download once looked like a wrapping
 bug. See [inspect.md](inspect.md).

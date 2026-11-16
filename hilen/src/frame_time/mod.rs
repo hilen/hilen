@@ -99,16 +99,31 @@ fn frame_start() -> f64 {
     monotonic_seconds()
 }
 
+/// The start of the frame before, f64 seconds as raw bits.
+#[cfg(all(wasm, feature = "gpu"))]
+static LAST_START: AtomicU64 = AtomicU64::new(0);
+
 /// A browser gives every frame the time of its refresh, which is already
 /// even. The follower still gets it, so a browser that rounds this time
 /// is evened out too.
 #[cfg(all(wasm, feature = "gpu"))]
 fn frame_start() -> f64 {
-    let now = monotonic_seconds();
-    match crate::web::refresh_seconds() {
-        // The page time is the one of the frame the browser runs now only
-        // inside its frame callback. An old one is of a frame before.
-        Some(refresh) if (-0.02..0.05).contains(&(now - refresh)) => refresh,
+    let last = f64::from_bits(LAST_START.load(Ordering::Relaxed));
+    let start = pick_start(monotonic_seconds(), crate::web::refresh_seconds(), last);
+    LAST_START.store(start.to_bits(), Ordering::Relaxed);
+    start
+}
+
+/// The start of a frame from the real time `now`, the refresh time of the
+/// browser and the start of the frame before. The page time is the one of
+/// the frame the browser runs now only inside its frame callback, a frame
+/// drawn outside it reads the one of a frame before. Such a time is not
+/// newer than the start before. It gave 2 frames the same time, and the
+/// clock stood still for every third frame of a page at 25 frames a second.
+#[cfg(all(any(wasm, test), feature = "gpu"))]
+fn pick_start(now: f64, refresh: Option<f64>, last: f64) -> f64 {
+    match refresh {
+        Some(refresh) if (-0.02..0.05).contains(&(now - refresh)) && refresh > last => refresh,
         _ => now,
     }
 }

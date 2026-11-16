@@ -1,3 +1,6 @@
+/// The screen reader layer of a page is a DOM layer, a browser has it only.
+#[cfg(wasm)]
+mod accessibility_late_change;
 mod accessibility_tree;
 mod async_calls;
 mod border_blend;

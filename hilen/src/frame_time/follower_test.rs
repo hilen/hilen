@@ -1,7 +1,7 @@
 //! The follower is fed made up frame times, so no window and no real clock
 //! is part of these tests.
 
-use super::follower::FrameFollower;
+use super::{follower::FrameFollower, pick_start};
 
 const HZ_60: f64 = 1.0 / 60.0;
 const HZ_120: f64 = 1.0 / 120.0;
@@ -315,4 +315,24 @@ fn same_time_twice_does_not_move() {
     let first = follower.advance(1.0);
     assert!((follower.advance(1.0) - first).abs() < f64::EPSILON);
     assert!(follower.advance(0.5) >= first);
+}
+
+/// A frame in the frame callback of the browser takes the refresh time.
+#[test]
+fn a_new_refresh_time_starts_the_frame() {
+    assert!((pick_start(10.004, Some(10.0), 9.96) - 10.0).abs() < f64::EPSILON);
+}
+
+/// A frame drawn outside the callback reads the refresh time of the frame
+/// before. It takes the real time, or 2 frames got the same time and the
+/// clock stood still in a page that draws slower than the screen.
+#[test]
+fn an_old_refresh_time_gives_the_real_time() {
+    assert!((pick_start(10.039, Some(10.0), 10.0) - 10.039).abs() < f64::EPSILON);
+}
+
+/// A refresh time far from the real time is of a frame long ago.
+#[test]
+fn a_refresh_time_long_ago_gives_the_real_time() {
+    assert!((pick_start(10.2, Some(10.0), 9.9) - 10.2).abs() < f64::EPSILON);
 }
