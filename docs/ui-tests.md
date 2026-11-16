@@ -64,7 +64,9 @@ of a simulator build for its universal lib, the lane lifts that on its xcodebuil
 The device of a far job or a CI runner is deleted after the run, so the lane first copies
 the failure pictures of the app to `target/ios/failures/`. The CI job runs on a macOS
 runner of GitHub, downloads the iOS 16.4 runtime from Apple, which needs no Apple ID,
-and uploads those pictures and the helper log when it fails.
+and uploads those pictures, the helper log and its xcresult when it fails. It sets
+`HILEN_IOS_NO_DESKTOP`, which runs the lane with no Simulator app like a far job, since
+the runner of the helper hung for 480 s on the desktop path there.
 
 `make ui-ios` streams the suite live, the same `Started`/`OK` lines the desktop lane prints, so
 a hang names the test it stuck on. The app logs through NSLog, which tags every console line

@@ -162,15 +162,15 @@ jobs:
           curl -sfL -b "$RUNNER_TEMP/apple.jar" -o "$dmg" "https://download.developer.apple.com$path"
           xcrun simctl runtime add "$dmg"
           rm "$dmg"
-          # A runtime added here may have no dyld shared cache yet. Built now,
-          # it is not built while the input helper starts.
-          xcrun simctl runtime dyld_shared_cache update --all
           xcrun simctl runtime list
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v10.3.3
 
       - name: Run UI tests on the iOS simulator
+        # The path of a far job on kotik, see HILEN_IOS_NO_DESKTOP in the lane.
+        env:
+          HILEN_IOS_NO_DESKTOP: "1"
         run: uv run -q --no-dev ./build/ios/sim-test.py
 
       - name: Upload failure pictures and the helper log
@@ -181,6 +181,7 @@ jobs:
           path: |
             target/ios/failures/
             target/ios/system-input.log
+            target/ios/system-input/Logs/Test/
           if-no-files-found: ignore
 
   build:
