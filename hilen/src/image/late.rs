@@ -7,7 +7,7 @@ use std::{
     future::Future,
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -33,8 +33,21 @@ pub fn pictures_pending() -> usize {
     PENDING.load(Ordering::SeqCst)
 }
 
-pub(crate) fn set_pictures_pending(count: usize) {
+/// The last frame that drew a picture the browser still made. A shot that
+/// comes back after the picture landed reads 0 pending, while the frame it
+/// holds was drawn before that, see `AppRunner::take_screenshot`.
+static LAST_PENDING_FRAME: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn set_pictures_pending(count: usize, frame: u64) {
     PENDING.store(count, Ordering::SeqCst);
+    if count > 0 {
+        LAST_PENDING_FRAME.fetch_max(frame, Ordering::SeqCst);
+    }
+}
+
+/// Whether a frame after `frame` drew a picture before it landed.
+pub(crate) fn drew_pending_after(frame: u64) -> bool {
+    LAST_PENDING_FRAME.load(Ordering::SeqCst) > frame
 }
 
 /// The names of the images with a pending picture, for the warning of a

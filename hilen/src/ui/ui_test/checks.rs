@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// How far a pixel may be from its recorded color, summed over the channels.
-const MAX_DIFF: i16 = 45;
+pub(crate) const MAX_DIFF: i16 = 45;
 
 pub(super) fn check_pixel_color(screenshot: &Screenshot, pos: Point, color: U8Color) -> Result<()> {
     let pixel: U8Color = screenshot.get_pixel(pos);

@@ -348,13 +348,17 @@ impl AppRunner {
         #[cfg(wasm)]
         Self::wait_for_browser_pictures();
 
+        #[cfg(wasm)]
+        let asked_at = Window::render_frame();
         let recv = from_main(|| Window::current().request_screenshot());
         let screenshot = recv.recv()?;
 
         // The shot frame itself showed a picture first, take it again once
-        // that landed. Only then, an extra frame moves a running scene.
+        // that landed. Only then, an extra frame moves a running scene. The
+        // count is 0 again when the picture landed before the shot came back,
+        // `Stick images` failed so, so the frames since the ask decide.
         #[cfg(wasm)]
-        if crate::image::late::pictures_pending() > 0 {
+        if crate::image::late::drew_pending_after(asked_at) {
             Self::wait_for_browser_pictures();
             return Ok(from_main(|| Window::current().request_screenshot()).recv()?);
         }

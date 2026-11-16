@@ -122,16 +122,27 @@ fn paste(bytes: &[u8], kind: &str, text: &str) -> bool {
     let file = File::new_with_u8_array_sequence_and_options(&parts, "pasted", &options)
         .expect("Failed to build a file");
     let data = DataTransfer::new().expect("Failed to build a DataTransfer");
-    data.items().add_with_file(&file).expect("Failed to add the file");
-    if !text.is_empty() {
-        data.set_data("text/plain", text).expect("Failed to add the text");
-    }
+    fill(&data, &file, text);
     let init = ClipboardEventInit::new();
     init.set_bubbles(true);
     init.set_cancelable(true);
     init.set_clipboard_data(Some(&data));
     let event = ClipboardEvent::new_with_event_init_dict("paste", &init).expect("Failed to build a paste");
+    // Firefox drops the data of the init and gives the event an empty one of
+    // its own, the listener then saw no file at all.
+    if let Some(own) = event.clipboard_data()
+        && own.items().length() == 0
+    {
+        fill(&own, &file, text);
+    }
     active().dispatch_event(&event).expect("Failed to send a paste")
+}
+
+fn fill(data: &DataTransfer, file: &File, text: &str) {
+    data.items().add_with_file(file).expect("Failed to add the file");
+    if !text.is_empty() {
+        data.set_data("text/plain", text).expect("Failed to add the text");
+    }
 }
 
 fn selection() -> (u32, u32) {

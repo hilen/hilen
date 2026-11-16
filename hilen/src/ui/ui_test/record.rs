@@ -12,6 +12,7 @@ use crate::{
     gm::color::U8Color,
     ui_test::{
         TEST_NAME,
+        checks::MAX_DIFF,
         human::{human_mode, show_probes},
     },
     window::{Screenshot, msaa_sample_count, set_msaa_sample_count},
@@ -448,10 +449,66 @@ fn stable_color(shot: &Screenshot, x: u32, y: u32) -> Option<U8Color> {
             && shot.get_pixel((x + dx, y + dy)).diff_u8(center) <= STABLE_TOLERANCE
     };
 
+    // The soft edge of a shape is uniform along the edge and a blend of the
+    // 2 sides across it. A software GPU in a browser shades it unlike a real
+    // one, the edge of a cell of `Charts` came out 62 off in Chrome. Sides
+    // closer than a check allows can never fail it.
+    let blend_across = |dx: u32, dy: u32| {
+        let before = shot.get_pixel((x - dx, y - dy));
+        let after = shot.get_pixel((x + dx, y + dy));
+        before.diff_u8(after) > MAX_DIFF
+            && center.diff_u8(before) > STABLE_TOLERANCE
+            && center.diff_u8(after) > STABLE_TOLERANCE
+            && between(before, center, after)
+    };
+
     // Vertical catches a stem, horizontal catches a bar.
-    if uniform_along(0, STABLE_RADIUS) || uniform_along(STABLE_RADIUS, 0) {
-        Some(center)
-    } else {
-        None
+    let stem = uniform_along(0, STABLE_RADIUS) && !blend_across(STABLE_RADIUS, 0);
+    let bar = uniform_along(STABLE_RADIUS, 0) && !blend_across(0, STABLE_RADIUS);
+    (stem || bar).then_some(center)
+}
+
+/// Whether every channel of `middle` lies between those of `a` and `b`.
+fn between(a: U8Color, middle: U8Color, b: U8Color) -> bool {
+    [(a.r, middle.r, b.r), (a.g, middle.g, b.g), (a.b, middle.b, b.b)]
+        .into_iter()
+        .all(|(a, middle, b)| (a.min(b)..=a.max(b)).contains(&middle))
+}
+
+#[cfg(test)]
+mod test {
+    use super::stable_color;
+    use crate::{
+        gm::{color::U8Color, flat::Size},
+        window::Screenshot,
+    };
+
+    const CELL: U8Color = U8Color::const_rgb(0x79, 0xa0, 0xdf);
+    const WHITE: U8Color = U8Color::const_rgb(0xff, 0xff, 0xff);
+    const EDGE: U8Color = U8Color::const_rgb(0x88, 0xab, 0xe3);
+
+    /// 3 columns, 3 rows high, each column of 1 color.
+    fn columns(left: U8Color, middle: U8Color, right: U8Color) -> Screenshot {
+        Screenshot::new([left, middle, right].repeat(3), Size::new(3, 3))
+    }
+
+    /// The right edge column of a heat map cell in `Charts`, the probe
+    /// that Chrome drew 62 off.
+    #[test]
+    fn a_soft_edge_between_2_colors_is_no_probe() {
+        assert_eq!(stable_color(&columns(CELL, EDGE, WHITE), 1, 1), None);
+    }
+
+    /// A thin stem of text has the same ground on both sides.
+    #[test]
+    fn a_stem_on_one_ground_stays_a_probe() {
+        assert_eq!(stable_color(&columns(WHITE, CELL, WHITE), 1, 1), Some(CELL));
+    }
+
+    /// A dark line between 2 grounds is darker than both, no blend of them.
+    #[test]
+    fn a_line_between_2_grounds_stays_a_probe() {
+        let line = U8Color::const_rgb(0x20, 0x20, 0x20);
+        assert_eq!(stable_color(&columns(CELL, line, WHITE), 1, 1), Some(line));
     }
 }

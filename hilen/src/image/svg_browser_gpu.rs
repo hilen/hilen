@@ -164,7 +164,7 @@ impl Svg {
             }
             pending += image.pending_since(frame);
         }
-        set_pictures_pending(pending);
+        set_pictures_pending(pending, frame);
     }
 }
 

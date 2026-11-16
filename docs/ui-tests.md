@@ -643,6 +643,12 @@ thin icon stroke, so a probe there failed only on the browser lane. The fills of
 icon and the ground around it stay. A block recorded before this rule can still hold
 such a probe, re-record it when the browser lane fails on an icon edge.
 
+The picker also skips the soft edge of any shape: a pixel uniform along the edge whose
+2 neighbors across it differ by more than a check allows, while it lies between them.
+SwiftShader in Chrome shades that blend unlike a desktop GPU, the edge of a cell of
+`Charts` came out 62 off. A thin stem keeps its probes, its ground is the same on both
+sides. Re-record a block whose browser failure names such an edge.
+
 Changing the picker does not invalidate existing blocks. `stable_color` is only reached
 under `--record-colors`, a normal run just compares the pinned pixels, so old blocks keep
 passing and a test only gains the better probes when someone re-records it.
