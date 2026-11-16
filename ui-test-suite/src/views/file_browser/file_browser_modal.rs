@@ -59,7 +59,8 @@ impl ViewTest for FileBrowserModal {
         let layers = || from_main(TouchStack::root_name);
 
         open();
-        assert_eq!(layers(), "FilePicker");
+        // The scrim of a modal is the root of its touch layer.
+        assert_eq!(layers(), "ScrimView");
         // The dialog fits the 600 canvas with a margin on every side.
         from_main(move || {
             let frame = *view.picker.frame();

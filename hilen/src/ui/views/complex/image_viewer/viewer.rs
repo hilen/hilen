@@ -13,8 +13,8 @@ use crate::{
     image::Image,
     ui::{
         CanvasView, Container, ContextMenu, ImageMode, ImageView, Label, MenuItem, ModalView, NamedKey,
-        Setup, TextAlignment, Touch, UIColor, UIImages, UIManager, ViewData, ViewFocus, ViewFrame,
-        ViewSubviews, ViewTouch,
+        Setup, TextAlignment, Touch, TouchStack, UIColor, UIImages, UIManager, ViewData, ViewFocus,
+        ViewFrame, ViewSubviews, ViewTouch,
     },
 };
 
@@ -257,8 +257,9 @@ impl ImageViewer {
     }
 
     fn key_step(self: Weak<Self>, forward: bool) {
-        // A menu over the viewer takes the arrows.
-        if crate::ui::TouchStack::top_layer_root().raw() == self.raw() {
+        // A menu over the viewer takes the arrows. The scrim of the viewer
+        // is the root of its touch layer.
+        if TouchStack::top_layer_root().raw() == self.superview().raw() {
             self.step(forward);
         }
     }

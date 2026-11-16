@@ -67,7 +67,11 @@ impl ViewTest for TouchStackTestView {
             TouchStack::dump(),
             vec![
                 vec!["Layer: Root view".to_string()],
-                vec!["Layer: Alert".to_string(), "Alert.ok_button: Button".to_string()],
+                vec![
+                    "Layer: ScrimView".to_string(),
+                    "ScrimView".to_string(),
+                    "Alert.ok_button: Button".to_string(),
+                ],
             ],
         );
 
