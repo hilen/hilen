@@ -22,11 +22,11 @@ impl Setup for ShowModally {
             } else {
                 view = self.add_view::<Container>();
                 view.set_color(Color::random()).place().tl(1).size(400, 400);
-                assert!((view.z_position() - 0.499_969_87).abs() < f32::EPSILON);
+                assert!((view.z_position() - 0.499_969_75).abs() < f32::EPSILON);
             }
         }
 
-        assert!((view.z_position() - 0.497_977_17).abs() < f32::EPSILON);
+        assert!((view.z_position() - 0.497_977_05).abs() < f32::EPSILON);
     }
 }
 

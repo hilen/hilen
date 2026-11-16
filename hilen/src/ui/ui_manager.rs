@@ -127,8 +127,12 @@ impl UIManager {
         0.000_01
     }
 
+    /// How far the text of a label draws in front of its background. A line
+    /// through the text draws at half of it, so both halves have to be more
+    /// than 1 step of a 24 bit depth buffer, about 6e-8. At 1e-7 the line of
+    /// `Label strikethrough` fell behind its background on Linux.
     pub(crate) const fn additional_z_offset() -> f32 {
-        Self::subview_z_offset() / 100.0
+        Self::subview_z_offset() / 50.0
     }
 
     /// The frames a second of the window, 0 in a build with no `gpu` feature,

@@ -24,7 +24,7 @@ use crate::{
 };
 
 /// How much nearer each view is than the one before it in tree order. Text
-/// draws 1e-7 in front of its label, see `label_drawer`, so the next view
+/// draws 2e-7 in front of its label, see `label_drawer`, so the next view
 /// sits clearly in front of that. The depth buffer has 24 bits, a step is
 /// about 6 of its units, and the root tree has room for 250000 views before
 /// the modal layer.

@@ -15,7 +15,9 @@ frame, only in a frame after the tree changed: a view added or removed, `subview
 a raise, a float or a `set_z_position`. `add_view` still gives a first z by the depth in
 the tree, the walk sets the real one before the frame is drawn.
 
-Text draws 1e-7 in front of its label, so the step between 2 views is bigger than that.
+Text draws 2e-7 in front of its label and a line through the text 1e-7, so each is
+more than 1 step of the depth buffer away from the other and from the label, and the
+step between 2 views is bigger than that.
 The depth buffer has 24 bits, a step is about 6 of its units.
 
 ## Layers
