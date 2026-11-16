@@ -2,8 +2,6 @@
 //! the shape of the air changes, not when it moves. The tables stay on
 //! the CPU too, for the ambient light worked out every frame.
 
-use std::time::Instant;
-
 use wgpu::{
     Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
@@ -12,6 +10,7 @@ use wgpu::{
 use crate::{
     gm::volume::Vec3,
     scene::{Atmosphere, AtmosphereTables, Table, half_bits},
+    time::Instant,
     window::Window,
 };
 
