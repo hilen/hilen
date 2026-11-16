@@ -29,7 +29,9 @@ fn v_main(@builtin(vertex_index) index: u32) -> SkyOutput {
 // next, and moved every star when anything else in the shader changed.
 fn star_hash(p: vec3<f32>) -> f32 {
     let cell = bitcast<vec3<u32>>(vec3<i32>(round(p)));
-    var h = cell.x * 73856093u ^ cell.y * 19349663u ^ cell.z * 83492791u;
+    // WGSL wants the parentheses, Chrome rejects the whole shader without
+    // them while naga on desktop takes it.
+    var h = (cell.x * 73856093u) ^ (cell.y * 19349663u) ^ (cell.z * 83492791u);
     h = h * 747796405u + 2891336453u;
     h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
     h = (h >> 22u) ^ h;

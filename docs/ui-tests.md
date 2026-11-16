@@ -103,6 +103,11 @@ the leftovers in [roadmap.md](roadmap.md). SwiftShader also returned a zero `fwi
 in the pixel quads on a quad's diagonal, which the SDF shaders now guard, pinned by
 `Quad diagonal`.
 
+Chrome reads WGSL with its own parser, stricter than naga on desktop. It refused the
+sky shader for `a * b ^ c * d` with no parentheses. The page logs `Fatal GPU error`
+and draws nothing after it, so every later test that reads pixels fails on the clear
+color. Look for that line first when a browser run fails a long run of tests.
+
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,
 relaunches the browser with the dead tests in `hilen_test_skip`, and merges them into the

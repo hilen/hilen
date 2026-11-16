@@ -17,9 +17,10 @@ pub(crate) mod loops;
 mod modal_view;
 #[cfg(feature = "ui-tests")]
 mod navigation_events_test;
-#[cfg(feature = "ui-tests")]
+// A browser has no swipe from the edge, see `NavigationView::stack_at`.
+#[cfg(all(feature = "ui-tests", not_wasm))]
 mod navigation_shell_swipe_test;
-#[cfg(feature = "ui-tests")]
+#[cfg(all(feature = "ui-tests", not_wasm))]
 mod navigation_swipe_test;
 mod navigation_view;
 pub(crate) mod privacy_cover;

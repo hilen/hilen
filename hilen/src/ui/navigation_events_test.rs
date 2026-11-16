@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Result, ensure};
 
+#[cfg(not_wasm)]
+use crate::ui::navigation_swipe_test::{held, swipe};
 use crate::{
     self as hilen,
     deps::{
@@ -10,9 +12,7 @@ use crate::{
     },
     ui::{
         Button, Color, Label, NamedKey, NavigationView, Setup, UIManager, View, ViewController, ViewData,
-        ViewFrame, ViewSubviews, ViewTest,
-        navigation_swipe_test::{held, swipe},
-        view,
+        ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{checkpoint, inject_named_key, inject_touches, system_input::wait_until},
 };
@@ -119,25 +119,35 @@ impl ViewTest for NavigationEvents {
         expect(2)?;
         checkpoint("the back button went back, 2 pops and 2 returns")?;
 
+        // A browser has no swipe from the edge, see `NavigationView::stack_at`.
+        #[cfg(not_wasm)]
+        swipes(nav)?;
+        #[cfg(wasm)]
         push(nav)?;
-        inject_touches(swipe(450, 10, 400, 5));
-        wait_until("the swipe popped the page", move || settled(nav, 1))?;
-        expect(3)?;
-        checkpoint("the swipe went back, 3 pops and 3 returns")?;
-
-        push(nav)?;
-        inject_touches(held(450, 10, 160, 5));
-        inject_touches("160 450 e");
-        wait_until("the page slid back", move || settled(nav, 2))?;
-        expect(3)?;
-        checkpoint("a swipe let go before half, no event")?;
 
         inject_named_key(NamedKey::Escape);
         wait_until("Escape popped the page again", move || settled(nav, 1))?;
-        expect(4)?;
-        checkpoint("Escape after the slide back, 4 pops and 4 returns")?;
+        expect(if cfg!(wasm) { 3 } else { 4 })?;
+        checkpoint("Escape went back again")?;
         Ok(())
     }
+}
+
+/// A swipe pops the page, a swipe let go before half leaves it on top.
+#[cfg(not_wasm)]
+fn swipes(nav: Weak<NavigationView>) -> Result<()> {
+    push(nav)?;
+    inject_touches(swipe(450, 10, 400, 5));
+    wait_until("the swipe popped the page", move || settled(nav, 1))?;
+    expect(3)?;
+    checkpoint("the swipe went back, 3 pops and 3 returns")?;
+
+    push(nav)?;
+    inject_touches(held(450, 10, 160, 5));
+    inject_touches("160 450 e");
+    wait_until("the page slid back", move || settled(nav, 2))?;
+    expect(3)?;
+    checkpoint("a swipe let go before half, no event")
 }
 
 fn push(nav: Weak<NavigationView>) -> Result<()> {
