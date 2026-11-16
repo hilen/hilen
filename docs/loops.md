@@ -96,14 +96,19 @@ a frame has, and become `CGImage`s in the sRGB space, the space of the
 surface. The compositor blends the edge pixels, so they can differ from a
 whole frame by 1 to 2 color levels, every other view keeps exact pixels.
 
-Nothing waits for the GPU. The buffer is mapped with no wait, and each
-frame after the draw asks with a poll of the device that does not block
-whether the map is done. Until then the loop stays on the frame path, so
-the frames go on, then it moves to its layer. On 2026-10-30 banda hung for
-1 s on a new card: its main thread waited for the GPU to draw 145 pictures
-into window size textures, 717 of 744 samples in the wait of the poll. Now
-the draw of 145 pictures of 40 by 40 pixels takes 16 to 22 ms of the main
-thread in a release build, and the GPU is done about 15 ms later.
+The draw is spread over the steps of the loops. Each step draws pictures
+until 8 ms of it are used, `STEP_BUDGET` in `flipbook.rs`, and at least 1
+picture of each set. All 145 pictures of 40 by 40 pixels in 1 step took
+26 ms of the main thread in a release build in the iOS simulator on a Mac,
+and 86 ms on a GitHub mac, more than 1 frame.
+
+Nothing waits for the GPU. After the last picture the buffer is mapped with
+no wait, and each frame after it asks with a poll of the device that does
+not block whether the map is done. Until then the loop stays on the frame
+path, so the frames go on, then it moves to its layer. On 2026-10-30 banda
+hung for 1 s on a new card: its main thread waited for the GPU to draw 145
+pictures into window size textures, 717 of 744 samples in the wait of the
+poll.
 
 Loops of the same content share 1 set of pictures, `shared.rs`. A list of
 cards with the same mark draws its 145 pictures once, not once per card.
@@ -111,7 +116,9 @@ The key of a set is the content below, the phases of the pictures, where the
 view sits in its first pixel, and the content at 2 more phases, a third and
 2 thirds into the loop, since 2 poses can match at phase 0 and differ
 later. The first loop of a key starts the draw, the others find the set and
-wait for it too. A set is kept while a loop holds it, the last loop that
+wait for it too. Every loop that waits draws more pictures of the set in a
+step, with its own view at its own pixels, since the key says they all show
+the same content. A set is kept while a loop holds it, the last loop that
 goes takes it along, and a new loop of that content draws it again.
 
 Without change times a loop gets 1 picture per refresh of the screen, the

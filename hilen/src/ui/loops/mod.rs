@@ -266,6 +266,8 @@ pub(crate) fn longest_step() -> f64 {
 pub(crate) fn step() {
     #[cfg(all(apple, feature = "ui-tests"))]
     let started = crate::monotonic::monotonic_seconds();
+    #[cfg(apple)]
+    flipbook::begin_step();
     step_entries();
     #[cfg(all(apple, feature = "ui-tests"))]
     {

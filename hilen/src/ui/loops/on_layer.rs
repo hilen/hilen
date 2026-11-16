@@ -331,7 +331,8 @@ impl Entry {
     }
 
     /// The pictures of `content` once they are there. The first loop of a
-    /// content starts their draw, the others wait for the same set.
+    /// content starts their draw, every loop that waits for the set draws
+    /// more of it in each step.
     fn pictures(&mut self, place: Place, content: u64) -> Result<Option<Rc<SharedPictures>>> {
         let set = match &self.layer.waiting {
             Some((waited, set)) if *waited == content => set.clone(),
@@ -346,6 +347,7 @@ impl Entry {
                 set
             }
         };
+        set.draw(self.view, place.pixels, &mut self.pose);
         if set.pictures()?.is_none() {
             return Ok(None);
         }
@@ -389,7 +391,7 @@ impl Entry {
             );
             return Ok(shared::ready(key, Pictures::new(&frames)?));
         }
-        let drawing = flipbook::draw(self.view, place.pixels, samples, &mut self.pose)?;
+        let drawing = flipbook::start(place.pixels.size, samples)?;
         Ok(shared::drawing(key, drawing))
     }
 

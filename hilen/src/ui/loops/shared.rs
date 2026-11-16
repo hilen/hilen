@@ -10,8 +10,8 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use super::{flipbook::Drawing, layer::Pictures};
-use crate::deps::refs::main_lock::MainLock;
+use super::{Pose, flipbook::Drawing, layer::Pictures};
+use crate::{deps::refs::main_lock::MainLock, gm::flat::Rect, ui::WeakView};
 
 /// Every set that a loop still holds, by its key.
 static SETS: MainLock<HashMap<u64, Weak<SharedPictures>>> = MainLock::new();
@@ -22,7 +22,7 @@ pub(super) struct SharedPictures {
 }
 
 enum State {
-    Drawing(Drawing),
+    Drawing(Box<Drawing>),
     Ready(Rc<Pictures>),
     Failed(String),
 }
@@ -32,9 +32,9 @@ pub(super) fn find(key: u64) -> Option<Rc<SharedPictures>> {
     SETS.get_mut().get(&key).and_then(Weak::upgrade)
 }
 
-/// A new set of pictures that the GPU draws now.
+/// A new set of pictures that is drawn now.
 pub(super) fn drawing(key: u64, drawing: Drawing) -> Rc<SharedPictures> {
-    keep(key, State::Drawing(drawing))
+    keep(key, State::Drawing(Box::new(drawing)))
 }
 
 /// A new set of pictures that is there already.
@@ -59,7 +59,19 @@ fn keep(key: u64, state: State) -> Rc<SharedPictures> {
 }
 
 impl SharedPictures {
-    /// The pictures once they are there, none while the GPU draws them.
+    /// A loop that waits for the set draws more of its pictures with its
+    /// own view, see `Drawing::draw`. A draw that fails fails the set.
+    pub(super) fn draw(&self, view: WeakView, pixels: Rect<u32>, pose: &mut Pose) {
+        let mut state = self.state.borrow_mut();
+        let State::Drawing(drawing) = &mut *state else {
+            return;
+        };
+        if let Err(error) = drawing.draw(view, pixels, pose) {
+            *state = State::Failed(format!("{error:#}"));
+        }
+    }
+
+    /// The pictures once they are there, none while they are drawn.
     pub(super) fn pictures(&self) -> Result<Option<Rc<Pictures>>> {
         let mut state = self.state.borrow_mut();
         if let State::Drawing(drawing) = &*state {
