@@ -512,6 +512,13 @@ the Mac.
 - Proven on an LG C1 on 2026-10-20: `apps` listed the installed Flixen package, `find`
   read its tree, `screenshot` gave 3840x2160, and its log came in live. A `tap` was not
   tried there.
+- On 2026-10-21 a `screenshot` of a still screen on that TV never came back, and every
+  request after it waited behind it, until a key press drew a frame. On WebGL the copy
+  of the frame reaches the shot only when the device is polled, and a still page draws
+  no frame. Firefox on the CI nodes, which draws WebGL with the software driver of mesa,
+  hung the same way at the screenshot of `Inspect frames` in 2 of 2 runs on 2026-11-16.
+  A page now keeps drawing and polling while a copy waits, `READS_WAITING` in
+  `window/state.rs`, and the UI test `Shot of still page` takes a shot of a still screen.
 
 ## Edit log
 

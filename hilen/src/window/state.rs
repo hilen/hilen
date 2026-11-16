@@ -1,6 +1,8 @@
 mod kept;
 mod targets;
 
+#[cfg(wasm)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     cell::RefCell,
     sync::mpsc::{Receiver, Sender, channel},
@@ -34,6 +36,32 @@ use crate::{
 };
 
 type ReadDisplayRequest = Sender<Screenshot>;
+
+/// Copies of the screen a page waits for. On WebGL wgpu runs a map callback
+/// only when the device is polled, so on a still page, which draws no frame,
+/// a screenshot never came and every inspector request after it waited. Seen
+/// on an LG C1 on 2026-10-21 and in Firefox on the CI nodes on 2026-11-16,
+/// where `Inspect frames` hung in 2 of 2 runs. While a copy waits the page
+/// draws on, see `continuous_render_active`, and each frame polls.
+#[cfg(wasm)]
+static READS_WAITING: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(wasm)]
+pub(crate) fn reads_waiting() -> bool {
+    READS_WAITING.load(Ordering::Relaxed) > 0
+}
+
+/// False when the WebGL context is lost. Polls the device first while a
+/// screen copy waits, so its map callback runs.
+#[cfg(wasm)]
+fn page_can_draw() -> bool {
+    if reads_waiting()
+        && let Err(err) = Window::device().poll(wgpu::PollType::Poll)
+    {
+        warn!("Device poll for a screen copy failed: {err}");
+    }
+    !crate::web::context_lost()
+}
 
 enum RenderTarget {
     Skip,
@@ -393,7 +421,7 @@ impl State {
 
         // The resize event draws too, not only the redraw request.
         #[cfg(wasm)]
-        if crate::web::context_lost() {
+        if !page_can_draw() {
             return;
         }
 
@@ -564,7 +592,9 @@ impl State {
 
             let mapped = buffer.clone();
 
+            READS_WAITING.fetch_add(1, Ordering::Relaxed);
             buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+                READS_WAITING.fetch_sub(1, Ordering::Relaxed);
                 if let Err(err) = result {
                     warn!("Screenshot map failed: {err}");
                     return;

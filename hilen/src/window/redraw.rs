@@ -168,10 +168,16 @@ pub(crate) fn continuous_render_active() -> bool {
     let scene_running = !crate::scene::SceneManager::no_scene();
     #[cfg(not(feature = "scene"))]
     let scene_running = false;
+    // A page polls the device only in a frame, see `READS_WAITING`.
+    #[cfg(wasm)]
+    let read_waiting = crate::window::state::reads_waiting();
+    #[cfg(not_wasm)]
+    let read_waiting = false;
     crate::ui::UIManager::has_live_animations()
         || crate::ui::loops::wants_frames()
         || level_running
         || scene_running
+        || read_waiting
 }
 
 /// The window is minimized, fully covered or on another desktop, so nothing
