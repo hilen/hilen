@@ -712,6 +712,12 @@ impl UIManager {
         }
 
         animations.retain_mut(|a| {
+            // A view that is gone takes its finish with it. Its handler
+            // reaches for views of a screen that is gone, a test that failed
+            // mid slide panicked the next one on iOS this way.
+            if a.view.is_null() {
+                return false;
+            }
             let retain = a.active();
 
             if retain {

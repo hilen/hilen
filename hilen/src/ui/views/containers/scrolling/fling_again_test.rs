@@ -16,6 +16,10 @@ use crate::{
 /// fling went twice as fast. A press during a fling did not stop it.
 #[view]
 struct FlingAgain {
+    /// The moves of the content since the last press of the test, a drag
+    /// move or a step of a fling.
+    steps: u32,
+
     #[init]
     scroll: ScrollView,
 }
@@ -24,12 +28,27 @@ impl Setup for FlingAgain {
     fn setup(self: Weak<Self>) {
         self.scroll.set_content_size((600, 100_000));
         self.scroll.place().back();
+        self.scroll.on_scroll.val(move |_| {
+            let mut view = self;
+            view.steps += 1;
+        });
     }
 }
 
+/// Touches with the count of steps started over in the same trip to the
+/// main thread, so a fling that still runs before them adds no step.
+fn touches(view: Weak<FlingAgain>, touches: &'static str) {
+    from_main(move || {
+        let mut view = view;
+        view.steps = 0;
+        inject_touches(touches);
+    });
+}
+
 /// A drag up by 40 points that lets go while it still moves.
-fn flick() {
-    inject_touches(
+fn flick(view: Weak<FlingAgain>) {
+    touches(
+        view,
         "
         300 300 b
         300 280 m
@@ -39,11 +58,15 @@ fn flick() {
     );
 }
 
-/// The frames until the content stops.
-fn frames_until_stop(view: Weak<FlingAgain>) -> Result<u32> {
-    for frame in 0..2000 {
-        if !from_main(move || view.scroll.is_scrolling()) {
-            return Ok(frame);
+/// The steps until the content stops. A fling slows by a fixed factor in
+/// each step, so the count tells how fast it began. The frames the test
+/// thread sees tell nothing, the iOS simulator drew several between 2 of
+/// them, and the same flick counted 68 and 64.
+fn steps_until_stop(view: Weak<FlingAgain>) -> Result<u32> {
+    for _ in 0..2000 {
+        let (scrolling, steps) = from_main(move || (view.scroll.is_scrolling(), view.steps));
+        if !scrolling {
+            return Ok(steps);
         }
         wait_for_next_frame();
     }
@@ -62,24 +85,24 @@ impl ViewTest for FlingAgain {
     }
 
     fn perform_test(view: Weak<Self>) -> Result<()> {
-        flick();
-        let alone = frames_until_stop(view)?;
-        ensure!(alone > 20, "a flick flew only {alone} frames");
+        flick(view);
+        let alone = steps_until_stop(view)?;
+        ensure!(alone > 20, "a flick flew only {alone} steps");
 
         // The same flick again, while the one before still flies.
-        flick();
+        flick(view);
         for _ in 0..10 {
             wait_for_next_frame();
         }
-        flick();
-        let again = frames_until_stop(view)?;
+        flick(view);
+        let again = steps_until_stop(view)?;
         ensure!(
             again.abs_diff(alone) <= 2,
-            "a flick alone flew {alone} frames, a flick over a running fling flew {again}"
+            "a flick alone flew {alone} steps, a flick over a running fling flew {again}"
         );
 
         // A finger that lands on a fling holds the content still.
-        flick();
+        flick(view);
         for _ in 0..10 {
             wait_for_next_frame();
         }
@@ -93,9 +116,9 @@ impl ViewTest for FlingAgain {
             (after - held).abs() < 0.01,
             "a finger held on a fling, the content still moved from {held} to {after}"
         );
-        inject_touches("300 300 e");
+        touches(view, "300 300 e");
         ensure!(
-            frames_until_stop(view)? == 0,
+            steps_until_stop(view)? == 0,
             "a press on a fling and a release with no move started a new fling"
         );
 

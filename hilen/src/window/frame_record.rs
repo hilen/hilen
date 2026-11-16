@@ -98,12 +98,13 @@ pub(crate) fn running() -> bool {
 }
 
 /// Holds the next frame of a running record to the step of a screen, 60
-/// frames a second from the input. A covered window and a headless run
-/// draw with nothing to pace them, about 1 frame a millisecond, and 30
-/// frames then show only the first 30 ms of an animation.
+/// frames a second from the input. A covered window, a headless run and
+/// the simulator draw with nothing to pace them, about 1 frame a
+/// millisecond, and 30 frames then show only the first 30 ms of an
+/// animation.
 #[cfg(not_wasm)]
 pub(crate) fn pace() {
-    if !(occluded() || Window::headless()) {
+    if !(occluded() || Window::headless() || cfg!(sim_ios)) {
         return;
     }
     let Some(record) = &RECORDER.get_mut().record else {

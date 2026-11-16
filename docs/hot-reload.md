@@ -497,7 +497,7 @@ names.
 
 ## The arm64 simulator
 
-The hot build targets `aarch64-apple-ios-sim`. The x86 build of `make ui-ios`
+The hot build targets `aarch64-apple-ios-sim`, like `make ui-ios`. An x86 build
 runs through Rosetta, which keeps its translation of every library a process
 ever loaded, 37 MB per reload. Native it is about 6 MB. The ffmpeg archive of
 this target is in [video.md](video.md).

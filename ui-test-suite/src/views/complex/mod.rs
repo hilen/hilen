@@ -22,6 +22,8 @@ mod drop_down_box_hover;
 mod drop_down_cells;
 mod drop_down_dark;
 mod drop_down_escape;
+/// Hover needs a pointer, the gate of `drop_down_box_hover` above.
+#[cfg(any(desktop, wasm))]
 mod drop_down_hover_under;
 mod drop_down_in_modal;
 mod drop_down_outside_tap;

@@ -34,7 +34,9 @@ impl Setup for FormFields {
             .set_step(0.05)
             .set_range(0.0, 1.0)
             .set_value(0.25);
-        self.time.place().t(10).l(250).w(100);
+        // Below the status bar of a phone, which keeps a real tap for
+        // itself, the field never got the tap of the system there.
+        self.time.place().t(130).l(400).w(100);
         self.header.place().t(60).lr(10);
         self.header.set_columns([("Name", 2.0), ("Zone", 1.0), ("Health", 1.0)]);
         self.color.place().t(110).l(10).w(360);
@@ -137,103 +139,103 @@ fn settle() {
 }
 
 const SET_BY_CODE: &str = r"
-             132   24 - #b1b1b3
              164   24 - #78787c
-             276   24 - #bcbcbc
-             324   28 - #e8e8e8
-             100   32 - #1c1c1e
+             136   32 - #8c8c90
               28   72 - #464648
-             456   76 - #3e3e41
-             460   76 - #cccccf
-             484   76 - #cfcfd1
-              16  112 - #4d96ff
-             172  124 - #0a84ff
-             204  144 - #dbdbdd
+             456   72 - #3f3f40
+             164  124 - #0a84ff
+             348  124 - #d1d1d6
+             212  144 - #dddde0
+             464  144 - #bcbcbc
+              12  156 - #4d96ff
              284  156 - #bdbdc1
-             352  156 - #d1d1d6
-             116  160 - #f7f7fa
-             224  160 - #0a84ff
-              52  164 - #4d96ff
-             252  164 - #e0e0e3
-              88  208 - #d1d1d6
-             360  208 - #dddddf
-              44  224 - #939394
-              56  248 - #ffd93d
-              32  252 - #ff6b6b
+             252  164 - #e0e0e2
+             268  172 - #b8b8ba
+             272  176 - #dbdbde
+              92  184 - #4d96ff
+             160  192 - #0a84ff
+             372  192 - #e0e0e2
+             360  204 - #bfbfc1
+              36  220 - #ffffff
+              76  220 - #1c1c1e
              104  252 - #6bcb77
-              16  268 - #ff6b6b
-              64  268 - #ffd93d
+              12  256 - #ff6b6b
+              68  260 - #ffd93d
+              32  264 - #ff6b6b
+              52  268 - #ffd93d
               88  268 - #6bcb77
              156  308 - #ffffff
+             288  308 - #7a7a7c
              304  308 - #f7f7fa
-             112  312 - #1c1c1e
+             316  308 - #565658
+              96  312 - #1c1c1e
                4  692 - #f7f7fa
              592  692 - #f7f7fa
             ";
 const CALENDAR: &str = r"
-             140   24 - #85858a
-             348   72 - #0b6dff
-              28   76 - #464648
-             460   76 - #cccccf
-             484   76 - #cfcfd1
-             180  124 - #0a84ff
-             352  124 - #d1d1d6
-              96  136 - #6bcb77
+             164   24 - #78787c
+             104   28 - #1d1d1f
+             136   32 - #8c8c90
+              28   72 - #464648
+             352   72 - #0b6dff
+             468   76 - #7a7a7c
+             148  124 - #0a84ff
+             248  128 - #b7b7bb
+             216  132 - #e2e2e4
+             400  140 - #d1d1d6
               12  156 - #6bcb77
-             148  192 - #0a84ff
+             328  164 - #dddde0
+             312  172 - #b8b8ba
+              92  184 - #6bcb77
+             184  192 - #0a84ff
              228  192 - #086fd6
-             308  192 - #d1d1d6
-              60  220 - #29292b
-              56  248 - #ffd93d
-              32  252 - #ff6b6b
-              16  268 - #ff6b6b
-              64  268 - #ffd93d
-             288  308 - #7a7a7c
+             244  204 - #b9b9bb
+              40  208 - #d1d1d6
+              12  256 - #ff6b6b
+              68  260 - #ffd93d
+              32  264 - #ff6b6b
+              52  268 - #ffd93d
+             316  308 - #565658
               96  312 - #1d1d1f
-             592  348 - #f7f7fa
-              52  352 - #b3b3b4
-             132  352 - #575758
+             196  348 - #ffffff
+             592  356 - #f7f7fa
              304  380 - #ffffff
-              32  384 - #cdcdcf
-             212  384 - #c5c5c7
-             164  480 - #7b7b7c
+             124  444 - #515153
              208  484 - #656566
               28  520 - #656566
-             216  548 - #dcdcdd
-             120  556 - #ffffff
              300  556 - #ffffff
              592  692 - #f7f7fa
             ";
 const DONE: &str = r"
-             132   24 - #b1b1b3
-             164   24 - #78787c
-             104   28 - #1d1d1f
-             284   28 - #ffffff
+             168   28 - #ffffff
              136   32 - #8c8c90
+              28   72 - #464648
              352   72 - #0b6dff
-              28   76 - #464648
-             460   76 - #cccccf
-             484   76 - #cfcfd1
-             180  124 - #0a84ff
+             456   72 - #3f3f40
+             352   76 - #0b6dff
+             468   76 - #7a7a7c
+             156  124 - #0a84ff
              248  124 - #bbbbbf
-             340  124 - #d1d1d6
+             300  124 - #d1d1d6
              216  132 - #e2e2e4
-              96  140 - #6bcb77
+              96  136 - #6bcb77
+             400  140 - #d1d1d6
+             464  148 - #ffffff
               12  156 - #6bcb77
-             328  156 - #bcbcc1
-             296  164 - #e0e0e3
-             152  192 - #0a84ff
+             328  164 - #dddde0
+             312  172 - #b8b8ba
+             176  192 - #0a84ff
              228  192 - #086fd6
-             352  192 - #d1d1d6
+             244  204 - #b9b9bb
               60  224 - #29292b
               56  248 - #ffd93d
               32  252 - #ff6b6b
               16  268 - #ff6b6b
               64  268 - #ffd93d
-             104  308 - #ffffff
              288  308 - #7a7a7c
              304  308 - #f7f7fa
              316  308 - #565658
+              96  312 - #1c1c1e
              156  312 - #1c1c1e
                4  692 - #f7f7fa
              592  692 - #f7f7fa

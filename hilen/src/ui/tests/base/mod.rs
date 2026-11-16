@@ -1,6 +1,7 @@
 mod animated_gif;
 mod animation_drives_frames;
 mod animation_from_finish;
+mod animation_of_removed_view;
 mod app_views_fit_screen;
 /// The bug report dialog exists only with the `bug-report` feature.
 #[cfg(feature = "bug-report")]
@@ -25,6 +26,7 @@ mod offscreen_clip;
 mod outline;
 mod overlay_touch_layer;
 mod partial_frames;
+mod removed_view_is_freed;
 mod sample_count_switch;
 mod screen_orientation;
 mod script_wrap;

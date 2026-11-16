@@ -158,9 +158,14 @@ impl crate::window::WindowEvents for AppRunner {
     }
 
     fn render(&mut self, frame: &mut RenderFrame) {
+        if UIManager::window_resolution().has_no_area() {
+            return;
+        }
         // The frame starts from the clear color, so with no view it is the
-        // privacy cover.
-        if UIManager::window_resolution().has_no_area() || privacy_cover::shown() {
+        // privacy cover. A frame drawn into the scene texture still has to
+        // reach the screen, the simulator gave a black cover without it.
+        if privacy_cover::shown() {
+            UIDrawer::present(frame);
             return;
         }
 

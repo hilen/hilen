@@ -58,6 +58,13 @@ The simulator lane is `build/ios/sim-test.py`, an iPhone 8 on iOS 16.4, the olde
 this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
 and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
 the storyboard build fails and the whole lane reports `0 passed 0 failed`. See [ios.md](ios.md).
+The app is a native arm64 simulator build, `aarch64-apple-ios-sim` for iOS 14, so a Mac
+with Apple silicon runs it with no Rosetta. The project of `hilen-mobile` leaves arm64 out
+of a simulator build for its universal lib, the lane lifts that on its xcodebuild line.
+The device of a far job or a CI runner is deleted after the run, so the lane first copies
+the failure pictures of the app to `target/ios/failures/`. The CI job runs on a macOS
+runner of GitHub, downloads the iOS 16.4 runtime from Apple, which needs no Apple ID,
+and uploads those pictures and the helper log when it fails.
 
 `make ui-ios` streams the suite live, the same `Started`/`OK` lines the desktop lane prints, so
 a hang names the test it stuck on. The app logs through NSLog, which tags every console line
@@ -518,8 +525,15 @@ value back at the end. A phone with no helper fails such a test with a message t
 names the lane, it never goes on with injected keys.
 
 System input lands some frames after the call, so a test waits for a state with
-`wait_until`, it never counts frames. A key is tapped by its name, so the text can hold
-only what the first 2 pages of the keyboard have. 2 taps on one point within 250 ms are a
+`wait_until`, it never counts frames. `type_text` and `press_return` wait by themselves
+until the screen keyboard is up and stands still, a key tapped while it slides in lands
+on nothing. A key is tapped by its name, so the text can hold
+only what the first 2 pages of the keyboard have. A fresh device covers its first
+keyboard with a card about typing by sliding a finger, and its keys take no tap, so the
+lane writes `DidShowContinuousPathIntroduction` into `com.apple.keyboard.preferences`
+of the device before the app starts. A tap of the system in the top 20 points of an
+iPhone 8 lands in the status bar and never reaches the app, keep a field that a test
+taps for real below canvas y 40. 2 taps on one point within 250 ms are a
 double click on desktop and select the word, tap a second point a few pixels away.
 
 `screen_keyboard(up, top)` waits until the screen keyboard stands still, up or away.

@@ -58,6 +58,7 @@ pub fn tap(x: impl ToF32, y: impl ToF32) -> Result<()> {
 /// hold what its first 2 pages have.
 pub fn type_text(text: &str) -> Result<()> {
     if system_input() {
+        keyboard_stands()?;
         helper::request(&format!("type {text}"))?;
         return Ok(());
     }
@@ -69,12 +70,22 @@ pub fn type_text(text: &str) -> Result<()> {
 /// The Return key of the screen keyboard, Enter everywhere else.
 pub fn press_return() -> Result<()> {
     if system_input() {
+        keyboard_stands()?;
         helper::request("key return")?;
         return Ok(());
     }
     require_injected_input()?;
     inject_named_key(NamedKey::Enter);
     Ok(())
+}
+
+/// A key tapped while the screen keyboard still slides in lands on nothing,
+/// the helper found the keyboard with its keys below the screen and gave
+/// "no 't' key". The engine hears where the keyboard goes and for how long.
+fn keyboard_stands() -> Result<()> {
+    wait_until("the screen keyboard is up and stands still", || {
+        ScreenKeyboard::top().is_some() && !ScreenKeyboard::is_moving()
+    })
 }
 
 /// How long the stand in for a screen keyboard takes to move, the time of

@@ -438,9 +438,11 @@ There is an archive for `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`,
 and `aarch64-apple-tvos-sim`. The 2 tvOS ones are built the same way against the Apple
 TV SDKs, for tvOS 15. The iOS ones are
 cross built on a Mac against the iPhone SDKs, with the same set as the Mac archive, the
-first 2 for iOS 12. The x86 simulator one has no assembly, it only runs the UI tests
-under Rosetta and the x86 assembly would need nasm. The arm64 simulator one is for a hot
-build, see [hot-reload.md](hot-reload.md), for iOS 14, no arm64 simulator is older. The
+first 2 for iOS 12. The x86 simulator one has no assembly, the x86 assembly would need
+nasm. It goes into the universal lib of `build/ios/build-lib.py`, which holds a phone and
+an x86 simulator slice. The arm64 simulator one is for a hot build, see
+[hot-reload.md](hot-reload.md), and for the UI tests of `make ui-ios`, for iOS 14, no
+arm64 simulator is older. The
 build needs `meson` and `ninja` for dav1d. Every target builds in a folder of its own,
 `target/ffmpeg-build-<triple>`, and a cross build installs into
 `target/ffmpeg-dist-<triple>`.

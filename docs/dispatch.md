@@ -68,6 +68,9 @@ browser it never shows, a window that only lost the focus stays as it is. The co
   surface goes away.
 - The cover goes away with the next frame once the app is active again. That frame
   is drawn whole, the frames under the cover drew no view.
+- A frame that draws into the scene texture, for a read back or a kept frame, still
+  copies it to the screen under the cover. Without that copy the iOS simulator read a
+  black cover back in `Privacy cover`.
 - What sits over the frame is hidden with it: the system text field of an edited
   field on iPhone and the Core Animation layers of the loops.
 - A system prompt over the app, like Face ID, makes it resign active too, so the
@@ -146,7 +149,10 @@ run and a background thread in `from_main` must not wait until the window shows.
 drain frees the removed views first, the way a frame does, and so does the drain of a
 paused app. Else a view removed behind another window stays alive until the window
 shows, and a timer of a removed page still finds its page. The UI test `Removed while
-paused` covers it. The
+paused` covers it. A removal asks for a frame itself, `remove_from_superview` and
+`remove_all_subviews`, else an app that drew on demand kept a removed view alive until
+some other event, and the iOS simulator kept an edited field with its keyboard. The UI
+test `Removed view is freed` covers it, it fails on iOS without the ask. The
 pacing table is a pure function with unit tests next to it. A browser throttles its own
 frame callbacks for a hidden tab, so wasm is not part of this.
 

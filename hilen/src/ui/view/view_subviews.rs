@@ -7,6 +7,7 @@ use crate::{
         Container, DELETED_VIEWS, UIManager, View, ViewData, ViewFrame, WeakView,
         view::{depth_order, setup::Setup},
     },
+    window::request_frame,
 };
 
 pub trait ViewSubviews {
@@ -84,6 +85,10 @@ impl<T: ?Sized + View> ViewSubviews for T {
     fn remove_from_superview(&mut self) {
         let removed = self.take_from_superview();
         DELETED_VIEWS.lock().push(removed);
+        // The next frame frees it and draws the screen without it. With no
+        // frame asked for, the simulator kept an edited field and its keyboard
+        // until some other event woke the loop.
+        request_frame();
     }
 
     fn take_from_superview(&mut self) -> Own<dyn View> {
@@ -99,6 +104,7 @@ impl<T: ?Sized + View> ViewSubviews for T {
     default fn remove_all_subviews(&self) {
         depth_order::tree_changed();
         DELETED_VIEWS.lock().append(&mut self.__base_view().subviews);
+        request_frame();
     }
 
     fn add_view<V: 'static + View + Default>(&self) -> Weak<V> {

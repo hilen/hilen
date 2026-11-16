@@ -121,6 +121,7 @@ pub(super) fn begin(field: Weak<TextField>) {
 }
 
 pub(super) fn end() {
+    log::debug!("the system text field ends");
     // SAFETY: takes no argument and does nothing when no field is edited.
     unsafe { hilen_ios_text_end() };
     *EDITED.lock() = Weak::default();
@@ -130,7 +131,9 @@ pub(super) fn end() {
 /// left in the middle of typing, left the system field and its keyboard on
 /// screen, where the system field took the taps meant for the next page.
 pub(super) fn dropped(field: &TextField) {
-    if EDITED.lock().addr() == from_ref(field).addr() {
+    let edited = EDITED.lock().addr() == from_ref(field).addr();
+    log::debug!("an edited text field is dropped, it is the one in the system field: {edited}");
+    if edited {
         end();
     }
 }

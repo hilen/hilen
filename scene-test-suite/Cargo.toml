@@ -6,6 +6,7 @@ name = "scene-test-suite"
 
 [dependencies]
 anyhow = { workspace = true }
+libm = { workspace = true }
 
 hilen = { workspace = true, features = ["scene-tests"] }
 

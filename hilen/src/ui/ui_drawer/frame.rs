@@ -68,8 +68,12 @@ impl UIDrawer {
         // frame, so this holds for a partial frame too.
         Svg::drop_stale_everywhere();
 
-        // When the frame rendered into the intermediate scene texture,
-        // copy the finished scene to the real surface.
+        Self::present(render_frame);
+    }
+
+    /// When the frame rendered into the intermediate scene texture, copies
+    /// the finished scene to the real surface.
+    pub(crate) fn present(render_frame: &mut RenderFrame) {
         let scene = render_frame.scene_view().clone();
         if let Some(pass) = render_frame.present_pass() {
             BLUR_DRAWER.get_mut().present(pass, &scene);

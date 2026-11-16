@@ -206,8 +206,9 @@ in `Inspect record`.
   draw time.
 - In a window on screen the record asks for no frame, it takes what the app draws.
   An app that draws nothing gives no frames, that is the truth about that app and
-  no fault of the record. A covered window and a headless run draw with nothing to
-  pace them, there the record asks for the frames itself, 60 a second.
+  no fault of the record. A covered window, a headless run and the iOS simulator
+  draw with nothing to pace them, there the record asks for the frames itself, 60 a
+  second.
 
 A frame step walks a running app. `pause` freezes the engine clock and the drawing,
 `step [n]` draws the next n frames, each moves the clock by one frame of 60 a second,
@@ -234,7 +235,9 @@ How it works:
 - A covered window and a headless run draw the frames of a record and of a step
   offscreen, like a screenshot of one. Nothing paces those frames, so a record holds
   each one to the step of a screen, 60 a second from the input. Without that 30 frames
-  came 1 ms apart and showed the first 30 ms of an animation.
+  came 1 ms apart and showed the first 30 ms of an animation. The iOS simulator draws
+  on screen, but nothing paces its frames either, they came 2 ms apart, so a record
+  there is held the same way. The `sim_ios` alias of `plat` names the simulator.
 - A paused app runs only the queued callbacks in its loop turn, so the inspector still
   gets its answers. `Clock::enter_stepped` holds the clock, a step calls
   `Clock::advance_frame` before the update.

@@ -11,6 +11,7 @@ use hilen::{
     scene::MeshData,
     ui::Point,
 };
+use libm::sinf;
 
 pub const WHITE: U8Color = U8Color::const_rgb(255, 255, 255);
 
@@ -27,9 +28,12 @@ pub fn ratio(i: usize, count: usize) -> f32 {
 }
 
 /// A fixed pseudo random number in 0 to 1 for a point, so the same point
-/// always gets the same one.
+/// always gets the same one, on every platform. The `sin` of each system
+/// differs in its last bit, the factor turns that bit into another number,
+/// and the iOS simulator painted other facets than Linux. `libm` is 1 `sin`
+/// for all of them.
 pub fn hash(p: Vec3) -> f32 {
-    (p.dot(Vec3::new(12.9898, 78.233, 37.719)).sin() * 43758.547).fract().abs()
+    (sinf(p.dot(Vec3::new(12.9898, 78.233, 37.719))) * 43758.547).fract().abs()
 }
 
 /// `color` with every channel scaled by `factor`.

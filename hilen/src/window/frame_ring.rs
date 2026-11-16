@@ -310,11 +310,12 @@ pub(crate) fn presented_handler() -> Option<Box<dyn FnOnce(Option<f64>) + Send>>
     }))
 }
 
-/// A covered window and a headless run draw with nothing to pace them.
-/// A record there holds each frame to the step of a screen.
+/// A covered window, a headless run and the simulator draw with nothing
+/// to pace them, the simulator gave frames 2 ms apart. A record there holds
+/// each frame to the step of a screen.
 #[cfg(not_wasm)]
 pub(crate) fn pace() {
-    if !(occluded() || Window::headless()) {
+    if !(occluded() || Window::headless() || cfg!(sim_ios)) {
         return;
     }
     let Some(live) = LIVE.get_mut() else {

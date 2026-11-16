@@ -944,46 +944,12 @@ anchors settled. The user saw a flicker and had no way to show it or to look at 
 - Current: `hilen-inspect` saves every frame after an input, `tap <query> --frames 30
   --out <dir>` and `record`, and walks a paused app with `pause`, `step [n]` and
   `resume`, see [inspect.md](inspect.md). The `Inspect frames` UI test passes on the
-  desktop lane, and both were driven by hand on the demo window on macOS.
+  desktop, the iOS simulator and the browser lanes, and both were driven by hand on the
+  demo window on macOS.
 - Needed: bump the pin of banda, open the popup with `tap --frames`, and see the 3
-  wrong frames in the pictures. Run `Inspect frames` on the iOS simulator and the
-  browser lanes. Start a `record` with a real click, the test covers only the record
-  that no input starts.
+  wrong frames in the pictures. Start a `record` with a real click, the test covers only
+  the record that no input starts.
 - Blocks: nothing. This entry is deleted once the popup of banda is seen in the frames.
-
-## 17 UI tests fail on the iOS simulator
-
-The lane `make ui-ios` ran at `dev` commit `9439493e`, on the iPhone 8 simulator with
-iOS 16.4 and Xcode 26.3.
-
-- Current: 254 tests pass and 17 fail. The same 17 fail on 2 machines, on kotik in an
-  account with no desktop session and on a mac with a desktop session and the Simulator
-  window open, so the machine is not the cause. The `iOS UI Tests` job of CI was also
-  red on its last runs, on 2026-09-25, so there is no green run to compare with. The
-  input helper is alive in these runs, its log shows taps on keys of the screen
-  keyboard. The 17 tests and what each one prints:
-  - `File browser narrow`: `file_browser_narrow.rs:55`, the chosen files are
-    `["dog.jpg"]` and the test wants `["cat.png", "dog.jpg"]`.
-  - `File browser pick`: `file_browser_pick.rs:90`, the label is `Disk/readme.md` and
-    the test wants `2 files`.
-  - `File browser path`: stuck, `HILEN_TEST_STUCK` after 30 seconds.
-  - `File browser search`: fails with no message after `opened Disk`.
-  - `Label selection`: `label_selection.rs:724`, the selection is the whole sentence
-    and the test wants `fox`.
-  - `Markdown selection`: `markdown_selection.rs:819`, the selection is `link to a` and
-    the test wants `k to a`.
-  - `Multiline field grows`: stuck, `HILEN_TEST_STUCK` after 30 seconds.
-  - `Screen keyboard compose`, `input`, `look`, `multiline`, `scroll`, `secure`,
-    `shift`, `submit` and `taken return`: each fails after about 20 seconds with no
-    message.
-  - `Text field focus by code`: fails after about 10 seconds with no message.
-- Needed: find the cause of each group and fix it, in the engine or in the test. The 2
-  file browser tests that choose 2 files get only the second one, which looks like a
-  second tap that replaces the choice where the test wants it added. The 2 selection
-  tests get a wider selection than the drag asks for. The keyboard tests need their
-  failure printed first, a test that fails with no message cannot be read from a log.
-  Run one test alone with `HILEN_TEST_ONLY="Screen keyboard input" make ui-ios`.
-- Blocks: a green iOS lane, on a work mac, on kotik through far and in CI.
 
 ## Keys the owner of an edited text field takes for itself
 

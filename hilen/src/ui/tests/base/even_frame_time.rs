@@ -71,8 +71,10 @@ impl ViewCallbacks for TimedBox {
         };
 
         if self.works {
-            let until = monotonic_seconds() + WORK;
-            while monotonic_seconds() < until {
+            // A difference, like the check reads it. `start + WORK` rounds,
+            // and Firefox read 0.001999999999995 s later.
+            let start = monotonic_seconds();
+            while monotonic_seconds() - start < WORK {
                 spin_loop();
             }
         }
