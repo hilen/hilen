@@ -382,10 +382,9 @@ and no clock, a seek exact to the frame by the rule a seek of the player has.
   written into the file, the samples are not converted, and HDR is not tone
   mapped. The encoder is the first of `h264_videotoolbox`, `h264_mf`,
   `libx264` and `libopenh264` that the archive has and that opens. The macOS
-  archive has `h264_videotoolbox`. The published Windows archive, revision 4,
-  has no h264 encoder, so an export fails there until an archive built with
-  `--enable-mediafoundation` is published, `build/ffmpeg-win/build.sh` has the
-  flag.
+  archive has `h264_videotoolbox`. The Windows archive, revision 8, is built
+  with `--enable-mediafoundation` and has `h264_mf`. Revision 4 before it had
+  no h264 encoder, and every export failed there.
 
 The tests: the unit tests next to each file, on the fixtures `ramp.mp4`, 60
 gray frames that get lighter with a sound that rises in a line, so a frame and

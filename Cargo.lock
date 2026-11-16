@@ -2028,7 +2028,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.8.9",
+ "libloading 0.7.4",
 ]
 
 [[package]]
@@ -2457,7 +2457,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=44662c2bae78610b6f12dd14418cefc329e387dc#44662c2bae78610b6f12dd14418cefc329e387dc"
+source = "git+https://github.com/VladasZ/rust-ffmpeg?rev=695cb9d3271d1f532779dad15b2538e11015cc23#695cb9d3271d1f532779dad15b2538e11015cc23"
 dependencies = [
  "bitflags 2.13.2",
  "ffmpeg-sys-next",
@@ -2467,7 +2467,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-next"
 version = "9.0.0"
-source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=01b82dc293b1b64ce19903b7ba69f8fe412f873a#01b82dc293b1b64ce19903b7ba69f8fe412f873a"
+source = "git+https://github.com/VladasZ/rust-ffmpeg-sys?rev=5927108754ea813cd977519c3dd63e1b42f4ad3e#5927108754ea813cd977519c3dd63e1b42f4ad3e"
 dependencies = [
  "bindgen",
  "cc",
@@ -8934,7 +8934,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
