@@ -179,7 +179,7 @@ jobs:
 
   ios-ui-tests:
     name: iOS UI Tests
-    runs-on: [self-hosted, mac1]
+    runs-on: [self-hosted, mac-vm]
     steps:
       # A docker build leaves root owned files in the workspace, and the next
       # checkout on the same machine cannot remove them.
@@ -217,10 +217,10 @@ jobs:
       fail-fast: false
       matrix:
         target: [
-            { os: macos, runner: mac },
+            { os: macos, runner: mac-vm },
             { os: windows, runner: windows },
 
-            { os: ios, runner: mac1 },
+            { os: ios, runner: mac-vm },
             { os: android, runner: tc },
           ]
     runs-on: [self-hosted, "${{ matrix.target.runner }}"]
