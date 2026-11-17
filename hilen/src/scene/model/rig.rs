@@ -1,6 +1,6 @@
 use crate::{
     gm::volume::{Mat4, Quat, Vec3, Vec4},
-    scene::model::joints::JointPose,
+    scene::model::joints::{Joint, JointPose},
 };
 
 /// The node tree of a model and what moves it: every node's rest
@@ -119,6 +119,48 @@ impl Skin {
             .iter()
             .zip(&self.inverse_bind)
             .map(|(&joint, inverse)| globals[joint] * *inverse)
+            .collect()
+    }
+}
+
+/// How small a joint hidden from the camera is drawn. Not 0: a triangle
+/// with 1 corner on a hidden joint and 1 off it still has an area, and
+/// the normal of its hidden corner must stay a direction.
+const HIDDEN_SCALE: f32 = 1e-3;
+
+impl Rig {
+    /// The highest node of `hidden` at `node` or over it in the tree.
+    fn hidden_over(&self, node: usize, hidden: &[Joint]) -> Option<usize> {
+        let mut found = None;
+        let mut at = Some(node);
+        while let Some(index) = at {
+            if hidden.contains(&Joint(index)) {
+                found = Some(index);
+            }
+            at = self.nodes[index].parent;
+        }
+        found
+    }
+
+    /// `joint_matrices` of `skin` as the camera draws it, see
+    /// `NodeTemplates::hide_joint_from_camera`: every joint at a node of
+    /// `hidden` or below one shrinks to a point at the highest hidden node
+    /// over it.
+    pub fn camera_matrices(&self, skin: &Skin, globals: &[Mat4], hidden: &[Joint]) -> Vec<Mat4> {
+        skin.joints
+            .iter()
+            .zip(&skin.inverse_bind)
+            .map(|(&joint, inverse)| {
+                let matrix = globals[joint] * *inverse;
+                let Some(top) = self.hidden_over(joint, hidden) else {
+                    return matrix;
+                };
+                let pivot = globals[top].transform_point3(Vec3::ZERO);
+                Mat4::from_translation(pivot)
+                    * Mat4::from_scale(Vec3::splat(HIDDEN_SCALE))
+                    * Mat4::from_translation(-pivot)
+                    * matrix
+            })
             .collect()
     }
 }

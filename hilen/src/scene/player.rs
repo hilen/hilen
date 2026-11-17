@@ -74,6 +74,12 @@ pub struct Player {
     pub jump_speed:   f32,
     /// The eye above the capsule's center.
     pub eye_height:   f32,
+    /// Where the first person camera sits off the eye, in the player's own
+    /// turn: x to its right, y up, z behind it. A game whose body plays
+    /// clips sets it every frame from the head of the body, so the camera
+    /// moves with the head. The capsule, the grass and `third_person` keep
+    /// the eye. Zero by default.
+    pub eye_offset:   Vec3,
     /// What the player weighs when it pushes a body.
     pub mass:         f32,
     /// Reads the keyboard every step. Off for a scene that moves the
@@ -136,6 +142,7 @@ impl Player {
             speed: 4.0,
             jump_speed: 5.0,
             eye_height: half_height + radius - 0.15,
+            eye_offset: Vec3::ZERO,
             mass: 70.0,
             keyboard: true,
             walk_keys: WalkKeys::WasdAndArrows,

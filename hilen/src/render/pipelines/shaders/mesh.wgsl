@@ -196,9 +196,12 @@ fn skin_matrix(skin: SkinVertex, base: u32) -> mat4x4<f32> {
         + skin.weights.w * joints[base + skin.joints.w];
 }
 
+// The camera reads its own run of joint matrices, where a joint hidden
+// from it is shrunk to a speck, see `MeshInstance::with_camera_joints`.
+// The shadow pass reads `joint_base`.
 @vertex
 fn v_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> VertexOutput {
-    let matrix = skin_matrix(skin, instance.joint_base);
+    let matrix = skin_matrix(skin, u32(instance.normal2.w));
     let pos = (matrix * vec4<f32>(vertex.pos, 1.0)).xyz;
     let normal = mat3x3<f32>(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * vertex.normal;
     return place(pos, normal, vertex.uv, vertex.color, instance);

@@ -18,6 +18,7 @@ fn test_player() -> Player {
         speed:        4.0,
         jump_speed:   5.0,
         eye_height:   0.7,
+        eye_offset:   Vec3::ZERO,
         mass:         70.0,
         keyboard:     false,
         walk_keys:    WalkKeys::WasdAndArrows,
@@ -533,5 +534,35 @@ fn a_parked_player_leaves_the_camera_to_the_game() {
     assert!(
         eyes.x.abs() < 1e-3 && eyes.y > 10.0,
         "the camera is back in the eyes: {eyes}"
+    );
+}
+
+#[test]
+#[serial]
+fn the_camera_sits_off_the_eyes_by_the_offset_in_the_turn_of_the_player() {
+    set_current_thread_as_main();
+    let mut scene = Own::new(Seated::default());
+    scene.__internal_setup();
+    let player = scene.add_player(Vec3::new(0.0, 10.0, 0.0));
+    player.keyboard = false;
+    player.mouse = false;
+    // A flying player with no keys holds its height, so the eyes stay.
+    player.motion = Motion::Fly;
+    // It looks along +x.
+    player.yaw = FRAC_PI_2;
+    scene.__internal_update(DT);
+    let eyes = scene.camera.position;
+
+    scene.player.as_mut().expect("added").eye_offset = Vec3::new(0.0, 0.1, -0.2);
+    scene.__internal_update(DT);
+    let moved = scene.camera.position - eyes;
+    assert!(
+        (moved - Vec3::new(0.2, 0.1, 0.0)).length() < 1e-4,
+        "the camera moved by {moved}, 0.2 ahead and 0.1 up"
+    );
+    let look = scene.camera.target - scene.camera.position;
+    assert!(
+        (look - Vec3::X).length() < 1e-4,
+        "the camera still looks along +x: {look}"
     );
 }

@@ -3,7 +3,7 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{ColliderShape, JointPose, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
+    scene::{ColliderShape, Joint, JointPose, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
 };
 
 #[derive(Educe)]
@@ -42,6 +42,10 @@ pub struct NodeData {
     /// the model's tree, see `NodeTemplates::set_joint`. Empty while none
     /// is set.
     pub(crate) joint_poses: Vec<Option<JointPose>>,
+
+    /// The joints the camera does not see, see
+    /// `NodeTemplates::hide_joint_from_camera`.
+    pub(crate) camera_hidden: Vec<Joint>,
 
     /// The fade running on the node, see `NodeTemplates::fade_to`.
     pub(crate) fade_run: Option<FadeRun>,

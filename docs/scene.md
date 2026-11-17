@@ -348,6 +348,18 @@ let tip = hand.joint_transform(knuckle).map(|joint| joint.transform_point3(Vec3:
   each frame, the shadow pass draws the same pose, and no pass leaves the node out by
   its rest bounds. The bounds, the collider and picking stay the rest pose. The code is
   `hilen/src/scene/model/joints.rs`.
+- `hide_joint_from_camera(joint)` on a node draws the joint and every joint below it as
+  a speck at the joint, in every picture of a camera, until `show_joint_to_camera`.
+  The shadow pass still draws the whole model, so a first person body with its head
+  hidden still casts the shadow of its head and hair. The pose does not change,
+  `joint_transform` reads the same places. Such a node queues a second run of joint
+  matrices per skin, `Rig::camera_matrices`, where each hidden joint is scaled down
+  to a thousandth around the highest hidden joint over it, not to 0, so a triangle
+  half on the hidden joint keeps a normal. The camera pass reads that run from a base
+  that rides in the padding of the instance, `MeshInstance::with_camera_joints`, the
+  shadow pass reads `joint_base`. Only skinned parts hide, an unskinned part under a
+  hidden joint still draws. `Hidden joint` hides the end of the skinned bar and keeps
+  its shadow whole.
 
 The Blender sources sit next to the exports in `assets/models`. One file exports
 with `blender --background --python deps/models/export_glb.py -- assets/models/tree.blend`,
@@ -629,6 +641,14 @@ leaves the arrow keys to the game. `teleport` puts the player
 somewhere at once with no fall left, the way a game respawns it. A rising player is
 never grounded and never snapped down, so a jump is not ended in its first step while
 the capsule is still within the controller's offset of the ground.
+
+`eye_offset` on the player moves the first person camera off its eyes, in the turn of
+the player: x to its right, y up, z behind it. A game whose body plays clips sets it
+from the head of the body in `after_physics`, and the camera takes it at the next
+step, so the view moves with the head of a run and not with the capsule. The game
+smooths it, a head followed raw shakes the view. The capsule, the grass and the
+camera of `third_person` keep the eyes. The unit tests in `scene/player.rs` move the
+camera of a flying player by an offset.
 
 A scene steps by the real time of its frames, measured on `frame_seconds`, at most
 1/15 s a frame, each frame in `PHYSICS_SUBSTEPS` parts. A fixed step of 1/60 s a frame
@@ -1115,7 +1135,8 @@ player shoving a crate into a wall and jumping, `Animations` a skinned bar
 bending, the fox running and a windmill spinning, checked at rest, frozen mid
 clip and held after a single run, `Joint poses` the same bar with a bone turned, a
 bone moved, a bone given back and a bone held over the frozen bend clip, all set from
-code and read back with `joint_transform`, `Cascades` a thin pole and a row of posts down
+code and read back with `joint_transform`, `Hidden joint` the same bar with its end
+hidden from the camera and its shadow whole, `Cascades` a thin pole and a row of posts down
 a field hundreds of units long with the camera walking it, its middle check on
 the spot where a floor pixel too coarse for the maps holding it once fell through
 to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,

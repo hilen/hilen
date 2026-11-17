@@ -168,6 +168,7 @@ impl SceneBase {
     /// Puts the camera where the player's view wants it: out of its eyes,
     /// or behind it over the shoulder and pulled in front of any wall on
     /// the way, see `ThirdPerson`. A parked player leaves it to the game.
+    /// Out of the eyes it sits `eye_offset` off them.
     fn follow_player(&mut self) {
         let (Some(player), Some(physics)) = (&self.player, &self.physics) else {
             return;
@@ -177,7 +178,10 @@ impl SceneBase {
         }
         let (direction, up) = (player.direction(), player.up());
         let position = match &player.third_person {
-            None => player.eye(physics),
+            None => {
+                let offset = player.eye_offset;
+                player.eye(physics) + player.right() * offset.x + up * offset.y - player.forward() * offset.z
+            }
             Some(rig) => {
                 let pivot = player.eye(physics) + up * (rig.pivot_height - player.eye_height);
                 let reach = rig.reach(direction, player.right());

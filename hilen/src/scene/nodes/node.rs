@@ -293,6 +293,14 @@ pub trait NodeTemplates {
     /// whole tree at each call. `None` with a logged error for a node
     /// without a rigged model and for a handle of another model.
     fn joint_transform(&self, joint: Joint) -> Option<Mat4>;
+    /// Draws `joint` and every joint below it in the model's tree as a
+    /// speck at `joint` in the pictures of the camera, until
+    /// `show_joint_to_camera`. The shadow pass still draws the whole
+    /// model, so a first person body with its head hidden still casts the
+    /// shadow of its head. A handle of another model logs an error.
+    fn hide_joint_from_camera(&mut self, joint: Joint) -> &mut Self;
+    /// Draws `joint` for the camera again.
+    fn show_joint_to_camera(&mut self, joint: Joint) -> &mut Self;
 }
 
 impl<T: ?Sized + Node> NodeTemplates for T {
@@ -536,6 +544,17 @@ impl<T: ?Sized + Node> NodeTemplates for T {
 
     fn joint_transform(&self, joint: Joint) -> Option<Mat4> {
         joints::joint_transform(self.shape, self.playback, &self.joint_poses, joint)
+    }
+
+    fn hide_joint_from_camera(&mut self, joint: Joint) -> &mut Self {
+        let shape = self.shape;
+        joints::hide_joint(shape, &mut self.camera_hidden, joint);
+        self
+    }
+
+    fn show_joint_to_camera(&mut self, joint: Joint) -> &mut Self {
+        self.camera_hidden.retain(|hidden| *hidden != joint);
+        self
     }
 }
 

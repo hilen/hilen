@@ -63,6 +63,16 @@ impl Rig {
     }
 }
 
+/// Puts `joint` on the list of joints the camera of a node does not see,
+/// logged when the model `shape` draws has no such joint.
+pub(crate) fn hide_joint(shape: Shape3, hidden: &mut Vec<Joint>, joint: Joint) {
+    match with_rig(shape, "hide_joint_from_camera", |rig| joint.0 < rig.nodes.len()) {
+        Some(true) if !hidden.contains(&joint) => hidden.push(joint),
+        Some(false) => error!("hide_joint_from_camera: {joint:?} is not of the model this node draws"),
+        _ => {}
+    }
+}
+
 /// Takes the set pose of `joint` away. A node with none left is at rest
 /// again and draws without walking the tree.
 pub(crate) fn clear_joint(set: &mut Vec<Option<JointPose>>, joint: Joint) {
@@ -384,5 +394,48 @@ mod test {
         let (last, first) = (last.unwrap(), first.unwrap());
         assert!(!posed_joints[last].abs_diff_eq(rest_joints[last], 1e-3));
         assert!(posed_joints[first].abs_diff_eq(rest_joints[first], 1e-6));
+    }
+
+    // The camera pass draws a hidden joint and every joint below it as a
+    // speck at the hidden joint, the shadow pass keeps the whole chain.
+    #[test]
+    fn a_joint_hidden_from_the_camera_takes_the_joints_below_it_along() {
+        let rig = chain();
+        let rest = rig.pose(None);
+        let skin = &rig.skins[0];
+        let shadow = skin.joint_matrices(&rest);
+        let camera = rig.camera_matrices(skin, &rest, &[rig.joint("b").unwrap()]);
+
+        assert_eq!(camera[0], shadow[0], "a is over b and stays");
+        let b = Vec3::new(0.0, 2.0, 0.0);
+        for (index, name) in [(1, "b"), (2, "c")] {
+            let speck = camera[index].transform_point3(Vec3::X);
+            assert!(speck.distance(b) < 0.01, "{name} shrinks to b, got {speck}");
+            // Its normal still turns as the joint does.
+            let normal = camera[index].transform_vector3(Vec3::X).normalize();
+            close(normal, Vec3::X);
+        }
+        close(shadow[2].transform_point3(Vec3::X), Vec3::new(1.0, 3.0, 0.0));
+    }
+
+    #[test]
+    fn a_hidden_joint_shrinks_to_the_highest_hidden_joint_over_it() {
+        let rig = chain();
+        let rest = rig.pose(None);
+        let skin = &rig.skins[0];
+        let (a, c) = (rig.joint("a").unwrap(), rig.joint("c").unwrap());
+
+        let last = rig.camera_matrices(skin, &rest, &[c]);
+        assert_eq!(last[1], skin.joint_matrices(&rest)[1], "b is over c and stays");
+        assert!(last[2].transform_point3(Vec3::X).distance(Vec3::new(0.0, 3.0, 0.0)) < 0.01);
+
+        let both = rig.camera_matrices(skin, &rest, &[c, a]);
+        for (index, matrix) in both.iter().enumerate() {
+            let speck = matrix.transform_point3(Vec3::X);
+            assert!(
+                speck.distance(Vec3::Y) < 0.01,
+                "joint {index} shrinks to a, got {speck}"
+            );
+        }
     }
 }

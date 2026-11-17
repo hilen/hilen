@@ -24,8 +24,8 @@ use crate::{
         frustum::{self, Frustum},
     },
     scene::{
-        Atmosphere, Camera, DayNightSky, Fog, JointPose, LightPick, Line3, MAX_OCCLUDERS, Material, Mesh,
-        Model, Node, Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights,
+        Atmosphere, Camera, DayNightSky, Fog, Joint, JointPose, LightPick, Line3, MAX_OCCLUDERS, Material,
+        Mesh, Model, Node, Playback, Projection, Scene, SceneManager, SpaceSky, collider_lines, pick_lights,
         sun_cascades,
     },
     ui::{
@@ -194,7 +194,9 @@ impl NodeDraws<'_> {
     /// `posed` is a draw that can leave its node's sphere, a skinned part
     /// or a part of a playing clip, the rest bounds do not hold its pose,
     /// so every pass draws it.
-    fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joint_base: u32, posed: bool) {
+    /// `joints` is where the joint matrices of the shadow pass and of the
+    /// camera start, the same run unless a joint is hidden from the camera.
+    fn push(&mut self, mesh: Weak<Mesh>, model: Mat4, material: Material, joints: (u32, u32), posed: bool) {
         if material.fade <= 0.0 {
             return;
         }
@@ -210,7 +212,7 @@ impl NodeDraws<'_> {
             cutout,
             triplanar: material.triplanar > 0.0,
         };
-        let instance = MeshInstance::new(model, material, self.lights, joint_base);
+        let instance = MeshInstance::new(model, material, self.lights, joints.0).with_camera_joints(joints.1);
         // A cut out node is solid where it is drawn, whatever its alpha.
         if !cutout && material.color.a < 1.0 {
             // The same test `MeshPipeline::prepare` gives an opaque node, a
@@ -243,7 +245,8 @@ impl NodeDraws<'_> {
     /// Every part of a model at the pose its node plays and its set
     /// `joints` give, or at rest. A skinned part draws through its joint
     /// matrices, queued once per skin, and an unskinned one at its node's
-    /// posed place.
+    /// posed place. With joints `hidden` from the camera a skin queues a
+    /// second run of matrices, the one the camera pass reads.
     fn push_model(
         &mut self,
         model: &Model,
@@ -251,31 +254,48 @@ impl NodeDraws<'_> {
         material: Material,
         playback: Option<Playback>,
         joints: &[Option<JointPose>],
+        hidden: &[Joint],
     ) {
-        let posed = model.rig.as_ref().and_then(|rig| rig.posed(playback, joints));
-        let mut bases: Vec<Option<u32>> = vec![None; model.rest_joints.len()];
+        let rig = model.rig.as_ref();
+        let posed = rig.and_then(|rig| rig.posed(playback, joints));
+        // A hidden joint needs the places of the tree even at rest.
+        let rest = match (&posed, rig) {
+            (None, Some(rig)) if !hidden.is_empty() => Some(rig.pose(None)),
+            _ => None,
+        };
+        let globals = posed.as_ref().or(rest.as_ref());
+        let mut bases: Vec<Option<(u32, u32)>> = vec![None; model.rest_joints.len()];
 
         for part in &model.parts {
-            let (transform, joint_base) = match part.skin {
+            let (transform, joints) = match part.skin {
                 Some(skin) => {
-                    let base = *bases[skin].get_or_insert_with(|| match (&posed, &model.rig) {
-                        (Some(globals), Some(rig)) => {
-                            self.pipeline.add_joints(&rig.skins[skin].joint_matrices(globals))
-                        }
-                        _ => self.pipeline.add_joints(&model.rest_joints[skin]),
+                    let bases = *bases[skin].get_or_insert_with(|| {
+                        let shadow = match (&posed, rig) {
+                            (Some(globals), Some(rig)) => {
+                                self.pipeline.add_joints(&rig.skins[skin].joint_matrices(globals))
+                            }
+                            _ => self.pipeline.add_joints(&model.rest_joints[skin]),
+                        };
+                        let camera = match (globals, rig) {
+                            (Some(globals), Some(rig)) if !hidden.is_empty() => self
+                                .pipeline
+                                .add_joints(&rig.camera_matrices(&rig.skins[skin], globals, hidden)),
+                            _ => shadow,
+                        };
+                        (shadow, camera)
                     });
-                    (Mat4::IDENTITY, base)
+                    (Mat4::IDENTITY, bases)
                 }
                 None => (
                     posed.as_ref().map_or(part.transform, |globals| globals[part.node]),
-                    0,
+                    (0, 0),
                 ),
             };
             self.push(
                 part.mesh.weak(),
                 model_matrix * transform,
                 part.material.unwrap_or(material),
-                joint_base,
+                joints,
                 part.skin.is_some() || posed.is_some(),
             );
         }
@@ -588,11 +608,12 @@ impl SceneDrawer {
                         node.material,
                         node.playback,
                         &node.joint_poses,
+                        &node.camera_hidden,
                     );
                 }
                 _ => {
                     if let Some(mesh) = node.mesh {
-                        draws.push(mesh, model_matrix, node.material, 0, false);
+                        draws.push(mesh, model_matrix, node.material, (0, 0), false);
                     }
                 }
             }

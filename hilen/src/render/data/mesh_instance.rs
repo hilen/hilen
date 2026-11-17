@@ -23,7 +23,8 @@ pub(crate) struct MeshInstance {
     /// The inverse transpose of the model's rotation and scale, what a
     /// normal transforms by when the scale is not uniform. Three vec4
     /// rows. The fourth component of the first is 1 for `Material::dust`,
-    /// of the others padding.
+    /// of the second `Material::triplanar`, and of the third where the
+    /// camera pass reads the joint matrices, see `with_camera_joints`.
     pub normal:             [Vec4; 3],
     pub color:              Color,
     pub metallic:           f32,
@@ -85,6 +86,18 @@ impl MeshInstance {
             fade_flip: if material.fade_flip { 1.0 } else { 0.0 },
             shallow: material.shallow_color.unwrap_or(material.color),
         }
+        .with_camera_joints(joint_base)
+    }
+
+    /// Where the skinned vertex stage of the camera pass reads this
+    /// instance's joint matrices, `joint_base` unless a joint is hidden
+    /// from the camera, see `NodeTemplates::hide_joint_from_camera`. The
+    /// shadow pass reads `joint_base`. It rides as a float in the padding
+    /// of the last normal row.
+    #[allow(clippy::cast_precision_loss)] // A float holds every whole number up to 2^24 exactly, a frame queues far fewer joint matrices.
+    pub(crate) fn with_camera_joints(mut self, base: u32) -> Self {
+        self.normal[2].w = base as f32;
+        self
     }
 }
 
@@ -167,5 +180,15 @@ mod test {
         assert_eq!(plain.normal[0].w, 0.0);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);
+    }
+
+    #[test]
+    fn the_camera_reads_the_joints_of_the_shadow_unless_told_otherwise() {
+        let plain = MeshInstance::new(Mat4::IDENTITY, Material::default(), LightPick::default(), 130);
+        assert_eq!((plain.joint_base, plain.normal[2].w), (130, 130.0));
+        let hidden = plain.with_camera_joints(195);
+        assert_eq!((hidden.joint_base, hidden.normal[2].w), (130, 195.0));
+        // The third row of the normal matrix keeps its first 3 components.
+        assert_eq!(hidden.normal[2].truncate(), plain.normal[2].truncate());
     }
 }
