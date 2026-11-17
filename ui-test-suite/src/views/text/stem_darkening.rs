@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::{Weak, manage::DataManager},
-    ui::{Font, Label, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{Font, Label, Setup, TextAlignment, ViewData, ViewTest, WHITE, view},
     ui_test::check_colors,
 };
 
@@ -19,6 +19,8 @@ struct StemDarkening {
 
 impl Setup for StemDarkening {
     fn setup(self: Weak<Self>) {
+        self.plain.set_alignment(TextAlignment::Center);
+        self.darker.set_alignment(TextAlignment::Center);
         let darkened =
             Font::with_variations_darkened("droid-darkened", DROID, &[], 0.5).expect("darkened font");
 

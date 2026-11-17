@@ -3,8 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        BLACK, BLUE, Container, GREEN, Label, RED, Rect, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest,
-        WHITE, YELLOW, view,
+        BLACK, BLUE, Container, GREEN, Label, RED, Rect, Setup, TextAlignment, ViewData, ViewFrame,
+        ViewSubviews, ViewTest, WHITE, YELLOW, view,
     },
     ui_test::check_colors,
 };
@@ -175,6 +175,7 @@ impl Setup for FlowWrapCorner {
         self.flow.place().tl(20).w(300).all(10).all_wrap();
 
         self.corner = self.flow.add_view::<Label>();
+        self.corner.set_alignment(TextAlignment::Center);
         self.corner.set_text("corner");
         self.corner.set_text_size(16);
         self.corner.set_color(WHITE);

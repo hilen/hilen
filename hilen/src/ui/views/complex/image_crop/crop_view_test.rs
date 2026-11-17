@@ -8,7 +8,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::flat::Rect,
-    ui::{Label, NamedKey, Setup, ViewData, ViewTest, view},
+    ui::{Label, NamedKey, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{
         check_colors, inject_key, inject_named_key, inject_pinch, inject_scroll, inject_touches,
         system_input::wait_until,
@@ -33,6 +33,7 @@ struct ImageCrop {
 
 impl Setup for ImageCrop {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
         self.status
             .set_text("reading the photo")

@@ -4,7 +4,7 @@ use super::{super::test_photo::quarters_png, ImageCropPrompt, ImageCropRequest};
 use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
-    ui::{Label, ModalView, NamedKey, Setup, ViewData, ViewTest, view},
+    ui::{Label, ModalView, NamedKey, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_named_key, inject_touches, system_input::wait_until},
 };
 
@@ -30,6 +30,7 @@ struct ImageCropPromptTest {
 
 impl Setup for ImageCropPromptTest {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.status.set_text("the page under the prompt").set_text_size(20);
         self.status.place().lrt(0).h(44);
     }

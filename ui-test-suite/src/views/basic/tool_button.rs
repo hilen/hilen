@@ -4,8 +4,8 @@ use hilen::{
     gm::color::Color,
     refs::Weak,
     ui::{
-        Anchor::Left, Container, DynamicColor, Label, Setup, Theme, ThemeMode, ToolButton, ViewData,
-        ViewFrame, ViewTest, view,
+        Anchor::Left, Container, DynamicColor, Label, Setup, TextAlignment, Theme, ThemeMode, ToolButton,
+        ViewData, ViewFrame, ViewTest, view,
     },
     ui_test::{check_colors, inject_touches},
 };
@@ -38,6 +38,7 @@ impl ToolButtonTest {
 
 impl Setup for ToolButtonTest {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.bar.set_color(BAR);
         self.bar.place().back();
 

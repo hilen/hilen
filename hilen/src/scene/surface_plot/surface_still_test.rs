@@ -4,7 +4,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     scene::SurfacePlotView,
-    ui::{ImageView, Label, Setup, ViewData, ViewTest, view},
+    ui::{ImageView, Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -25,6 +25,9 @@ struct SurfaceStill {
 
 impl Setup for SurfaceStill {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
+        self.saddle_name.set_alignment(TextAlignment::Center);
+        self.empty_name.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status

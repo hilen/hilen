@@ -4,7 +4,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     google_access::{GoogleAccess, GoogleLinkButton, GoogleSignInButton},
-    ui::{Label, Setup, ViewData, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches, system_input::wait_until},
 };
 
@@ -143,6 +143,9 @@ impl GoogleAccountButtonsLook {
 
 impl Setup for GoogleAccountButtonsLook {
     fn setup(self: Weak<Self>) {
+        self.sign_in_name.set_alignment(TextAlignment::Center);
+        self.link_name.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.sign_in_name.set_text("sign in button, the main account").set_text_size(14);
         self.sign_in_name.place().center_x().t(168).size(320, 24);
         self.sign_in.place().center_x().t(200).size(240, 40);

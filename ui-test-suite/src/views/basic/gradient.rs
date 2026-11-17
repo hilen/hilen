@@ -5,7 +5,7 @@ use hilen::{
     refs::Weak,
     ui::{
         self, Anchor::Left, BLACK, BLUE, Button, CLEAR, Container, GREEN, Label, PURPLE, RED, Screenshot,
-        Setup, TURQUOISE, U8Color, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view,
+        Setup, TURQUOISE, TextAlignment, U8Color, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, set_record_probe_count},
 };
@@ -52,6 +52,9 @@ struct Gradient {
 
 impl Setup for Gradient {
     fn setup(mut self: Weak<Self>) {
+        self.plain_text.set_alignment(TextAlignment::Center);
+        self.equal_text.set_alignment(TextAlignment::Center);
+        self.ramp_text.set_alignment(TextAlignment::Center);
         // Gradient text is the subject of this test, so it takes the top of the
         // canvas at a size where the ramp is readable across the glyphs. The
         // three frames match exactly, which is what lets the checks compare

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{BLACK, Color, Container, Label, Setup, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{BLACK, Color, Container, Label, Setup, TextAlignment, ViewData, ViewFrame, ViewTest, WHITE, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -346,6 +346,10 @@ struct LabelOutline {
 
 impl Setup for LabelOutline {
     fn setup(self: Weak<Self>) {
+        self.plain.set_alignment(TextAlignment::Center);
+        self.outlined.set_alignment(TextAlignment::Center);
+        self.shadowed.set_alignment(TextAlignment::Center);
+        self.faded.set_alignment(TextAlignment::Center);
         self.light.set_frame((0, 0, 300, 420));
         self.light.set_color(WHITE);
         self.dark.set_frame((300, 0, 300, 420));

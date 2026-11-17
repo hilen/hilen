@@ -11,8 +11,8 @@ use crate::{
     image::{Image, tint_svg},
     text::Font,
     ui::{
-        DynamicColor, ImageView, Label, Setup, Tinted, ToLabel, Touch, UIColor, UIEvent, View, ViewCallbacks,
-        ViewSubviews,
+        DynamicColor, ImageView, Label, Setup, TextAlignment, Tinted, ToLabel, Touch, UIColor, UIEvent, View,
+        ViewCallbacks, ViewSubviews,
         view::{ViewData, ViewFrame, ViewTouch},
     },
 };
@@ -400,6 +400,7 @@ impl Setup for ToolButton {
         self.place().h(HEIGHT);
 
         let label = Label::new();
+        label.set_alignment(TextAlignment::Center);
         label.__base_view().is_system = true;
         label.__base_view().ignore_global_style = true;
         self.label = self.add_subview(label).downcast_view().unwrap();

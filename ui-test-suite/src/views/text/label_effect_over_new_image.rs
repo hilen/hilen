@@ -2,7 +2,10 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Color, GRAY, Image, ImageView, Label, Setup, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{
+        Color, GRAY, Image, ImageView, Label, Setup, TextAlignment, ViewData, ViewFrame, ViewTest, WHITE,
+        view,
+    },
     ui_test::{check_colors, checkpoint},
 };
 
@@ -70,6 +73,11 @@ struct LabelEffectOverNewImage {
 
 impl Setup for LabelEffectOverNewImage {
     fn setup(self: Weak<Self>) {
+        self.early_title.set_alignment(TextAlignment::Center);
+        self.early_text.set_alignment(TextAlignment::Center);
+        self.late_title.set_alignment(TextAlignment::Center);
+        self.late_text.set_alignment(TextAlignment::Center);
+        self.note.set_alignment(TextAlignment::Center);
         let columns = [
             (
                 self.early_title,

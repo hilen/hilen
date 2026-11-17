@@ -4,7 +4,8 @@ use hilen::{
     refs::Weak,
     text::Font,
     ui::{
-        CheckBox, CheckBoxMark, Color, DynamicColor, Label, Setup, Theme, ThemeMode, ViewData, ViewTest, view,
+        CheckBox, CheckBoxMark, Color, DynamicColor, Label, Setup, TextAlignment, Theme, ThemeMode, ViewData,
+        ViewTest, view,
     },
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
@@ -42,6 +43,11 @@ struct CheckBoxDisabled {
 
 impl Setup for CheckBoxDisabled {
     fn setup(self: Weak<Self>) {
+        self.dot_label.set_alignment(TextAlignment::Center);
+        self.check_label.set_alignment(TextAlignment::Center);
+        self.disabled_on_label.set_alignment(TextAlignment::Center);
+        self.disabled_off_label.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(PAGE);
 
         let boxes = [self.dot, self.check, self.disabled_on, self.disabled_off];

@@ -213,6 +213,7 @@ impl Setup for ImageCropPrompt {
         });
 
         self.status
+            .set_alignment(TextAlignment::Center)
             .set_text("Opening the photo")
             .set_text_size(15)
             .set_text_color(WHITE);

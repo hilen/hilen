@@ -3,7 +3,10 @@ use anyhow::Result;
 use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
-    ui::{Container, Label, PlotView, ScrollView, Setup, ViewData, ViewSubviews, ViewTest, ViewTouch, view},
+    ui::{
+        Container, Label, PlotView, ScrollView, Setup, TextAlignment, ViewData, ViewSubviews, ViewTest,
+        ViewTouch, view,
+    },
     ui_test::{check_colors, checkpoint, inject_scroll, inject_touches, set_record_probe_count},
 };
 
@@ -23,6 +26,7 @@ struct PlotInList {
 
 impl Setup for PlotInList {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status.set_text_size(18).set_text_color("#1B1F24");
@@ -42,6 +46,8 @@ impl Setup for PlotInList {
         });
 
         let name = cell.add_view::<Label>();
+
+        name.set_alignment(TextAlignment::Center);
         name.set_text("cell, a tap counts").set_text_size(14).set_text_color("#1B1F24");
         name.place().lrt(8).h(24);
 
@@ -52,6 +58,8 @@ impl Setup for PlotInList {
         self.plot = plot.set_interactive(false);
 
         let below = self.scroll.add_view::<Label>();
+
+        below.set_alignment(TextAlignment::Center);
         below
             .set_text("list content below the cell")
             .set_text_size(14)

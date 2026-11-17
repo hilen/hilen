@@ -275,7 +275,11 @@ fn top_x(nav: Weak<NavigationView>) -> f32 {
 }
 
 fn titled(label: Weak<Label>, text: &str, color: Color) {
-    label.set_text(text).set_text_size(24).set_color(color);
+    label
+        .set_alignment(TextAlignment::Center)
+        .set_text(text)
+        .set_text_size(24)
+        .set_color(color);
     label.place().lrt(0).h(80);
 }
 
@@ -290,6 +294,7 @@ struct NavigationSwipe {
 
 impl Setup for NavigationSwipe {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.set_color(Color::rgb(0.85, 0.3, 0.3));
         titled(self.title, "first page", Color::rgb(0.95, 0.75, 0.75));
 
@@ -328,6 +333,7 @@ impl Setup for SecondPage {
         back.set_color(Color::rgb(0.2, 0.2, 0.2)).set_corner_radius(12);
         back.place().l(420).t(100).size(160, 60);
         let label = back.add_view::<Label>();
+        label.set_alignment(TextAlignment::Center);
         label
             .set_text("back button")
             .set_text_size(20)

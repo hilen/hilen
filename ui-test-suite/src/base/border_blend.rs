@@ -5,8 +5,8 @@ use hilen::{
     gm::LossyConvert,
     refs::Weak,
     ui::{
-        BlurView, CLEAR, Color, Container, Image, ImageView, Label, Setup, U8Color, View, ViewData,
-        ViewFrame, ViewSubviews, ViewTest, view,
+        BlurView, CLEAR, Color, Container, Image, ImageView, Label, Setup, TextAlignment, U8Color, View,
+        ViewData, ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{capture_screenshot, check_colors, checkpoint, set_record_probe_count},
 };
@@ -413,6 +413,7 @@ fn tile_frames(column: usize) -> [(f32, f32, f32, f32); 2] {
 
 fn label(host: Weak<Container>, text: &str, color: Color, size: f32) -> Weak<Label> {
     let label = host.add_view::<Label>();
+    label.set_alignment(TextAlignment::Center);
     label.set_text(text).set_text_size(size).set_text_color(color);
     label
 }

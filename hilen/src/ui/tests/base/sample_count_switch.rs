@@ -4,7 +4,7 @@ use crate::{
     self as hilen, AppRunner,
     deps::{hreads::from_main, refs::Weak},
     gm::color::{BLUE, GREEN, LIGHT_GRAY, RED, WHITE},
-    ui::{Container, DrawingView, Label, Setup, Shadow, ViewData, ViewFrame, ViewTest, view},
+    ui::{Container, DrawingView, Label, Setup, Shadow, TextAlignment, ViewData, ViewFrame, ViewTest, view},
     ui_test::check_colors,
     window::{Screenshot, msaa_sample_count, set_msaa_sample_count},
 };
@@ -33,6 +33,9 @@ struct SampleCountSwitch {
 
 impl Setup for SampleCountSwitch {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.text.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(LIGHT_GRAY);
 
         self.title.set_text("sample count switch").set_text_size(22);

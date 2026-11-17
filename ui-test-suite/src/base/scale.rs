@@ -3,8 +3,8 @@ use hilen::{
     dispatch::from_main,
     refs::{Weak, weak_from_ref},
     ui::{
-        Button, CellRegistry, Label, Setup, TableData, TableView, UIManager, View, ViewData, ViewSubviews,
-        ViewTest, WHITE, view,
+        Button, CellRegistry, Label, Setup, TableData, TableView, TextAlignment, UIManager, View, ViewData,
+        ViewSubviews, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, inject_touches},
 };
@@ -25,6 +25,7 @@ struct ScaleView {
 
 impl Setup for ScaleView {
     fn setup(mut self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text("Label").set_color(WHITE);
         self.label.place().tl(20).size(150, 80);
 
@@ -55,6 +56,7 @@ impl TableData for ScaleView {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(index);
         cell.set_color(WHITE);
         cell

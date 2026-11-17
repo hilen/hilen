@@ -5,7 +5,7 @@ use hilen::{
     dispatch::from_main,
     gm::Clock,
     refs::Weak,
-    ui::{ImageMode, Label, Setup, VideoView, ViewFrame, ViewTest, view},
+    ui::{ImageMode, Label, Setup, TextAlignment, VideoView, ViewFrame, ViewTest, view},
     ui_test::{check_colors, step_frames},
 };
 
@@ -78,6 +78,9 @@ struct VideoHdr {
 
 impl Setup for VideoHdr {
     fn setup(self: Weak<Self>) {
+        self.pq_label.set_alignment(TextAlignment::Center);
+        self.hlg_label.set_alignment(TextAlignment::Center);
+        self.sdr_label.set_alignment(TextAlignment::Center);
         let rows = [
             (self.pq_label, self.pq, "PQ", "hilen-video-hdr-pq.mp4", PQ),
             (self.hlg_label, self.hlg, "HLG", "hilen-video-hdr-hlg.mp4", HLG),

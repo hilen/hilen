@@ -47,6 +47,8 @@ struct SplitCell {
 
 impl Setup for SplitCell {
     fn setup(mut self: Weak<Self>) {
+        self.old_number.set_alignment(TextAlignment::Center);
+        self.new_number.set_alignment(TextAlignment::Center);
         for (number, x) in [(self.old_number, 0.0), (self.new_number, HALF)] {
             number.set_text_size(16).set_color(Color::hex("#39424e")).set_text_color(WHITE);
             number.place().l(x).t(0).b(0).w(NUMBER_WIDTH);
@@ -90,6 +92,7 @@ struct TableSplitRegions {
 
 impl Setup for TableSplitRegions {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.status.set_text_size(20).set_color(WHITE);
         self.status.place().t(0).l(0).size(600, 60);
 

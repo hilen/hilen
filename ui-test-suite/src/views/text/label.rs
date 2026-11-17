@@ -18,6 +18,7 @@ struct LabelSettings {
 
 impl Setup for LabelSettings {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text("ßšėčыў").set_color(WHITE);
         self.label.place().size(280, 280).tl(80);
 
@@ -220,6 +221,7 @@ fn left_right_aligned_labels(view: Weak<LabelSettings>) -> Result<()> {
     from_main(move || {
         view.label.set_text_size(28);
         view.add_view::<Label>()
+            .set_alignment(TextAlignment::Center)
             .set_text("Left Left")
             .set_alignment(TextAlignment::Left)
             .set_color(LIGHTER_GRAY)
@@ -228,6 +230,7 @@ fn left_right_aligned_labels(view: Weak<LabelSettings>) -> Result<()> {
             .w(200)
             .h(60);
         view.add_view::<Label>()
+            .set_alignment(TextAlignment::Center)
             .set_text("Right")
             .set_alignment(TextAlignment::Right)
             .set_color(LIGHTER_GRAY)

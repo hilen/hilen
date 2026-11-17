@@ -4,8 +4,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLACK, Container, ImageView, Label, ModalView, RED, Setup, Size, UIColor, ViewData, ViewTest, WHITE,
-        view,
+        BLACK, Container, ImageView, Label, ModalView, RED, Setup, Size, TextAlignment, UIColor, ViewData,
+        ViewTest, WHITE, view,
     },
     ui_test::check_colors,
 };
@@ -95,6 +95,8 @@ struct PictureModal {
 
 impl Setup for PictureModal {
     fn setup(self: Weak<Self>) {
+        self.solid.set_alignment(TextAlignment::Center);
+        self.glass.set_alignment(TextAlignment::Center);
         self.picture.set_image("scrim_panel.png");
         self.picture.place().back();
 
@@ -137,6 +139,8 @@ struct ModalScrimPicture {
 
 impl Setup for ModalScrimPicture {
     fn setup(self: Weak<Self>) {
+        self.page.set_alignment(TextAlignment::Center);
+        self.behind.set_alignment(TextAlignment::Center);
         self.white.set_color(WHITE);
         self.white.place().tl(0).size(300, 600);
 

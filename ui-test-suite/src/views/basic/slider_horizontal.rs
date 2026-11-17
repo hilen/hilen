@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Anchor, Label, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view},
+    ui::{Anchor, Label, Setup, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE, view},
     ui_test::{helpers::check_colors, inject_touches},
 };
 
@@ -16,6 +16,7 @@ pub struct SliderHorizontal {
 
 impl Setup for SliderHorizontal {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.slider.set_horizontal().set_color(WHITE).place().size(400, 50).center();
         self.slider.on_change.val(move |a| {
             self.label.set_text(a);
@@ -118,6 +119,7 @@ fn check_labels_at_indicator_positions(view: Weak<SliderHorizontal>) -> Result<(
         from_main(move || {
             view.slider.set_value(i);
             let label = view.add_view::<Label>();
+            label.set_alignment(TextAlignment::Center);
             label.set_text(i);
             label.set_color(WHITE);
             label.set_size(30, 20);

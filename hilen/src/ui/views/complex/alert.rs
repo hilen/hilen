@@ -8,8 +8,8 @@ use crate::{
         flat::Size,
     },
     ui::{
-        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, UIColor, UIManager, View,
-        ViewFrame, ViewSubviews, view::ViewData,
+        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, TextAlignment, UIColor,
+        UIManager, View, ViewFrame, ViewSubviews, view::ViewData,
     },
 };
 
@@ -60,6 +60,7 @@ impl Setup for Alert {
         self.scroll.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
 
         self.label = self.scroll.add_view::<Label>();
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text_size(15);
         self.label.set_text_color(style.text);
         self.label.set_multiline(true);

@@ -1,5 +1,7 @@
 use std::{env::temp_dir, fs::write};
 
+use hilen::ui::TextAlignment;
+
 const CHECK_1: &str = r"
     336   48 - #202d36
     388   48 - #000000
@@ -135,6 +137,8 @@ struct VideoAv1 {
 
 impl Setup for VideoAv1 {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.state.set_alignment(TextAlignment::Center);
         let path = temp_dir().join("hilen-video-av1.mp4");
         write(&path, VIDEO).expect("the fixture video is writable to the temp dir");
         self.title.set_frame((20, 40, 560, 40));

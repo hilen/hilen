@@ -3,7 +3,7 @@ use hilen::{
     AppRunner,
     dispatch::from_main,
     refs::{Weak, manage::DataManager},
-    ui::{Font, Label, Screenshot, Setup, U8Color, ViewFrame, ViewTest, view},
+    ui::{Font, Label, Screenshot, Setup, TextAlignment, U8Color, ViewFrame, ViewTest, view},
     ui_test::check_colors,
 };
 
@@ -21,6 +21,8 @@ struct LabelFont {
 
 impl Setup for LabelFont {
     fn setup(self: Weak<Self>) {
+        self.default_label.set_alignment(TextAlignment::Center);
+        self.custom_label.set_alignment(TextAlignment::Center);
         self.default_label.set_frame(DEFAULT_FRAME);
         self.default_label.set_text(TEXT).set_text_size(50);
 

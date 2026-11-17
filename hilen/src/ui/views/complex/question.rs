@@ -14,7 +14,8 @@ use crate::{
     },
     ui::{
         Anchor::Width,
-        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, UIColor, ViewSubviews,
+        Button, Container, DialogStyle, Label, ModalView, ScrollView, Setup, TextAlignment, UIColor,
+        ViewSubviews,
         view::ViewData,
         views::complex::alert::{ALERT_WIDTH, BUTTON_HEIGHT, MIN_TEXT_HEIGHT, PADDING, fit_to_text},
     },
@@ -131,6 +132,7 @@ impl Setup for Question {
         self.scroll.place().lrt(PADDING).h(MIN_TEXT_HEIGHT);
 
         self.label = self.scroll.add_view::<Label>();
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text_size(17);
         self.label.set_text_color(style.text);
         self.label.set_multiline(true);

@@ -6,7 +6,10 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::color::Color,
-    ui::{CellRegistry, Container, Label, Setup, TableData, TableView, View, ViewData, ViewTest, view},
+    ui::{
+        CellRegistry, Container, Label, Setup, TableData, TableView, TextAlignment, View, ViewData, ViewTest,
+        view,
+    },
     ui_test::{check_colors, checkpoint},
 };
 
@@ -53,6 +56,7 @@ impl TableData for TableEmptied {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("Member {}", index + 1));
         cell.set_color(PALETTE[index % PALETTE.len()]);
         cell

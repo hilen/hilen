@@ -5,8 +5,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        Alert, Color, Container, DialogStyle, Label, NamedKey, Question, Setup, UIColor, ViewData, ViewTest,
-        view,
+        Alert, Color, Container, DialogStyle, Label, NamedKey, Question, Setup, TextAlignment, UIColor,
+        ViewData, ViewTest, view,
     },
     ui_test::{check_colors, inject_named_key},
 };
@@ -137,6 +137,7 @@ struct DialogStyleTest {
 
 impl Setup for DialogStyleTest {
     fn setup(self: Weak<Self>) {
+        self.caption.set_alignment(TextAlignment::Center);
         self.backdrop.set_color(Color::hex("#0d0a08"));
         self.backdrop.place().back();
         self.caption.set_text("app with a dark ember palette").set_text_size(20);

@@ -4,7 +4,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     login::{AppleLoginButton, GoogleLoginButton},
-    ui::{Label, Setup, ViewData, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches},
 };
 
@@ -94,6 +94,8 @@ struct LoginButtonTexts {
 
 impl Setup for LoginButtonTexts {
     fn setup(mut self: Weak<Self>) {
+        self.google_role.set_alignment(TextAlignment::Center);
+        self.apple_role.set_alignment(TextAlignment::Center);
         self.google_role.set_text("google button, russian texts").set_text_size(14);
         self.google_role.place().center_x().t(204).size(240, 20);
 

@@ -6,7 +6,10 @@ use crate::{
         color::{BLACK, Color, WHITE},
         flat::Rect,
     },
-    ui::{DynamicColor, Label, Setup, Shadow, UIManager, View, ViewData, ViewFrame, ViewSubviews, WeakView},
+    ui::{
+        DynamicColor, Label, Setup, Shadow, TextAlignment, UIManager, View, ViewData, ViewFrame,
+        ViewSubviews, WeakView,
+    },
     window::slots::WindowLock,
 };
 
@@ -44,7 +47,11 @@ impl Toast {
         Self::hide();
 
         let label = Label::new();
-        label.set_text(text).set_text_size(TEXT_SIZE).set_text_color(TEXT);
+        label
+            .set_alignment(TextAlignment::Center)
+            .set_text(text)
+            .set_text_size(TEXT_SIZE)
+            .set_text_color(TEXT);
         label
             .set_color(BACKGROUND)
             .set_corner_radius(CORNER_RADIUS)

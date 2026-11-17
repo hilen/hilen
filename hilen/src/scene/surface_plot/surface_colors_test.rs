@@ -8,7 +8,7 @@ use crate::{
     },
     gm::color::Color,
     scene::SurfacePlotView,
-    ui::{Label, Setup, ViewData, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -24,6 +24,7 @@ struct SurfaceColors {
 
 impl Setup for SurfaceColors {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status

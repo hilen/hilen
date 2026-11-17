@@ -4,7 +4,9 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::color::{BROWN, Color, GRAY_BLUE, GREEN, LIGHT_BLUE, ORANGE, PURPLE, RED, TURQUOISE, WHITE, YELLOW},
-    ui::{ImageView, Label, ScrollView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{
+        ImageView, Label, ScrollView, Setup, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
+    },
     ui_test::{check_colors, inject_scroll, inject_touches, set_record_probe_count},
 };
 
@@ -25,6 +27,8 @@ struct ScrollClipTest {
 
 impl Setup for ScrollClipTest {
     fn setup(self: Weak<Self>) {
+        self.header.set_alignment(TextAlignment::Center);
+        self.footer.set_alignment(TextAlignment::Center);
         self.header.set_text("HEADER").set_color(GRAY_BLUE).set_text_color(WHITE);
         self.header.place().tl(0).size(600, 100);
 
@@ -36,6 +40,7 @@ impl Setup for ScrollClipTest {
 
         for (i, color) in ITEM_COLORS.into_iter().enumerate() {
             let item = self.scroll.add_view::<Label>();
+            item.set_alignment(TextAlignment::Center);
             item.set_color(color);
             item.set_text(format!("ITEM {i}"));
             item.set_frame((0, 100 * i, 400, 100));

@@ -3,8 +3,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLUE, Container, GREEN, Hover, Label, ORANGE, Setup, Tooltip, ViewData, ViewFrame, ViewTest,
-        ViewTooltip, WHITE, view,
+        BLUE, Container, GREEN, Hover, Label, ORANGE, Setup, TextAlignment, Tooltip, ViewData, ViewFrame,
+        ViewTest, ViewTooltip, WHITE, view,
     },
     ui_test::{check_colors, inject_touches, set_record_probe_count, wait_for_tooltip},
 };
@@ -506,6 +506,8 @@ struct AuthorCard {
 
 impl Setup for AuthorCard {
     fn setup(self: Weak<Self>) {
+        self.name.set_alignment(TextAlignment::Center);
+        self.mail.set_alignment(TextAlignment::Center);
         self.set_color(WHITE).set_corner_radius(6);
         self.name.set_text("Vladas").set_text_size(14).place().t(4).lr(8).h(24);
         self.mail.set_text("v@example.com").set_text_size(12).place().t(30).lr(8).h(24);

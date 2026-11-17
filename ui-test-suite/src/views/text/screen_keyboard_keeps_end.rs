@@ -80,6 +80,7 @@ struct ScreenKeyboardKeepsEnd {
 
 impl Setup for ScreenKeyboardKeepsEnd {
     fn setup(mut self: Weak<Self>) {
+        self.compose.set_alignment(TextAlignment::Center);
         self.title.set_text("a chat that keeps its end").set_text_size(18);
         self.title.set_alignment(TextAlignment::Left);
         self.title.place().t(17).lr(20).h(26);
@@ -114,6 +115,7 @@ impl TableData for ScreenKeyboardKeepsEnd {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         let text = if index + 1 == ROWS {
             format!("message {index}, the last")
         } else {

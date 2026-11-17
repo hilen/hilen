@@ -4,7 +4,10 @@ use hilen::{
     gm::color::Color,
     image::Image,
     refs::Weak,
-    ui::{Container, DynamicColor, Label, Setup, Theme, ThemeMode, ToolButton, ViewData, ViewTest, view},
+    ui::{
+        Container, DynamicColor, Label, Setup, TextAlignment, Theme, ThemeMode, ToolButton, ViewData,
+        ViewTest, view,
+    },
     ui_test::{check_colors, checkpoint},
 };
 
@@ -43,6 +46,7 @@ struct ToolButtonPictureTest {
 
 impl Setup for ToolButtonPictureTest {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.bar.set_color(BAR);
         self.bar.place().back();
 

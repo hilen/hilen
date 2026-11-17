@@ -3,7 +3,8 @@ use hilen::{
     refs::Weak,
     ui::{
         Anchor::{self, Height, Width, Y},
-        ImageView, Label, NumberView, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE,
+        ImageView, Label, NumberView, Setup, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest,
+        WHITE,
         ui_test::{helpers::check_colors, inject_touches},
         view,
     },
@@ -19,6 +20,7 @@ struct OutBounds {
 
 impl Setup for OutBounds {
     fn setup(self: Weak<Self>) {
+        self.test.set_alignment(TextAlignment::Center);
         self.test
             .set_color(WHITE)
             .set_text("AA")

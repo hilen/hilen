@@ -47,12 +47,14 @@ impl Setup for ScreenKeyboardScroll {
             // Abs 900 to 950, under the keyboard.
             if row == 13 {
                 let field = self.scroll.add_view::<TextField>();
+                field.set_alignment(TextAlignment::Center);
                 field.set_text_size(24).set_placeholder("tap to type");
                 field.place().t(y).lr(20).h(50);
                 self.field = field;
                 continue;
             }
             let label = self.scroll.add_view::<Label>();
+            label.set_alignment(TextAlignment::Center);
             label.set_text(format!("row {row}")).set_text_size(18);
             label.set_alignment(TextAlignment::Left);
             label.place().t(y).lr(20).h(50);

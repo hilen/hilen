@@ -4,7 +4,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::color::Color,
-    ui::{Label, PlotView, Setup, ViewData, ViewTest, view},
+    ui::{Label, PlotView, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, checkpoint, inject_touches, set_record_probe_count},
 };
 
@@ -31,6 +31,7 @@ fn field(x: f64, y: f64) -> Color {
 
 impl Setup for PlotColorField {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status

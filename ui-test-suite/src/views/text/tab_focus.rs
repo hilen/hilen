@@ -2,7 +2,9 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Button, Modifiers, NamedKey, Setup, TextField, ViewData, ViewSubviews, ViewTest, view},
+    ui::{
+        Button, Modifiers, NamedKey, Setup, TextAlignment, TextField, ViewData, ViewSubviews, ViewTest, view,
+    },
     ui_test::{check_colors, inject_keys, inject_modifiers, inject_named_key},
 };
 
@@ -133,12 +135,16 @@ impl Setup for TabFocus {
                 button.place().t(520).l(20).size(260, 36);
 
                 let hidden = self.add_view::<TextField>();
+
+                hidden.set_alignment(TextAlignment::Center);
                 hidden.set_hidden(true);
                 hidden.place().t(520).l(320).size(260, 36);
                 self.hidden = hidden;
             }
 
             let field = self.add_view::<TextField>();
+
+            field.set_alignment(TextAlignment::Center);
             field.set_placeholder(format!("Field {}", i + 1));
             let column = if i < 10 { 20 } else { 320 };
             field.place().t(20 + (i % 10) * 48).l(column).size(260, 36);

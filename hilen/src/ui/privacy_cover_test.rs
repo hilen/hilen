@@ -5,7 +5,10 @@ use crate::{
     deps::{hreads::from_main, refs::Weak, vents::OnceEvent},
     gm::flat::Size,
     system::app_activity::{self, ActivityChange},
-    ui::{Color, Label, ModalView, Setup, UIColor, UIManager, ViewData, ViewTest, privacy_cover, view},
+    ui::{
+        Color, Label, ModalView, Setup, TextAlignment, UIColor, UIManager, ViewData, ViewTest, privacy_cover,
+        view,
+    },
     ui_test::{check_colors, checkpoint},
 };
 
@@ -201,6 +204,9 @@ struct PrivacyCover {
 
 impl Setup for PrivacyCover {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.balance.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         UIManager::set_clear_color(CLEAR_COLOR);
         self.set_color(PAGE);
         self.title.set_text("page").set_text_size(28);
@@ -236,6 +242,7 @@ impl ModalView for SecretModal {
 
 impl Setup for SecretModal {
     fn setup(self: Weak<Self>) {
+        self.text.set_alignment(TextAlignment::Center);
         self.set_color(MODAL);
         self.text.set_text("modal: send review").set_text_size(24);
         self.text.place().back();

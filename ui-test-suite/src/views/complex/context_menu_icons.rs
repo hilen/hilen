@@ -3,8 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        Container, ContextMenu, Label, MenuItem, Setup, Theme, ThemeMode, ViewData, ViewFrame, ViewSubviews,
-        ViewTest, ViewTouch, view,
+        Container, ContextMenu, Label, MenuItem, Setup, TextAlignment, Theme, ThemeMode, ViewData, ViewFrame,
+        ViewSubviews, ViewTest, ViewTouch, view,
     },
     ui_test::{check_colors, inject_right_click, inject_touches, set_record_probe_count},
 };
@@ -400,6 +400,7 @@ impl ContextMenuIcons {
 
 impl Setup for ContextMenuIcons {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.push.set_color("#d9e6ff");
         self.push.place().t(40).l(40).size(200, 60);
         self.push.enable_touch();

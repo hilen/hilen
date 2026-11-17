@@ -5,8 +5,8 @@ use crate::{
     deps::{hreads::from_main, refs::Weak, vents::Event},
     gm::{color::Color, flat::Point},
     ui::{
-        Button, CanvasView, Container, DrawingView, Label, Setup, StrokeStyle, VectorPath, ViewData,
-        ViewFrame, ViewSubviews, ViewTest, ViewTouch, view,
+        Button, CanvasView, Container, DrawingView, Label, Setup, StrokeStyle, TextAlignment, VectorPath,
+        ViewData, ViewFrame, ViewSubviews, ViewTest, ViewTouch, view,
     },
     ui_test::{check_colors, checkpoint, inject_pinch, inject_touches},
 };
@@ -32,6 +32,7 @@ struct CanvasPinch {
 
 impl Setup for CanvasPinch {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status.set_text_size(20).set_text_color("#1B1F24");

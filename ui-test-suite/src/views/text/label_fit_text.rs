@@ -16,6 +16,8 @@ struct LabelFitText {
 
 impl Setup for LabelFitText {
     fn setup(self: Weak<Self>) {
+        self.panel.set_alignment(TextAlignment::Center);
+        self.centered.set_alignment(TextAlignment::Center);
         self.tag.set_color(GREEN);
         self.tag.set_alignment(TextAlignment::Left);
         self.tag.set_text("tag").set_text_size(40);

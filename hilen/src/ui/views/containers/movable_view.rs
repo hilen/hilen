@@ -10,8 +10,8 @@ use crate::{
         flat::{Point, Size},
     },
     ui::{
-        Anchor::Top, ImageView, Label, Setup, UIImages, View, ViewData, ViewFrame, ViewSubviews, ViewTouch,
-        view::depth_order,
+        Anchor::Top, ImageView, Label, Setup, TextAlignment, UIImages, View, ViewData, ViewFrame,
+        ViewSubviews, ViewTouch, view::depth_order,
     },
 };
 
@@ -29,6 +29,7 @@ pub struct MovableView<T: View + Default + 'static> {
 
 impl<T: View + Default + 'static> Setup for MovableView<T> {
     fn setup(mut self: Weak<Self>) {
+        self.title_label.set_alignment(TextAlignment::Center);
         self.title_label.set_color(WHITE).place().lrt(0).h(40);
         self.title_label.enable_touch();
 

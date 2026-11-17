@@ -125,6 +125,7 @@ impl Setup for ColorPicker {
         for (index, name) in ["R", "G", "B"].into_iter().enumerate() {
             let label = self.names.add_view::<Label>();
             label
+                .set_alignment(TextAlignment::Center)
                 .set_text(name)
                 .set_text_size(13)
                 .set_text_color(TEXT)

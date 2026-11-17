@@ -25,6 +25,12 @@ struct TextFieldSubmit {
 
 impl Setup for TextFieldSubmit {
     fn setup(self: Weak<Self>) {
+        self.name_title.set_alignment(TextAlignment::Center);
+        self.name.set_alignment(TextAlignment::Center);
+        self.password_title.set_alignment(TextAlignment::Center);
+        self.password.set_alignment(TextAlignment::Center);
+        self.notes_title.set_alignment(TextAlignment::Center);
+        self.notes.set_alignment(TextAlignment::Center);
         let title = |label: Weak<Label>, text: &str, y: f32| {
             label.set_text(text).set_text_size(18);
             label.set_alignment(TextAlignment::Left);

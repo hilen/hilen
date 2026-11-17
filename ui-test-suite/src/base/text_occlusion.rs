@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{LIGHT_GRAY, Label, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{LIGHT_GRAY, Label, Setup, TextAlignment, ViewData, ViewTest, WHITE, view},
     ui_test::helpers::check_colors,
 };
 
@@ -14,6 +14,8 @@ pub struct TextOccclusion {
 
 impl Setup for TextOccclusion {
     fn setup(self: Weak<Self>) {
+        self.label_below.set_alignment(TextAlignment::Center);
+        self.label_above.set_alignment(TextAlignment::Center);
         self.label_below
             .set_color(WHITE)
             .set_text_size(100)

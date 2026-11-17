@@ -473,6 +473,7 @@ impl TableData for TableReloadCell {
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         SET_UP.lock().push(index);
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text_size(14);
         cell.set_text_color(BLACK);
         cell.set_color(if index.is_multiple_of(2) {

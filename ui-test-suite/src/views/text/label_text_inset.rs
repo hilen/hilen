@@ -41,6 +41,8 @@ const STRIP: f32 = 8.0;
 
 impl Setup for LabelTextInset {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.title.set_text("text inset in points").set_text_size(14);
         self.title.set_frame((0.0, 4.0, 200.0, 20.0));
 

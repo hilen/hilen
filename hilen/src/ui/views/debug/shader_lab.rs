@@ -14,7 +14,10 @@ use crate::{
         InstanceBinding, LabPipeline,
         data::{RectView, UIRectInstance},
     },
-    ui::{DrawsItself, Label, Setup, UIDrawer, UIManager, ViewCallbacks, ViewData, ViewFrame, ViewSubviews},
+    ui::{
+        DrawsItself, Label, Setup, TextAlignment, UIDrawer, UIManager, ViewCallbacks, ViewData, ViewFrame,
+        ViewSubviews,
+    },
     window::RenderPass,
 };
 
@@ -112,6 +115,7 @@ impl ShaderLab {
             ));
 
             let label = self.add_view::<Label>();
+            label.set_alignment(TextAlignment::Center);
 
             self.cells.push(Cell {
                 name: variant.name,

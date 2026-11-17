@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{BLACK, Container, ImageView, Label, RED, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{BLACK, Container, ImageView, Label, RED, Setup, TextAlignment, ViewData, ViewTest, WHITE, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -22,6 +22,9 @@ struct TranslucentOverText {
 
 impl Setup for TranslucentOverText {
     fn setup(self: Weak<Self>) {
+        self.open.set_alignment(TextAlignment::Center);
+        self.covered.set_alignment(TextAlignment::Center);
+        self.caption.set_alignment(TextAlignment::Center);
         self.open.set_text("open");
         self.covered.set_text("covered");
         for label in [self.open, self.covered] {

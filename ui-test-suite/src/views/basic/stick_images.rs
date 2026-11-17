@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::{Weak, manage::DataManager},
-    ui::{Image, Label, Setup, StickView, ViewFrame, ViewTest, view},
+    ui::{Image, Label, Setup, StickView, TextAlignment, ViewFrame, ViewTest, view},
     ui_test::{check_colors, inject_touches},
 };
 
@@ -142,6 +142,8 @@ struct StickImages {
 
 impl Setup for StickImages {
     fn setup(self: Weak<Self>) {
+        self.plain_title.set_alignment(TextAlignment::Center);
+        self.own_title.set_alignment(TextAlignment::Center);
         self.plain_title.set_frame((20, 40, 280, 40));
         self.plain_title.set_text("default stick");
         self.plain.set_frame((60, 100, 200, 200));

@@ -125,6 +125,12 @@ font's `trak` curve automatically, macOS does for the system font.
 
 ## Text inset
 
+A `Label` and a `TextField` are left aligned until the app sets another
+`TextAlignment`. The engine views whose text sits in the middle set `Center`
+themselves: `Button`, `ToolButton`, `Alert`, `Question`, a toast, a tooltip, the
+date and time fields, the badges of a context menu and the captions of
+`ViewGallery`. `Label default alignment` pins both sides.
+
 Left and right aligned text stands `Label::text_inset()` points from the edge of the
 frame, 0 for centered text. It is in points, so the text sits at the same place on
 every screen. The default is 8, what a retina screen showed when the indent was 16

@@ -101,6 +101,10 @@ struct TextFieldKeepsColor {
 
 impl Setup for TextFieldKeepsColor {
     fn setup(self: Weak<Self>) {
+        self.plain_title.set_alignment(TextAlignment::Center);
+        self.plain.set_alignment(TextAlignment::Center);
+        self.chosen_title.set_alignment(TextAlignment::Center);
+        self.chosen.set_alignment(TextAlignment::Center);
         let title = |label: Weak<Label>, y: f32, text: &str| {
             label.set_text_size(18).set_alignment(TextAlignment::Left);
             label.set_text(text);

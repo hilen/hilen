@@ -3,7 +3,10 @@ use hilen::{
     OnceEvent,
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{Alert, GREEN, Label, ModalView, Setup, Size, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{
+        Alert, GREEN, Label, ModalView, Setup, Size, TextAlignment, ViewData, ViewFrame, ViewTest, WHITE,
+        view,
+    },
     ui_test::{check_colors, inject_touches},
 };
 
@@ -21,6 +24,7 @@ struct BusyDialog {
 
 impl Setup for BusyDialog {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.set_color(WHITE).set_corner_radius(16);
 
         self.title.set_text("Busy busy busy dialog");

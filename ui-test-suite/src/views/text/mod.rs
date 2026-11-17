@@ -15,6 +15,7 @@ mod label;
 mod label_background_runs;
 mod label_cell_grid;
 mod label_color_runs;
+mod label_default_alignment;
 mod label_effect_made_again;
 mod label_effect_over_new_image;
 mod label_ellipsize;

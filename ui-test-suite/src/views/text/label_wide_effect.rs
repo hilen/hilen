@@ -1,7 +1,7 @@
 use anyhow::{Result, ensure};
 use hilen::{
     refs::Weak,
-    ui::{Color, Label, RED, Setup, U8Color, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{Color, Label, RED, Setup, TextAlignment, U8Color, ViewData, ViewFrame, ViewTest, WHITE, view},
     ui_test::{capture_screenshot, check_colors, checkpoint},
     window::Screenshot,
 };
@@ -28,6 +28,8 @@ struct LabelWideEffect {
 
 impl Setup for LabelWideEffect {
     fn setup(self: Weak<Self>) {
+        self.outlined.set_alignment(TextAlignment::Center);
+        self.glowing.set_alignment(TextAlignment::Center);
         self.set_color(Color::hex("#2060c0"));
 
         self.outlined.set_frame((0, 60, 600, 180));

@@ -56,7 +56,11 @@ impl HeatGrid {
         let count = this.columns.len() + this.rows.len() * (this.columns.len() + 1);
         for _ in 0..count {
             let label = this.add_view::<Label>();
-            label.set_text_size(TEXT_SIZE).set_text_inset(0.0).set_corner_radius(4);
+            label
+                .set_alignment(TextAlignment::Center)
+                .set_text_size(TEXT_SIZE)
+                .set_text_inset(0.0)
+                .set_corner_radius(4);
             this.views.push(label);
         }
         self.relayout();

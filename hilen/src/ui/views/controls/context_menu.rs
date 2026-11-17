@@ -326,7 +326,11 @@ impl MenuItemView {
         let mut offset = SIDE_PADDING;
         for (text, color) in item.badges.iter().rev() {
             let badge = self.add_view::<Label>();
-            badge.set_text(text).set_text_size(BADGE_TEXT_SIZE).set_text_color(*color);
+            badge
+                .set_alignment(TextAlignment::Center)
+                .set_text(text)
+                .set_text_size(BADGE_TEXT_SIZE)
+                .set_text_color(*color);
             let width = badge.content_size().width.ceil();
             badge.place().r(offset).center_y().size(width, style.item_height);
             offset += width + BADGE_GAP;

@@ -6,7 +6,7 @@ use crate::{
     deps::refs::{Own, Weak},
     ui::{
         Anchor::{Left, Right, Top},
-        Button, Container, Label, Setup, View, ViewData, ViewSubviews,
+        Button, Container, Label, Setup, TextAlignment, View, ViewData, ViewSubviews,
     },
 };
 
@@ -84,6 +84,7 @@ impl ViewGallery {
                 // to read and repeat a name to say which tile they mean.
                 let label = cell.add_view::<Label>();
                 label
+                    .set_alignment(TextAlignment::Center)
                     .set_text(format!("{}. {caption}", index + 1))
                     .set_text_size(CAPTION_TEXT_SIZE);
                 label.place().lrt(0).h(CAPTION_HEIGHT);
@@ -138,7 +139,7 @@ impl Setup for ViewGallery {
         }
 
         let label = self.add_view::<Label>();
-        label.set_text_size(CAPTION_TEXT_SIZE);
+        label.set_alignment(TextAlignment::Center).set_text_size(CAPTION_TEXT_SIZE);
         label.place().b(4).center_x().size(90, FOOTER_HEIGHT - 8.0);
         self.page_label = label;
 

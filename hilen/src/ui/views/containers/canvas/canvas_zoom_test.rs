@@ -5,8 +5,8 @@ use crate::{
     deps::{hreads::from_main, refs::Weak, vents::Event},
     gm::{color::Color, flat::Point},
     ui::{
-        Button, CanvasView, Container, DrawingView, Label, Setup, StrokeStyle, VectorPath, ViewData,
-        ViewFrame, ViewSubviews, ViewTest, ViewTouch, view,
+        Button, CanvasView, Container, DrawingView, Label, Setup, StrokeStyle, TextAlignment, VectorPath,
+        ViewData, ViewFrame, ViewSubviews, ViewTest, ViewTouch, view,
     },
     ui_test::{check_colors, inject_scroll, inject_touches},
 };
@@ -26,6 +26,7 @@ struct CanvasZoom {
 
 impl Setup for CanvasZoom {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status.set_text_size(22).set_text_color("#1B1F24");
@@ -78,6 +79,9 @@ struct ZoomScene {
 
 impl Setup for ZoomScene {
     fn setup(mut self: Weak<Self>) {
+        self.card_title.set_alignment(TextAlignment::Center);
+        self.path_title.set_alignment(TextAlignment::Center);
+        self.pad_title.set_alignment(TextAlignment::Center);
         self.card
             .set_color("#2F6FED")
             .set_corner_radius(14)

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{Setup, TURQUOISE, TextField, ViewData, ViewFrame, ViewTest, YELLOW, view},
+    ui::{Setup, TURQUOISE, TextAlignment, TextField, ViewData, ViewFrame, ViewTest, YELLOW, view},
     ui_test::{check_colors, inject_touches},
 };
 
@@ -13,6 +13,7 @@ struct CustomTextField {
 
 impl Setup for CustomTextField {
     fn setup(self: Weak<Self>) {
+        self.field.set_alignment(TextAlignment::Center);
         self.field
             .set_text("1.eĘEŠ")
             .set_color(YELLOW)

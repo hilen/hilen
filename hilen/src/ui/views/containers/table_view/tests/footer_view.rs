@@ -8,8 +8,8 @@ use crate::{
     deps::{hreads::from_main, refs::Weak},
     gm::color::{Color, WHITE},
     ui::{
-        Button, CellRegistry, Container, Label, Setup, TableData, TableView, View, ViewData, ViewFrame,
-        ViewSubviews, ViewTest, view,
+        Button, CellRegistry, Container, Label, Setup, TableData, TableView, TextAlignment, View, ViewData,
+        ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{check_colors, inject_touches},
 };
@@ -51,6 +51,8 @@ impl Setup for TableFooterView {
         self.footer.set_color(Color::hex("#264653"));
 
         let label = self.footer.add_view::<Label>();
+
+        label.set_alignment(TextAlignment::Center);
         label
             .set_text("footer")
             .set_text_size(24)
@@ -86,6 +88,7 @@ impl TableData for TableFooterView {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("cell {index}"));
         cell.set_text_size(20);
         cell.set_text_color(Color::hex("#20262c"));

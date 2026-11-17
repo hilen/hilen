@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Label, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, WHITE, view},
     ui_test::check_colors,
 };
 
@@ -14,6 +14,7 @@ struct MultilineLabel {
 
 impl Setup for MultilineLabel {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.place().tl(20).size(280, 280);
         self.label.set_text_size(40).set_color(WHITE);
         self.label

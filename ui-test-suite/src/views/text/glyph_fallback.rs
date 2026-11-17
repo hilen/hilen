@@ -4,7 +4,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::{Weak, manage::DataManager},
-    ui::{Font, Label, RunStyle, Setup, ViewFrame, ViewTest, view},
+    ui::{Font, Label, RunStyle, Setup, TextAlignment, ViewFrame, ViewTest, view},
     ui_test::{check_colors, checkpoint},
 };
 
@@ -29,6 +29,8 @@ struct GlyphFallback {
 
 impl Setup for GlyphFallback {
     fn setup(self: Weak<Self>) {
+        self.plain.set_alignment(TextAlignment::Center);
+        self.run.set_alignment(TextAlignment::Center);
         self.plain.set_frame(PLAIN_FRAME);
         self.plain.set_text(TEXT).set_text_size(50);
 

@@ -4,8 +4,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLACK, Container, GREEN, ImageView, Label, ModalView, RED, Setup, Shadow, Size, UIColor, ViewData,
-        ViewTest, WHITE, view,
+        BLACK, Container, GREEN, ImageView, Label, ModalView, RED, Setup, Shadow, Size, TextAlignment,
+        UIColor, ViewData, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, set_record_probe_count},
 };
@@ -25,6 +25,9 @@ struct BlurModal {
 
 impl Setup for BlurModal {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.yes.set_alignment(TextAlignment::Center);
+        self.no.set_alignment(TextAlignment::Center);
         self.set_color(WHITE);
         self.set_corner_radius(16);
         self.set_shadow(Shadow::default());
@@ -76,6 +79,7 @@ struct ModalBlurTest {
 
 impl Setup for ModalBlurTest {
     fn setup(self: Weak<Self>) {
+        self.text.set_alignment(TextAlignment::Center);
         self.white.set_color(WHITE);
         self.white.place().tl(0).size(200, 600);
 

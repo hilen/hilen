@@ -34,6 +34,9 @@ struct ScreenKeyboardShift {
 
 impl Setup for ScreenKeyboardShift {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.middle.set_alignment(TextAlignment::Center);
+        self.field.set_alignment(TextAlignment::Center);
         let label = |label: Weak<Label>, text: &str, y: f32| {
             label.set_text(text).set_text_size(18);
             label.set_alignment(TextAlignment::Left);

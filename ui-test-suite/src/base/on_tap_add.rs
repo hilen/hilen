@@ -3,7 +3,7 @@ use hilen::{
     refs::Weak,
     ui::{
         Button, CellRegistry, Container, GREEN, ImageView, Label, Setup, TURQUOISE, TableData, TableView,
-        View, ViewData, ViewSubviews, ViewTest, WHITE,
+        TextAlignment, View, ViewData, ViewSubviews, ViewTest, WHITE,
         ui_test::{helpers::check_colors, inject_touches},
         view,
     },
@@ -20,6 +20,7 @@ struct SomeView {
 
 impl Setup for SomeView {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.table.set_data_source(self).register_cell::<Label>().place().size(400, 400);
         self.label.set_text("Hello").set_color(GREEN).place().size(200, 200).tr(10);
         self.image.set_image("plus.png").place().size(200, 200).bl(10);
@@ -37,7 +38,12 @@ impl TableData for SomeView {
     }
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
-        registry.cell::<Label>().set_color(WHITE).set_text(format!("{index}")).weak()
+        registry
+            .cell::<Label>()
+            .set_alignment(TextAlignment::Center)
+            .set_color(WHITE)
+            .set_text(format!("{index}"))
+            .weak()
     }
 }
 

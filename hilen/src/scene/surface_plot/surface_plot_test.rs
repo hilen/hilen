@@ -7,7 +7,7 @@ use crate::{
         refs::Weak,
     },
     scene::SurfacePlotView,
-    ui::{Label, Setup, ViewData, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, checkpoint, inject_touches, set_record_probe_count},
 };
 
@@ -23,6 +23,7 @@ struct SurfacePlot {
 
 impl Setup for SurfacePlot {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status

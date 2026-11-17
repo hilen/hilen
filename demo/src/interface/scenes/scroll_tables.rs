@@ -121,6 +121,7 @@ impl Setup for RecycledRow {
         self.detail.place().l(16).b(6).r(116).h(18);
 
         self.index
+            .set_alignment(TextAlignment::Center)
             .set_color(ACCENT)
             .set_text_color(WHITE)
             .set_text_size(11)
@@ -207,6 +208,7 @@ impl ScrollTables {
 
             let index = row.add_view::<Label>();
             index
+                .set_alignment(TextAlignment::Center)
                 .set_text(format!("{:03}", i + 1))
                 .set_color(ACCENT)
                 .set_text_color(WHITE)

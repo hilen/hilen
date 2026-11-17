@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{Label, Setup, ViewFrame, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewFrame, ViewTest, view},
     ui_test::{check_colors, checkpoint, set_record_probe_count},
 };
 
@@ -18,6 +18,9 @@ struct SymbolFallback {
 
 impl Setup for SymbolFallback {
     fn setup(self: Weak<Self>) {
+        self.stars.set_alignment(TextAlignment::Center);
+        self.arrows.set_alignment(TextAlignment::Center);
+        self.shapes.set_alignment(TextAlignment::Center);
         self.stars.set_frame((20, 20, 560, 90));
         self.stars.set_text("Rated ★★★☆☆ ✓ ✗").set_text_size(44);
 

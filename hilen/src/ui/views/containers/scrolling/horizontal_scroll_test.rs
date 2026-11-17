@@ -7,7 +7,10 @@ use crate::{
         refs::Weak,
     },
     gm::color::{Color, WHITE},
-    ui::{Label, Modifiers, ScrollView, Setup, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{
+        Label, Modifiers, ScrollView, Setup, TextAlignment, UIManager, ViewData, ViewFrame, ViewSubviews,
+        ViewTest, view,
+    },
     ui_test::{check_colors, checkpoint, inject_modifiers, inject_scroll, inject_scroll_x, inject_touches},
 };
 
@@ -28,6 +31,7 @@ struct HorizontalScroll {
 
 impl Setup for HorizontalScroll {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.status.set_text_size(20).set_color(WHITE);
         self.status.place().tl(0).size(600, 60);
 
@@ -38,6 +42,7 @@ impl Setup for HorizontalScroll {
         for row in 0..ROWS {
             for column in 0..COLUMNS {
                 let tile = self.scroll.add_view::<Label>();
+                tile.set_alignment(TextAlignment::Center);
                 tile.set_text(format!("{row} {column}")).set_text_size(40);
                 tile.set_color(if (row + column).is_multiple_of(2) {
                     Color::hex("#dfe8f0")

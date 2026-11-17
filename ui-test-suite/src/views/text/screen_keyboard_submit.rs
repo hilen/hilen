@@ -27,6 +27,7 @@ struct ScreenKeyboardSubmit {
 
 impl Setup for ScreenKeyboardSubmit {
     fn setup(self: Weak<Self>) {
+        self.name.set_alignment(TextAlignment::Center);
         self.name_title.set_text("name, Return submits").set_text_size(18);
         self.name_title.set_alignment(TextAlignment::Left);
         self.name_title.place().t(60).lr(20).h(26);

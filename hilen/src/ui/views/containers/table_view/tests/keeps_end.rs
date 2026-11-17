@@ -86,6 +86,8 @@ impl TableKeepsEnd {
 
 impl Setup for TableKeepsEnd {
     fn setup(mut self: Weak<Self>) {
+        self.kept_title.set_alignment(TextAlignment::Center);
+        self.plain_title.set_alignment(TextAlignment::Center);
         self.rows = 30;
 
         self.status.set_text_size(16);
@@ -128,6 +130,7 @@ impl TableData for TableKeepsEnd {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         let text = if self.tall_row == Some(index) {
             format!("row {index}, grown")
         } else {

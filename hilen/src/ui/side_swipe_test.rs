@@ -7,7 +7,7 @@ use crate::{
     deps::{hreads::from_main, refs::Weak},
     ui::{
         Button, Color, Container, Label, ScrollView, Setup, SideSwipe, SideSwipeEnd, SideSwipeEvent,
-        UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
+        TextAlignment, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{check_colors, checkpoint, inject_touches},
 };
@@ -79,6 +79,7 @@ impl SideSwipeTest {
 
 impl Setup for SideSwipeTest {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(Color::rgb(0.2, 0.2, 0.25));
         self.status
             .set_text("no swipe yet")
@@ -109,6 +110,7 @@ impl Setup for SideSwipeTest {
         strip.place().lrb(0).h(120);
         strip.set_content_width(1500);
         let label = strip.add_view::<Label>();
+        label.set_alignment(TextAlignment::Center);
         label
             .set_text("sideways scroll")
             .set_text_size(24)

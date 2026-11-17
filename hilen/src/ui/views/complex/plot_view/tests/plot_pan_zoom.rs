@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
-    ui::{Label, PlotView, Setup, View, ViewData, ViewFrame, ViewTest, view},
+    ui::{Label, PlotView, Setup, TextAlignment, View, ViewData, ViewFrame, ViewTest, view},
     ui_test::{check_colors, checkpoint, inject_scroll, inject_touches, set_record_probe_count},
 };
 
@@ -19,6 +19,7 @@ struct PlotPanZoom {
 
 impl Setup for PlotPanZoom {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color("#FFFFFF");
 
         self.status.set_text_size(20).set_text_color("#1B1F24");

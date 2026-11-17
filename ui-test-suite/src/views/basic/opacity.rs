@@ -4,8 +4,8 @@ use hilen::{
     gm::{Animation, Clock},
     refs::Weak,
     ui::{
-        BLACK, BLUE, Color, Container, DrawingView, GREEN, ImageView, Label, RED, Setup, Shadow, UIAnimation,
-        ViewData, ViewFrame, ViewTest, WHITE, YELLOW, view,
+        BLACK, BLUE, Color, Container, DrawingView, GREEN, ImageView, Label, RED, Setup, Shadow,
+        TextAlignment, UIAnimation, ViewData, ViewFrame, ViewTest, WHITE, YELLOW, view,
     },
     ui_test::{check_colors, step_frames},
 };
@@ -132,6 +132,7 @@ struct OpacityCard {
 
 impl Setup for OpacityCard {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.set_color(WHITE)
             .set_border_color(BLACK)
             .set_border_width(4)
@@ -170,6 +171,7 @@ struct ViewOpacity {
 
 impl Setup for ViewOpacity {
     fn setup(self: Weak<Self>) {
+        self.names.set_alignment(TextAlignment::Center);
         self.band.set_frame((0, 150, 600, 60));
         self.band.set_color(YELLOW);
 

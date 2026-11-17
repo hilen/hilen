@@ -79,6 +79,12 @@ impl ColorGlyphClip {
 
 impl Setup for ColorGlyphClip {
     fn setup(self: Weak<Self>) {
+        self.fits_caption.set_alignment(TextAlignment::Center);
+        self.cut_bottom_caption.set_alignment(TextAlignment::Center);
+        self.cut_both_caption.set_alignment(TextAlignment::Center);
+        self.cut_both.set_alignment(TextAlignment::Center);
+        self.cut_right_caption.set_alignment(TextAlignment::Center);
+        self.cut_left_caption.set_alignment(TextAlignment::Center);
         self.set_color(WHITE);
         Font::set_fallbacks([Font::get("TwemojiColr0.ttf")]);
 

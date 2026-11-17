@@ -11,7 +11,8 @@ use crate::{
     },
     gm::{LossyConvert, color::Color},
     ui::{
-        CellRegistry, Label, NamedKey, Setup, TableData, TableView, UIManager, View, ViewData, ViewTest, view,
+        CellRegistry, Label, NamedKey, Setup, TableData, TableView, TextAlignment, UIManager, View, ViewData,
+        ViewTest, view,
     },
     ui_test::{check_colors, checkpoint, inject_named_key, inject_touches},
 };
@@ -176,6 +177,7 @@ impl TableRowMoves {
 
 impl Setup for TableRowMoves {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.order = (0..ROWS).collect();
         self.set_color(Color::rgb(0.2, 0.2, 0.25));
         self.table.place().tl(0).size(400, 520);
@@ -200,6 +202,7 @@ impl TableData for TableRowMoves {
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let name = self.order[index];
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("row {name}"));
         let (name_f, rows): (f32, f32) = (name.lossy_convert(), ROWS.lossy_convert());
         let shade = 0.45 + 0.5 * (name_f / rows);

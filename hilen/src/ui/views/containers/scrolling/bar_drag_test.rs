@@ -7,7 +7,9 @@ use crate::{
         refs::Weak,
     },
     gm::color::{Color, WHITE},
-    ui::{Label, ScrollView, Setup, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{
+        Label, ScrollView, Setup, TextAlignment, UIManager, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
+    },
     ui_test::{check_colors, inject_touches, system_input::wait_until},
 };
 
@@ -45,6 +47,7 @@ struct ScrollBarDrag {
 
 impl Setup for ScrollBarDrag {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(WHITE);
         self.status.set_text_size(18).set_multiline(true);
         self.status.set_text("nothing was dragged, both bars are at their start");
@@ -57,6 +60,7 @@ impl Setup for ScrollBarDrag {
         for row in 0..ROWS {
             for column in 0..COLUMNS {
                 let tile = self.scroll.add_view::<Label>();
+                tile.set_alignment(TextAlignment::Center);
                 tile.set_text(format!("{row} {column}")).set_text_size(32);
                 tile.set_color(if (row + column).is_multiple_of(2) {
                     Color::hex("#dfe8f0")

@@ -148,6 +148,7 @@ impl TableData for TableDropFirstCells {
         let name = self.names[index];
         SET_UP.lock().push(name);
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text_size(14);
         cell.set_text_color(BLACK);
         cell.set_color(if name.is_multiple_of(2) {

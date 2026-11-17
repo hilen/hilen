@@ -7,7 +7,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::color::Color,
-    ui::{CellRegistry, Label, Setup, TableData, TableView, View, ViewData, ViewTest, view},
+    ui::{CellRegistry, Label, Setup, TableData, TableView, TextAlignment, View, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
 
@@ -436,6 +436,7 @@ impl TableData for TableSetContentOffset {
     // the landed scroll position straight off the screen.
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("Row {index}"));
         cell.set_color(if index.is_multiple_of(2) {
             Color::hex("#dfe8f0")

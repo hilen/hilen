@@ -11,8 +11,8 @@ use crate::{
         color::{CLEAR, Color},
     },
     ui::{
-        Anchor, Container, DynamicColor, Label, Setup, TextField, ToolButton, ViewData, ViewFrame,
-        ViewSubviews, view,
+        Anchor, Container, DynamicColor, Label, Setup, TextAlignment, TextField, ToolButton, ViewData,
+        ViewFrame, ViewSubviews, view,
     },
 };
 
@@ -75,6 +75,7 @@ impl Setup for TimeField {
             .set_border_color(BORDER);
         self.place().h(HEIGHT);
         self.field
+            .set_alignment(TextAlignment::Center)
             .set_text_size(15)
             .set_text_color(TEXT)
             .set_color(CLEAR)
@@ -245,7 +246,11 @@ impl Setup for DateField {
         self.place().h(HEIGHT);
 
         let field_box = self.field;
-        field_box.set_text_size(15).set_text_color(TEXT).set_placeholder("YYYY-MM-DD");
+        field_box
+            .set_alignment(TextAlignment::Center)
+            .set_text_size(15)
+            .set_text_color(TEXT)
+            .set_placeholder("YYYY-MM-DD");
         field_box
             .set_color(FILL)
             .set_corner_radius(8)
@@ -270,14 +275,23 @@ impl Setup for DateField {
 
         self.previous.set_text("Previous").place().t(HEIGHT + 8.0).l(4);
         self.next.set_text("Next").place().t(HEIGHT + 8.0).r(4);
-        self.month.set_text_size(15).set_text_color(TEXT).set_color(CLEAR);
+        self.month
+            .set_alignment(TextAlignment::Center)
+            .set_text_size(15)
+            .set_text_color(TEXT)
+            .set_color(CLEAR);
         self.month.place().t(HEIGHT + 4.0).h(40).lr(90);
         self.previous.on_tap(move || self.step_month(-1));
         self.next.on_tap(move || self.step_month(1));
 
         for (index, name) in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].into_iter().enumerate() {
             let label = self.calendar.add_view::<Label>();
-            label.set_text(name).set_text_size(12).set_text_color(FAINT).set_color(CLEAR);
+            label
+                .set_alignment(TextAlignment::Center)
+                .set_text(name)
+                .set_text_size(12)
+                .set_text_color(FAINT)
+                .set_color(CLEAR);
             label
                 .place()
                 .t(40)

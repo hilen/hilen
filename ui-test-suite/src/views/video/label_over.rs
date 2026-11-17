@@ -5,7 +5,7 @@ use hilen::{
     dispatch::from_main,
     gm::Clock,
     refs::Weak,
-    ui::{BLACK, ImageMode, Label, Setup, VideoView, ViewFrame, ViewTest, WHITE, view},
+    ui::{BLACK, ImageMode, Label, Setup, TextAlignment, VideoView, ViewFrame, ViewTest, WHITE, view},
     ui_test::{check_colors, step_frames},
 };
 
@@ -102,6 +102,8 @@ struct VideoLabelOver {
 
 impl Setup for VideoLabelOver {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.subtitle.set_alignment(TextAlignment::Center);
         let path = temp_dir().join("hilen-video-label-over.mp4");
         write(&path, VIDEO).expect("the fixture video is writable to the temp dir");
         self.video.set_frame((60, 60, 480, 360));

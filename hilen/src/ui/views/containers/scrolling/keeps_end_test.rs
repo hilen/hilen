@@ -34,6 +34,7 @@ fn below_end(scroll: &ScrollView) -> f32 {
 fn add_row(scroll: Weak<ScrollView>, row: usize) {
     let y: f32 = row.lossy_convert();
     let label = scroll.add_view::<Label>();
+    label.set_alignment(TextAlignment::Center);
     label.set_text(format!("row {row}")).set_text_size(18);
     label.set_color(if row.is_multiple_of(2) { EVEN } else { ODD });
     label.place().t(y * ROW).lr(0).h(ROW);
@@ -101,6 +102,8 @@ impl ScrollKeepsEnd {
 
 impl Setup for ScrollKeepsEnd {
     fn setup(mut self: Weak<Self>) {
+        self.kept_title.set_alignment(TextAlignment::Center);
+        self.plain_title.set_alignment(TextAlignment::Center);
         self.status.set_text_size(16);
         self.status.set_alignment(TextAlignment::Left);
         self.status.place().t(10).lr(20).h(24);

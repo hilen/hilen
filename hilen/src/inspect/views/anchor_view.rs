@@ -3,7 +3,7 @@ use ui_proc::view;
 use crate::{
     deps::refs::Weak,
     gm::color::{GRAY, U8Color, WHITE},
-    ui::{Anchor, Container, Label, Setup, ViewData, ViewSubviews, WeakView},
+    ui::{Anchor, Container, Label, Setup, TextAlignment, ViewData, ViewSubviews, WeakView},
 };
 
 const BORDER_WIDTH: f32 = 2.0;
@@ -147,6 +147,7 @@ impl AnchorView {
 
     fn max(self: Weak<Self>) {
         self.add_view::<Label>()
+            .set_alignment(TextAlignment::Center)
             .set_text("M")
             .set_text_size(59)
             .set_corner_radius(20)

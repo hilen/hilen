@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     AppRunner,
     refs::{Weak, manage::DataManager},
-    ui::{Font, Screenshot, Setup, TextField, U8Color, ViewFrame, ViewTest, view},
+    ui::{Font, Screenshot, Setup, TextAlignment, TextField, U8Color, ViewFrame, ViewTest, view},
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -183,6 +183,8 @@ struct TextFieldFont {
 
 impl Setup for TextFieldFont {
     fn setup(self: Weak<Self>) {
+        self.default_font.set_alignment(TextAlignment::Center);
+        self.mono.set_alignment(TextAlignment::Center);
         self.default_font.set_frame(DEFAULT_FRAME);
         self.mono.set_frame(MONO_FRAME);
         self.mono.set_font(Font::get("DroidSansMono.ttf"));

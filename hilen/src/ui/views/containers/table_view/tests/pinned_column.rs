@@ -50,6 +50,8 @@ struct CodeCell {
 
 impl Setup for CodeCell {
     fn setup(mut self: Weak<Self>) {
+        self.number.set_alignment(TextAlignment::Center);
+        self.mark.set_alignment(TextAlignment::Center);
         self.number
             .set_text_size(18)
             .set_color(Color::hex("#39424e"))
@@ -102,6 +104,7 @@ struct TablePinnedColumn {
 
 impl Setup for TablePinnedColumn {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.status.set_text_size(20).set_color(WHITE);
         self.status.place().t(0).l(0).size(600, 60);
 

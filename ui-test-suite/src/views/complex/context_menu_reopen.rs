@@ -3,8 +3,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        Container, ContextMenu, Label, MenuItem, Point, Setup, TouchStack, ViewData, ViewFrame, ViewTest,
-        ViewTouch, view,
+        Container, ContextMenu, Label, MenuItem, Point, Setup, TextAlignment, TouchStack, ViewData,
+        ViewFrame, ViewTest, ViewTouch, view,
     },
     ui_test::{check_colors, inject_right_click, inject_touches},
 };
@@ -58,6 +58,7 @@ struct ContextMenuReopen {
 
 impl Setup for ContextMenuReopen {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.first.set_color("#d9e6ff");
         self.first.place().t(40).l(40).size(200, 80);
         self.first.enable_touch();

@@ -26,6 +26,9 @@ struct TextFieldFocusByCode {
 
 impl Setup for TextFieldFocusByCode {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.field.set_alignment(TextAlignment::Center);
+        self.state.set_alignment(TextAlignment::Center);
         let label = |label: Weak<Label>, y: f32| {
             label.set_text_size(18);
             label.set_alignment(TextAlignment::Left);

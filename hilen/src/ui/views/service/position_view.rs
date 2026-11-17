@@ -3,7 +3,7 @@ use ui_proc::view;
 use crate::{
     deps::refs::Weak,
     gm::{color::BLACK, flat::Point},
-    ui::{Container, Label, Setup, UIEvent, ViewData, ViewFrame, ViewTouch},
+    ui::{Container, Label, Setup, TextAlignment, UIEvent, ViewData, ViewFrame, ViewTouch},
 };
 
 #[view]
@@ -40,6 +40,7 @@ impl Setup for PositionView {
         self.enable_touch();
         self.place().size(250, 50);
         self.dot.set_color(BLACK).place().tl(-5).size(10, 10);
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text("Move me").place().back();
         self.touch().began.val(move |touch| {
             self.began_pos = touch.position;

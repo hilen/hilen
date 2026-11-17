@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{Color, DynamicColor, Setup, TextField, Theme, ThemeMode, ViewData, ViewTest, view},
+    ui::{Color, DynamicColor, Setup, TextAlignment, TextField, Theme, ThemeMode, ViewData, ViewTest, view},
     ui_test::check_colors,
 };
 
@@ -90,6 +90,7 @@ struct TextFieldTheme {
 
 impl Setup for TextFieldTheme {
     fn setup(self: Weak<Self>) {
+        self.field.set_alignment(TextAlignment::Center);
         self.field.set_color(FIELD_BG).set_corner_radius(10);
         self.field.set_text_color(FIELD_TEXT);
         self.field.set_text("Zug");

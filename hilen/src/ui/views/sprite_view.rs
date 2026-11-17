@@ -3,7 +3,7 @@ use ui_proc::view;
 use crate::{
     deps::refs::{Weak, weak_from_ref},
     level::Sprite,
-    ui::{AlertErr, Setup, TextField, ViewCallbacks, ViewData},
+    ui::{AlertErr, Setup, TextAlignment, TextField, ViewCallbacks, ViewData},
 };
 
 #[view]
@@ -19,6 +19,9 @@ pub struct SpriteView {
 impl Setup for SpriteView {
     fn setup(mut self: Weak<Self>) {
         self.place().all_ver();
+        for field in [self.position, self.rotation, self.z_pos] {
+            field.set_alignment(TextAlignment::Center);
+        }
 
         self.z_pos.editing_ended.val(move |z_text| {
             let Some(z) = z_text.parse::<f32>().alert_err() else {

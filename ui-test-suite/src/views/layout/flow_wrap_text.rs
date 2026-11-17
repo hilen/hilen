@@ -2,7 +2,10 @@ use anyhow::Result;
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{BLACK, Container, GREEN, Label, Rect, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view},
+    ui::{
+        BLACK, Container, GREEN, Label, Rect, Setup, TextAlignment, ViewData, ViewFrame, ViewSubviews,
+        ViewTest, view,
+    },
     ui_test::check_colors,
 };
 
@@ -28,6 +31,7 @@ impl Setup for FlowWrapText {
 impl FlowWrapText {
     fn add_word(mut self: Weak<Self>, text: &str) {
         let word = self.sentence.add_view::<Label>();
+        word.set_alignment(TextAlignment::Center);
         word.set_color(GREEN);
         word.set_text(text).set_text_size(32);
         word.place().fit_text();

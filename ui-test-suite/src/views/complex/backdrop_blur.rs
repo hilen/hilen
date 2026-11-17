@@ -2,7 +2,10 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{BlurView, Container, ImageView, Label, RED, Setup, ViewData, ViewSubviews, ViewTest, WHITE, view},
+    ui::{
+        BlurView, Container, ImageView, Label, RED, Setup, TextAlignment, ViewData, ViewSubviews, ViewTest,
+        WHITE, view,
+    },
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -25,6 +28,8 @@ struct BackdropBlurTest {
 
 impl Setup for BackdropBlurTest {
     fn setup(mut self: Weak<Self>) {
+        self.covered.set_alignment(TextAlignment::Center);
+        self.text.set_alignment(TextAlignment::Center);
         self.white.set_color(WHITE);
         self.white.place().tl(0).size(200, 600);
 
@@ -48,6 +53,7 @@ impl Setup for BackdropBlurTest {
         self.header.place().t(12).l(12).r(12).h(160);
 
         self.title = self.header.add_view();
+        self.title.set_alignment(TextAlignment::Center);
         self.title.set_text("Frosted header");
         self.title.set_text_size(28);
         self.title.place().lrt(0).h(56);

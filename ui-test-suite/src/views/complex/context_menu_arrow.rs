@@ -5,7 +5,7 @@ use hilen::{
     refs::Weak,
     ui::{
         BlurView, Button, CLEAR, Container, ContextMenu, DynamicColor, Label, MenuAlign, MenuItem, MenuStyle,
-        NamedKey, Rect, Setup, TailEdge, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
+        NamedKey, Rect, Setup, TailEdge, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{check_colors, inject_named_key, inject_touches},
 };
@@ -68,6 +68,7 @@ impl ContextMenuArrow {
 
 impl Setup for ContextMenuArrow {
     fn setup(self: Weak<Self>) {
+        self.caption.set_alignment(TextAlignment::Center);
         self.stripes.place().back();
         for color in STRIPES {
             let stripe = self.stripes.add_view::<Container>();

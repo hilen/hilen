@@ -5,7 +5,7 @@ use hilen::{
     refs::Weak,
     ui::{
         BlurView, Button, CLEAR, Container, ContextMenu, DynamicColor, Font, Label, MenuAlign, MenuItem,
-        MenuStyle, NamedKey, Point, Setup, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
+        MenuStyle, NamedKey, Point, Setup, TextAlignment, ViewData, ViewFrame, ViewSubviews, ViewTest, view,
     },
     ui_test::{check_colors, inject_named_key, inject_touches},
 };
@@ -60,6 +60,7 @@ fn items() -> Vec<MenuItem> {
 
 impl Setup for ContextMenuStyle {
     fn setup(self: Weak<Self>) {
+        self.caption.set_alignment(TextAlignment::Center);
         self.stripes.place().back();
         for color in STRIPES {
             let stripe = self.stripes.add_view::<Container>();

@@ -50,6 +50,7 @@ impl Setup for StackLayout {
         self.card.place().stack_ver().all(6).padding(12);
         for text in ["Card title", "A second line in the card"] {
             let label = self.card.add_view::<Label>();
+            label.set_alignment(TextAlignment::Center);
             label.set_text(text).set_text_size(22).set_alignment(TextAlignment::Left);
         }
 
@@ -57,6 +58,7 @@ impl Setup for StackLayout {
         self.row.place().stack_hor().all(8);
         for text in ["Chip", "Another chip", "Third"] {
             let chip = self.row.add_view::<Label>();
+            chip.set_alignment(TextAlignment::Center);
             chip.set_text(text).set_text_size(20).set_color(CHIP).set_corner_radius(8);
         }
 

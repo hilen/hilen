@@ -79,7 +79,7 @@ impl Setup for BarButton {
     fn setup(self: Weak<Self>) {
         self.set_corner_radius(CORNER);
         self.label.place().back();
-        self.label.set_color(CLEAR);
+        self.label.set_alignment(TextAlignment::Center).set_color(CLEAR);
         self.label.set_text_size(BUTTON_TEXT);
         self.image.place().center().size(ICON, ICON);
         self.image.set_hidden(true);
@@ -160,7 +160,7 @@ impl Setup for FindBar {
         self.close.set_icon(BarIcon::Close);
         self.replace.set_title("Replace");
         self.replace_all.set_title("All");
-        self.count.set_text_size(BUTTON_TEXT);
+        self.count.set_alignment(TextAlignment::Center).set_text_size(BUTTON_TEXT);
         self.count.set_color(CLEAR);
         self.set_replacing(false);
 

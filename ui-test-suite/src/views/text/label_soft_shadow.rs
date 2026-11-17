@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{BLACK, Color, Container, Label, Setup, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{BLACK, Color, Container, Label, Setup, TextAlignment, ViewData, ViewFrame, ViewTest, WHITE, view},
     ui_test::check_colors,
 };
 
@@ -59,6 +59,11 @@ struct LabelSoftShadow {
 
 impl Setup for LabelSoftShadow {
     fn setup(self: Weak<Self>) {
+        self.thin_outline.set_alignment(TextAlignment::Center);
+        self.wide_outline.set_alignment(TextAlignment::Center);
+        self.hard_shadow.set_alignment(TextAlignment::Center);
+        self.soft_shadow.set_alignment(TextAlignment::Center);
+        self.glow.set_alignment(TextAlignment::Center);
         self.light.set_frame((0, 0, 300, 520));
         self.light.set_color(WHITE);
         self.dark.set_frame((300, 0, 300, 520));

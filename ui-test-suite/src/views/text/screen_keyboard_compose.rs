@@ -35,6 +35,8 @@ struct ScreenKeyboardCompose {
 
 impl Setup for ScreenKeyboardCompose {
     fn setup(self: Weak<Self>) {
+        self.compose.set_alignment(TextAlignment::Center);
+        self.chat.set_alignment(TextAlignment::Center);
         self.title.set_text("a chat with a compose box").set_text_size(18);
         self.title.set_alignment(TextAlignment::Left);
         self.title.place().t(17).lr(20).h(26);

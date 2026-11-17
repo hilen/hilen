@@ -66,6 +66,7 @@ struct DropDownInModal {
 
 impl Setup for DropDownInModal {
     fn setup(self: Weak<Self>) {
+        self.page.set_alignment(TextAlignment::Center);
         self.page.set_text("the page behind is dimmed").set_text_size(20);
         self.page.set_color(WHITE);
         self.page.place().back();

@@ -158,6 +158,8 @@ struct PartialFrames {
 
 impl Setup for PartialFrames {
     fn setup(mut self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(LIGHT_GRAY);
 
         self.title.set_text("partial frames").set_text_size(22);
@@ -165,6 +167,7 @@ impl Setup for PartialFrames {
 
         for row in 0..ROWS {
             let label = self.add_view::<Label>();
+            label.set_alignment(TextAlignment::Center);
             label
                 .set_text(format!("row {}: the quick brown fox", row + 1))
                 .set_text_size(18);
@@ -181,6 +184,7 @@ impl Setup for PartialFrames {
         self.card.set_color(WHITE).set_corner_radius(12).set_shadow(Shadow::default());
         self.card.set_frame((410, 70, 160, 110));
         self.card_text = self.card.add_view::<Label>();
+        self.card_text.set_alignment(TextAlignment::Center);
         self.card_text.set_text("card, a shadow").set_text_size(14);
         self.card_text.set_frame((0, 40, 160, 30));
 
@@ -197,6 +201,7 @@ impl Setup for PartialFrames {
             .set_border_width(2);
         self.clip.set_frame((20, 300, 260, 120));
         self.clip_text = self.clip.add_view::<Label>();
+        self.clip_text.set_alignment(TextAlignment::Center);
         self.clip_text.set_text("a clip, a dot in it").set_text_size(14);
         self.clip_text.set_frame((60, 45, 190, 30));
         self.dot = self.clip.add_view::<Container>();

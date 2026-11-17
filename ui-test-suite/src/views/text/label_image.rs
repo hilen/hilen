@@ -4,8 +4,8 @@ use hilen::{
     refs::Weak,
     ui::{
         Anchor::{Top, X},
-        CellRegistry, Container, LIGHT_BLUE, Label, Setup, TableData, TableView, View, ViewData,
-        ViewSubviews, ViewTest, WHITE, view,
+        CellRegistry, Container, LIGHT_BLUE, Label, Setup, TableData, TableView, TextAlignment, View,
+        ViewData, ViewSubviews, ViewTest, WHITE, view,
     },
     ui_test::helpers::check_colors,
 };
@@ -22,6 +22,7 @@ struct LabelImage {
 
 impl Setup for LabelImage {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.set_text("ßšėčыў").set_text_size(110).set_image("cat.png");
         self.label.place().tl(50).w(400).h(200);
 
@@ -39,12 +40,14 @@ impl Setup for LabelImage {
 
         self.container
             .add_view::<Label>()
+            .set_alignment(TextAlignment::Center)
             .set_text("test 1")
             .set_text_size(50)
             .set_text_color(WHITE)
             .set_image("cat.png");
         self.container
             .add_view::<Label>()
+            .set_alignment(TextAlignment::Center)
             .set_text("test 2")
             .set_text_size(50)
             .set_text_color(WHITE)
@@ -63,6 +66,7 @@ impl TableData for LabelImage {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(index);
         cell.set_text_size(50);
         cell.set_text_color(WHITE);

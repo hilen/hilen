@@ -4,7 +4,8 @@ use hilen::{
     gm::color::Color,
     refs::Weak,
     ui::{
-        Button, Container, DynamicColor, Label, Setup, Theme, ThemeMode, ViewData, ViewFrame, ViewTest, view,
+        Button, Container, DynamicColor, Label, Setup, TextAlignment, Theme, ThemeMode, ViewData, ViewFrame,
+        ViewTest, view,
     },
     ui_test::{check_colors, inject_touches},
 };
@@ -50,6 +51,7 @@ fn style(button: Weak<Button>, icon: &str, text: &str) {
 
 impl Setup for ButtonIcon {
     fn setup(mut self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.panel.set_color(PANEL);
         self.panel.place().back();
 

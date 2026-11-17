@@ -83,7 +83,7 @@ impl Setup for DiffLineCell {
                 .set_alignment(TextAlignment::Right);
         }
         for marker in [self.marker, self.right_marker] {
-            marker.set_text_size(12);
+            marker.set_alignment(TextAlignment::Center).set_text_size(12);
         }
         for content in [self.content, self.right_content] {
             content.set_text_size(12).set_alignment(TextAlignment::Left);

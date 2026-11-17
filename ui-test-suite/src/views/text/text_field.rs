@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Anchor, Setup, ViewData, ViewTest, view},
+    ui::{Anchor, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{helpers::check_colors, inject_keys, inject_touches, set_record_probe_count},
 };
 
@@ -277,6 +277,8 @@ struct TextField {
 
 impl Setup for TextField {
     fn setup(self: Weak<Self>) {
+        self.field.set_alignment(TextAlignment::Center);
+        self.smol_field.set_alignment(TextAlignment::Center);
         self.field.place().size(600, 200).center();
         self.smol_field
             .place()

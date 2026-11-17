@@ -59,8 +59,8 @@ enum LongWords {
 
 #[derive(Debug, Default)]
 pub enum TextAlignment {
-    Left,
     #[default]
+    Left,
     Center,
     Right,
 }
@@ -811,6 +811,7 @@ pub trait AddLabel {
 impl<T: ?Sized + View> AddLabel for T {
     fn add_label(&self, text: impl ToLabel) -> &Self {
         let mut label = self.add_view::<Label>();
+        label.set_alignment(TextAlignment::Center);
         label.place().center().h(20).lr(0);
         label.text = text.to_label();
         self
@@ -840,6 +841,7 @@ mod tests {
     fn a_label_takes_the_default_inset_of_the_time_it_is_made() {
         set_current_thread_as_main();
         let centered = Label::new();
+        centered.set_alignment(TextAlignment::Center);
         let before = left_label();
         Label::set_default_text_inset(0);
         let after = left_label();

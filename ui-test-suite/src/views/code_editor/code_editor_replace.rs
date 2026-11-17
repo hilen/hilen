@@ -3,7 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, UIManager, ViewData, ViewTest, WHITE, view,
+        CodeEditor, CodePos, Label, Modifiers, NamedKey, Setup, TextAlignment, UIManager, ViewData, ViewTest,
+        WHITE, view,
     },
     ui_test::{
         check_colors, checkpoint, inject_modifiers, inject_named_key, set_record_probe_count,
@@ -29,6 +30,7 @@ struct CodeEditorReplace {
 
 impl Setup for CodeEditorReplace {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.set_color(WHITE);
         // Below the top 40 points, a tap there hits the status bar of a
         // phone.

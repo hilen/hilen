@@ -4,8 +4,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLACK, Container, GREEN, ImageView, Label, ModalView, RED, Setup, Shadow, Size, UIColor, View,
-        ViewData, ViewTest, WHITE, WeakView, view,
+        BLACK, Container, GREEN, ImageView, Label, ModalView, RED, Setup, Shadow, Size, TextAlignment,
+        UIColor, View, ViewData, ViewTest, WHITE, WeakView, view,
     },
     ui_test::{check_colors, set_record_probe_count},
 };
@@ -73,6 +73,9 @@ fn dialog_look(card: WeakView, title: Weak<Label>, yes: Weak<Label>, no: Weak<La
     card.set_corner_radius(16);
     card.set_shadow(Shadow::default());
 
+    for label in [title, yes, no] {
+        label.set_alignment(TextAlignment::Center);
+    }
     title.set_text(text);
     title.set_text_size(28);
     title.place().lrt(12).h(60);
@@ -102,6 +105,7 @@ struct ModalScrimTest {
 
 impl Setup for ModalScrimTest {
     fn setup(self: Weak<Self>) {
+        self.text.set_alignment(TextAlignment::Center);
         self.white.set_color(WHITE);
         self.white.place().tl(0).size(200, 600);
 

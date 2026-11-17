@@ -3,8 +3,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        BLACK, CellRegistry, Color, Container, Label, Setup, TableData, TableView, View, ViewData,
-        ViewSubviews, ViewTest, WHITE, view,
+        BLACK, CellRegistry, Color, Container, Label, Setup, TableData, TableView, TextAlignment, View,
+        ViewData, ViewSubviews, ViewTest, WHITE, view,
     },
     ui_test::{check_colors, checkpoint, inject_trackpad_scroll},
 };
@@ -110,6 +110,7 @@ impl Setup for OverlayOverTable {
         self.sticky.set_color(Color::hex("#1d3557"));
         self.table.set_sticky_header_place(0.0, STICKY_H);
         let label = self.sticky.add_view::<Label>();
+        label.set_alignment(TextAlignment::Center);
         label
             .set_text("sticky header")
             .set_text_size(24)
@@ -125,6 +126,7 @@ impl Setup for OverlayOverTable {
         self.card.set_color(Color::hex("#f4a261")).set_corner_radius(16);
         self.card.place().center().size(360, 160);
         self.text = self.card.add_view::<Label>();
+        self.text.set_alignment(TextAlignment::Center);
         self.text.set_text("overlay").set_text_size(28).set_text_color(BLACK);
         self.text.place().center().size(300, 50);
 
@@ -143,6 +145,7 @@ impl TableData for OverlayOverTable {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("cell {index}"));
         cell.set_text_size(20);
         cell.set_text_color(Color::hex("#20262c"));

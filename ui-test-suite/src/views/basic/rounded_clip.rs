@@ -1,7 +1,9 @@
 use anyhow::Result;
 use hilen::{
     refs::Weak,
-    ui::{BLUE, Container, GREEN, ImageView, Label, RED, Setup, ViewData, ViewTest, WHITE, view},
+    ui::{
+        BLUE, Container, GREEN, ImageView, Label, RED, Setup, TextAlignment, ViewData, ViewTest, WHITE, view,
+    },
     ui_test::{check_colors, set_record_probe_count},
 };
 
@@ -18,6 +20,7 @@ struct Card {
 
 impl Setup for Card {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.set_color(WHITE)
             .set_border_color(BLUE)
             .set_border_width(6)

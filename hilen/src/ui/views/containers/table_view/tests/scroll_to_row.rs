@@ -7,7 +7,10 @@ use crate::{
         LossyConvert,
         color::{Color, WHITE},
     },
-    ui::{CellRegistry, Label, Setup, TableData, TableView, View, ViewData, ViewFrame, ViewTest, view},
+    ui::{
+        CellRegistry, Label, Setup, TableData, TableView, TextAlignment, View, ViewData, ViewFrame, ViewTest,
+        view,
+    },
     ui_test::{check_colors, checkpoint},
 };
 
@@ -176,6 +179,7 @@ impl TableData for JumpTable {
 
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_text(format!("Row {index}")).set_text_size(20);
         cell.set_color(if index == self.target {
             Color::hex("#f08a24")

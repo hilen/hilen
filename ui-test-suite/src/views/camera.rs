@@ -4,7 +4,7 @@ use hilen::{
     camera::{Camera, CameraView, FakeCamera, PhotoFormat},
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
-    ui::{Label, Setup, ViewData, ViewTest, view},
+    ui::{Label, Setup, TextAlignment, ViewData, ViewTest, view},
     ui_test::{check_colors, checkpoint},
 };
 
@@ -123,6 +123,8 @@ struct CameraViewTest {
 
 impl Setup for CameraViewTest {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.status.set_alignment(TextAlignment::Center);
         self.title.set_text("camera view of a fake camera");
         self.title.place().t(20).lr(20).h(40);
         self.preview.set_color((30, 30, 30));

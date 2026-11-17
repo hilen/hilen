@@ -3,8 +3,8 @@ use hilen::{
     OnceEvent,
     refs::Weak,
     ui::{
-        Color, Container, Label, ModalView, Setup, Size, ViewData, ViewFrame, ViewSubviews, ViewTest, WHITE,
-        WeakView, ui_test::helpers::check_colors, view,
+        Color, Container, Label, ModalView, Setup, Size, TextAlignment, ViewData, ViewFrame, ViewSubviews,
+        ViewTest, WHITE, WeakView, ui_test::helpers::check_colors, view,
     },
 };
 
@@ -40,6 +40,7 @@ struct Modal {
 
 impl Setup for Modal {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.place().back();
         self.label.set_text_size(100);
         self.label.set_text("Hello");

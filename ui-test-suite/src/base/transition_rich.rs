@@ -5,7 +5,8 @@ use hilen::{
     refs::Weak,
     ui::{
         Button, CLEAR, CheckBox, CircleView, Container, GREEN, ImageView, Label, NumberView, PURPLE,
-        ProgressView, RED, Setup, Shadow, Slider, Switch, TURQUOISE, ViewData, ViewTest, WHITE, view,
+        ProgressView, RED, Setup, Shadow, Slider, Switch, TURQUOISE, TextAlignment, ViewData, ViewTest,
+        WHITE, view,
     },
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
@@ -32,6 +33,9 @@ struct TransitionRich {
 
 impl Setup for TransitionRich {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.subtitle.set_alignment(TextAlignment::Center);
+        self.hint.set_alignment(TextAlignment::Center);
         FIRST_SETUPS.fetch_add(1, Ordering::Relaxed);
 
         self.set_color("#C0392B");
@@ -110,6 +114,9 @@ struct SwitchedRich {
 
 impl Setup for SwitchedRich {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
+        self.body.set_alignment(TextAlignment::Center);
+        self.footer.set_alignment(TextAlignment::Center);
         self.set_color("#16A085");
 
         self.title.set_text("Switched");

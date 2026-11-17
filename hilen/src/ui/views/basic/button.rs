@@ -12,8 +12,8 @@ use crate::{
     image::ToImage,
     text::Font,
     ui::{
-        DynamicColor, ImageView, Label, Setup, Style, Tinted, ToLabel, UIColor, UIEvent, UIManager, View,
-        ViewCallbacks, ViewSubviews, ViewTransition,
+        DynamicColor, ImageView, Label, Setup, Style, TextAlignment, Tinted, ToLabel, UIColor, UIEvent,
+        UIManager, View, ViewCallbacks, ViewSubviews, ViewTransition,
         view::{ViewData, ViewTouch},
     },
 };
@@ -258,6 +258,7 @@ impl Setup for Button {
         self.set_color(WHITE);
 
         let label = Label::new();
+        label.set_alignment(TextAlignment::Center);
 
         label.__base_view().is_system = true;
         label.__base_view().ignore_global_style = true;

@@ -5,8 +5,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        Alert, Color, DynamicColor, Label, ModalView, Question, Setup, Theme, ThemeMode, ViewData, ViewFrame,
-        ViewTest, view,
+        Alert, Color, DynamicColor, Label, ModalView, Question, Setup, TextAlignment, Theme, ThemeMode,
+        ViewData, ViewFrame, ViewTest, view,
     },
     ui_test::{check_colors, inject_touches},
 };
@@ -23,6 +23,7 @@ struct AlertDark {
 
 impl Setup for AlertDark {
     fn setup(self: Weak<Self>) {
+        self.caption.set_alignment(TextAlignment::Center);
         // The page follows the theme like a real app, so the switch in the
         // middle turns page and alert light together.
         self.set_color(DynamicColor::new(Color::hex("#f2f2f7"), Color::hex("#0a0a0a")));

@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Label, Setup, VerticalAlignment, ViewData, ViewTest, WHITE, view},
+    ui::{Label, Setup, TextAlignment, VerticalAlignment, ViewData, ViewTest, WHITE, view},
     ui_test::check_colors,
 };
 
@@ -121,6 +121,7 @@ struct LabelVerticalAlignment {
 
 impl Setup for LabelVerticalAlignment {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.label.place().tl(20).size(280, 280);
         self.label.set_text_size(40).set_color(WHITE).set_multiline(true);
         self.label.set_text("Top of the frame\nsecond line");

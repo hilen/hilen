@@ -3,8 +3,8 @@ use hilen::{
     dispatch::from_main,
     refs::Weak,
     ui::{
-        Container, ContextMenu, Label, MenuItem, NamedKey, Point, Setup, TouchStack, ViewData, ViewFrame,
-        ViewTest, ViewTouch, view,
+        Container, ContextMenu, Label, MenuItem, NamedKey, Point, Setup, TextAlignment, TouchStack, ViewData,
+        ViewFrame, ViewTest, ViewTouch, view,
     },
     ui_test::{
         capture_screenshot, check_colors, inject_long_press, inject_named_key, inject_right_click,
@@ -369,6 +369,7 @@ impl ContextMenuTest {
 
 impl Setup for ContextMenuTest {
     fn setup(self: Weak<Self>) {
+        self.status.set_alignment(TextAlignment::Center);
         self.row.set_color("#d9e6ff");
         self.row.place().t(40).lr(40).h(60);
         self.row.enable_touch();

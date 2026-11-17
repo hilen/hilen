@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{NamedKey, Setup, TextField, ViewData, ViewTest, view},
+    ui::{NamedKey, Setup, TextAlignment, TextField, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_keys, inject_named_key, set_record_probe_count},
 };
 
@@ -150,6 +150,7 @@ struct SecureTextField {
 
 impl Setup for SecureTextField {
     fn setup(self: Weak<Self>) {
+        self.field.set_alignment(TextAlignment::Center);
         self.field.set_secure(true);
         self.field.set_text_size(32);
         self.field.place().tl(20).size(400, 60);

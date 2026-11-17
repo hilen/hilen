@@ -5,7 +5,8 @@ use hilen::{
     gm::LossyConvert,
     refs::Weak,
     ui::{
-        BLACK, BLUE, Color, Container, Label, RED, Setup, U8Color, ViewData, ViewFrame, ViewTest, WHITE, view,
+        BLACK, BLUE, Color, Container, Label, RED, Setup, TextAlignment, U8Color, ViewData, ViewFrame,
+        ViewTest, WHITE, view,
     },
     ui_test::{capture_screenshot, check_colors, checkpoint},
     window::Screenshot,
@@ -33,6 +34,7 @@ struct GroupCard {
 
 impl Setup for GroupCard {
     fn setup(self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.set_color(WHITE)
             .set_border_color(BLACK)
             .set_border_width(4)
@@ -100,6 +102,7 @@ struct GroupOpacity {
 
 impl Setup for GroupOpacity {
     fn setup(self: Weak<Self>) {
+        self.names.set_alignment(TextAlignment::Center);
         self.set_color(Color::hex("#ffd24a"));
 
         self.full.set_frame((LEFT[0], TOP_ROW, CARD, CARD));

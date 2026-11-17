@@ -2,7 +2,7 @@ use anyhow::{Result, ensure};
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{Color, Image, ImageView, Label, Setup, ViewData, ViewFrame, ViewTest, WHITE, view},
+    ui::{Color, Image, ImageView, Label, Setup, TextAlignment, ViewData, ViewFrame, ViewTest, WHITE, view},
     ui_test::{capture_screenshot, check_colors, checkpoint, step_frames},
 };
 
@@ -139,6 +139,10 @@ impl LabelEffectMadeAgain {
 
 impl Setup for LabelEffectMadeAgain {
     fn setup(self: Weak<Self>) {
+        self.outlined.set_alignment(TextAlignment::Center);
+        self.glowing.set_alignment(TextAlignment::Center);
+        self.shadowed.set_alignment(TextAlignment::Center);
+        self.note.set_alignment(TextAlignment::Center);
         self.set_color(Color::rgb(0.15, 0.1, 0.05));
 
         self.outlined.set_frame((20, 20, 560, 110));

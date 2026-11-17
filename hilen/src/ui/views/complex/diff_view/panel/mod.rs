@@ -278,7 +278,7 @@ impl Setup for DiffPanel {
         // width of the panel, which the table fills.
         self.size_changed().sub(move || self.update_content_width());
 
-        self.measure.set_text_size(12);
+        self.measure.set_alignment(TextAlignment::Center).set_text_size(12);
         self.measure.set_hidden(true);
 
         self.image.place().lbr(0).t(HEADER_H);

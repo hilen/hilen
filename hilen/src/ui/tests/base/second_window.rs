@@ -7,7 +7,10 @@ use crate::{
         refs::Weak,
     },
     gm::color::{BLUE, RED, U8Color, WHITE, YELLOW},
-    ui::{Container, Input, Label, Setup, Touch, UIManager, ViewData, ViewFrame, ViewTest, ViewTouch, view},
+    ui::{
+        Container, Input, Label, Setup, TextAlignment, Touch, UIManager, ViewData, ViewFrame, ViewTest,
+        ViewTouch, view,
+    },
     ui_test::{check_colors, checkpoint, inject_touches},
     window::{AppWindow, WindowLevel, WindowPlace, WindowSpec},
 };
@@ -26,6 +29,7 @@ struct SecondWindowContent {
 
 impl Setup for SecondWindowContent {
     fn setup(mut self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.set_color(WHITE);
         self.title.set_text("second window");
         self.title.set_frame((20, 0, 360, 40));
@@ -59,6 +63,7 @@ struct SecondWindow {
 
 impl Setup for SecondWindow {
     fn setup(mut self: Weak<Self>) {
+        self.title.set_alignment(TextAlignment::Center);
         self.title.set_text("main window");
         self.title.set_frame((20, 0, 360, 40));
 

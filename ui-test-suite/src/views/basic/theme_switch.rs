@@ -3,8 +3,8 @@ use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     refs::Weak,
     ui::{
-        BLACK, BLUE, Color, Container, DynamicColor, Label, RED, Setup, Theme, ThemeMode, UIEvents, ViewData,
-        ViewSubviews, ViewTest, WHITE, YELLOW, view,
+        BLACK, BLUE, Color, Container, DynamicColor, Label, RED, Setup, TextAlignment, Theme, ThemeMode,
+        UIEvents, ViewData, ViewSubviews, ViewTest, WHITE, YELLOW, view,
     },
     ui_test::check_colors,
 };
@@ -26,6 +26,7 @@ struct ThemeSwitch {
 
 impl Setup for ThemeSwitch {
     fn setup(self: Weak<Self>) {
+        self.label.set_alignment(TextAlignment::Center);
         self.themed.set_color(BACKGROUND).set_border_color(BORDER).set_border_width(10);
         self.themed.place().tl(20).size(200, 200);
 

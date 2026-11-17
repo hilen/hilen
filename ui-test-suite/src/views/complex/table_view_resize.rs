@@ -2,7 +2,9 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{GREEN, Label, Setup, TableData, TableView, View, ViewData, ViewFrame, ViewTest, view},
+    ui::{
+        GREEN, Label, Setup, TableData, TableView, TextAlignment, View, ViewData, ViewFrame, ViewTest, view,
+    },
     ui_test::{check_colors, inject_scroll},
 };
 
@@ -30,6 +32,7 @@ impl TableData for TableViewResize {
 
     fn setup_cell(&mut self, _index: usize, registry: &mut hilen::ui::CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         cell.set_color(GREEN);
         cell.set_text("alalalalal");
         cell

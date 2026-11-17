@@ -7,7 +7,7 @@ use crate::{
     self as hilen,
     deps::{hreads::from_main, refs::Weak},
     gm::color::{Color, WHITE},
-    ui::{CellRegistry, Label, Setup, TableData, TableView, View, ViewData, ViewTest, view},
+    ui::{CellRegistry, Label, Setup, TableData, TableView, TextAlignment, View, ViewData, ViewTest, view},
     ui_test::{check_colors, inject_touches, set_record_probe_count},
 };
 
@@ -843,6 +843,7 @@ impl TableData for TableStickyRows {
     // reads which section is pinned straight off the screen.
     fn setup_cell(&mut self, index: usize, registry: &mut CellRegistry) -> Weak<dyn View> {
         let cell = registry.cell::<Label>();
+        cell.set_alignment(TextAlignment::Center);
         if is_header(index) {
             cell.set_text(format!("Section {}", index / 10));
             cell.set_text_color(WHITE);

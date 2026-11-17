@@ -22,6 +22,7 @@ struct TextFieldCaretScale {
 
 impl Setup for TextFieldCaretScale {
     fn setup(self: Weak<Self>) {
+        self.hint.set_alignment(TextAlignment::Center);
         self.hint.set_text("the caret sits before the P").set_text_size(16);
         self.hint.place().t(20).lr(10).h(30);
 
