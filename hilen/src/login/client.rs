@@ -81,12 +81,12 @@ pub(super) fn credential() -> Option<Credential> {
     }
 }
 
-fn set_cookie_user(user: Option<LoginUser>) {
+pub(super) fn set_cookie_user(user: Option<LoginUser>) {
     *COOKIE_USER.lock() = user;
 }
 
 /// Forgets the active session here, the others stay.
-fn clear_active() -> Result<()> {
+pub(super) fn clear_active() -> Result<()> {
     if cookie_mode() {
         set_cookie_user(None);
         Ok(())
@@ -494,16 +494,6 @@ impl Login {
         }
     }
 
-    /// Who the active session belongs to, for the app launch. `None` when
-    /// nobody is active, also when the server no longer knows the session,
-    /// which then is forgotten here too. The other sessions stay.
-    pub fn current_user(done: impl FnOnce(Result<Option<LoginUser>>) + Send + 'static) {
-        spawn(async move {
-            let result = fetch_current_user().await;
-            on_main(move || done(result));
-        });
-    }
-
     /// Ends the active session on the server and forgets it here, the other
     /// sessions stay and none of them becomes active. The local half happens
     /// even when the server cannot be reached.
@@ -757,43 +747,10 @@ async fn fetch_providers() -> Result<LinkedProviders> {
 /// A login that came back to this page finishes first. Asked before it, the
 /// server has no session yet: the answer was a 401 that cleared the user the
 /// login set a moment later, and a page in cookie mode showed its login again.
-async fn wait_for_resume() {
+pub(super) async fn wait_for_resume() {
     let give_up_at = now() + GIVE_UP_SECONDS;
     while RESUMING.load(Ordering::SeqCst) && now() < give_up_at {
         sleep(LOOK_SECONDS).await;
-    }
-}
-
-async fn fetch_current_user() -> Result<Option<LoginUser>> {
-    wait_for_resume().await;
-    // A view never asks: a 401 for it must not drop the own session.
-    if let Some(view) = view::current() {
-        return Ok(view.user());
-    }
-    let Some(credential) = credential() else {
-        return Ok(None);
-    };
-    let token = match &credential {
-        Credential::Bearer(token) => Some(token.clone()),
-        Credential::Cookie => None,
-    };
-
-    let call = credential.on(Call::get(format!("{}/auth/me", server()?)));
-    match call.send::<LoginUser>().await {
-        Ok(user) => {
-            match token {
-                // A session of an engine with 1 login gets its user here, and
-                // a new name or picture reaches the list of accounts.
-                Some(token) => SessionStore::set_user(&token, user.clone())?,
-                None => set_cookie_user(Some(user.clone())),
-            }
-            Ok(Some(user))
-        }
-        Err(RequestError::Unauthorized) => {
-            clear_active()?;
-            Ok(None)
-        }
-        Err(error) => Err(error.into()),
     }
 }
 

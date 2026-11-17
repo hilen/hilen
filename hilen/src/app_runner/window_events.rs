@@ -22,7 +22,7 @@ use crate::{
     pipelines::Pipelines,
     ui::{
         Cursor, ElementState, Focus, Hover, Input, MouseButton, NamedKey, ScreenKeyboard, Theme, Touch,
-        TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
+        TouchEvent, TouchSource, UIDrawer, UIEvents, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
         damage::Damage, latin_candidate, privacy_cover,
     },
     window::{RenderFrame, Theme as OsTheme, Window, slots, winit_keys},
@@ -215,6 +215,7 @@ impl crate::window::WindowEvents for AppRunner {
             position,
             event: TouchEvent::Moved,
             button: MouseButton::Left,
+            source: TouchSource::Mouse,
         })
     }
 
@@ -224,6 +225,7 @@ impl crate::window::WindowEvents for AppRunner {
             position: **CURSOR_POSITION,
             event: state.into(),
             button,
+            source: TouchSource::Mouse,
         })
     }
 
@@ -271,6 +273,7 @@ impl crate::window::WindowEvents for AppRunner {
             position: (touch.location.x, touch.location.y).into(),
             event,
             button: MouseButton::Left,
+            source: TouchSource::Finger,
         })
     }
 

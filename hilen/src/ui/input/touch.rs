@@ -5,12 +5,25 @@ use crate::{
     ui::{MouseButton, TouchLock, input::TouchEvent},
 };
 
+/// What made a touch. A drag decides by it how it starts: a mouse lifts a
+/// view after a short move, a finger after a hold, so a quick finger drag
+/// still scrolls.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TouchSource {
+    Mouse,
+    Finger,
+    /// Made by the engine or a test, like the focus ring or an injected
+    /// touch. A drag goes by `UIManager::drag_scrolling` for it.
+    Unknown,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Touch {
     pub id:       usize,
     pub position: Point,
     pub event:    TouchEvent,
     pub button:   MouseButton,
+    pub source:   TouchSource,
 }
 
 impl Touch {
@@ -92,6 +105,7 @@ impl FromStr for Touch {
             },
             event: vals[2].parse()?,
             button: MouseButton::Left,
+            source: TouchSource::Unknown,
         };
 
         Ok(touch)
@@ -101,7 +115,7 @@ impl FromStr for Touch {
 #[cfg(all(test, feature = "gpu"))]
 mod test {
 
-    use crate::ui::{MouseButton, Touch, input::TouchEvent};
+    use crate::ui::{MouseButton, Touch, TouchSource, input::TouchEvent};
 
     #[test]
     fn touch_to_string() {
@@ -111,30 +125,35 @@ mod test {
                 position: (0, 0).into(),
                 event:    TouchEvent::Began,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             },
             Touch {
                 id:       1,
                 position: (2000, 10).into(),
                 event:    TouchEvent::Ended,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             },
             Touch {
                 id:       1,
                 position: (100, 4000).into(),
                 event:    TouchEvent::Ended,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             },
             Touch {
                 id:       1,
                 position: (1, 4000).into(),
                 event:    TouchEvent::Moved,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             },
             Touch {
                 id:       1,
                 position: (4000, 1).into(),
                 event:    TouchEvent::Moved,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             },
         ];
 
@@ -173,6 +192,7 @@ mod test {
                 position: (10, 20).into(),
                 event:    TouchEvent::Began,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             }],
             Touch::vec_from_str("10 20 b")
         );

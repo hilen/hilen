@@ -204,6 +204,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
   view, also over a scroll view that moves up and down. Read before touching
   `side_swipe.rs` or the order of the swipes in `input.rs`.
+- [docs/drag-drop.md](docs/drag-drop.md) — `Drag`, a view picked up and dropped on
+  another, `TouchSource`, and how a mouse and a finger lift it. Read before touching
+  `drag_drop.rs` or the touch source.
 - [docs/tab-shell.md](docs/tab-shell.md) — `TabShell`, a tab app with the bar at the
   bottom, how its background reaches past the home bar with `UIManager::system_insets`,
   and its tests. Read before touching `tab_shell/` or `system_insets`.

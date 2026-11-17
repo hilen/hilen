@@ -7,6 +7,7 @@
 #[cfg(feature = "ui-tests")]
 mod apple_login_button_test;
 mod client;
+mod current_user;
 #[cfg(feature = "ui-tests")]
 mod discord_login_button_test;
 #[cfg(feature = "ui-tests")]

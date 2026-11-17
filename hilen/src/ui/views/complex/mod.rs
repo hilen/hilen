@@ -6,6 +6,7 @@ mod dialog_style;
 #[cfg(feature = "diff-view")]
 mod diff_view;
 mod dpad_view;
+mod drawer_shell;
 mod drawing_view;
 mod file_browser;
 #[cfg(feature = "plot")]
@@ -30,6 +31,7 @@ pub use dialog_style::DialogStyle;
 #[cfg(feature = "diff-view")]
 pub use diff_view::{DiffHost, DiffPanel, DiffShown, diff_colors};
 pub use dpad_view::DPadView;
+pub use drawer_shell::{DRAWER_BAR_HEIGHT, DrawerBar, DrawerColors, DrawerLayer, DrawerShell};
 pub use drawing_view::{DrawingView, PathData};
 pub use file_browser::{
     FileBrowser, FileBrowserControl, FileBrowserMode, FilePick, FilePicker, FileSort, SortKey,

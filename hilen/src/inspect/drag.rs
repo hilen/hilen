@@ -5,7 +5,7 @@ use crate::{
         wait::{MAX_WAIT_MS, wait_ms},
         window::from_main,
     },
-    ui::{Input, MouseButton, Touch, TouchEvent, UIManager},
+    ui::{Input, MouseButton, Touch, TouchEvent, TouchSource, UIManager},
 };
 
 impl InspectService {
@@ -62,5 +62,6 @@ fn touch(position: Point, event: TouchEvent) {
         position: position * UIManager::scale(),
         event,
         button: MouseButton::Left,
+        source: TouchSource::Unknown,
     });
 }

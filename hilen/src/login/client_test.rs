@@ -26,12 +26,14 @@ use tokio::{net::TcpListener, spawn};
 
 #[cfg(not_wasm)]
 use super::{
-    ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_every_session, end_session, fetch_current_user,
-    forget_session, wait_for_login,
+    ATTEMPT, CLOSED, POLL_SECONDS, Waited, end_every_session, end_session, forget_session, wait_for_login,
 };
 use super::{challenge, login_code, new_verifier};
 #[cfg(not_wasm)]
-use crate::{deps::hreads::sleep, login::hand_back::HandBack};
+use crate::{
+    deps::hreads::sleep,
+    login::{current_user::fetch_current_user, hand_back::HandBack},
+};
 #[cfg(not_wasm)]
 use crate::{
     deps::{
@@ -700,5 +702,48 @@ async fn current_user_waits_for_a_login_that_came_back() -> Result<()> {
         fetch_current_user().await?.map(|user| user.id).as_deref(),
         Some("ann")
     );
+    Ok(())
+}
+
+/// Stands in for `/auth/me` of a backend that knows no session of the page.
+/// Like `me.rs` of the server it answers a request with the cookie header
+/// `null`, and every other one a 401.
+#[cfg(not_wasm)]
+async fn no_session_server() -> Result<()> {
+    let app = Router::new().route(
+        "/auth/me",
+        get(|headers: HeaderMap| async move {
+            if headers.get("x-hilen-session").and_then(|value| value.to_str().ok()) == Some("cookie") {
+                Ok(Json(Value::Null))
+            } else {
+                Err(StatusCode::UNAUTHORIZED)
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    Login::set_server(format!("http://{}", listener.local_addr()?));
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the no session server stopped: {error}");
+        }
+    });
+    Ok(())
+}
+
+// The failure this prevents: a page in cookie mode with no session got a 401
+// from `/auth/me`, which a browser logs as an error in its console. The
+// server answers such a page `null` now, and the page reads it as nobody.
+#[cfg(not_wasm)]
+#[tokio::test]
+#[serial(on_disk_root)]
+async fn a_page_with_no_session_reads_null_as_nobody() -> Result<()> {
+    no_session_server().await?;
+    fresh_root("hilen-login-no-session-test")?;
+    let _mode = CookieMode::on();
+    super::set_cookie_user(Some(user("ann")));
+
+    assert_eq!(fetch_current_user().await?, None);
+    assert_eq!(Login::active_user(), None);
     Ok(())
 }

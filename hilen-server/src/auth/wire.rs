@@ -14,6 +14,10 @@ pub struct UserInfo {
     pub picture: Option<String>,
 }
 
+/// The answer of `GET /auth/me`: the user of the session, or `null` for a
+/// page in a browser with no live session, see `me.rs`.
+pub(crate) type Me = Option<UserInfo>;
+
 impl From<User> for UserInfo {
     fn from(user: User) -> Self {
         Self {
@@ -84,7 +88,23 @@ mod test {
     use anyhow::Result;
     use serde_json::{from_str, to_string};
 
-    use super::{CodeRequest, CodeResponse, PollRequest, PollResponse, UserInfo};
+    use super::{CodeRequest, CodeResponse, Me, PollRequest, PollResponse, UserInfo};
+
+    #[test]
+    fn me_shapes() -> Result<()> {
+        let user: Me = Some(UserInfo {
+            id:      "1".to_owned(),
+            email:   "a@b.c".to_owned(),
+            name:    "A".to_owned(),
+            picture: None,
+        });
+        assert_eq!(
+            to_string(&user)?,
+            r#"{"id":"1","email":"a@b.c","name":"A","picture":null}"#
+        );
+        assert_eq!(to_string(&None::<UserInfo>)?, "null");
+        Ok(())
+    }
 
     #[test]
     fn request_shapes() -> Result<()> {

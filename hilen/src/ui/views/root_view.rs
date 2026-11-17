@@ -6,8 +6,8 @@ use crate::{
     gm::flat::{Point, Rect, Size},
     image::ToImage,
     ui::{
-        ImageMode, ImageView, NavigationView, RowDrag, SideSwipe, SystemInsets, UIColor, UIManager, View,
-        ViewData, ViewFrame, ViewSubviews, WeakView, view::Setup,
+        Drag, ImageMode, ImageView, NavigationView, RowDrag, SideSwipe, SystemInsets, UIColor, UIManager,
+        View, ViewData, ViewFrame, ViewSubviews, WeakView, view::Setup,
     },
 };
 #[cfg(feature = "gpu")]
@@ -74,6 +74,7 @@ impl RootView {
         NavigationView::reset_swipe();
         SideSwipe::reset();
         RowDrag::reset();
+        Drag::reset();
         self.screen.remove_all_subviews();
         self.place_screen();
     }

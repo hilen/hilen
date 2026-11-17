@@ -14,8 +14,8 @@ use crate::{
         window::from_main,
     },
     ui::{
-        Button, Input, Label, Modifiers, MouseButton, TextField, Touch, TouchEvent, UIManager, ViewData,
-        ViewFrame, ViewSubviews, WeakView, named_key_char,
+        Button, Input, Label, Modifiers, MouseButton, TextField, Touch, TouchEvent, TouchSource, UIManager,
+        ViewData, ViewFrame, ViewSubviews, WeakView, named_key_char,
     },
 };
 
@@ -209,6 +209,7 @@ impl InspectService {
                 position,
                 event,
                 button,
+                source: TouchSource::Unknown,
             });
         }
         Input::set_modifiers(Modifiers::empty());

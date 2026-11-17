@@ -57,8 +57,8 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
     ui::{
-        Code, Input, LongPress, Modifiers, MouseButton, NamedKey, Tooltip, Touch, U8Color, UIEvents,
-        UIManager, input::TouchEvent, latin_candidate,
+        Code, Input, LongPress, Modifiers, MouseButton, NamedKey, Tooltip, Touch, TouchSource, U8Color,
+        UIEvents, UIManager, input::TouchEvent, latin_candidate,
     },
     window::Window,
 };
@@ -167,6 +167,19 @@ pub fn inject_touches(data: impl ToString + Send + 'static) {
     });
 }
 
+/// Like `inject_touches`, with every touch made by a mouse, the way a browser
+/// sends a mouse also where a drag scrolls the page.
+pub fn inject_mouse_touches(data: impl ToString + Send + 'static) {
+    let scale = UIManager::scale();
+    from_main(move || {
+        for mut touch in Touch::vec_from_str(&data.to_string()) {
+            touch.position *= scale;
+            touch.source = TouchSource::Mouse;
+            inject_touch(touch);
+        }
+    });
+}
+
 /// A right button press and release at `x y`, the desktop way to open a
 /// context menu. The engine does not gate the right button by platform,
 /// so this drives the same path on a device.
@@ -180,6 +193,7 @@ pub fn inject_right_click(x: impl ToF32, y: impl ToF32) {
                 position,
                 event,
                 button: MouseButton::Right,
+                source: TouchSource::Unknown,
             });
         });
     }
@@ -197,6 +211,7 @@ pub fn inject_long_press(x: impl ToF32, y: impl ToF32) {
         position,
         event: TouchEvent::Began,
         button: MouseButton::Left,
+        source: TouchSource::Unknown,
     };
 
     from_main(move || inject_touch(touch));

@@ -22,6 +22,8 @@
 
 mod apple;
 pub mod cookie;
+#[cfg(test)]
+mod cookie_test;
 #[cfg(feature = "dev-login")]
 mod dev;
 #[cfg(all(test, feature = "dev-login"))]
@@ -32,6 +34,7 @@ pub(crate) mod hand_back;
 pub(crate) mod identity;
 #[cfg(test)]
 mod join_test;
+mod me;
 pub(crate) mod routes;
 #[cfg(test)]
 mod routes_test;

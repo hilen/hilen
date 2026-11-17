@@ -6,6 +6,15 @@ use crate::{
 
 pub struct UIImages;
 
+/// The Lucide menu, the 3 lines of the button that opens a drawer, drawn in
+/// black for a tint.
+pub(crate) const MENU_SVG: &[u8] = include_bytes!("images/menu.svg");
+
+/// The Lucide chevrons of the fold arrow of a tree, drawn in black for a
+/// tint: right for a folded row, down for an open one.
+pub(crate) const FOLDED_SVG: &[u8] = include_bytes!("images/fb_chevron_right.svg");
+pub(crate) const UNFOLDED_SVG: &[u8] = include_bytes!("images/tree_chevron_down.svg");
+
 impl UIImages {
     pub fn delete() -> Weak<Image> {
         Image::from_file_data(include_bytes!("images/delete.png"), "delete.png")

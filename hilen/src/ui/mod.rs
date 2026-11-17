@@ -18,6 +18,9 @@ mod modal_view;
 #[cfg(feature = "ui-tests")]
 mod navigation_events_test;
 // A browser has no swipe from the edge, see `NavigationView::stack_at`.
+mod drag_drop;
+#[cfg(feature = "ui-tests")]
+mod drag_drop_test;
 #[cfg(all(feature = "ui-tests", not_wasm))]
 mod navigation_shell_swipe_test;
 #[cfg(all(feature = "ui-tests", not_wasm))]
@@ -69,6 +72,7 @@ pub use self::code_highlighter::CodeHighlighter;
 pub use self::ui_drawer::{DrawsItself, UIDrawer};
 pub use self::{
     accessibility::{Accessibility, AccessibleNode, AccessibleRole, ViewAccessibility},
+    drag_drop::{Drag, DragStart, DropEvent},
     focus::{Focus, FocusDirection, ViewFocus},
     gradient::*,
     hover::*,

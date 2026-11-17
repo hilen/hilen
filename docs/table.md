@@ -97,6 +97,16 @@ the scrolls, and Escape before the key focus.
 drag that scrolls, a finger hold, and a hold at the bottom edge that scrolls the
 table and puts the row last. Its colors pin the held row with its shadow.
 
+## A tree
+
+`TreeTable` in `views/containers/tree_table` is a `TableView` whose rows have levels and
+fold. The app gives every row in the order of the tree through `TreeData`, each with its
+level and a key that stays with the row. A row whose next row is deeper gets a
+`FoldArrow`, which the tree adds as the last subview of the cell, so it is in front, at
+the indent of the level and over the whole height of the row. The app starts the content
+of a cell at `content_left(level)`. A tap on the arrow hides and shows the rows under it,
+and the fold stays by the key over a reload. `Tree table folds` pins it.
+
 ## A sticky header view
 
 `add_sticky_header_view` adds a header view whose frame the table sets itself, so it

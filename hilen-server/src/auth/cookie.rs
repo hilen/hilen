@@ -32,11 +32,16 @@ const NAME: &str = "hilen_session";
 /// login. A user who comes back later logs in again.
 const MAX_AGE_SECONDS: u32 = 90 * 24 * 60 * 60;
 
+/// Whether the request has the header that a page of another site cannot
+/// send, so it comes from a page that keeps its session in the cookie.
+pub(crate) fn marked(headers: &HeaderMap) -> bool {
+    headers.get(HEADER).and_then(|value| value.to_str().ok()) == Some(HEADER_VALUE)
+}
+
 /// The token of the session cookie, only when the request also has the
 /// header that a page of another site cannot send.
 pub(crate) fn token(headers: &HeaderMap) -> Option<&str> {
-    let marked = headers.get(HEADER).and_then(|value| value.to_str().ok()) == Some(HEADER_VALUE);
-    if !marked {
+    if !marked(headers) {
         return None;
     }
     headers
@@ -61,11 +66,20 @@ pub(crate) fn keep(config: &AuthConfig, token: &str, body: impl IntoResponse) ->
 
 /// An empty answer that drops the cookie when the request came with it.
 pub(crate) fn ended(config: &AuthConfig, headers: &HeaderMap) -> Result<Response, AppError> {
+    dropped(config, headers, ())
+}
+
+/// `body` as the answer, and the cookie dropped when the request came with it.
+pub(crate) fn dropped(
+    config: &AuthConfig,
+    headers: &HeaderMap,
+    body: impl IntoResponse,
+) -> Result<Response, AppError> {
     if token(headers).is_none() {
-        return Ok(().into_response());
+        return Ok(body.into_response());
     }
     let value = format!("{NAME}=; Max-Age=0; {}", attributes(config));
-    Ok(([(SET_COOKIE, header_value(&value)?)], ()).into_response())
+    Ok(([(SET_COOKIE, header_value(&value)?)], body).into_response())
 }
 
 fn attributes(config: &AuthConfig) -> String {

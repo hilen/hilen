@@ -22,7 +22,7 @@ use crate::{
 use crate::{
     gm::color::Color,
     ui::{
-        Container, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Setup, SideSwipe,
+        Container, Drag, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Setup, SideSwipe,
         TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch,
         press_keeps_selection,
     },
@@ -126,6 +126,9 @@ impl Input {
             return;
         }
         if key == NamedKey::Escape && RowDrag::escape() {
+            return;
+        }
+        if key == NamedKey::Escape && Drag::escape() {
             return;
         }
         // An open list goes first, Escape must not also close the modal it is
@@ -265,11 +268,18 @@ impl Input {
         if NavigationView::swallow(&touch) {
             SideSwipe::reset();
             RowDrag::reset();
+            Drag::reset();
             return true;
         }
 
         // A held row of a table follows the finger.
         if RowDrag::swallow(&touch) {
+            SideSwipe::reset();
+            return true;
+        }
+
+        // A view held up by a drag follows the pointer to its drop.
+        if Drag::swallow(&touch) {
             SideSwipe::reset();
             return true;
         }

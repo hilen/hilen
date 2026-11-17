@@ -130,6 +130,12 @@ works only for a page in a browser, an app on any other platform keeps its token
 - A server before the cookie ignores the field and answers with a token, which the page
   then keeps as before, with a warning in the log.
 - The cookie is not renewed on use, a user who comes back after 90 days logs in again.
+- A page cannot read its cookie, so it asks `/auth/me` at every start. With the cookie
+  header and no live session the server answers `200` with `null`, and drops a stale
+  cookie, `auth/me.rs`. A browser logs every 401 as a console error, and a signed out
+  visit logged one before. Every other request with no session, a bearer token the
+  server forgot included, still gets 401. `a_page_with_no_session_learns_it_with_no_401`
+  tests the server, `a_page_with_no_session_reads_null_as_nobody` the client.
 - `a_page_gets_its_session_as_a_cookie_no_script_can_read` and
   `a_dev_login_can_keep_its_session_in_a_cookie` test the server,
   `a_login_in_cookie_mode_keeps_no_token`, `send_in_cookie_mode_marks_the_request_and_sends_no_token`

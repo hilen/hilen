@@ -15,11 +15,12 @@ use crate::{
         AppleConfig, AuthState, DiscordConfig, User, apple, cookie, discord, google,
         hand_back::HandBack,
         identity::{Identity, Provider},
+        me::me,
         session::{self, hash},
         store,
         user::bearer_token,
-        view_as::{Seen, is_view},
-        wire::{CodeRequest, CodeResponse, LinkRequest, PollRequest, PollResponse, Providers, UserInfo},
+        view_as::is_view,
+        wire::{CodeRequest, CodeResponse, LinkRequest, PollRequest, PollResponse, Providers},
     },
 };
 
@@ -49,7 +50,8 @@ const PENDING_MINUTES: i32 = 10;
 ///   verifier and the code that went back to it.
 ///
 /// [`AuthConfig::with_code_login`]: crate::auth::AuthConfig::with_code_login
-/// - `GET /auth/me` is the user of a session.
+/// - `GET /auth/me` is the user of a session, `null` for a page with no
+///   session, see `me.rs`.
 /// - `POST /auth/link` marks the next login of a signed in app as a link of a
 ///   second provider to its user.
 /// - `GET /auth/providers` is what a user signs in with and what this server
@@ -515,13 +517,6 @@ async fn poll(
         user: user.into(),
     })
     .into_response())
-}
-
-async fn me(seen: Seen) -> Json<UserInfo> {
-    if let Some(viewer) = seen.viewer {
-        tracing::info!("user {viewer} starts a view as user {}", seen.user.id);
-    }
-    Json(seen.user.into())
 }
 
 /// The app of a signed in user asks before it opens the provider. Only it

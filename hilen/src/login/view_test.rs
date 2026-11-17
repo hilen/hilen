@@ -14,7 +14,7 @@ use axum::{
 use serial_test::serial;
 use tokio::{net::TcpListener, spawn};
 
-use super::{end_every_session, end_session, fetch_current_user, forget_session};
+use super::{end_every_session, end_session, forget_session};
 use crate::{
     deps::netrun::{
         rest::{Call, RequestError},
@@ -22,6 +22,7 @@ use crate::{
     },
     login::{
         Login, LoginUser, View,
+        current_user::fetch_current_user,
         view::{current, set, start},
         wire::VIEW_HEADER,
     },

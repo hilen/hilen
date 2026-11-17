@@ -14,6 +14,10 @@ pub(crate) const COOKIE_HEADER_VALUE: &str = "cookie";
 /// the same as `view_as::HEADER` of the server.
 pub(crate) const VIEW_HEADER: &str = "x-hilen-view-as";
 
+/// The answer of `GET /auth/me`: the user of the session, or `null` for a
+/// page in a browser with no live session, see `me.rs` of the server.
+pub(crate) type Me = Option<LoginUser>;
+
 /// `code` is the one time code that came back to the app at the end of the
 /// login. Only the login of a device with no keyboard has none.
 #[derive(Debug, Serialize)]
@@ -84,7 +88,16 @@ mod test {
     use anyhow::Result;
     use serde_json::{from_str, to_string};
 
-    use super::{CodeRequest, CodeResponse, PollRequest, PollResponse};
+    use super::{CodeRequest, CodeResponse, Me, PollRequest, PollResponse};
+
+    #[test]
+    fn me_shapes() -> Result<()> {
+        let user: Me = from_str(r#"{"id":"1","email":"a@b.c","name":"A","picture":null}"#)?;
+        assert_eq!(user.map(|user| user.email).as_deref(), Some("a@b.c"));
+        let nobody: Me = from_str("null")?;
+        assert_eq!(nobody, None);
+        Ok(())
+    }
 
     #[test]
     fn code_shapes() -> Result<()> {

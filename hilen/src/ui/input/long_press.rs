@@ -4,7 +4,7 @@ use crate::{
     deps::hreads::after,
     gm::flat::Point,
     ui::{
-        MouseButton, NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView,
+        MouseButton, NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchSource, TouchStack, ViewData, WeakView,
         input::TouchEvent,
     },
     window::slots::WindowLock,
@@ -140,6 +140,7 @@ impl LongPress {
             position: base.local_point(pending.origin),
             event:    TouchEvent::Began,
             button:   MouseButton::Left,
+            source:   TouchSource::Unknown,
         };
 
         // A view that hangs nothing on the hold shows its tooltip instead,

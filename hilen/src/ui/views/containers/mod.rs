@@ -1,10 +1,12 @@
 mod canvas;
 mod scrolling;
 mod table_view;
+mod tree_table;
 
 pub use canvas::*;
 pub use scrolling::*;
 pub use table_view::*;
+pub use tree_table::*;
 mod movable_view;
 mod split_view;
 /// Hover needs a pointer, and there is no such thing on a touch screen.

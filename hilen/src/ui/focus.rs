@@ -20,7 +20,7 @@ use crate::{
     },
     ui::{
         Cursor, Input, MouseButton, NamedKey, Scrollable, Setup, TableView, Tooltip, Touch, TouchEvent,
-        TouchStack, UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
+        TouchSource, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame, WeakView, view::ViewSubviews,
     },
     window::slots::WindowLock,
 };
@@ -577,6 +577,7 @@ impl Focus {
             position,
             event,
             button: MouseButton::Left,
+            source: TouchSource::Unknown,
         });
     }
 

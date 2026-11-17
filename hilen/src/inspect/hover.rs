@@ -7,7 +7,7 @@ use crate::{
         weak_to_id,
         window::from_main,
     },
-    ui::{Hover, Input, MouseButton, Touch, TouchEvent, UIManager, ViewData, ViewFrame},
+    ui::{Hover, Input, MouseButton, Touch, TouchEvent, TouchSource, UIManager, ViewData, ViewFrame},
     window::frame_control,
 };
 
@@ -55,6 +55,7 @@ impl InspectService {
                 position: position * UIManager::scale(),
                 event:    TouchEvent::Moved,
                 button:   MouseButton::Left,
+                source:   TouchSource::Unknown,
             });
             Ok(())
         });
