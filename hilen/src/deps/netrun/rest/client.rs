@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use reqwest::Client;
 
 #[cfg(android)]
@@ -25,4 +27,10 @@ pub(crate) fn client() -> Client {
     #[cfg(not_wasm)]
     install_provider();
     Client::new()
+}
+
+/// One client for the requests of `Call`, so they share their connections.
+pub(crate) fn shared_client() -> &'static Client {
+    static CLIENT: LazyLock<Client> = LazyLock::new(client);
+    &CLIENT
 }

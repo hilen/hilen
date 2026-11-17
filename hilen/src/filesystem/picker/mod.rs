@@ -1,0 +1,423 @@
+//! The system image picker and file picker of each platform. A browser
+//! gives no path, so every platform answers with the bytes of the picked
+//! file.
+
+#[cfg(android)]
+mod android;
+#[cfg(desktop)]
+mod desktop;
+#[cfg(all(ios, not(tvos)))]
+mod ios;
+#[cfg(all(ios, not(tvos)))]
+mod ios_document;
+#[cfg(all(ios, not(tvos)))]
+mod ios_photos;
+#[cfg(all(ios, not(tvos)))]
+mod ios_save;
+mod save;
+#[cfg(wasm)]
+pub(crate) mod web;
+
+use log::{debug, info};
+pub use save::SavedFile;
+
+use crate::filesystem::Paths;
+
+/// A file the user picked, read into memory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickedFile {
+    /// The file name with its extension, without a folder.
+    pub name:         String,
+    /// Where the file lay in a folder the user picked, starting with the
+    /// name of that folder, like `report/logs`. Empty for a file picked by
+    /// itself.
+    pub folder:       String,
+    /// The MIME type, like `image/jpeg`.
+    pub content_type: String,
+    pub bytes:        Vec<u8>,
+}
+
+// tvOS has no picker, nothing makes a picked file there.
+#[cfg(not(tvos))]
+impl PickedFile {
+    /// A platform that gives no type has one guessed from the name.
+    pub(crate) fn new(name: String, content_type: Option<String>, bytes: Vec<u8>) -> Self {
+        let content_type = content_type
+            .filter(|content_type| !content_type.is_empty())
+            .unwrap_or_else(|| content_type_of(&name));
+
+        Self {
+            name,
+            folder: String::new(),
+            content_type,
+            bytes,
+        }
+    }
+
+    /// The file lay in the folder `folder` of a picked folder.
+    #[cfg(any(desktop, wasm))]
+    pub(crate) fn in_folder(mut self, folder: String) -> Self {
+        self.folder = folder;
+        self
+    }
+}
+
+#[cfg(not(tvos))]
+fn content_type_of(name: &str) -> String {
+    mime_guess::from_path(name)
+        .first_raw()
+        .unwrap_or("application/octet-stream")
+        .to_string()
+}
+
+/// Lets go of what the pickers hold of this build, when a hot build stops.
+#[cfg(all(hot, not(tvos)))]
+pub(crate) fn stop() {
+    ios::stop();
+    ios_document::stop();
+    ios_photos::stop();
+    ios_save::stop();
+}
+
+/// Lower case and with no dot in front, the form every platform filter
+/// is built from.
+#[cfg(not(tvos))]
+fn clean_extensions(extensions: &[&str]) -> Vec<String> {
+    extensions
+        .iter()
+        .map(|extension| extension.trim().trim_start_matches('.').to_lowercase())
+        .filter(|extension| !extension.is_empty())
+        .collect()
+}
+
+/// `report/logs/a.txt` lay in `report/logs`.
+#[cfg(any(wasm, test))]
+fn folder_of(relative_path: &str) -> String {
+    relative_path
+        .rsplit_once('/')
+        .map_or_else(String::new, |(folder, _)| folder.to_string())
+}
+
+/// The `accept` of a file input, like `.pdf,.txt`.
+#[cfg(any(wasm, test))]
+fn accept_of(extensions: &[String]) -> String {
+    extensions
+        .iter()
+        .map(|extension| format!(".{extension}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The MIME types of the extensions, each once, for a chooser that
+/// filters by type. Empty when an extension has no known type. The
+/// chooser then shows every file, a file of that kind would be greyed
+/// out otherwise.
+#[cfg(any(android, test))]
+fn mime_types(extensions: &[String]) -> Vec<String> {
+    let mut types: Vec<String> = Vec::new();
+
+    for extension in extensions {
+        let Some(mime) = mime_guess::from_ext(extension).first_raw() else {
+            return Vec::new();
+        };
+        if !types.iter().any(|known| known == mime) {
+            types.push(mime.to_string());
+        }
+    }
+
+    types
+}
+
+impl Paths {
+    /// Lets the user pick one file of any kind and reads it. The Files
+    /// browser on iOS, the system file chooser on Android, the file dialog
+    /// on desktop, the file chooser of the browser. `extensions` narrows
+    /// what can be picked, like `&["pdf", "txt"]`, an empty list lets every
+    /// file through. `None` when the user cancels or the read fails, a
+    /// failure is logged. The whole file is held in memory. Await it inside
+    /// `spawn`, then go back with `on_main`. In a browser start it from a
+    /// tap, the browser opens the chooser only right after a user gesture.
+    /// tvOS has no picker and answers `None` at once. `pick_file` gives a
+    /// path in place of the bytes, on desktop only.
+    pub async fn pick_file_bytes(title: &str, extensions: &[&str]) -> Option<PickedFile> {
+        debug!("file picker opens: {title} {extensions:?}");
+
+        #[cfg(not(tvos))]
+        let extensions = clean_extensions(extensions);
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_file(title, &extensions).await;
+        #[cfg(all(ios, not(tvos)))]
+        let picked = ios_document::pick(extensions).await;
+        // tvOS has no Files browser an app can open.
+        #[cfg(tvos)]
+        let picked = std::future::ready(None::<PickedFile>).await;
+        #[cfg(android)]
+        let picked = {
+            let types = mime_types(&extensions);
+            android::pick(title, android::Kind::File(&types)).await
+        };
+        #[cfg(wasm)]
+        let picked = web::pick(&accept_of(&extensions)).await;
+
+        match &picked {
+            Some(file) => info!(
+                "file picked: {} {} {} bytes",
+                file.name,
+                file.content_type,
+                file.bytes.len()
+            ),
+            None => debug!("file picker closed with no file"),
+        }
+
+        picked
+    }
+
+    /// Lets the user pick any number of files and reads them. Empty when the
+    /// user cancels. A file that fails to read is logged and left out. The
+    /// rest is as in `pick_file_bytes`. A phone picks 1 file for now, its
+    /// system pickers are not asked for more.
+    pub async fn pick_files_bytes(title: &str, extensions: &[&str]) -> Vec<PickedFile> {
+        debug!("file picker for several files opens: {title} {extensions:?}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_files(title, &clean_extensions(extensions)).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many(&accept_of(&clean_extensions(extensions)), false).await;
+        #[cfg(not(any(desktop, wasm)))]
+        let picked: Vec<PickedFile> = Self::pick_file_bytes(title, extensions).await.into_iter().collect();
+
+        info!("{} files picked", picked.len());
+        picked
+    }
+
+    /// Lets the user pick a folder and reads every file in it, also in the
+    /// folders inside it, `PickedFile::folder` says where each lay. Empty when
+    /// the user cancels, and at once on a phone, which has no such chooser. A
+    /// file that fails to read is logged and left out. Everything is held in
+    /// memory. In a browser start it from a tap, like `pick_file_bytes`, and
+    /// the browser may ask the user whether the page may see the folder.
+    pub async fn pick_folder_bytes(title: &str) -> Vec<PickedFile> {
+        debug!("folder picker opens: {title}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_folder(title).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many("", true).await;
+        #[cfg(not(any(desktop, wasm)))]
+        let picked: Vec<PickedFile> = std::future::ready(Vec::new()).await;
+
+        info!("{} files of a folder picked", picked.len());
+        picked
+    }
+
+    /// Lets the user pick one image and reads it. The photo library on a
+    /// phone, the file dialog on desktop, the file chooser of the browser.
+    /// `None` when the user cancels or the read fails, a failure is logged.
+    /// The title shows where the platform has a place for it. Await it
+    /// inside `spawn`, then go back with `on_main`. In a browser start it
+    /// from a tap, the browser opens the chooser only right after a user
+    /// gesture. tvOS has no picker and answers `None` at once.
+    pub async fn pick_image(title: &str) -> Option<PickedFile> {
+        debug!("image picker opens: {title}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_image(title).await;
+        #[cfg(all(ios, not(tvos)))]
+        let picked = ios::pick().await;
+        // tvOS has no photo library an app can open.
+        #[cfg(tvos)]
+        let picked = std::future::ready(None::<PickedFile>).await;
+        #[cfg(android)]
+        let picked = android::pick(title, android::Kind::Image).await;
+        #[cfg(wasm)]
+        let picked = web::pick("image/*").await;
+
+        match &picked {
+            Some(file) => info!(
+                "image picked: {} {} {} bytes",
+                file.name,
+                file.content_type,
+                file.bytes.len()
+            ),
+            None => debug!("image picker closed with no image"),
+        }
+
+        picked
+    }
+
+    /// Whether `take_photo` opens a camera screen here. True on an iPhone
+    /// and an iPad with a camera and the `[camera] usage` text in
+    /// `hilen.toml`, and in a browser, false in the iOS simulator, on a
+    /// desktop, on tvOS and on Android for now. Ask it on the main thread,
+    /// to show a camera button only where it works.
+    pub fn can_take_photo() -> bool {
+        has_camera_screen()
+    }
+
+    /// Opens the camera screen of the system, lets the user take 1 photo
+    /// and reads it. On iOS the camera of `UIImagePickerController`, which
+    /// asks for the camera itself, and the photo is a JPEG that keeps the
+    /// turn the phone was held at in its EXIF orientation. In a browser the
+    /// file chooser with `capture`, which a phone browser opens as its
+    /// camera and a desktop browser as its chooser. `None` when the user
+    /// cancels, where `can_take_photo` is false, and when the read fails,
+    /// a failure is logged. Await it inside `spawn`, then go back with
+    /// `on_main`. In a browser start it from a tap, like `pick_image`.
+    pub async fn take_photo(title: &str) -> Option<PickedFile> {
+        debug!("camera screen opens: {title}");
+
+        #[cfg(all(ios, not(tvos)))]
+        let photo = ios::take_photo().await;
+        #[cfg(wasm)]
+        let photo = web::take_photo().await;
+        #[cfg(not(any(all(ios, not(tvos)), wasm)))]
+        let photo = {
+            log::warn!("no camera screen on this platform, see Paths::can_take_photo");
+            std::future::ready(None::<PickedFile>).await
+        };
+
+        match &photo {
+            Some(file) => info!(
+                "photo taken: {} {} {} bytes",
+                file.name,
+                file.content_type,
+                file.bytes.len()
+            ),
+            None => debug!("camera screen closed with no photo"),
+        }
+
+        photo
+    }
+
+    /// Lets the user pick up to `max` images at once, 0 for no limit, and
+    /// reads them in the order they were picked. Empty when the user
+    /// cancels. An image that fails to read is logged and left out. iOS 12
+    /// and 13 and an Android before 13 that ignores the ask give 1 image.
+    /// The rest is as in `pick_image`.
+    pub async fn pick_images(title: &str, max: usize) -> Vec<PickedFile> {
+        debug!("image picker for {max} images opens: {title}");
+
+        #[cfg(desktop)]
+        let picked = desktop::pick_images(title).await;
+        #[cfg(all(ios, not(tvos)))]
+        let picked = if ios_photos::available() {
+            ios_photos::pick(max).await
+        } else {
+            ios::pick().await.into_iter().collect()
+        };
+        #[cfg(tvos)]
+        let picked: Vec<PickedFile> = std::future::ready(Vec::new()).await;
+        #[cfg(android)]
+        let picked = android::pick_many(title, android::Kind::Images(max)).await;
+        #[cfg(wasm)]
+        let picked = web::pick_many("image/*", false).await;
+
+        let picked = at_most(picked, max);
+        info!("{} images picked", picked.len());
+        picked
+    }
+}
+
+#[cfg(all(ios, not(tvos)))]
+fn has_camera_screen() -> bool {
+    ios::can_take_photo()
+}
+
+#[cfg(wasm)]
+fn has_camera_screen() -> bool {
+    true
+}
+
+#[cfg(not(any(all(ios, not(tvos)), wasm)))]
+fn has_camera_screen() -> bool {
+    false
+}
+
+/// A desktop dialog, a browser and an older Android take no limit.
+fn at_most(mut picked: Vec<PickedFile>, max: usize) -> Vec<PickedFile> {
+    if max > 0 && picked.len() > max {
+        debug!("{} images picked, {max} kept", picked.len());
+        picked.truncate(max);
+    }
+    picked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PickedFile, accept_of, at_most, clean_extensions, folder_of, mime_types};
+
+    #[cfg(desktop)]
+    #[test]
+    fn a_desktop_has_no_camera_screen_and_answers_at_once() {
+        assert!(!crate::filesystem::Paths::can_take_photo());
+        assert!(pollster::block_on(crate::filesystem::Paths::take_photo("photo")).is_none());
+    }
+
+    const NONE: [String; 0] = [];
+
+    fn cleaned(extensions: &[&str]) -> Vec<String> {
+        clean_extensions(extensions)
+    }
+
+    #[test]
+    fn images_over_the_limit_are_left_out() {
+        let picked = || {
+            ["a.png", "b.png", "c.png"]
+                .map(|name| PickedFile::new(name.to_string(), None, vec![1]))
+                .to_vec()
+        };
+        let names = |files: Vec<PickedFile>| files.into_iter().map(|file| file.name).collect::<Vec<_>>();
+        assert_eq!(names(at_most(picked(), 2)), ["a.png", "b.png"]);
+        assert_eq!(names(at_most(picked(), 0)), ["a.png", "b.png", "c.png"]);
+        assert_eq!(names(at_most(picked(), 5)), ["a.png", "b.png", "c.png"]);
+    }
+
+    #[test]
+    fn a_path_gives_its_folder() {
+        assert_eq!(folder_of("report/logs/a.txt"), "report/logs");
+        assert_eq!(folder_of("a.txt"), "");
+        assert_eq!(folder_of(""), "");
+    }
+
+    #[test]
+    fn extensions_lose_the_dot_and_the_case() {
+        assert_eq!(cleaned(&[".PDF", "txt", " Md ", "", "."]), ["pdf", "txt", "md"]);
+        assert_eq!(cleaned(&[]), NONE);
+    }
+
+    #[test]
+    fn accept_of_a_file_input() {
+        assert_eq!(accept_of(&cleaned(&["pdf", ".txt"])), ".pdf,.txt");
+        assert_eq!(accept_of(&[]), "");
+    }
+
+    /// 2 extensions of 1 type give it once. One unknown extension gives
+    /// no filter at all, or its files could not be picked.
+    #[test]
+    fn mime_types_of_extensions() {
+        assert_eq!(
+            mime_types(&cleaned(&["jpg", "jpeg", "pdf"])),
+            ["image/jpeg", "application/pdf"]
+        );
+        assert_eq!(mime_types(&cleaned(&["pdf", "no-such-extension"])), NONE);
+        assert_eq!(mime_types(&[]), NONE);
+    }
+
+    /// A platform type wins, an empty or missing one is guessed from the
+    /// name, an unknown name gets the generic binary type.
+    #[test]
+    fn content_type_from_platform_or_name() {
+        let given = PickedFile::new("photo.bin".to_string(), Some("image/heic".to_string()), vec![1]);
+        assert_eq!(given.content_type, "image/heic");
+
+        let guessed = PickedFile::new("photo.JPG".to_string(), Some(String::new()), vec![1]);
+        assert_eq!(guessed.content_type, "image/jpeg");
+
+        let png = PickedFile::new("shot.png".to_string(), None, vec![1]);
+        assert_eq!(png.content_type, "image/png");
+
+        let unknown = PickedFile::new("photo".to_string(), None, vec![1]);
+        assert_eq!(unknown.content_type, "application/octet-stream");
+    }
+}

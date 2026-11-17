@@ -17,8 +17,8 @@ use crate::{
         color::Color,
         flat::{Point, Shape, Size},
     },
+    image::ToImage,
     level::{LevelManager, SpriteData},
-    window::image::ToImage,
 };
 
 pub trait Sprite: Deref<Target = SpriteData> + DerefMut {

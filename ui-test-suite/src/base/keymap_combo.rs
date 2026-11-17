@@ -2,7 +2,7 @@ use anyhow::Result;
 use hilen::{
     dispatch::from_main,
     refs::Weak,
-    ui::{KeyCombo, ModifiersState, NamedKey, Setup, UIManager, ViewTest, view},
+    ui::{KeyCombo, Modifiers, NamedKey, Setup, UIManager, ViewTest, view},
     ui_test::{inject_key, inject_modifiers, inject_named_key},
 };
 
@@ -43,35 +43,35 @@ impl ViewTest for KeymapCombo {
         inject_key('b');
         assert_eq!(counts(), (1, 0, 0, 0));
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_key('b');
         assert_eq!(counts(), (1, 1, 0, 0));
 
         // Ctrl counts as the command modifier too, for non Mac desktops.
-        inject_modifiers(ModifiersState::CONTROL);
+        inject_modifiers(Modifiers::CONTROL);
         inject_key('b');
         assert_eq!(counts(), (1, 2, 0, 0));
 
-        inject_modifiers(ModifiersState::SUPER | ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::META | Modifiers::SHIFT);
         inject_key('b');
         assert_eq!(counts(), (1, 2, 1, 0));
 
-        inject_modifiers(ModifiersState::SUPER);
+        inject_modifiers(Modifiers::META);
         inject_named_key(NamedKey::Enter);
         assert_eq!(counts(), (1, 2, 1, 1));
 
         // A plain enter reaches no combo.
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_named_key(NamedKey::Enter);
         assert_eq!(counts(), (1, 2, 1, 1));
 
         // Shift alone changes the arriving character, not the binding, so
         // it does not block a plain binding.
-        inject_modifiers(ModifiersState::SHIFT);
+        inject_modifiers(Modifiers::SHIFT);
         inject_key('b');
         assert_eq!(counts(), (2, 2, 1, 1));
 
-        inject_modifiers(ModifiersState::empty());
+        inject_modifiers(Modifiers::empty());
         inject_key('b');
         assert_eq!(counts(), (3, 2, 1, 1));
 

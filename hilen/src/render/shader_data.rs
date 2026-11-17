@@ -2,21 +2,47 @@ use bytemuck::{Pod, Zeroable};
 use educe::Educe;
 
 #[cfg(feature = "level")]
-use crate::gm::flat::{Point, Size};
+use crate::gm::{
+    color::{Color, WHITE},
+    flat::{Point, Size},
+};
 
+/// Point lights one level frame draws, the size of the uniform array in
+/// `sprite_view.wgsl`.
+#[cfg(feature = "level")]
+pub(crate) const MAX_SPRITE_LIGHTS: usize = 64;
+
+/// One point light as the level shaders read it. `color.a` carries the
+/// intensity.
+#[cfg(feature = "level")]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Zeroable, Pod, PartialEq)]
+pub(crate) struct SpriteLight {
+    pub(crate) color:    Color,
+    pub(crate) position: Point,
+    pub(crate) radius:   f32,
+    pub(crate) falloff:  f32,
+}
+
+/// What every level shader shares in a frame, `sprite_view.wgsl` has the
+/// same struct.
 #[cfg(feature = "level")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
 #[educe(Default)]
 pub struct SpriteView {
-    pub camera_pos:      Point,
+    pub camera_pos:         Point,
     #[educe(Default = (1000, 1000).into())]
-    pub resolution:      Size,
-    pub camera_rotation: f32,
+    pub resolution:         Size,
+    pub camera_rotation:    f32,
     #[educe(Default = 1.0)]
-    pub scale:           f32,
-    #[allow(clippy::pub_underscore_fields)]
-    pub _padding:        u64,
+    pub scale:              f32,
+    pub(crate) light_count: u32,
+    pub(crate) padding:     u32,
+    #[educe(Default = WHITE)]
+    pub(crate) ambient:     Color,
+    #[educe(Default = [SpriteLight::default(); MAX_SPRITE_LIGHTS])]
+    pub(crate) lights:      [SpriteLight; MAX_SPRITE_LIGHTS],
 }
 
 #[cfg(all(test, feature = "level"))]
@@ -27,6 +53,8 @@ mod test {
     fn test() {
         // Web requirements
         assert_eq!(size_of::<SpriteView>() % 16, 0);
+        assert_eq!(size_of::<SpriteLight>(), 32);
+        assert_eq!(size_of::<SpriteView>(), 48 + 32 * MAX_SPRITE_LIGHTS);
     }
 }
 
@@ -40,13 +68,20 @@ pub(crate) const SHADOW_CASCADES: usize = 3;
 const _: () = assert!(SHADOW_CASCADES <= 4);
 
 /// What every mesh of a frame shares. The vectors carry `xyz`, the
-/// fourth component is padding unless named. `camera_pos.w` is the
+/// fourth component is padding unless named. `view_proj` and
+/// `inv_view_proj` work with a point relative to the camera, see
+/// `model_offset` in `scene_common.wgsl`. `camera_pos.w` is the
 /// world height of the view one unit from the camera, twice the tangent
 /// of half the field of view, what a pixel's size on a surface comes
-/// from. `sun_dir` is the direction the light travels, unit length. `sun_color`
+/// from. `eye` is the unit direction the camera looks in, and its `w` the
+/// world height of the view of an orthographic camera, 0 for a
+/// perspective one. Then every pixel looks along `eye` and its size on a
+/// surface is that height over the pixels of the view. `sun_dir` is the
+/// direction the light travels, unit length. `sun_color`
 /// and `ambient` are linear light, the sun's times its intensity, and
-/// `sun_color.w` is 1 when the sun casts shadows, then `sun_view_proj` maps the
-/// world into each cascade's layer of the shadow map, `sun_texel` holds the
+/// `sun_color.w` is 1 when the sun casts shadows, then `sun_view_proj` maps a
+/// point relative to the camera into each cascade's layer of the shadow map,
+/// see `ShadowCascade`, `sun_texel` holds the
 /// world size of one texel of each and `sun_depth` one over the world length
 /// of each map's depth range, so a texel becomes a depth bias. `ambient.w` is
 /// 1 when a sky is bound, then `irradiance` holds its nine spherical
@@ -55,12 +90,18 @@ const _: () = assert!(SHADOW_CASCADES <= 4);
 /// needs to rebuild a world position from its own coordinates. `fog_color.w` is
 /// 1 when the scene has fog, then `fog_range` holds where it starts, one
 /// over the length of its fade, see `Fog::range`, and how far up the sky
-/// it reaches, see `Fog::height`.
+/// it reaches, see `Fog::height`. `sky_sun.w` is 1 when a `DayNightSky`
+/// is drawn, then `sky_sun` and `sky_moon` hold the directions to the sun
+/// and the moon, `sky_moon.w` the night and `sky_params` the sunset glow,
+/// the twinkle phase and the star seed. `grass_wind` is the wind over the
+/// grass, its unit direction on x and z and its strength, see `Wind`.
+/// `grass_push` is the player's feet from the camera and 1 when there is a
+/// player, `grass_trail` where its feet were a moment ago, see `v_grass`.
 #[cfg(feature = "scene")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, PartialEq, Educe)]
 #[educe(Default)]
-pub struct SceneView {
+pub struct SceneUniform {
     #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
     pub view_proj:     crate::gm::volume::Mat4,
     #[educe(Default = crate::gm::volume::Mat4::IDENTITY)]
@@ -68,6 +109,8 @@ pub struct SceneView {
     #[educe(Default = [crate::gm::volume::Mat4::IDENTITY; SHADOW_CASCADES])]
     pub sun_view_proj: [crate::gm::volume::Mat4; SHADOW_CASCADES],
     pub camera_pos:    crate::gm::volume::Vec4,
+    #[educe(Default = crate::gm::volume::Vec4::NEG_Z)]
+    pub eye:           crate::gm::volume::Vec4,
     #[educe(Default = crate::gm::volume::Vec4::NEG_Y)]
     pub sun_dir:       crate::gm::volume::Vec4,
     pub sun_color:     crate::gm::volume::Vec4,
@@ -78,7 +121,32 @@ pub struct SceneView {
     pub sun_depth:     crate::gm::volume::Vec4,
     pub fog_color:     crate::gm::volume::Vec4,
     pub fog_range:     crate::gm::volume::Vec4,
+    pub sky_sun:       crate::gm::volume::Vec4,
+    pub sky_moon:      crate::gm::volume::Vec4,
+    pub sky_params:    crate::gm::volume::Vec4,
     pub irradiance:    [crate::gm::volume::Vec4; 9],
+    pub grass_wind:    crate::gm::volume::Vec4,
+    pub grass_push:    crate::gm::volume::Vec4,
+    pub grass_trail:   crate::gm::volume::Vec4,
+    /// Each occluder's center as an offset from the camera and its
+    /// radius in w, see `Occluder`.
+    pub occluders:     [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
+    /// The linear light each lets through at full cover.
+    pub transmit:      [crate::gm::volume::Vec4; crate::scene::MAX_OCCLUDERS],
+    /// How many occluders count, the sun's angular radius, the glare of a
+    /// `SpaceSky` round it and the brightness of its air.
+    pub occlusion:     crate::gm::volume::Vec4,
+    /// The air of a `SpaceSky`: its center from the camera and the ground
+    /// radius, then the coefficients and heights, the last w 1 when there
+    /// is air, see `atmosphere.wgsl`.
+    pub air:           [crate::gm::volume::Vec4; 6],
+    /// 1 for a space sky, the stars' brightness and seed, 1 for the sun's
+    /// disc.
+    pub space:         crate::gm::volume::Vec4,
+    /// The turn from the world to the stars' own axes, its 3 columns.
+    pub stars:         [crate::gm::volume::Vec4; 3],
+    /// The clock of a flowing mesh in x, see `SceneBase::flow_time`.
+    pub flow:          crate::gm::volume::Vec4,
 }
 
 #[cfg(all(test, feature = "scene"))]
@@ -87,7 +155,7 @@ mod scene_test {
 
     #[test]
     fn scene_view_is_a_uniform() {
-        assert_eq!(size_of::<SceneView>() % 16, 0);
-        assert_eq!(size_of::<SceneView>(), 608);
+        assert_eq!(size_of::<SceneUniform>() % 16, 0);
+        assert_eq!(size_of::<SceneUniform>(), 1040);
     }
 }

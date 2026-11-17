@@ -13,4 +13,7 @@ pub enum Tiling {
     Distribute(Vec<f32>),
 
     Wrap,
+
+    StackVertically,
+    StackHorizontally,
 }

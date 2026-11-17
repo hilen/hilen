@@ -1,10 +1,13 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
-    deps::{hreads::after, refs::main_lock::MainLock},
+    deps::hreads::after,
     gm::flat::Point,
-    ui::{NO_TOUCH_ID, Tooltip, Touch, TouchStack, ViewData, ViewFrame, WeakView, input::TouchEvent},
-    window::MouseButton,
+    ui::{
+        MouseButton, NO_TOUCH_ID, TextSelection, Tooltip, Touch, TouchStack, ViewData, WeakView,
+        input::TouchEvent,
+    },
+    window::slots::WindowLock,
 };
 
 struct Pending {
@@ -16,7 +19,7 @@ struct Pending {
     hold_only:  bool,
 }
 
-static PENDING: MainLock<Option<Pending>> = MainLock::new();
+static PENDING: WindowLock<Option<Pending>> = WindowLock::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Turns a held touch into a `secondary` event on the view that captured
@@ -45,9 +48,7 @@ impl LongPress {
             return;
         }
 
-        let Some(view) = TouchStack::hover_views()
-            .find(|view| view.is_ok() && !view.is_hidden_in_tree() && view.contains_visible(position))
-        else {
+        let Some(view) = TouchStack::hover_view_at(position) else {
             return;
         };
 
@@ -120,9 +121,23 @@ impl LongPress {
         // The hold is consumed. Its release must not end as a tap.
         base.__touch_id = NO_TOUCH_ID;
 
+        // A hold on selectable text selects the word under it.
+        if TextSelection::held(view, pending.origin, pending.touch_id) {
+            return;
+        }
+
+        // Nothing of this view waits for a hold, so the touch goes on as
+        // it was. A drag that rests inside the slop, a slider or a trim
+        // handle moved by a few points, would lose every later move and
+        // its end, and the view would be stuck in the middle of the drag.
+        if !base.events.touch.secondary.has_subscribers() && base.tooltip.is_none() {
+            base.__touch_id = pending.touch_id;
+            return;
+        }
+
         let touch = Touch {
             id:       pending.touch_id,
-            position: pending.origin - view.absolute_frame().origin,
+            position: base.local_point(pending.origin),
             event:    TouchEvent::Began,
             button:   MouseButton::Left,
         };

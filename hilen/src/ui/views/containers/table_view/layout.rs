@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     deps::refs::{Own, weak_from_ref},
     gm::LossyConvert,
-    ui::{TableView, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView},
+    ui::{TableView, TouchStack, ViewData, ViewFrame, ViewSubviews, WeakView, view::depth_order},
 };
 
 pub(super) enum LayoutMode {
@@ -12,23 +12,77 @@ pub(super) enum LayoutMode {
     Full,
 }
 
-/// The exact inverse of `bump_z_position`, so a cell raised while its
-/// row was pinned returns to the depth the bump found it at.
-fn lower_z(view: WeakView, z: f32) {
-    view.__base_view().z_position += z;
+/// A pinned cell is in front of the cells that scroll under it.
+pub(super) const PINNED_RAISE: i8 = 1;
+/// The sticky header view is in front of every cell, a pinned one too.
+pub(super) const HEADER_RAISE: i8 = 2;
+/// A held row rides over all of them while it moves.
+pub(super) const HELD_RAISE: i8 = 3;
+
+/// Hands the sideways offset to every marked view under `view`. A marked
+/// view carries its subtree along, so the walk stops there.
+fn shift_sideways(view: WeakView, offset: f32) {
+    if view.__base_view().moves_sideways {
+        view.__base_view().__content_offset_x = offset;
+        return;
+    }
     for sub in view.subviews() {
-        lower_z(sub.weak(), z + UIManager::subview_z_offset());
+        shift_sideways(sub.weak(), offset);
     }
 }
 
-/// How far a pinned cell rises in front of its siblings: clears several
-/// nesting levels of the other cells' subtrees while staying far behind
-/// the menu and modal layers.
-fn sticky_raise() -> f32 {
-    UIManager::subview_z_offset() * 5.0
-}
-
 impl TableView {
+    /// Moves the marked views of every cell on screen to the current
+    /// sideways offset. Runs after every layout too, a cell set up for a
+    /// new row comes back from the registry with the offset it left with.
+    pub(super) fn apply_sideways(&mut self) {
+        if !self.scroll.has_sideways_width() {
+            return;
+        }
+
+        let offset = self.scroll.content_offset_x();
+
+        for view in self.scroll.content.subviews() {
+            if !view.is_hidden() {
+                shift_sideways(view.weak(), offset);
+            }
+        }
+    }
+
+    /// Recycles every cell and leaves only the header and the footer to
+    /// scroll, the layout of a table with no rows.
+    pub(super) fn clear_cells(&mut self) {
+        let cells: Vec<WeakView> = self
+            .scroll
+            .content
+            .subviews()
+            .iter()
+            .filter(|view| !view.is_hidden())
+            .filter(|view| !self.header_views.iter().any(|h| h.raw() == view.weak().raw()))
+            .map(Own::weak)
+            .collect();
+        self.recycle(cells);
+        self.row_offsets.clear();
+        self.sticky_rows.clear();
+        self.pinned.clear();
+        self.laid_cells = None;
+        let width = self.width();
+        self.scroll.set_content_height(self.header_height + self.footer_height);
+        self.scroll.set_content_width(width);
+        self.place_footer(self.header_height);
+    }
+
+    /// Puts the footer view at `top` of the content, the end of the rows.
+    fn place_footer(&self, top: f32) {
+        let Some(view) = self.footer_view else {
+            return;
+        };
+        if view.is_null() {
+            return;
+        }
+        view.set_frame((0.0, top, self.width(), self.footer_height));
+    }
+
     pub(super) fn layout_fixed_cells(&mut self, number_of_cells: usize, columns: usize, mode: LayoutMode) {
         let spacing = self.cell_spacing;
         let width = self.width();
@@ -44,6 +98,7 @@ impl TableView {
 
         self.scroll.set_content_height(total_height);
         self.scroll.set_content_width(width);
+        self.place_footer(rows.total() + header);
 
         let offset = self.scroll.get_scroll_content_offset();
         let top = -offset - header;
@@ -92,7 +147,7 @@ impl TableView {
             let idx = view.tag();
             // A full reload recycles pinned cells too, so their content is
             // rebuilt through `setup_cell` like every other row's.
-            let keep_pinned = pinned.iter().any(|p| p.0 == idx);
+            let keep_pinned = pinned.iter().any(|p| p.0 == idx) || self.holds_row(idx);
             if !matches!(mode, LayoutMode::Full) && (keep_pinned || (idx >= first_index && idx < last_index))
             {
                 shown.push(idx);
@@ -101,16 +156,7 @@ impl TableView {
             }
         }
 
-        let recycled: Vec<WeakView> = to_recycle
-            .into_iter()
-            .map(|mut cell| {
-                self.lower_recycled(cell);
-                cell.set_hidden(true);
-                cell.as_cell().cell_removed();
-                cell
-            })
-            .collect();
-        self.registry.load_old_cells(recycled);
+        self.recycle(to_recycle);
 
         if matches!(mode, LayoutMode::Resize) {
             for view in weak_table.scroll.content.subviews() {
@@ -231,7 +277,7 @@ impl TableView {
             cell.set_frame((x, y, cell_width, height));
 
             if !self.raised.iter().any(|(_, raised)| raised.raw() == cell.raw()) {
-                cell.bump_z_position(sticky_raise());
+                depth_order::set_raise(&*cell, PINNED_RAISE);
                 TouchStack::raise_subtree(cell);
                 self.raised.push((index, cell));
             }
@@ -247,8 +293,55 @@ impl TableView {
             }
         });
         for view in lowered {
-            lower_z(view, sticky_raise());
+            depth_order::set_raise(&*view, 0);
         }
+    }
+
+    /// Puts the sticky header view at its place in the header, or at the
+    /// top of the table once the rows scrolled past that place. While it
+    /// is stuck its views go to the front of the touches again, a cell
+    /// set up by the scroll registers after them.
+    pub(super) fn place_sticky_header(&mut self) {
+        let Some((view, top, height)) = self.sticky_header else {
+            return;
+        };
+        if view.is_null() || view.is_hidden() {
+            return;
+        }
+
+        let y = top.max(-self.scroll.get_scroll_content_offset());
+        view.set_frame((0.0, y, self.width(), height));
+        if y > top {
+            TouchStack::raise_subtree(view);
+        }
+    }
+
+    /// The sticky header view covers this y of the table, in the table's
+    /// own coordinates.
+    pub(super) fn sticky_header_covers(&self, y: f32) -> bool {
+        let Some((view, ..)) = self.sticky_header else {
+            return false;
+        };
+        if view.is_null() || view.is_hidden() {
+            return false;
+        }
+        let top = view.y() + self.scroll.get_scroll_content_offset();
+        y >= top && y < top + view.height()
+    }
+
+    /// Takes cells off the screen and hands them to the registry, for the
+    /// next row that asks for a cell of their kind.
+    pub(super) fn recycle(&mut self, cells: Vec<WeakView>) {
+        let recycled: Vec<WeakView> = cells
+            .into_iter()
+            .map(|mut cell| {
+                self.lower_recycled(cell);
+                cell.set_hidden(true);
+                cell.as_cell().cell_removed();
+                cell
+            })
+            .collect();
+        self.registry.load_old_cells(recycled);
     }
 
     /// A cell leaving for the registry drops its pinned raise first, so
@@ -264,7 +357,7 @@ impl TableView {
             }
         });
         if was_raised {
-            lower_z(cell, sticky_raise());
+            depth_order::set_raise(&*cell, 0);
         }
     }
 }

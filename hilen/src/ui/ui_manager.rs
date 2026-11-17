@@ -9,11 +9,18 @@ use std::{
 };
 
 use parking_lot::Mutex;
+#[cfg(feature = "gpu")]
 use plat::Platform;
 
+#[cfg(not(feature = "gpu"))]
+use crate::gm::color::{Color, GRAY_BLUE};
+#[cfg(feature = "gpu")]
+use crate::ui::ViewFrame;
+#[cfg(feature = "gpu")]
+use crate::window::Window;
 use crate::{
     deps::{
-        hreads::{assert_main_thread, from_main, on_main},
+        hreads::{assert_main_thread, from_main, is_main_thread, on_main},
         refs::{Own, Weak},
     },
     gm::{
@@ -21,10 +28,10 @@ use crate::{
         flat::{Point, Rect, Size},
     },
     ui::{
-        DynamicColor, Input, Keymap, RootView, Setup, TouchStack, UIAnimation, UIColor, UIEvent, View,
-        ViewData, ViewFrame, ViewSubviews, WeakView,
+        CodeEditor, DynamicColor, Input, Keymap, RootView, Setup, TextField, TouchStack, UIAnimation,
+        UIColor, UIEvent, View, ViewData, ViewSubviews, WeakView,
     },
-    window::Window,
+    window::slots::{WindowLock, WindowU32},
 };
 
 pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new());
@@ -32,8 +39,15 @@ pub(crate) static DELETED_VIEWS: Mutex<Vec<Own<dyn View>>> = Mutex::new(Vec::new
 static ANIMATIONS: Mutex<Vec<UIAnimation>> = Mutex::new(Vec::new());
 
 static DYNAMIC_CLEAR_COLOR: Mutex<Option<DynamicColor>> = Mutex::new(None);
+/// The clear color of a build with no `gpu` feature, which has no window to
+/// keep it.
+#[cfg(not(feature = "gpu"))]
+static PLAIN_CLEAR_COLOR: Mutex<Color> = Mutex::new(GRAY_BLUE);
 
 static UI_MANAGER: OnceLock<UIManager> = OnceLock::new();
+
+/// The root of the main window, made once and never replaced.
+static MAIN_ROOT: OnceLock<Weak<RootView>> = OnceLock::new();
 
 /// False while an app is still doing async startup, a loading screen fetching
 /// assets for one. The test autorun waits for ready before tearing the root
@@ -45,11 +59,19 @@ static APP_READY: AtomicBool = AtomicBool::new(true);
 /// order the moment it becomes ready.
 static ON_APP_READY: Mutex<Vec<Box<dyn FnOnce() + Send>>> = Mutex::new(Vec::new());
 
-#[cfg(ios)]
-static IOS_KEYBOARD_INIT: std::sync::Once = std::sync::Once::new();
+/// How far the screen goes past each edge of the app views, in points, see
+/// `UIManager::system_insets`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SystemInsets {
+    pub top:    f32,
+    pub left:   f32,
+    pub bottom: f32,
+    pub right:  f32,
+}
 
 pub struct UIManager {
-    pub(crate) root_view: Own<RootView>,
+    /// The root of every window, see `window::slots`.
+    root_view: WindowLock<Own<RootView>>,
 
     touch_disabled: AtomicBool,
 
@@ -59,15 +81,19 @@ pub struct UIManager {
     /// is off on desktop and on everywhere else.
     drag_scrolling: AtomicBool,
 
-    cursor_position: Mutex<Point>,
+    cursor_position: WindowLock<Point>,
 
     draw_debug_frames: AtomicBool,
 
-    scale:         AtomicU32,
+    scale:         WindowU32,
     manual_scale:  AtomicU32,
     scale_changed: UIEvent<f32>,
 
-    on_drop_file: UIEvent<PathBuf>,
+    on_drop_file:      UIEvent<PathBuf>,
+    #[cfg(wasm)]
+    on_drop_bytes:     UIEvent<crate::filesystem::PickedFile>,
+    on_hover_file:     UIEvent<PathBuf>,
+    on_hover_file_end: UIEvent,
 
     draw_touches: AtomicBool,
 
@@ -90,36 +116,53 @@ impl UIManager {
     pub(crate) const MODAL_LAYER_Z_STEP: f32 = 0.005;
     /// A context menu floats over a modal, so it sits closer than one.
     pub(crate) const MENU_Z_OFFSET: f32 = 0.35;
+    /// A toast and a tooltip are in front of an open menu. The gap holds
+    /// 25000 views of a menu, see `depth_order::DEPTH_STEP`.
+    pub(crate) const TOAST_Z_OFFSET: f32 = 0.34;
+    /// The focus ring is in front of a toast.
+    pub(crate) const RING_Z_OFFSET: f32 = 0.33;
     pub const DEBUG_Z_OFFSET: f32 = 0.3;
 
     pub(crate) const fn subview_z_offset() -> f32 {
         0.000_01
     }
 
+    /// How far the text of a label draws in front of its background. A line
+    /// through the text draws at half of it, so both halves have to be more
+    /// than 1 step of a 24 bit depth buffer, about 6e-8. At 1e-7 the line of
+    /// `Label strikethrough` fell behind its background on Linux.
     pub(crate) const fn additional_z_offset() -> f32 {
-        Self::subview_z_offset() / 100.0
+        Self::subview_z_offset() / 50.0
     }
 
+    /// The frames a second of the window, 0 in a build with no `gpu` feature,
+    /// which draws none.
     pub fn fps() -> f32 {
-        Window::current().fps()
+        #[cfg(feature = "gpu")]
+        return Window::current().fps();
+        #[cfg(not(feature = "gpu"))]
+        0.0
     }
 
     pub fn frame_drawn() -> u32 {
-        Window::current().frame_drawn()
+        #[cfg(feature = "gpu")]
+        return Window::current().frame_drawn();
+        #[cfg(not(feature = "gpu"))]
+        0
     }
 
     pub fn scale() -> f32 {
-        f32::from_bits(Self::get().scale.load(Ordering::Relaxed))
+        f32::from_bits(Self::get().scale.load())
     }
 
     /// The last known cursor or touch position in points. Drag code uses
     /// it for deltas that stay correct while the dragged view moves.
     pub fn cursor_position() -> Point {
-        *Self::get().cursor_position.lock()
+        **Self::get().cursor_position
     }
 
     pub(crate) fn set_cursor_position(pos: Point) {
-        *Self::get().cursor_position.lock() = pos;
+        *Self::get().cursor_position.get_mut() = pos;
     }
 
     pub fn set_scale(scale: impl ToF32) {
@@ -131,8 +174,13 @@ impl UIManager {
 
             let scale = if manual_scale == 0.0 { scale } else { manual_scale };
 
-            sf.scale.store(scale.to_bits(), Ordering::Relaxed);
-            sf.scale_changed.trigger(scale);
+            // A resize to the same size sets the scale it already has. An
+            // edited text field opens its system field again at a scale
+            // change, and on an iPhone the keyboard leaves for that time.
+            let old = sf.scale.swap(scale.to_bits());
+            if old != scale.to_bits() {
+                sf.scale_changed.trigger(scale);
+            }
         });
     }
 
@@ -150,18 +198,20 @@ impl UIManager {
     /// The override in effect, 0.0 meaning none. The test harness pins scale 1
     /// and has to put this back, or the app stays at scale 1 on a screen that
     /// is not, which on a phone means half sized UI.
+    #[cfg(feature = "gpu")]
     pub(crate) fn scale_override() -> f32 {
         f32::from_bits(Self::get().manual_scale.load(Ordering::Relaxed))
     }
 
     /// Drop the override and go back to the screen's own scale.
+    #[cfg(feature = "gpu")]
     pub(crate) fn restore_scale_override(scale: f32) {
         assert_main_thread();
         let sf = Self::get();
 
         sf.manual_scale.store(scale.to_bits(), Ordering::Relaxed);
 
-        let real = Window::screen_scale();
+        let real = Self::display_scale();
         Self::set_scale(if scale == 0.0 { real } else { scale });
     }
 
@@ -184,6 +234,38 @@ impl UIManager {
         *selected_view = Weak::default();
     }
 
+    /// Puts a dead pointer into the selection, what a selected view leaves
+    /// there when it is removed, for the test of that state.
+    #[cfg(all(feature = "ui-tests", desktop))]
+    pub(crate) fn select_dead_view(view: WeakView) {
+        *Self::get().selected_view.lock() = view;
+    }
+
+    /// From now on a plain cover in the clear color hides every view,
+    /// modals included, while a phone app is not active: from the moment
+    /// it resigns active, like for the app switcher or a lock, until it is
+    /// active again. The picture the system keeps for its app switcher
+    /// then shows the cover. A desktop window that loses the focus is not
+    /// covered. Off by default.
+    pub fn set_privacy_cover(on: bool) {
+        on_main(move || crate::ui::privacy_cover::set_enabled(on));
+    }
+
+    /// A text field or a code editor has an editing session open. Its
+    /// Escape and its arrows belong to it, so nothing else may take them.
+    pub(crate) fn text_editing() -> bool {
+        let selected = *Self::get().selected_view.lock();
+        selected.is_ok()
+            && (selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
+                || selected.downcast_view::<CodeEditor>().is_some_and(|editor| editor.is_editing()))
+    }
+
+    /// The view that has the keys, a null view when none has.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn selected_view() -> WeakView {
+        *Self::get().selected_view.lock()
+    }
+
     pub(crate) fn set_selected(mut view: WeakView, selected: bool) {
         let this = Self::get();
 
@@ -191,12 +273,17 @@ impl UIManager {
 
         // A tap on the view that is already selected changes nothing. Going
         // through deselect and reselect would end its editing session in
-        // the middle of a drag.
-        if selected && selected_view.addr() == view.addr() {
+        // the middle of a drag. The selected view has to be alive for
+        // that: a selected view that was removed stays here as a dead
+        // pointer, and a new view can get its address.
+        if selected && selected_view.is_ok() && selected_view.addr() == view.addr() {
             return;
         }
 
         if let Some(selected) = selected_view.get_mut() {
+            // The view that loses the selection said it was selected for
+            // as long as it lived, only the callback below was told.
+            selected.__base_view().is_selected = false;
             selected.__internal_on_selection_changed(false);
             *selected_view = Weak::default();
         }
@@ -211,26 +298,33 @@ impl UIManager {
 }
 
 impl UIManager {
-    fn init() -> Self {
+    fn make_root() -> Own<RootView> {
         let mut root_view = RootView::new();
         root_view.__base_view().view_label = "Root view".to_string();
         root_view.setup_root();
+        root_view
+    }
 
+    fn init() -> Self {
         Self {
-            root_view,
-            touch_disabled: false.into(),
-            drag_scrolling: Self::default_drag_scrolling().into(),
-            cursor_position: Mutex::new(Point::default()),
-            draw_debug_frames: false.into(),
-            scale: AtomicU32::new(1.0f32.to_bits()),
-            manual_scale: AtomicU32::new(0.0f32.to_bits()),
-            scale_changed: UIEvent::default(),
-            on_drop_file: UIEvent::default(),
-            draw_touches: false.into(),
-            touch_marks: Mutex::new(Vec::new()),
-            keymap: Own::default(),
-            selected_view: Mutex::new(Weak::default()),
-            app_instance_id: crate::deps::netrun::System::generate_app_instance_id(),
+            root_view:                  WindowLock::new(),
+            touch_disabled:             false.into(),
+            drag_scrolling:             Self::default_drag_scrolling().into(),
+            cursor_position:            WindowLock::new(),
+            draw_debug_frames:          false.into(),
+            scale:                      WindowU32::new(1.0f32.to_bits()),
+            manual_scale:               AtomicU32::new(0.0f32.to_bits()),
+            scale_changed:              UIEvent::default(),
+            on_drop_file:               UIEvent::default(),
+            #[cfg(wasm)]
+            on_drop_bytes:              UIEvent::default(),
+            on_hover_file:              UIEvent::default(),
+            on_hover_file_end:          UIEvent::default(),
+            draw_touches:               false.into(),
+            touch_marks:                Mutex::new(Vec::new()),
+            keymap:                     Own::default(),
+            selected_view:              Mutex::new(Weak::default()),
+            app_instance_id:            crate::deps::netrun::System::generate_app_instance_id(),
         }
     }
 
@@ -270,39 +364,115 @@ impl UIManager {
         }
     }
 
+    /// The pixels of the window, none in a build with no `gpu` feature.
     pub(crate) fn window_resolution() -> Size {
-        let size = if Platform::IOS {
-            Window::render_size()
-        } else {
-            Window::inner_size()
-        };
-        (size.width, size.height).into()
+        #[cfg(feature = "gpu")]
+        {
+            let size = if Platform::IOS {
+                Window::render_size()
+            } else {
+                Window::inner_size()
+            };
+            (size.width, size.height).into()
+        }
+        #[cfg(not(feature = "gpu"))]
+        Size::default()
     }
 
     /// Pixels the app renders into. The same as the window in an app, because
     /// the root fills it. A UI test pins the root to a fixed canvas instead, so
     /// a game or a level lands on the same pixels on any screen.
+    #[cfg(feature = "gpu")]
     pub(crate) fn render_area() -> Size {
         let size = Self::root_view().size();
         let scale = Self::scale();
         (size.width * scale, size.height * scale).into()
     }
 
-    pub(crate) fn display_scale() -> f32 {
-        Window::screen_scale()
+    /// The scale of the screen the window is on, what the UI scale is
+    /// unless `override_scale` replaced it. An app with its own UI scale
+    /// setting multiplies it.
+    pub fn display_scale() -> f32 {
+        #[cfg(feature = "gpu")]
+        return Window::screen_scale();
+        #[cfg(not(feature = "gpu"))]
+        1.0
     }
 
+    /// The part of the app views that is always seen, in their points. On
+    /// an Apple TV the app views cover the whole screen and a TV may cut
+    /// its edges, so an app keeps its controls and its text inside this
+    /// rect and lets a background or a video go to the edges. Everywhere
+    /// else it is the whole of the app views.
+    pub fn safe_area() -> Rect {
+        Self::root_view_static().safe_area()
+    }
+
+    /// The room between the app views and the edges of the screen, in their
+    /// points: the status bar and the home bar of a phone. A bar at the edge
+    /// of the app views, like the bar of a `TabShell`, paints this far past
+    /// it, so its color reaches the edge of the screen. 0 where the app
+    /// views are the whole window.
+    pub fn system_insets() -> SystemInsets {
+        Self::root_view_static().system_insets()
+    }
+
+    /// How much room the window of the engine has across, from the width of
+    /// its app views in points, see `WidthClass`.
+    pub fn width_class() -> crate::ui::WidthClass {
+        use crate::ui::ViewFrame;
+        crate::ui::WidthClass::of(Self::root_view_static().width())
+    }
+
+    /// The root of the window the engine works on, the main window unless
+    /// an extra window handles its event or draws its frame.
     pub fn root_view() -> Weak<RootView> {
-        Self::get().root_view.weak()
+        // Test code and tasks read the root of the main window from their
+        // own thread, the slots are on the main thread only.
+        if !is_main_thread() {
+            return *MAIN_ROOT.get().expect("The main window has no root yet");
+        }
+        let root = Self::get().root_view.get_or_init(Self::make_root).weak();
+        if crate::window::slots::is_main() {
+            MAIN_ROOT.get_or_init(|| root);
+        }
+        root
     }
 
     pub(crate) fn root_view_static() -> &'static RootView {
-        Self::get().root_view.deref()
+        let root: &'static Own<RootView> = Self::get().root_view.get_or_init(Self::make_root);
+        root
+    }
+
+    /// Takes the root out of a window that closes.
+    #[cfg(all(not_wasm, feature = "gpu"))]
+    pub(crate) fn take_root(slot: usize) -> Option<Own<RootView>> {
+        Self::get().root_view.take_from(slot)
+    }
+
+    /// The slot of the window `view` is in, the current one for a view in
+    /// no window yet.
+    pub(crate) fn slot_of(view: WeakView) -> usize {
+        Self::window_of(view).unwrap_or_else(crate::window::slots::current)
+    }
+
+    /// The slot of the window `view` is in, None for a view in no window,
+    /// also for one in a window that closed and whose views go at the
+    /// next frame.
+    pub(crate) fn window_of(view: WeakView) -> Option<usize> {
+        let mut top = view;
+        while top.is_ok() && top.superview().is_ok() {
+            top = *top.superview();
+        }
+        let top = top.raw();
+        crate::window::open_slots()
+            .into_iter()
+            .find(|slot| crate::window::slots::within(*slot, || Self::root_view().raw() == top))
     }
 
     pub(crate) fn free_deleted_views() {
         DELETED_VIEWS.lock().clear();
-        TouchStack::get().clear_freed();
+        TouchStack::clear_freed_everywhere();
     }
 
     pub fn enable_debug_frames() {
@@ -313,6 +483,7 @@ impl UIManager {
         Self::get().draw_debug_frames.store(false, Ordering::Relaxed);
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn should_draw_debug_frames() -> bool {
         Self::get().draw_debug_frames.load(Ordering::Relaxed)
     }
@@ -331,6 +502,7 @@ impl UIManager {
 
     /// Drops the tap squares a human run drew. They stay on screen for
     /// the human, but a probe next to a tap would read the square.
+    #[cfg(feature = "gpu")]
     pub(crate) fn clear_touch_marks() {
         let marks: Vec<WeakView> = Self::get().touch_marks.lock().drain(..).collect();
         for mut mark in marks {
@@ -407,36 +579,6 @@ impl UIManager {
 }
 
 impl UIManager {
-    pub(crate) fn open_keyboard(#[allow(unused_variables)] frame: &Rect) {
-        #[cfg(ios)]
-        {
-            crate::ui::ui_manager::IOS_KEYBOARD_INIT.call_once(|| {
-                unsafe { crate::ui::mobile::ios::hilen_ios_init_text_field() };
-            });
-
-            unsafe {
-                crate::ui::mobile::ios::hilen_ios_open_keyboard(
-                    frame.origin.x,
-                    frame.origin.y,
-                    frame.size.width,
-                    frame.size.height,
-                )
-            }
-        }
-    }
-
-    pub(crate) fn close_keyboard() -> Option<String> {
-        #[cfg(ios)]
-        unsafe {
-            let str_ptr = crate::ui::mobile::ios::hilen_ios_close_keyboard();
-            let cstr = std::ffi::CStr::from_ptr(str_ptr);
-            return cstr.to_string_lossy().into_owned().into();
-        }
-
-        #[cfg(not(ios))]
-        None
-    }
-
     pub fn set_view<T: View + 'static>(view: Own<T>) -> Weak<T> {
         from_main(move || {
             let weak = view.weak();
@@ -451,12 +593,60 @@ impl UIManager {
 }
 
 impl UIManager {
+    /// The system reports no end of the hold after a drop, so the drop ends
+    /// it here and an app hides its drop mark in 1 place.
+    #[cfg(feature = "gpu")]
     pub(crate) fn trigger_drop_file(file: PathBuf) {
+        Self::get().on_hover_file_end.trigger(());
         Self::get().on_drop_file.trigger(file);
     }
 
+    #[cfg(feature = "gpu")]
+    pub(crate) fn trigger_hover_file(file: PathBuf) {
+        Self::get().on_hover_file.trigger(file);
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn trigger_hover_file_end() {
+        Self::get().on_hover_file_end.trigger(());
+    }
+
+    #[cfg(wasm)]
+    pub(crate) fn trigger_drop_bytes(file: crate::filesystem::PickedFile) {
+        Self::get().on_drop_bytes.trigger(file);
+    }
+
+    /// A file was dropped on the page of a browser, read into memory. A page
+    /// gets no path, so `on_drop_file` is not called there. A drop of several
+    /// files calls this once per file. A dropped folder has no bytes and is
+    /// logged and left out, `Paths::pick_folder_bytes` takes a folder. Only
+    /// the browser has this call.
+    #[cfg(wasm)]
+    pub fn on_drop_bytes<T: ?Sized>(
+        subscriber: Weak<T>,
+        action: impl FnMut(crate::filesystem::PickedFile) + Send + 'static,
+    ) {
+        Self::get().on_drop_bytes.val(subscriber, action);
+    }
+
+    /// A file or a folder was dropped on the window. A drop of several
+    /// items calls this once per item, all in the same frame.
     pub fn on_drop_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
         Self::get().on_drop_file.val(subscriber, action);
+    }
+
+    /// A file or a folder is held over the window, before a drop. Called
+    /// once per held item when it enters the window. A browser reports 1 hold
+    /// with an empty path, a page gets no names before the drop. No other
+    /// platform reports a hold.
+    pub fn on_hover_file<T: ?Sized>(subscriber: Weak<T>, action: impl FnMut(PathBuf) + Send + 'static) {
+        Self::get().on_hover_file.val(subscriber, action);
+    }
+
+    /// The hold is over: the items left the window, or they were dropped.
+    /// After a drop this comes before `on_drop_file`.
+    pub fn on_hover_file_end<T: ?Sized>(subscriber: Weak<T>, mut action: impl FnMut() + Send + 'static) {
+        Self::get().on_hover_file_end.val(subscriber, move |()| action());
     }
 
     /// The screen background, what shows where no view paints. The root view of
@@ -474,17 +664,26 @@ impl UIManager {
                 color.resolve()
             }
         };
+        #[cfg(feature = "gpu")]
         Window::set_clear_color(resolved);
+        #[cfg(not(feature = "gpu"))]
+        {
+            *PLAIN_CLEAR_COLOR.lock() = resolved;
+        }
     }
 
     pub(crate) fn clear_color() -> UIColor {
         match *DYNAMIC_CLEAR_COLOR.lock() {
             Some(color) => UIColor::Dynamic(color),
+            #[cfg(feature = "gpu")]
             None => UIColor::Plain(Window::clear_color()),
+            #[cfg(not(feature = "gpu"))]
+            None => UIColor::Plain(*PLAIN_CLEAR_COLOR.lock()),
         }
     }
 
     pub(crate) fn reapply_clear_color() {
+        #[cfg(feature = "gpu")]
         if let Some(color) = *DYNAMIC_CLEAR_COLOR.lock() {
             Window::set_clear_color(color.resolve());
         }
@@ -494,20 +693,31 @@ impl UIManager {
         ANIMATIONS.lock().push(anim);
     }
 
-    /// Reached only through `continuous_render_active`, gated the same.
-    #[cfg(any(not_wasm, feature = "ui-tests"))]
+    /// Read by `continuous_render_active`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn has_live_animations() -> bool {
         !ANIMATIONS.lock().is_empty()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn commit_animations() {
-        let mut animations = ANIMATIONS.lock();
+        // The steps and the finish handlers run with the list unlocked. A
+        // handler that starts the next animation, like the second leg of a
+        // slide, calls `add_animation`, which takes this lock, and froze the
+        // app while the list was still held.
+        let mut animations = std::mem::take(&mut *ANIMATIONS.lock());
 
         if animations.is_empty() {
             return;
         }
 
         animations.retain_mut(|a| {
+            // A view that is gone takes its finish with it. Its handler
+            // reaches for views of a screen that is gone, a test that failed
+            // mid slide panicked the next one on iOS this way.
+            if a.view.is_null() {
+                return false;
+            }
             let retain = a.active();
 
             if retain {
@@ -519,7 +729,11 @@ impl UIManager {
             retain
         });
 
-        drop(animations);
+        // The ones started meanwhile go after the ones that ran.
+        let mut kept = ANIMATIONS.lock();
+        animations.append(&mut kept);
+        *kept = animations;
+        drop(kept);
 
         // An animation is live, so keep the loop drawing. This also fires once
         // after the last one finishes, so its settled and on_finish state

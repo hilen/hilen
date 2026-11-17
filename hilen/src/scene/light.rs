@@ -30,6 +30,11 @@ pub struct Sun {
     /// Texels along each side of every cascade's map, a power of two.
     /// Changing it at runtime remakes the maps on the next frame.
     pub shadow_map_size: u32,
+    /// Half the width of the sun's disc in radians, 0.0047 like ours. An
+    /// `Occluder` that covers part of the disc dims the light by that
+    /// part, so a wider sun gives softer edges to a planet's night and an
+    /// eclipse.
+    pub angular_radius:  f32,
 }
 
 impl Default for Sun {
@@ -44,6 +49,7 @@ impl Default for Sun {
             shadows:         false,
             shadow_distance: f32::INFINITY,
             shadow_map_size: MeshPipeline::SHADOW_MAP_SIZE,
+            angular_radius:  0.0047,
         }
     }
 }
@@ -51,6 +57,16 @@ impl Default for Sun {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LightKind {
     Point,
+    /// Parallel light along `direction` from far away, the moon or the
+    /// light a planet throws on its moon. It reaches every node at full
+    /// strength, takes the first of a node's light slots and casts no
+    /// shadow map. An `Occluder` dims it by the share of its disc it
+    /// covers, the disc `angular_radius` radians in half width.
+    /// `position` and `range` mean nothing for it.
+    Directional {
+        direction:      Vec3,
+        angular_radius: f32,
+    },
     /// A cone along `direction`, full inside the `inner` half angle and
     /// gone past `outer`, both in radians.
     Spot {
@@ -87,6 +103,27 @@ impl Light {
         }
     }
 
+    /// Parallel light along `direction`, see `LightKind::Directional`.
+    pub fn directional(direction: impl Into<Vec3>) -> Self {
+        Self {
+            kind: LightKind::Directional {
+                direction:      direction.into(),
+                angular_radius: 0.0,
+            },
+            range: f32::INFINITY,
+            ..Self::point(Vec3::ZERO)
+        }
+    }
+
+    /// Half the width of a directional light's disc in radians, see
+    /// `LightKind::Directional`. Nothing for a point or a spot.
+    pub fn angular_radius(mut self, radians: f32) -> Self {
+        if let LightKind::Directional { angular_radius, .. } = &mut self.kind {
+            *angular_radius = radians;
+        }
+        self
+    }
+
     /// A cone from `position` along `direction`, `angle` the half angle
     /// of the cone in radians. The edge softens over its outer fifth.
     pub fn spot(position: impl Into<Vec3>, direction: impl Into<Vec3>, angle: f32) -> Self {
@@ -119,10 +156,29 @@ impl Light {
     /// shader is `saturate(cos * scale + offset)` squared, so a point
     /// light gets scale 0 and offset 1 and the term is always one.
     pub(crate) fn mesh_light(&self) -> MeshLight {
+        let radiance = self.color.linear();
+        let color = Vec4::new(
+            radiance.r * self.intensity,
+            radiance.g * self.intensity,
+            radiance.b * self.intensity,
+            1.0,
+        );
+        if let LightKind::Directional {
+            direction,
+            angular_radius,
+        } = self.kind
+        {
+            return MeshLight {
+                position: (-direction.normalize_or(Vec3::NEG_Y)).extend(-1.0),
+                direction: Vec4::new(0.0, 0.0, 0.0, angular_radius),
+                color,
+            };
+        }
+
         let falloff = 1.0 / (self.range * self.range).max(1e-4);
 
         let (direction, scale, offset) = match self.kind {
-            LightKind::Point => (Vec3::ZERO, 0.0, 1.0),
+            LightKind::Point | LightKind::Directional { .. } => (Vec3::ZERO, 0.0, 1.0),
             LightKind::Spot {
                 direction,
                 inner,
@@ -135,17 +191,10 @@ impl Light {
             }
         };
 
-        let radiance = self.color.linear();
-
         MeshLight {
             position:  self.position.extend(falloff),
             direction: direction.extend(scale),
-            color:     Vec4::new(
-                radiance.r * self.intensity,
-                radiance.g * self.intensity,
-                radiance.b * self.intensity,
-                offset,
-            ),
+            color:     Vec4::new(color.x, color.y, color.z, offset),
         }
     }
 }
@@ -165,7 +214,11 @@ pub(crate) fn pick_lights(position: Vec3, radius: f32, lights: &[Light]) -> Ligh
     let mut count = 0;
 
     for (index, light) in lights.iter().enumerate() {
-        let distance = light.position.distance(position);
+        // A directional light reaches everything, it goes first.
+        let distance = match light.kind {
+            LightKind::Directional { .. } => f32::NEG_INFINITY,
+            _ => light.position.distance(position),
+        };
         if distance - radius >= light.range {
             continue;
         }
@@ -219,6 +272,28 @@ mod test {
         let near = Light::point(Vec3::new(5.0, 0.0, 0.0)).range(4.5);
         let pick = pick_lights(Vec3::ZERO, 1.0, &[far, near]);
         assert_eq!(indices(pick), vec![1]);
+    }
+
+    // A moon far away lights every node, before any lamp, however many
+    // lamps stand near.
+    #[test]
+    fn a_directional_light_is_picked_first_from_anywhere() {
+        let mut lights: Vec<Light> = (0..10u8)
+            .map(|i| Light::point(Vec3::new(f32::from(i), 0.0, 0.0)).range(100.0))
+            .collect();
+        lights.push(Light::directional(Vec3::NEG_Y));
+        let pick = pick_lights(Vec3::new(5000.0, 0.0, 0.0), 0.0, &lights);
+        assert_eq!(indices(pick), vec![10]);
+        let pick = pick_lights(Vec3::ZERO, 0.0, &lights);
+        assert_eq!(indices(pick)[0], 10);
+        assert_eq!(pick.count, 8);
+    }
+
+    #[test]
+    fn a_directional_light_carries_the_way_to_it() {
+        let light = Light::directional(Vec3::new(0.0, -2.0, 0.0)).intensity(0.5).mesh_light();
+        assert_eq!(light.position, Vec4::new(0.0, 1.0, 0.0, -1.0));
+        assert!((light.color.x - 0.5).abs() < 1e-6);
     }
 
     #[test]

@@ -18,7 +18,7 @@ struct ScrollViewTest {
 }
 
 impl Setup for ScrollViewTest {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.scroll.set_content_size((600, 600));
         self.scroll.place().back();
         add_corners(self.scroll, TURQUOISE);
@@ -26,7 +26,7 @@ impl Setup for ScrollViewTest {
 }
 
 impl ViewTest for ScrollViewTest {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         check_colors(COLORS_1)?;
 
         assert!(view.scroll.content_offset().abs() < f32::EPSILON);

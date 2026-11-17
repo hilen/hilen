@@ -4,13 +4,14 @@ use plat::Platform;
 use ui_proc::view;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     gm::{
         color::WHITE,
         flat::{Point, Size},
     },
     ui::{
         Anchor::Top, ImageView, Label, Setup, UIImages, View, ViewData, ViewFrame, ViewSubviews, ViewTouch,
+        view::depth_order,
     },
 };
 
@@ -64,7 +65,7 @@ impl<T: View + Default + 'static> Setup for MovableView<T> {
             let new_size = new_size.clamp(100.0, 100.0).into_size();
             self.set_size(new_size.width, new_size.height);
         });
-        self.corner_view.draw_on_top();
+        depth_order::set_raise(&*self.corner_view, 1);
     }
 }
 
@@ -73,8 +74,9 @@ impl<T: View + Default> MovableView<T> {
         self.title_label.text()
     }
 
-    pub fn set_title(&mut self, title: &str) {
-        self.title_label.set_text(title);
+    pub fn set_title(&self, title: &str) {
+        let this = weak_from_ref(self);
+        this.title_label.set_text(title);
     }
 }
 

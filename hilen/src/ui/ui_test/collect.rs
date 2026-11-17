@@ -81,16 +81,45 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // Fallback fonts are global too, a test that registers one must
         // not leak it into the next.
         crate::ui::Font::reset_fallbacks();
+        // The system fonts differ per machine, so a test that shows a char
+        // no bundled font covers would read different pixels on every lane.
+        // Off unless the test turns it on.
+        crate::ui::Font::set_system_fallback(false);
         // Frame stepped time is a global opt in, so a stepped test that
         // returned early must not leave the clock stepped for the next.
         crate::gm::Clock::exit_stepped();
         // A test that held a key and failed must not leave it down for
         // the next test's player.
         crate::ui::Keys::clear();
+        crate::ui::Mouse::clear();
+        // A test that failed with 2 fingers down must not leave a pinch
+        // running into the next.
+        crate::ui::PinchInput::reset();
+        // A test that failed with the keyboard up must not leave the
+        // screen moved for the next.
+        crate::ui::ScreenKeyboard::reset();
+        crate::ui::Cursor::reset();
+        // A link that waits for a subscriber, like the address of the test
+        // page in a browser, must not reach a test that listens for links.
+        crate::system::links::drop_pending();
+        // A test that kept the clipboard inside the process and failed
+        // must not leave it so for a test that copies for real.
+        #[cfg(desktop)]
+        crate::system::Clipboard::set_in_process(false);
+        crate::window::reset_fullscreen();
+        crate::window::reset_orientations();
         // The dialog animation is global app state, a test that registers
         // one must not leak it into the next. The suite snapshot hands the
         // app's own animation back after the run.
-        crate::BugReport::restore_animation(None);
+        #[cfg(feature = "bug-report")]
+        {
+            crate::BugReport::restore_animation(None);
+            crate::BugReport::restore_email(None);
+            crate::BugReportStyle::restore_global(None);
+        }
+        // A test that styles its dialogs must not style the next one's.
+        crate::ui::DialogStyle::restore_global(None);
+        crate::ui::MarkdownStyle::restore_global(None);
         // A test that failed mid drag leaves hover locked to its divider,
         // which would freeze hover for every test after it.
         #[cfg(any(desktop, wasm))]
@@ -98,6 +127,12 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
             crate::ui::Hover::unlock();
             crate::ui::Hover::clear();
         }
+        // A ring left by one test would look for a view in the next.
+        crate::ui::Focus::reset();
+        // A check reads the frame, and a loop on a layer of the system is
+        // not in it. A test of the layers turns them on itself.
+        #[cfg(apple)]
+        crate::ui::loops::set_test_layers(Some(false));
     });
 
     match catch_unwind(AssertUnwindSafe(test)) {

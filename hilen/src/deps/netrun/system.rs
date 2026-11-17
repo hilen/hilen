@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(feature = "system-info")]
 use byte_unit::Byte;
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +56,7 @@ impl System {
         result
     }
 
+    #[cfg(feature = "system-info")]
     pub fn get_info() -> Self {
         let mut sys = sysinfo::System::new_all();
 
@@ -82,6 +84,7 @@ impl System {
         }
     }
 
+    #[cfg(feature = "system-info")]
     pub fn dump(&self) -> String {
         format!(
             r"
@@ -104,6 +107,7 @@ Memory: total - {}, free - {}, available - {}
     }
 }
 
+#[cfg(feature = "system-info")]
 fn display_size(size: u64) -> String {
     let bytes = Byte::from_u64(size);
 
@@ -118,6 +122,7 @@ mod test {
 
     use crate::deps::netrun::System;
 
+    #[cfg(feature = "system-info")]
     #[wasm_bindgen_test(unsupported = test)]
     fn test_sysinfo() {
         println!("{}", System::get_info().dump());

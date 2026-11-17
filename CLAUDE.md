@@ -7,6 +7,8 @@ The engine is one library crate, `hilen`, with modules like `gm`, `ui`, `window`
 `render`, `level` under `hilen/src/`. The foundational crates `hreads`, `refs`, `vents`
 and `netrun` are modules under `hilen/src/deps/`, not separate crates, so a published
 `hilen` is one self contained library. `deps/` holds only the proc macro crates,
+`project-proc` among them, which reads `project_name` from `hilen.toml` at build time
+for `hilen` and `hilen-server`,
 `ui-proc-test`, the compile check for the `view` macro, `hilen-pixels`, the per pixel
 loops kept optimized in dev builds by a profile override, plus `plat`, which stays its
 own crate because three build scripts call its `platforms()` to set the cfg aliases and
@@ -16,26 +18,71 @@ app-facing API is `pub` — keep new items `pub(crate)` unless apps need them, s
 `dead_code` lint stays meaningful.
 
 `hilen-server` is the backend base crate for app backends, config, error type,
-base routes and helpers over axum, sqlx and redis. It also carries the standard
+base routes and helpers over axum, sqlx and redis, on Postgres or on SQLite
+through its `Db` type, Redis optional. It also carries the standard
 way to serve an app's trunk-built wasm dist, `web_mount` in `src/web.rs`, the
 dist embeds via rust-embed with SPA fallback and `HILEN_WEB_DEV_PROXY` points
-page requests at a running `trunk serve` for the dev loop. It never links the
-`hilen` UI crate, a backend and a client only share the wire.
+page requests at a running `trunk serve` for the dev loop. A path under `/api/` or
+`/auth/` that no route took answers the json 404 of `AppError`, never the page. Its `auth` module is
+the server half of the Google, Apple and Discord login, see [docs/login.md](docs/login.md). Its
+`prometheus` module serves Prometheus metrics: `install_metrics` once at startup,
+the re-exported `metrics` macros to record, and `metrics_mount` for a `/metrics`
+route behind a Bearer token, since a stack with a public host has only one port
+to share. Its `security` module puts `nosniff`, a `Referrer-Policy`, a frame block and
+a closed `Content-Security-Policy` on every answer that `serve` gives, and `PageCsp`
+gives the html of a trunk page a policy it can run under, its inline scripts allowed
+by their hashes, `fetch` only to its own origin unless the app adds one with
+`.connect`, and `Cross-Origin-Opener-Policy: same-origin`. `request_timeout` ends a request with no
+answer after a limit, an app with no long poll puts its router through it. It never
+links the `hilen` UI crate, a backend and a client only share the wire.
+Its own queries use the plain `query` functions of sqlx, because the login code runs
+the same query on both databases through `Db` and a checked macro can check against
+only 1. A backend built on it has 1 database and writes its queries with the checked
+macros, `query!`, `query_as!` and `query_scalar!`, with the saved answers in a `.sqlx`
+folder in git.
 
-The UI test corpus is its own crate, `ui-test-suite`, so `demo` can link it and carry
+`hilen-updater` is the self update with no UI dependency, the check, the signed
+download, the swap and the relaunch. `hilen` builds `system::Updater` on it and
+re-exports it as `hilen::updater`, and a binary with no window uses it directly,
+see [docs/updater.md](docs/updater.md).
+
+The UI tests are their own crate, `ui-test-suite`, so `demo` can link it and carry
 every test onto a device. It must never depend on `demo`, that is a cycle, since the
 `ui-test` runner links both. Level tests, a `#[level]` with `impl LevelTest`, register
 into `hilen::LEVEL_TESTS` the same way and run through the `level-test` crate, which
-also holds their corpus. `render-test` is only for the render pipelines drawn directly.
+also holds the tests. Scene tests, a `#[scene]` with `impl SceneTest`, register into
+`hilen::SCENE_TESTS`, live in `scene-test-suite` like the UI tests, and run through
+`scene-test` on desktop and through `demo` on a device, after the UI tests in one
+report. `render-test` is only for the render pipelines drawn directly.
 
 Optional engine parts sit behind cargo features, all off by default. `level` is the physics
 levels, the no physics game scene, rapier and the sprite, polygon and background pipelines
-with their shaders. `audio` is sound playback through kira and its decoders. `inspect` is
-the remote inspector. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
+with their shaders. `speech` is speech to text from the microphone, a streaming model while the user talks and a bigger one on each pause, see [docs/speech.md](docs/speech.md). `audio` is sound playback through kira and its decoders, silent instead of a panic on a machine with no output device, and `SoundClock`, a clock that starts a queued sound on its exact sample, see [docs/sound-clock.md](docs/sound-clock.md). `midi` is MIDI input devices through midir, see [docs/midi.md](docs/midi.md). `camera` is the cameras of the device, a live picture and a photo from code, see [docs/camera.md](docs/camera.md). `biometric` is a check of the finger or the face of the user, Touch ID and Face ID, see [docs/biometric.md](docs/biometric.md). `push` is remote notifications from APNs on iOS, see [docs/push.md](docs/push.md). `intents` is actions the system runs in the app, like a sentence said to Siri, with the Swift made from the `[[intent]]` tables of `hilen.toml`, see [docs/intents.md](docs/intents.md). `bluetooth` is Bluetooth LE devices in the central role, see [docs/bluetooth.md](docs/bluetooth.md). `discovery` is a browse for an mDNS service on the local network, see [docs/discovery.md](docs/discovery.md). `global-keys` is a key combination that works in every app, see [docs/global-keys.md](docs/global-keys.md). `screen-capture` is a picture of every screen, see [docs/screen-capture.md](docs/screen-capture.md). `video` is video
+playback, on desktop and iOS through a prebuilt static ffmpeg and kira, proven on macOS, Windows x64 and the iOS simulator, in a browser
+through a `<video>` element under the canvas. Where ffmpeg decodes it also gives pictures of a file with no view, the sound levels of a file for a waveform, a list of pieces played as 1 video with a volume per piece and music under it, and the export to an mp4 file with pictures and texts drawn over it, see [docs/video.md](docs/video.md). `inspect` is
+the remote inspector. `hot` is hot reload in the iOS and the Apple TV simulator, on a real iPhone and on a real Apple TV, the app as a dynamic library that a loader app swaps while it runs, see [docs/hot-reload.md](docs/hot-reload.md). `xr` is VR through OpenXR, the running scene in a headset with the head and the controllers, SteamVR on Windows through DX12 so far, see the doc of `hilen::xr`. `scene` is the 3D twin of `level`, physics on rapier3d and glam, its own
 `#[scene]` macro, `scene-test` crate and `SCENE_TESTS` registry, see [docs/scene.md](docs/scene.md).
-`ui-tests` and `level-tests` register tests. A GUI only app depends
+`math` is LaTeX math in `MarkdownView` and `MathView`, with the Latin Modern Math font, see [docs/text.md](docs/text.md).
+`login` is the Google and Apple login client, the `GoogleLoginButton` and `AppleLoginButton` views, the login from a phone for a device with no keyboard with its `QrCodeView`, and the sealed `SessionStore`,
+see [docs/login.md](docs/login.md). `google-access` is Google API access for an app that keeps its Google tokens on the device, `GoogleAccess`, `GoogleAccounts` and `SecretStore`, see [docs/google-access.md](docs/google-access.md). `secrets` is `SecretStore` alone, which `google-access` turns on too. `ui-tests` and `level-tests` register tests. A GUI only app depends
 on `hilen` with none of them and the wasm drops rapier, kira and the codecs entirely.
-`demo` turns `audio`, `inspect`, `level`, `scene` and `ui-tests` on.
+`demo` turns `audio`, `inspect`, `level` and `ui-tests` on, `video` on macOS, Windows, iOS and wasm, and `scene`
+through its own default `scene` feature, so `--no-default-features` builds it with no 3D.
+
+The parts of the engine that are no UI are cargo features too, all on by default, so an
+app sees no change. `net` is requests, websockets, downloaded pictures and fonts, and the
+asset groups of a browser build, which load over the network, so a browser build needs it.
+`bug-report` is Sentry and the bug report dialog, `infisical` is `SecretsManager`,
+`system-info` is `System::get_info`, `updater` is self update with the update hooks of
+`App`, `code-colors` is syntect for `CodeHighlighter` and the code blocks of
+`MarkdownView`, and `noise` is `hilen::generate`. Off by default, `diff-view` is `DiffPanel`, the diff of 1
+file on the data of the [filediff](https://github.com/hilen/filediff) crate, see
+[docs/diff-view.md](docs/diff-view.md), and `plot` is `GraphView`, formulas drawn as graphs,
+see [docs/formula-plot.md](docs/formula-plot.md). `login`, `google-access` and `speech`
+turn `net` on. A crate of shared views depends on `hilen` with
+`default-features = false`: on macOS that is 295 crates where the defaults are 437, and
+the app that links it brings the rest. `make ci` runs clippy on `hilen` with no default
+features, so that build keeps compiling.
 
 No proof, no merge. A performance claim needs an A/B per [docs/benchmark.md](docs/benchmark.md)
 acceptance criteria, a correctness claim needs a reproduced failure. Unproved ideas go to
@@ -55,52 +102,229 @@ Do not read these upfront. Read the matching file only when the task touches tha
   are plain Unorm. Read before touching color types, surface formats, or blending.
 - [docs/refs.md](docs/refs.md) — `Own`/`Weak` smart pointers, the memory model. Read before
   working with view lifetimes, pointers, or anything from the `refs` crate.
-- [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop.
-  Read before touching threading, async, or dispatch code.
+- [docs/dispatch.md](docs/dispatch.md) — main thread rules, `on_main`/`from_main`, frame loop,
+  app activity, the privacy cover of a phone app and `App::will_quit`. Read before touching
+  threading, async, dispatch code or the app lifecycle in `app_handler.rs`.
 - [docs/ui-tests.md](docs/ui-tests.md) — how UI tests work and how to run a single one.
+  Also `system_input`, real taps and screen keyboard keys through the XCUITest helper.
   Read before writing or debugging UI tests.
 - [docs/inspect.md](docs/inspect.md) — the remote UI inspector, its protocol and the
   off-by-default `inspect` feature gate. Read before touching `hilen/src/inspect`,
   the `inspector` app, or the `hilen-inspect` CLI.
 - [docs/benchmark.md](docs/benchmark.md) — the UI benchmark, its consistency guard, and the
   results history in `bench/`. Read before touching the benchmark or measuring performance.
+- [docs/damage.md](docs/damage.md) — partial frames, a frame draws only the pixels that
+  changed, and `set_msaa_sample_count`, the samples per pixel an app picks while it runs.
+  Read before touching `UIDrawer`, a pipeline, the frame state, or adding anything a view
+  draws with.
+- [docs/loops.md](docs/loops.md) — declared loops, `run_loop` with a `LoopAnimation`: the pose of
+  a phase, the frame path, the Core Animation layer that shows drawn pictures with no frame of the
+  app on macOS, iOS and tvOS, when a view falls back, why tests see the frame path, and the
+  warnings for closure animations with no end. Read before touching `hilen/src/ui/loops`, a spinner,
+  `AnimatedImage`, `keep_frames_while` or anything that animates without end.
 - [docs/guesses.md](docs/guesses.md) — parked changes that lacked proof. Read before
   proposing an optimization or a speculative fix; add new unproved ideas there, not to code.
-- [docs/text.md](docs/text.md) — the text pipeline: rustybuzz shaping, em sizing, variable
+- [docs/text.md](docs/text.md) — the text pipeline: the bundled fonts, `MarkdownView` and its style, rustybuzz shaping, em sizing, variable
   font instances, letter spacing, line handling. Read before touching label rendering,
   fonts, or `hilen/src/window/text`.
+- [docs/text-selection.md](docs/text-selection.md) — text that selects and copies in a `Label`, a
+  `MarkdownView` and across the cells of a `TableView`: the calls, what a copy holds, positions kept
+  in the data, the hooks in the input code and how the highlight is drawn. Read before touching
+  `hilen/src/ui/text_selection`, `selection_drawer.rs` or the touch code in `view_touch.rs`.
+- [docs/windows-more.md](docs/windows-more.md) — `AppWindow`, a window next to the main
+  one, the window slots and `WindowLock`, what each window has of its own, and the
+  panel over everything on a Mac. Read before touching `window/extra`, `window/slots.rs`
+  or a global that belongs to 1 window.
+- [docs/global-keys.md](docs/global-keys.md) — the `global-keys` feature, `GlobalKey` and
+  `GlobalCombo`. Read before touching `hilen/src/global_keys`.
+- [docs/screen-capture.md](docs/screen-capture.md) — the `screen-capture` feature,
+  `ScreenPicture` and the Screen Recording permission. Read before touching
+  `hilen/src/screen_capture`.
 - [docs/roadmap.md](docs/roadmap.md) — missing engine features found by porting a real app,
   with current state, design notes, and order. Read before planning or starting a new
   engine capability, and update it when one lands.
 - [docs/pixdiff.md](docs/pixdiff.md) — the `hilen-pixdiff` pixel parity tool: capture app
   windows from the screen, resize both apps to one size, diff the captures into ranked
   regions. Read before comparing a port against its original or touching `hilen-pixdiff`.
-- [docs/updater.md](docs/updater.md) — `system::Updater`, the manifest schema, the ed25519
+- [docs/updater.md](docs/updater.md) — `system::Updater` and the `hilen-updater` crate under it, the manifest schema, the ed25519
   signing contract and what the in place swap means for packaging. Read before wiring
-  self update into an app or touching `hilen/src/system/updater.rs`.
+  self update into an app or a daemon, or touching `hilen/src/system/updater.rs` or `hilen-updater`.
+- [docs/links.md](docs/links.md) — links that open the app: `Links::on_open`, the `[links]` table
+  of `hilen.toml`, what each platform does, and `AppLinks` in `hilen-server` that serves the 2
+  well-known files. Read before touching `hilen/src/system/links`, `app_links.rs` or a link flow.
+- [docs/open-files.md](docs/open-files.md) — files that open the app, Open With on a Mac:
+  `OpenFiles::on_open`, the `[open_files]` table of `hilen.toml` and `build/release/mac_install.py`
+  for a local bundle. Read before touching `hilen/src/system/open_files.rs`.
+- [docs/intents.md](docs/intents.md) — the `intents` feature: `Intents::on`, `options` and
+  `options_changed`, the `[[intent]]` tables, Apple's rules for phrases, the start in the
+  background with no window.
+- [docs/push.md](docs/push.md) — the `push` feature: `Push::request`, `on_token` and `on_open`,
+  the `push` key of the `[ios]` table, the push methods of the iOS app delegate, and `Apns` in
+  `hilen-server` that sends through APNs. Read before touching `hilen/src/push`,
+  `hilen/src/system/ios_delegate.rs` or `hilen-server/src/push`.
+- [docs/widgets.md](docs/widgets.md) — a home screen widget and a Live Activity on iOS: the
+  `[widget]` table of `hilen.toml`, the Swift folders of the app, the shared keychain group and
+  `SecretStore::shared`. Read before touching `hilen-mobile/src/widget` or a widget of an app.
 - [docs/windows.md](docs/windows.md) — why Windows renders through DX12, the silent Intel
   Vulkan crash it avoids, and how to read a `0xc0000005` from the event log. Read before
   changing backend selection or when an app dies on Windows with no message.
 - [docs/wsl.md](docs/wsl.md) — running on Windows through WSL: the packages `make setup`
-  installs, why the engine forces X11 and takes the scale from WSLg, and what to check
-  when no window appears. Read before touching `window/wsl.rs` or when an app shows
-  nothing under WSL.
+  installs, why the engine forces X11, takes the scale and follows the Windows theme
+  through WSLg, and what to check when no window appears. Read before touching
+  `window/wsl/` or when an app shows nothing under WSL.
 - [docs/android.md](docs/android.md) — the docker build and the emulator lane, the
   Vulkan-only backend, APK asset loading, the register requirement in the shell crate,
-  and the generated-project fixes the template still misses. Read before touching
-  android builds or when an APK dies at startup.
+  the generated-project fixes the template still misses, and the picker glue with its
+  dex. Read before touching android builds or when an APK dies at startup.
 - [docs/ios.md](docs/ios.md) — what keeps iOS 12 and the A7 working: `NSLog` output, the
   ObjC exception preprocessor, the two version settings that look alike, the weak linked
-  CoreGraphics and the wgpu fork. Read before touching anything iOS, the `wgpu` pin, the
+  CoreGraphics and the wgpu fork. Also the system text field an edited `TextField` becomes
+  on an iPhone, and its native file inside the engine crate, and the image and file pickers. Read before touching anything iOS, the `wgpu` pin, the
   iOS deployment target, or when an app dies on a device with no message.
-- [docs/tvos.md](docs/tvos.md) — tvOS builds and renders in the Apple TV simulator,
-  display only, no input path yet. The vendored plat, the winit fork pin, the hand made
-  simulator shell and how to run it. Read before touching platform cfg aliases, the
-  winit pin, or anything tvOS.
+- [docs/browser-text.md](docs/browser-text.md) — a `TextField` in a browser: the hidden
+  `<input>` that takes the keys, paste, undo, composed text and the keyboard of a phone,
+  and the 2 ways of the text between the element and the field. Read before touching
+  text entry on the wasm target.
+- [docs/screen-keyboard.md](docs/screen-keyboard.md) — the screen keyboard of a phone: the
+  edited field that stays in view, `b_keyboard` for a view that rides on the keyboard,
+  `ScreenKeyboard`, why `TextField::focus` does nothing on a phone, and the several
+  moves iOS reports for 1. Read before touching `hilen/src/ui/screen_keyboard.rs`, the
+  keyboard hook in `hilen_text.m` or `TextField::focus`.
+- [docs/tvos.md](docs/tvos.md) — tvOS in the Apple TV simulator: `make tvos` and the
+  project from the template, the remote as key events, the safe area an app asks for,
+  stored data in the user defaults, video, and the upload. Never run on a real Apple
+  TV. Read before touching platform cfg aliases, the winit pin, or anything tvOS.
+- [docs/navigation.md](docs/navigation.md) — `NavigationView`, the stack that owns every
+  way back of a page: `push`, `pop`, the `BackButton`, Escape and the swipe from the left
+  edge, a stack in a shell, and why the page under a swipe is a flat layer. Read before
+  touching `navigation_view.rs`, `root_view.rs` or the touch path in `input.rs`.
+- [docs/accent-card.md](docs/accent-card.md) — `AccentCard`, a rounded block with a bar
+  of color on 1 edge, cut by the round corners of the card. Read before drawing an
+  event, a quote or any block with a colored side bar.
+- [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
+  view, also over a scroll view that moves up and down. Read before touching
+  `side_swipe.rs` or the order of the swipes in `input.rs`.
+- [docs/tab-shell.md](docs/tab-shell.md) — `TabShell`, a tab app with the bar at the
+  bottom, how its background reaches past the home bar with `UIManager::system_insets`,
+  and its tests. Read before touching `tab_shell/` or `system_insets`.
+- [docs/depth.md](docs/depth.md) — which view is in front: the tree order, the layers of
+  `set_z_position`, and the raise, float and shared depth marks of the engine. Read before
+  touching `depth_order.rs`, a z of a view, or anything that draws over other views.
+- [docs/canvas.md](docs/canvas.md) — `CanvasView`, how a subtree is drawn at a scale,
+  the flat layer that lets a view over a canvas cover it, and the pinch from 2 fingers
+  and from a trackpad. Read before touching `views/containers/canvas`, `input/pinch.rs`,
+  `calculate_absolute_frame`, or the depth order of hover and touches.
+- [docs/image-crop.md](docs/image-crop.md) — `ImageCropView` and `ImageCropPrompt`, a photo
+  cut round or square for an avatar, the drag, the wheel, the pinch and the keys, the
+  EXIF turn on native and in a browser, and the tests. Read before touching
+  `views/complex/image_crop` or `decode_upright`.
+- [docs/clipboard.md](docs/clipboard.md) — `Clipboard`: text, a secret, and a picture as a
+  png file with `get_image`, what each platform does, why the png is made off the main
+  thread, the `image_pasted` event of `TextField`, and how a test stays away from the
+  clipboard of the user. Read before touching `hilen/src/system/clipboard` or the paste
+  of a text field.
+- [docs/file-drop.md](docs/file-drop.md) — a file or a folder dragged onto the window:
+  `on_drop_file`, `on_hover_file`, `on_hover_file_end`, and the test helpers.
+- [docs/file-browser.md](docs/file-browser.md) — `FileBrowser` and `FilePicker`, the
+  `FileSource` trait with `LocalFiles` and `MemoryFiles`, the pick modes, the touch
+  screen taps, the keys and the tests. Read before touching
+  `views/complex/file_browser` or `filesystem/source`, or putting a file browser into
+  an app.
+- [docs/focus.md](docs/focus.md) — the key focus for a TV remote and a keyboard: how the
+  ring picks the next view, tables, modals, scrolling, Back as Escape, and the calls an
+  app has. Also how a binding like Cmd and B fires on any keyboard layout, Cyrillic
+  and Greek included. Read before touching `hilen/src/ui/focus.rs`, the keymap or key
+  handling in `input.rs`.
+- [docs/web-visit.md](docs/web-visit.md) — the visit record of a page, kept in local
+  storage step by step so a browser that froze or died can still report the visit on
+  the next start, `App::visit_report_path`, the steps, the panic report. Read before
+  touching `web_visit.rs` or the report path of an app.
+- [docs/webos.md](docs/webos.md) — an app on an LG TV as a web page: `make webos`, the
+  `[webos]` table of `hilen.toml`, the Chromium 79 build flags, the start script rewrite, what the TV needed from the engine, the plain
+  canvas format, no texture copy, 1 sample, lazy pictures, shared text pipelines, and
+  how to read a page log and run the UI suite on the TV. Read before touching the wasm
+  build for an old browser, `window/msaa.rs`, `window/image/pending.rs`, or anything
+  webOS.
+- [docs/level.md](docs/level.md) — the 2D `level` module: the fixed step on the real
+  clock, level and screen points, the mouse, sprite flip, tint and pixel art filter,
+  tile maps with their collision, step up and neighbor framing, the dug polygon
+  terrain, and the lights. Read before touching `hilen/src/level`, `level_drawer.rs`,
+  the sprite shaders or `terrain.wgsl`.
 - [docs/scene.md](docs/scene.md) — the 3D `scene` module: the level shaped architecture, glb
   models with skins and clips, the sun's shadow map, touch picking, the depth band it draws in, the A7 varying
-  budget of the mesh shader, scene tests and what is still to come. Read before touching
+  budget of the mesh shader, a scene inside a `SceneView`, the orthographic camera, lines,
+  triangle hits, the transform handle, the metallic roughness and occlusion maps, photos of a
+  scene through another camera as bytes, scene tests and what is still to come. Read before touching
   `hilen/src/scene`, `scene_drawer.rs`, the mesh pipeline or a scene test.
+- [docs/camera.md](docs/camera.md) — the `camera` feature: the list of cameras, `CameraView`, the
+  photo and the locks, and what each platform does. Read before touching `hilen/src/camera`.
+- [docs/biometric.md](docs/biometric.md) — the `biometric` feature: `Biometric::kind` and
+  `Biometric::check`, Touch ID and Face ID through `LocalAuthentication`, the `[biometric]`
+  table for the Face ID text, and the systems that answer that the device cannot. Read
+  before touching `hilen/src/biometric`.
+- [docs/bluetooth.md](docs/bluetooth.md) — the `bluetooth` feature: scan, connect, read, write
+  and notifications through btleplug and Web Bluetooth, the Android dex and permissions. Read
+  before touching `hilen/src/bluetooth`.
+- [docs/discovery.md](docs/discovery.md) — the `discovery` feature: `ServiceBrowser`, the system
+  Bonjour on Apple, `mdns-sd` elsewhere, the `[local_network]` table. Read before touching
+  `hilen/src/discovery`.
+- [docs/video.md](docs/video.md) — the `video` feature: `VideoView`, the ffmpeg decode thread and
+  hardware devices, the NV12 pass, kira as the clock, the prebuilt static ffmpeg archives and
+  how to build one, request headers, the buffering state, tracks and subtitles, HDR tone
+  mapping, playback speed, what was measured, the iOS side with its audio session, and the browser side, a `<video>` element
+  under a hole in the frame. Read before touching `hilen/src/video` or the archive script.
+- [docs/sound-clock.md](docs/sound-clock.md): `SoundClock` of the `audio` feature, a sound that starts
+  on an exact sample, the time in seconds and beats, the tempo, what the time means against the
+  speaker, and why it is not a kira clock. Read before touching `hilen/src/audio/clock.rs` or
+  `clock_sound.rs`, or playing a rhythm from an app.
+- [docs/midi.md](docs/midi.md): the `midi` feature, `Midi`, `MidiInput` and `MidiMessage`, the time
+  of a message and how it meets a `SoundClock`, the platforms midir covers, and the fake device of
+  the tests. Read before touching `hilen/src/midi` or reading a MIDI device from an app.
+- [docs/google-access.md](docs/google-access.md) — Google API access with the tokens on the device:
+  the 1 Web client on the backend, the sealed hand over between `hilen::google_access` and
+  `hilen_server::google_access`, the refresh that stores nothing, `GoogleAccounts` with a main
+  account and linked accounts in the Drive app folder, app files in the same folder with
+  `app_data` and `save_app_data`, and `SecretStore`. Read before touching
+  those modules, `hilen-session/src/secret_store.rs` or `device_key.rs`.
+- [docs/table.md](docs/table.md) — `TableView` inside: what a layout keeps, the 3 layout
+  modes, `reload_cell`, `load_new_cells` and `drop_first_cells`, and `set_keeps_end` of
+  `ScrollView` and `TableView`, a view at its end that stays there, and `set_row_moves`, a
+  row dragged to a new place. Read before touching `views/containers/table_view`, the
+  `RowDrag` step in `input.rs` or the offset code of `scrolling/scroll_view.rs`.
+- [docs/code-editor.md](docs/code-editor.md): `CodeEditor`, the view that edits code, its
+  lines in a table of rows, the gutter, color runs and marks per line set by the app, undo
+  and redo by steps of lines, the keys and the menu. Read before touching
+  `views/complex/code_editor` or putting a code editor into an app.
+- [docs/diff-view.md](docs/diff-view.md) — `DiffPanel` of the `diff-view` feature, the
+  `filediff` crate it draws and why that crate is a repo of its own, and the `DiffHost`
+  an app gives it. Read before touching `views/complex/diff_view` or the diff types.
+- [docs/formula-plot.md](docs/formula-plot.md) — `GraphView` and `graphs` of the `plot`
+  feature, formulas typed as text, and which graphs need `scene`. Read before touching
+  `views/complex/formula_plot`.
+- [docs/log-view.md](docs/log-view.md) — `LogView`, the ready view for a log: the
+  `LogData` trait, ANSI colors, the prefix column, follow the end, and why a row out of
+  view gets its height from arithmetic and not from shaped text. Read before touching
+  `views/complex/log_view` or putting a log into an app.
+- [docs/login.md](docs/login.md) — the Google, Apple and Discord login: the poll flow between `hilen::login` and
+  `hilen_server::auth`, the way back of the one time code to the app that started the login, the
+  sessions in the credential store, the two copies of the wire, the masked `HILEN_SESSION_KEY` and the
+  `HILEN_RELEASE` mark, the short code and QR login of a device with no keyboard, and how
+  the button test stays away from a real browser. Read before
+  touching `hilen/src/login`, `hilen-session`, `hilen-server/src/auth` or the
+  session key part of `hilen-session/build.rs`.
+- [docs/hot-reload.md](docs/hot-reload.md) — hot reload in the iOS simulator and on a real iPhone, the same for an Apple TV with the `tv` word, what iOS lets a build load and the `phone` word of `make swap`: `make hot`,
+  the loader app and the app as 1 dynamic library, `make swap` for several apps in 1
+  loader, the own heap of a build, what a stop leaves, the stop of a generation, why a hot
+  build has no rayon, the winit attach, the Objective-C classes, and the `make hot-test`
+  lane. Read before touching `hilen/src/hot.rs`, `hot_loader.m`, the `hot-test` crate, or
+  anything a hot build has to give back at its stop.
+- [docs/forks.md](docs/forks.md) — the 7 forked crates, what each fork branch carries
+  against upstream, which commits are upstream candidates, and the recipe for sending a
+  fork fix upstream as a PR. Read before touching `~/dev/forks`, bumping a fork, or
+  opening an upstream PR.
+- [docs/consoles.md](docs/consoles.md) — what Xbox, PS5 and Switch would take, a native
+  game build, an app on Xbox as a UWP shell around the wasm build, and what is not
+  checked. Read before planning any console work or gamepad input.
 
 Docs should be concise.
 
@@ -108,11 +332,77 @@ Docs should be concise.
 
 Every launch logs to stdout and to a file, `~/Library/Logs/<app>/` on mac,
 `%LOCALAPPDATA%\<app>\logs\` on Windows, `~/.local/state/<app>/logs/` on Linux, named
-`<app>-<date>_<time>.log` after the exe, newest 10 kept. The first lines name the file.
+`<app>-<date>_<time>.log` after the exe, newest 10 kept. An app sets another number with
+`App::log_files_kept`. The first lines name the file.
 `hilen::log_file_path()` returns it, `hilen::log_dir(app)` the folder. A GUI build on
 Windows has no console and a dock launch on mac has no terminal, so the file is the only
 log of a shipped app. Android has no file, its lines go to logcat through the same
 dispatch.
+
+A panic is logged too, `panic_log.rs` hooks it on desktop and Android and writes the
+message, the file and line and a backtrace as an error line, then runs the earlier hook.
+A crash at a user's machine is read from that log file. iOS and wasm have their own hooks.
+
+A backend on `hilen-server` logs the same way. `tracing_init::init(name)` writes the stdout
+lines without color codes to `<name>-<date>_<time>.log` in the same folders, with `name`
+in place of the exe name, newest 10 kept, a panic included. The first line names the file.
+`hilen_server::log_file_path()` returns it. `HILEN_LOG_DIR` sets another folder and
+`HILEN_LOG_FILE=off` writes no file, for a backend in Docker that keeps its lines in
+`docker logs`. The code is `hilen-server/src/log_file.rs`, a copy of the folder and trim
+rules of `hilen/src/log_file.rs`, since the server crate never links `hilen`.
+
+## Data folder
+
+All data of an app lives in `~/.config/<project_name>` on desktop. The name is the
+`project_name` of the `hilen.toml` above the app crate, `hilen::register_app!(MyApp)`
+reads it at build time and an app without that line stops at start. The engine creates
+the folder and sets it as the `OnDisk` root before `before_launch`. `Paths::storage()`
+returns it. `HILEN_DATA_DIR=<folder>` in the env moves it for 1 run of a desktop app, for a
+check on a copy of the data, a test run ignores it. On iOS and Android the folder is `.<exe name>` inside the documents dir
+and inside the private files dir, made and set as the root the same way. A backend
+gets the same folder from `hilen_server::data_dir!()`, so a Docker build of a backend
+has to copy `hilen.toml` in. The test runners start the engine's own app, which has no
+name, their storage is a folder in the temp dir.
+
+Downloaded images can be kept on disk, `Image::set_download_cache_dir`.
+`set_download_cache_limit(bytes)` deletes the files used longest ago over the bound, and
+`set_download_cache_recheck_age(seconds)` asks the server about an older file again with
+its `ETag`. The code is `hilen/src/window/image/disk_cache.rs`.
+
+## Window placement
+
+Every desktop app opens where it was closed, with no code in the app: the size, the
+place, the maximized state and the display. `App::initial_size` is only the size of the
+very first start. The engine keeps a `WindowPlacement` in `window_placement.json` in the
+data folder. The code is `hilen/src/window/placement_store.rs`.
+
+The 2 hooks of `App` decide it. The default `window_placement` returns
+`WindowPlacement::remembered()` and the default `window_placement_changed` calls
+`placement.remember()`. An app that keeps the placement somewhere else writes both
+hooks, the engine then reads and writes nothing. An app that wants the same window on
+every start returns `None` from the first and leaves the second empty. An app that
+decides at run time calls the 2 `WindowPlacement` functions from its own hooks, `demo`
+does that to keep a benchmark run at one size.
+
+A resize or a move fires many times a second. `remember` only keeps the newest
+placement in memory, on the main thread. A timer thread writes it 500 ms after the
+first change of a burst, so a burst is 1 write, and a placement the file already has is
+not written again. The write goes through a second file and a rename. The last
+placement lands when the app ends: `AppHandler::exiting` writes what still waits, and
+winit calls it on every way out of the event loop, Cmd and Q on macOS included. A
+process that is killed loses at most the last 500 ms.
+
+A headless run, a run of the test runners, which store in the temp dir, and an app
+started with `HILEN_RUN_TESTS` or `HILEN_PRESENT` never open that memory, they read
+nothing and write nothing. A test run started inside a live app through the inspector
+pauses it until the app has its root view back.
+
+## Assets folder
+
+On desktop `assets_root.rs` finds the `assets` folder with file checks only, first walking
+up from the current folder, then up from the exe. It never starts a program such as git,
+an installed app runs on a machine with no dev tools. Finding nothing is normal, a shipped
+app embeds its assets and ships one exe.
 
 ## Commands
 
@@ -135,6 +425,9 @@ make smoke                                                                   # c
 make ui-ios                                                                  # iOS simulator suite only
 make ui-ios-human                                                            # the same lane held for a human, a tap on the phone screen advances, HILEN_TEST_ONLY narrows it
 make ui-web                                                                  # browser suite in a real installed browser, BROWSER=firefox switches
+make hot                                                                     # hot reload of the app in the iOS simulator, a saved file reloads it
+make hot-test                                                                # the hot reload lane, 2 builds of hot-test swapped in one process
+make swap args="start demo ../apps/skaityk"                                  # 1 loader in the iOS simulator for several apps, then args="to skaityk", "status", "stop"
 make android                                                                 # APKs with every ABI, docker only
 make android-emu                                                             # arm64 debug APK for the emulator
 make ci                                                                      # typos, formatting, lints, unused dependencies
@@ -160,7 +453,7 @@ it there and push it to `main` before the parent commit, so the parent never poi
 a commit that exists only on this machine. Never leave the submodule dirty or on a
 detached HEAD for the user to sort out.
 
-Always run `make ci` and `make smoke` before every commit. The full lanes,
+Run `make ci` and `make smoke` before a commit, and only then, never while no commit is asked. The full lanes,
 `make ui`, `make ui-ios` and `make ui-web`, are not part of the routine pre-commit check.
 Run them only when asked, or when a change reworks rendering or another
 engine-wide path where a smoke miss is likely.

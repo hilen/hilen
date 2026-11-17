@@ -19,6 +19,18 @@ impl Pipelines {
         debug!("pipelines ready");
     }
 
+    /// Whether the pipelines of the app are built.
+    pub(crate) fn ready() -> bool {
+        PIPELINES.is_set()
+    }
+
+    /// Makes the pipelines again, for a new sample count.
+    pub(crate) fn rebuild() {
+        PIPELINES.set(Pipelines {
+            rect: UIRectPipeline::default(),
+        });
+    }
+
     fn get() -> &'static mut Self {
         PIPELINES.try_get_mut().expect("Pipelines not initialized yet")
     }

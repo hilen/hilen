@@ -1,18 +1,19 @@
 use bytemuck::{Pod, Zeroable, cast_slice};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CompareFunction, IndexFormat, PipelineLayoutDescriptor,
-    PrimitiveTopology, RenderPass, RenderPipeline, ShaderStages, include_wgsl,
+    PrimitiveTopology, RenderPass, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
 use crate::{
     gm::{checked_usize_to_u32, color::Color, flat::Point},
     render::{
+        PipelineShape,
         device_helper::DeviceHelper,
         shader_data::SpriteView,
         uniform::{UniformBind, make_bind, make_uniform_layout},
         vertex_layout::VertexLayout,
     },
-    window::{VertexBuffer, Window},
+    window::{VertexBuffer, Window, msaa_sample_count},
 };
 
 #[repr(C)]
@@ -37,13 +38,23 @@ pub struct PolygonPipeline {
     polygons: Vec<(Buffer, usize, Option<Buffer>, Option<usize>, BindGroup)>,
 }
 
-impl Default for PolygonPipeline {
-    fn default() -> Self {
+impl PolygonPipeline {
+    /// Built for a pass with `samples` samples a pixel.
+    pub(crate) fn with_samples(samples: u32) -> Self {
         let device = Window::device();
 
-        let shader = device.create_shader_module(include_wgsl!("shaders/polygon.wgsl"));
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label:  Some("polygon.wgsl"),
+            source: ShaderSource::Wgsl(
+                concat!(
+                    include_str!("shaders/sprite_view.wgsl"),
+                    include_str!("shaders/polygon.wgsl")
+                )
+                .into(),
+            ),
+        });
 
-        let view_layout = make_uniform_layout("polygon_sprite_view_layout", ShaderStages::VERTEX);
+        let view_layout = make_uniform_layout("polygon_sprite_view_layout", ShaderStages::VERTEX_FRAGMENT);
         let polygon_view_layout = make_uniform_layout("polygon_view_layout", ShaderStages::VERTEX_FRAGMENT);
 
         let uniform_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -52,13 +63,16 @@ impl Default for PolygonPipeline {
             immediate_size:     0,
         });
 
-        let pipeline = device.pipeline(
+        let pipeline = device.pipeline_with(
             "polygon_pipeline",
             &uniform_layout,
             &shader,
-            CompareFunction::Less,
-            PrimitiveTopology::TriangleList,
             &[Point::VERTEX_LAYOUT],
+            PipelineShape {
+                depth_compare: CompareFunction::Less,
+                topology: PrimitiveTopology::TriangleList,
+                samples,
+            },
         );
 
         Self {
@@ -120,6 +134,12 @@ impl PolygonPipeline {
 
     pub fn clear(&mut self) {
         self.polygons.clear();
+    }
+}
+
+impl Default for PolygonPipeline {
+    fn default() -> Self {
+        Self::with_samples(msaa_sample_count())
     }
 }
 

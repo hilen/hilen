@@ -1,31 +1,81 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 
 use crate::{
     deps::hreads::{from_main, wait_for_next_frame},
     gm::{
-        Clock, LossyConvert,
+        Clock, LossyConvert, ToF32,
         color::{LIGHT_GRAY, U8Color},
         flat::Point,
     },
-    ui::{Button, Keys, Setup, UIManager, View, ViewData},
+    ui::{Button, Code, Cursor, Keys, PinchInput, Setup, UIManager, View, ViewData},
     ui_test::{
         TEST_NAME,
-        capture::save_shot,
-        checks::check_colors_structured,
+        capture::{save_shot, shots_enabled},
+        checks::{check_colors_keep_going, check_colors_structured},
         human::{checkpoint, clean_human_mode, human_mode, show_probes},
+        human_pause,
         record::{next_check_index, print_recorded_colors, recording_colors},
     },
-    window::{KeyCode, Window, request_frame},
+    window::{Window, request_frame},
 };
+
+/// Opens the app with `url`, the way a tap on a link of the app does on a
+/// phone or a click on a link of its url scheme does on a desktop. The
+/// link goes through the same path as one from the system and reaches
+/// `system::Links::on_open` in a later turn of the loop.
+pub fn open_link(url: &str) {
+    crate::system::links::fake(url);
+}
 
 /// Press a key and keep it down until `release_key`, what a player
 /// reads while walking. The run resets held keys before every test.
-pub fn hold_key(code: KeyCode) {
+pub fn hold_key(code: Code) {
     from_main(move || Keys::set(code, true));
 }
 
-pub fn release_key(code: KeyCode) {
+pub fn release_key(code: Code) {
     from_main(move || Keys::set(code, false));
+}
+
+/// Raw mouse motion, what the system reports while the cursor is
+/// captured. Dropped while the cursor is free, like the real thing.
+pub fn inject_mouse_motion(delta: impl Into<Point>) {
+    let delta = delta.into();
+    from_main(move || Cursor::add_motion(delta));
+}
+
+/// One step of a pinch on a trackpad with the cursor at `x y`. `scale`
+/// is how much the content grows, 2 doubles it and 0.5 halves it. The
+/// pinch of 2 fingers needs no helper, `inject_touches` replays it from
+/// touches with a finger id.
+pub fn inject_pinch(x: impl ToF32, y: impl ToF32, scale: impl ToF32) {
+    let center = Point::new(x.to_f32(), y.to_f32());
+    let scale = scale.to_f32();
+    from_main(move || PinchInput::step(scale, center, Point::default()));
+    human_pause();
+}
+
+/// A file or a folder held over the window, what the system reports when
+/// a drag from a file manager enters it.
+pub fn inject_file_hover(path: impl Into<PathBuf>) {
+    let path = path.into();
+    from_main(move || UIManager::trigger_hover_file(path));
+    human_pause();
+}
+
+/// The held items left the window with no drop.
+pub fn inject_file_hover_end() {
+    from_main(UIManager::trigger_hover_file_end);
+    human_pause();
+}
+
+/// A file or a folder dropped on the window.
+pub fn inject_file_drop(path: impl Into<PathBuf>) {
+    let path = path.into();
+    from_main(move || UIManager::trigger_drop_file(path));
+    human_pause();
 }
 
 #[allow(dead_code)]
@@ -102,6 +152,10 @@ pub fn check_colors(data: &str) -> Result<()> {
         } else {
             show_probes(&probes, &test_name, index);
         }
+    }
+
+    if shots_enabled() {
+        return check_colors_keep_going(&checks);
     }
 
     check_colors_structured(&checks)

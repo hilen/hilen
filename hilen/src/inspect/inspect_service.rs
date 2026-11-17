@@ -1,68 +1,210 @@
 use std::sync::OnceLock;
+#[cfg(not_wasm)]
+use std::{env::var, hint::black_box, io::ErrorKind, time::Duration};
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
-#[cfg(not_wasm)]
-use chrono::Local;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 #[cfg(not_wasm)]
-use log::info;
-#[cfg(not_wasm)]
+use log::{debug, info, warn};
+#[cfg(all(not_wasm, not(apple)))]
 use mdns_sd::{ServiceDaemon, ServiceInfo};
+#[cfg(ios)]
+use objc2_foundation::NSBundle;
 #[cfg(not_wasm)]
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, time::sleep};
 
 #[cfg(not_wasm)]
 use crate::deps::hreads::log_spawn;
-#[cfg(any(wasm, feature = "audio"))]
+#[cfg(any(wasm, sound))]
 use crate::deps::hreads::on_main;
 #[cfg(not_wasm)]
-use crate::inspect::protocol::{SERVICE_TYPE, serve};
-#[cfg(feature = "audio")]
-use crate::{audio::Sound, deps::refs::manage::DataManager};
+use crate::filesystem::Paths;
+#[cfg(apple)]
+use crate::inspect::bonjour;
+#[cfg(hot)]
+use crate::inspect::hot_swap;
+#[cfg(all(not_wasm, not(apple)))]
+use crate::inspect::protocol::SERVICE_TYPE;
+#[cfg(not_wasm)]
+use crate::inspect::{
+    MARKER,
+    protocol::{FIXED_PORT, serve},
+};
+#[cfg(not_wasm)]
+use crate::ui::UIManager;
 use crate::{
+    app::hilen_app_build_time,
     deps::hreads::from_main,
-    gm::flat::Point,
     inspect::{
         edit_log,
-        protocol::{AppCommand, EditEntry, InspectorCommand, Key, TestFailureRepr, UIRequest, UIResponse},
-        view_conversion::{ViewToInspect, weak_to_id},
+        protocol::{AppCommand, InspectorCommand, TestFailureRepr},
+        window,
     },
-    ui::{
-        Button, Input, Label, ModifiersState, TextField, Touch, TouchEvent, UIManager, ViewData, ViewFrame,
-        ViewSubviews, WeakView,
-    },
-    window::{MouseButton, Screenshot},
+    window::Screenshot,
 };
+#[cfg(sound)]
+use crate::{audio::Sound, deps::refs::manage::DataManager};
 
 pub struct InspectService;
 
 static APP_STARTED: OnceLock<u64> = OnceLock::new();
+
+/// How many times a start asks for the fixed port. A hot build starts right
+/// after the stop of the build before it, whose listener may need a moment
+/// to let the port go, and a tool on a VPN finds the new build only there.
+#[cfg(all(not_wasm, hot))]
+const PORT_TRIES: u32 = 10;
+#[cfg(all(not_wasm, not(hot)))]
+const PORT_TRIES: u32 = 1;
+#[cfg(not_wasm)]
+const PORT_WAIT: Duration = Duration::from_millis(100);
+
+/// The address the server listens on. Xcode reaches an iPhone, an iPad and
+/// an Apple TV over a tunnel that carries only IPv6, and `hilen-inspect
+/// --device` asks the app there. `::` takes IPv4 too on these systems. On
+/// Windows it would take IPv6 only.
+#[cfg(all(not_wasm, any(target_os = "ios", target_os = "tvos")))]
+const ANY: &str = "::";
+#[cfg(all(not_wasm, not(any(target_os = "ios", target_os = "tvos"))))]
+const ANY: &str = "0.0.0.0";
+
+/// The listener of the server, on `port` when it is free and on a free
+/// port of the system when another app has it.
+#[cfg(not_wasm)]
+async fn bind(port: u16, tries: u32) -> Result<TcpListener> {
+    bind_on(ANY, port, tries).await
+}
+
+#[cfg(not_wasm)]
+async fn bind_on(address: &str, port: u16, tries: u32) -> Result<TcpListener> {
+    for attempt in 1..=tries {
+        let result = if taken_elsewhere(port).await {
+            Err(ErrorKind::AddrInUse.into())
+        } else {
+            TcpListener::bind((address, port)).await
+        };
+        match result {
+            Ok(listener) => return Ok(listener),
+            Err(err) if err.kind() == ErrorKind::AddrInUse => {
+                if attempt < tries {
+                    sleep(PORT_WAIT).await;
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    debug!("Inspect port {port} is taken by another app, a free one is used");
+    Ok(TcpListener::bind((address, 0)).await?)
+}
+
+/// Whether another app holds `port` on IPv4 or on IPv6. An app in the iOS
+/// simulator listens on `::` of the Mac, a Mac app on `0.0.0.0`, and macOS
+/// lets both have the same port. A tool at 127.0.0.1 then reached the Mac
+/// app and never the one in the simulator.
+#[cfg(not_wasm)]
+async fn taken_elsewhere(port: u16) -> bool {
+    for address in ["0.0.0.0", "::"] {
+        // A system with no IPv6 answers with another error, the port is
+        // not taken there.
+        if let Err(err) = TcpListener::bind((address, port)).await
+            && err.kind() == ErrorKind::AddrInUse
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// A build without debug assertions starts the server only with this set to
+/// `1` at launch, so a release binary built outside the release scripts still
+/// ships with the server off.
+#[cfg(not_wasm)]
+const ENABLE_ENV: &str = "HILEN_INSPECT";
+
+/// The 1 app that runs the server in every build, the engine's own demo.
+/// It ships only through `TestFlight`, to be inspected on a phone, and an
+/// app that is hot loaded into it runs under this id too. No other app may
+/// be added here, a shipped app must never carry a server that is on.
+#[cfg(not_wasm)]
+const ALWAYS_ON_BUNDLE_ID: &str = "vladas.test-engine";
+
+#[cfg(not_wasm)]
+fn listener_allowed(debug_build: bool, enable: Option<&str>, bundle_id: Option<&str>) -> bool {
+    debug_build || enable == Some("1") || bundle_id == Some(ALWAYS_ON_BUNDLE_ID)
+}
+
+/// The bundle id of the running app, only an iOS app is asked.
+#[cfg(not_wasm)]
+fn bundle_id() -> Option<String> {
+    #[cfg(ios)]
+    {
+        NSBundle::mainBundle().bundleIdentifier().map(|id| id.to_string())
+    }
+    #[cfg(not(ios))]
+    {
+        None
+    }
+}
 
 impl InspectService {
     pub(crate) fn record_app_start() {
         APP_STARTED.get_or_init(current_unix_seconds);
     }
 
+    /// Takes the app off the network. The listener and its clients are
+    /// tasks, they end with the runtime.
+    #[cfg(hot)]
+    pub(crate) fn stop() {
+        bonjour::stop();
+    }
+
     #[cfg(not_wasm)]
     pub(crate) fn start_listening() {
+        black_box(MARKER);
+
+        // A hot build is a release build and never ships, the loader takes
+        // its next library over this server.
+        let debug_build = cfg!(debug_assertions) || cfg!(hot);
+        if !listener_allowed(
+            debug_build,
+            var(ENABLE_ENV).ok().as_deref(),
+            bundle_id().as_deref(),
+        ) {
+            info!("Inspect server is off in a release build, set {ENABLE_ENV}=1 to start it");
+            return;
+        }
+        if !debug_build {
+            warn!(
+                "Inspect server is on in a release build. Anyone on the network can read and drive this app."
+            );
+        }
+
         log_spawn(async {
-            let listener = TcpListener::bind("0.0.0.0:0").await?;
+            let listener = bind(FIXED_PORT, PORT_TRIES).await?;
             let port = listener.local_addr()?.port();
 
             let app_id = UIManager::app_instance_id();
 
+            // An iPhone lets only its own Bonjour service announce, and on
+            // a Mac the system owns the mDNS port.
+            #[cfg(apple)]
+            bonjour::announce(app_id, &Self::app_name(), port)?;
+            // The daemon lives to the end of this task, like the listener.
+            #[cfg(not(apple))]
             let mdns = ServiceDaemon::new()?;
-            let service = ServiceInfo::new(
-                SERVICE_TYPE,
-                app_id,
-                &format!("{app_id}.local."),
-                "",
-                port,
-                &[("app_id", app_id)][..],
-            )?
-            .enable_addr_auto();
-            mdns.register(service)?;
+            #[cfg(not(apple))]
+            mdns.register(
+                ServiceInfo::new(
+                    SERVICE_TYPE,
+                    app_id,
+                    &format!("{app_id}.local."),
+                    "",
+                    port,
+                    &[("app_id", app_id), ("name", Self::app_name().as_str())][..],
+                )?
+                .enable_addr_auto(),
+            )?;
 
             info!("Inspect server on port: {port}");
 
@@ -70,9 +212,21 @@ impl InspectService {
         });
     }
 
+    /// The name an inspector shows next to the id of this app. It is the
+    /// name of the exe, a test runner has no project name to tell.
+    #[cfg(not_wasm)]
+    fn app_name() -> String {
+        Paths::executable_name()
+    }
+
+    #[cfg(hot)]
+    fn hot(result: Result<AppCommand>) -> AppCommand {
+        result.unwrap_or_else(|err| AppCommand::Error(format!("{err:#}")))
+    }
+
     pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
-            #[cfg(feature = "audio")]
+            #[cfg(sound)]
             InspectorCommand::PlaySound => {
                 on_main(|| {
                     Sound::get("retro.wav").play();
@@ -80,36 +234,167 @@ impl InspectService {
 
                 AppCommand::Ok
             }
-            #[cfg(not(feature = "audio"))]
+            #[cfg(not(sound))]
             InspectorCommand::PlaySound => AppCommand::Error("App built without the audio feature".into()),
             InspectorCommand::Screenshot => match Self::screenshot() {
                 Ok(screenshot) => screenshot,
                 Err(err) => AppCommand::Error(format!("Screenshot failed: {err}")),
             },
             InspectorCommand::ListEdits => AppCommand::Edits(edit_log::all()),
-            InspectorCommand::RunTests => Self::run_tests(),
+            InspectorCommand::RunTests => Self::run_tests(None),
+            InspectorCommand::RunTestsNamed { names } => Self::run_tests(Some(&names)),
             // Compiled in, so it reports when this running code was built, not
-            // when the bundle around it was linked. See `hilen/build.rs`.
-            InspectorCommand::GetBuildTime => AppCommand::BuildTime(
-                env!("HILEN_BUILD_TIME").parse().expect("HILEN_BUILD_TIME is not a number"),
-            ),
+            // when the bundle around it was linked. See `hilen_app_build_time`.
+            InspectorCommand::GetBuildTime => AppCommand::BuildTime(hilen_app_build_time()),
+            InspectorCommand::RenderInfo => Self::render_info(),
+            InspectorCommand::SetDamage { on } => {
+                crate::ui::damage::set_enabled(on);
+                crate::deps::hreads::on_main(crate::window::request_frame);
+                log::info!(
+                    "The inspector turned partial frames {}",
+                    if on { "on" } else { "off" }
+                );
+                Self::render_info()
+            }
             InspectorCommand::GetStartTime => {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
-            InspectorCommand::UI(ui) => Self::process_ui_command(ui),
+            InspectorCommand::Quit => Self::quit(),
+            #[cfg(feature = "login")]
+            InspectorCommand::DevLogin { email } => Self::dev_login(email),
+            #[cfg(not(feature = "login"))]
+            InspectorCommand::DevLogin { .. } => {
+                AppCommand::Error("App built without the login feature".into())
+            }
+            // The TCP transport runs it on the connection and never asks here.
+            InspectorCommand::Speed { .. } => {
+                AppCommand::Error("The speed test needs a TCP connection to the app".into())
+            }
+            InspectorCommand::Record {
+                frames,
+                input,
+                wait_ms,
+            } => Self::record(frames, input, wait_ms),
+            InspectorCommand::RecordStart => Self::record_start(true),
+            InspectorCommand::RecordLayoutsStart => Self::record_start(false),
+            InspectorCommand::RecordStop => Self::record_stop(),
+            InspectorCommand::RecordInfo => Self::record_info(),
+            InspectorCommand::RecordFrames { from, count } => Self::record_frames(from, count),
+            InspectorCommand::RecordLayouts => Self::record_layouts(),
+            InspectorCommand::Pause => Self::pause(),
+            InspectorCommand::Step { frames } => Self::step(frames),
+            InspectorCommand::Resume => Self::resume(),
+            #[cfg(hot)]
+            InspectorCommand::HotInfo => Self::hot(hot_swap::info()),
+            #[cfg(hot)]
+            InspectorCommand::HotFiles { root } => Self::hot(hot_swap::files(&root)),
+            #[cfg(hot)]
+            InspectorCommand::HotChunk {
+                file,
+                offset,
+                data_base64,
+            } => Self::hot(hot_swap::chunk(&file, offset, &data_base64)),
+            #[cfg(hot)]
+            InspectorCommand::HotBytes {
+                file, offset, data, ..
+            } => Self::hot(hot_swap::piece(&file, offset, &data)),
+            #[cfg(hot)]
+            InspectorCommand::HotSwap { library, root } => {
+                Self::hot(hot_swap::swap(&library, root.as_deref()))
+            }
+            #[cfg(not(hot))]
+            InspectorCommand::HotInfo
+            | InspectorCommand::HotFiles { .. }
+            | InspectorCommand::HotChunk { .. }
+            | InspectorCommand::HotBytes { .. }
+            | InspectorCommand::HotSwap { .. } => AppCommand::Error("This app is not a hot build".into()),
+            InspectorCommand::App { name, args } => {
+                match from_main(move || crate::app_commands::run(&name, &args)) {
+                    Ok(text) => AppCommand::Answer(text),
+                    Err(err) => AppCommand::Error(err),
+                }
+            }
+            InspectorCommand::Windows => Self::windows(),
+            InspectorCommand::InWindow { window, command } => Self::in_window(window, *command),
+            InspectorCommand::UI(ui) => {
+                Self::lay_out_covered();
+                Self::process_ui_command(ui)
+            }
         }
+    }
+
+    /// Blocks the inspector worker until the server answered, the main
+    /// thread keeps drawing.
+    #[cfg(feature = "login")]
+    fn dev_login(email: String) -> AppCommand {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+        let (send, recv) = std::sync::mpsc::channel();
+        crate::deps::hreads::on_main(move || {
+            crate::login::Login::dev(email, move |result| {
+                // The worker gave up after `WAIT` when nobody listens.
+                send.send(result).ok();
+            });
+        });
+
+        match recv.recv_timeout(WAIT) {
+            Ok(Ok(user)) => AppCommand::LoggedIn {
+                id:    user.id,
+                email: user.email,
+            },
+            Ok(Err(error)) => AppCommand::Error(format!("{error:#}")),
+            Err(error) => AppCommand::Error(format!("The dev login gave no answer: {error}")),
+        }
+    }
+
+    #[cfg(desktop)]
+    fn quit() -> AppCommand {
+        crate::AppRunner::stop();
+        AppCommand::Ok
+    }
+
+    #[cfg(not(desktop))]
+    fn quit() -> AppCommand {
+        AppCommand::Error("Quit works on desktop only".into())
+    }
+
+    fn render_info() -> AppCommand {
+        use crate::inspect::protocol::{FramePlanRepr, RenderInfoRepr};
+
+        AppCommand::RenderInfo(RenderInfoRepr {
+            backend:   crate::window::graphics_backend()
+                .map_or_else(|| "none yet".into(), |backend| format!("{backend:?}")),
+            samples:   crate::window::msaa_sample_count(),
+            damage_on: crate::ui::damage::enabled(),
+            frames:    crate::ui::damage::recent_plans()
+                .into_iter()
+                .map(|plan| FramePlanRepr {
+                    number:  plan.number,
+                    whole:   plan.whole.map(str::to_string),
+                    regions: plan.regions,
+                })
+                .collect(),
+        })
     }
 
     // Runs off the main thread, on a tokio task natively and on the inspect
     // worker on wasm, which is what the tests need since they drive the main
     // thread through `from_main`.
-    fn run_tests() -> AppCommand {
+    fn run_tests(names: Option<&str>) -> AppCommand {
+        let mut maps = crate::ui_test::registered_test_maps();
+        if let Some(names) = names {
+            crate::ui_test::keep_named(&mut maps, names);
+            if maps.iter().all(std::collections::BTreeMap::is_empty) {
+                return AppCommand::Error(format!("No test of this app is named {names}"));
+            }
+        }
+
         #[cfg(wasm)]
         if let Err(err) = Self::preload_assets() {
             return AppCommand::Error(format!("Asset preload for tests failed: {err}"));
         }
 
-        let report = crate::ui_test::run_all_tests();
+        let report = crate::ui_test::run_test_maps(&maps);
 
         AppCommand::TestResults {
             total:    report.total,
@@ -142,7 +427,10 @@ impl InspectService {
     }
 
     fn screenshot() -> Result<AppCommand> {
-        let shot = crate::AppRunner::take_screenshot()?;
+        let shot = match window::target() {
+            Some(window) => window.take_screenshot()?,
+            None => crate::AppRunner::take_screenshot()?,
+        };
         let png = Self::encode_png(&shot)?;
 
         Ok(AppCommand::Screenshot {
@@ -171,296 +459,24 @@ impl InspectService {
         Ok(png)
     }
 
-    fn process_ui_command(command: UIRequest) -> AppCommand {
-        match command {
-            UIRequest::SetScale(scale) => {
-                from_main(move || {
-                    UIManager::set_scale(scale);
-                });
-
-                // send_ui dispatches a fresh from_main, so the snapshot runs
-                // one frame later, after layout applied the new scale.
-                Self::send_ui()
-            }
-            UIRequest::GetUI => Self::send_ui(),
-            UIRequest::EditRule {
-                view_id,
-                rule_index,
-                offset,
-                enabled,
-            } => Self::apply(move || {
-                let view = find_view(&view_id)?;
-
-                let rules_count = view.place().get_rules().len();
-                if rule_index >= rules_count {
-                    return Err(format!(
-                        "Rule index {rule_index} is out of range, view has {rules_count} rules"
-                    ));
-                }
-
-                let mut rule = view.place().edit_rule(rule_index);
-                let old = format!("offset: {}, enabled: {}", rule.offset(), rule.enabled);
-                rule.set_offset(offset);
-                rule.enabled = enabled;
-
-                Ok(entry(
-                    view,
-                    format!("rule {rule_index}"),
-                    old,
-                    format!("offset: {offset}, enabled: {enabled}"),
-                ))
-            }),
-            UIRequest::SetText { view_id, text } => Self::apply(move || {
-                let view = find_view(&view_id)?;
-                let old = set_text(view, &text)?;
-                Ok(entry(view, "text", old, text))
-            }),
-            UIRequest::SetColor { view_id, color } => Self::apply(move || {
-                let view = find_view(&view_id)?;
-                let old = *view.color();
-                view.set_color(color);
-                Ok(entry(view, "color", format!("{old}"), format!("{color}")))
-            }),
-            UIRequest::Tap {
-                view_id,
-                modifiers,
-                right,
-            } => {
-                let result = from_main(move || Self::tap(&view_id, modifiers, right));
-
-                match result {
-                    // The snapshot runs a frame later, so a page swap or
-                    // modal the tap triggered is already in the tree.
-                    Ok(note) => Self::send_ui_with(note),
-                    Err(err) => AppCommand::Error(err),
-                }
-            }
-            UIRequest::Drag { from, to, steps } => {
-                from_main(move || Self::drag(from.into(), to.into(), steps));
-                Self::send_ui()
-            }
-            UIRequest::Scroll { view_id, dx, dy } => match from_main(move || Self::scroll(view_id, dx, dy)) {
-                Ok(()) => Self::send_ui(),
-                Err(err) => AppCommand::Error(err),
-            },
-            #[cfg(desktop)]
-            UIRequest::Resize { width, height } => {
-                use crate::gm::LossyConvert;
-
-                let size = from_main(move || {
-                    let scale = UIManager::scale();
-                    let size: (u32, u32) =
-                        ((width * scale).lossy_convert(), (height * scale).lossy_convert());
-                    size
-                });
-                crate::AppRunner::set_window_size(size);
-                Self::send_ui()
-            }
-            #[cfg(not(desktop))]
-            UIRequest::Resize { .. } => AppCommand::Error("Resize works only on desktop".into()),
-            UIRequest::Keys { keys, modifiers } => {
-                // The modifiers hold only for this one request and release
-                // right after it, so a Cmd from an inspect request can never
-                // stay stuck on whatever the app receives next.
-                from_main(move || {
-                    Input::set_modifiers(modifiers);
-                    for key in keys {
-                        match key {
-                            Key::Char(ch) => Input::on_char(ch),
-                            // A real named key also arrives as its text,
-                            // Backspace as 0x08, and the text field edits
-                            // on that char. Same two calls as the winit
-                            // key handler in `app_runner`.
-                            Key::Named(key) => {
-                                Input::on_key(key);
-                                if let Some(text) = key.to_text() {
-                                    Input::on_char(text.chars().last().expect("Key text is empty"));
-                                }
-                            }
-                        }
-                    }
-                    Input::set_modifiers(ModifiersState::empty());
-                });
-
-                // The snapshot runs a frame later, so a palette or page a
-                // hotkey opened is already in the tree.
-                Self::send_ui()
-            }
+    /// A covered window draws no frame, and a frame is where layout runs, so
+    /// a screen made by the last command still has every view at the
+    /// origin. A tap there once pressed the view that sat at 0, 0. A
+    /// screenshot is the one frame a covered window draws, see
+    /// `frame_pacing`, so one is taken and dropped.
+    #[cfg(not_wasm)]
+    pub(super) fn lay_out_covered() {
+        // An extra window draws whenever the main one asks for frames.
+        if window::target().is_none()
+            && crate::window::occluded()
+            && let Err(err) = crate::AppRunner::take_screenshot()
+        {
+            warn!("No frame for the covered window, view positions can be old: {err}");
         }
     }
 
-    fn scroll(view_id: Option<String>, dx: f32, dy: f32) -> Result<(), String> {
-        let position = if let Some(id) = view_id {
-            find_view(&id)?.absolute_frame().center()
-        } else {
-            let window = UIManager::root_view().frame().size;
-            Point::new(window.width / 2.0, window.height / 2.0)
-        };
-        // The wheel goes to the scroll view under the cursor, so the
-        // cursor moves to the aim point first.
-        UIManager::set_cursor_position(position);
-        Input::on_scroll(Point::new(dx, dy));
-        Ok(())
-    }
-
-    /// The tap itself, on the main thread. Refuses hidden and offscreen
-    /// targets, since such a tap lands nowhere while looking like a
-    /// success to the client, and returns a covering warning when
-    /// another view sits over the tap point.
-    // The touch pipeline takes physical pixels, so every point scales up.
-    fn drag(from: Point, to: Point, steps: usize) {
-        use crate::gm::LossyConvert;
-
-        let scale = UIManager::scale();
-        let touch = |position: Point, event: TouchEvent| {
-            Input::process_touch_event(Touch {
-                id: 1,
-                position: position * scale,
-                event,
-                button: MouseButton::Left,
-            });
-        };
-        touch(from, TouchEvent::Began);
-        let steps = steps.max(2);
-        for step in 1..=steps {
-            let t: f32 = step.lossy_convert();
-            let all: f32 = steps.lossy_convert();
-            let position = Point {
-                x: from.x + (to.x - from.x) * t / all,
-                y: from.y + (to.y - from.y) * t / all,
-            };
-            touch(position, TouchEvent::Moved);
-        }
-        touch(to, TouchEvent::Ended);
-    }
-
-    fn tap(view_id: &str, modifiers: ModifiersState, right: bool) -> Result<Option<String>, String> {
-        let view = find_view(view_id)?;
-
-        if view.is_hidden_in_tree() {
-            return Err(format!("View {} is hidden", view.label()));
-        }
-
-        let center = view.absolute_frame().center();
-        let window = UIManager::root_view().frame().size;
-        if center.x < 0.0 || center.y < 0.0 || center.x > window.width || center.y > window.height {
-            return Err(format!(
-                "View {} center ({}, {}) is outside the {}x{} window. Scroll it into view or resize the window.",
-                view.label(),
-                center.x,
-                center.y,
-                window.width,
-                window.height,
-            ));
-        }
-
-        let note = covering_note(view, center);
-
-        // The touch pipeline takes physical pixels and converts to
-        // points itself, so the center scales up first.
-        let position = center * UIManager::scale();
-
-        // Held for this tap only and released right after, like the keys
-        // request, so a Cmd cannot leak into later input.
-        Input::set_modifiers(modifiers);
-        let button = if right {
-            MouseButton::Right
-        } else {
-            MouseButton::Left
-        };
-        for event in [TouchEvent::Began, TouchEvent::Ended] {
-            Input::process_touch_event(Touch {
-                id: 1,
-                position,
-                event,
-                button,
-            });
-        }
-        Input::set_modifiers(ModifiersState::empty());
-
-        Ok(note)
-    }
-
-    // Applies an edit on the main thread. On success records it to the edit
-    // log and replies with a fresh tree. send_ui dispatches its own
-    // from_main, so the snapshot runs one frame later, after layout.
-    fn apply(edit: impl FnOnce() -> Result<EditEntry, String> + Send + 'static) -> AppCommand {
-        match from_main(edit) {
-            Ok(entry) => {
-                edit_log::record(entry);
-                Self::send_ui()
-            }
-            Err(err) => AppCommand::Error(err),
-        }
-    }
-
-    fn send_ui() -> AppCommand {
-        Self::send_ui_with(None)
-    }
-
-    fn send_ui_with(note: Option<String>) -> AppCommand {
-        from_main(move || {
-            let scale = UIManager::scale();
-            let root = UIManager::root_view().view_to_inspect();
-            UIResponse::SendUI { scale, root, note }.into()
-        })
-    }
-}
-
-/// A warning when the deepest visible view under the tap point is not the
-/// target or inside it, so a tap that lands on a covering view says so
-/// instead of silently doing the wrong thing. Frame containment is an
-/// approximation of the draw order, good for a warning, not a refusal.
-fn covering_note(target: WeakView, point: Point) -> Option<String> {
-    let top = deepest_at(UIManager::root_view(), point)?;
-
-    if weak_to_id(top) == weak_to_id(target) || is_inside(target, top) || is_inside(top, target) {
-        return None;
-    }
-
-    Some(format!(
-        "the deepest view at the tap point is {} {}, the touch may land there instead",
-        top.label(),
-        weak_to_id(top),
-    ))
-}
-
-fn deepest_at(view: WeakView, point: Point) -> Option<WeakView> {
-    if view.is_hidden() || !view.absolute_frame().contains(point) {
-        return None;
-    }
-    if let Some(deepest_child) = view.subviews().iter().rev().find_map(|sub| deepest_at(sub.weak(), point)) {
-        return Some(deepest_child);
-    }
-    // A fully transparent view with nothing in it, like an empty overlay
-    // host, draws nothing at the point and would only produce false
-    // covering warnings.
-    if view.color().a == 0.0 && view.subviews().is_empty() {
-        return None;
-    }
-    Some(view)
-}
-
-fn is_inside(ancestor: WeakView, view: WeakView) -> bool {
-    fn contains(view: WeakView, id: &str) -> bool {
-        if weak_to_id(view) == id {
-            return true;
-        }
-        view.subviews().iter().any(|sub| contains(sub.weak(), id))
-    }
-
-    contains(ancestor, &weak_to_id(view))
-}
-
-fn entry(view: WeakView, what: impl ToString, old: impl ToString, new: impl ToString) -> EditEntry {
-    EditEntry {
-        timestamp: timestamp(),
-        view:      view.label().to_string(),
-        view_id:   weak_to_id(view),
-        what:      what.to_string(),
-        old:       old.to_string(),
-        new:       new.to_string(),
-    }
+    #[cfg(wasm)]
+    pub(super) fn lay_out_covered() {}
 }
 
 fn current_unix_seconds() -> u64 {
@@ -481,44 +497,62 @@ fn current_unix_seconds() -> u64 {
     }
 }
 
-fn timestamp() -> String {
-    #[cfg(not_wasm)]
-    {
-        Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-    }
-    #[cfg(wasm)]
-    {
-        String::from(web_sys::js_sys::Date::new_0().to_iso_string())
-    }
-}
+#[cfg(all(test, not_wasm))]
+mod test {
+    use anyhow::Result;
+    use tokio::{net::TcpListener, runtime::Builder};
 
-fn set_text(view: WeakView, text: &str) -> Result<String, String> {
-    if let Some(label) = view.downcast::<Label>() {
-        let old = label.text().to_string();
-        label.set_text(text);
-        return Ok(old);
-    }
-    if let Some(button) = view.downcast::<Button>() {
-        let old = button.text().to_string();
-        button.set_text(text);
-        return Ok(old);
-    }
-    if let Some(field) = view.downcast::<TextField>() {
-        let old = field.text().to_string();
-        field.set_text(text);
-        return Ok(old);
-    }
-    Err(format!("View {} has no text", view.label()))
-}
+    use super::{bind, bind_on, listener_allowed};
 
-fn find_view(id: &str) -> Result<WeakView, String> {
-    fn search(view: WeakView, id: &str) -> Option<WeakView> {
-        if weak_to_id(view) == id {
-            return Some(view);
-        }
+    #[test]
+    fn the_first_app_gets_the_port_and_the_next_one_a_free_port() -> Result<()> {
+        Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let first = TcpListener::bind("0.0.0.0:0").await?;
+            let port = first.local_addr()?.port();
 
-        view.subviews().iter().find_map(|sub| search(sub.weak(), id))
+            let second = bind(port, 2).await?;
+            assert_ne!(second.local_addr()?.port(), port);
+
+            drop(first);
+            let third = bind(port, 1).await?;
+            assert_eq!(third.local_addr()?.port(), port);
+            Ok(())
+        })
     }
 
-    search(UIManager::root_view(), id).ok_or_else(|| format!("View not found: {id}"))
+    // An app in the iOS simulator listens on `::` of the Mac. macOS let it
+    // take a port a Mac app held on IPv4, and a tool at 127.0.0.1 found the
+    // Mac app.
+    #[test]
+    fn a_port_held_on_ipv4_is_not_taken_on_ipv6() -> Result<()> {
+        Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let held = TcpListener::bind("0.0.0.0:0").await?;
+            let port = held.local_addr()?.port();
+
+            let next = bind_on("::", port, 1).await?;
+            assert_ne!(next.local_addr()?.port(), port);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn debug_build_always_listens() {
+        assert!(listener_allowed(true, None, None));
+    }
+
+    #[test]
+    fn release_build_of_the_demo_always_listens() {
+        assert!(listener_allowed(false, None, Some("vladas.test-engine")));
+        assert!(!listener_allowed(false, None, Some("vladas.test-engine.hot")));
+        assert!(!listener_allowed(false, None, Some("vladas.skaityk")));
+    }
+
+    #[test]
+    fn release_build_listens_only_when_asked() {
+        assert!(!listener_allowed(false, None, None));
+        assert!(!listener_allowed(false, Some(""), None));
+        assert!(!listener_allowed(false, Some("0"), None));
+        assert!(!listener_allowed(false, Some("true"), None));
+        assert!(listener_allowed(false, Some("1"), None));
+    }
 }

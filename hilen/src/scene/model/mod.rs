@@ -1,13 +1,26 @@
+mod code_mesh;
+mod edges;
+mod images;
+pub(crate) mod joints;
+mod material_source;
+mod merge;
 mod parse;
 mod rig;
+mod split;
+mod stl;
+mod triangles;
 
 use std::path::Path;
 
-use log::error;
+use log::{debug, error};
 
 use self::parse::{ModelSource, parse_glb};
-pub use self::rig::Clip;
-pub(crate) use self::rig::Rig;
+pub use self::{
+    code_mesh::{MeshData, PreparedMesh},
+    joints::Joint,
+    rig::Clip,
+};
+pub(crate) use self::{joints::JointPose, rig::Rig};
 use crate::{
     deps::{
         hreads::from_main,
@@ -17,10 +30,10 @@ use crate::{
         },
     },
     filesystem::read_bytes,
-    gm::volume::{Bounds, Mat4},
+    gm::volume::{Bounds, Mat4, Quat, Vec3},
+    image::Image,
     managed,
     scene::{Material, Mesh},
-    window::image::Image,
 };
 
 /// A `.glb` loaded onto the GPU, a managed resource like an `Image`.
@@ -40,6 +53,9 @@ pub struct Model {
     /// Every skin's joint matrices at rest, what a node draws with
     /// while no clip plays.
     pub(crate) rest_joints: Vec<Vec<Mat4>>,
+    /// Every triangle in model space at rest, what a ray is tested
+    /// against, see `Model::hit_triangle`.
+    pub(crate) triangles:   Vec<[Vec3; 3]>,
 }
 
 /// One drawn mesh of a model with its place and look.
@@ -71,20 +87,44 @@ impl Model {
         self.clips().iter().position(|clip| clip.name == name)
     }
 
+    /// The node of the file called `name`, as a handle to keep, see
+    /// `NodeTemplates::set_joint`. Every named node of a model with a skin
+    /// or a clip is found, a joint of a skin and any other node. `None`
+    /// for an unknown name and for a static model, which keeps no nodes.
+    pub fn joint(&self, name: &str) -> Option<Joint> {
+        self.rig.as_ref()?.joint(name)
+    }
+
+    /// The names `joint` finds, in the node order of the file.
+    pub fn joint_names(&self) -> impl Iterator<Item = &str> {
+        self.rig.iter().flat_map(Rig::joint_names)
+    }
+
+    /// The translation and the rotation of `joint` at rest, in the space of
+    /// its parent node. `None` for a handle of another model.
+    pub fn joint_rest(&self, joint: Joint) -> Option<(Vec3, Quat)> {
+        self.rig.as_ref()?.joint_rest(joint)
+    }
+
     fn empty() -> Self {
         Self {
             parts:       vec![],
             bounds:      Bounds::default(),
             rig:         None,
             rest_joints: vec![],
+            triangles:   vec![],
         }
     }
 
-    fn upload(source: ModelSource) -> Self {
+    fn upload(mut source: ModelSource) -> Self {
+        let triangles = triangles::kept(&mut source);
         let images: Vec<_> = source
             .images
-            .iter()
-            .map(|image| Image::load(&image.bytes, &image.name))
+            .iter_mut()
+            .map(|image| match image.levels.take() {
+                Some(levels) => Image::store_levels(&image.name, levels),
+                None => Image::load(&image.bytes, &image.name),
+            })
             .collect();
 
         let parts = source
@@ -93,18 +133,32 @@ impl Model {
             .map(|part| ModelPart {
                 mesh:      Own::new(match &part.skin_vertices {
                     Some(skin) => Mesh::upload_skinned(&part.vertices, skin, &part.indices),
+                    None if part.smooth_colors => Mesh::upload_smooth(&part.vertices, &part.indices),
+                    None if part.flowing => Mesh::upload_flowing(&part.vertices, &part.indices),
                     None => Mesh::upload(&part.vertices, &part.indices),
                 }),
                 transform: part.transform,
                 node:      part.node,
                 skin:      part.skin,
                 material:  part.material.map(|material| Material {
-                    color:        material.color,
-                    metallic:     material.metallic,
-                    roughness:    material.roughness,
-                    texture:      material.texture.map(|index| images[index]),
-                    normal_map:   material.normal_map.map(|index| images[index]),
-                    normal_scale: material.normal_scale,
+                    color:                  material.color,
+                    metallic:               material.metallic,
+                    roughness:              material.roughness,
+                    texture:                material.texture.map(|index| images[index]),
+                    metallic_roughness_map: material.metallic_roughness.map(|index| images[index]),
+                    normal_map:             material.normal_map.map(|index| images[index]),
+                    flow_map:               None,
+                    shallow_color:          None,
+                    normal_scale:           material.normal_scale,
+                    occlusion_map:          material.occlusion.map(|index| images[index]),
+                    occlusion_strength:     material.occlusion_strength,
+                    emissive:               0.0,
+                    unlit:                  material.unlit,
+                    dust:                   false,
+                    cutout:                 material.cutout,
+                    fade:                   1.0,
+                    fade_flip:              false,
+                    triplanar:              0.0,
                 }),
             })
             .collect();
@@ -114,6 +168,7 @@ impl Model {
             bounds: source.bounds,
             rig: source.rig,
             rest_joints: source.rest_joints,
+            triangles,
         }
     }
 }
@@ -137,6 +192,17 @@ impl ResourceLoader for Model {
 
         let source =
             parse_glb(data, &name).unwrap_or_else(|err| panic!("Failed to load model {name}. Err: {err}"));
+        let primitives = source.parts.len();
+        let mut source = merge::static_parts(source);
+        images::decode(&mut source);
+        let materials = || source.parts.iter().filter_map(|part| part.material);
+        debug!(
+            "Model {name}: {} parts from {primitives}, {} images, {} materials with a metallic roughness texture, {} with an occlusion texture",
+            source.parts.len(),
+            source.images.len(),
+            materials().filter(|material| material.metallic_roughness.is_some()).count(),
+            materials().filter(|material| material.occlusion.is_some()).count(),
+        );
 
         from_main(move || Self::upload(source))
     }

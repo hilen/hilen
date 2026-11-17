@@ -1,7 +1,7 @@
 use crate::{
     deps::refs::Weak,
     game::{Point, Rotation, Shape},
-    window::image::Image,
+    image::Image,
 };
 
 pub struct Object {

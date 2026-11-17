@@ -1,10 +1,30 @@
-#[cfg(not_wasm)]
+#[cfg(any(
+    not_wasm,
+    all(
+        wasm,
+        not(target_feature = "atomics"),
+        any(feature = "ui-tests", feature = "inspect")
+    )
+))]
 use log::error;
 
 #[cfg(wasm)]
 pub fn spawn<F>(future: F)
 where F: Future<Output = ()> + 'static {
-    wasm_bindgen_futures::spawn_local(future);
+    wasm_bindgen_futures::spawn_local(waking_main(future));
+}
+
+/// A task of a page runs on the main thread, so its `on_main` runs at once
+/// and wakes nothing. Each run of the task wakes the loop instead, else a
+/// change it made waits for the next input.
+#[cfg(wasm)]
+fn waking_main(future: impl Future<Output = ()> + 'static) -> impl Future<Output = ()> {
+    let mut future = Box::pin(future);
+    std::future::poll_fn(move |context| {
+        let poll = future.as_mut().poll(context);
+        super::dispatch::wake_main();
+        poll
+    })
 }
 
 #[cfg(not_wasm)]
@@ -37,15 +57,34 @@ where O: Send + 'static {
 /// isolation headers, and the worker starts only when the main thread
 /// yields to the browser. Native code uses `std::thread::spawn` directly,
 /// and only the browser test suite and inspector spawn workers.
-#[cfg(all(wasm, any(feature = "ui-tests", feature = "inspect")))]
+#[cfg(all(
+    wasm,
+    target_feature = "atomics",
+    any(feature = "ui-tests", feature = "inspect")
+))]
 pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
     wasm_thread::spawn(work);
 }
 
+/// The build without atomics has no workers. It must not link
+/// `wasm_thread` either, its atomic instructions make an old browser
+/// refuse the whole module, Chromium 79 says "Atomic opcodes used without
+/// shared memory".
+#[cfg(all(
+    wasm,
+    not(target_feature = "atomics"),
+    any(feature = "ui-tests", feature = "inspect")
+))]
+pub fn spawn_thread(work: impl FnOnce() + Send + 'static) {
+    drop(work);
+    error!("A worker thread needs the atomics wasm build, the work was dropped");
+}
+
+#[cfg(feature = "gpu")]
 pub fn block_on<F>(future: F)
 where F: Future<Output = ()> + 'static {
     #[cfg(wasm)]
-    wasm_bindgen_futures::spawn_local(future);
+    wasm_bindgen_futures::spawn_local(waking_main(future));
     // pollster runs the future on the calling thread with no runtime of its
     // own, so it works from inside the tokio runtime. tokio's own block_on
     // would panic there, which is the reason async-std was used before.
@@ -53,7 +92,7 @@ where F: Future<Output = ()> + 'static {
     pollster::block_on(future);
 }
 
-#[cfg(not_wasm)]
+#[cfg(all(not_wasm, feature = "gpu"))]
 pub fn unasync<F, Out>(future: F) -> Out
 where F: Future<Output = Out> {
     pollster::block_on(future)

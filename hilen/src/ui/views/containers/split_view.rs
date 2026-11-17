@@ -9,7 +9,7 @@ use crate::{
     gm::color::{CLEAR, LIGHT_BLUE},
     ui::{
         Container, CursorIcon, Setup, Touch, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
-        ViewTouch,
+        ViewTouch, view::depth_order,
     },
 };
 
@@ -43,7 +43,7 @@ impl Setup for SplitHandle {
         // The grab zone overlaps both panels, whose content registers
         // touch and hover later. The high priority tiers keep the divider
         // winning inside its strip regardless of registration order.
-        TouchStack::enable_for_high_priority(self.weak_view());
+        self.enable_touch_high_priority();
         TouchStack::enable_hover_high_priority(self.weak_view());
         self.__base_view().hover_cursor = Some(CursorIcon::ColResize);
 
@@ -112,11 +112,9 @@ impl Setup for SplitView {
         self.min_center_width = 100.0;
         self.min_right_width = 100.0;
 
-        // A later sibling draws behind an earlier sibling's children, so
-        // without the bump the divider lines would hide under panel
-        // content. Same move as the scroll bar.
-        self.left_handle.bump_z_position(UIManager::subview_z_offset() * 10.0);
-        self.right_handle.bump_z_position(UIManager::subview_z_offset() * 10.0);
+        // In front of the panels, which are added after the handles.
+        depth_order::set_raise(&*self.left_handle, 1);
+        depth_order::set_raise(&*self.right_handle, 1);
 
         self.setup_handle(self.left_handle, true);
         self.setup_handle(self.right_handle, false);

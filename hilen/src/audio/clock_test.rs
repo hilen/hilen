@@ -1,0 +1,324 @@
+//! The tests play the audio thread by hand: they call the kira sound of a
+//! clock buffer by buffer and look at the samples it wrote. No output device
+//! is opened.
+
+use kira::{
+    Frame,
+    info::{Info, MockInfoBuilder},
+    sound::Sound as KiraSound,
+};
+
+use crate::{
+    audio::{Sound, SoundClock, Tone, clock_sound::ClockSound},
+    time::monotonic_seconds,
+};
+
+const SAMPLE_RATE: u32 = 48_000;
+const DT: f64 = 1.0 / 48_000.0;
+
+/// What a device would have played, with the callbacks on time.
+pub(super) struct Output {
+    sound:   ClockSound,
+    info:    Info<'static>,
+    samples: Vec<f32>,
+    now:     f64,
+}
+
+impl Output {
+    pub(super) fn new(sound: ClockSound) -> Self {
+        Self {
+            sound,
+            info: MockInfoBuilder::new().build(),
+            samples: Vec::new(),
+            now: 100.0,
+        }
+    }
+
+    /// One device callback of `frames`, which kira cuts into buffers of
+    /// `buffer`. It starts `late` seconds after its time.
+    fn callback(&mut self, frames: usize, buffer: usize, late: f64) {
+        self.sound.begin_callback(self.now + late);
+        let mut left = frames;
+        while left > 0 {
+            let mut out = vec![Frame::from_mono(9.0); left.min(buffer)];
+            self.sound.process(&mut out, DT, &self.info);
+            self.samples.extend(out.iter().map(|frame| frame.left));
+            left -= out.len();
+        }
+        self.now += f64::from(u32::try_from(frames).unwrap()) * DT;
+    }
+
+    pub(super) fn render(&mut self, callbacks: usize, frames: usize, buffer: usize) {
+        for _ in 0..callbacks {
+            self.callback(frames, buffer, 0.0);
+        }
+    }
+
+    /// The samples a sound starts on: not silent after a silent one.
+    pub(super) fn starts(&self) -> Vec<usize> {
+        (0..self.samples.len())
+            .filter(|&at| self.samples[at] != 0.0 && (at == 0 || self.samples[at - 1] == 0.0))
+            .collect()
+    }
+}
+
+pub(super) fn click() -> Sound {
+    Sound::from_frames(SAMPLE_RATE, vec![Frame::from_mono(1.0); 8])
+}
+
+/// A steady sound of `frames` samples.
+fn hum(frames: usize) -> Sound {
+    Sound::from_frames(SAMPLE_RATE, vec![Frame::from_mono(1.0); frames])
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-6
+}
+
+fn full(sample: f32) -> bool {
+    (sample - 1.0).abs() < 1e-3
+}
+
+#[test]
+fn a_tone_at_rate_2_is_half_as_long() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    let tone = Tone {
+        volume:   1.0,
+        rate:     2.0,
+        end_beat: None,
+    };
+    clock.play_tone_at_beat(&hum(4800), 0.0, tone);
+    output.render(20, 480, 128);
+    let heard = output.samples.iter().filter(|sample| **sample != 0.0).count();
+    assert!((2390..=2410).contains(&heard), "{heard} samples");
+    assert!((Tone::rate_of(12.0) - 2.0).abs() < 1e-9);
+    assert!((Tone::rate_of(-12.0) - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_tone_fades_out_from_its_end_beat_with_any_buffer_size() {
+    for (frames, buffer) in [(512, 128), (480, 128), (1024, 100), (37, 37)] {
+        let (mut clock, sound) = SoundClock::connected(120.0);
+        let mut output = Output::new(sound);
+        clock.start();
+        let tone = Tone {
+            volume:   1.0,
+            rate:     1.0,
+            end_beat: Some(0.25),
+        };
+        clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+        output.render(9600 / frames + 1, frames, buffer);
+        // A quarter of a beat at 120 is sample 6000, and the fade of 0.03
+        // seconds is 1440 samples long.
+        let at = format!("{frames} frames in buffers of {buffer}");
+        assert!(output.samples[..6000].iter().all(|sample| full(*sample)), "{at}");
+        assert!(
+            output.samples[5999..7430].windows(2).all(|pair| pair[1] < pair[0]),
+            "{at}"
+        );
+        assert!(output.samples[7450..].iter().all(|sample| *sample == 0.0), "{at}");
+    }
+}
+
+#[test]
+fn a_tone_that_ends_before_it_starts_is_not_heard() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    output.render(10, 480, 128);
+    let tone = Tone {
+        volume:   1.0,
+        rate:     1.0,
+        end_beat: Some(0.1),
+    };
+    clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+    output.render(10, 480, 128);
+    assert!(output.samples[..4800].iter().all(|sample| *sample == 0.0));
+    assert!(output.samples[4800 + 1450..].iter().all(|sample| *sample == 0.0));
+}
+
+#[test]
+fn stop_fades_out_a_tone_with_an_end() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    let tone = Tone {
+        volume:   1.0,
+        rate:     1.0,
+        end_beat: Some(100.0),
+    };
+    clock.play_tone_at_beat(&hum(48_000), 0.0, tone);
+    output.render(10, 480, 128);
+    clock.stop();
+    output.render(10, 480, 128);
+    assert!(output.samples[..4800].iter().all(|sample| full(*sample)));
+    assert!(output.samples[4800 + 1450..].iter().all(|sample| *sample == 0.0));
+}
+
+#[test]
+fn a_wrong_tone_is_not_queued() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    for (rate, end_beat) in [(0.0, None), (f64::NAN, None), (1.0, Some(f64::INFINITY))] {
+        let tone = Tone {
+            volume: 1.0,
+            rate,
+            end_beat,
+        };
+        clock.play_tone_at_beat(&click(), 0.0, tone);
+    }
+    output.render(4, 480, 128);
+    assert_eq!(output.starts(), [] as [usize; 0]);
+}
+
+#[test]
+fn a_queued_sound_starts_on_its_sample_with_any_buffer_size() {
+    for (frames, buffer) in [(512, 128), (480, 128), (1024, 100), (37, 37), (4800, 128)] {
+        let (mut clock, sound) = SoundClock::connected(120.0);
+        let mut output = Output::new(sound);
+        clock.start();
+        clock.play_at_seconds(&click(), 0.01, 1.0);
+        clock.play_at_beat(&click(), 0.25, 1.0);
+        output.render(9600 / frames + 1, frames, buffer);
+        // 0.01 seconds is sample 480, a quarter of a beat at 120 is 0.125
+        // seconds, sample 6000.
+        assert_eq!(
+            output.starts(),
+            [480, 6000],
+            "{frames} frames in buffers of {buffer}"
+        );
+    }
+}
+
+#[test]
+fn a_sound_queued_before_the_start_waits_for_it() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.play_at_beat(&click(), 0.0, 1.0);
+    output.render(4, 480, 128);
+    clock.start();
+    output.render(4, 480, 128);
+    assert_eq!(output.starts(), [1920]);
+}
+
+#[test]
+fn a_tempo_change_moves_the_beats_after_it() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    clock.play_at_beat(&click(), 2.0, 1.0);
+    clock.play_at_seconds(&click(), 0.9, 1.0);
+    // Beat 1 is at half a second.
+    output.render(50, 480, 128);
+    assert!(close(clock.beats_at(output.now), 1.0));
+    clock.set_bpm(240.0);
+    output.render(50, 480, 128);
+    // Beat 2 is a quarter of a second later, the sound at 0.9 seconds
+    // stays there.
+    assert_eq!(output.starts(), [36_000, 43_200]);
+    assert!(close(clock.beats_at(output.now), 3.0));
+    assert!(close(clock.seconds_at(output.now), 1.0));
+}
+
+#[test]
+fn stop_drops_what_is_queued_and_the_time_starts_again_at_0() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    clock.play_at_seconds(&click(), 0.5, 1.0);
+    output.render(10, 480, 128);
+    assert!(close(clock.seconds_at(output.now), 0.1));
+
+    clock.stop();
+    assert!(!clock.is_running());
+    assert!(close(clock.seconds_at(output.now), 0.0));
+    output.render(10, 480, 128);
+
+    clock.start();
+    // The audio thread has not taken the start yet.
+    assert!(close(clock.seconds_at(output.now), 0.0));
+    output.render(100, 480, 128);
+    assert!(close(clock.seconds_at(output.now), 1.0));
+    assert_eq!(output.starts(), [] as [usize; 0]);
+}
+
+#[test]
+fn a_sound_queued_too_late_starts_at_once() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    output.render(2, 500, 128);
+    clock.play_at_seconds(&click(), 0.001, 1.0);
+    output.render(2, 500, 128);
+    assert_eq!(output.starts(), [1000]);
+}
+
+#[test]
+fn the_time_goes_on_between_callbacks_and_a_late_callback_hardly_moves_it() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    assert!(close(clock.seconds(), 0.0));
+    clock.start();
+    output.render(100, 480, 128);
+    assert!(close(clock.seconds_at(output.now), 1.0));
+    assert!(close(clock.seconds_at(output.now + 0.004), 1.004));
+    assert!(close(clock.beats_at(output.now + 0.004), 2.008));
+
+    // This callback comes 5 ms late. The time the clock gives moves by a
+    // tenth of that.
+    output.callback(480, 128, 0.005);
+    assert!(close(clock.seconds_at(output.now), 1.01 - 0.0005));
+}
+
+#[test]
+fn the_sounds_that_started_play_on_after_the_clock_is_dropped() {
+    let (mut clock, sound) = SoundClock::connected(120.0);
+    let mut output = Output::new(sound);
+    clock.start();
+    clock.play_at_seconds(&click(), 0.0, 1.0);
+    output.callback(4, 4, 0.0);
+    drop(clock);
+    output.callback(2, 2, 0.0);
+    assert!(!output.sound.finished());
+    output.render(4, 480, 128);
+    assert!(output.sound.finished());
+    assert_eq!(output.starts(), [0]);
+    assert!(output.samples[..8].iter().all(|sample| *sample != 0.0));
+}
+
+#[test]
+fn with_no_output_device_the_clock_runs_on_the_time_of_the_system() {
+    let mut clock = SoundClock::silent(120.0);
+    assert!(close(clock.seconds(), 0.0));
+    clock.start();
+    clock.play_at_beat(&click(), 1.0, 1.0);
+    let now = monotonic_seconds();
+    assert!(clock.seconds_at(now) >= 0.0 && clock.seconds_at(now) < 1.0);
+    assert!(close(clock.seconds_at(now + 3.0) - clock.seconds_at(now), 3.0));
+    assert!(close(clock.beats_at(now + 3.0) - clock.beats_at(now), 6.0));
+
+    let before = clock.beats();
+    clock.set_bpm(60.0);
+    let after = clock.beats();
+    assert!(after >= before && after - before < 0.5);
+    let now = monotonic_seconds();
+    assert!(close(clock.beats_at(now + 3.0) - clock.beats_at(now), 3.0));
+
+    clock.stop();
+    assert!(close(clock.seconds(), 0.0));
+    assert!(close(clock.beats(), 0.0));
+}
+
+#[test]
+fn a_wrong_tempo_is_not_taken() {
+    let mut clock = SoundClock::silent(f64::NAN);
+    assert!(close(clock.bpm(), 120.0));
+    clock.set_bpm(0.0);
+    clock.set_bpm(-4.0);
+    assert!(close(clock.bpm(), 120.0));
+    clock.set_bpm(280.0);
+    assert!(close(clock.bpm(), 280.0));
+}

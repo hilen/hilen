@@ -1,16 +1,24 @@
 use std::ops::DerefMut;
 
+use log::warn;
+
 use crate::{
     deps::{
         refs::{Own, Weak, weak_from_ref},
         vents::Event,
     },
     gm::{ToF32, color::Color, flat::CornerRadii},
+    monotonic::monotonic_seconds,
     ui::{
-        Gradient, NavigationView, Shadow, Style, UIAnimation, UIColor, UIManager, View, WeakView,
-        layout::Placer,
+        FramesWanted, Gradient, LoopAnimation, NavigationView, Shadow, Style, UIAnimation, UIColor,
+        UIManager, View, WeakView, layout::Placer, loops,
     },
 };
+
+/// A condition of `keep_frames_while` that holds this long is taken for a
+/// thing that runs without end, a loop that has to be declared, see
+/// `docs/loops.md`. Longer than any transition or scroll glide.
+pub(crate) const ENDLESS_SECONDS: f64 = 10.0;
 
 pub trait ViewData {
     fn tag(&self) -> usize;
@@ -45,9 +53,34 @@ pub trait ViewData {
     fn shadow(&self) -> Option<Shadow>;
     fn set_shadow(&self, shadow: impl Into<Option<Shadow>>) -> &Self;
 
+    /// How much of the view shows, 1 by default. See `set_opacity`.
+    fn opacity(&self) -> f32;
+    /// Fades the view together with everything inside it, 0 shows nothing
+    /// and 1 everything. Set it from a `UIAnimation` to fade controls in and
+    /// out. Every part is faded by itself, so where 2 parts overlap the one
+    /// behind shows through the one in front while they fade.
+    fn set_opacity(&self, opacity: impl ToF32) -> &Self;
+
+    /// Whether the view fades as one picture, off by default.
+    fn group_opacity(&self) -> bool;
+    /// Makes `set_opacity` fade the view and everything inside it as one
+    /// picture, so parts that overlap do not show through each other, like
+    /// the controls over a video or a card with a title on its image. The
+    /// view then draws into an image of the frame size first, which costs
+    /// a render pass and that image, so turn it on only where parts overlap.
+    /// At opacity 1 nothing changes. A `BlurView` inside a group blurs what
+    /// was drawn before the group, not the parts of the group under it.
+    fn set_group_opacity(&self, group: bool) -> &Self;
+
     fn is_hidden(&self) -> bool;
     fn is_hidden_in_tree(&self) -> bool;
     fn set_hidden(&self, is_hidden: bool) -> &Self;
+
+    /// Inside a `TableView` cell, this view and its subviews move with
+    /// the sideways scroll of the table. Everything else in the cell
+    /// stays in place, so a cell pins a part by leaving it unmarked.
+    /// Put the marked view into a clipping view to cut it at an edge.
+    fn set_moves_sideways(&self, moves: bool) -> &Self;
 
     fn place(&self) -> &Placer;
     fn placer_copy(&self) -> Placer;
@@ -68,6 +101,40 @@ pub trait ViewData {
     fn steal_appearance(&self, other: WeakView) -> &Self;
 
     fn add_animation(&self, anim: UIAnimation);
+
+    /// Draws a frame on every screen refresh while `wanted` returns true,
+    /// so `update` of every view runs on each of them. The engine draws
+    /// only when something asks for a frame, and a view that moves a thing
+    /// by the clock in `update` stands still without this.
+    ///
+    /// `wanted` is asked once a frame. When it returns false, or the view
+    /// is gone, the frames end and the loop sleeps again. A view has 1
+    /// condition, a new call replaces it, so a call on every `update` is
+    /// fine. A hidden view still counts, add `is_visible_on_screen()` to
+    /// the condition to let the loop sleep then. A window that is fully
+    /// covered or minimized draws no frame, with this call too.
+    ///
+    /// ```ignore
+    /// self.keep_frames_while(move || self.playing);
+    /// ```
+    fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static);
+
+    /// Runs a declared loop on the view, a period and a pose of the
+    /// phase, see `LoopAnimation`. Anything that repeats or runs without
+    /// end is a loop, a closure animation is for a short move that ends.
+    /// A new call replaces the loop the view has.
+    ///
+    /// ```ignore
+    /// self.run_loop(LoopAnimation::new(1.0, move |phase| self.turn_to(phase)));
+    /// ```
+    fn run_loop(&self, animation: LoopAnimation);
+
+    /// Ends the loop of `run_loop`. The view keeps the pose it has.
+    fn stop_loop(&self);
+
+    /// Where the loop of `run_loop` stands at the time of this frame, 0 to
+    /// 1. None when the view runs no loop.
+    fn loop_phase(&self) -> Option<f32>;
 
     fn weak(&self) -> Weak<Self>;
 }
@@ -184,6 +251,24 @@ impl<T: ?Sized + View> ViewData for T {
         self
     }
 
+    fn opacity(&self) -> f32 {
+        self.__base_view().opacity
+    }
+
+    fn set_opacity(&self, opacity: impl ToF32) -> &Self {
+        self.__base_view().opacity = opacity.to_f32().clamp(0.0, 1.0);
+        self
+    }
+
+    fn group_opacity(&self) -> bool {
+        self.__base_view().group_opacity
+    }
+
+    fn set_group_opacity(&self, group: bool) -> &Self {
+        self.__base_view().group_opacity = group;
+        self
+    }
+
     fn is_hidden(&self) -> bool {
         self.__base_view().is_hidden
     }
@@ -207,6 +292,15 @@ impl<T: ?Sized + View> ViewData for T {
 
     fn set_hidden(&self, is_hidden: bool) -> &Self {
         self.weak_view().__base_view().is_hidden = is_hidden;
+        self
+    }
+
+    fn set_moves_sideways(&self, moves: bool) -> &Self {
+        let base = self.__base_view();
+        base.moves_sideways = moves;
+        if !moves {
+            base.__content_offset_x = 0.0;
+        }
         self
     }
 
@@ -286,13 +380,91 @@ impl<T: ?Sized + View> ViewData for T {
     }
 
     fn add_animation(&self, mut anim: UIAnimation) {
+        if anim.repeats {
+            warn_endless(self.weak_view(), "runs a closure animation that repeats");
+        }
         anim.view = self.weak_view();
         UIManager::add_animation(anim);
+    }
+
+    fn keep_frames_while(&self, wanted: impl FnMut() -> bool + Send + 'static) {
+        self.__base_view().frames_exempt = false;
+        keep_frames(self.weak_view(), Box::new(wanted));
+    }
+
+    fn run_loop(&self, animation: LoopAnimation) {
+        loops::start(self.weak_view(), animation);
+    }
+
+    fn stop_loop(&self) {
+        loops::stop(self.weak_view());
+    }
+
+    fn loop_phase(&self) -> Option<f32> {
+        loops::phase(self.weak_view())
     }
 
     fn weak(&self) -> Weak<Self> {
         weak_from_ref(self)
     }
+}
+
+/// `keep_frames_while` for a view whose frames are for no loop, like a
+/// playing video. It writes no warning however long the condition holds.
+pub(crate) fn keep_frames_exempt(view: WeakView, wanted: impl FnMut() -> bool + Send + 'static) {
+    view.__base_view().frames_exempt = true;
+    keep_frames(view, Box::new(wanted));
+}
+
+fn keep_frames(view: WeakView, wanted: FramesWanted) {
+    let base = view.__base_view();
+    base.frames_wanted = Some(wanted);
+    if base.keeps_frames {
+        return;
+    }
+    base.keeps_frames = true;
+    base.frames_since = monotonic_seconds();
+
+    // The loop draws on every refresh while an animation is live, see
+    // `continuous_render_active`. This one changes nothing.
+    let anim = UIAnimation::new(|_, _| {}).finish_condition(move || {
+        // Taken out for the call, the condition may set a new one.
+        let Some(mut wanted) = view.__base_view().frames_wanted.take() else {
+            return true;
+        };
+        if !wanted() {
+            return true;
+        }
+        let base = view.__base_view();
+        if base.frames_wanted.is_none() {
+            base.frames_wanted = Some(wanted);
+        }
+        if !base.frames_exempt && monotonic_seconds() - base.frames_since >= ENDLESS_SECONDS {
+            warn_endless(view, "keeps frames with no end");
+        }
+        false
+    });
+    anim.on_finish.sub(move || {
+        if view.is_ok() {
+            let base = view.__base_view();
+            base.keeps_frames = false;
+            base.frames_wanted = None;
+        }
+    });
+    view.add_animation(anim);
+}
+
+/// Once per view. The view goes on as it is, on the frame path.
+fn warn_endless(view: WeakView, what: &str) {
+    let base = view.__base_view();
+    if base.endless_warned {
+        return;
+    }
+    base.endless_warned = true;
+    warn!(
+        "{} {what}. A thing that repeats is a declared loop, `run_loop` with a `LoopAnimation`, see docs/loops.md",
+        base.view_label
+    );
 }
 
 pub trait AfterSetup {

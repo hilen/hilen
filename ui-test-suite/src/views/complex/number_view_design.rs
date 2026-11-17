@@ -7,7 +7,7 @@ use hilen::{
 };
 
 const STYLE: Style = Style::new(|view| {
-    view.apply_if::<NumberView>(|mut num| {
+    view.apply_if::<NumberView>(|num| {
         num.set_labels("+", "–")
             .set_text_color(LIGHT_GRAY)
             .set_text_size(80)

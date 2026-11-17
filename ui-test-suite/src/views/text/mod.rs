@@ -1,3 +1,7 @@
+mod clipped_text_batches;
+mod code_highlighter_lines;
+mod color_emoji;
+mod color_glyph_clip;
 /// A text field is a different thing on a phone. Typing goes through the screen
 /// keyboard, not through injected key events, so these drive a field that never
 /// receives the text and then probe for glyphs that were never drawn.
@@ -5,43 +9,145 @@
 mod custom_text_field;
 mod font_zoo;
 mod glyph_fallback;
+/// Not a test, the screen keyboard tests draw the keyboard with it.
+mod keyboard_marker;
 mod label;
+mod label_background_runs;
+mod label_cell_grid;
 mod label_color_runs;
+mod label_effect_made_again;
+mod label_effect_over_new_image;
 mod label_ellipsize;
 mod label_ellipsize_head;
 mod label_fit_text;
+mod label_fitted_ellipsize;
 mod label_font;
 mod label_font_runs;
 mod label_image;
 mod label_line_height;
+mod label_long_words;
+mod label_max_lines;
 mod label_measure;
+mod label_outline;
+mod label_run_ellipsize;
+mod label_selection;
+mod label_soft_shadow;
 mod label_stress;
+mod label_strikethrough;
 mod label_tab;
+mod label_text_inset;
 mod label_vertical_alignment;
+mod label_wide_effect;
 mod letter_spacing;
+mod markdown_bare_link;
+mod markdown_bold_item;
+mod markdown_box_chars;
+mod markdown_box_table;
+mod markdown_copy_buttons;
+mod markdown_heading_sizes;
+mod markdown_inline_markers;
+mod markdown_line_breaks;
+mod markdown_link_hosts;
+mod markdown_math;
+mod markdown_math_style;
+mod markdown_one_layout;
+mod markdown_plain_height;
+mod markdown_selection;
+mod markdown_spacing;
+mod markdown_tall_formula;
+mod markdown_text_inset;
+mod markdown_unsafe_link;
+mod markdown_view;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
+mod modal_escape_text_field;
+mod multiline_field_grows;
 mod multiline_label;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
+mod multiline_submit;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
 mod multiline_text_field;
+/// The `screen_keyboard` tests type through the real keyboard of the
+/// platform, so unlike the other typing tests they run on a phone too.
+mod screen_keyboard_compose;
+mod screen_keyboard_first_letter;
+mod screen_keyboard_input;
+mod screen_keyboard_keeps_end;
+mod screen_keyboard_kept_by_tap;
+/// The system text field this one compares the engine field with exists
+/// only on an iPhone, nowhere else is there a switch to hide.
+#[cfg(all(ios, not(tvos)))]
+mod screen_keyboard_look;
+mod screen_keyboard_multiline;
+mod screen_keyboard_scroll;
+mod screen_keyboard_secure;
+mod screen_keyboard_shift;
+mod screen_keyboard_submit;
+mod screen_keyboard_taken_return;
+/// The system text field whose changes must bring a frame exists only on
+/// an iPhone, everywhere else a typed key is an event of the engine window.
+#[cfg(all(ios, not(tvos)))]
+mod screen_keyboard_typed_frames;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod secure_text_field;
 mod stem_darkening;
+mod symbol_fallback;
+/// Apple Color Emoji ships with Apple hardware only, `Font::system_emoji`
+/// is `None` everywhere else.
+#[cfg(apple)]
+mod system_emoji;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod tab_focus;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field;
+/// Only a browser edits a field through an element of the page.
+#[cfg(wasm)]
+mod text_field_browser;
+/// Probes the caret the engine draws in a focused field. On an iPhone the
+/// system text field draws the caret, outside the engine frame, and
+/// [`screen_keyboard_look`] checks there that it follows the scale.
+#[cfg(not(all(ios, not(tvos))))]
+mod text_field_caret_scale;
+/// Taps and types through the system input, so it runs on a phone too.
+mod text_field_dropped_while_edited;
 /// Desktop only for the same reason as [`custom_text_field`].
 #[cfg(desktop)]
 mod text_field_focus;
+/// Types nothing, and what a focus by code does differs per platform, which
+/// is what it checks, so it runs everywhere.
+mod text_field_focus_by_code;
 /// Sets the font and text programmatically, no typing, so it runs
 /// everywhere too.
 mod text_field_font;
+/// Pastes with an injected key shortcut, which a phone and a browser do
+/// not have, and only a desktop clipboard hands over a picture.
+#[cfg(desktop)]
+mod text_field_image_paste;
+/// Types through the system input, so it runs on a phone too.
+mod text_field_insert;
+/// Taps through the system input, so it runs on a phone too.
+mod text_field_keeps_color;
 /// Enters and clears text programmatically, no typing, so it runs
 /// everywhere like [`text_field_theme`].
 mod text_field_placeholder_color;
+/// Reads the text of empty and filled fields, no typing, so it runs
+/// everywhere like [`text_field_theme`].
+mod text_field_placeholder_text;
+/// Types through the system input, so it runs on a phone too.
+mod text_field_replace_range;
+/// Desktop only for the same reason as [`custom_text_field`].
+#[cfg(desktop)]
+mod text_field_submit;
+/// Desktop only for the same reason as [`custom_text_field`]. The Return
+/// key, the only one of these a phone has, is in
+/// [`screen_keyboard_taken_return`].
+#[cfg(desktop)]
+mod text_field_taken_keys;
 /// Sets colors and switches themes without typing, so unlike the other
 /// text field tests it runs everywhere.
 mod text_field_theme;

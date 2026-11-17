@@ -5,6 +5,7 @@ use wgpu::{
 
 use crate::{
     gm::flat::{Point, Vertex2D},
+    image::Image,
     render::{
         data::{RectView, UIRectInstance},
         device_helper::DeviceHelper,
@@ -13,7 +14,7 @@ use crate::{
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{Window, image::Image},
+    window::Window,
 };
 
 /// A `UIRectPipeline` whose shader comes from a string at runtime instead of a

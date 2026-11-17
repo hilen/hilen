@@ -46,6 +46,11 @@ pub enum Placement {
         #[educe(Debug(ignore))]
         view: WeakView,
     },
+    /// The bottom edge `offset` above the bottom of the superview, or
+    /// above the screen keyboard where that covers the superview.
+    AboveKeyboard {
+        offset: f32,
+    },
     Tiling(Tiling),
 }
 
@@ -110,7 +115,7 @@ impl Placement {
                 *side,
                 matches!(side, Anchor::Top | Anchor::Bot | Anchor::Left | Anchor::Right),
             ),
-            Self::Between { .. } | Self::Tiling(_) => return,
+            Self::Between { .. } | Self::AboveKeyboard { .. } | Self::Tiling(_) => return,
         };
 
         assert!(valid, "{name} placement does not support {side:?}");
@@ -164,6 +169,7 @@ impl PartialEq for Placement {
             (Self::Between { a, b }, Self::Between { a: o_a, b: o_b }) => {
                 same_view(a, o_a) && same_view(b, o_b)
             }
+            (Self::AboveKeyboard { offset }, Self::AboveKeyboard { offset: o_offset }) => offset == o_offset,
             (Self::Tiling(tiling), Self::Tiling(o_tiling)) => tiling == o_tiling,
             _ => false,
         }
@@ -217,6 +223,12 @@ impl LayoutRule {
         Self::new(Placement::Same { side, view })
     }
 
+    pub(crate) fn above_keyboard(offset: impl ToF32) -> Self {
+        Self::new(Placement::AboveKeyboard {
+            offset: offset.to_f32(),
+        })
+    }
+
     pub fn between(a: WeakView, b: WeakView) -> Self {
         Self::new(Placement::Between { a, b })
     }
@@ -234,13 +246,16 @@ impl LayoutRule {
             | Placement::Relative { side, .. }
             | Placement::Same { side, .. }
             | Placement::BetweenSuper { side, .. } => Some(*side),
+            Placement::AboveKeyboard { .. } => Some(Anchor::Bot),
             Placement::Between { .. } | Placement::Tiling(_) => None,
         }
     }
 
     pub fn offset(&self) -> f32 {
         match &self.placement {
-            Placement::Side { offset, .. } | Placement::Anchor { offset, .. } => *offset,
+            Placement::Side { offset, .. }
+            | Placement::Anchor { offset, .. }
+            | Placement::AboveKeyboard { offset } => *offset,
             Placement::Relative { ratio, .. } => *ratio,
             _ => 0.0,
         }
@@ -249,7 +264,9 @@ impl LayoutRule {
     pub fn set_offset(&mut self, offset: impl ToF32) {
         let value = offset.to_f32();
         match &mut self.placement {
-            Placement::Side { offset, .. } | Placement::Anchor { offset, .. } => *offset = value,
+            Placement::Side { offset, .. }
+            | Placement::Anchor { offset, .. }
+            | Placement::AboveKeyboard { offset } => *offset = value,
             Placement::Relative { ratio, .. } => *ratio = value,
             _ => {}
         }

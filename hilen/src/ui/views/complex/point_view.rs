@@ -1,7 +1,10 @@
 use ui_proc::view;
 
 use crate::{
-    deps::{refs::Weak, vents::Event},
+    deps::{
+        refs::{Weak, weak_from_ref},
+        vents::Event,
+    },
     gm::{Apply, ToF32, flat::Point},
     ui::{NumberView, Setup, view::ViewData},
 };
@@ -22,8 +25,9 @@ impl PointView {
         (self.x.value(), self.y.value()).into()
     }
 
-    pub fn set_multiplier(&mut self, mul: impl ToF32) -> &mut Self {
-        self.mul = mul.to_f32();
+    pub fn set_multiplier(&self, mul: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.mul = mul.to_f32();
         self
     }
 }

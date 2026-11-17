@@ -4,6 +4,7 @@ use wgpu::{BufferAddress, VertexBufferLayout, VertexStepMode};
 
 use crate::{
     gm::{
+        LossyConvert,
         color::Color,
         flat::{CornerRadii, Point, Rect, Size},
     },
@@ -31,6 +32,9 @@ pub struct UIImageInstance {
 impl UIImageInstance {
     const FLIP_X_FLAG: u32 = 0;
     const FLIP_Y_FLAG: u32 = 1;
+    /// Bits 8 to 15 hold how much the image is faded, 0 for not at all, so
+    /// an instance made without an opacity draws exactly as before.
+    const FADE_SHIFT: u32 = 8;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -61,6 +65,14 @@ impl UIImageInstance {
         result.set_flip_y(flip_y);
 
         result
+    }
+
+    /// Fades the image, 1 leaves it as it is. The shader has 255 steps.
+    #[must_use]
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        let fade: u32 = ((1.0 - opacity.clamp(0.0, 1.0)) * 255.0).round().lossy_convert();
+        self.flags = (self.flags & !(255 << Self::FADE_SHIFT)) | (fade << Self::FADE_SHIFT);
+        self
     }
 
     fn set_flag(&mut self, bit: u32, value: bool) {

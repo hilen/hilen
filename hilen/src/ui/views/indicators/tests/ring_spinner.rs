@@ -27,7 +27,7 @@ struct RingSpinnerTest {
 }
 
 impl Setup for RingSpinnerTest {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.card.set_color(CARD).place().tl(20).size(300, 300);
 
         self.big.set_ring_color(RING).set_line_width(24).set_speed(0);
@@ -62,7 +62,7 @@ const GAP_TOP_PROBES: &str = r"
      240  260 - #374151
      448  276 - #597c95
      200  284 - #374151
-     152  288 - #9ba0a8
+     152  284 - #374151
       20  316 - #ffffff
      316  316 - #ffffff
      468  416 - #597c95
@@ -156,7 +156,7 @@ impl ViewTest for RingSpinnerTest {
         check_colors(GAP_TOP_PROBES)?;
 
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.big.set_angle(0.5);
             this.small.set_angle(0.5);
         });
@@ -167,14 +167,15 @@ impl ViewTest for RingSpinnerTest {
         wait_for_next_frame();
         check_colors(DARK_PROBES)?;
 
-        // A held ring must not keep the loop awake through its stroke alone.
-        // The keep alive animation runs whenever the ring is visible, so
-        // the loop draws while a ring shows, and sleeps once it hides.
+        // A held ring runs no loop, its stroke alone must not keep the loop
+        // of the app awake. A turning ring runs a declared loop, which
+        // draws on every refresh while the ring shows on the frame path,
+        // and sleeps once it hides.
         let continuous = from_main(continuous_render_active);
-        ensure!(continuous, "a visible ring must keep the loop drawing");
+        ensure!(!continuous, "a held ring must let the loop sleep");
 
         from_main(move || {
-            let mut this = view;
+            let this = view;
             this.big.set_speed(1);
             this.big.set_angle(0.0);
         });

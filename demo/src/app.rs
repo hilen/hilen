@@ -2,6 +2,7 @@ use hilen::{
     App, Window,
     refs::Own,
     ui::{Button, Setup, Size, View},
+    window::WindowPlacement,
 };
 #[cfg(not_wasm)]
 use hilen::{PinnedFuture, net::SecretsManager};
@@ -37,6 +38,14 @@ async fn secrets() -> anyhow::Result<&'static SecretsManager> {
         .await
 }
 
+/// A scripted benchmark run. Its numbers compare only at one window size,
+/// so it opens at `initial_size` and leaves nothing for the next start.
+fn benchmark_run() -> bool {
+    use std::env::var_os;
+
+    var_os("UI_BENCHMARK").is_some()
+}
+
 #[derive(Default)]
 pub struct DemoApp;
 
@@ -44,11 +53,13 @@ impl App for DemoApp {
     fn before_launch(&self) {
         BUTTON.apply_globally::<Button>();
 
-        // demo is the app the suite runs on a device, so it carries the
-        // whole corpus. The tests register through `ctor`s that nothing calls
-        // by name, so without this the linker drops them and the device
-        // quietly runs a fraction of the suite.
+        // demo is the app that runs on a device, so it carries every test,
+        // the scene tests included. The tests register through
+        // `ctor`s that nothing calls by name, so without this the linker
+        // drops them and the device quietly runs a fraction of the suite.
         ui_test_suite::keep_linked();
+        #[cfg(feature = "scene")]
+        scene_test_suite::keep_linked();
     }
 
     fn after_launch(&self) {
@@ -74,6 +85,19 @@ impl App for DemoApp {
 
     fn initial_size(&self) -> Size {
         (1500, 1200).into()
+    }
+
+    fn window_placement(&self) -> Option<WindowPlacement> {
+        if benchmark_run() {
+            return None;
+        }
+        WindowPlacement::remembered()
+    }
+
+    fn window_placement_changed(&self, placement: &WindowPlacement) {
+        if !benchmark_run() {
+            placement.remember();
+        }
     }
 
     #[cfg(not_wasm)]

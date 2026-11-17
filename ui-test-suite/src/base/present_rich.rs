@@ -38,7 +38,7 @@ struct PresentRich {
 }
 
 impl Setup for PresentRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         *CURRENT_FIRST.lock() = Some(self);
 
         self.set_color("#E67E22");
@@ -55,7 +55,7 @@ impl Setup for PresentRich {
         self.subtitle.set_color(CLEAR);
         self.subtitle.place().below(self.title, 12);
 
-        self.palm.set_image("palm.png");
+        self.palm.set_image("test/palm.png");
         self.palm.place().size(150, 150).t(160).l(420);
 
         self.check.set_on(true);
@@ -118,7 +118,7 @@ struct PresentedRich {
 }
 
 impl Setup for PresentedRich {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         *CURRENT_PRESENTED.lock() = Some(self);
 
         self.set_color("#8E44AD");
@@ -135,7 +135,7 @@ impl Setup for PresentedRich {
         self.body.set_color(CLEAR);
         self.body.place().below(self.title, 12);
 
-        self.ball.set_image("ball.png");
+        self.ball.set_image("test/ball.png");
         self.ball.place().br(24).size(140, 140);
 
         self.check.place().size(44, 44).t(160).l(24);

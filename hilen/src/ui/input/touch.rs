@@ -2,8 +2,7 @@ use std::{fmt::Display, str::FromStr};
 
 use crate::{
     gm::{LossyConvert, flat::Point},
-    ui::{TouchLock, input::TouchEvent},
-    window::MouseButton,
+    ui::{MouseButton, TouchLock, input::TouchEvent},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -33,6 +32,7 @@ impl Touch {
 }
 
 impl Touch {
+    #[cfg(feature = "gpu")]
     pub(crate) fn vec_from_str(s: &str) -> Vec<Self> {
         s.split('\n')
             .filter(|line| !line.trim().is_empty())
@@ -40,6 +40,7 @@ impl Touch {
             .collect()
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn str_from_vec(v: Vec<Touch>) -> String {
         v.into_iter()
             .map(|t| "            ".to_string() + &t.to_string() + "\n")
@@ -97,13 +98,10 @@ impl FromStr for Touch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod test {
 
-    use crate::{
-        ui::{Touch, input::TouchEvent},
-        window::MouseButton,
-    };
+    use crate::ui::{MouseButton, Touch, input::TouchEvent};
 
     #[test]
     fn touch_to_string() {

@@ -1,0 +1,153 @@
+//! Markdown as blocks. The parser makes them, `MarkdownView` draws them.
+
+use std::ops::Range;
+
+/// One piece of a text: a paragraph, a list, a table and so on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Block {
+    Heading {
+        level: u8,
+        text:  Styled,
+    },
+    Paragraph(Styled),
+    Code {
+        language: String,
+        text:     String,
+    },
+    Quote(Vec<Block>),
+    List(Vec<Item>),
+    Table {
+        head: Vec<Styled>,
+        rows: Vec<Vec<Styled>>,
+    },
+    Rule,
+    /// A display formula, its LaTeX source with no `$$` around it.
+    Math(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Item {
+    pub marker: Marker,
+    pub blocks: Vec<Block>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Marker {
+    Bullet,
+    Number(u64),
+    /// A task of a task list, done or not.
+    Task(bool),
+}
+
+/// A text with no marks left in it, and the byte ranges that are drawn
+/// in another way than the rest.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Styled {
+    pub text:  String,
+    pub spans: Vec<Span>,
+    pub links: Vec<Link>,
+}
+
+impl Styled {
+    pub fn plain(text: &str) -> Self {
+        Self {
+            text:  text.to_string(),
+            spans: Vec::new(),
+            links: Vec::new(),
+        }
+    }
+
+    /// The pieces of this text at `ranges`, joined by a space, with the
+    /// parts of the spans and the links that fall in them.
+    pub fn pieces(&self, ranges: &[Range<usize>]) -> Self {
+        let mut out = Self::default();
+        for range in ranges {
+            if !out.text.is_empty() {
+                out.text.push(' ');
+            }
+            let base = out.text.len();
+            out.text.push_str(&self.text[range.clone()]);
+            let moved = |part: &Range<usize>| {
+                let start = part.start.max(range.start);
+                let end = part.end.min(range.end);
+                (start < end).then(|| base + start - range.start..base + end - range.start)
+            };
+            out.spans.extend(self.spans.iter().filter_map(|span| {
+                moved(&span.range).map(|range| Span {
+                    range,
+                    style: span.style,
+                })
+            }));
+            out.links.extend(self.links.iter().filter_map(|link| {
+                moved(&link.range).map(|range| Link {
+                    range,
+                    url: link.url.clone(),
+                })
+            }));
+        }
+        out
+    }
+}
+
+/// The byte range of a link and where it goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Link {
+    pub range: Range<usize>,
+    pub url:   String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Span {
+    pub range: Range<usize>,
+    pub style: Style,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Style {
+    pub face:   Face,
+    pub kind:   Kind,
+    pub strike: bool,
+    pub link:   bool,
+}
+
+/// What a piece of text is, beyond its look.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Kind {
+    #[default]
+    Text,
+    Code,
+    /// An inline formula, its text is the LaTeX source in `$` signs.
+    Math,
+    /// The host a link goes to, added after the link, see
+    /// `MarkdownLinkHosts`. No part of the text that was written.
+    Host,
+}
+
+/// The weight and the slant of a piece of text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Face {
+    #[default]
+    Regular,
+    Bold,
+    Italic,
+    BoldItalic,
+}
+
+impl Face {
+    pub fn new(bold: bool, italic: bool) -> Self {
+        match (bold, italic) {
+            (false, false) => Face::Regular,
+            (true, false) => Face::Bold,
+            (false, true) => Face::Italic,
+            (true, true) => Face::BoldItalic,
+        }
+    }
+
+    pub fn is_bold(self) -> bool {
+        matches!(self, Face::Bold | Face::BoldItalic)
+    }
+
+    pub fn is_italic(self) -> bool {
+        matches!(self, Face::Italic | Face::BoldItalic)
+    }
+}

@@ -1,11 +1,8 @@
-use std::mem::take;
-
 use anyhow::{Result, anyhow, bail, ensure};
 use gltf::{
     Document, Gltf, Node, Primitive,
     animation::{Interpolation as KeyInterpolation, Property, util::ReadOutputs},
     buffer, image,
-    material::AlphaMode,
     mesh::{
         Mode,
         util::{ReadJoints, ReadWeights},
@@ -13,16 +10,18 @@ use gltf::{
 };
 use log::warn;
 
-use super::rig::{Channel, Clip, Interpolation, Rig, RigNode, Skin, Track};
-use crate::gm::{
-    color::Color,
-    flat::Point,
-    volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+use super::{
+    material_source::{MaterialSource, material_source},
+    rig::{Channel, Clip, Interpolation, Rig, RigNode, Skin, Track},
+    split::split_u16,
 };
-
-/// Indices are 16 bit, so a mesh holds at most this many vertices and a
-/// bigger primitive is split.
-const MAX_VERTICES: usize = u16::MAX as usize;
+use crate::{
+    gm::{
+        flat::Point,
+        volume::{Bounds, Mat4, Quat, SkinVertex, Vec3, Vertex3D},
+    },
+    image::TextureLevels,
+};
 
 /// Everything a `.glb` holds, decoded on the CPU and ready to upload.
 pub(crate) struct ModelSource {
@@ -34,6 +33,13 @@ pub(crate) struct ModelSource {
     pub rig:         Option<Rig>,
     /// Every skin's joint matrices at rest, in the rig's skin order.
     pub rest_joints: Vec<Vec<Mat4>>,
+    /// Whether the model keeps its triangles for `Model::hit_triangle`,
+    /// see `PreparedMesh::without_picking`.
+    pub picking:     bool,
+    /// The picking triangles taken before `merge::static_parts` joined
+    /// the parts, so a triangle keeps its index. None takes them from
+    /// the parts.
+    pub triangles:   Option<Vec<[Vec3; 3]>>,
 }
 
 /// One primitive of one node, or a slice of a primitive too big for 16
@@ -52,23 +58,21 @@ pub(crate) struct PartSource {
     pub skin:          Option<usize>,
     /// None when the primitive has no material, the node's own applies.
     pub material:      Option<MaterialSource>,
-}
-
-/// A glTF material, its textures as indices into `ModelSource::images`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MaterialSource {
-    pub color:        Color,
-    pub metallic:     f32,
-    pub roughness:    f32,
-    pub texture:      Option<usize>,
-    pub normal_map:   Option<usize>,
-    pub normal_scale: f32,
+    /// Whether the color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub smooth_colors: bool,
+    /// Whether its texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub flowing:       bool,
 }
 
 /// An image file embedded in the binary chunk, png or jpeg bytes.
 pub(crate) struct EmbeddedImage {
-    pub name:  String,
-    pub bytes: Vec<u8>,
+    pub name:   String,
+    pub bytes:  Vec<u8>,
+    /// The pixels with every mip level, decoded by `images::decode` off
+    /// the main thread. None leaves the decode to the upload.
+    pub levels: Option<TextureLevels>,
 }
 
 /// The vertex arrays of one primitive before the 16 bit split.
@@ -99,8 +103,9 @@ pub(crate) fn parse_glb(data: &[u8], name: &str) -> Result<ModelSource> {
         .images()
         .map(|image| match image.source() {
             image::Source::View { view, .. } => Ok(EmbeddedImage {
-                name:  format!("{name}#{}", image.index()),
-                bytes: blob[view.offset()..view.offset() + view.length()].to_vec(),
+                name:   format!("{name}#{}", image.index()),
+                bytes:  blob[view.offset()..view.offset() + view.length()].to_vec(),
+                levels: None,
             }),
             image::Source::Uri { uri, .. } => Err(anyhow!(
                 "{name}: image {} is the external file {uri}, only embedded images load",
@@ -143,6 +148,8 @@ pub(crate) fn parse_glb(data: &[u8], name: &str) -> Result<ModelSource> {
         bounds,
         rig,
         rest_joints,
+        picking: true,
+        triangles: None,
     })
 }
 
@@ -277,10 +284,12 @@ fn primitive_parts(
                 .iter()
                 .zip(&normals)
                 .enumerate()
-                .map(|(i, (pos, normal))| Vertex3D {
-                    pos:    *pos,
-                    normal: *normal,
-                    uv:     uvs.as_ref().map_or_else(Point::default, |uvs| uvs[i]),
+                .map(|(i, (pos, normal))| {
+                    Vertex3D::new(
+                        *pos,
+                        *normal,
+                        uvs.as_ref().map_or_else(Point::default, |uvs| uvs[i]),
+                    )
                 })
                 .collect(),
             skin: skin_vertices,
@@ -305,6 +314,8 @@ fn primitive_parts(
             node,
             skin: skin.map(|(index, _)| index),
             material,
+            smooth_colors: false,
+            flowing: false,
         })
         .collect())
 }
@@ -361,11 +372,11 @@ fn flat_shaded(
         ];
         let normal = (b - a).cross(c - a).normalize_or_zero();
         for &index in triangle {
-            vertices.push(Vertex3D {
-                pos: positions[index],
+            vertices.push(Vertex3D::new(
+                positions[index],
                 normal,
-                uv: uvs.map_or_else(Point::default, |uvs| uvs[index]),
-            });
+                uvs.map_or_else(Point::default, |uvs| uvs[index]),
+            ));
             if let (Some(out), Some(skin)) = (&mut skin_vertices, skin) {
                 out.push(skin[index]);
             }
@@ -377,69 +388,6 @@ fn flat_shaded(
         vertices,
         skin: skin_vertices,
     }
-}
-
-/// Splits a primitive of `count` vertices into meshes of at most
-/// `MAX_VERTICES` vertices, whole triangles only, so every part draws
-/// with 16 bit indices. Each part is the source index of its vertices
-/// and its own indices.
-fn split_u16(count: usize, indices: &[usize]) -> Vec<(Vec<usize>, Vec<u16>)> {
-    let index = |i: usize| u16::try_from(i).expect("a part holds at most 65535 vertices");
-
-    if count <= MAX_VERTICES {
-        return vec![((0..count).collect(), indices.iter().map(|&i| index(i)).collect())];
-    }
-
-    let mut parts = vec![];
-    let mut remap: Vec<Option<u16>> = vec![None; count];
-    let mut part_sources: Vec<usize> = vec![];
-    let mut part_indices: Vec<u16> = vec![];
-
-    for triangle in indices.as_chunks::<3>().0 {
-        let new = triangle.iter().filter(|&&i| remap[i].is_none()).count();
-        if part_sources.len() + new > MAX_VERTICES {
-            parts.push((take(&mut part_sources), take(&mut part_indices)));
-            remap.fill(None);
-        }
-        for &i in triangle {
-            let slot = *remap[i].get_or_insert_with(|| {
-                part_sources.push(i);
-                index(part_sources.len() - 1)
-            });
-            part_indices.push(slot);
-        }
-    }
-
-    if !part_indices.is_empty() {
-        parts.push((part_sources, part_indices));
-    }
-
-    parts
-}
-
-fn material_source(material: &gltf::Material) -> Option<MaterialSource> {
-    // The default material has no index, the node's material stands in.
-    material.index()?;
-
-    let pbr = material.pbr_metallic_roughness();
-    let [r, g, b, a] = pbr.base_color_factor();
-    // Only a blended material is translucent, a masked one draws solid.
-    let alpha = if material.alpha_mode() == AlphaMode::Blend {
-        a
-    } else {
-        1.0
-    };
-    let normal = material.normal_texture();
-
-    Some(MaterialSource {
-        // glTF factors are linear light, the engine's colors are encoded.
-        color:        Color::rgba(r, g, b, alpha).encoded(),
-        metallic:     pbr.metallic_factor(),
-        roughness:    pbr.roughness_factor(),
-        texture:      pbr.base_color_texture().map(|info| info.texture().source().index()),
-        normal_map:   normal.as_ref().map(|normal| normal.texture().source().index()),
-        normal_scale: normal.map_or(1.0, |normal| normal.scale()),
-    })
 }
 
 /// The node tree with its skins and clips, for a file that has either.
@@ -501,6 +449,10 @@ fn rig(document: &Document, blob: &[u8], name: &str) -> Result<Option<Rig>> {
 
     Ok(Some(Rig {
         nodes,
+        names: document
+            .nodes()
+            .map(|node| node.name().unwrap_or_default().to_string())
+            .collect(),
         order,
         skins,
         clips,
@@ -598,6 +550,7 @@ mod test {
     use std::{fs, path::PathBuf};
 
     use super::*;
+    use crate::scene::model::split::MAX_VERTICES;
 
     fn fixture(name: &str) -> Vec<u8> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets/models").join(name);
@@ -626,13 +579,9 @@ mod test {
     #[test]
     fn tree_carries_its_nodes_and_materials() {
         let model = parse_glb(&fixture("tree.glb"), "tree.glb").unwrap();
-        assert!(model.parts.len() >= 4, "{} parts", model.parts.len());
+        assert!(model.parts.len() >= 5, "{} parts", model.parts.len());
         let materials: Vec<MaterialSource> = model.parts.iter().filter_map(|part| part.material).collect();
-        assert_eq!(
-            materials.len(),
-            model.parts.len() - 1,
-            "every mesh but the plane has a material"
-        );
+        assert_eq!(materials.len(), model.parts.len(), "every mesh has a material");
         // The leaves are green, the trunk brown.
         assert!(materials.iter().any(|material| material.color.g > material.color.r));
         assert!(materials.iter().any(|material| material.color.r > material.color.g));
@@ -649,6 +598,30 @@ mod test {
         let material = model.parts[0].material.expect("the cube has a material");
         assert_eq!(material.texture, Some(0));
         assert!(model.parts[0].vertices.iter().any(|vertex| vertex.uv != Point::default()));
+    }
+
+    // The cutoff in the file is not the glTF default, so one that was
+    // dropped on the way shows. The texture stays a png, a jpeg has no
+    // alpha to cut by.
+    #[test]
+    fn leaf_card_is_masked_with_its_own_cutoff() {
+        let model = parse_glb(&fixture("leaf_card.glb"), "leaf_card.glb").unwrap();
+        assert_eq!(model.parts.len(), 2);
+        assert_eq!(model.images.len(), 1);
+        assert!(model.images[0].bytes.starts_with(b"\x89PNG"), "png bytes");
+        for part in &model.parts {
+            let material = part.material.expect("the cards have a material");
+            assert_eq!(material.texture, Some(0));
+            let cutout = material.cutout.expect("a masked material is cut out");
+            assert!((cutout - 0.3).abs() < 1e-6, "{cutout}");
+        }
+
+        let tree = parse_glb(&fixture("tree.glb"), "tree.glb").unwrap();
+        assert!(
+            tree.parts
+                .iter()
+                .all(|part| part.material.is_some_and(|material| material.cutout.is_none()))
+        );
     }
 
     // The bar is skinned to a chain of four bones and carries the one
@@ -821,36 +794,5 @@ mod test {
         let skinned = geometry.skin.expect("the skin follows the vertices");
         assert_eq!(skinned[1].joints[0], 2);
         assert_eq!(skinned[2].joints[0], 1);
-    }
-
-    #[test]
-    fn a_big_primitive_splits_into_parts_of_whole_triangles() {
-        let count = MAX_VERTICES + 10;
-        // A fan, every triangle shares vertex zero.
-        let indices: Vec<usize> = (1..count - 1).flat_map(|i| [0, i, i + 1]).collect();
-        let parts = split_u16(count, &indices);
-        assert_eq!(parts.len(), 2);
-        let total: usize = parts.iter().map(|(_, indices)| indices.len()).sum();
-        assert_eq!(total, indices.len());
-        for (sources, indices) in &parts {
-            assert!(sources.len() <= MAX_VERTICES);
-            assert_eq!(indices.len() % 3, 0);
-            assert!(indices.iter().all(|&i| usize::from(i) < sources.len()));
-        }
-        // Vertex zero is in both parts, once each.
-        assert!(
-            parts
-                .iter()
-                .all(|(sources, _)| sources.iter().filter(|&&i| i == 0).count() == 1)
-        );
-        assert!(parts[1].0.contains(&(count - 1)));
-    }
-
-    #[test]
-    fn a_small_primitive_is_one_part() {
-        let parts = split_u16(3, &[0, 1, 2]);
-        assert_eq!(parts.len(), 1);
-        assert_eq!(parts[0].0, vec![0, 1, 2]);
-        assert_eq!(parts[0].1, vec![0, 1, 2]);
     }
 }

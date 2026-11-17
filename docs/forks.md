@@ -1,0 +1,269 @@
+# Forks
+
+Hilen replaces 7 crates.io crates with forks, all declared in the root `Cargo.toml`.
+`wgpu` and `winit` come from crates.io under the `hilen-` prefix, `wgpu_text`,
+`ffmpeg-next`, `ffmpeg-sys-next`, `openxr` and `openxr-sys` are git dependencies pinned by rev. Every fork clone lives in `~/dev/forks/<name>` with an
+`upstream` remote next to `origin`. Why each fork exists is in [ios.md](ios.md) for wgpu
+and wgpu_text and in [tvos.md](tvos.md) for winit. This file tracks what each fork
+carries against upstream and how a fix goes upstream.
+
+Before a rebase, tag the old head of every fork, `pin-<date>`, and push the tag. Hilen
+pins `wgpu_text` by rev, and a rev that no branch reaches any more fails to fetch. The
+last rebase of wgpu and winit was on 2026-09-03, the old heads are `pin-2026-09-03`.
+The last rebase of wgpu-text was on 2026-10-27, its old head is `pin-2026-10-27`.
+
+## wgpu
+
+Branch `ios-edr-guard` at github.com/VladasZ/wgpu sits on the upstream v30.0.1 tag with
+4 commits on top, plus the version bumps. Only the Metal backend differs from stock wgpu
+30, Apple only, so Windows, Linux, Android and wasm builds of `hilen-wgpu` are identical
+to upstream.
+
+- Guard `wantsExtendedDynamicRangeContent` behind iOS 16. Merged upstream as
+  [gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257) on 2026-09-16, on
+  trunk only, so v31 is the first release with it.
+- Rename the published crates to the `hilen-` prefix. Fork only, never goes upstream.
+- Tag the Metal layer with an explicit sRGB colorspace, 1 line in the match. Upstream sets
+  nil, its comment says the layer default treats content as sRGB, but Apple's doc for
+  `CAMetalLayer.colorspace` says the nil default means the content is not color matched,
+  so sRGB content oversaturates on a P3 display. Upstream had the bug on file as
+  [gfx-rs/wgpu#10013](https://github.com/gfx-rs/wgpu/issues/10013). The same line was
+  merged upstream as [gfx-rs/wgpu#10286](https://github.com/gfx-rs/wgpu/pull/10286) by
+  another contributor on 2026-09-29, on trunk only. No PR from us.
+- The time a presented frame reached the screen, `metal::on_next_presented` in the new
+  file `wgpu-hal/src/metal/presented.rs` and 1 line in `present`. The handler is given
+  to the next drawable that is presented and gets the seconds since Metal showed it,
+  from `presentedTime` of the drawable. The frame record of the inspector reads it, see
+  [inspect.md](inspect.md). Published as `hilen-wgpu-hal` 30.0.3 on 2026-10-12, the root
+  `Cargo.toml` asks for that version by name. Fork only, upstream wgpu has no present
+  time on any backend, so this keeps the fork alive past v31. The drawable of the iOS
+  16.4 simulator has no `addPresentedHandler`, and the call threw an Objective-C
+  exception that ended the app at the first frame of a record. `attach` asks
+  `respondsToSelector:` first, such a frame gets no screen time. Published as
+  `hilen-wgpu-hal` 30.0.4 on 2026-10-18.
+
+Both fixes are on trunk, which is v31, and neither is copied to the upstream `v30`
+branch. The decision is to wait for v31, not to send a backport. The upstream v31
+milestone is due 2026-10-09. Once hilen moves to a v31 that holds both, the fork carries
+only the rename and the presented time below. The plan to go back to stock `wgpu`
+with v31 waits until upstream has a present time of its own.
+`wgpu_text` moves with it, its fork depends on `hilen-wgpu` and two `wgpu`
+crates do not interchange, see [ios.md](ios.md). Check on an iOS 12 device and on a P3
+display first.
+
+The 2026-09-03 rebase dropped the null WebGPU adapter commit, upstream v30.0.1 fixed it
+through wasm-bindgen 0.2.127. Upstream trunk is v31 work with breaking changes, the
+rebase target stays the newest v30 tag until hilen moves major.
+
+Publishing follows upstream's habit, only the crates whose content changed get the new
+version and the internal version requirements stay at `30.0.0`. The 2026-09-03 rebase
+touched `wgpu` and `wgpu-hal`, so crates.io has `hilen-wgpu` and `hilen-wgpu-hal` at
+30.0.2 while `hilen-wgpu-core` and the 4 `hilen-wgpu-core-deps-*` crates stay at 30.0.0.
+The presented time on 2026-10-12 and its simulator guard on 2026-10-18 touched only
+`wgpu-hal`, so `hilen-wgpu-hal` alone is at 30.0.4.
+The workspace version bump is its own commit on the branch. Publish order is
+`hilen-wgpu-hal` first, then `hilen-wgpu`, each `cargo publish -p <name>` from a clean
+tree. Hilen then takes them with `cargo update -p hilen-wgpu -p hilen-wgpu-hal`, and
+`cargo update -p cfg_aliases` since upstream v30.0.1 needs 0.2.2. Check with
+`cargo tree -d --depth 0 -p demo` that no wgpu crate is duplicated.
+
+## wgpu-text
+
+Branch `master` at github.com/VladasZ/wgpu-text sits on upstream master after the merge
+of #48, with 10 commits on top. The examples do not build there, they still import
+`wgpu_text` and the crate is renamed.
+
+What upstream already has from us, so the fork no longer carries it:
+
+- Custom layout queueing and glyph bounds, `queue_custom_layout`, `process_queued`,
+  `glyph_bounds_custom_layout`, named after the `glyph_brush` methods they wrap. Merged
+  as [Blatko1/wgpu-text#47](https://github.com/Blatko1/wgpu-text/pull/47) on 2026-09-23,
+  released in v30.0.1.
+- Several `queue` and `draw` calls per frame, and earlier batches that keep their glyphs
+  when the cache texture is full. Merged as 1 commit,
+  [Blatko1/wgpu-text#48](https://github.com/Blatko1/wgpu-text/pull/48), on 2026-10-14,
+  not in a release yet. The vertex buffer is bump allocated, a plain `queue` or
+  `process_queued` starts it over and `queue_append` or `process_queued_append` writes
+  after the earlier batch. `Font::begin_frame` and its `first_batch` flag pick the call
+  in hilen. A later batch whose texture writes land on a glyph an earlier batch of the
+  frame still draws writes into a copy of the texture, and the next frame starts with a
+  texture of double size, see [text.md](text.md).
+
+2 commits came from the LG TV, see [webos.md](webos.md):
+
+- The glyph cache forks from memory. The cache keeps its pixels, one byte a texel, and
+  writes the forked texture from them. The texture to texture copy it replaced made the
+  TV drop its WebGL context.
+- Brushes share one set of text pipelines. `shared.rs` builds the shader module, both
+  pipelines and the bind group layout once per device, target format, depth state,
+  sample count and stem darkening, kept per thread. A brush per font used to build its
+  own, about 1.2 seconds each on the TV.
+
+These 2 build on #48 and are the next upstream candidates, together with
+`with_multithread` below.
+
+The gamma corrected blending commit was dropped on 2026-09-19. It only acted on sRGB
+targets and hilen renders into plain Unorm since 2026-07-26, see
+[colors.md](colors.md), so it never ran. The old heads of that day are
+`pin-2026-09-19`, `pin-2026-09-19b` and `pin-2026-09-19c`.
+
+`BrushBuilder::with_multithread` passes the `multithread` switch of `glyph_brush`
+through, so a hot build keeps the glyph cache off the global rayon pool, see
+[hot-reload.md](hot-reload.md).
+
+The newest commit tests a texture write of a later batch against the atlas slot of
+each drawn glyph, not against its quad, see [text.md](text.md). The brush now gets
+the shared pipelines and passes them to `Pipeline::new`, which takes 4 arguments and
+is under the clippy limit again.
+
+The second color per section, the stem darkening entry point, the effect pipeline
+for outlines and soft shadows, see [text.md](text.md), and the `hilen-wgpu`
+dependency stay in the fork.
+
+## winit
+
+Branch `tvos-0.30` at github.com/VladasZ/winit sits on the v0.30.13 tag, the newest
+0.30 release, with 6 commits on top: tvos in the cfg aliases and target sections, the
+5 view controller selectors guarded on tvos, the rename, the feature `ios-attach`, the
+presses of the remote of an Apple TV sent as key events, see [tvos.md](tvos.md), and
+`latin_key` of a key event, the Latin letter of the key for a binding on a layout that
+types other letters, see [focus.md](focus.md). It is in the `modifier_supplement` trait
+on Windows, macOS, X11 and Wayland, fork only so far. On iOS `Window::theme` reads
+`userInterfaceStyle` of the view and the view sends `ThemeChanged` from
+`traitCollectionDidChange:`, so an app follows the light or dark theme of the phone,
+fork only. crates.io has it as `hilen-winit` 0.30.17. The root `Cargo.toml` asks for that full
+version, not for `0.30`. An app that pins hilen by rev keeps the version of its own
+lock file while it fits the requirement, so with `0.30` an app stayed on a fork with no
+remote presses after a rev bump. Raise the requirement with every new fork version the
+engine needs.
+
+`ios-attach` lets the event loop run on a `UIApplication` that someone else started,
+and leave it again: `EventLoopExtIOSAttach::run_app_attached`, `detach` and
+`release_classes` in `winit::platform::ios`. A hot build needs it, see
+[hot-reload.md](hot-reload.md). Fork only so far, upstream 0.30 takes no features. The
+fork cannot be checked by itself, its dev dependency on itself has the old name, so the
+proof is a build of hilen with a path dependency, then `far crates-publish -p
+hilen-winit`. Upstream master is 0.31 beta,
+not a target. The same tvOS support is open upstream as
+[rust-windowing/winit#4665](https://github.com/rust-windowing/winit/pull/4665) by
+another contributor since 2026-08-10, it covers the same selectors plus CI and examples.
+When it merges and a 0.30 release carries it, drop the 2 tvos commits from the fork.
+
+## ffmpeg-next and ffmpeg-sys-next
+
+Branch `hilen` at github.com/VladasZ/rust-ffmpeg and at
+github.com/VladasZ/rust-ffmpeg-sys, each on the upstream v9.0.0 tag with a few commits
+on top, both git dependencies pinned by rev. The `video` feature links them, see
+[video.md](video.md).
+
+- `rust-ffmpeg-sys`: with no `FFMPEG_DIR` and a static link, the build script downloads
+  the archive that its own `prebuilt.txt` names for the target into `OUT_DIR`, headers
+  and libraries, and links that, plus what the archive's `lib/link.txt` lists, like
+  dav1d and zlib. Hilen's own convention, fork only. 5 commits on top. The first commit drops the `QTKit` framework from the macOS
+  link line, the arm64 SDK no longer ships it and every link printed an
+  `ld: ignoring file` warning. Upstream candidate, not sent yet.
+- `rust-ffmpeg`: takes `ffmpeg-sys-next` from the sys fork by rev, so the tree holds
+  one copy of the bindings. Fork only. 5 commits on top.
+
+## openxr and openxr-sys
+
+Branch `static-crt` at github.com/VladasZ/openxrs, on the upstream commit `eba4c6a`
+that published `openxr` 0.22.0 and `openxr-sys` 0.14.0, 1 commit on top. `openxr`
+takes `openxr-sys` by path inside the repo, so 1 git dependency on `openxr` brings
+both. The `xr` feature links them, see the doc of `hilen::xr`.
+
+- The `static` feature builds the OpenXR loader with cmake. The SDK's
+  `src/loader/CMakeLists.txt` forces the DLL C runtime on a static loader with MSVC,
+  and hilen links the static one through `+crt-static`, so the link missed `fgetpos`,
+  `modf` and 3 more. The build script writes a `CMAKE_PROJECT_INCLUDE` file that
+  defers `MSVC_RUNTIME_LIBRARY MultiThreaded` on `openxr_loader` to the end of the
+  configure, only for an MSVC target with `crt-static`. Upstream candidate, not sent
+  yet.
+- Upstream `master` after 0.22.0, at `7914f1f` on 2026-11-11, does not build the static
+  loader on Windows: its search path `build/src/loader` misses the `Release` folder of
+  the Visual Studio generator. So the branch stays on the release commit.
+
+## Updating a fork to the newest upstream
+
+```bash
+cd ~/dev/forks/<name>
+git tag pin-<date> <branch> && git push origin pin-<date>
+git fetch upstream --tags
+git rebase --onto <upstream tag> <old base> <branch>
+```
+
+The rename commit conflicts in `Cargo.toml` on `repository` and `version`, keep the
+fork's repository and the new upstream version. Its `Cargo.lock` conflict is resolved by
+taking the upstream lock, `git checkout --ours Cargo.lock`, then `cargo update -w
+--offline`, which drops the trimmed workspace members without moving any version. After
+the rename the packages are `hilen-wgpu-hal` and friends, so every cargo command uses
+those names.
+
+Proof before pushing is hilen itself. Add a temporary patch section to hilen's root
+`Cargo.toml`, never committed:
+
+```toml
+[patch.crates-io]
+hilen-wgpu = { path = "../forks/wgpu/wgpu" }
+hilen-wgpu-core = { path = "../forks/wgpu/wgpu-core" }
+hilen-wgpu-hal = { path = "../forks/wgpu/wgpu-hal" }
+hilen-wgpu-core-deps-apple = { path = "../forks/wgpu/wgpu-core/platform-deps/apple" }
+hilen-wgpu-core-deps-emscripten = { path = "../forks/wgpu/wgpu-core/platform-deps/emscripten" }
+hilen-wgpu-core-deps-wasm = { path = "../forks/wgpu/wgpu-core/platform-deps/wasm" }
+hilen-wgpu-core-deps-windows-linux-android = { path = "../forks/wgpu/wgpu-core/platform-deps/windows-linux-android" }
+
+[patch."https://github.com/VladasZ/wgpu-text"]
+hilen-wgpu-text = { path = "../forks/wgpu-text" }
+```
+
+`cargo tree -p demo --duplicates` must show 1 copy of every wgpu crate, then `make
+smoke`. Path crates show their own warnings, crates.io crates hide them, so an upstream
+`expect(unused)` in wgpu-core shows up here and is not ours. Restore `Cargo.toml` and
+`Cargo.lock` with `git checkout` afterwards, then force push the fork branch.
+
+## Sending a fork fix upstream
+
+The fork is a real GitHub fork, so a PR can come from any branch of it. The PR branch
+must start from upstream trunk, never from the fork branch, or the rename commit rides
+along. This is how #10257 was made.
+
+```bash
+cd ~/dev/forks/wgpu
+git fetch upstream trunk
+git switch -c <branch> upstream/trunk
+git apply <fix>.patch
+```
+
+The patch carries only the fix plus one `CHANGELOG.md` line under Unreleased, Bug
+Fixes, the backend heading, with `#NNNN` as the PR number. Gates before the commit, all
+on the toolchain wgpu pins in its `rust-toolchain.toml`:
+
+```bash
+cargo fmt --check -p wgpu-hal
+cargo clippy -p wgpu-hal --features metal -- -D warnings
+rustup target add aarch64-apple-ios --toolchain <pinned>
+cargo check -p wgpu-hal --features metal --target aarch64-apple-ios
+```
+
+Then commit, push to the fork and open the PR against trunk:
+
+```bash
+git push -u origin <branch>
+gh pr create --repo gfx-rs/wgpu --base trunk --head VladasZ:<branch> --title '...' --body-file body.md
+```
+
+Put the printed number into the changelog line, amend, `git push --force-with-lease`.
+
+The PR template has Connections, Description, Testing, Squash or Rebase and a checklist.
+Only Description and Testing are needed. Recent external PRs landed without the rest and
+the template itself says ticking the boxes is not required. Connections stays only when
+a real issue exists, as `Closes #NNNN`. Squash or Rebase only matters with more than 1
+commit. Description says what is
+missing, where it is called, what happens and why skipping it is safe, in a few plain
+sentences. Testing names the device and OS version it ran on. The title follows the
+recent metal fixes, `fix(metal): ...`. The 2024 PR
+[#5744](https://github.com/gfx-rs/wgpu/pull/5744) is the same shape with a pasted crash
+log, paste one when there is one.
+
+After the PR the clone sits on the PR branch. Switch back to `ios-edr-guard` before any
+fork work for hilen.

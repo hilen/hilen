@@ -46,6 +46,11 @@ pub fn platforms() {
 
         tvos:    { target_os = "tvos" },
 
+        // a real iPhone, iPad or Apple TV, not the simulator
+        device_ios: { all(any(target_os = "ios", target_os = "tvos"), not(target_abi = "sim")) },
+        // the iOS or the Apple TV simulator
+        sim_ios:    { all(any(target_os = "ios", target_os = "tvos"), target_abi = "sim") },
+
         macos:   { target_os = "macos" },
         linux:   { target_os = "linux" },
         win:     { target_os = "windows" },
@@ -53,7 +58,10 @@ pub fn platforms() {
         desktop: { any(target_os =   "macos", target_os = "linux", target_os = "windows") },
         mobile:  { any(target_os = "android", target_os =   "ios", target_os =    "tvos") },
 
-        apple:   { any(target_os = "macos", target_os = "ios", target_os = "tvos") }
+        apple:   { any(target_os = "macos", target_os = "ios", target_os = "tvos") },
+
+        // where a video is decoded by ffmpeg, the targets with a prebuilt archive
+        ffmpeg:  { any(target_os = "macos", target_os = "linux", target_os = "windows", target_os = "ios", target_os = "tvos") }
     }
 }
 

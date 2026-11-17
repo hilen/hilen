@@ -1,7 +1,7 @@
 use ui_proc::view;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     gm::{
         ToF32,
         color::Color,
@@ -23,18 +23,19 @@ pub struct CircleView {
 }
 
 impl CircleView {
-    pub fn set_radius(&mut self, radius: impl ToF32) -> &mut Self {
+    pub fn set_radius(&self, radius: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
         let radius = radius.to_f32();
 
-        if (radius - self.radius).abs() < f32::EPSILON {
+        if (radius - this.radius).abs() < f32::EPSILON {
             return self;
         }
 
-        self.radius = radius;
+        this.radius = radius;
 
         let diameter = radius.to_f32() * 2.0;
-        self.set_size(diameter, diameter);
-        self.redraw();
+        this.set_size(diameter, diameter);
+        this.redraw();
         self
     }
 
@@ -42,9 +43,10 @@ impl CircleView {
     /// for the background. A `&self` trait method wins resolution over a
     /// `&mut self` inherent one, so a same named method here would be
     /// silently unreachable.
-    pub fn set_circle_color(&mut self, color: Color) {
-        self.color = color;
-        self.redraw();
+    pub fn set_circle_color(&self, color: Color) {
+        let mut this = weak_from_ref(self);
+        this.color = color;
+        this.redraw();
     }
 
     fn redraw(&mut self) {

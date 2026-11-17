@@ -10,6 +10,35 @@ use crate::{
 pub(crate) trait Scrollable: View {
     fn __process_scroll_touch(&mut self, touch: Touch) -> bool;
     fn __process_wheel_scroll(&mut self, delta: Point);
+
+    /// A finger on it moves it sideways, so it starts no `SideSwipe`.
+    fn __moves_sideways(&self) -> bool {
+        false
+    }
+
+    /// Whether a sideways wheel move by `delta_x` moves it. In a browser a
+    /// move no view takes is left to the page, so the 2 finger swipe of a
+    /// trackpad goes back or forward. A view that zooms on the wheel keeps
+    /// every move.
+    fn __takes_wheel_x(&self, _delta_x: f32) -> bool {
+        true
+    }
+
+    /// Whether a wheel move by `delta` moves it. A move it cannot take goes
+    /// on to the scroll view behind it, like a page around a text field
+    /// that has nothing to scroll. A view that zooms on the wheel keeps
+    /// every move.
+    #[cfg(feature = "gpu")]
+    fn __takes_wheel(&self, _delta: Point) -> bool {
+        true
+    }
+
+    /// A scroll the engine asks for itself, like the focus ring. Each
+    /// axis has to move by its own delta, so it skips the rule that
+    /// sends a plain wheel sideways in a view with no vertical range.
+    fn __scroll_by(&mut self, delta: Point) {
+        self.__process_wheel_scroll(delta);
+    }
 }
 
 pub(crate) struct TouchLayer {
@@ -20,8 +49,14 @@ pub(crate) struct TouchLayer {
     /// and registration order alone would hand the divider's touches to
     /// that content.
     high_priority:   Vec<WeakView>,
+    /// Checked after every other view of the layer, whenever registered.
+    /// The scrim of a modal covers the whole window to hear a press
+    /// outside the modal. In the low priority tier it came before the
+    /// low priority views of the modal, like a table, and took their taps.
+    backdrop:        Option<WeakView>,
     hovered:         Vec<WeakView>,
     high_hovered:    Vec<WeakView>,
+    pinched:         Vec<WeakView>,
     scrolls:         WeakVec<dyn Scrollable>,
 }
 
@@ -33,6 +68,7 @@ pub(crate) struct Extracted {
     high_priority: Vec<WeakView>,
     hovered:       Vec<WeakView>,
     high_hovered:  Vec<WeakView>,
+    pinched:       Vec<WeakView>,
     scrolls:       WeakVec<dyn Scrollable>,
 }
 
@@ -44,25 +80,49 @@ impl TouchLayer {
         self.scrolls.push(view);
     }
 
+    /// A view already in the high priority tier stays there, so a `Button`
+    /// whose `on_tap` turns its touch on again keeps its tier.
     pub fn add(&mut self, view: WeakView) {
-        if self.listeners.iter().any(|l| l.raw() == view.raw()) {
+        if self.is_listed(view) {
             return;
         }
         self.listeners.push(view);
     }
 
     pub(crate) fn add_low_priority(&mut self, view: WeakView) {
-        if self.listeners.iter().any(|l| l.raw() == view.raw()) {
+        if self.is_listed(view) {
             return;
         }
         self.listeners.insert(0, view);
     }
 
+    /// The view the layer asks last, see `backdrop`.
+    pub(crate) fn add_backdrop(&mut self, view: WeakView) {
+        self.listeners.retain(|l| l.raw() != view.raw());
+        self.high_priority.retain(|l| l.raw() != view.raw());
+        self.backdrop = Some(view);
+    }
+
+    /// The view the layer asks last, see `backdrop`.
+    pub(crate) fn backdrop(&self) -> Option<WeakView> {
+        self.backdrop
+    }
+
+    /// A plain listener that turns high priority on moves to the tier.
     pub(crate) fn add_high_priority(&mut self, view: WeakView) {
+        self.listeners.retain(|l| l.raw() != view.raw());
         if self.high_priority.iter().any(|l| l.raw() == view.raw()) {
             return;
         }
         self.high_priority.push(view);
+    }
+
+    fn is_listed(&self, view: WeakView) -> bool {
+        self.listeners
+            .iter()
+            .chain(&self.high_priority)
+            .chain(&self.backdrop)
+            .any(|l| l.raw() == view.raw())
     }
 
     pub(crate) fn add_hover(&mut self, view: WeakView) {
@@ -79,9 +139,30 @@ impl TouchLayer {
         self.high_hovered.push(view);
     }
 
+    pub(crate) fn add_pinch(&mut self, view: WeakView) {
+        if self.pinched.iter().any(|l| l.raw() == view.raw()) {
+            return;
+        }
+        self.pinched.push(view);
+    }
+
     pub(crate) fn remove(&mut self, view: WeakView) {
         self.listeners.retain(|a| a.raw() != view.raw());
         self.high_priority.retain(|a| a.raw() != view.raw());
+        if self.backdrop.is_some_and(|backdrop| backdrop.raw() == view.raw()) {
+            self.backdrop = None;
+        }
+    }
+
+    /// Takes `view` out of every list: its touch, its hover, its pinch and
+    /// its wheel. A touch or a wheel over it goes on to the views below.
+    pub(crate) fn remove_input(&mut self, view: WeakView) {
+        let raw = view.raw();
+        self.remove(view);
+        self.hovered.retain(|a| a.raw() != raw);
+        self.high_hovered.retain(|a| a.raw() != raw);
+        self.pinched.retain(|a| a.raw() != raw);
+        self.scrolls.retain(|a| a.raw() != raw);
     }
 
     /// Moves every registration sitting under `root` out of this layer,
@@ -131,6 +212,14 @@ impl TouchLayer {
                 true
             }
         });
+        self.pinched.retain(|v| {
+            if is_under(*v) {
+                extracted.pinched.push(*v);
+                false
+            } else {
+                true
+            }
+        });
         self.scrolls.retain(|s| {
             if s.is_ok() && is_under(s.weak_view()) {
                 extracted.scrolls.push(*s);
@@ -166,6 +255,11 @@ impl TouchLayer {
                 self.add_hover_high_priority(view);
             }
         }
+        for view in extracted.pinched {
+            if view.is_ok() {
+                self.add_pinch(view);
+            }
+        }
         for scroll in extracted.scrolls {
             if scroll.is_ok() {
                 self.add_scroll(scroll);
@@ -179,22 +273,31 @@ impl TouchLayer {
             high_priority: std::mem::take(&mut self.high_priority),
             hovered:       std::mem::take(&mut self.hovered),
             high_hovered:  std::mem::take(&mut self.high_hovered),
+            pinched:       std::mem::take(&mut self.pinched),
             scrolls:       std::mem::take(&mut self.scrolls),
         }
     }
 
-    /// Plain listeners first, the high priority tier after them. Dispatch
-    /// iterates the result reversed, so the tier is checked first.
+    /// The backdrop first, then the plain listeners, the high priority
+    /// tier after them. Dispatch iterates the result reversed, so the tier
+    /// is checked first and the backdrop last.
     pub(crate) fn views(&self) -> Vec<WeakView> {
-        let mut views = self.listeners.clone();
+        let mut views: Vec<WeakView> = self.backdrop.into_iter().collect();
+        views.extend_from_slice(&self.listeners);
         views.extend_from_slice(&self.high_priority);
         views
     }
 
-    pub(crate) fn hovered(&self) -> Vec<WeakView> {
-        let mut views = self.hovered.clone();
-        views.extend_from_slice(&self.high_hovered);
-        views
+    pub(crate) fn plain_hovered(&self) -> &[WeakView] {
+        &self.hovered
+    }
+
+    pub(crate) fn high_hovered(&self) -> &[WeakView] {
+        &self.high_hovered
+    }
+
+    pub(crate) fn pinched(&self) -> &[WeakView] {
+        &self.pinched
     }
 
     pub(crate) fn scrolls(&self) -> WeakVec<dyn Scrollable> {
@@ -209,8 +312,12 @@ impl TouchLayer {
         assert!(self.root.is_ok());
         self.listeners.remove_freed();
         self.high_priority.remove_freed();
+        if self.backdrop.is_some_and(|backdrop| !backdrop.is_ok()) {
+            self.backdrop = None;
+        }
         self.hovered.remove_freed();
         self.high_hovered.remove_freed();
+        self.pinched.remove_freed();
         self.scrolls.remove_freed();
     }
 }
@@ -221,8 +328,10 @@ impl From<WeakView> for TouchLayer {
             root,
             listeners: vec![],
             high_priority: vec![],
+            backdrop: None,
             hovered: vec![],
             high_hovered: vec![],
+            pinched: vec![],
             scrolls: vec![],
         }
     }

@@ -15,7 +15,7 @@ use crate::{
         InstanceBinding, InstanceChunks, LabPipeline,
         data::{RectView, UIRectInstance},
     },
-    ui::{Setup, UIManager, ViewCallbacks, ViewTest, view},
+    ui::{DrawsItself, Setup, UIDrawer, UIManager, ViewTest, view},
     ui_test::{check_colors, set_record_probe_count},
     window::RenderPass,
 };
@@ -52,11 +52,12 @@ impl Setup for UniformInstances {
             false,
             InstanceBinding::Uniform,
         ));
+        UIDrawer::draws_itself(self);
     }
 }
 
-impl ViewCallbacks for UniformInstances {
-    fn before_render(&self, pass: &mut RenderPass) {
+impl DrawsItself for UniformInstances {
+    fn draw(&self, pass: &mut RenderPass) {
         // The grid is laid out in screen pixels, the same unit the test canvas
         // is fixed in, so it lands on the same 600 by 600 pixels on every
         // platform. The rect shader maps a coordinate to a pixel with the

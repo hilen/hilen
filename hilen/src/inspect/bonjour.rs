@@ -1,0 +1,148 @@
+//! The announce of the inspect server on macOS, iOS and tvOS, see
+//! `docs/inspect.md`. On a Mac the system owns the mDNS port, the browse
+//! of `discovery` asks the system there too.
+//!
+//! On a real iPhone an app may not send multicast packets of its own, that
+//! needs an entitlement Apple gives on request. So the `mdns-sd` crate stays
+//! silent there with no error. The Bonjour service of the system announces
+//! for the app, and for that the `Info.plist` names the service type in
+//! `NSBonjourServices` and has a `NSLocalNetworkUsageDescription`.
+
+#[cfg(apple)]
+use std::{
+    ffi::{CString, c_char, c_void},
+    ptr::{null, null_mut},
+    sync::atomic::{AtomicPtr, Ordering},
+};
+
+#[cfg(apple)]
+use anyhow::bail;
+use anyhow::{Context, Result};
+
+#[cfg(apple)]
+use crate::inspect::protocol::SERVICE_TYPE;
+
+/// `_DNSServiceRef_t`, only ever behind a pointer here.
+#[cfg(apple)]
+#[repr(C)]
+struct Service {
+    private: [u8; 0],
+}
+
+#[cfg(apple)]
+unsafe extern "C" {
+    fn DNSServiceRegister(
+        service: *mut *mut Service,
+        flags: u32,
+        interface: u32,
+        name: *const c_char,
+        service_type: *const c_char,
+        domain: *const c_char,
+        host: *const c_char,
+        port: u16,
+        text_len: u16,
+        text: *const c_void,
+        callback: *const c_void,
+        context: *mut c_void,
+    ) -> i32;
+    fn DNSServiceRefDeallocate(service: *mut Service);
+}
+
+/// The announce lives as long as this reference does.
+#[cfg(apple)]
+static SERVICE: AtomicPtr<Service> = AtomicPtr::new(null_mut());
+
+/// Announces the inspect server of this app on the local network.
+#[cfg(apple)]
+pub(crate) fn announce(app_id: &str, app_name: &str, port: u16) -> Result<()> {
+    SERVICE.store(register(app_id, app_name, port)?, Ordering::Release);
+    Ok(())
+}
+
+/// An announce that ends when the value is dropped, for a tool that
+/// announces apps it serves, each for as long as it serves it.
+#[cfg(apple)]
+pub(crate) struct Held(*mut Service);
+
+// SAFETY: the reference goes back to the system only in `drop`, the system
+// does not tie it to a thread.
+#[cfg(apple)]
+unsafe impl Send for Held {}
+
+#[cfg(apple)]
+impl Drop for Held {
+    fn drop(&mut self) {
+        // SAFETY: made by `DNSServiceRegister`, given back once.
+        unsafe { DNSServiceRefDeallocate(self.0) };
+    }
+}
+
+#[cfg(apple)]
+pub(crate) fn announce_held(app_id: &str, app_name: &str, port: u16) -> Result<Held> {
+    Ok(Held(register(app_id, app_name, port)?))
+}
+
+#[cfg(apple)]
+fn register(app_id: &str, app_name: &str, port: u16) -> Result<*mut Service> {
+    let name = CString::new(app_id)?;
+    // The system wants the type alone, the domain is its own choice.
+    let service_type = CString::new(SERVICE_TYPE.trim_end_matches(".local."))?;
+    let mut text = text_record("app_id", app_id)?;
+    text.extend(text_record("name", app_name)?);
+
+    let mut service = null_mut();
+    // SAFETY: every pointer lives over the call, and the system copies what
+    // it keeps. With no callback nothing has to read the reference later.
+    let error = unsafe {
+        DNSServiceRegister(
+            &raw mut service,
+            0,
+            0,
+            name.as_ptr(),
+            service_type.as_ptr(),
+            null(),
+            null(),
+            port.to_be(),
+            u16::try_from(text.len())?,
+            text.as_ptr().cast(),
+            null(),
+            null_mut(),
+        )
+    };
+    if error != 0 {
+        bail!("Bonjour did not take the inspect service, error {error}");
+    }
+    Ok(service)
+}
+
+/// Takes the app off the network.
+#[cfg(hot)]
+pub(crate) fn stop() {
+    let service = SERVICE.swap(null_mut(), Ordering::AcqRel);
+    if !service.is_null() {
+        // SAFETY: made by `DNSServiceRegister` and taken out of the static.
+        unsafe { DNSServiceRefDeallocate(service) };
+    }
+}
+
+/// 1 entry of a DNS text record: a length byte, then `key=value`.
+#[cfg(any(apple, test))]
+fn text_record(key: &str, value: &str) -> Result<Vec<u8>> {
+    let entry = format!("{key}={value}");
+    let len = u8::try_from(entry.len())
+        .with_context(|| format!("a text record entry of {} bytes is too long", entry.len()))?;
+    let mut record = vec![len];
+    record.extend_from_slice(entry.as_bytes());
+    Ok(record)
+}
+
+#[cfg(test)]
+mod test {
+    use super::text_record;
+
+    #[test]
+    fn a_text_record_entry_starts_with_its_length() {
+        assert_eq!(text_record("app_id", "ABCDEF").unwrap(), b"\x0dapp_id=ABCDEF");
+        assert!(text_record("app_id", &"A".repeat(300)).is_err());
+    }
+}

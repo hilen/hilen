@@ -793,7 +793,7 @@ impl ViewTest for TableVariableHeights {
                 .map(|cell| (cell.tag(), cell.y()))
                 .collect();
 
-            assert!(!cells.is_empty());
+            assert_ne!(cells.len(), 0);
 
             for (index, y) in &cells {
                 assert!((*y - top(*index)).abs() < 0.01, "row {index}");

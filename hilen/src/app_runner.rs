@@ -1,45 +1,31 @@
-use std::{collections::HashMap, path::PathBuf, sync::Once};
+mod damage;
+mod window_events;
+
+use std::collections::HashMap;
 
 use anyhow::Result;
+#[cfg(not_wasm)]
 use log::debug;
-use winit::{
-    event::{KeyEvent, TouchPhase},
-    keyboard::Key,
-};
+use winit::event::TouchPhase;
 
 #[cfg(desktop)]
 use crate::deps::hreads::{is_main_thread, wait_for_next_frame};
 #[cfg(not_wasm)]
 use crate::deps::refs::Own;
-#[cfg(any(desktop, feature = "level"))]
-use crate::gm::LossyConvert;
-#[cfg(feature = "scene")]
-use crate::scene_drawer::SceneDrawer;
+#[cfg(desktop)]
+use crate::gm::{LossyConvert, flat::Size};
 use crate::{
     App,
-    deps::{
-        hreads::{from_main, invoke_dispatched},
-        refs::main_lock::MainLock,
-    },
-    gm::flat::{Point, Size},
-    pipelines::Pipelines,
-    ui::{
-        Hover, Input, Theme, Touch, TouchEvent, UIDrawer, UIEvents, UIManager, ViewData, ViewSubviews,
-        WeakView, ui_test::human_pause,
-    },
-    window::{ElementState, MouseButton, RenderFrame, Screenshot, Theme as OsTheme, Window},
+    deps::hreads::from_main,
+    gm::flat::Point,
+    ui::{Input, TouchEvent, UIManager, ui_test::human_pause},
+    window::{Screenshot, Window, slots::WindowLock},
 };
-#[cfg(feature = "level")]
-use crate::{level::LevelManager, level_drawer::LevelDrawer};
 
 #[cfg(not_wasm)]
 static WINDOW_READY: parking_lot::Mutex<crate::deps::vents::OnceEvent> =
     parking_lot::Mutex::new(crate::deps::vents::OnceEvent::const_default());
-static CURSOR_POSITION: MainLock<Point> = MainLock::new();
-
-/// Scroll sensitivity. Mouse wheel line deltas are already converted to
-/// pixels by `LINE_SCROLL_PIXELS` in the window crate, then scaled by this.
-const SCROLL_SPEED: f32 = 0.25;
+static CURSOR_POSITION: WindowLock<Point> = WindowLock::new();
 
 /// Mouse events use id 1 and `NO_TOUCH_ID` is 0, so real fingers start above
 /// both. Keeps a finger from ever colliding with the pointer or the "no
@@ -47,9 +33,11 @@ const SCROLL_SPEED: f32 = 0.25;
 const FIRST_TOUCH_ID: usize = 2;
 
 pub struct AppRunner {
-    pub cursor_position: Point,
-    touch_ids:           HashMap<u64, usize>,
-    next_touch_id:       usize,
+    touch_ids:     HashMap<u64, usize>,
+    /// Where the finger on the touch surface of an Apple TV remote was at
+    /// its last event, see `remote_surface`.
+    remote_finger: Option<Point>,
+    next_touch_id: usize,
 }
 
 impl AppRunner {
@@ -58,11 +46,22 @@ impl AppRunner {
     }
 
     pub(crate) fn cursor_position() -> Point {
-        *CURSOR_POSITION
+        **CURSOR_POSITION
+    }
+
+    #[cfg(all(not_wasm, not(hot)))]
+    fn log_file_output(path: &std::path::Path) -> std::io::Result<fern::Output> {
+        Ok(fern::log_file(path)?.into())
+    }
+
+    /// A hot build closes its log file at its stop, see `hot.rs`.
+    #[cfg(hot)]
+    fn log_file_output(path: &std::path::Path) -> std::io::Result<fern::Output> {
+        Ok(crate::hot::log_file(path)?.into())
     }
 
     #[cfg(not_wasm)]
-    pub(crate) fn setup_log(app_targets: &'static [&'static str]) {
+    pub(crate) fn setup_log(app_targets: &'static [&'static str], log_files_kept: usize) {
         use chrono::Local;
         use fern::Dispatch;
         use log::{Level, LevelFilter, info, warn};
@@ -79,25 +78,22 @@ impl AppRunner {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let output = std::io::stdout();
 
-        let mut dispatch = Dispatch::new()
-            .level(LevelFilter::Warn)
-            .level_for("hilen", LevelFilter::Debug)
-            .level_for("inspector", LevelFilter::Debug)
-            .level_for("netrun", LevelFilter::Debug);
-
-        for target in app_targets {
-            dispatch = dispatch.level_for(*target, LevelFilter::Debug);
-        }
+        let dispatch = Dispatch::new().level(LevelFilter::Debug).filter(move |metadata| {
+            metadata.level() <= Level::Warn || crate::app::is_debug_target(metadata.target(), app_targets)
+        });
 
         // The bug report ring keeps the same formatted lines the console
         // shows, so a report attaches exactly what the log printed.
+        #[cfg(feature = "bug-report")]
         let ring = fern::Output::call(|record| {
             crate::bug_report::BugReport::push_log_line(record.args().to_string());
         });
 
         // The file gets a timestamp per line, the console stays as it is so
         // the lines tests grep for keep their shape.
-        let file = match crate::log_file::create().and_then(|path| Ok((fern::log_file(&path)?, path))) {
+        let file = match crate::log_file::create(log_files_kept)
+            .and_then(|path| Ok((Self::log_file_output(&path)?, path)))
+        {
             Ok((file, path)) => Some((
                 Dispatch::new()
                     .format(|out, message, _| {
@@ -117,7 +113,7 @@ impl AppRunner {
             None => (None, None),
         };
 
-        let mut dispatch = dispatch
+        let dispatch = dispatch
             .format(|out, message, record| {
                 let level_icon = match record.level() {
                     Level::Error => "🔴",
@@ -147,12 +143,15 @@ impl AppRunner {
 
                 out.finish(format_args!("{log}"));
             })
-            .chain(output)
-            .chain(ring);
+            .chain(output);
 
-        if let Some(file) = file {
-            dispatch = dispatch.chain(file);
-        }
+        #[cfg(feature = "bug-report")]
+        let dispatch = dispatch.chain(ring);
+
+        let dispatch = match file {
+            Some(file) => dispatch.chain(file),
+            None => dispatch,
+        };
 
         dispatch.apply().expect("Failed to initialize logging");
 
@@ -163,38 +162,35 @@ impl AppRunner {
         }
     }
 
-    #[cfg(not_wasm)]
+    #[cfg(all(not_wasm, feature = "bug-report"))]
     pub(crate) async fn setup_sentry(app: &dyn App) -> Option<sentry::ClientInitGuard> {
         let sentry_url = crate::config::Config::sentry_url(app).await?;
 
-        let client = sentry::init((
-            sentry_url,
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                // Apps opt into Sentry by returning a DSN. Include user context, such as IPs and
-                // HTTP headers, for richer diagnostics.
-                send_default_pii: true,
-                ..Default::default()
-            },
-        ));
+        let release = crate::bug_report::app_release();
+        let platform = crate::bug_report::Platform::detect();
+        let line = format!("sentry ready, release {release}, {platform}");
 
-        debug!("sentry ready");
+        let client = sentry::init((sentry_url, crate::bug_report::sentry_options(release, platform)));
+
+        log::info!("{line}");
 
         Some(client)
     }
 
     pub fn new(app: Box<dyn App>) -> Self {
-        // A crate nested in a monorepo runs from its own directory and keeps
-        // its assets there, so a cwd with an assets folder wins over the git
-        // root, which would be the monorepo root.
         #[cfg(desktop)]
         {
-            let root = std::env::current_dir()
-                .ok()
-                .filter(|dir| dir.join("assets").exists())
-                .unwrap_or_else(|| crate::filesystem::Paths::git_root().expect("git_root()"));
+            use std::env::{current_dir, current_exe};
 
-            crate::assets::Assets::init(root);
+            let root = crate::assets_root::find(current_dir().ok().as_deref(), current_exe().ok().as_deref());
+            if root.is_none() {
+                log::info!(
+                    "no assets folder found, the app packed {} assets into its binary",
+                    crate::embedded::count()
+                );
+            }
+
+            crate::assets::Assets::init(root.unwrap_or_default());
         }
         #[cfg(mobile)]
         crate::assets::Assets::init(std::path::PathBuf::default());
@@ -202,9 +198,30 @@ impl AppRunner {
         crate::app::set_app(app);
 
         Self {
-            cursor_position: Point::default(),
-            touch_ids:       HashMap::new(),
-            next_touch_id:   FIRST_TOUCH_ID,
+            touch_ids:     HashMap::new(),
+            remote_finger: None,
+            next_touch_id: FIRST_TOUCH_ID,
+        }
+    }
+
+    /// An Apple TV has no touch screen. A finger on the touch surface of its
+    /// remote arrives as a touch that starts in the middle of the screen.
+    /// Taken as a touch it pressed the view there and hid the focus ring. So
+    /// only its move is used, it scrolls the list in the middle of the
+    /// screen like a wheel does. A press of the surface arrives as a key.
+    fn remote_surface(&mut self, touch: &winit::event::Touch) {
+        let position: Point = (touch.location.x, touch.location.y).into();
+        match touch.phase {
+            TouchPhase::Started => {
+                UIManager::set_cursor_position(position * (1.0 / UIManager::scale()));
+                self.remote_finger = Some(position);
+            }
+            TouchPhase::Moved => {
+                if let Some(last) = self.remote_finger.replace(position) {
+                    Input::on_scroll(position - last);
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => self.remote_finger = None,
         }
     }
 
@@ -261,11 +278,20 @@ impl AppRunner {
             fn make_root_view(&self) -> Own<dyn View> {
                 crate::ui::Container::new()
             }
+
+            // The test surface, pinned here and not taken from the app
+            // default, a bigger surface makes every frame read slower.
+            fn initial_size(&self) -> crate::gm::flat::Size {
+                (1200, 1000).into()
+            }
         }
 
         WINDOW_READY.lock().sub(|| {
             crate::deps::hreads::unasync(actions).unwrap();
         });
+
+        #[cfg(desktop)]
+        crate::filesystem::Paths::use_test_storage();
 
         if headless {
             crate::app_starter::hilen_start_with_app_headless(Box::new(ActorApp));
@@ -281,35 +307,96 @@ impl AppRunner {
     #[cfg(desktop)]
     pub fn set_window_size(size: impl Into<Size<u32>> + Send + 'static) {
         let size = size.into();
+        if let Err(actual) = Self::request_window_size(size) {
+            panic!("Window did not resize to {size:?}, it is {actual:?}");
+        }
+    }
 
+    /// Asks the OS for a window size and waits until it is real. `Err`
+    /// holds the size the window has instead: the OS gives a window no
+    /// more than the screen has, so a size above it never comes. The
+    /// inspector answers with that instead of a panic, a wrong number
+    /// typed into a tool must not look like a crash of the app.
+    #[cfg(desktop)]
+    pub(crate) fn request_window_size(size: Size<u32>) -> Result<(), Size<u32>> {
         from_main(move || {
             Window::current().set_size(size);
         });
 
         if is_main_thread() {
-            return;
+            return Ok(());
         }
 
         // In windowed mode the OS applies the resize later. A touch injected
         // before it lands is processed against the old layout and misses
         // every view. Wait until the new size is real.
+        let mut current = size;
         for _ in 0..100 {
-            let current: Size<u32> = from_main(Window::inner_size).lossy_convert();
+            current = from_main(Window::inner_size).lossy_convert();
             if current == size {
-                return;
+                return Ok(());
             }
             wait_for_next_frame();
         }
 
-        panic!("Window did not resize to {size:?}");
+        Err(current)
     }
 
     pub fn take_screenshot() -> Result<Screenshot> {
         human_pause();
 
+        #[cfg(wasm)]
+        Self::wait_for_browser_pictures();
+
+        #[cfg(wasm)]
+        let asked_at = Window::render_frame();
         let recv = from_main(|| Window::current().request_screenshot());
         let screenshot = recv.recv()?;
+
+        // The shot frame itself showed a picture first, take it again once
+        // that landed. Only then, an extra frame moves a running scene. The
+        // count is 0 again when the picture landed before the shot came back,
+        // `Stick images` failed so, so the frames since the ask decide.
+        #[cfg(wasm)]
+        if crate::image::late::drew_pending_after(asked_at) {
+            Self::wait_for_browser_pictures();
+            return Ok(from_main(|| Window::current().request_screenshot()).recv()?);
+        }
+
         Ok(screenshot)
+    }
+
+    /// A browser makes an svg raster or a bundled jpeg some frames after
+    /// the view first shows it, see `window/image/late.rs`. Frames are
+    /// drawn only while one is pending, so a still screen gets no extra one.
+    /// The count is an atomic read here, not through `from_main`: on a page
+    /// each `from_main` asks for a frame, and a scene moves 1 step a frame.
+    #[cfg(wasm)]
+    fn wait_for_browser_pictures() {
+        use crate::{
+            deps::hreads::wait_for_next_frame, image::late::pictures_pending, window::request_frame,
+        };
+
+        if crate::deps::hreads::is_main_thread() {
+            return;
+        }
+        // A picture the page never finishes must not hang the suite.
+        let started = web_time::Instant::now();
+        let late = || started.elapsed() > std::time::Duration::from_secs(5);
+        while pictures_pending() > 0 {
+            let before = from_main(|| {
+                request_frame();
+                Window::render_frame()
+            });
+            while from_main(Window::render_frame) <= before && !late() {
+                wait_for_next_frame();
+            }
+            if late() {
+                let names = from_main(crate::image::late::pending_names);
+                log::warn!("The shot did not wait any longer for the browser pictures {names:?}");
+                return;
+            }
+        }
     }
 
     pub fn fps() -> f32 {
@@ -391,24 +478,22 @@ impl AppRunner {
     #[cfg(all(wasm, feature = "ui-tests"))]
     fn spawn_test_worker(only: Option<String>, skip: Option<String>) {
         crate::deps::hreads::spawn_thread(move || {
-            let mut tests = crate::UI_TESTS.lock().clone();
+            use std::collections::BTreeMap;
+
+            let mut tests = crate::ui_test::registered_test_maps();
 
             if let Some(only) = &only {
-                let keep: Vec<String> =
-                    only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                tests.retain(|name, _| keep.contains(name));
+                crate::ui_test::keep_named(&mut tests, only);
             }
 
             // Checked before the skip pass, a test the filter matched but a
             // panic rerun skips is already counted failed by the driver.
-            let filter_matched_nothing = only.is_some() && tests.is_empty();
+            let filter_matched_nothing = only.is_some() && tests.iter().all(BTreeMap::is_empty);
 
             // The driver reports skipped tests as failures itself, this
             // rerun only has to survive them.
             if let Some(skip) = skip {
-                let drop: Vec<String> =
-                    skip.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                tests.retain(|name, _| !drop.contains(name));
+                crate::ui_test::drop_named(&mut tests, &skip);
             }
 
             // A filter with a typo must fail loudly, a green `0 tests`
@@ -422,7 +507,7 @@ impl AppRunner {
                     }],
                 }
             } else {
-                crate::ui_test::run_test_map(&tests)
+                crate::ui_test::run_test_maps(&tests)
             };
 
             for failure in &report.failures {
@@ -493,19 +578,17 @@ impl AppRunner {
 
         UIManager::on_app_ready(|| {
             crate::deps::hreads::spawn(async {
-                let mut tests = crate::UI_TESTS.lock().clone();
+                let mut tests = crate::ui_test::registered_test_maps();
 
                 // Run only the named tests when set, a comma separated list, to
                 // isolate cases on a device or simulator where the whole suite
-                // is slow to reach them. Order in the map is still
+                // is slow to reach them. Order in each map is still
                 // alphabetical.
                 if let Ok(only) = std::env::var("HILEN_TEST_ONLY") {
-                    let keep: Vec<String> =
-                        only.split(',').map(|n| crate::ui_test::spaced_test_name(n.trim())).collect();
-                    tests.retain(|name, _| keep.contains(name));
+                    crate::ui_test::keep_named(&mut tests, &only);
                 }
 
-                let report = crate::ui_test::run_test_map(&tests);
+                let report = crate::ui_test::run_test_maps(&tests);
 
                 for failure in &report.failures {
                     println!("TEST FAILED: {}\n{}", failure.name, failure.detail);
@@ -517,231 +600,5 @@ impl AppRunner {
                 exit(i32::from(failed != 0));
             });
         });
-    }
-}
-
-impl crate::window::WindowEvents for AppRunner {
-    fn window_ready(&mut self) {
-        static INIT: Once = Once::new();
-
-        INIT.call_once(|| {
-            Pipelines::initialize();
-
-            let mut root = UIManager::root_view();
-            let view = root.add_subview_to_root(crate::app::app().make_root_view());
-            view.place().back();
-
-            UIManager::on_scale_changed(root, move |scale| {
-                root.rescale_root(scale);
-            });
-
-            self.update();
-            #[cfg(feature = "level")]
-            {
-                *LevelManager::update_interval() = 1.0 / Window::display_refresh_rate().lossy_convert();
-            }
-
-            crate::window::state::State::resize();
-
-            self.resize(
-                Window::inner_position(),
-                Window::outer_position(),
-                Window::inner_size(),
-                Window::outer_size(),
-            );
-
-            debug!("UI initialized");
-
-            if let Some(theme) = Window::system_theme() {
-                Theme::set_system(theme.into());
-            }
-
-            #[cfg(not_wasm)]
-            {
-                #[cfg(desktop)]
-                {
-                    let app = crate::app::app();
-                    match app.window_placement() {
-                        Some(placement) => Window::current().apply_placement(&placement),
-                        None => Window::current().apply_initial_size(app.initial_size()),
-                    }
-                }
-                #[cfg(feature = "inspect")]
-                crate::inspect::InspectService::start_listening();
-
-                #[cfg(feature = "ui-tests")]
-                Self::spawn_test_autorun();
-            }
-
-            #[cfg(wasm)]
-            crate::assets::start_boot_preload();
-
-            #[cfg(all(wasm, feature = "inspect"))]
-            crate::inspect::web_transport::start_if_requested();
-
-            #[cfg(all(wasm, feature = "ui-tests"))]
-            Self::spawn_test_autorun();
-
-            UIManager::keymap().add(UIManager::root_view(), 'i', || {
-                fn call_inspect(mut view: WeakView) {
-                    view.__internal_inspect();
-                    for sub in view.subviews() {
-                        call_inspect(sub.weak());
-                    }
-                }
-
-                call_inspect(UIManager::root_view());
-            });
-
-            crate::app::app().after_launch();
-
-            #[cfg(not_wasm)]
-            crate::deps::hreads::spawn(async {
-                debug!("window ready");
-                WINDOW_READY.lock().trigger(());
-            });
-        });
-    }
-
-    fn update(&mut self) {
-        UIManager::free_deleted_views();
-        invoke_dispatched();
-        #[cfg(feature = "scene")]
-        SceneDrawer::update();
-        #[cfg(feature = "level")]
-        LevelDrawer::update();
-        UIDrawer::update();
-        // After layout, so a row that replaced the dead hovered one
-        // already has its frame when hover re-picks.
-        #[cfg(any(desktop, wasm))]
-        Hover::refresh_dead();
-    }
-
-    #[cfg(feature = "scene")]
-    fn prepare(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        if UIManager::window_resolution().has_no_area() {
-            return;
-        }
-
-        SceneDrawer::prepare(encoder);
-    }
-
-    fn render(&mut self, frame: &mut RenderFrame) {
-        if UIManager::window_resolution().has_no_area() {
-            return;
-        }
-
-        #[cfg(feature = "scene")]
-        SceneDrawer::draw(frame.pass());
-        #[cfg(feature = "level")]
-        LevelDrawer::draw(frame.pass());
-        UIDrawer::draw(frame);
-    }
-
-    fn needs_sampleable_frame(&self) -> bool {
-        UIDrawer::needs_sampleable_frame()
-    }
-
-    fn resize(&mut self, inner_pos: Point, outer_pos: Point, inner_size: Size, outer_size: Size) {
-        UIManager::set_scale(UIManager::display_scale());
-        #[cfg(feature = "level")]
-        LevelManager::set_scale(UIManager::display_scale());
-
-        UIManager::root_view().resize_root(inner_pos, outer_pos, inner_size, outer_size, UIManager::scale());
-        UIEvents::size_changed().trigger(());
-        self.update();
-    }
-
-    fn mouse_moved(&mut self, position: Point) -> bool {
-        self.cursor_position = position;
-        *CURSOR_POSITION.get_mut() = position;
-        Input::process_touch_event(Touch {
-            id: 1,
-            position,
-            event: TouchEvent::Moved,
-            button: MouseButton::Left,
-        })
-    }
-
-    fn mouse_event(&mut self, state: ElementState, button: MouseButton) -> bool {
-        Input::process_touch_event(Touch {
-            id: 1,
-            position: self.cursor_position,
-            event: state.into(),
-            button,
-        })
-    }
-
-    fn mouse_scroll(&mut self, delta: Point) {
-        Input::on_scroll(delta * SCROLL_SPEED);
-    }
-
-    fn cursor_left(&mut self) {
-        Hover::clear();
-    }
-
-    fn touch_event(&mut self, touch: winit::event::Touch) -> bool {
-        let event = match touch.phase {
-            TouchPhase::Started => TouchEvent::Began,
-            TouchPhase::Moved => TouchEvent::Moved,
-            TouchPhase::Ended | TouchPhase::Cancelled => TouchEvent::Ended,
-        };
-
-        Input::process_touch_event(Touch {
-            id: self.engine_touch_id(touch.id, event),
-            position: (touch.location.x, touch.location.y).into(),
-            event,
-            button: MouseButton::Left,
-        })
-    }
-
-    fn key_event(&mut self, event: KeyEvent) {
-        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-            crate::ui::Keys::set(code, event.state.is_pressed());
-        }
-
-        if !event.state.is_pressed() {
-            return;
-        }
-
-        #[cfg(not_wasm)]
-        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-            use winit::keyboard::KeyCode;
-
-            use crate::bug_report::{BugReport, InputRing};
-
-            InputRing::record(code);
-
-            let modifiers = InputRing::modifiers();
-
-            if code == KeyCode::KeyR
-                && modifiers.shift_key()
-                && (modifiers.control_key() || modifiers.super_key())
-            {
-                BugReport::open();
-            }
-        }
-
-        if let Key::Named(key) = event.logical_key {
-            Input::on_key(key);
-        }
-
-        if let Some(ch) = event.logical_key.to_text() {
-            Input::on_char(ch.chars().last().unwrap());
-        }
-    }
-
-    fn modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
-        Input::set_modifiers(modifiers.state());
-        #[cfg(not_wasm)]
-        crate::bug_report::InputRing::set_modifiers(modifiers.state());
-    }
-
-    fn dropped_file(&mut self, path: PathBuf) {
-        UIManager::trigger_drop_file(path);
-    }
-
-    fn theme_changed(&mut self, theme: OsTheme) {
-        Theme::set_system(theme.into());
     }
 }

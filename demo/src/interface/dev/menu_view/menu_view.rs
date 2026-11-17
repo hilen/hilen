@@ -9,7 +9,7 @@ use hilen::{
     Platform,
     audio::Sound,
     dispatch::{after, spawn},
-    filesystem::Paths,
+    filesystem::{Paths, PickedFile},
     level::LevelManager,
     net::{System, local_ip},
     refs::{Weak, manage::DataManager},
@@ -32,7 +32,7 @@ use crate::{
         polygon_view::PolygonView,
         render_view::RenderView,
         root_layout_view::RootLayoutView,
-        scenes::{FrostedHud, GameScene, HEADER_HEIGHT, Scene3D, add_title},
+        scenes::{FrostedHud, GameScene, HEADER_HEIGHT, add_title},
     },
     levels::BenchmarkLevel,
     no_physics::NoPhysicsView,
@@ -78,9 +78,10 @@ impl MenuView {
         let scenes = self.section(None, "SCENES");
         Self::button(scenes, "Main level", || UIManager::set_view(GameScene::new()));
         Self::button(scenes, "Frosted HUD", || UIManager::set_view(FrostedHud::new()));
+        #[cfg(feature = "scene")]
         Self::button(scenes, "3D scene", || {
             LevelManager::stop_level();
-            UIManager::set_view(Scene3D::new());
+            UIManager::set_view(crate::interface::scenes::Scene3D::new());
         });
         Self::button(scenes, "Polygon", || UIManager::set_view(PolygonView::new()));
         Self::button(scenes, "Noise", || {
@@ -149,8 +150,28 @@ impl MenuView {
                 Alert::show(format!("{:?}", Paths::pick_folder().await));
             });
         });
+        Self::button(ui, "Pick file", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_file_bytes("File", &[]).await));
+            });
+        });
+        Self::button(ui, "Pick pdf or txt", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_file_bytes("File", &["pdf", "txt"]).await));
+            });
+        });
+        Self::button(ui, "Pick image", || {
+            spawn(async {
+                Alert::show(picked_text(Paths::pick_image("Image").await));
+            });
+        });
+        Self::button(ui, "Pick images", || {
+            spawn(async {
+                Alert::show(picked_list(&Paths::pick_images("Images", 0).await));
+            });
+        });
         Self::button(ui, "Scroll test", || {
-            let view = InfiniteScrollTest::new().after_setup(|mut v| {
+            let view = InfiniteScrollTest::new().after_setup(|v| {
                 v.add_view::<Button>()
                     .set_text("Back")
                     .on_tap(|| UIManager::set_view(HomeView::new()))
@@ -298,4 +319,23 @@ fn write_cloud_data() {
     file.write_all(number.to_string().as_bytes()).unwrap();
 
     Alert::show(format!("{}", path.display()));
+}
+
+/// What a picker gave, for the alert of its button.
+fn picked_text(picked: Option<PickedFile>) -> String {
+    picked.map_or_else(
+        || "Nothing picked".to_string(),
+        |file| format!("{}\n{}\n{} bytes", file.name, file.content_type, file.bytes.len()),
+    )
+}
+
+fn picked_list(picked: &[PickedFile]) -> String {
+    if picked.is_empty() {
+        return "Nothing picked".to_string();
+    }
+    picked
+        .iter()
+        .map(|file| format!("{} {} bytes", file.name, file.bytes.len()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -18,109 +18,331 @@ bench = []
 # Runtime pointer checks from the vendored `refs`. On by default, the engine
 # has always run with them.
 checks = []
-default = ["checks"]
+default = [
+  "bug-report",
+  "checks",
+  "code-colors",
+  "font-roboto",
+  "font-roboto-italic",
+  "font-roboto-mono",
+  "font-symbols",
+  "gpu",
+  "infisical",
+  "net",
+  "noise",
+  "system-info",
+  "updater",
+]
+# The window, the drawers, the render pipelines, the app loop, wgpu and
+# winit. On by default. A crate of shared views turns it off and builds its
+# views with no GPU, the app that links it brings the window.
+gpu = [
+  "dep:bit_ops",
+  "dep:fern",
+  "dep:indexmap",
+  "dep:pollster",
+  "dep:wgpu",
+  "dep:wgpu_text",
+  "dep:wgpu-hal",
+  "dep:winit",
+]
+# The parts of the engine that are no UI. All on by default, so an app sees no
+# change. A crate of shared views turns the defaults off and depends on the
+# UI alone, the app that links it brings the rest.
+#
+# Requests over http and websockets, `hilen::net`, downloaded pictures and
+# fonts, and the asset groups of a browser build, which load over the network.
+# A browser build needs it.
+net = [
+  "dep:data-encoding",
+  "dep:futures-util",
+  "dep:local-ip-address",
+  "dep:reqwest",
+  "dep:ring",
+  "dep:rustls",
+  "dep:tokio-tungstenite",
+  "dep:webpki-roots",
+]
+# Bug reports and crash reports to Sentry, `hilen::bug_report`.
+bug-report = ["gpu", "net", "system-info", "dep:os_info", "dep:sentry"]
+# Secrets read from Infisical, `hilen::net::SecretsManager`.
+infisical = ["dep:infisical"]
+# The host, the system, the cores and the memory, `System::get_info`.
+system-info = ["dep:byte-unit", "dep:sysinfo"]
+# Self update of a desktop app, `hilen::updater` and `system::Updater`.
+updater = ["gpu", "dep:hilen-updater"]
+# Syntax colors of code, `CodeHighlighter` and the code blocks of
+# `MarkdownView`. Without it code is drawn in 1 color.
+code-colors = ["dep:syntect", "dep:two-face"]
+# The diff of 1 file, `DiffPanel`, on the data of the `filediff` crate,
+# which apps also get as `hilen::filediff`. See docs/diff-view.md.
+diff-view = ["code-colors", "dep:filediff"]
+# Formulas typed as text drawn as graphs, `GraphView` and `graphs`. A 3D
+# graph needs `scene` too, without it `graphs` answers with an error for
+# one. See docs/formula-plot.md.
+plot = ["dep:exmex", "dep:num-complex"]
+# Terrain from noise, `hilen::generate`.
+noise = ["dep:contour", "dep:noise"]
+# The Roboto files the engine brings, 1 feature per file, so an app with its
+# own fonts can leave a file out, see docs/text.md. Without `font-roboto` the
+# app gives its fallback font to `Font::set_builtin`.
+font-roboto = []
+font-roboto-italic = []
+font-roboto-mono = []
+# Stars, check marks, arrows, shapes and key symbols, about 100 KB, a char
+# the label font lacks falls back to them, in a browser too, see docs/text.md.
+font-symbols = []
+# LaTeX math in `MarkdownView` and `MathView`, drawn with Latin Modern Math,
+# a 730 KB font file. Without it a formula shows as its text.
+math = []
 # The inspect server listens on the network and can edit any view, so it must
 # never reach a shipped app by accident. Off unless an app asks for it.
-inspect = []
+# The frame record packs its frames as QOI, which the browser build leaves out
+# of its image formats.
+inspect = ["gpu", "discovery", "dep:hex", "dep:if-addrs", "dep:wasm_thread", "image/qoi"]
+# A worker thread of an atomics wasm build starts as an ES module, for a page
+# whose own script is a module, like the one trunk builds by default. A page
+# with a classic script, like a packaged webOS app, needs classic workers,
+# Chromium 79 starts no module worker at all.
+module-workers = ["wasm_thread?/es_modules"]
+# Find devices on the local network by the service they announce, see
+# `hilen/src/discovery`. The system Bonjour service on macOS, iOS and tvOS,
+# mdns-sd on Windows, Linux and Android. Off by default.
+discovery = ["dep:mdns-sd"]
+# Hot reload on iOS, see docs/hot-reload.md. The app is a dynamic library that
+# a loader app starts, the loader owns `UIApplicationMain`. It turns `inspect`
+# on, so the release guards of `inspect` keep it out of a shipped app.
+hot = ["inspect", "winit/ios-attach"]
 # Registers every `impl ViewTest` into `UI_TESTS`. The switch lives on the proc
 # macro, so off means `view` emits no ctor in any crate and a shipped app
 # carries none. One switch for the whole graph, so no crate can forget it and
 # silently lose its tests.
-ui-tests = ["ui-proc/ui-tests"]
+ui-tests = ["gpu", "ui-proc/ui-tests", "dep:clap", "dep:wasm_thread"]
 # Physics levels and the no physics game scene, with rapier, the level
 # proc macro, and the sprite, polygon and background pipelines. Off by
 # default, a GUI only app carries none of it.
-level = ["dep:level-proc", "dep:rapier2d"]
+level = ["gpu", "dep:geo", "dep:level-proc", "dep:rapier2d"]
 # Registers every `impl LevelTest` into `LEVEL_TESTS`. Needs the shared
 # runner from `ui-tests`. `ui-tests` never pulls level in.
 level-tests = ["level", "ui-tests", "level-proc/level-tests"]
 # Sound playback through kira and its decoders. Off by default.
 audio = ["dep:kira"]
+# MIDI input devices through midir, see docs/midi.md. Off by default.
+midi = ["dep:midir"]
+# Bluetooth LE devices in the central role, through btleplug and through Web
+# Bluetooth in a browser, see the doc of `hilen::bluetooth`. Off by default.
+bluetooth = ["dep:btleplug", "dep:futures-util", "dep:uuid"]
+# The cameras of the device: the list, a live picture in `CameraView` and a
+# photo at full resolution. AVFoundation on macOS and iOS, the NDK camera on
+# Android, Media Foundation through nokhwa on Windows, Video for Linux
+# through linuxvideo, getUserMedia in a browser. Off by default. A photo is
+# encoded with the jpeg codec of `image`, which a browser build has only
+# through this feature.
+camera = [
+  "gpu",
+  "image/jpeg",
+  "dep:futures-channel",
+  "dep:dispatch2",
+  "dep:linuxvideo",
+  "dep:ndk",
+  "dep:ndk-sys",
+  "dep:nokhwa",
+  "dep:objc2-av-foundation",
+  "dep:objc2-core-media",
+  "dep:objc2-core-video",
+]
+# Speech to text from the microphone, see docs/speech.md. The microphone
+# through cpal and the streaming and offline recognizers of sherpa-onnx, on
+# macOS, iOS, Windows and Linux. Android and a browser answer that they have
+# none yet. Off by default, an app with no speech links neither.
+speech = ["net", "dep:cpal", "dep:sherpa-onnx", "dep:objc2-avf-audio"]
+# A check of the finger or the face of the user, Touch ID and Face ID
+# through LocalAuthentication on macOS and iOS, see docs/biometric.md.
+# Every other system answers that the device cannot. Off by default.
+biometric = ["dep:futures-channel", "dep:objc2-local-authentication"]
+# A key combination that works in every app while the app runs, through
+# global-hotkey. macOS now, the other systems answer with an error, see
+# docs/global-keys.md. Off by default.
+global-keys = ["dep:global-hotkey"]
+# A picture of every screen and the Screen Recording permission, through
+# xcap. macOS now, the other systems answer with an error, see
+# docs/screen-capture.md. Off by default.
+screen-capture = ["gpu", "dep:xcap"]
+# Remote notifications from APNs on iOS, the permission, the device token
+# and the tap on a push, see docs/push.md. Every other system answers that
+# it has no push. Off by default, an app with no push links no
+# UserNotifications and no call to register for it.
+push = ["dep:futures-channel", "dep:hex", "dep:objc2-user-notifications"]
+# Actions the system runs in the app, like a sentence said to Siri, see
+# docs/intents.md. iOS only for now, the Swift comes from the [[intent]]
+# tables of hilen.toml.
+intents = []
+# Video playback through a prebuilt static ffmpeg, hardware decode through
+# VideoToolbox, VAAPI or D3D11VA, sound through kira. Desktop and iOS, in a
+# browser through a video element, see docs/video.md. Off by default.
+# kira is pulled in, not `audio`: the `sound` cfg of build.rs builds the
+# audio module where ffmpeg plays the sound, and a browser build stays
+# without it.
+video = ["gpu", "dep:kira", "dep:ffmpeg-next", "dep:objc2-avf-audio"]
 # 3D scenes on rapier3d and glam, with the scene proc macro, glTF models and the mesh
 # pipeline. Off by default, a GUI only app carries none of it.
-scene = ["dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf"]
+scene = ["gpu", "dep:level-proc", "dep:rapier3d", "dep:glam", "dep:gltf", "dep:futures-channel", "dep:half"]
 # Registers every `impl SceneTest` into `SCENE_TESTS`. Needs the shared
-# runner from `ui-tests`, the same way `level-tests` does.
-scene-tests = ["scene", "ui-tests", "level-proc/scene-tests"]
+# runner from `ui-tests`, the same way `level-tests` does. Deterministic
+# rapier and scalar glam so a pinned physics rest lands on the same bits
+# on every lane, glam's SIMD sums in another order per architecture. A
+# game on `scene` alone keeps the fast path.
+# VR through OpenXR, the running scene in a headset with its controllers,
+# see the doc of `hilen::xr`. SteamVR on Windows through DX12, every other system
+# answers that VR is not there.
+xr = ["scene", "dep:openxr", "dep:windows"]
+scene-tests = ["scene", "ui-tests", "level-proc/scene-tests", "rapier3d/enhanced-determinism", "glam/scalar-math"]
 
 # From the vendored `refs`, both off by default and both diagnostics only.
 pointers_info = []
 stats = []
-webgl = ["wgpu/webgl"]
+webgl = ["gpu", "wgpu/webgl"]
+# Google and Apple login against a `hilen-server` backend, the two login button
+# views and the encrypted `SessionStore`. A release with this on needs `HILEN_SESSION_KEY`
+# at build time. Off by default, an app with no accounts carries none of it.
+login = ["net", "dep:hilen-session", "dep:getrandom", "dep:hex", "dep:qrcode", "dep:sha2"]
+# Google API access with the tokens kept on the device, against the
+# `google_access` routes of a `hilen-server` backend, and `SecretStore`, a
+# secret in the credential store of a phone. Off by default.
+google-access = ["net", "secrets", "hilen-session/device-key", "dep:getrandom", "dep:hex", "dep:sha2"]
+# `SecretStore` alone, a secret in the credential store of a phone and in a
+# sealed file on desktop, also one shared with the widget extension of an iOS
+# app. Off by default.
+secrets = ["dep:hilen-session", "hilen-session/keychain"]
 
 [dependencies]
 anyhow = { workspace = true }
 arbitrary = { workspace = true }
 atomic_float = { workspace = true }
 base64 = { workspace = true }
-bit_ops = { workspace = true }
-byte-unit = { workspace = true }
+bit_ops = { workspace = true, optional = true }
+byte-unit = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
-contour = { workspace = true }
+contour = { workspace = true, optional = true }
 ctor = { workspace = true }
+cursor-icon = { workspace = true }
 dirs = { workspace = true }
 educe = { workspace = true }
 event-listener = { workspace = true }
+exmex = { workspace = true, optional = true }
 fastrand = { workspace = true }
-fern = { workspace = true }
-futures-util = { workspace = true }
+futures-channel = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+geo = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
-hex = { workspace = true }
-image = { workspace = true }
-indexmap = { workspace = true }
+half = { workspace = true, optional = true }
+glyph_brush = { workspace = true }
+hex = { workspace = true, optional = true }
+indexmap = { workspace = true, optional = true }
+keyboard-types = { workspace = true }
 kira = { workspace = true, optional = true }
+linkify = { workspace = true }
 log = { workspace = true }
-local-ip-address = { workspace = true }
+local-ip-address = { workspace = true, optional = true }
 lyon = { workspace = true }
-noise = { workspace = true }
+midir = { workspace = true, optional = true }
+mime_guess = { workspace = true }
+noise = { workspace = true, optional = true }
 nonempty = { workspace = true }
+num-complex = { workspace = true, optional = true }
 parking_lot = { workspace = true }
-reqwest = { workspace = true }
-resvg = { workspace = true }
+pulldown-cmark = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
-rust_decimal = { workspace = true }
 rustybuzz = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sysinfo = { workspace = true }
+syntect = { workspace = true, optional = true }
+sysinfo = { workspace = true, optional = true }
+thiserror = { workspace = true }
 tiny-skia = { workspace = true }
-usvg = { workspace = true }
+two-face = { workspace = true, optional = true }
+url = { workspace = true }
 web-time = { workspace = true }
-wgpu = { workspace = true }
-wgpu_text = { workspace = true }
+wgpu = { workspace = true, optional = true }
+wgpu_text = { workspace = true, optional = true }
+zeroize = { workspace = true }
 
+filediff = { workspace = true, optional = true }
 hilen-pixels = { workspace = true }
+hilen-updater = { workspace = true, optional = true }
 plat = { workspace = true }
 reflected = { workspace = true }
 
 level-proc = { workspace = true, optional = true }
+project-proc = { workspace = true }
 ui-proc = { workspace = true }
 unicode-linebreak = { workspace = true }
+unicode-width = { workspace = true }
+uuid = { workspace = true, optional = true }
 gltf = { workspace = true, optional = true }
+hilen-session = { workspace = true, optional = true }
+qrcode = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-infisical = { workspace = true }
-mdns-sd = { workspace = true }
-rapier2d = { workspace = true, optional = true, features = ["parallel"] } # simd can crash if there are too many active objects
-rapier3d = { workspace = true, optional = true, features = ["parallel"] }
-pollster = { workspace = true }
-rustls = { workspace = true }
-sentry = { workspace = true }
+fern = { workspace = true, optional = true }
+# SHA-256 in hex for the picture cache and the pinned certificate, which a
+# browser build does not have. rustls and tungstenite bring both already.
+data-encoding = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
+btleplug = { workspace = true, optional = true }
+fontdb = { workspace = true }
+image = { workspace = true, features = ["default-formats", "gif", "png"] }
+resvg = { workspace = true, features = ["default"] }
+usvg = { workspace = true, features = ["default"] }
+memmap2 = { workspace = true }
+getrandom = { workspace = true, optional = true }
+if-addrs = { workspace = true, optional = true }
+infisical = { workspace = true, optional = true }
+rapier2d = { workspace = true, optional = true } # simd can crash if there are too many active objects
+rapier3d = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+sentry = { workspace = true, optional = true }
 sys-locale = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
-tokio-util = { workspace = true }
-webpki-roots = { workspace = true }
+tokio-tungstenite = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+
+# macOS, iOS and tvOS announce and browse through the system Bonjour service.
+[target.'cfg(not(any(target_arch = "wasm32", target_vendor = "apple")))'.dependencies]
+mdns-sd = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 axum = { workspace = true }
+mdns-sd = { workspace = true }
+hilen-server = { workspace = true }
+pollster = { workspace = true }
 rcgen = { workspace = true }
 tokio-rustls = { workspace = true }
 
+# Everything that runs on rayon. Its global pool has no shutdown, and a hot
+# build that is stopped must leave no thread, see docs/hot-reload.md. A hot
+# build is compiled with `--cfg hilen_hot`, which takes these lines out.
+[target.'cfg(not(hilen_hot))'.dependencies]
+image = { workspace = true, features = ["rayon"] }
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(hilen_hot)))'.dependencies]
+rapier2d = { workspace = true, optional = true, features = ["parallel"] }
+rapier3d = { workspace = true, optional = true, features = ["parallel"] }
+
+# A browser decodes downloaded pictures and bundled jpegs itself, the engine
+# decodes only bundled png and gif. The page also draws every svg, so no svg
+# crate and no jpeg decoder is linked, see window/image/late.rs. An LG C1
+# compiles wasm at about 2.3 s a MB with Liftoff, see docs/webos.md.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+image = { workspace = true, features = ["gif", "png"] }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
+getrandom = { workspace = true, optional = true, features = ["wasm_js"] }
 gloo-timers = { workspace = true }
 # nightly selects the real atomics thread parker, without it parking panics on wasm workers
 parking_lot = { workspace = true, features = ["nightly"] }
@@ -129,42 +351,96 @@ rapier3d = { workspace = true, optional = true }
 spin = { workspace = true }
 sys-locale = { workspace = true, features = ["js"] }
 wasm-bindgen-futures = { workspace = true }
-wasm_thread = { workspace = true }
 web-sys = { workspace = true }
+
+# Only a build with atomics has workers. An old browser refuses a module that
+# links this crate with no shared memory, see `spawn_thread`.
+[target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies]
+wasm_thread = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = { workspace = true }
 jni = { workspace = true }
+libc = { workspace = true }
+ndk = { workspace = true, optional = true }
 ndk-context = { workspace = true }
-winit = { workspace = true, features = ["android-game-activity"] }
+ndk-sys = { workspace = true, optional = true }
+winit = { workspace = true, optional = true, features = ["android-game-activity"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-winit = { workspace = true }
-
-[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
-rfd = { workspace = true }
+winit = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = { workspace = true }
+global-hotkey = { workspace = true, optional = true }
+libc = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true }
+objc2-core-foundation = { workspace = true }
+objc2-core-graphics = { workspace = true }
 objc2-foundation = { workspace = true }
+objc2-media-player = { workspace = true }
+objc2-metal = { workspace = true }
+objc2-quartz-core = { workspace = true }
+wgpu-hal = { workspace = true, optional = true }
+xcap = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { workspace = true, optional = true, features = ["input-msmf"] }
+openxr = { workspace = true, optional = true }
+os_info = { workspace = true, optional = true }
+windows = { workspace = true, optional = true }
+windows-sys = { workspace = true }
+
+# The systems where `speech` hears the microphone and recognizes it.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "tvos")))'.dependencies]
+cpal = { workspace = true, optional = true }
+sherpa-onnx = { workspace = true, optional = true }
+
+# Pure Rust, nokhwa on Linux needs libclang and the kernel headers to build.
+[target.'cfg(target_os = "linux")'.dependencies]
+linuxvideo = { workspace = true, optional = true }
+
+# tvOS has no camera and no biometric check, those modules answer with an
+# error there.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+dispatch2 = { workspace = true, optional = true }
+objc2-av-foundation = { workspace = true, optional = true }
+objc2-core-media = { workspace = true, optional = true }
+objc2-core-video = { workspace = true, optional = true }
+objc2-local-authentication = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+block2 = { workspace = true }
+ffmpeg-next = { workspace = true, optional = true }
+libc = { workspace = true }
+objc2 = { workspace = true }
+objc2-avf-audio = { workspace = true, optional = true }
+objc2-core-foundation = { workspace = true }
+objc2-core-graphics = { workspace = true }
 objc2-foundation = { workspace = true }
+objc2-media-player = { workspace = true }
+objc2-metal = { workspace = true }
+objc2-quartz-core = { workspace = true }
 objc2-ui-kit = { workspace = true }
+objc2-user-notifications = { workspace = true, optional = true }
+wgpu-hal = { workspace = true, optional = true }
+
+# PhotosUI, which tvOS lacks.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-photos-ui = { workspace = true }
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
+rfd = { workspace = true }
 arboard = { workspace = true }
-ed25519-dalek = { workspace = true }
+# The flags of the UI test runner, which only a desktop runs.
+clap = { workspace = true, optional = true }
+ffmpeg-next = { workspace = true, optional = true }
+keepawake = { workspace = true }
 open = { workspace = true }
-self-replace = { workspace = true }
-semver = { workspace = true }
-sha2 = { workspace = true }
-
-[target.'cfg(unix)'.dev-dependencies]
-libc = { workspace = true }
 
 [build-dependencies]
+cc = { workspace = true }
 plat = { workspace = true }
 
 [dev-dependencies]

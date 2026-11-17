@@ -22,8 +22,8 @@ const ROWS: usize = 20;
 const LABELS: usize = COLUMNS * ROWS;
 
 /// 640 wide is the iPhone 5S screen. 1000 tall, not the phone's 1136,
-/// because the headless surface is `App::initial_size`, which is 1200 by
-/// 1000. A taller canvas renders nothing below 1000 on desktop and the
+/// because the headless surface is the test runner `initial_size`, 1200
+/// by 1000. A taller canvas renders nothing below 1000 on desktop and the
 /// probe recorder silently clips to the screenshot, so those rows would
 /// look tested and never run.
 const CANVAS: (u32, u32) = (640, 1000);

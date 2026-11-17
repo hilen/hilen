@@ -1,5 +1,6 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
+#![feature(arbitrary_self_types)]
 
 mod occlusion;
 mod path;

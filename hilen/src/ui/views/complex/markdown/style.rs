@@ -1,0 +1,269 @@
+#[cfg(feature = "code-colors")]
+use crate::ui::code_highlighter::Token;
+use crate::{
+    deps::refs::{Weak, main_lock::MainLock},
+    gm::color::Color,
+    text::Font,
+    ui::{DynamicColor, Label, UIColor},
+};
+
+static STYLE: MainLock<Option<MarkdownStyle>> = MainLock::new();
+
+/// The look of every `MarkdownView`. Each default color is a light and
+/// dark pair. An app with its own palette sets one once at startup with
+/// `apply_globally`, before any markdown is shown.
+#[derive(Clone, Copy)]
+pub struct MarkdownStyle {
+    /// The text size of a paragraph, a list and a table.
+    pub text_size:         f32,
+    /// The text size of a code block.
+    pub code_size:         f32,
+    /// How much bigger than `text_size` the text of a heading is, from
+    /// level 1 to level 6. All at 1 draws a heading as bold text of the
+    /// body size, the way a terminal does. The line pitch of a heading
+    /// follows its size.
+    pub heading_scales:    [f32; 6],
+    /// The space between 2 blocks of a text, a paragraph and the next one.
+    pub block_gap:         f32,
+    /// The space between 2 items of a list, and between 2 blocks inside
+    /// an item.
+    pub item_gap:          f32,
+    /// How the markers of a list stand, in 1 column by default.
+    pub list_markers:      MarkdownListMarkers,
+    /// Whether the host of a link stands after it, not by default.
+    pub link_hosts:        MarkdownLinkHosts,
+    /// The points from one line of the text to the next, the pitch of
+    /// the font when not set. It is given for `text_size`: a paragraph,
+    /// a list and a table cell take it as it is, a heading takes it
+    /// bigger by as much as its text is bigger. A code block keeps the
+    /// pitch of its font.
+    pub line_height:       Option<f32>,
+    /// A line break inside a paragraph stays a line break, the way a
+    /// terminal shows a text. Markdown itself reads it as a space, and that
+    /// is the default. A view reads it when it gets its text.
+    pub keeps_line_breaks: bool,
+    /// How a table drawn with box chars is shown, as typed by default. A
+    /// view reads it when it gets its text.
+    pub box_tables:        MarkdownBoxTables,
+    /// The points between the left edge of the view and its text: a
+    /// paragraph, a heading, a list, a quote and the box of a code block.
+    /// The default inset of a `Label` when not set. The code inside its
+    /// box keeps that default as its padding.
+    pub text_inset:        Option<f32>,
+    /// The text, unless the view has its own color.
+    pub text:              UIColor,
+    /// The text of a blockquote and the markers of a list.
+    pub dim_text:          UIColor,
+    /// A link, and the box of a done task.
+    pub link:              UIColor,
+    /// Code inside a line of text.
+    pub inline_code:       UIColor,
+    /// Behind a code block.
+    pub code_background:   UIColor,
+    /// Behind the head row of a table.
+    pub table_head:        UIColor,
+    /// The lines of a table, a horizontal rule and the bar of a quote.
+    pub line:              UIColor,
+    pub comment:           UIColor,
+    pub string:            UIColor,
+    /// Numbers and other constants.
+    pub number:            UIColor,
+    pub keyword:           UIColor,
+    pub function:          UIColor,
+    /// The name of a type.
+    pub type_name:         UIColor,
+    /// A line a diff adds.
+    pub inserted:          UIColor,
+    /// A line a diff removes.
+    pub deleted:           UIColor,
+    /// The fonts, the ones the engine brings when not set.
+    pub fonts:             Option<MarkdownFonts>,
+    /// How much bigger a formula is than the size that matches the x
+    /// height of the text, 1 by default.
+    pub math_scale:        f32,
+    /// The stem darkening of the math font, for formulas with a little
+    /// more ink, see `Font::math_darkened`. 0 by default.
+    pub math_darkening:    f32,
+}
+
+/// Whether a link shows where it really goes. A text is drawn on a canvas,
+/// so no browser shows the address under the mouse, and a link can say
+/// `https://my.site/settings` and open another site.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownLinkHosts {
+    /// A link shows only its own text.
+    #[default]
+    Hidden,
+    /// The host of a link stands right after it in the dim text, like
+    /// `my guide evil.example`, for a text other people wrote. Only a web
+    /// link to another site gets it, and only when its text is not an
+    /// address of that host already. In a browser the site of the page is
+    /// the own one, an app with a window has none.
+    Outside,
+}
+
+/// How the markers of a list stand, the bullets, the numbers and the
+/// boxes of tasks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownListMarkers {
+    /// Every marker takes the width of the widest one of its list and
+    /// stands at the right edge of it. The texts of all items start in 1
+    /// column.
+    #[default]
+    Column,
+    /// Every marker starts at the left edge of its list, and the text of
+    /// an item starts 1 space of the font after its own marker, the way a
+    /// terminal shows a list. The text of item 10 starts 1 char to the
+    /// right of the text of item 9.
+    Inline,
+}
+
+/// How a table drawn with box chars like `│` and `─` is shown, in a code
+/// block or in a paragraph whose line breaks stay.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownBoxTables {
+    /// As typed, every char where it was written, the way a terminal shows
+    /// it. On a screen narrower than the table every line of it wraps and
+    /// the table falls apart.
+    #[default]
+    Typed,
+    /// As a real table, like a markdown table: its lines are drawn as lines
+    /// and the text of a cell wraps inside its column, so it holds at any
+    /// width. Only a block whose every line is a line of the table counts,
+    /// with at least 2 columns and the same count of cells on every line.
+    /// Its first row is the head.
+    Table,
+}
+
+/// The 6 fonts a markdown text is drawn with.
+#[derive(Clone, Copy)]
+pub struct MarkdownFonts {
+    pub regular:     Weak<Font>,
+    pub bold:        Weak<Font>,
+    pub italic:      Weak<Font>,
+    pub bold_italic: Weak<Font>,
+    pub mono:        Weak<Font>,
+    pub mono_bold:   Weak<Font>,
+}
+
+impl MarkdownFonts {
+    /// The default font of the app for plain text, and the Roboto files
+    /// of the engine for the rest.
+    pub fn bundled() -> Self {
+        Self {
+            regular:     Font::default(),
+            bold:        Font::bold_or_default(),
+            italic:      Font::italic_or_default(),
+            bold_italic: Font::bold_italic_or_default(),
+            mono:        Font::mono_or_default(),
+            mono_bold:   Font::mono_bold_or_default(),
+        }
+    }
+}
+
+impl MarkdownStyle {
+    /// Gives a label of the text the inset of the style, when it sets one.
+    pub(super) fn inset(&self, label: Weak<Label>) {
+        if let Some(inset) = self.text_inset {
+            label.set_text_inset(inset);
+        }
+    }
+
+    pub const DEFAULT: Self = Self {
+        text_size:         14.0,
+        code_size:         13.0,
+        heading_scales:    [1.57, 1.36, 1.14, 1.07, 1.0, 1.0],
+        block_gap:         10.0,
+        item_gap:          4.0,
+        list_markers:      MarkdownListMarkers::Column,
+        link_hosts:        MarkdownLinkHosts::Hidden,
+        line_height:       None,
+        keeps_line_breaks: false,
+        box_tables:        MarkdownBoxTables::Typed,
+        text_inset:        None,
+        text:              dynamic("#1a1d24", "#eceff4"),
+        dim_text:          dynamic("#6b7280", "#9aa3b2"),
+        link:              dynamic("#2f7df6", "#3d8bff"),
+        inline_code:       dynamic("#b4491f", "#f0a070"),
+        code_background:   dynamic("#eef1f5", "#0f1319"),
+        table_head:        dynamic("#eaedf1", "#212731"),
+        line:              dynamic("#dce0e6", "#2c3440"),
+        comment:           dynamic("#6b7280", "#7c8696"),
+        string:            dynamic("#2e7d32", "#98c379"),
+        number:            dynamic("#b45309", "#d19a66"),
+        keyword:           dynamic("#8250df", "#c678dd"),
+        function:          dynamic("#0969da", "#61afef"),
+        type_name:         dynamic("#0e7490", "#56b6c2"),
+        inserted:          dynamic("#16a34a", "#22c55e"),
+        deleted:           dynamic("#dc2626", "#ef4444"),
+        fonts:             None,
+        math_scale:        1.0,
+        math_darkening:    0.0,
+    };
+
+    pub fn apply_globally(self) {
+        *STYLE.get_mut() = Some(self);
+    }
+
+    /// The style a markdown view draws with now.
+    pub fn current() -> Self {
+        STYLE.unwrap_or(Self::DEFAULT)
+    }
+
+    /// The test harness gives every test the default look and hands the
+    /// app's own style back after the run.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn take_global() -> Option<Self> {
+        STYLE.get_mut().take()
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn restore_global(style: Option<&Self>) {
+        *STYLE.get_mut() = style.copied();
+    }
+
+    pub(crate) fn fonts(&self) -> MarkdownFonts {
+        self.fonts.unwrap_or_else(MarkdownFonts::bundled)
+    }
+
+    /// The text size of a heading of a level, 1 to 6.
+    pub(crate) fn heading_size(&self, level: u8) -> f32 {
+        let scale = self.heading_scales[usize::from(level.saturating_sub(1)).min(5)];
+        (self.text_size * scale).round()
+    }
+
+    /// The line pitch of a text of a size, none when the font sets it.
+    pub(crate) fn line_height_for(&self, size: f32) -> Option<f32> {
+        self.line_height.map(|height| height * size / self.text_size)
+    }
+
+    /// The room 1 line of body text takes: the height of a list marker
+    /// and the least height of a list item and of a table row.
+    pub(crate) fn body_line(&self) -> f32 {
+        self.line_height.unwrap_or_else(|| (self.text_size * 1.3).ceil())
+    }
+
+    #[cfg(feature = "code-colors")]
+    pub(crate) fn syntax(&self, token: Token) -> UIColor {
+        match token {
+            Token::Comment => self.comment,
+            Token::String => self.string,
+            Token::Number | Token::Constant => self.number,
+            Token::Keyword => self.keyword,
+            Token::Function => self.function,
+            Token::Type => self.type_name,
+            Token::Inserted => self.inserted,
+            Token::Deleted => self.deleted,
+        }
+    }
+}
+
+impl Default for MarkdownStyle {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+const fn dynamic(light: &str, dark: &str) -> UIColor {
+    UIColor::Dynamic(DynamicColor::new(Color::hex(light), Color::hex(dark)))
+}

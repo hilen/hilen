@@ -2,13 +2,11 @@ use anyhow::{Result, anyhow};
 use hilen::{
     dispatch::{from_main, wait_for_next_frame},
     gm::LossyConvert,
+    image::{Image, RASTER_KEEP_FRAMES, Svg},
     refs::{Weak, manage::DataManager},
     ui::{Anchor::Top, ImageView, Setup, Size, UIManager, ViewData, ViewTest, view},
     ui_test::helpers::check_colors,
-    window::{
-        Window,
-        image::{Image, RASTER_KEEP_FRAMES, Svg},
-    },
+    window::Window,
 };
 
 // One svg drawn at three sizes. Each size rasterizes at its own pixel
@@ -175,7 +173,7 @@ fn raster_sizes(name: &'static str) -> Vec<Size<u32>> {
 fn frame_and_raster_sizes(name: &'static str) -> (u64, Vec<Size<u32>>) {
     from_main(move || {
         let image: Weak<Image> = Image::get(name);
-        let sizes = image.svg.as_ref().map(Svg::raster_sizes).unwrap_or_default();
+        let sizes = image.svg.as_ref().map_or_default(Svg::raster_sizes);
         (Window::render_frame(), sizes)
     })
 }

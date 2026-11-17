@@ -1,0 +1,32 @@
+[package]
+name        = "hilen-updater"
+description = "Self update of a desktop binary from a signed manifest, without the engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+# The calls run only on the desktop, a phone updates through its store and a
+# web page by rehosting. The types above stay on every target for `hilen`.
+[target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+anyhow        = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex           = { workspace = true }
+log           = { workspace = true }
+reqwest       = { workspace = true }
+rustls        = { workspace = true }
+self-replace  = { workspace = true }
+semver        = { workspace = true }
+serde_json    = { workspace = true }
+sha2          = { workspace = true }
+tokio         = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = { workspace = true }

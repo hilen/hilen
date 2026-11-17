@@ -19,7 +19,7 @@ pub(crate) fn log(message: &str) {
     // as a format specifier.
     let format = NSString::from_str("%@");
     let message = NSString::from_str(message);
-    unsafe { NSLog(&*format, &*message) };
+    unsafe { NSLog(&raw const *format, &*message) };
 }
 
 /// Without this a panic leaves nothing behind but `abort()` in the crash
@@ -31,14 +31,11 @@ pub(crate) fn set_panic_hook() {
 }
 
 /// An Objective-C exception that reaches an `extern "C"` frame, such as a
-/// UIKit callback block, aborts the process as "panic in a function that
+/// `UIKit` callback block, aborts the process as "panic in a function that
 /// cannot unwind". That abort reports neither the reason nor the throw site.
 /// A preprocessor runs at the throw itself, while both are still available.
 extern "C" fn log_exception(exception: *mut NSException) -> *mut NSException {
-    let reason = unsafe { &*exception }
-        .reason()
-        .map(|reason| reason.to_string())
-        .unwrap_or_default();
+    let reason = unsafe { &*exception }.reason().map_or_default(|reason| reason.to_string());
 
     log(&format!(
         "Objective-C exception: {} {reason}\nBacktrace: {}",

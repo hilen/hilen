@@ -26,9 +26,51 @@ impl Body {
         self
     }
 
+    /// The turn speed, radians per second about each axis of the world.
+    pub fn angular_velocity(&self) -> Vec3 {
+        self.rigid_body().angvel()
+    }
+
+    pub fn set_angular_velocity(&mut self, vel: Vec3) -> &mut Self {
+        self.rigid_body_mut().set_angvel(vel, true);
+        self
+    }
+
+    pub fn mass(&self) -> f32 {
+        self.rigid_body().mass()
+    }
+
+    /// The mass in kg, in place of the one the collider's volume gives.
+    /// A new collider from `set_collider` takes its own mass again.
+    pub fn set_mass(&mut self, mass: f32) -> &mut Self {
+        self.collider_mut().set_mass(mass);
+        self
+    }
+
+    /// How much of the scene's gravity pulls this body, 1 by default. With
+    /// 0 it floats, like a hand that a game moves by its speed.
+    pub fn set_gravity_scale(&mut self, scale: f32) -> &mut Self {
+        self.rigid_body_mut().set_gravity_scale(scale, true);
+        self
+    }
+
     pub fn add_impulse(&mut self, impulse: Vec3) -> &mut Self {
         self.rigid_body_mut().apply_impulse(impulse, true);
         self
+    }
+
+    /// Puts the body to sleep. It stays where it is, also on a slope, and
+    /// the ground does not wake it. The touch of a body that moves does,
+    /// and so do a push, a speed or a weld. A thing laid down in a scene
+    /// starts still this way.
+    pub fn sleep(&mut self) -> &mut Self {
+        SceneManager::physics().sleep(self.rigid_handle);
+        self
+    }
+
+    /// Whether the body sleeps, see `sleep`.
+    pub fn is_sleeping(&self) -> bool {
+        self.rigid_body().is_sleeping()
     }
 
     /// How fast motion dies out on its own, per second. Rapier has no

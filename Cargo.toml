@@ -15,10 +15,14 @@ members = [
   "hilen-inspect",
   "hilen-pixdiff",
   "hilen-server",
+  "hilen-session",
+  "hilen-updater",
+  "hot-test",
   "inspector",
   "level-test",
   "render-test",
   "scene-test",
+  "scene-test-suite",
   "ui-test",
   "ui-test-suite",
 ]
@@ -33,7 +37,8 @@ repository = "https://github.com/hilen/hilen"
 version = "0.1.0"
 
 [workspace.metadata.cargo-machete]
-ignored = []
+# hilen names libc only to carry its pin below to every app.
+ignored = ["libc"]
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -55,81 +60,159 @@ struct_field_names = "allow"
 manual_assert = "allow"
 
 [workspace.dependencies]
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 android_logger = "0.15"
 anyhow = "1.0"
 arbitrary = { version = "1.4", features = ["derive"] }
 arboard = "3.6"
-async-std = "1.13"
 atomic_float = "1.1"
-axum = "0.8"
-base64 = "0.22"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.23"
 bit_ops = "0.2"
+btleplug = "0.13"
 byte-unit = "5.2"
+block2 = "0.6"
 bytemuck = { version = "1.25", features = ["derive"] }
-chrono = "0.4"
+cc = "1.6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "oldtime", "serde", "std", "wasmbind"] }
 clap = { version = "4.6", features = ["derive"] }
 console_error_panic_hook = "0.1"
 console_log = "1.0"
 contour = { version = "0.13", features = ["f32"] }
+cpal = "0.18"
 ctor = "1.0"
-dirs = "6.0"
+# The mouse pointer shapes, the same type winit takes.
+cursor-icon = "1.2"
+data-encoding = "2.11"
+dirs = "7.0"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 dotenvy = "0.15"
 ed25519-dalek = "3.0"
-educe = "0.6"
+educe = "0.8"
 env_logger = "0.11"
 event-listener = "5.4"
+exmex = "0.21"
 fake = "5.1"
 fastrand = "2.4"
 fern = "0.7"
+ffmpeg-next = { git = "https://github.com/VladasZ/rust-ffmpeg", rev = "695cb9d3271d1f532779dad15b2538e11015cc23", default-features = false, features = ["codec", "filter", "format", "software-resampling", "software-scaling", "static"] }
+# the 0.23 that usvg pulls, one copy in the tree
+fontdb = "0.23"
+geo = { version = "0.33", default-features = false }
 glam = { version = "0.33", features = ["bytemuck"] }
-gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
+global-hotkey = "0.9"
+gltf = { version = "1.4", default-features = false, features = ["utils", "names", "KHR_materials_unlit"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
+glyph_brush = "0.7"
+futures-channel = "0.3"
 futures-util = "0.3"
 getrandom = "0.4"
+half = "2.7"
 hex = "0.4"
-image = "0.25"
+hkdf = "0.13"
+if-addrs = "0.15"
+# The formats are chosen by each crate. A browser build of hilen takes only a
+# few, an LG TV compiles every MB of wasm for about 4.7 s.
+image = { version = "0.25", default-features = false }
 indexmap = "2.14"
 infisical = "0.0.3"
-instant = { version = "0.1", features = ["wasm-bindgen"] }
 http-body-util = "0.1"
 jni = "0.22"
+keepawake = "0.6"
+keyboard-types = { version = "0.8", features = ["serde"] }
+keyring-core = "1.0"
+keyring-store-android = { package = "android-native-keyring-store", version = "1" }
+keyring-store-apple = { package = "apple-native-keyring-store", version = "1" }
 kira = "0.12"
-libc = "0.2"
+# backtrace 0.3.76, which sentry brings in, calls 4 dyld functions that libc
+# 0.2.190 declares only for macOS, so an iOS build fails. Free the pin when
+# backtrace or libc ships a fix.
+libc = "=0.2.189"
+libm = "0.2"
+linkify = "0.11"
+linuxvideo = "0.3"
 local-ip-address = "0.6"
-log = "0.4"
+log = { version = "0.4", features = ["serde", "std"] }
 lyon = "1.0"
-mdns-sd = "0.20"
+machine-uid = "0.6"
+midir = "0.11"
+mdns-sd = "0.21"
+ndk = { version = "0.9", default-features = false, features = ["api-level-24", "media"] }
+ndk-sys = "0.6"
+nokhwa = { version = "0.10", default-features = false }
+memmap2 = "0.9"
+metrics = { version = "0.24", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 mime_guess = "2.0"
 ndk-context = "0.1"
 noise = "0.9"
 nonempty = "0.12"
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+num-complex = "0.4"
+obfstr = "0.4"
+# The debug check of every message signature took over half of a debug frame in Metal.
+objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSGraphics", "NSImage", "NSPanel", "NSPasteboard", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "AVCaptureDevice",
+  "AVCaptureInput",
+  "AVCaptureOutputBase",
+  "AVCapturePhotoOutput",
+  "AVCaptureSession",
+  "AVCaptureSessionPreset",
+  "AVCaptureVideoDataOutput",
+  "AVMediaFormat",
+  "AVVideoSettings",
+  "block2",
+  "dispatch2",
+  "objc2-core-foundation",
+  "objc2-core-media",
+  "objc2-core-video",
+] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMBase", "CMFormatDescription", "CMSampleBuffer", "objc2-core-video"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSException", "NSString", "NSURL"] }
-objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIPasteboard", "block2"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDate", "NSDictionary", "NSError", "NSException", "NSItemProvider", "NSJSONSerialization", "NSProcessInfo", "NSProgress", "NSString", "NSURL", "NSUserDefaults", "NSValue"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "block2", "LABiometryType", "LAContext", "LAError"] }
+objc2-media-player = { version = "0.3", default-features = false, features = ["std", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent", "block2"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLCaptureManager", "MTLDevice"] }
+objc2-photos-ui = { version = "0.3", default-features = false, features = ["std", "PHPicker"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CALayer", "CAMediaTiming", "CATransaction", "objc2-core-foundation"] }
+objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNUserNotificationCenter"] }
 open = "5.4"
+# The OpenXR loader built into the exe, a release exe needs no DLL that a
+# clean Windows lacks. The build needs cmake. The fork builds the loader on
+# the static C runtime under `crt-static`, see docs/forks.md.
+openxr = { git = "https://github.com/VladasZ/openxrs", rev = "b7aaba44922781b9569d2ba632bba4275009581d", default-features = false, features = ["static"] }
+# Already in the build through sentry-contexts on Windows, the engine reads the
+# Windows version and edition from it for a Sentry event.
+os_info = { version = "3", default-features = false }
 parking_lot = "0.12"
-paste = "1.0"
-pollster = "0.4"
+pollster = "1.0"
 pretty_assertions = "1.4"
+pulldown-cmark = { version = "0.13", default-features = false }
+qrcode = { version = "0.14", default-features = false }
 quote = "1.0"
-rapier2d = { version = "0.33" }
-rapier3d = { version = "0.33" }
+rapier2d = { version = "0.36" }
+rapier3d = { version = "0.36" }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 redis = { version = "1.6", features = ["tokio-comp", "connection-manager"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
-resvg = "0.47"
+regex = "1.13"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream", "http2", "json", "query"] }
+# Features are chosen in hilen/Cargo.toml, a browser build has no svg text.
+resvg = { version = "0.48", default-features = false }
 rfd = "0.17"
-rust-embed = "8.12"
-rust_decimal = "1.42"
+ring = "0.17"
+rust-embed = { version = "8.12", features = ["include-exclude"] }
 rustc-hash = "2.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustybuzz = "0.20"
 self-replace = "1.5"
-semver = "1.0"
-sentry = { version = "0.48", default-features = false, features = [
+semver = { version = "1.0", features = ["serde"] }
+sentry = { version = "0.49", default-features = false, features = [
   "backtrace",
   "contexts",
   "debug-images",
@@ -137,102 +220,154 @@ sentry = { version = "0.48", default-features = false, features = [
   "reqwest",
   "rustls-no-provider",
 ] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-serial_test = "3.4"
+serial_test = "4.0"
 sha2 = "0.11"
-spin = "0.9"
+sherpa-onnx = "2.0"
+spin = "0.12"
 sqlx = { version = "0.9", features = [
   "runtime-tokio",
   "tls-rustls-ring",
   "postgres",
+  "sqlite",
+  "migrate",
   "macros",
   "chrono",
-  "uuid",
-] }
-syn = { version = "2.0", features = ["extra-traits", "full"] }
+  "uuid", "any", "ipnetwork", "json", "rust_decimal",
+] , default-features = false }
+syn = { version = "3.0", features = ["extra-traits", "full"] }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }
 sys-locale = "0.3"
-sysinfo = "0.39"
+sysinfo = { version = "0.39", default-features = false, features = ["component", "disk", "network", "system", "user"] }
 test-log = "0.2"
 thiserror = "2.0"
 tiny-skia = "0.12"
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.52", features = ["full", "fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
-tokio-util = "0.7"
-tower = "0.5"
-tower-http = { version = "0.7", features = ["trace", "fs"] }
+toml = "1.1"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace", "fs", "timeout"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
 unicode-linebreak = "0.1"
-usvg = "0.47"
+unicode-width = "0.2"
+url = "2.5"
+usvg = { version = "0.48", default-features = false }
+uuid = "1.28"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
-wasm_thread = "0.3"
+# A worker starts as a classic script unless the `module-workers` feature of
+# hilen asks for a module, see that feature.
+wasm_thread = { version = "0.3", default-features = false }
 web-sys = { version = "0.3", features = [
     "AddEventListenerOptions",
+    "BinaryType",
+    "Blob",
+    "BlobPropertyBag",
+    "CanvasRenderingContext2d",
     "Clipboard",
+    "ClipboardEvent",
+    "ClipboardEventInit",
     "CloseEvent",
+    "CompositionEvent",
+    "CompositionEventInit",
+    "CssStyleDeclaration",
+    "DataTransfer",
+    "DataTransferItem",
+    "DataTransferItemList",
+    "DomStringList",
+    "DomTokenList",
     "Document",
+    "DomRect",
+    "DragEvent",
+    "DragEventInit",
     "Element",
+    "File",
+    "FilePropertyBag",
+    "FileList",
+    "FocusEvent",
+    "FocusOptions",
     "History",
+    "HtmlDocument",
     "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlImageElement",
+    "HtmlInputElement",
+    "HtmlMediaElement",
+    "HtmlTextAreaElement",
+    "HtmlVideoElement",
+    "ImageBitmap",
+    "ImageBitmapOptions",
+    "ImageData",
     "KeyboardEvent",
     "KeyboardEventInit",
     "Location",
+    "MediaDeviceInfo",
+    "MediaDeviceKind",
+    "MediaDevices",
+    "MediaError",
+    "MediaQueryList",
+    "MediaStream",
+    "MediaStreamConstraints",
+    "MediaStreamTrack",
+    "MediaTrackConstraints",
+    "MediaTrackSettings",
     "MessageEvent",
     "Navigator",
     "Node",
+    "Performance",
+    "ResizeQuality",
+    "Storage",
     "Url",
+    "VideoPlaybackQuality",
+    "VisualViewport",
     "WebSocket",
+    "WheelEvent",
+    "WheelEventInit",
     "Window",
     "XmlHttpRequest",
+    "XmlHttpRequestEventTarget",
+    "XmlHttpRequestResponseType",
+    "Screen",
 ] }
 web-time = "1.1"
 webpki-roots = "1.0"
+# The same version as the DX12 backend of wgpu-hal, so its COM types match.
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry"] }
 wgpu = { package = "hilen-wgpu", version = "30.0" }
-wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "ee03ffae8d38fc488b2aedad6200bfcb2f39575c" }
-winit = { package = "hilen-winit", version = "0.30", features = ["serde"] }
+# Asked for by name on Apple systems, where the frame record of the inspector needs
+# the presented time that came with 30.0.3. An app keeps the version of its own lock
+# file while it fits, so `30.0` alone left it on a fork without that call.
+wgpu-hal = { package = "hilen-wgpu-hal", version = "30.0.4", features = ["metal"] }
+wgpu_text = { package = "hilen-wgpu-text", git = "https://github.com/VladasZ/wgpu-text", rev = "66502fbb456a5510a9bb01d6e4355361a057a7b6" }
+# The full version: an app that pins hilen by rev keeps the fork version of
+# its own lock file while it still fits, and an older fork has no tvOS remote.
+winit = { package = "hilen-winit", version = "0.30.17", features = ["serde"] }
+x25519-dalek = { version = "3.0", features = ["static_secrets"] }
+xcap = { version = "0.9", default-features = false }
+zeroize = "1.9"
 
 plat = { version = "0.10", path = "deps/plat" }
 reflected = "0.30"
 
 level-proc = { version = "0.1", path = "deps/level-proc" }
+project-proc = { version = "0.1", path = "deps/project-proc" }
 hilen = { version = "0.1", path = "hilen" }
+hilen-server = { version = "0.1", path = "hilen-server" }
+hilen-session = { version = "0.1", path = "hilen-session" }
+hilen-updater = { version = "0.1", path = "hilen-updater" }
+# The data of `DiffPanel`. A repo of its own, so its rev moves only when the
+# types change, and every crate that builds diffs pins that same rev.
+filediff = { git = "https://github.com/hilen/filediff", rev = "4d787a23b21271f102e2c2509a68093aa41a6ff0" }
 hilen-pixels = { version = "0.1", path = "deps/pixels" }
 demo = { path = "demo" }
 ui-test-suite = { path = "ui-test-suite" }
+scene-test-suite = { path = "scene-test-suite" }
 ui-proc = { version = "0.1", path = "deps/ui-proc" }
-
-# Image decoding dominates dev build startup, a debug decode of the
-# asset fixtures takes ten seconds in the browser. Decoders are leaf
-# crates that never need debugging here, so dev builds them optimized.
-[profile.dev.package.image]
-opt-level = 3
-
-[profile.dev.package.png]
-opt-level = 3
-
-[profile.dev.package.zune-jpeg]
-opt-level = 3
-
-[profile.dev.package.miniz_oxide]
-opt-level = 3
-
-[profile.dev.package.adler2]
-opt-level = 3
-
-[profile.dev.package.fdeflate]
-opt-level = 3
-
-[profile.dev.package.resvg]
-opt-level = 3
-
-[profile.dev.package.usvg]
-opt-level = 3
-
-[profile.dev.package.tiny-skia]
-opt-level = 3
 
 # The engine's own per pixel loops, the mip chain above all. A 41
 # megapixel fixture spent 11 seconds in it at opt-level 0 at every
@@ -240,28 +375,16 @@ opt-level = 3
 [profile.dev.package.hilen-pixels]
 opt-level = 3
 
-# Text shaping and rasterizing. Unoptimized, a label of a few hundred glyphs
-# costs tens of milliseconds a frame and a typing test crawls at 15 fps.
-[profile.dev.package.rustybuzz]
+[profile.dev.package."*"]
 opt-level = 3
 
-[profile.dev.package.ttf-parser]
+[profile.deploy]
+codegen-units = 1
+inherits = "release"
+lto = "fat"
 opt-level = 3
+strip = true
 
-[profile.dev.package.ab_glyph]
-opt-level = 3
-
-[profile.dev.package.ab_glyph_rasterizer]
-opt-level = 3
-
-[profile.dev.package.glyph_brush]
-opt-level = 3
-
-[profile.dev.package.glyph_brush_layout]
-opt-level = 3
-
-[profile.dev.package.glyph_brush_draw_cache]
-opt-level = 3
-
-[profile.dev.package.hilen-wgpu-text]
-opt-level = 3
+[profile.deploy-wasm]
+inherits = "deploy"
+strip = false

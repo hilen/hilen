@@ -12,7 +12,7 @@ struct MovableViewTestView {
 }
 
 impl Setup for MovableViewTestView {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.movable.set_title("Movable view");
         self.movable.set_frame((10, 10, 400, 400));
         self.movable.target_view.set_color(GREEN);

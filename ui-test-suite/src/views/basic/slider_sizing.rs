@@ -21,7 +21,7 @@ pub struct SliderSizing {
 }
 
 impl Setup for SliderSizing {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.horizontal.set_horizontal().place().size(400, 60).center_x().t(100);
         self.horizontal.set_value(0.5);
 
@@ -70,7 +70,7 @@ fn default_look() -> Result<()> {
     )
 }
 
-fn thick_track(mut view: Weak<SliderSizing>) -> Result<()> {
+fn thick_track(view: Weak<SliderSizing>) -> Result<()> {
     from_main(move || {
         view.horizontal.set_track_thickness(TRACK);
         view.vertical.set_track_thickness(TRACK);
@@ -114,7 +114,7 @@ fn thick_track(mut view: Weak<SliderSizing>) -> Result<()> {
     )
 }
 
-fn big_thumb(mut view: Weak<SliderSizing>) -> Result<()> {
+fn big_thumb(view: Weak<SliderSizing>) -> Result<()> {
     from_main(move || {
         view.horizontal.set_thumb_radius(THUMB);
         view.vertical.set_thumb_radius(THUMB);

@@ -7,16 +7,37 @@ added while making the skaityk port pixel identical to its WebKit original.
 
 `draw_label` in `ui_drawer.rs` builds a `Section` per label and queues it on the
 label's `Font`. Each `Font` owns a `wgpu_text::TextBrush` for rasterization and a
-`rustybuzz::Face` for shaping. Glyphs are positioned by `ShapedLayout`
+`rustybuzz::Face` for shaping. A brush owns only its glyph atlas and vertex buffer, the
+shader module and the pipelines are built once in the `wgpu_text` fork and shared by
+every brush, so a font costs no pipeline build of its own. Glyphs are positioned by `ShapedLayout`
 (`hilen/src/window/text/shaped_layout.rs`), a custom `GlyphPositioner` that shapes
 every line with rustybuzz and hands pre-positioned glyphs to glyph_brush.
 
-Before drawing, the UI tree queues every visible label once and processes each font's
-glyph atlas to its final layout for the frame. Clip boundaries can flush text several
-times in one frame. Without the preload, a later flush can grow and reorder the shared
-atlas after earlier vertices already captured its texture coordinates, which renders
-unrelated glyph fragments in those earlier labels. The draw pass then queues the same
-sections for their actual clipped batches against the stable atlas.
+Clip boundaries, and a translucent background in front of all queued text, flush
+text several times in one frame. The second keeps text behind a dim layer visible,
+since a rect writes depth and would hide text flushed after it. A translucent rect
+behind queued text, like a selection, does not flush, text writes depth over whole
+glyph boxes and would cut holes in it.
+
+Every flush is its own batch of the font's brush, and all batches share the glyph
+atlas. A full atlas gives a later batch the space of glyphs it does not use, and
+all texture writes of a frame run before the render pass, so an earlier batch
+would draw unrelated glyph fragments. The `wgpu_text` fork prevents it: when a
+write of a later batch lands on a glyph an earlier batch of the frame still draws,
+the writes go into a copy of the atlas, the earlier draw keeps the old one, and
+the next frame starts with an atlas of double size. The copy is written from the
+pixels the fork keeps in memory, not copied on the GPU, a texture to texture copy
+made an LG TV drop its WebGL context, see [webos.md](webos.md).
+
+The test is on the atlas slot of a drawn glyph: its box and the 1 texel of padding
+the cache puts around it, the most any shader reads. It is not on the quad, which
+the stem darkening or a spread grows past the slot. The cache packs a new glyph
+right after the slot of the last one in its row. A test on the quad took each such
+glyph for an overwrite, and each one copied and doubled the whole atlas. In
+kukareker that froze each click on a file of a diff for 0.8 to 3.5 seconds, with a
+peak of 30 GB of memory. `Clipped text batches` and
+`Text corruption` pin it. The engine used to queue every visible label once before
+drawing to keep the atlas stable, that preload pass is gone.
 
 Shaping through rustybuzz exists because ab_glyph reads only the legacy `kern`
 table. Modern fonts, Roboto included, keep kerning in `GPOS`, so the builtin
@@ -42,6 +63,20 @@ glyph's bounds through `ttf_parser` on every measure, and a table rebuilding
 hundreds of measured spans spent seconds there. Same 10 second sweep from
 `Font::process_queued`.
 
+## Glyph positions snap to the atlas grid
+
+The glyph atlas of `glyph_brush_draw_cache` keeps one raster per glyph and
+step of sub pixel position, 0.1 pixel by default. It rasterizes at the exact
+position of whichever glyph asks first and every later glyph in that step
+reuses it. So the same text got slightly different edges depending on which
+label drew first, and that changed from run to run: the same frame differed by
+up to 27 levels per channel, which is how a probe on a glyph edge failed in
+one run and passed in the next. `snap_to_cache` in `shaped_layout.rs` rounds
+every glyph position to that step before the brush sees it, so a step has one
+possible raster. A glyph moves by at most 0.05 pixels. Measured after it, the
+same frame differs by 1 level between runs. If the brush is ever built with
+another position tolerance, `CACHE_STEPS` follows it.
+
 ## Sizes are pixels per em
 
 `Label::text_size` means pixels per em, the CSS convention. ab_glyph `PxScale`
@@ -57,12 +92,52 @@ a variable font instance with axes pinned. Each combination is its own managed
 instance, cache under a name that includes the values. Axis values apply to both
 the raster font and the shaping face. A missing axis is an error.
 
+The engine brings 4 font files: the static Roboto Regular, the default font, and the
+variable Roboto, Roboto Italic and Roboto Mono. `Font::bold()`, `Font::italic()`,
+`Font::bold_italic()`, `Font::mono()` and `Font::mono_bold()` hand out an instance of
+the 3 variable files, weight 400 or 700, made on the first call. So an app has bold,
+italic and code text with no font file of its own.
+
+Each file is behind a feature, all on by default: `font-roboto` holds Roboto Regular
+and the variable Roboto, `font-roboto-italic` and `font-roboto-mono` the other 2. An
+app with its own fonts, like a web page where every byte is downloaded, turns off the
+ones it does not use with `default-features = false`. Without `font-roboto` the app
+calls `Font::set_builtin(data)` in `App::before_launch`. That file is then the default
+font and the fallback of a font that fails to load, and the first text drawn without
+it panics with a message that names the call. A left out file is drawn with the
+default font where the engine needs it, the markdown, the log view and the code
+editor, and bold italic falls back to bold. With no file from `set_builtin` the
+built in font is `Font::roboto()` itself, never a second copy of the file under
+another name, so a run in `Font::roboto()` on a default label stays in the label
+font, `Label font runs` pins it.
+
+The `math` feature, off by default, brings a 5th file, Latin Modern Math, the font of
+LaTeX documents, 730 KB, under the GUST Font License next to it in `fonts/`.
+`Font::math()` hands it out, `Font::math_darkened(strength)` a copy with stem
+darkening, see Math below.
+
 ## Letter spacing
 
 `Label::set_letter_spacing(points)` adds tracking between glyphs, applied by
 `ShapedLayout` after kerning, mirrored in `Font::measure`. `Button` forwards it,
 and `set_font`, to its internal label. Needed to match platforms that apply the
 font's `trak` curve automatically, macOS does for the system font.
+
+## Text inset
+
+Left and right aligned text stands `Label::text_inset()` points from the edge of the
+frame, 0 for centered text. It is in points, so the text sits at the same place on
+every screen. The default is 8, what a retina screen showed when the indent was 16
+pixels of the screen. `set_text_inset(points)` sets it per label, 0 included, and
+`Label::set_default_text_inset(points)` for every label made after the call, like
+`set_default_text_size`. A label keeps the value it was made with, so a `Label` style
+can also set it. `label_geometry` in `label_drawer.rs` turns it into pixels for the
+brush, the color glyphs and the text effects. The measure, the wrap bound, the
+ellipsis cut, the selection, the underlines, the caret of a `TextField` and the iOS
+system field all read `text_inset()`, so they agree with the drawn text. The value is
+in the paint key. A UI test run sets the default to 16, the value its scale 1 had
+before, so recorded tests keep their pixels. `Label text inset` checks the text start
+at scale 1, 2 and 3.
 
 ## Line handling
 
@@ -72,13 +147,23 @@ text, UAX 14 through the `unicode-linebreak` crate, so Latin breaks after
 spaces and after a `/` in a path, Japanese and Chinese between characters.
 Spaces before a break are dropped. Only the first glyph of a cluster may start
 a line, a combining mark stays on its base. A Latin word wider than the bound
-overflows, the `UIKit` word wrapping behavior. Thai, Lao, Khmer and Myanmar
+overflows, the `UIKit` word wrapping behavior, unless the label has
+`Label::set_breaks_long_words(true)`. Then such a word breaks at the cluster that
+overflows, like `overflow-wrap: anywhere` in a browser: a normal break comes first,
+only a word that does not fit on a line of its own is cut. It is part of the shape,
+measure and paint keys. The code blocks of `MarkdownView` turn it on, a log line often
+has no space, and `Label long words` tests it. Thai, Lao, Khmer and Myanmar
 have no opportunity inside a word without a dictionary, so a piece of those
 wider than the bound breaks at the cluster that overflows. `Script wrap`
 walks ten widths over Japanese, Thai, Korean and a mixed label. Vertical alignment
 defaults to center, `Label::set_vertical_alignment` opts a label into Top,
 which the multiline `TextField` uses so a tall field starts its text at the
 top.
+
+A multiline `TextField` scrolls its lines to keep the line of the caret in view. When
+its owner makes it higher, like a chat box that grows with a pasted text, it scrolls
+back so that no room stays empty under the last line while lines are scrolled out
+above. A field that fits all its text is not scrolled. `Multiline field grows` pins it.
 
 `Label::set_line_height(points)` replaces the font's own line pitch with a
 CSS line box: baselines advance by the box, glyphs center in each box with
@@ -96,15 +181,59 @@ copy the shape cache returns, so measure, wrap and drawing agree. A tab
 at the very end of a text still measures as one space, `glyph_brush`
 bounds the last glyph by its own advance. `Label tab` pins the behavior.
 
+The height of a measure counts the lines of the layout, `ShapedLayout::text_height`,
+not the boxes of the glyphs. An empty line has no glyph and so no box, and the drawer
+still gives it its place. So empty lines at the start of a text, between 2 lines and
+after the last line break all count: a text that ends with a line break is 1 line
+higher than the same text without it. The width still comes from the glyph boxes.
+`Markdown plain height` pins it with a pasted terminal output that starts with 2
+empty lines.
+
+## Line limit, outline and shadow
+
+`set_max_lines(n)` on a multiline label cuts the text to `n` lines and ends the
+last one in an ellipsis, the CSS `line-clamp`. The cut is the longest start of
+the text that still wraps into the limit with the ellipsis after it, found by
+binary search over the layout and cached per width like the single line
+ellipsis. `size_for_width` then measures what is drawn.
+
+The single line ellipsis of `set_ellipsize` keeps the whole text when its measure
+is at most the frame width minus the inset plus a slack of a hundredth of a point.
+A button sizes its title from `size_for_width`, text plus inset, and the label then
+gets its own width back through sums like that minus the inset or the frame of the
+button minus its padding. Those can come back 1 bit short of the measure, and the
+exact compare cut `Nexus` to `Nex…` in a link of blackforge. `Label fitted
+ellipsize` pins it with many words in 4 faces and 5 sizes.
+
+`set_text_outline(color, width)` and `set_text_shadow(color, offset)` draw the
+same text again in 1 color behind the glyphs. `set_text_shadow_blur(radius)`
+makes the shadow soft. A hard shadow is a plain copy of the text through the
+brush, `hilen/src/ui/label_drawer.rs`.
+
+The outline and a soft shadow are images, `hilen/src/ui/label_effect.rs`. The
+glyphs of the label, of every font it uses, raster on the CPU into one
+coverage map, the same outlines at the same places the brush draws. The map
+is spread in 2 passes, along the rows and then down the columns, in
+`deps/pixels/src/spread.rs`: the outline moves every edge out by its width,
+round at the corners, the blur is a gaussian whose sigma is half the radius,
+like a CSS text shadow. So the cost grows with the spread and not with its
+square, and no spread is cut. The image is drawn pixel for pixel as 1 quad
+of the image pipeline and kept by the hash of the text, its layout, its
+place against the whole pixel origin of the label and the effect. It is made
+again only when one of them changes, and freed 120 frames after its last
+draw.
+
+Text writes depth over whole glyph boxes and sits only 2 depth steps in front
+of its view, so each layer is `f32::EPSILON` nearer than the one before and the
+text itself comes forward by the number of layers.
+
 ## Matching other renderers
 
 Browsers composite text in sRGB space and so does the engine: render targets
 are plain Unorm and color values are encoded sRGB end to end, see
 [colors.md](colors.md). Glyph coverage therefore blends exactly like browser
 text with no compensation, and ports use nominal font weights on both
-polarities. The wgpu_text fork still carries a coverage remap entry point,
-but it activates only on sRGB targets, which the engine no longer uses.
-Measuring workflow, scripts and the trak table details live in the
+polarities. Measuring workflow, scripts and the trak table details live in the
 hilen skill's migration chapter, next to this repo's users.
 
 One real difference remains: `CoreText` applies stem darkening when it
@@ -129,19 +258,294 @@ text its cluster came from, so a run boundary never breaks kerning or letter
 spacing. Theme pairs in a run re-resolve on a switch like the text color does.
 `set_text` clears the runs.
 
+## Background runs
+
+`Label::set_background_runs(ranges)` paints a color behind byte ranges of the text,
+under the glyphs and over the color of the label. A range that wraps is painted on
+every line it is on. The ranges are treated like the ones of `set_color_runs`, a theme
+pair resolves again on a switch, and `set_text` clears them.
+`UIDrawer::draw_background_runs` queues 1 rect per line piece like the rects of a
+selection and right after them, so a selection wins where both are. The rect of a
+selection starts at the top of the glyphs. With a custom line box half of the leading
+is above the glyphs, so a background rect is moved up by it and fills the box itself:
+only so the colors of 2 rows that touch meet with no seam. `Label background runs`
+pins it, its 3 rows count the colors of a column of pixels from top to bottom.
+
+## Cell grid
+
+`Label::set_cell_grid(true)` puts the text on a grid of cells, like the screen of a
+terminal. Every char takes whole cells, 1 for most, 2 for a wide one like a CJK
+letter or an emoji, as the `unicode-width` crate counts them, and none for a mark
+that joins the char before it. `snap_to_grid` in `ShapedLayout` runs after shaping
+and after the tabs: the first glyph of a cluster gets the advance of its cells and
+the rest of the cluster none. So a glyph of a fallback font, wider or narrower than
+the font of the label, moves nothing after it out of its column.
+
+`Label::cell_size()` is the size of 1 cell in points: the advance of a space and the
+line pitch of the font, each rounded to whole pixels of the screen. A cell of half a
+pixel more leaves seams between the backgrounds of 2 cells. The grid takes the width
+in the unit of the layout, points in a measure and pixels in the drawer, so both
+agree. The lines of a grid label are 1 cell high unless `set_line_height` says more.
+A row of a terminal is 1 such label, 1 cell high. `Label cell grid` pins it.
+
+## Box chars that join
+
+`Label::set_joins_box_chars(true)` draws every box char, U+2500 to U+257F, over its
+whole cell the way a terminal does: from the top of its line to the top of the next,
+and from its left edge to the next char. So the lines of a table drawn with box chars
+join above, below, left and right, at any text size and line height. Off by default.
+A `MarkdownView` turns it on in every code block, and in a text when
+`keeps_line_breaks` is set.
+
+A `MarkdownView` shows where a link really goes when `link_hosts` of `MarkdownStyle`
+is `MarkdownLinkHosts::Outside`, for a text other people wrote. A canvas shows no
+address under the mouse, so a link could say one address and open another. The host
+stands after the link in the dim text, like `my guide evil.example`, only for a web
+link to another site whose text is not an address of that host already. In a browser
+the site of the page is the own one. The host is read with the `url` crate, the way a
+browser reads it, `markdown/link_host.rs`. Quotes and lists nest at most
+`MAX_NESTING` deep, 16, a deeper one adds no level: the view lays a block out by
+recursion and a text of 9999 `>` made a tree that deep.
+
+2 things broke such a table before:
+
+- All glyphs of 1 label share 1 depth, and the brush writes depth over the whole box of
+  a glyph. A box char that reaches into the next cell lost its pixels where the box of
+  the glyph drawn before it lay, so every `─` and `│` came out dashed.
+- A font whose `│` is shorter than its line pitch, or a line height taller than the
+  glyph, left a real gap on every row.
+
+`box_chars.rs` in `window/text` reads the x bounds of `─` and the y bounds of `│` of a
+font and stretches each box glyph over its cell, with the cell edges on whole pixels
+and 0.25 pixel past each edge. `ShapedLayout` hands the brush the text without the
+fitted glyphs, and `label_drawer.rs` adds 4 more layers after the text, by row and
+column parity, each 1 `LAYER_STEP` nearer. So 2 neighbors, also on a diagonal, never
+share a layer and both draw whole. Where 2 strokes overlap, the soft edge of a stroke
+is blended twice and shows a faint darker dot, never a gap. A font with no `─` or no
+`│` keeps its box chars as they are. A hard text shadow draws them unfitted.
+`Markdown box chars` pins it with 4 tables in 2 fonts, `0xProtoBoxChars.ttf` is a
+subset of 0xProto for that test.
+
 ## Font runs
 
 `Label::set_font_runs(ranges)` draws byte ranges in their own font, underlined,
-or both, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
+struck through, or any mix of the 3, through `RunStyle`. `ShapedLayout` shapes every line per segment, one
 per run it crosses and one per gap, each with its own face and shape cache, so
 a wider run font moves the wraps and `Font::measure` follows. The line height
 and baseline stay the label font's. Every `Font` owns one brush, so the drawer
 queues a mixed label on every brush it touches, and each layout copy lays out
 the whole text and emits only the glyphs of the font that brush draws. Kerning
-stops at a run boundary, the two sides are different fonts. An underline is
+stops at a run boundary, the two sides are different fonts. The glyph bounds
+of a font hold only its own glyphs, so a text with a run in another font takes
+its width from the laid out lines, which hold them all. Measured by the base font
+alone, a title with a bold run looked as if it fit and drew its ellipsis past the
+frame, `Label run ellipsize` pins it. An underline is
 not a glyph, `UIDrawer::draw_underlines` puts a rect under every line piece of
 the run from the base font's underline metrics, in the color the text has
-there, between the label background and the glyphs. `set_text` clears the runs.
+there, between the label background and the glyphs. A run with
+`RunStyle::strikethrough()` or `.struck()` gets a line through its text the same
+way, from the strikeout metrics of the base font, a third of the ascent when the
+font has none. `Label strikethrough` pins it. `set_text` clears the runs.
+
+The width of a measure comes from the boxes of the glyphs of the base font. A text
+that a run covers from its first char to its last has no such glyph, a list item
+that is bold as a whole. It was measured as nothing and its label got no room.
+`Font::measure` takes the width from the lines of the layout then. `Markdown bold
+item` pins it.
+
+`RunStyle::room(width)` draws its range as nothing, 1 piece `width` points wide
+that never breaks, for a view the owner places over it. `.reaching(ascent, depth)` says
+how far that view reaches above and below the baseline. A line whose box is too low
+for it grows by the difference, only that line, the way a line box of a browser grows
+for a tall inline block. `TextLayout::line_top` stays the top of the text of a line,
+`line_box_top` and `line_box_height` give its grown box. A text with no tall room
+keeps its layout to the last bit. `RunStyle::glyph(id, width)`
+draws 1 glyph of the label font there, picked by its id, for a glyph no char maps to,
+like a bigger variant of a bracket in a math font. `ShapedLayout::make_rooms` turns
+the glyphs of the range into 1 glyph of that width at its first byte, the way a tab
+becomes a wide space, so the wrap, the measure and `text_layout_for` all see 1
+piece. A room has no ink, so a label with one takes its width from the lines of the
+layout, like a run in another font. Markdown puts an inline formula in a room.
+
+## Markdown
+
+`MarkdownView` draws GitHub flavored markdown as blocks, one under the other:
+paragraphs, 6 heading levels, bullet, numbered and task lists with nesting, quotes,
+code blocks, tables and rules. Inside a text: bold, italic, struck, inline code and
+links. It is built from what the sections above describe, a `Label` per text with
+font runs and color runs, and plain `Container`s for the boxes and lines. The code is
+in `hilen/src/ui/views/complex/markdown`.
+
+- `parse.rs` turns the events of `pulldown-cmark` into the blocks of `model.rs`. A
+  text keeps no marks, only byte ranges with a style, and the ranges of its links.
+  A bare `https://` or `http://` address in plain text is a link too, found by
+  [linkify](https://github.com/robinst/linkify). A trailing `.`, `,`, `;`, `:`, `!`,
+  `?`, a quote, or a `)` with no `(` in the address stays out of it, as on GitHub.
+  A url in inline code is a link too, in the code font and underlined. The text of a
+  markdown link is not searched. `Markdown bare link` pins it.
+- `set_copy_buttons(true)` puts a small Lucide copy icon right after every link and
+  in the top right corner of every code block, and a tap on inline code that is not a
+  url copies its text. The parser keeps room for the icon of a link: an em space,
+  `COPY_ROOM`, follows the link in the text, and the icon is an `ImageView` placed
+  over it from `Label::text_layout_for`. So the highlight and the copy of a selection
+  use 1 string, and `TextSelection::text` drops the em space from the copy. A copy
+  goes to `Clipboard::set_text` and shows `Copied` in a `Toast` over what was copied.
+  The icon has the link color written into the svg, so a theme switch lays the view
+  out again. Every copy fires `copied` with the text, a test reads that, since a
+  browser gives no clipboard text back. Off by default, the look of every other view
+  stays. `Markdown copy
+  buttons` pins it, a headless run keeps the clipboard inside its process.
+- `Toast::show(text, over)` in `hilen/src/ui/toast.rs` is a short note centered
+  above `over`, a rect in the points of the screen, or under it at the top edge. It
+  goes away after `Toast::SECONDS`, 1.5, and a new note takes the place of the old
+  one. It takes no touches. It is built like `Tooltip`, a label on the root view.
+- `CodeHighlighter` in `ui/code_highlighter.rs` colors a code block. `syntect` parses it with the language files of
+  `two-face`, the set the `bat` tool ships, with the pure Rust regex engine so it
+  builds for a browser too. Each piece gets 1 of 9 kinds by the first scope prefix
+  that fits, and `MarkdownStyle` has a color per kind, so the code follows the theme.
+  A language nobody knows gets no color. It needs the `code-colors` feature, on by
+  default. Without it the code of a block is drawn in 1 color. It is public, `hilen::ui::CodeHighlighter`,
+  for code an app draws itself, like a diff with 1 label per line:
+  `CodeHighlighter::for_file("src/main.rs")` or `for_language("rust")`, then
+  `label.set_color_runs(code.color_runs(line))`. It keeps the parse state from one
+  call to the next, so a comment over many lines stays a comment, `reset` starts
+  clean. A diff has 2 texts, so it takes 2 highlighters: a line that stayed goes
+  into both, a line that went into the old one, a new line into the new one. It
+  reads the colors of `MarkdownStyle` when it is made, on the main thread.
+  `Code highlighter lines` pins it.
+- `view.rs` lays the blocks out with absolute frames. The view does not size itself:
+  `height_for_width` lays the text out at a width and gives the height, the way a
+  table asks for the height of a cell. A change of the text or its color lays out
+  once on the next turn of the main loop, and a change of the width lays out again.
+  A code line longer than the block wraps, a word too long for a line breaks inside it.
+  A table wider than its room is squeezed the way a browser lays out a table, `fit`:
+  the labels of its cells lose their inset and keep a padding of 6, every column gets
+  its widest word, and the rest of the room goes to the columns by how much more
+  their text wants. When even the widest words do not fit, only the widest columns
+  shrink, to 1 width, so a column of short words keeps them whole. A word wider than
+  its cell breaks at the letter that overflows. The widths come from the advances of
+  the glyphs, `Label::widest_line`. The ink a measure gives is a little less, and a
+  cell that wide wrapped its last letter. Until 2026-11-16 every column shrank by the
+  same share, and a column of short words broke them letter by letter.
+  `Markdown box table` pins it.
+- A tap on a link is mapped to a byte through `Label::text_layout_for`, fires
+  `link_tapped` with the address and opens it with `open_url`. `set_opens_links(false)`
+  leaves only the event, for an app with links of its own and for a test.
+- Only an `http`, `https`, `mailto` or `tel` address is a link, `system::is_safe_link` decides.
+  A markdown link to any other, like `javascript:`, shows its words as plain text, so
+  text a stranger wrote opens no script. `open_url` refuses such a scheme too, and a
+  page it opens on the web gets no `window.opener`. `Markdown unsafe link` pins it.
+- `MarkdownStyle` is global like `DialogStyle`: text sizes, a light and dark pair
+  per color, and the 6 fonts, the bundled ones when not set. The test harness takes
+  the style of the app away for a run and hands it back.
+- `heading_scales` of the style says how much bigger than `text_size` the text of a
+  heading is, 1 number per level: 1.57, 1.36, 1.14, 1.07, 1 and 1 by default. With
+  all 6 at 1 a heading is bold text of the body size, the look of a terminal.
+  `Markdown heading sizes` pins it.
+- `keeps_line_breaks` of the style keeps a line break inside a paragraph as a line
+  break, the way a terminal shows a text. Markdown itself reads it as a space, and
+  that is the default. A table drawn with box chars and no code fence around it
+  stands only with it, and with a mono font. A view reads it when it gets its text.
+  `Markdown line breaks` pins it.
+- `box_tables` of the style says how a table drawn with box chars is shown.
+  `MarkdownBoxTables::Typed`, the default, draws it as typed. On a screen narrower
+  than the table every line of it wraps and the table falls apart, it did on a phone.
+  `MarkdownBoxTables::Table` makes it a real table, `box_table.rs`: a code block, or
+  a paragraph whose line breaks stay, whose every line is a rule of box chars or a
+  line of cells between bars, with a rule first and last, at least 2 columns and the
+  same count of cells on every line. Its first row is the head, the lines of 1 row
+  join into its cells, and a paragraph keeps the marks of its text in them. A box
+  around a note or a drawing stays as typed. A view reads it when it gets its text.
+  `Markdown box table` pins it.
+- `text_inset` of the style is the space between the left edge of the view and its
+  text, a paragraph, a heading, a list and a quote, and where the box of a code
+  block starts. `None` by default, the default inset of a `Label`. `Some(0.0)` puts
+  the text on the edge, under a label of the page that has inset 0. The code inside
+  its box keeps the default inset as its padding. `Markdown text inset` pins it.
+- The spacing is 3 values of the style. `block_gap` is the space between 2 blocks,
+  10 by default, also inside a quote. `item_gap` is the space between 2 items of a
+  list and between 2 blocks inside an item, 4 by default. `line_height` is the line
+  pitch of the text in points, a `Label::set_line_height` box, and `None` by default,
+  the pitch of the font. It is given for `text_size`. A paragraph, a list item, a
+  quote and a table cell take it as it is, a list marker too, so it stays on the
+  first line of its item. A heading takes it times its own size over `text_size`,
+  so a pitch made for the body never squeezes the bigger text. A code block keeps
+  the pitch of its mono font, its lines are not running text and it has its own
+  size, `code_size`. The layout and `height_for_width` are 1 pass, both read the
+  same style. A view reads the style when it lays out, so set it before the first
+  text is shown. For 1 empty line between 2 paragraphs set `block_gap` to the
+  value of `line_height`.
+- `list_markers` of the style says how the markers of a list stand, the bullets,
+  the numbers and the boxes of tasks. `MarkdownListMarkers::Column` is the default:
+  every marker takes the width of the widest one of its list and stands at the right
+  edge of it, so the texts of all items start in 1 column. `MarkdownListMarkers::Inline`
+  is the look of a terminal: every marker starts at the left edge of its list, and the
+  text of an item starts 1 space of the body font after its own marker, so the text of
+  item 10 starts 1 char to the right of the text of item 9. A second line of an item
+  starts where its first line starts, and a list inside an item starts where the text
+  of that item starts. `Markdown inline markers` pins it.
+
+- `set_selectable(true)` makes the text selectable, one selection over all blocks,
+  see [text-selection.md](text-selection.md).
+
+Images, raw HTML and footnotes are shown as their text, and so is math without the
+`math` feature, see Math below. `Markdown view test`
+pins the look, a tap on a link and the height at 2 widths. `Markdown spacing` shows
+the same text with the default style and with all 3 spacing values set.
+
+## Math
+
+With the `math` feature `MarkdownView` draws LaTeX math with Latin Modern Math, the
+way a LaTeX document does: `$...$` inside a line and `$$...$$` as a block of its own,
+centered in the column. A display formula in a heading or a table cell stays in the
+line. A formula that does not parse is shown as inline code with its `$` signs. The
+code is in `hilen/src/ui/views/complex/math`.
+
+- `parse.rs` reads the LaTeX people write in a chat: scripts and primes, `\frac` and
+  its kin, `\binom`, `\sqrt` with an index, `\left` and `\right`, `\big` and its
+  kin, the large operators and the functions like `\lim`, accents and wide accents,
+  `\overline`, `\underbrace`, `\overset`, `\text`, `\operatorname`, the math
+  alphabets like `\mathbb` and `\mathcal`, spaces, `\not`, and the environments
+  `matrix`, `pmatrix` and its kin, `cases` and `aligned`. `symbols.rs` maps a command
+  to its char and its TeX class. Any other command is an error.
+- `layout.rs` sets the tree the way TeX does, in the 4 styles of TeX with the space
+  table between the classes of atoms. Every shift, gap and bar width comes from the
+  MATH table of the font, read with `ttf_parser`. A bracket, a root sign and a large
+  operator in a display take the first variant of the font that is big enough, or
+  are built from the parts of its glyph assembly. The result is glyphs with their
+  places and rules, in points with y up from the baseline.
+- `MathView` draws that result: every glyph as a `Label` in the math font, a
+  variant by its id through `RunStyle::glyph`, every rule as a `Container`. A
+  glyph is centered both ways in a frame far bigger than it, a label cuts ink that
+  leaves its frame on the side its text starts from. A rule is at least 1 device
+  pixel thick, thinner it covers no pixel center on some rows and a draw with 1
+  sample, like WebGL, leaves the bar of a fraction out. Glyphs went through the
+  text brush and not through `DrawingView` paths for the same reason, a path with
+  1 sample lost the thin strokes of a big sum sign.
+- An inline formula is its LaTeX source in `$` signs in the text of its label, with
+  a room run as wide as the formula that reaches as high and as low as the formula,
+  plus a tenth of its size, the 1 pt `\lineskip` of TeX at 10 pt. So a line with a
+  fraction grows and the fraction covers no other line. Until 2026-11-15 it covered
+  the lines next to it. A list marker goes down with a first line that grew. After
+  the layout `place_maths` puts a
+  `MathView` over every room, its baseline on the baseline of the line. So a copy of
+  a selection gives the source.
+- A formula is as big as the text when the x heights of the 2 fonts match, at most
+  1.3 times the text size. `math_scale` of `MarkdownStyle` makes it bigger from
+  there, `math_darkening` gives the math font stem darkening, see Matching other
+  renderers above. A display formula wider than its column shrinks to fit, to 60
+  percent at most. A formula takes the color of the text around it.
+
+`Markdown math` pins the placement of inline and display formulas and the broken
+one, `Markdown math style` the 2 style values, `Markdown tall formula` the lines that
+grow for fractions in a list and in a wrapped paragraph.
+
+## Selectable text
+
+`Label::set_selectable(true)` lets the user select and copy the text of a label, a
+`TableView` with `set_text_selectable(true)` joins the texts of its cells into one
+selection. The selected part is drawn by `UIDrawer::draw_selection`, under the glyphs.
+All of it is in [text-selection.md](text-selection.md).
 
 ## Glyph fallback
 
@@ -153,9 +557,72 @@ the base, and gives each missing char a synthesized run with the first fallback
 that covers it, merged with its neighbors. So a fallback rides on the font runs
 machinery above and wrapping, measuring and the shape cache follow with no extra
 path. Whitespace and control chars stay with their font, shapers handle them
-without a glyph. A char no fallback covers keeps its font and draws notdef. The
-runner resets the fallbacks between tests, `GlyphFallback` covers the plain label
-and the split inside an explicit run.
+without a glyph. The runner resets the fallbacks between tests, `GlyphFallback`
+covers the plain label and the split inside an explicit run.
+
+After the registered fallbacks come 2 bundled symbol fonts of the `font-symbols`
+feature, on by default, about 100 KB: a subset of Noto Sans Symbols 2 with
+technical keys like ⌘ and ⏎, shapes, stars, weather and warning signs, dingbats
+like ✓ and ✗ and the arrows of the misc block, and the arrow block ← ↑ → ↓ of
+Noto Sans Math. Roboto has none of them. They come before the system fonts, so
+these chars draw the same everywhere, in a browser too, which has no system fonts.
+`Font::symbol_fallbacks` in `text/font.rs` hands them out, the license is
+`fonts/NotoSymbols-LICENSE.txt`. `Symbol fallback` pins them with the system
+fallback off.
+
+After them come the fonts the OS has installed, so text from
+the network in any script draws. `window/text/system_fallback.rs` walks the
+system font folders once through fontdb, on a thread started right after
+`before_launch`, and asks every face for the char in a fixed order: a short list
+of UI families per platform first, then upright regular faces, then the family
+name. fontdb knows no folder on iOS and Android, those two are added by hand.
+macOS `LastResort` is skipped, it has a placeholder for every code point. Files
+are memory mapped for good like the system emoji font, a face in a `.ttc` loads
+by its index, and the answer per char is cached, a miss too. A char no font
+covers draws notdef. On by default, `Font::set_system_fallback(false)` turns it
+off. The browser cannot read system fonts, there it does nothing. The system
+fonts differ per machine, so the UI test runner turns it off for every test and
+hands the app its own setting back after the run. `System font fallback` turns
+it on and checks where the IPA chars of a Jotunn description go.
+
+## Color glyphs
+
+The emoji of a color font come as COLR layers, v0 or v1, or as PNG strikes,
+CBDT and sbix, and none of them has a coverage mask for the text atlas.
+`color_glyph.rs` rasterizes such a glyph with ttf-parser and tiny-skia, both
+already in the tree. A COLR paint graph paints into a pixmap the size of its
+box, gradients, clips, transforms and composite layers included, a PNG strike
+decodes as is and scales on draw. The raster is a managed `Image`, cached per
+font, glyph and pixel size for the life of the font, and a unit test walks
+every emoji of the test fonts at three sizes.
+
+Routing is per glyph. `ShapedLayout` places every glyph the same way, then
+the brush skips the color ones and `UIDrawer::draw_color_glyphs` draws them
+through the image pipeline at the same origin, snapped to whole pixels. Plain
+glyphs of a color font stay on the brush, so shaping, measuring, wrapping,
+runs and fallback know nothing about color, and a color font registered with
+`Font::set_fallbacks` gives every label color emoji. A color glyph carries its
+own colors, so the text color, its alpha and a text gradient do not apply to
+it. A COLR palette entry that asks for the text color paints black.
+
+A color glyph is cut at the bounds of its label like the text of the brush. The
+image and its uv rect are cut at `ShapedLayout::bounds_rect`, an image fully
+outside is not drawn. So the emoji of a line that does not fit a frame never shows
+outside of it. `Color glyph clip` pins it on all 4 edges.
+
+`Font::system_emoji` maps the platform's own emoji font from disk. Apple
+Color Emoji, an sbix font, ships with every Mac, iPhone and Apple TV and is
+licensed for that hardware only, so it is never bundled and the file is
+memory mapped, 190 MB that cost nothing until a glyph is read. Off Apple it
+answers `None` and the app keeps a bundled font:
+
+```rust
+Font::set_fallbacks([Font::system_emoji().unwrap_or_else(|| Font::get("TwemojiColr0.ttf"))]);
+```
+
+`Color emoji` pins the three formats on every lane with 8 glyph subsets of
+Twemoji and Noto Color Emoji in `assets/fonts`. `System emoji` pins the
+system font on Apple, so a macOS update that redraws an emoji re-records it.
 
 ## Gradient text
 
@@ -174,3 +641,71 @@ same color, which costs one `mix` and no branch. Per glyph this is 12 bytes,
 `Vertex` went from 52 to 64.
 
 `set_text_color` clears a gradient, so the two cannot both be live on one label.
+
+## Secret text
+
+`Label::set_secret(true)` marks the text of a label as a secret, like a recovery
+phrase. Call it before `set_text`. The label then writes zeros over its text before
+the memory is freed, when the text is replaced and when the label is dropped. The
+text stays out of the shape cache and the measure cache, so such a label is shaped
+again on every frame that draws it. Keep it to the few labels that need it.
+
+A `TextField` holds a secret from its first `set_secure(true)`, also while
+`set_secure(false)` shows the text. Every edit builds the new text in one buffer of
+the exact size, `joined` in `hilen/src/wipe.rs`, and the old one is wiped. Its
+`changed`, `editing_ended` and `submitted` events carry one bullet per character, the
+real text is read with `text()`. A copy of shown text goes through `Clipboard::set_secret`.
+
+What cannot be wiped: a `String` passed to `set_text` by value is the copy of the
+caller. Single typed characters pass through winit and the event queue as they are.
+The shaper, the glyph brush and the GPU buffers keep the glyph numbers and positions
+of drawn text until other text replaces them, and the glyph atlas keeps the picture
+of every drawn glyph. On iOS the system text field a field is edited in holds the text while it
+is edited. It is cleared when the editing ends, the memory it used is not wiped. With the `inspect` feature the inspector still gets the real text.
+
+## A picture pasted into a text field
+
+A paste with a picture in the clipboard and no text fires `TextField::image_pasted` with
+the picture as a png file, on desktop and in a browser. The text of the field does not change. See
+[clipboard.md](clipboard.md).
+
+## Keys the owner of a text field takes
+
+A list of completions over a field needs the arrows, Tab, Enter and Escape for itself
+while it is open, and the field must stay in edit. `TextField::take_keys(keys)` names
+the keys and the event `key_taken` gets every press of one of them:
+
+```rust
+self.field.key_taken.val(move |key| self.list_key(key));
+
+self.field.take_keys([
+    NamedKey::ArrowUp,
+    NamedKey::ArrowDown,
+    NamedKey::Tab,
+    NamedKey::Enter,
+    NamedKey::Escape,
+]);
+self.field.release_keys();
+```
+
+A taken press goes to `key_taken` and nowhere else. The field does not move its caret,
+add a line, submit, end the editing or select the next field, in a single line field
+and in a multiline one. A held modifier changes nothing, Shift and a taken Enter is
+taken too. Every other key works as before, and so do all keys after `release_keys`.
+The keys count only while the field is edited, and a new `take_keys` call replaces the
+keys of the call before.
+
+`Input::on_key` asks `TextField::offer_key` before the keymap and before the
+`keyboard_key` event, so a taken Escape does not run the Escape binding of the screen
+either. The code is `hilen/src/ui/views/basic/text_field/taken_keys.rs`.
+
+On an iPhone the system text field has the keys and only Return reaches the engine, so
+only `NamedKey::Enter` can be taken there. A `UITextView` adds its new line by itself,
+so it asks the engine first, `textView:shouldChangeTextInRange:replacementText:` in
+`hilen_text.m`, and adds no line when the owner took the key. The arrows, Tab and
+Escape of a hardware keyboard connected to an iPhone or iPad stay with the system
+field, the engine never sees them.
+
+`Text field taken keys` pins all 5 keys on a chat box and on a single line field with
+injected keys, on desktop. `Screen keyboard taken return` pins Return through the
+keyboard the platform really has, on a phone too.

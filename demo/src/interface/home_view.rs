@@ -32,9 +32,10 @@ pub struct HomeView {
     menu_open: bool,
 
     #[init]
-    sidebar: Sidebar,
     top_bar: TopBar,
     content: Container,
+    // Last, so it draws over the page when it slides out on a phone.
+    sidebar: Sidebar,
 }
 
 /// The narrow screen header, a menu button and the open page title.
@@ -75,9 +76,6 @@ impl Setup for HomeView {
             self.menu_open = !self.menu_open;
             self.arrange();
         });
-
-        // The sidebar draws over the page when it slides out on a phone.
-        self.sidebar.bump_z_position(0.000_1);
 
         let page = Router::current_path().map_or(Page::Landing, |path| Page::from_path(&path));
         self.show(page);
@@ -130,13 +128,20 @@ impl HomeView {
         self.top_bar.set_hidden(wide);
         self.sidebar.set_hidden(!wide && !self.menu_open);
 
+        // A TV may cut the edges of its picture, the shell keeps inside the
+        // part that is always seen. Everywhere else these are 0.
+        let safe = UIManager::safe_area();
+        let screen = UIManager::root_view().size();
+        let (l, t) = (safe.x(), safe.y());
+        let (r, b) = (screen.width - safe.max_x(), screen.height - safe.max_y());
+
         if wide {
-            self.sidebar.place().clear().t(0).lb(0).w(SIDEBAR_WIDTH);
-            self.content.place().clear().trb(0).l(SIDEBAR_WIDTH);
+            self.sidebar.place().clear().t(t).l(l).b(b).w(SIDEBAR_WIDTH);
+            self.content.place().clear().t(t).r(r).b(b).l(l + SIDEBAR_WIDTH);
         } else {
-            self.top_bar.place().clear().t(0).lr(0).h(TOP_BAR_HEIGHT);
-            self.sidebar.place().clear().t(TOP_BAR_HEIGHT).lb(0).w(SIDEBAR_WIDTH);
-            self.content.place().clear().t(TOP_BAR_HEIGHT).lrb(0);
+            self.top_bar.place().clear().t(t).l(l).r(r).h(TOP_BAR_HEIGHT);
+            self.sidebar.place().clear().t(t + TOP_BAR_HEIGHT).l(l).b(b).w(SIDEBAR_WIDTH);
+            self.content.place().clear().t(t + TOP_BAR_HEIGHT).l(l).r(r).b(b);
         }
         self.sidebar.set_border_color(BORDER);
     }

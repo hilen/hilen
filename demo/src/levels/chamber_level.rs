@@ -159,6 +159,12 @@ impl LevelSetup for ChamberLevel {
         true
     }
 
+    // It only draws behind the home screen, the keys and a remote go to
+    // the sidebar.
+    fn takes_keys(&self) -> bool {
+        false
+    }
+
     fn setup(&mut self) {
         self.add_walls();
         self.add_blades();

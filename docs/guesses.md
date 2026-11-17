@@ -21,6 +21,21 @@ to their own events and die with them, the root view never dies. Liveness checks
 
 Verdict: parked. Revisit if a real crash from a dead subscriber ever shows up.
 
+### Keep a page drawing while a screenshot waits
+
+Claim: on WebGL the copy of a frame reaches a screenshot only when the device is polled,
+so a still page that draws no frame never answers a screenshot. The fix kept the page
+drawing and polling while a copy waited, a counter of waiting copies in
+`window/state.rs`, and the UI test `Shot of still page`, on the branch
+`still-page-screenshot`.
+
+Evidence found: a screenshot of a still screen on an LG C1 on 2026-10-21 never came
+back. The test passed without the fix in Firefox on a Mac. On 2026-11-16 the CI browsers
+hung in `Inspect frames`, and the fix did not end it, the cause there was `after` on a
+worker, see `docs/dispatch.md`.
+
+Verdict: parked. Revisit with a reproduced still page screenshot that hangs.
+
 ## Retracted claims
 
 Kept as a reminder of what happens without proof:

@@ -1,4 +1,7 @@
-use crate::gm::volume::{Mat4, Quat, Vec3, Vec4};
+use crate::{
+    gm::volume::{Mat4, Quat, Vec3, Vec4},
+    scene::model::joints::JointPose,
+};
 
 /// The node tree of a model and what moves it: every node's rest
 /// transform and parent, the skins over the tree and the animation
@@ -7,6 +10,9 @@ use crate::gm::volume::{Mat4, Quat, Vec3, Vec4};
 #[derive(Debug)]
 pub(crate) struct Rig {
     pub nodes: Vec<RigNode>,
+    /// The name of every node as in the file, empty for one without a
+    /// name, what `Model::joint` looks up.
+    pub names: Vec<String>,
     /// Node indices with every parent before its children, so one pass
     /// over it composes the model space transforms.
     pub order: Vec<usize>,
@@ -72,10 +78,23 @@ impl Rig {
     /// Every node's model space transform, at rest or with `clip`
     /// sampled at `time` seconds.
     pub fn pose(&self, clip: Option<(&Clip, f32)>) -> Vec<Mat4> {
+        self.pose_with(clip, &[])
+    }
+
+    /// The same with the nodes an app placed itself, `set` by node index,
+    /// see `NodeTemplates::set_joint`. A set node wins over the clip with
+    /// its translation and rotation, its scale stays the clip's.
+    pub fn pose_with(&self, clip: Option<(&Clip, f32)>, set: &[Option<JointPose>]) -> Vec<Mat4> {
         let mut local = self.nodes.clone();
         if let Some((clip, time)) = clip {
             for channel in &clip.channels {
                 channel.apply(&mut local[channel.node], time);
+            }
+        }
+        for (node, pose) in local.iter_mut().zip(set) {
+            if let Some(pose) = pose {
+                node.translation = pose.translation;
+                node.rotation = pose.rotation;
             }
         }
 
@@ -295,6 +314,7 @@ mod test {
     fn a_posed_child_follows_its_parent_and_rest_joints_are_identity() {
         let rig = Rig {
             nodes: vec![node(None, Vec3::ZERO), node(Some(0), Vec3::Y * 2.0)],
+            names: vec![String::new(); 2],
             order: vec![0, 1],
             skins: vec![Skin {
                 joints:       vec![0, 1],
@@ -329,6 +349,7 @@ mod test {
     fn parents_come_before_children_in_any_index_order() {
         let rig = Rig {
             nodes: vec![node(Some(1), Vec3::X), node(None, Vec3::Y)],
+            names: vec![String::new(); 2],
             order: vec![1, 0],
             skins: vec![],
             clips: vec![],

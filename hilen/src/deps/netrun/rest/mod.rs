@@ -1,14 +1,15 @@
+mod call;
 mod client;
 mod method;
 mod request;
-mod response;
 mod rest_api;
 mod simple;
 
+pub use call::{Call, RequestError};
 pub(crate) use client::client;
 pub use method::Method;
 pub use request::Request;
-pub use response::Response;
+pub use reqwest::StatusCode;
 pub use rest_api::RestAPI;
 pub use simple::*;
 

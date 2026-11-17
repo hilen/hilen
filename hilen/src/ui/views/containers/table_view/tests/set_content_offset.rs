@@ -451,7 +451,7 @@ impl TableData for TableSetContentOffset {
 }
 
 impl ViewTest for TableSetContentOffset {
-    fn perform_test(mut view: Weak<Self>) -> Result<()> {
+    fn perform_test(view: Weak<Self>) -> Result<()> {
         set_record_probe_count(128);
         // -4500 puts row 50 flush with the top edge, and the bottom edge
         // at content 5095 lands in row 56.

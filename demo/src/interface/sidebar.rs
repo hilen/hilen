@@ -73,7 +73,7 @@ impl Setup for Sidebar {
         self.github.place().lr(16).b(16).h(52);
 
         self.scroll.place().t(72).lr(0).b(FOOTER_HEIGHT);
-        for (i, page) in Page::ALL.into_iter().enumerate() {
+        for (i, page) in Page::all().into_iter().enumerate() {
             let item = self.scroll.add_view::<NavItem>();
             item.set_page(page);
             item.place().lr(12).t(8.0 + 44.0 * i.lossy_convert()).h(40);

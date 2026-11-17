@@ -18,4 +18,5 @@ pub use rect::Rect;
 pub use shape::Shape;
 pub use size::*;
 pub use vector_path::{FillRule, LineCap, LineJoin, StrokeStyle, VectorPath, VectorPathBuilder};
+#[cfg(feature = "gpu")]
 pub use vertex2d::Vertex2D;

@@ -16,7 +16,7 @@ struct RadioGroupTestView {
 }
 
 impl Setup for RadioGroupTestView {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.group.place().center_x().t(40).size(200, 120);
         self.group.on_changed(|val| {
             append_state(format!("{val}\n"));
@@ -70,7 +70,7 @@ impl ViewTest for RadioGroupTestView {
 
         // A programmatic pick moves the dot without firing `changed`.
         assert!(from_main(move || {
-            let mut group = view.group;
+            let group = view.group;
             group.set_value(&"Other")
         }));
         assert_eq!(view.group.value(), &"Other");
@@ -78,14 +78,14 @@ impl ViewTest for RadioGroupTestView {
         assert_eq!(get_state::<String>(), "Female\n");
 
         assert!(!from_main(move || {
-            let mut group = view.group;
+            let group = view.group;
             group.set_value(&"Nonexistent")
         }));
         assert_eq!(view.group.value(), &"Other");
 
         // A rebuilt list falls back to the first entry, like DropDown.
         from_main(move || {
-            let mut group = view.group;
+            let group = view.group;
             group.set_values(vec!["Male", "Female", "Other"]);
         });
         assert_eq!(view.group.value(), &"Male");

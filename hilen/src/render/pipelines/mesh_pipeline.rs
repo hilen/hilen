@@ -1,36 +1,48 @@
-use std::num::NonZeroU64;
+mod batches;
+mod builders;
+
+use std::{array::from_fn, collections::HashSet, ops::Range};
 
 use indexmap::IndexMap;
 use plat::Platform;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType,
-    BufferUsages, CommandEncoder, IndexFormat, PipelineLayoutDescriptor, RenderPass, RenderPipeline, Sampler,
-    SamplerBindingType, ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureSampleType, TextureView,
-    TextureViewDimension,
+    BindGroupLayout, Buffer, BufferUsages, CommandEncoder, IndexFormat, PipelineLayout,
+    PipelineLayoutDescriptor, RenderPass, RenderPipeline, Sampler, ShaderModule, ShaderStages, TextureView,
 };
 
+use self::builders::{
+    FlowPipelines, SmoothPipelines, depth_fill_pipelines, grass_pipelines, line_pipelines, mesh_pipelines,
+    shader,
+};
+use super::{
+    air_textures::AirTextures,
+    mesh_binds::{
+        TextureSet, TexturesEntry, instances_bind, instances_layout, opaque_bind, plain_texture, textures_at,
+        textures_index, textures_layout, view_bind, view_layout, warn_unshown,
+    },
+    sky_view::SkyView,
+};
 use crate::{
     deps::refs::Weak,
     gm::{
-        flat::Size,
-        volume::{Mat4, SkinVertex, Vertex3D},
+        color::Color,
+        volume::{Mat4, SkinVertex, Vec3, Vertex3D},
     },
+    image::{Image, Texture},
     render::{
-        SHADOW_CASCADES, SceneView,
+        SHADOW_CASCADES, SceneUniform,
+        bind_cache::{CachedBind, StorageKey, cached},
         buffer_helper::BufferHelper,
-        data::{MeshInstance, MeshLight},
-        device_helper::DeviceHelper,
-        pipelines::shadow_pass::ShadowPass,
+        data::{GrassBlade, LineVertex, MeshInstance, MeshLight, WideLine},
+        device_helper::{DeviceHelper, MeshDraw},
+        frustum::{self, Frustum},
+        pipelines::shadow_pass::{ShadowBatch, ShadowPass},
         uniform::make_storage_layout,
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
     scene::{Mesh, Sky},
-    window::{
-        Window,
-        image::{Image, Texture, TextureRawData},
-    },
+    window::{Window, msaa_sample_count},
 };
 
 /// What the mesh and the sky shaders share, prepended to both.
@@ -38,6 +50,13 @@ const COMMON: &str = include_str!("shaders/scene_common.wgsl");
 const MESH: &str = include_str!("shaders/mesh.wgsl");
 const SKY: &str = include_str!("shaders/sky.wgsl");
 const SHADOW: &str = include_str!("shaders/shadow.wgsl");
+/// The dither of a fading node, prepended to the mesh and the shadow
+/// shaders.
+const FADE: &str = include_str!("shaders/fade.wgsl");
+const LINES: &str = include_str!("shaders/lines.wgsl");
+const WIDE_LINES: &str = include_str!("shaders/wide_lines.wgsl");
+const ATMOSPHERE: &str = include_str!("shaders/atmosphere.wgsl");
+const SKY_VIEW: &str = include_str!("shaders/sky_view.wgsl");
 
 /// The vertex buffers of a static draw and of a skinned one, which adds
 /// the joints and weights per vertex.
@@ -48,13 +67,120 @@ pub(super) const SKINNED_LAYOUTS: &[wgpu::VertexBufferLayout] = &[
     MeshInstance::VERTEX_LAYOUT,
     SkinVertex::VERTEX_LAYOUT,
 ];
+/// One patch of grass this frame, see `scene::Grass`: its blades drawn
+/// as instances of a mesh part, the instance its fragments read the
+/// material and the lights from, and the matrix `v_grass` reads.
+pub(crate) struct GrassDraw {
+    pub key:      MeshKey,
+    pub blades:   Buffer,
+    /// The first blades of the buffer that are drawn, the far ones are
+    /// gone, see `v_grass`.
+    pub count:    u32,
+    pub slot:     u32,
+    pub instance: MeshInstance,
+    pub patch:    Mat4,
+    /// The turn of the field's axes, see `Grass::turn`.
+    pub turn:     Mat4,
+}
 
-/// What one instanced draw shares: the mesh and the two textures.
+/// What one instanced draw shares: the mesh, the four textures and the
+/// pipeline, a cut out node draws through its own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MeshKey {
-    pub mesh:       Weak<Mesh>,
-    pub texture:    Option<Weak<Image>>,
-    pub normal_map: Option<Weak<Image>>,
+    pub mesh:                   Weak<Mesh>,
+    pub texture:                Option<Weak<Image>>,
+    pub normal_map:             Option<Weak<Image>>,
+    pub metallic_roughness_map: Option<Weak<Image>>,
+    pub occlusion_map:          Option<Weak<Image>>,
+    pub flow_map:               Option<Weak<Image>>,
+    /// Whether the material has a cutout or a fade below 1. The threshold
+    /// and the fade are the instance's own.
+    pub cutout:                 bool,
+    /// Whether the maps are read from 3 sides, see `Material::triplanar`.
+    pub triplanar:              bool,
+}
+
+impl MeshKey {
+    /// Whether a solid draw of it reads no texture, see `f_plain_opaque`. A
+    /// mesh with fading colors or a flow has pipelines of its own.
+    pub(crate) fn plain(&self) -> bool {
+        self.texture.is_none()
+            && self.normal_map.is_none()
+            && self.metallic_roughness_map.is_none()
+            && self.occlusion_map.is_none()
+            && self.flow_map.is_none()
+            && !self.cutout
+            && !self.mesh.smooth_colors
+            && !self.mesh.flowing
+    }
+
+    /// Whether its light reads only a base color texture, see
+    /// `f_base_opaque`. A mesh with fading colors or a flow has pipelines
+    /// of its own.
+    pub(crate) fn base_only(&self) -> bool {
+        self.texture.is_some()
+            && !self.triplanar
+            && self.normal_map.is_none()
+            && self.metallic_roughness_map.is_none()
+            && self.occlusion_map.is_none()
+            && self.flow_map.is_none()
+            && !self.mesh.smooth_colors
+            && !self.mesh.flowing
+    }
+}
+
+/// The sky cube, its sampler and the shadow map a view bind holds.
+pub(super) type ViewKey = (TextureView, Sampler, TextureView, TextureView, TextureView);
+/// The instance range and the joint range an instances bind holds.
+pub(super) type InstancesKey = (StorageKey, StorageKey);
+/// Whether the base texture, the normal map, the metallic roughness map,
+/// the occlusion map and the flow map of a key were alive when its bind was
+/// made, a dead one is bound as its plain stand in.
+pub(super) type TexturesKey = (bool, bool, bool, bool, bool);
+
+/// The passes an opaque instance draws in, the camera's first, then
+/// every cascade of the sun.
+const PASSES: usize = 1 + SHADOW_CASCADES;
+
+/// Where a node is, the sphere around it in world space. A node with
+/// none is drawn in every pass.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Reach {
+    pub center: Vec3,
+    pub radius: f32,
+}
+
+/// One instanced draw: the instances of a mesh and texture pair. They
+/// wait on the CPU until `prepare` copies every batch into the one opaque
+/// buffer, one upload per frame, where a buffer per batch cost a staging
+/// buffer per batch. `drawn` is where they landed in it, a range per
+/// pass with only the instances that pass can see. Every pass drew every
+/// node before, and a streamed world sent its whole ring of distant
+/// trees through the camera and 3 cascades, most of them out of all 4.
+#[derive(Default)]
+struct Batch {
+    pending:  Vec<(MeshInstance, Option<Reach>)>,
+    drawn:    [Range<u32>; PASSES],
+    frame:    u64,
+    /// Where its textures bind is, see `textures_index`.
+    textures: usize,
+    /// How far its nearest instance is from the camera, what solid draws
+    /// are ordered by, see `hides_covered_pixels`.
+    near:     f32,
+}
+
+impl Batch {
+    /// The instances `prepare` loaded on `frame` for `pass`, none when it
+    /// loaded none.
+    fn drawn_in(&self, frame: u64, pass: usize) -> Option<Range<u32>> {
+        let range = &self.drawn[pass];
+        (self.frame == frame && !range.is_empty()).then(|| range.clone())
+    }
+
+    /// Whether `prepare` loaded any instance of this batch on `frame`.
+    fn loaded(&self, frame: u64) -> bool {
+        (0..PASSES).any(|pass| self.drawn_in(frame, pass).is_some())
+    }
 }
 
 /// Draws the sky and every node of a frame, one instanced indexed draw
@@ -65,51 +191,130 @@ pub(crate) struct MeshKey {
 /// pipeline, the same shader from its other vertex entry, which blends
 /// the joint matrices its instance points at.
 pub struct MeshPipeline {
-    opaque:              RenderPipeline,
-    opaque_skinned:      RenderPipeline,
-    translucent:         RenderPipeline,
-    translucent_skinned: RenderPipeline,
-    sky:                 RenderPipeline,
+    /// Samples a pixel of the pass every pipeline here draws into, see
+    /// `SceneManager::set_scene_samples`.
+    samples:      u32,
+    /// Each a pipeline and its skinned twin.
+    opaque:       [RenderPipeline; 2],
+    /// `opaque` for a material with no maps, see `MeshKey::plain`.
+    plain:        [RenderPipeline; 2],
+    base:         [RenderPipeline; 2],
+    base_cutout:  [RenderPipeline; 2],
+    cutout:       [RenderPipeline; 2],
+    cutout_depth: [RenderPipeline; 2],
+    translucent:  [RenderPipeline; 2],
+    sky:          RenderPipeline,
+    /// Fill the depth of the viewport with the far end of the scene's
+    /// reversed depth before the scene, and with 1 after it, see
+    /// `fill_depth`.
+    depth_far:    RenderPipeline,
+    depth_near:   RenderPipeline,
+    /// The grass from the `v_grass` vertex entry: `f_grass_depth` leaves the
+    /// depth of the blades on top and `f_grass` lights only those.
+    grass:        [RenderPipeline; 2],
+
+    /// The opaque and the cut out pipelines of a depth photo, made at the
+    /// first one from the layout and the shader of the nodes, so an app
+    /// that takes none does not wait for them at the start.
+    depth:               Option<[[RenderPipeline; 2]; 2]>,
+    /// The pipelines of a mesh whose colors fade, made at the first such
+    /// mesh. A cut out one takes the last in a depth photo, made with the
+    /// depth ones when there is such a mesh.
+    smooth:              Option<SmoothPipelines>,
+    smooth_depth_cutout: Option<RenderPipeline>,
+    flow:                Option<FlowPipelines>,
+    mesh_layout:         PipelineLayout,
+    mesh_shader:         ShaderModule,
+
+    /// Whether this frame draws the edges of every node over it, see
+    /// `SceneBase::show_wireframe`. The pipelines are made at the first
+    /// such frame, like the depth ones.
+    pub(crate) wireframe: bool,
+    wireframe_pipelines:  Option<[RenderPipeline; 2]>,
+
+    /// Debug lines in world space, the collider wireframes, drawn after
+    /// every node and depth tested against them.
+    lines_pipeline: RenderPipeline,
+    lines:          VecBuffer<LineVertex>,
+
+    /// The lines of the scene, a quad per line of its own width. The
+    /// tested ones hide behind the nodes, the ones on top draw last over
+    /// everything.
+    wide_tested:  RenderPipeline,
+    wide_on_top:  RenderPipeline,
+    tested_lines: VecBuffer<WideLine>,
+    on_top_lines: VecBuffer<WideLine>,
 
     /// The frame's view, the sky cube it lights and reflects, and the
     /// sun's shadow map.
-    view_layout: BindGroupLayout,
-    view_buffer: Buffer,
+    view_layout:    BindGroupLayout,
+    view_buffer:    Buffer,
     /// Bound when the scene has no sky.
-    black_sky:   Sky,
+    black_sky:      Sky,
+    /// The view bind over the sky and the map last drawn with.
+    view_bind:      Option<CachedBind<ViewKey>>,
+    /// The tables of the scene's air, see `scene::Atmosphere`.
+    pub(crate) air: AirTextures,
+    /// The air in every direction from the camera, what the sky reads.
+    sky_view:       SkyView,
 
     /// The sun's depth passes, which cannot bind the map they draw, so
     /// they carry the light's matrices on their own.
     shadow: ShadowPass,
 
     /// Binds the instance buffer for the fragment stage and the joint
-    /// buffer for the vertex stage, see `RectPipeline` for why the
-    /// group cannot be cached.
+    /// buffer for the vertex stage.
     instances_layout: BindGroupLayout,
 
     // A unit mesh lives for the whole process, a model's mesh dies with
     // the model and takes its key out at the next draw. An image can die
     // too, then the draw falls back to the plain textures.
-    instances: IndexMap<MeshKey, VecBuffer<MeshInstance>>,
+    instances: IndexMap<MeshKey, Batch>,
 
-    /// The translucent nodes in draw order and the key of each.
-    transparent:      VecBuffer<MeshInstance>,
-    transparent_keys: Vec<MeshKey>,
+    /// The instances of every opaque batch of the frame, one bind over
+    /// all of them.
+    opaque_instances: VecBuffer<MeshInstance>,
+    opaque_bind:      Option<CachedBind<InstancesKey>>,
+
+    /// The translucent nodes in draw order, the key of each and the
+    /// bind over them.
+    transparent:          VecBuffer<MeshInstance>,
+    transparent_keys:     Vec<MeshKey>,
+    /// The textures bind of each translucent node, see `textures_index`.
+    transparent_textures: Vec<usize>,
+    transparent_bind:     Option<CachedBind<InstancesKey>>,
 
     /// The joint matrices of every skinned node of the frame, one run
     /// per node and skin, indexed by the instance's `joint_base`.
     joints: VecBuffer<Mat4>,
 
+    /// The grass patches of the frame waiting for `prepare`, then the
+    /// ones it loaded, with 1 instance and 1 matrix per patch slot in the
+    /// buffers of the grass bind.
+    grass_pending:   Vec<GrassDraw>,
+    grass_drawn:     Vec<GrassDraw>,
+    /// The textures bind of each patch drawn, see `textures_index`.
+    grass_textures:  Vec<usize>,
+    grass_instances: VecBuffer<MeshInstance>,
+    grass_patches:   VecBuffer<Mat4>,
+    grass_bind:      Option<CachedBind<InstancesKey>>,
+
     /// The point and spot lights of the frame, indexed by every
     /// instance's light list.
     lights_layout: BindGroupLayout,
     lights:        VecBuffer<MeshLight>,
+    lights_bind:   Option<CachedBind<StorageKey>>,
 
-    /// The base color texture and the normal map of a draw, with the
-    /// plain ones a material without them binds.
+    /// The base color texture, the normal map, the metallic roughness
+    /// map and the occlusion map of a draw, with the plain ones a
+    /// material without them binds, white for all but the normal map,
+    /// and the bind of every key drawn, opaque or translucent.
     textures_layout: BindGroupLayout,
     white:           Texture,
     flat_normal:     Texture,
+    textures:        IndexMap<TextureSet, TexturesEntry>,
+    /// The meshes `warn_unshown` already spoke about.
+    warned:          HashSet<Weak<Mesh>>,
 }
 
 impl MeshPipeline {
@@ -124,86 +329,197 @@ impl MeshPipeline {
 
 impl Default for MeshPipeline {
     fn default() -> Self {
+        Self::new(msaa_sample_count())
+    }
+}
+
+impl MeshPipeline {
+    /// The pipelines for a pass of `samples` samples a pixel.
+    pub(crate) fn new(samples: u32) -> Self {
         let device = Window::device();
 
         // The common part reads the cascade count, one source for both.
-        let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}");
-        let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{MESH}"));
+        let common = format!("const SHADOW_CASCADES: i32 = {SHADOW_CASCADES};\n{COMMON}\n{ATMOSPHERE}");
+        let mesh_shader = shader(device, "mesh_shader", format!("{common}\n{FADE}\n{MESH}"));
         let sky_shader = shader(device, "sky_shader", format!("{common}\n{SKY}"));
-        let shadow_shader = shader(device, "shadow_shader", SHADOW.to_string());
+        let lines_shader = shader(device, "lines_shader", format!("{common}\n{LINES}"));
+        let wide_shader = shader(device, "wide_lines_shader", format!("{common}\n{WIDE_LINES}"));
+        let shadow_shader = shader(device, "shadow_shader", format!("{FADE}\n{SHADOW}"));
+        let sky_view_shader = shader(device, "sky_view_shader", format!("{common}\n{SKY_VIEW}"));
 
         let view_layout = view_layout(device);
         let instances_layout = instances_layout(device);
         let lights_layout = make_storage_layout("mesh_lights_layout", ShaderStages::FRAGMENT);
         let textures_layout = textures_layout(device);
 
-        let mesh_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label:              "mesh_pipeline_layout".into(),
-            bind_group_layouts: &[
-                Some(&view_layout),
-                Some(&instances_layout),
-                Some(&lights_layout),
-                Some(&textures_layout),
-            ],
-            immediate_size:     0,
-        });
-        let sky_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label:              "sky_pipeline_layout".into(),
-            bind_group_layouts: &[Some(&view_layout)],
-            immediate_size:     0,
-        });
+        let (mesh_layout, sky_layout) = pipeline_layouts(
+            device,
+            [&view_layout, &instances_layout, &lights_layout, &textures_layout],
+        );
 
-        let [opaque, opaque_skinned] = mesh_pipelines(device, "mesh", &mesh_layout, &mesh_shader, false);
-        let [translucent, translucent_skinned] =
-            mesh_pipelines(device, "mesh_translucent", &mesh_layout, &mesh_shader, true);
-        let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader);
+        let draws = |label: &str, draw: MeshDraw| {
+            mesh_pipelines(device, label, &mesh_layout, &mesh_shader, draw, samples)
+        };
+        let opaque = draws("mesh", MeshDraw::Opaque);
+        let plain = draws("mesh_plain", MeshDraw::PlainOpaque);
+        let base = draws("mesh_base", MeshDraw::BaseOpaque);
+        let base_cutout = draws("mesh_base_cutout", MeshDraw::BaseCutout);
+        let cutout = draws("mesh_cutout", MeshDraw::Cutout);
+        let cutout_depth = draws("mesh_cutout_depth", MeshDraw::CutoutDepth);
+        let translucent = draws("mesh_translucent", MeshDraw::Translucent);
+        let sky = device.sky_pipeline("sky_pipeline", &sky_layout, &sky_shader, samples);
+        let [depth_far, depth_near] = depth_fill_pipelines(device, samples);
+        let grass = grass_pipelines(device, &mesh_layout, &mesh_shader, samples);
+        // The lines bind only the view, the sky's layout.
+        let [lines_pipeline, wide_tested, wide_on_top] =
+            line_pipelines(device, &sky_layout, &lines_shader, &wide_shader, samples);
 
         let view_buffer = device.buffer(
-            &SceneView::default(),
+            &SceneUniform::default(),
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         );
 
         Self {
+            samples,
             opaque,
-            opaque_skinned,
+            plain,
+            base,
+            base_cutout,
+            cutout,
+            cutout_depth,
             translucent,
-            translucent_skinned,
             sky,
+            grass,
+            depth: None,
+            smooth: None,
+            smooth_depth_cutout: None,
+            flow: None,
+            mesh_layout,
+            mesh_shader,
+            wireframe: false,
+            wireframe_pipelines: None,
+            lines_pipeline,
+            lines: VecBuffer::default(),
+            wide_tested,
+            wide_on_top,
+            tested_lines: VecBuffer::default(),
+            on_top_lines: VecBuffer::default(),
             view_layout,
             view_buffer,
             black_sky: Sky::black(),
-            shadow: ShadowPass::new(device, &shadow_shader, Self::SHADOW_MAP_SIZE),
+            depth_far,
+            depth_near,
+            view_bind: None,
+            air: AirTextures::new(),
+            sky_view: SkyView::new(device, &sky_view_shader),
+            shadow: ShadowPass::new(
+                device,
+                &shadow_shader,
+                Self::SHADOW_MAP_SIZE,
+                &instances_layout,
+                &textures_layout,
+            ),
             instances_layout,
             instances: IndexMap::default(),
+            opaque_instances: VecBuffer::default(),
+            opaque_bind: None,
             transparent: VecBuffer::default(),
             transparent_keys: vec![],
+            transparent_textures: vec![],
+            transparent_bind: None,
             joints: VecBuffer::default(),
+            grass_pending: vec![],
+            grass_drawn: vec![],
+            grass_textures: vec![],
+            grass_instances: VecBuffer::default(),
+            grass_patches: VecBuffer::default(),
+            grass_bind: None,
             lights_layout,
             lights: VecBuffer::default(),
+            lights_bind: None,
             textures_layout,
             white: plain_texture([255, 255, 255, 255], "mesh_white"),
             flat_normal: plain_texture([128, 128, 255, 255], "mesh_flat_normal"),
+            textures: IndexMap::default(),
+            warned: HashSet::new(),
         }
     }
 }
 
 impl MeshPipeline {
-    pub(crate) fn add(&mut self, key: MeshKey, mut instance: MeshInstance) {
-        let batch = self.instances.entry(key).or_default();
-        instance.index = batch.pending();
-        batch.push(instance);
+    pub(crate) fn samples(&self) -> u32 {
+        self.samples
+    }
+
+    /// An opaque instance, left out of the passes whose view misses
+    /// `reach`, drawn in all of them with none.
+    pub(crate) fn add(&mut self, key: MeshKey, instance: MeshInstance, reach: Option<Reach>) {
+        self.fit_smooth(&key);
+        self.instances.entry(key).or_default().pending.push((instance, reach));
     }
 
     /// Translucent nodes draw in the order they are added, so add them
     /// back to front.
     pub(crate) fn add_transparent(&mut self, key: MeshKey, mut instance: MeshInstance) {
+        self.fit_smooth(&key);
         instance.index = self.transparent.pending();
         self.transparent.push(instance);
         self.transparent_keys.push(key);
     }
 
+    /// Makes the pipelines of a mesh whose colors fade the first time
+    /// `key` draws one.
+    fn fit_smooth(&mut self, key: &MeshKey) {
+        if (key.mesh.smooth_colors || key.mesh.flowing)
+            && !self.warned.contains(&key.mesh)
+            && warn_unshown(key)
+        {
+            self.warned.insert(key.mesh);
+        }
+        if key.mesh.smooth_colors && self.smooth.is_none() {
+            let device = Window::device();
+            self.smooth = Some(SmoothPipelines::new(
+                device,
+                &self.mesh_layout,
+                &self.mesh_shader,
+                self.samples,
+            ));
+            self.shadow.make_smooth(device);
+        }
+        if key.mesh.flowing && self.flow.is_none() {
+            self.flow = Some(FlowPipelines::new(
+                Window::device(),
+                &self.mesh_layout,
+                &self.mesh_shader,
+                self.samples,
+            ));
+        }
+    }
+
+    /// A grass patch, drawn in the camera's pass only. Grass casts no
+    /// shadow, it is too thin to show in the maps and doubles the cost.
+    pub(crate) fn add_grass(&mut self, draw: GrassDraw) {
+        self.grass_pending.push(draw);
+    }
+
     pub(crate) fn add_light(&mut self, light: MeshLight) {
         self.lights.push(light);
+    }
+
+    /// A debug line between two world points, drawn this frame.
+    pub(crate) fn add_line(&mut self, from: Vec3, to: Vec3, color: Color) {
+        self.lines.push(LineVertex::new(from, color));
+        self.lines.push(LineVertex::new(to, color));
+    }
+
+    /// A line of the scene, `width` pixels wide, hidden behind the nodes
+    /// or drawn over them all.
+    pub(crate) fn add_wide_line(&mut self, line: WideLine, on_top: bool) {
+        if on_top {
+            self.on_top_lines.push(line);
+        } else {
+            self.tested_lines.push(line);
+        }
     }
 
     /// Queues the joint matrices of one skinned node and returns where
@@ -222,13 +538,16 @@ impl MeshPipeline {
     pub(crate) fn prepare(
         &mut self,
         encoder: &mut CommandEncoder,
-        view: &SceneView,
+        view: &SceneUniform,
         shadows: bool,
         map_size: u32,
     ) {
         self.instances.retain(|key, _| key.mesh.is_ok());
+        self.textures.retain(|set, _| set.alive());
+        self.warned.retain(Weak::is_ok);
 
         self.view_buffer.update(*view);
+        self.sky_view.draw(encoder, view, &self.view_buffer, &self.air);
 
         // A storage binding cannot be empty, and no instance indexes the
         // placeholder since every light count is zero then.
@@ -243,147 +562,346 @@ impl MeshPipeline {
         }
         self.joints.load();
 
-        for instances in self.instances.values_mut() {
-            if !instances.is_empty() {
-                instances.load();
-            }
-        }
-        if !self.transparent.is_empty() {
+        let frame = Window::render_frame();
+        self.load_batches(view, shadows, frame);
+        self.load_grass(frame);
+        self.transparent_textures = self
+            .transparent_keys
+            .iter()
+            .map(|key| {
+                textures_index(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    key,
+                    (&self.white, &self.flat_normal),
+                    frame,
+                )
+            })
+            .collect();
+        if self.transparent.is_empty() {
+            self.transparent.forget();
+        } else {
             self.transparent.load();
         }
+        if self.lines.is_empty() {
+            self.lines.forget();
+        } else {
+            self.lines.load();
+        }
+        for lines in [&mut self.tested_lines, &mut self.on_top_lines] {
+            if lines.is_empty() {
+                lines.forget();
+            } else {
+                lines.load();
+            }
+        }
 
-        if shadows {
+        if shadows && self.instances.values().any(|batch| batch.loaded(frame)) {
             self.shadow.fit(Window::device(), map_size);
-            let batches: Vec<_> = self.loaded().collect();
-            self.shadow.draw(encoder, &view.sun_view_proj, &batches, &self.joints);
+            let mut batches = vec![];
+            for (key, batch) in self.instances.iter().filter(|(_, batch)| batch.loaded(frame)) {
+                // A cut out batch reads its texture's alpha in the pass.
+                let textures = key.cutout.then(|| textures_at(&self.textures, batch.textures).clone());
+                batches.push(ShadowBatch {
+                    key,
+                    ranges: from_fn(|cascade| batch.drawn[1 + cascade].clone()),
+                    textures,
+                });
+            }
+            let instances_bind = opaque_bind(
+                &mut self.opaque_bind,
+                &self.instances_layout,
+                &self.opaque_instances,
+                &self.joints,
+            );
+            self.shadow.draw(
+                encoder,
+                &view.sun_view_proj,
+                view.camera_pos,
+                &self.opaque_instances,
+                &batches,
+                instances_bind,
+            );
+        } else if shadows {
+            self.shadow.fit(Window::device(), map_size);
+            self.shadow.clear(encoder);
         }
     }
 
-    /// The batches `prepare` loaded this frame.
-    fn loaded(&self) -> impl Iterator<Item = (&MeshKey, &VecBuffer<MeshInstance>)> {
-        let frame = Window::render_frame();
-        self.instances
-            .iter()
-            .filter(move |(_, instances)| instances.frame() == frame && instances.has_loaded())
+    /// Loads the instances of every opaque batch for each pass that can see
+    /// them, the camera's and, with `shadows`, every cascade of the sun.
+    fn load_batches(&mut self, view: &SceneUniform, shadows: bool, frame: u64) {
+        let camera = view.camera_pos.truncate();
+        let views: [Frustum; PASSES] = from_fn(|pass| match pass {
+            0 => Frustum::of(view.view_proj),
+            cascade => Frustum::of(view.sun_view_proj[cascade - 1]),
+        });
+        let passes = if shadows { PASSES } else { 1 };
+        let cull = frustum::enabled();
+        for (key, batch) in &mut self.instances {
+            // A batch nothing added to draws nothing. Its range can still be
+            // from this same frame number, a picture is drawn between two
+            // frames and the scene on screen loaded the frame before it.
+            batch.drawn = Default::default();
+            if batch.pending.is_empty() {
+                continue;
+            }
+            batch.near = batch
+                .pending
+                .iter()
+                .map(|(_, reach)| reach.map_or(0.0, |reach| (reach.center - camera).length() - reach.radius))
+                .fold(f32::INFINITY, f32::min);
+            batch.textures = textures_index(
+                &mut self.textures,
+                &self.textures_layout,
+                key,
+                (&self.white, &self.flat_normal),
+                frame,
+            );
+            for (pass, frustum) in views.iter().enumerate().take(passes) {
+                let start = self.opaque_instances.pending();
+                for (instance, reach) in &batch.pending {
+                    // The view projections take a point relative to the
+                    // camera, see `SceneUniform`.
+                    if cull && reach.is_some_and(|reach| !frustum.holds(reach.center - camera, reach.radius))
+                    {
+                        continue;
+                    }
+                    let mut instance = *instance;
+                    instance.index = self.opaque_instances.pending();
+                    self.opaque_instances.push(instance);
+                }
+                batch.drawn[pass] = start..self.opaque_instances.pending();
+            }
+            batch.pending.clear();
+            batch.frame = frame;
+        }
+        if !self.opaque_instances.is_empty() {
+            self.opaque_instances.load();
+        }
     }
 
     /// Draws the frame. `background` draws the sky pass first, for a
     /// sky or for fog filling in behind everything without one.
+    /// A scene shares the frame's depth buffer with the UI, which tests
+    /// plain depth from a clear of 1. Before the scene the viewport's depth
+    /// becomes 0, the far end of the scene's reversed depth, and after it
+    /// 1 again, so the UI over the scene draws as before.
+    pub(crate) fn fill_depth(&self, render_pass: &mut RenderPass, far: bool) {
+        render_pass.set_pipeline(if far { &self.depth_far } else { &self.depth_near });
+        render_pass.draw(0..3, 0..1);
+    }
+
     pub(crate) fn draw(&mut self, render_pass: &mut RenderPass, sky: Option<&Sky>, background: bool) {
         let frame = Window::render_frame();
         let translucent = self.transparent.frame() == frame && self.transparent.has_loaded();
-        let no_nodes = self.loaded().next().is_none() && !translucent;
+        let lines = self.lines.frame() == frame && self.lines.has_loaded();
+        let tested = self.tested_lines.frame() == frame && self.tested_lines.has_loaded();
+        let on_top = self.on_top_lines.frame() == frame && self.on_top_lines.has_loaded();
+        let no_nodes = !self.instances.values().any(|batch| batch.drawn_in(frame, 0).is_some())
+            && self.grass_drawn.is_empty()
+            && !translucent
+            && !lines
+            && !tested
+            && !on_top;
         if no_nodes && !background {
             self.transparent_keys.clear();
             return;
         }
 
-        let view_bind = self.view_bind(sky.unwrap_or(&self.black_sky));
-        render_pass.set_bind_group(0, &view_bind, &[]);
-
-        if background {
-            render_pass.set_pipeline(&self.sky);
-            render_pass.draw(0..3, 0..1);
-        }
+        let sky = sky.unwrap_or(&self.black_sky);
+        let shadow_map = self.shadow.map();
+        let view_bind = cached(
+            &mut self.view_bind,
+            (
+                sky.view.clone(),
+                sky.sampler.clone(),
+                shadow_map.clone(),
+                self.air.transmittance.clone(),
+                self.air.multi.clone(),
+            ),
+            || {
+                view_bind(
+                    &self.view_layout,
+                    &self.view_buffer,
+                    sky,
+                    shadow_map,
+                    &self.air,
+                    &self.sky_view,
+                )
+            },
+        );
+        render_pass.set_bind_group(0, view_bind, &[]);
 
         if no_nodes {
+            if background {
+                self.draw_sky(render_pass);
+            }
             self.transparent_keys.clear();
             return;
         }
 
-        let lights_bind = storage_bind("mesh_lights_bind", &self.lights_layout, &self.lights);
-        render_pass.set_bind_group(2, &lights_bind, &[]);
-
-        for (key, instances) in self.loaded() {
-            let instances_bind = self.instances_bind(instances);
-            let textures_bind = textures_bind(&self.textures_layout, key, &self.white, &self.flat_normal);
-
-            render_pass.set_bind_group(1, &instances_bind, &[]);
-            render_pass.set_bind_group(3, &textures_bind, &[]);
-            set_mesh(render_pass, &key.mesh, &self.opaque, &self.opaque_skinned);
-            render_pass.set_vertex_buffer(1, instances.slice());
-
-            // Base vertex stays zero, an A7 draws nothing otherwise.
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..instances.len());
+        if self.wireframe && self.wireframe_pipelines.is_none() {
+            self.wireframe_pipelines = Some(mesh_pipelines(
+                Window::device(),
+                "mesh_wireframe",
+                &self.mesh_layout,
+                &self.mesh_shader,
+                MeshDraw::Wireframe,
+                self.samples,
+            ));
         }
 
-        if !translucent {
+        self.draw_batches(render_pass, frame, false);
+        self.draw_grass(render_pass);
+
+        // After the opaque nodes, so the sky shades only the pixels they
+        // left at the far depth, a planet seen from space hides half the sky.
+        if background {
+            self.draw_sky(render_pass);
+        }
+
+        // Before the translucent nodes, which blend over a line behind
+        // them.
+        if tested {
+            render_pass.set_pipeline(&self.wide_tested);
+            render_pass.set_vertex_buffer(0, self.tested_lines.slice());
+            render_pass.draw(0..6, 0..self.tested_lines.len());
+        }
+
+        if translucent {
+            self.draw_translucent(render_pass);
+        } else {
             self.transparent_keys.clear();
+        }
+
+        if lines {
+            render_pass.set_pipeline(&self.lines_pipeline);
+            render_pass.set_vertex_buffer(0, self.lines.slice());
+            render_pass.draw(0..self.lines.len(), 0..1);
+        }
+
+        if on_top {
+            render_pass.set_pipeline(&self.wide_on_top);
+            render_pass.set_vertex_buffer(0, self.on_top_lines.slice());
+            render_pass.draw(0..6, 0..self.on_top_lines.len());
+        }
+    }
+
+    fn draw_sky(&self, render_pass: &mut RenderPass) {
+        render_pass.set_pipeline(&self.sky);
+        render_pass.draw(0..3, 0..1);
+    }
+
+    /// Lets go of everything loaded this frame. A picture is drawn and
+    /// submitted on its own, and the frame's draw that follows on the same
+    /// frame number must not draw the picture's nodes again.
+    pub(crate) fn forget_frame(&mut self) {
+        for batch in self.instances.values_mut() {
+            batch.drawn = Default::default();
+        }
+        self.grass_drawn.clear();
+        self.transparent.forget();
+        self.transparent_keys.clear();
+        self.lines.forget();
+        self.tested_lines.forget();
+        self.on_top_lines.forget();
+    }
+
+    /// Fills the grass buffers from the patches added this frame, the
+    /// instance and the 2 matrices of each at its slot, the patch's and
+    /// its field's turn. The slots stay with a patch while it lives, its
+    /// blades name theirs.
+    fn load_grass(&mut self, frame: u64) {
+        self.grass_drawn = std::mem::take(&mut self.grass_pending);
+        self.grass_textures = self
+            .grass_drawn
+            .iter()
+            .map(|draw| {
+                textures_index(
+                    &mut self.textures,
+                    &self.textures_layout,
+                    &draw.key,
+                    (&self.white, &self.flat_normal),
+                    frame,
+                )
+            })
+            .collect();
+        let Some(last) = self.grass_drawn.iter().map(|draw| draw.slot).max() else {
+            return;
+        };
+        let slots = last as usize + 1;
+        let mut instances = vec![bytemuck::Zeroable::zeroed(); slots];
+        let mut patches = vec![Mat4::ZERO; slots * 2];
+        for draw in &self.grass_drawn {
+            let slot = draw.slot as usize;
+            instances[slot] = draw.instance;
+            instances[slot].index = draw.slot;
+            patches[slot * 2] = draw.patch;
+            patches[slot * 2 + 1] = draw.turn;
+        }
+        for instance in instances {
+            self.grass_instances.push(instance);
+        }
+        for patch in patches {
+            self.grass_patches.push(patch);
+        }
+        self.grass_instances.load();
+        self.grass_patches.load();
+    }
+
+    /// Draws the grass patches `prepare` loaded, after the opaque nodes,
+    /// whose binds of group 0 and 2 they share.
+    fn draw_grass(&mut self, render_pass: &mut RenderPass) {
+        if self.grass_drawn.is_empty() {
             return;
         }
-
-        let instances_bind = self.instances_bind(&self.transparent);
-        render_pass.set_bind_group(1, &instances_bind, &[]);
-
-        let range = self.transparent.range().clone();
-        let stride = MeshInstance::VERTEX_LAYOUT.array_stride;
-
-        for (i, key) in self.transparent_keys.drain(..).enumerate() {
-            let textures_bind = textures_bind(&self.textures_layout, &key, &self.white, &self.flat_normal);
-            render_pass.set_bind_group(3, &textures_bind, &[]);
-            set_mesh(
-                render_pass,
-                &key.mesh,
-                &self.translucent,
-                &self.translucent_skinned,
-            );
-            // The draw starts at instance zero of a slice that begins at
-            // this node, its `index` attribute still names the real slot.
-            let start = range.start + u64::try_from(i).expect("node count fits u64") * stride;
-            render_pass.set_vertex_buffer(1, self.transparent.buffer().slice(start..range.end));
-            render_pass.draw_indexed(0..key.mesh.index_count, 0, 0..1);
+        let bind = cached(
+            &mut self.grass_bind,
+            (
+                StorageKey::of(&self.grass_instances),
+                StorageKey::of(&self.grass_patches),
+            ),
+            || instances_bind(&self.instances_layout, &self.grass_instances, &self.grass_patches),
+        );
+        render_pass.set_bind_group(1, bind, &[]);
+        let stride = GrassBlade::VERTEX_LAYOUT.array_stride;
+        for pipeline in &self.grass {
+            render_pass.set_pipeline(pipeline);
+            for (draw, &textures) in self.grass_drawn.iter().zip(&self.grass_textures) {
+                if !draw.key.mesh.is_ok() {
+                    continue;
+                }
+                render_pass.set_bind_group(3, textures_at(&self.textures, textures), &[]);
+                render_pass.set_vertex_buffer(0, draw.key.mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(draw.key.mesh.index_buffer.slice(..), IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(1, draw.blades.slice(..u64::from(draw.count) * stride));
+                render_pass.draw_indexed(0..draw.key.mesh.index_count, 0, 0..draw.count);
+            }
         }
-    }
-
-    fn view_bind(&self, sky: &Sky) -> BindGroup {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("scene_view_bind"),
-            layout:  &self.view_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding:  0,
-                    resource: self.view_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding:  1,
-                    resource: BindingResource::TextureView(&sky.view),
-                },
-                BindGroupEntry {
-                    binding:  2,
-                    resource: BindingResource::Sampler(&sky.sampler),
-                },
-                BindGroupEntry {
-                    binding:  3,
-                    resource: BindingResource::TextureView(self.shadow.map()),
-                },
-            ],
-        })
-    }
-
-    /// The part of the instance buffer this frame's flush landed in, so
-    /// the fragment stage indexes the same elements the draw uses, and
-    /// the frame's joints for the vertex stage.
-    fn instances_bind(&self, instances: &VecBuffer<MeshInstance>) -> BindGroup {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label:   Some("mesh_instances_bind"),
-            layout:  &self.instances_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding:  0,
-                    resource: BindingResource::Buffer(loaded_range(instances)),
-                },
-                BindGroupEntry {
-                    binding:  1,
-                    resource: BindingResource::Buffer(loaded_range(&self.joints)),
-                },
-            ],
-        })
     }
 }
 
-/// Picks the pipeline for the mesh and sets its vertex and index
-/// buffers, the skin buffer too when it has one.
-pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, plain: &RenderPipeline, skinned: &RenderPipeline) {
+/// Draws the edges of `count` instances of the mesh whose vertex and
+/// instance buffers are set, see `MeshDraw::Wireframe`.
+fn draw_edges(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipeline; 2], count: u32) {
+    // A browser gives the indices back a frame or more later.
+    let Some((edges, edge_count)) = mesh.edges() else {
+        return;
+    };
+    pass.set_pipeline(if mesh.skin_buffer.is_some() {
+        skinned
+    } else {
+        plain
+    });
+    pass.set_index_buffer(edges.slice(..), IndexFormat::Uint16);
+    pass.draw_indexed(0..edge_count, 0, 0..count);
+}
+
+/// Picks the pipeline for the mesh out of a pipeline and its skinned
+/// twin, and sets its vertex and index buffers, the skin buffer too
+/// when it has one.
+pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, [plain, skinned]: &[RenderPipeline; 2]) {
     match &mesh.skin_buffer {
         Some(skin) => {
             pass.set_pipeline(skinned);
@@ -395,208 +913,21 @@ pub(super) fn set_mesh(pass: &mut RenderPass, mesh: &Mesh, plain: &RenderPipelin
     pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
 }
 
-/// A mesh pipeline and its skinned twin, the same shader from its two
-/// vertex entries.
-fn mesh_pipelines(
+/// The layout of the mesh pipelines over the view, the instances, the lights
+/// and the textures, and the one of the sky over the view alone.
+fn pipeline_layouts(
     device: &wgpu::Device,
-    name: &str,
-    layout: &wgpu::PipelineLayout,
-    shader: &wgpu::ShaderModule,
-    translucent: bool,
-) -> [RenderPipeline; 2] {
-    [
-        device.mesh_pipeline(
-            &format!("{name}_pipeline"),
-            layout,
-            shader,
-            STATIC_LAYOUTS,
-            "v_main",
-            translucent,
-        ),
-        device.mesh_pipeline(
-            &format!("{name}_skinned_pipeline"),
-            layout,
-            shader,
-            SKINNED_LAYOUTS,
-            "v_skinned",
-            translucent,
-        ),
-    ]
-}
-
-fn shader(device: &wgpu::Device, label: &str, source: String) -> wgpu::ShaderModule {
-    device.create_shader_module(ShaderModuleDescriptor {
-        label:  label.into(),
-        source: ShaderSource::Wgsl(source.into()),
-    })
-}
-
-/// The frame's view, the sky cube and the sun's shadow map, one layer
-/// per cascade.
-fn view_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "scene_view_layout".into(),
-        entries: &[
-            BindGroupLayoutEntry {
-                binding:    0,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
-                ty:         BindingType::Buffer {
-                    ty:                 BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size:   None,
-                },
-                count:      None,
-            },
-            texture_entry(1, TextureViewDimension::Cube),
-            sampler_entry(2),
-            BindGroupLayoutEntry {
-                binding:    3,
-                visibility: ShaderStages::FRAGMENT,
-                ty:         BindingType::Texture {
-                    multisampled:   false,
-                    view_dimension: TextureViewDimension::D2Array,
-                    sample_type:    TextureSampleType::Depth,
-                },
-                count:      None,
-            },
-        ],
-    })
-}
-
-/// The instances for the fragment stage and the joints for the vertex
-/// stage. Four bind groups is every lane's limit, so the two share one.
-fn instances_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "mesh_instances_layout".into(),
-        entries: &[
-            storage_entry(0, ShaderStages::FRAGMENT),
-            storage_entry(1, ShaderStages::VERTEX),
-        ],
-    })
-}
-
-/// The base color texture and the normal map of a draw.
-fn textures_layout(device: &wgpu::Device) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label:   "mesh_textures_layout".into(),
-        entries: &[
-            texture_entry(0, TextureViewDimension::D2),
-            sampler_entry(1),
-            texture_entry(2, TextureViewDimension::D2),
-            sampler_entry(3),
-        ],
-    })
-}
-
-fn storage_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility,
-        ty: BindingType::Buffer {
-            ty:                 BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size:   None,
-        },
-        count: None,
-    }
-}
-
-fn texture_entry(binding: u32, view_dimension: TextureViewDimension) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Texture {
-            multisampled: false,
-            view_dimension,
-            sample_type: TextureSampleType::Float { filterable: true },
-        },
-        count: None,
-    }
-}
-
-fn sampler_entry(binding: u32) -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Sampler(SamplerBindingType::Filtering),
-        count: None,
-    }
-}
-
-fn plain_texture(rgba: [u8; 4], label: &str) -> Texture {
-    Texture::from_raw_data(
-        TextureRawData {
-            data:     rgba.to_vec(),
-            size:     Size::new(1, 1),
-            channels: 4,
-        },
-        label,
-    )
-}
-
-/// The image's texture, or the plain one when the material has none or
-/// the image is gone.
-fn image_or<'a>(image: Option<&'a Weak<Image>>, plain: &'a Texture) -> (&'a TextureView, &'a Sampler) {
-    match image {
-        Some(image) if image.is_ok() => {
-            let image: &'a Image = image;
-            (image.view(), image.sampler())
-        }
-        _ => (&plain.view, &plain.sampler),
-    }
-}
-
-fn textures_bind(
-    layout: &BindGroupLayout,
-    key: &MeshKey,
-    white: &Texture,
-    flat_normal: &Texture,
-) -> BindGroup {
-    let (base_view, base_sampler) = image_or(key.texture.as_ref(), white);
-    let (normal_view, normal_sampler) = image_or(key.normal_map.as_ref(), flat_normal);
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some("mesh_textures_bind"),
-        layout,
-        entries: &[
-            BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::TextureView(base_view),
-            },
-            BindGroupEntry {
-                binding:  1,
-                resource: BindingResource::Sampler(base_sampler),
-            },
-            BindGroupEntry {
-                binding:  2,
-                resource: BindingResource::TextureView(normal_view),
-            },
-            BindGroupEntry {
-                binding:  3,
-                resource: BindingResource::Sampler(normal_sampler),
-            },
-        ],
-    })
-}
-
-/// The part of a loaded `VecBuffer` that this frame's flush landed in.
-fn loaded_range<T>(buffer: &VecBuffer<T>) -> BufferBinding<'_> {
-    let range = buffer.range();
-    BufferBinding {
-        buffer: buffer.buffer(),
-        offset: range.start,
-        size:   NonZeroU64::new(range.end - range.start),
-    }
-}
-
-/// Binds the loaded part of a `VecBuffer` alone, so the shader indexes
-/// the same elements the draw uses.
-pub(super) fn storage_bind<T>(label: &str, layout: &BindGroupLayout, buffer: &VecBuffer<T>) -> BindGroup {
-    Window::device().create_bind_group(&BindGroupDescriptor {
-        label: Some(label),
-        layout,
-        entries: &[BindGroupEntry {
-            binding:  0,
-            resource: BindingResource::Buffer(loaded_range(buffer)),
-        }],
-    })
+    groups: [&BindGroupLayout; 4],
+) -> (PipelineLayout, PipelineLayout) {
+    let mesh = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label:              "mesh_pipeline_layout".into(),
+        bind_group_layouts: &groups.map(Some),
+        immediate_size:     0,
+    });
+    let sky = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label:              "sky_pipeline_layout".into(),
+        bind_group_layouts: &[Some(groups[0])],
+        immediate_size:     0,
+    });
+    (mesh, sky)
 }

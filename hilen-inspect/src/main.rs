@@ -1,29 +1,35 @@
+mod commands;
+mod device;
+mod frames;
+mod hot;
+mod input;
+mod reach;
+mod speed;
+mod web_bridge;
+mod window;
+
 use std::{
-    collections::HashMap,
     env::{current_dir, temp_dir},
-    fs::{read_dir, read_to_string, write},
-    net::{IpAddr, SocketAddr},
+    fs::{read_dir, write},
     path::{Path, PathBuf},
-    process::exit,
+    str::FromStr,
     time::{Duration, UNIX_EPOCH},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use commands::{Command, run};
 use hilen::{
-    gm::color::Color,
-    inspect::protocol::{
-        AppCommand, Client, InspectorCommand, Key, SERVICE_TYPE, UIRequest, UIResponse, ui::ViewRepr,
-    },
+    inspect::protocol::{AppCommand, Client, InspectorCommand, UIRequest, UIResponse, ui::ViewRepr},
     refs::{Own, hreads::set_current_thread_as_main},
-    ui::{ModifiersState, NamedKey},
+    ui::{Code, NamedKey},
 };
-use mdns_sd::{ScopedIp, ServiceDaemon, ServiceEvent};
-use serde_json::{Value, from_str, from_value, json, to_string, to_string_pretty, to_value};
-use tokio::time::{Instant, timeout, timeout_at};
-
-const NO_APPS: &str = "No running apps discovered. The app must be built with the `inspect` feature and running on the same network.";
+use hot::Target;
+use reach::{NO_APPS, apps, connect, given, save_cache};
+use serde_json::{Value, json, to_string_pretty, to_value};
+use tokio::time::{Instant, timeout};
+use window::send;
 
 #[derive(Parser)]
 #[command(name = "hilen-inspect", about = "Inspect and edit UI of running hilen apps")]
@@ -32,153 +38,26 @@ struct Cli {
     #[arg(long, global = true)]
     app: Option<String>,
 
+    /// The address of the device the app runs on, a name or an ip with or
+    /// without a port. For an app the search can not find, like one on a
+    /// phone that is reached over Tailscale. `HILEN_INSPECT_ADDR` gives it
+    /// too.
+    #[arg(long, global = true)]
+    addr: Option<String>,
+
+    /// A paired iPhone, iPad or Apple TV to reach with no search: its id
+    /// from `devices`, or a part of its name or kind, like `tv` or `ipad`.
+    /// An address given with `--addr` wins.
+    #[arg(long, global = true)]
+    device: Option<String>,
+
+    /// The window to read and drive, its number from `windows`. 0 is the
+    /// main window, the one every command works on without this.
+    #[arg(long, global = true)]
+    window: Option<usize>,
+
     #[command(subcommand)]
     command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// List running apps discovered on the local network
-    Apps,
-    /// Print a compact overview of the view tree: label, frame, id per line
-    Tree,
-    /// Print full JSON of every view whose label contains the query, or with
-    /// this exact id
-    View {
-        /// Label substring, case insensitive, or an exact view id
-        query: String,
-    },
-    /// Print the whole view tree as JSON
-    Ui,
-    /// Save a screenshot as PNG and print its path
-    Screenshot {
-        /// Output file. Defaults to te-screenshot.png in the temp dir.
-        #[arg(short, long)]
-        out: Option<PathBuf>,
-    },
-    /// Edit a layout rule: offset for Side and Anchor rules, ratio for Relative
-    /// rules
-    EditRule {
-        /// View id from `tree` or `view`
-        view_id:    String,
-        /// Index into the view's placer rules from `view`
-        rule_index: usize,
-        offset:     f32,
-        /// Disable the rule instead of keeping it applied
-        #[arg(long)]
-        disable:    bool,
-    },
-    /// Set the text of a `Label`, `Button` or `TextField`
-    SetText { view_id: String, text: String },
-    /// Set the background color of a view, components 0 to 1
-    SetColor {
-        view_id: String,
-        r:       f32,
-        g:       f32,
-        b:       f32,
-        #[arg(default_value_t = 1.0)]
-        a:       f32,
-    },
-    /// Tap the center of a view: touch began plus ended, like a real click
-    Tap {
-        /// Exact view id, exact visible text or exact label field name
-        /// like `save_button` or `BackupPane.save_button`. Substrings
-        /// match only with `--fuzzy`, so a short query can never land on
-        /// an unrelated view.
-        #[arg(required_unless_present = "near")]
-        query:  Option<String>,
-        /// Also match label and text substrings, tried after the exact
-        /// rungs. An ambiguous query still lists the candidates.
-        #[arg(long)]
-        fuzzy:  bool,
-        /// Tap the view nearest to the view with this exact text, on the
-        /// same row. Reaches the unnamed button next to a label.
-        #[arg(long, conflicts_with = "query")]
-        near:   Option<String>,
-        /// With --near, only consider views of this type. Default Button.
-        #[arg(long, requires = "near")]
-        r#type: Option<String>,
-        /// Hold the command modifier for this tap, Cmd on a Mac
-        #[arg(long)]
-        cmd:    bool,
-        #[arg(long)]
-        shift:  bool,
-        #[arg(long)]
-        alt:    bool,
-        /// A right click instead of a left one, fires the secondary
-        /// action such as a context menu
-        #[arg(long)]
-        right:  bool,
-    },
-    /// One line per matching view: label, text, absolute frame, status,
-    /// id. Matches id, label and text by substring, case insensitive.
-    Find {
-        query: String,
-        /// Include hidden and offscreen views
-        #[arg(long)]
-        all:   bool,
-    },
-    /// Poll until a visible view matches the query, then print it
-    Wait {
-        query:   String,
-        /// Seconds to wait before giving up
-        #[arg(long, default_value_t = 10.0)]
-        timeout: f32,
-    },
-    /// Drag with the left button held, window points, for drag driven
-    /// behavior like selecting text
-    Drag {
-        from_x: f32,
-        from_y: f32,
-        to_x:   f32,
-        to_y:   f32,
-        /// Moved events between begin and end
-        #[arg(long, default_value_t = 8)]
-        steps:  usize,
-    },
-    /// Wheel scroll at the window center, or at a view with --at.
-    /// Positive dy scrolls toward the top of the content.
-    Scroll {
-        dy: f32,
-        /// Aim at this view instead of the window center
-        #[arg(long)]
-        at: Option<String>,
-    },
-    /// Scroll the page until the view is inside the window
-    ScrollTo { query: String },
-    /// Resize the window, in points
-    Resize { width: f32, height: f32 },
-    /// Type text or press one named key, with modifiers held only for that
-    /// input. Keys go where a real keyboard would send them, the focused text
-    /// field and the app keymap.
-    Keys {
-        /// Text to type, every char in order
-        #[arg(required_unless_present = "key")]
-        text:  Option<String>,
-        /// A named key instead of text, a winit `NamedKey` name like Enter,
-        /// Escape, Tab, Backspace or `ArrowDown`
-        #[arg(long, conflicts_with = "text")]
-        key:   Option<String>,
-        /// Hold the command modifier, Cmd on a Mac and Ctrl elsewhere
-        #[arg(long)]
-        cmd:   bool,
-        #[arg(long)]
-        shift: bool,
-        #[arg(long)]
-        alt:   bool,
-    },
-    /// Set the UI scale of the app
-    SetScale { scale: f32 },
-    /// Play a sound in the app, to tell which instance is which
-    PlaySound,
-    /// List all edits applied to the app in this session
-    Edits,
-    /// Run the app's whole UI test suite in the app and report every failure
-    RunTests,
-    /// When the running app's Rust code was compiled, against the newest source
-    /// file here. Tells a stale binary from a current one before anything is
-    /// tested against it.
-    BuildTime,
 }
 
 // Responses hold Own pointers which must drop on the main thread. The
@@ -188,10 +67,51 @@ async fn main() -> Result<()> {
     set_current_thread_as_main();
 
     let cli = Cli::parse();
+    window::choose(cli.window);
+    let mut addr = given(cli.addr).await?;
+
+    if let Command::Devices = cli.command {
+        return device::print(cli.device.as_deref()).await;
+    }
+    if let Command::WebBridge { port, tunnel, bind } = cli.command {
+        return web_bridge::run(port, tunnel, bind).await;
+    }
+
+    // Held until the command ends, a long run keeps its way to the device.
+    let _tunnel = match (&addr, &cli.device) {
+        (None, Some(word)) => Some(device::hold(word)?),
+        _ => None,
+    };
+
+    // A hot loader is found by what it answers on its device, at whatever
+    // port it took there, not by 1 address worked out up front.
+    if matches!(cli.command, Command::HotStatus | Command::HotSend { .. }) {
+        let target = match (addr, &cli.device) {
+            (Some(addr), _) => Target::Addr(addr),
+            (None, Some(word)) => Target::Device(device::named(word)?),
+            (None, None) => Target::Search,
+        };
+        return match cli.command {
+            Command::HotSend {
+                library,
+                name,
+                assets,
+            } => hot::send_app(cli.app, &target, &library, assets.as_deref(), &name).await,
+            _ => hot::status(cli.app, &target).await,
+        };
+    }
+
+    if addr.is_none()
+        && let Some(word) = &cli.device
+    {
+        addr = Some(device::reach(word).await?);
+    }
 
     if let Command::Apps = cli.command {
-        let apps = discover().await?;
-        save_cache(&apps)?;
+        let apps = apps(addr).await?;
+        if addr.is_none() {
+            save_cache(&apps)?;
+        }
         if apps.is_empty() {
             bail!(NO_APPS);
         }
@@ -201,180 +121,26 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let client = connect(cli.app).await?;
+    let client = connect(cli.app, addr).await?;
     run(&client, cli.command).await
 }
 
-async fn run(client: &Client, command: Command) -> Result<()> {
-    match command {
-        Command::Apps => unreachable!(),
-        Command::Ui => {
-            let (scale, root) = get_ui(client).await?;
-            println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);
-        }
-        Command::Tree => {
-            let (_, root) = get_ui(client).await?;
-            print_tree(&root, 0);
-        }
-        Command::View { query } => {
-            let (_, root) = get_ui(client).await?;
-            let mut found = vec![];
-            find_matches(&root, &query, &mut found)?;
-            if found.is_empty() {
-                bail!("No view matches: {query}");
-            }
-            for view in found {
-                println!("{}", to_string_pretty(&view)?);
-            }
-        }
-        Command::Screenshot { out } => screenshot(client, out).await?,
-        Command::PlaySound => {
-            send(client, InspectorCommand::PlaySound).await?;
-            println!("ok");
-        }
-        Command::RunTests => run_tests(client).await?,
-        Command::BuildTime => build_time(client).await?,
-        Command::Edits => {
-            let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
-                bail!("Unexpected response to edits");
-            };
-            println!("{}", to_string_pretty(&edits)?);
-        }
-        Command::Tap {
-            query,
-            fuzzy,
-            near,
-            r#type,
-            cmd,
-            shift,
-            alt,
-            right,
-        } => tap(client, query, fuzzy, near, r#type, [cmd, shift, alt], right).await?,
-        Command::Find { query, all } => find(client, &query, all).await?,
-        Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
-        Command::Drag {
-            from_x,
-            from_y,
-            to_x,
-            to_y,
-            steps,
-        } => drag(client, (from_x, from_y), (to_x, to_y), steps).await?,
-        Command::Scroll { dy, at } => scroll(client, dy, at).await?,
-        Command::ScrollTo { query } => scroll_to(client, &query).await?,
-        Command::Resize { width, height } => {
-            send(client, UIRequest::Resize { width, height }.into()).await?;
-            println!("ok");
-        }
-        Command::Keys {
-            text,
-            key,
-            cmd,
-            shift,
-            alt,
-        } => keys(client, text, key, [cmd, shift, alt]).await?,
-        Command::SetScale { scale } => {
-            send(client, UIRequest::SetScale(scale).into()).await?;
-            println!("ok");
-        }
-        edit => run_edit(client, edit).await?,
-    }
-
-    Ok(())
+/// The window space area a view can show in: the window cut down by every
+/// ancestor that clips its subviews. `scroller` is the innermost of those
+/// ancestors, the view a wheel scroll aims at to move this one into sight.
+#[derive(Clone, Copy)]
+struct Clip<'tree> {
+    left:     f32,
+    top:      f32,
+    right:    f32,
+    bottom:   f32,
+    scroller: Option<&'tree str>,
 }
 
-/// The live edit commands, split out of `run` to keep it readable.
-async fn run_edit(client: &Client, command: Command) -> Result<()> {
-    match command {
-        Command::EditRule {
-            view_id,
-            rule_index,
-            offset,
-            disable,
-        } => {
-            let request = UIRequest::EditRule {
-                view_id: view_id.clone(),
-                rule_index,
-                offset,
-                enabled: !disable,
-            };
-            print_edited(client, request, &view_id).await?;
-        }
-        Command::SetText { view_id, text } => {
-            let request = UIRequest::SetText {
-                view_id: view_id.clone(),
-                text,
-            };
-            print_edited(client, request, &view_id).await?;
-        }
-        Command::SetColor { view_id, r, g, b, a } => {
-            let request = UIRequest::SetColor {
-                view_id: view_id.clone(),
-                color:   Color::rgba(r, g, b, a),
-            };
-            print_edited(client, request, &view_id).await?;
-        }
-        _ => unreachable!("only the edit commands reach run_edit"),
+impl Clip<'_> {
+    fn center_y(&self) -> f32 {
+        f32::midpoint(self.top, self.bottom)
     }
-
-    Ok(())
-}
-
-async fn tap(
-    client: &Client,
-    query: Option<String>,
-    fuzzy: bool,
-    near: Option<String>,
-    near_type: Option<String>,
-    [cmd, shift, alt]: [bool; 3],
-    right: bool,
-) -> Result<()> {
-    let (_, root) = get_ui(client).await?;
-
-    let target_id = match (&query, &near) {
-        (Some(query), None) => {
-            let target = resolve_target(&root, query, fuzzy)?;
-            println!("tapping {} {} {}", target.label, quoted_text(target), target.id);
-            target.id.clone()
-        }
-        (None, Some(near)) => {
-            let target = resolve_near(&root, near, near_type.as_deref().unwrap_or("Button"))?;
-            println!(
-                "tapping near {near}: {} {} {}",
-                target.label,
-                quoted_text(target),
-                target.id
-            );
-            target.id.clone()
-        }
-        _ => unreachable!("clap requires exactly one of query and --near"),
-    };
-
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
-
-    // The tapped view is often gone from the fresh tree, a tab swaps the
-    // page and a modal button closes the modal, so no lookup afterwards.
-    let AppCommand::UI(UIResponse::SendUI { note, .. }) = send(
-        client,
-        UIRequest::Tap {
-            view_id: target_id,
-            modifiers,
-            right,
-        }
-        .into(),
-    )
-    .await?
-    else {
-        bail!("Unexpected response to tap");
-    };
-    println!("tapped");
-    if let Some(note) = note {
-        println!("warning: {note}");
-    }
-
-    Ok(())
 }
 
 /// A view with its window space origin and effective visibility. Frames in
@@ -384,21 +150,27 @@ struct Located<'tree> {
     x:      f32,
     y:      f32,
     hidden: bool,
+    clip:   Clip<'tree>,
 }
 
 impl Located<'_> {
-    fn status(&self, window: (f32, f32)) -> &'static str {
+    fn status(&self) -> &'static str {
         if self.hidden {
             return "hidden";
         }
         let size = self.view.frame.size;
-        if self.x + size.width < 0.0 || self.y + size.height < 0.0 || self.x > window.0 || self.y > window.1 {
+        let clip = self.clip;
+        if self.x + size.width <= clip.left
+            || self.y + size.height <= clip.top
+            || self.x >= clip.right
+            || self.y >= clip.bottom
+        {
             return "offscreen";
         }
         "visible"
     }
 
-    fn line(&self, window: (f32, f32)) -> String {
+    fn line(&self) -> String {
         format!(
             "{}{}  [{}, {}] {}x{}  {}  {}",
             self.view.label,
@@ -407,27 +179,56 @@ impl Located<'_> {
             self.y,
             self.view.frame.size.width,
             self.view.frame.size.height,
-            self.status(window),
+            self.status(),
             self.view.id,
         )
     }
 }
 
-fn locate<'tree>(view: &'tree ViewRepr, x: f32, y: f32, hidden: bool, out: &mut Vec<Located<'tree>>) {
+fn locate<'tree>(
+    view: &'tree ViewRepr,
+    (x, y): (f32, f32),
+    hidden: bool,
+    clip: Clip<'tree>,
+    out: &mut Vec<Located<'tree>>,
+) {
     let x = x + view.frame.origin.x;
     let y = y + view.frame.origin.y + view.content_offset;
     let hidden = hidden || view.hidden;
-    out.push(Located { view, x, y, hidden });
+    out.push(Located {
+        view,
+        x,
+        y,
+        hidden,
+        clip,
+    });
+    let inner = if view.clips {
+        Clip {
+            left:     clip.left.max(x),
+            top:      clip.top.max(y),
+            right:    clip.right.min(x + view.frame.size.width),
+            bottom:   clip.bottom.min(y + view.frame.size.height),
+            scroller: Some(&view.id),
+        }
+    } else {
+        clip
+    };
     for sub in &view.subviews {
-        locate(sub, x, y, hidden, out);
+        locate(sub, (x, y), hidden, inner, out);
     }
 }
 
-fn located_tree(root: &ViewRepr) -> ((f32, f32), Vec<Located<'_>>) {
-    let window = (root.frame.size.width, root.frame.size.height);
+fn located_tree(root: &ViewRepr) -> Vec<Located<'_>> {
+    let window = Clip {
+        left:     0.0,
+        top:      0.0,
+        right:    root.frame.size.width,
+        bottom:   root.frame.size.height,
+        scroller: None,
+    };
     let mut located = vec![];
-    locate(root, 0.0, 0.0, false, &mut located);
-    (window, located)
+    locate(root, (0.0, 0.0), false, window, &mut located);
+    located
 }
 
 fn matches_loosely(view: &ViewRepr, query: &str) -> bool {
@@ -439,18 +240,18 @@ fn matches_loosely(view: &ViewRepr, query: &str) -> bool {
 
 async fn find(client: &Client, query: &str, all: bool) -> Result<()> {
     let (_, root) = get_ui(client).await?;
-    let (window, located) = located_tree(&root);
+    let located = located_tree(&root);
 
     let mut shown = 0;
     for item in &located {
         if !matches_loosely(item.view, query) {
             continue;
         }
-        if !all && item.status(window) != "visible" {
+        if !all && item.status() != "visible" {
             continue;
         }
         shown += 1;
-        println!("{}", item.line(window));
+        println!("{}", item.line());
     }
 
     if shown == 0 {
@@ -471,13 +272,13 @@ async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
 
     loop {
         let (_, root) = get_ui(client).await?;
-        let (window, located) = located_tree(&root);
+        let located = located_tree(&root);
 
         if let Some(item) = located
             .iter()
-            .find(|item| matches_loosely(item.view, query) && item.status(window) == "visible")
+            .find(|item| matches_loosely(item.view, query) && item.status() == "visible")
         {
-            println!("{}", item.line(window));
+            println!("{}", item.line());
             return Ok(());
         }
 
@@ -488,31 +289,30 @@ async fn wait(client: &Client, query: &str, wait_seconds: f32) -> Result<()> {
     }
 }
 
-async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize) -> Result<()> {
-    send(client, UIRequest::Drag { from, to, steps }.into()).await?;
-    println!("ok");
-    Ok(())
-}
-
-async fn scroll(client: &Client, dy: f32, at: Option<String>) -> Result<()> {
-    let view_id = match at {
-        Some(query) => {
-            let (_, root) = get_ui(client).await?;
-            Some(resolve_target(&root, &query, false)?.id.clone())
+async fn drag(client: &Client, from: (f32, f32), to: (f32, f32), steps: usize, step_ms: u32) -> Result<()> {
+    send(
+        client,
+        UIRequest::Drag {
+            from,
+            to,
+            steps,
+            step_ms,
         }
-        None => None,
-    };
-    send(client, UIRequest::Scroll { view_id, dx: 0.0, dy }.into()).await?;
+        .into(),
+    )
+    .await?;
     println!("ok");
     Ok(())
 }
 
-/// Repeats window sized scroll steps until the view's center is inside
-/// the window. Fuzzy matching, the target is often known only by text.
+/// Repeats scroll steps until the view's center is inside the area it can
+/// show in, aimed at the scroll view that clips it, or at the window
+/// center when nothing clips it. Fuzzy matching, the target is often known only
+/// by text.
 async fn scroll_to(client: &Client, query: &str) -> Result<()> {
     for _ in 0..16 {
         let (_, root) = get_ui(client).await?;
-        let (window, located) = located_tree(&root);
+        let located = located_tree(&root);
         // Loose matching and the first hit, an ambiguous query is fine
         // here, any of the matches leads the scroll to the same place.
         let Some(item) = located.iter().find(|item| !item.hidden && matches_loosely(item.view, query)) else {
@@ -520,17 +320,18 @@ async fn scroll_to(client: &Client, query: &str) -> Result<()> {
         };
 
         let center = item.y + item.view.frame.size.height / 2.0;
-        if center > 0.0 && center < window.1 && !item.hidden {
-            println!("{}", item.line(window));
+        let clip = item.clip;
+        if center > clip.top && center < clip.bottom {
+            println!("{}", item.line());
             return Ok(());
         }
 
         send(
             client,
             UIRequest::Scroll {
-                view_id: None,
+                view_id: clip.scroller.map(str::to_string),
                 dx:      0.0,
-                dy:      window.1 / 2.0 - center,
+                dy:      clip.center_y() - center,
             }
             .into(),
         )
@@ -557,7 +358,7 @@ fn type_name(view: &ViewRepr) -> &str {
 /// exact text, preferring the same row. Reaches controls with no text of
 /// their own, like the open button on a list card.
 fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -> Result<&'tree ViewRepr> {
-    let (window, located) = located_tree(root);
+    let located = located_tree(root);
     let lowercase = anchor.to_lowercase();
 
     // An exact id works as the anchor too, it is the way out when several
@@ -566,7 +367,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
         .iter()
         .filter(|item| {
             item.view.id == anchor
-                || (item.status(window) == "visible"
+                || (item.status() == "visible"
                     && item.view.text.as_ref().is_some_and(|text| text.to_lowercase() == lowercase))
         })
         .collect();
@@ -575,7 +376,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
         [] => bail!("No visible view has the exact text: {anchor}"),
         [only] => only,
         candidates => {
-            let listed: Vec<String> = candidates.iter().map(|item| item.line(window)).collect();
+            let listed: Vec<String> = candidates.iter().map(|item| item.line()).collect();
             bail!("Ambiguous anchor: {anchor}\n{}", listed.join("\n"));
         }
     };
@@ -588,7 +389,7 @@ fn resolve_near<'tree>(root: &'tree ViewRepr, anchor: &str, wanted_type: &str) -
     let nearest = located
         .iter()
         .filter(|item| {
-            item.status(window) == "visible"
+            item.status() == "visible"
                 && item.view.id != anchor_item.view.id
                 && type_name(item.view).eq_ignore_ascii_case(wanted_type)
         })
@@ -624,42 +425,43 @@ async fn screenshot(client: &Client, out: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-async fn keys(
-    client: &Client,
-    text: Option<String>,
-    key: Option<String>,
-    [cmd, shift, alt]: [bool; 3],
-) -> Result<()> {
-    let mut modifiers = ModifiersState::empty();
-    modifiers.set(ModifiersState::SUPER, cmd);
-    modifiers.set(ModifiersState::SHIFT, shift);
-    modifiers.set(ModifiersState::ALT, alt);
-
-    let keys = match (text, key) {
-        (Some(text), None) => text.chars().map(Key::Char).collect(),
-        (None, Some(key)) => vec![Key::Named(parse_named_key(&key)?)],
-        _ => unreachable!("clap requires exactly one of text and --key"),
-    };
-
-    send(client, UIRequest::Keys { keys, modifiers }.into()).await?;
+async fn hold(client: &Client, names: &[String], ms: u32) -> Result<()> {
+    let keys = names.iter().map(|name| parse_key_code(name)).collect::<Result<Vec<_>>>()?;
+    send(client, UIRequest::Hold { keys, ms }.into()).await?;
     println!("ok");
-
     Ok(())
 }
 
-/// `NamedKey` has no `FromStr`, its serde form is the plain variant name,
-/// so the name round trips through a JSON string.
-fn parse_named_key(name: &str) -> Result<NamedKey> {
-    match from_value(Value::String(name.to_string())) {
-        Ok(key) => Ok(key),
-        Err(_) => {
-            bail!("Unknown key: {name}. Use a winit NamedKey name like Enter, Escape, Tab or ArrowDown")
-        }
-    }
+/// `w` is `KeyW` and `1` is `Digit1`, the rest is a W3C code name.
+fn parse_key_code(name: &str) -> Result<Code> {
+    let mut chars = name.chars();
+    let full = match (chars.next(), chars.next()) {
+        (Some(ch), None) if ch.is_ascii_alphabetic() => format!("Key{}", ch.to_ascii_uppercase()),
+        (Some(ch), None) if ch.is_ascii_digit() => format!("Digit{ch}"),
+        _ => name.to_string(),
+    };
+    Code::from_str(&full).map_err(|_| {
+        anyhow!("Unknown key: {name}. Use a letter, a digit or a W3C code name like Space or ArrowUp")
+    })
 }
 
-async fn run_tests(client: &Client) -> Result<()> {
-    let AppCommand::TestResults { total, failures } = send(client, InspectorCommand::RunTests).await? else {
+fn parse_named_key(name: &str) -> Result<NamedKey> {
+    NamedKey::from_str(name)
+        .map_err(|_| anyhow!("Unknown key: {name}. Use a W3C key name like Enter, Escape, Tab or ArrowDown"))
+}
+
+async fn run_tests(client: &Client, only: Option<String>, seconds: u64) -> Result<()> {
+    let command = match only {
+        Some(names) => InspectorCommand::RunTestsNamed { names },
+        None => InspectorCommand::RunTests,
+    };
+    let Ok(answer) = tokio::time::timeout(Duration::from_secs(seconds), send(client, command)).await else {
+        bail!(
+            "no test report after {seconds} s. A locked phone or an app that left the front stops a run, \
+             unlock it and keep the app in front"
+        );
+    };
+    let AppCommand::TestResults { total, failures } = answer? else {
         bail!("Unexpected response to run-tests");
     };
 
@@ -669,18 +471,22 @@ async fn run_tests(client: &Client) -> Result<()> {
         println!("\n===== {} =====\n{}", failure.name, failure.detail);
     }
 
+    // An error and not `exit`, so the tunnel to a device is let go.
     if !failures.is_empty() {
-        exit(1);
+        bail!("{} of {total} tests failed", failures.len());
     }
 
     Ok(())
 }
 
-async fn send(client: &Client, command: InspectorCommand) -> Result<AppCommand> {
-    match client.send(command).await? {
-        AppCommand::Error(err) => bail!("{err}"),
-        response => Ok(response),
+async fn quit(client: &Client, seconds: u64) -> Result<()> {
+    send(client, InspectorCommand::Quit).await?;
+    // The app answers before it exits. Its end closes the connection.
+    if timeout(Duration::from_secs(seconds), client.closed()).await.is_err() {
+        bail!("App was still running {seconds} seconds after the quit");
     }
+    println!("quit");
+    Ok(())
 }
 
 async fn get_ui(client: &Client) -> Result<(f32, Own<ViewRepr>)> {
@@ -709,8 +515,18 @@ async fn print_edited(client: &Client, request: UIRequest, view_id: &str) -> Res
 }
 
 fn print_tree(view: &ViewRepr, depth: usize) {
+    let mut text = String::new();
+    tree_text(view, depth, &mut text);
+    print!("{text}");
+}
+
+/// The lines of `tree` for `view` and every view in it.
+fn tree_text(view: &ViewRepr, depth: usize, text: &mut String) {
+    use std::fmt::Write;
+
     let frame = &view.frame;
-    println!(
+    let _ = writeln!(
+        text,
         "{}{}{}  [{}, {}] {}x{}  {}{}",
         "  ".repeat(depth),
         view.label,
@@ -723,7 +539,7 @@ fn print_tree(view: &ViewRepr, depth: usize) {
         if view.hidden { "  hidden" } else { "" },
     );
     for sub in &view.subviews {
-        print_tree(sub, depth + 1);
+        tree_text(sub, depth + 1, text);
     }
 }
 
@@ -841,92 +657,6 @@ fn view_json(view: &ViewRepr) -> Result<Value> {
     Ok(value)
 }
 
-/// Tries the address cached by the last discovery first and falls back to a
-/// fresh mDNS browse, so repeat calls skip the discovery wait.
-async fn connect(app: Option<String>) -> Result<Client> {
-    if let Some(addr) = cached_addr(app.as_deref())
-        && let Ok(Ok(client)) = timeout(Duration::from_secs(1), Client::connect(addr)).await
-    {
-        return Ok(client);
-    }
-
-    let apps = discover().await?;
-    save_cache(&apps)?;
-    let addr = resolve(&apps, app)?;
-
-    Client::connect(addr).await
-}
-
-fn cache_path() -> PathBuf {
-    temp_dir().join("hilen-inspect-apps.json")
-}
-
-fn cached_addr(app: Option<&str>) -> Option<SocketAddr> {
-    let cache: HashMap<String, SocketAddr> = from_str(&read_to_string(cache_path()).ok()?).ok()?;
-    match app {
-        Some(id) => cache.get(id).copied(),
-        // A single cached app can be trusted without a browse. With several,
-        // discover every time, correctness over speed.
-        None => {
-            if cache.len() == 1 {
-                cache.values().next().copied()
-            } else {
-                None
-            }
-        }
-    }
-}
-
-fn save_cache(apps: &HashMap<String, SocketAddr>) -> Result<()> {
-    write(cache_path(), to_string(apps)?)?;
-    Ok(())
-}
-
-/// Browses mDNS until the deadline. Cuts the wait short when something is
-/// found: waits a little longer after the first hit to catch the others,
-/// then returns.
-async fn discover() -> Result<HashMap<String, SocketAddr>> {
-    let mdns = ServiceDaemon::new()?;
-    let events = mdns.browse(SERVICE_TYPE)?;
-
-    let mut apps = HashMap::new();
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let mut cutoff = deadline;
-
-    loop {
-        let until = deadline.min(cutoff);
-
-        let Ok(Ok(event)) = timeout_at(until, events.recv_async()).await else {
-            break;
-        };
-
-        let ServiceEvent::ServiceResolved(service) = event else {
-            continue;
-        };
-
-        let Some(app_id) = service.txt_properties.get_property_val_str("app_id") else {
-            continue;
-        };
-
-        let ip = service
-            .addresses
-            .iter()
-            .map(ScopedIp::to_ip_addr)
-            .find(IpAddr::is_ipv4)
-            .or_else(|| service.addresses.iter().next().map(ScopedIp::to_ip_addr));
-
-        let Some(ip) = ip else {
-            continue;
-        };
-
-        apps.insert(app_id.to_string(), SocketAddr::new(ip, service.port));
-        cutoff = Instant::now() + Duration::from_millis(500);
-    }
-
-    Ok(apps)
-}
-
 /// An iOS build relinks the app bundle every time while happily reusing a
 /// stale `libdemo.a`, so a fresh looking bundle can run code from an hour
 /// ago. The only honest answer comes from the running app itself, and the only
@@ -947,6 +677,7 @@ async fn build_time(client: &Client) -> Result<()> {
         return Ok(());
     };
 
+    println!("source folder:  {}", current_dir()?.display());
     println!("newest source:  {newest}  {}", path.display());
 
     match freshness(built, started, newest) {
@@ -957,10 +688,10 @@ async fn build_time(client: &Client) -> Result<()> {
                 "App is stale. Source changed {minutes} minutes after this app started. Rebuild and reinstall before testing anything against it."
             );
         }
-        Freshness::EngineOlder { seconds } => {
+        Freshness::BuiltBeforeSource { seconds } => {
             let minutes = seconds / 60;
             bail!(
-                "Cannot prove the app is current. Source is {minutes} minutes newer than the engine build, but predates this app launch. This can be a current app-only rebuild or a stale reused Rust library. Verify app-only evidence before testing against it."
+                "App is stale. The newest source is {minutes} minutes newer than the code this app runs, and the app was started after it. The last build did not take that file in, or an old binary was started. Rebuild and start the new binary. Two cases are not stale: the file named above is not part of this app, then a build compiles nothing, and an app on a hilen pin from before the app stamp, there the stamp is the one of the engine and a rebuild of only the app shows this too."
             );
         }
     }
@@ -972,7 +703,7 @@ async fn build_time(client: &Client) -> Result<()> {
 enum Freshness {
     Current,
     ChangedSinceStart { seconds: u64 },
-    EngineOlder { seconds: u64 },
+    BuiltBeforeSource { seconds: u64 },
 }
 
 fn freshness(built: u64, started: u64, newest: u64) -> Freshness {
@@ -982,7 +713,7 @@ fn freshness(built: u64, started: u64, newest: u64) -> Freshness {
         };
     }
     if newest > built {
-        return Freshness::EngineOlder {
+        return Freshness::BuiltBeforeSource {
             seconds: newest - built,
         };
     }
@@ -1037,29 +768,58 @@ fn newest_source(dir: &Path) -> Result<Option<(u64, PathBuf)>> {
     Ok(newest)
 }
 
-fn resolve(apps: &HashMap<String, SocketAddr>, app: Option<String>) -> Result<SocketAddr> {
-    let ids = || apps.keys().cloned().collect::<Vec<_>>().join(", ");
-
-    if let Some(id) = app {
-        return match apps.get(&id) {
-            Some(addr) => Ok(*addr),
-            None => bail!("App {id} not found. Running apps: {}", ids()),
-        };
-    }
-
-    match apps.len() {
-        0 => bail!(NO_APPS),
-        1 => Ok(*apps.values().next().unwrap()),
-        _ => bail!("Multiple apps running, pass --app. Running apps: {}", ids()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Freshness, freshness};
+    use hilen::{
+        inspect::ViewRepr,
+        refs::{Own, hreads::set_current_thread_as_main},
+        ui::Code,
+    };
+
+    use super::{Freshness, freshness, located_tree, parse_key_code};
+
+    fn view(
+        id: &str,
+        frame: (f32, f32, f32, f32),
+        clips: bool,
+        subviews: Vec<Own<ViewRepr>>,
+    ) -> Own<ViewRepr> {
+        Own::new(ViewRepr {
+            id: id.into(),
+            frame: frame.into(),
+            clips,
+            subviews,
+            ..ViewRepr::default()
+        })
+    }
+
+    /// The sidebar Dev item sat below the end of its scroll view and was
+    /// reported visible, so a tap on it pressed the view drawn there.
+    #[test]
+    fn a_row_cut_off_by_its_scroll_view_is_offscreen() {
+        set_current_thread_as_main();
+        let rows = view(
+            "rows",
+            (0.0, 0.0, 200.0, 600.0),
+            false,
+            vec![
+                view("shown", (0.0, 100.0, 200.0, 40.0), false, vec![]),
+                view("cut", (0.0, 480.0, 200.0, 40.0), false, vec![]),
+            ],
+        );
+        let scroll = view("scroll", (0.0, 70.0, 200.0, 390.0), true, vec![rows]);
+        let root = view("root", (0.0, 0.0, 800.0, 600.0), false, vec![scroll]);
+
+        let located = located_tree(&root);
+        let status = |id: &str| located.iter().find(|item| item.view.id == id).unwrap().status();
+        assert_eq!(status("shown"), "visible");
+        assert_eq!(status("cut"), "offscreen");
+        let cut = located.iter().find(|item| item.view.id == "cut").unwrap();
+        assert_eq!(cut.clip.scroller, Some("scroll"));
+    }
 
     #[test]
-    fn current_when_engine_was_built_after_source() {
+    fn current_when_the_app_code_was_built_after_source() {
         assert_eq!(freshness(200, 300, 100), Freshness::Current);
     }
 
@@ -1071,8 +831,22 @@ mod tests {
         );
     }
 
+    // The binary was started after the edit, but its code is from before it.
     #[test]
-    fn ambiguous_when_app_started_after_source_but_engine_is_older() {
-        assert_eq!(freshness(100, 300, 220), Freshness::EngineOlder { seconds: 120 });
+    fn stale_when_the_app_code_was_built_before_source() {
+        assert_eq!(
+            freshness(100, 300, 220),
+            Freshness::BuiltBeforeSource { seconds: 120 }
+        );
+    }
+
+    #[test]
+    fn key_names_map_to_physical_keys() {
+        assert_eq!(parse_key_code("w").unwrap(), Code::KeyW);
+        assert_eq!(parse_key_code("W").unwrap(), Code::KeyW);
+        assert_eq!(parse_key_code("1").unwrap(), Code::Digit1);
+        assert_eq!(parse_key_code("Space").unwrap(), Code::Space);
+        assert_eq!(parse_key_code("ArrowUp").unwrap(), Code::ArrowUp);
+        assert!(parse_key_code("Foo").is_err());
     }
 }

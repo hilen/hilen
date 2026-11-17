@@ -1,23 +1,25 @@
 use crate::{
     deps::{refs::main_lock::MainLock, vents::Event},
     gm::{flat::Point, volume::GyroData},
-    ui::{Theme, Touch, UIEvent},
-    window::NamedKey,
+    ui::{NamedKey, ScreenKeyboardMove, Theme, Touch, UIEvent, WidthClass},
 };
 
 static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
 
 #[derive(Default)]
 pub struct UIEvents {
-    on_touch:       Event<Touch>,
-    touch_began:    UIEvent<Touch>,
-    on_scroll:      UIEvent<Point>,
-    on_debug_touch: Event<Touch>,
-    size_changed:   UIEvent<()>,
-    theme_changed:  UIEvent<Theme>,
-    gyro:           UIEvent<GyroData>,
-    keyboard_input: UIEvent<char>,
-    keyboard_key:   UIEvent<NamedKey>,
+    on_touch:        Event<Touch>,
+    touch_began:     UIEvent<Touch>,
+    on_scroll:       UIEvent<Point>,
+    on_debug_touch:  Event<Touch>,
+    #[cfg(feature = "gpu")]
+    size_changed:    UIEvent<()>,
+    theme_changed:   UIEvent<Theme>,
+    width_class:     UIEvent<WidthClass>,
+    gyro:            UIEvent<GyroData>,
+    keyboard_input:  UIEvent<char>,
+    keyboard_key:    UIEvent<NamedKey>,
+    screen_keyboard: UIEvent<ScreenKeyboardMove>,
 }
 
 impl UIEvents {
@@ -43,6 +45,7 @@ impl UIEvents {
         &UI_EVENTS.on_debug_touch
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn size_changed() -> &'static UIEvent<()> {
         &UI_EVENTS.size_changed
     }
@@ -50,6 +53,12 @@ impl UIEvents {
     /// Triggered after the effective theme changes, with the new theme.
     pub fn theme_changed() -> &'static UIEvent<Theme> {
         &UI_EVENTS.theme_changed
+    }
+
+    /// The main window crossed a border of `WidthClass`, with the new
+    /// class. A resize inside 1 class does not fire it.
+    pub fn width_class_changed() -> &'static UIEvent<WidthClass> {
+        &UI_EVENTS.width_class
     }
 
     /// Every typed character of the app, pressed keys only, with the
@@ -62,6 +71,13 @@ impl UIEvents {
     /// Every pressed named key, arrows, enter and the like.
     pub fn keyboard_key() -> &'static UIEvent<NamedKey> {
         &UI_EVENTS.keyboard_key
+    }
+
+    /// The screen keyboard of a phone comes up, goes away or changes its
+    /// height. Fires when the move starts, with where it ends, see
+    /// `ScreenKeyboard` for the edge part way.
+    pub fn screen_keyboard() -> &'static UIEvent<ScreenKeyboardMove> {
+        &UI_EVENTS.screen_keyboard
     }
 
     pub fn gyro() -> &'static UIEvent<GyroData> {

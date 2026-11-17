@@ -1,7 +1,7 @@
 # UI tests
 
 Real-window tests. They open the app, inject touches and scrolls, then check labels, colors and
-state. The corpus lives in `ui-test-suite/`, plus some in `hilen` and `demo`.
+state. The tests live in `ui-test-suite/`, plus some in `hilen` and `demo`.
 `ui-test/` is only the runner.
 
 ## Run
@@ -38,6 +38,12 @@ An app runs the same suite from inside itself, which is how tests run on a devic
 `hilen-inspect run-tests` triggers it over the network. `demo` also has a "Run UI tests"
 button in its dev menu. See [inspect.md](inspect.md).
 
+An app with its own tests also gets the runner with every flag of `ui-test`, record,
+shots and human mode included. The runner is `ui_test::runner::run_cli`, behind
+`ui-tests` on desktop, and a small binary of the app calls it with a function that names
+the app crate, so the linker keeps its tests, and returns `UI_TESTS`. `ui-test` itself is
+that same call. The geblings game is the working example.
+
 Set `HILEN_RUN_TESTS` and the app runs the whole suite once it is ready, prints
 `HILEN_TEST_RESULT <n> tests, <m> failed` and exits with a matching code. It waits on
 `UIManager::on_app_ready`, since a mid load teardown frees views the load task still
@@ -48,10 +54,19 @@ Every lane's full output is kept in `target/ui-test/<lane>.log` and each failure
 in `target/ui-test/failures/<lane>/<test>.txt`, listed at the end of the report, so a
 failed run is read back from disk, never run again to find out what broke. The dir is
 wiped at the start of every `make ui`.
-The simulator lane is `build/ios/sim-test.rs`, an iPhone 8 on iOS 16.4, the oldest device
+The simulator lane is `build/ios/sim-test.py`, an iPhone 8 on iOS 16.4, the oldest device
 this toolchain can boot. `make ui-ios` runs only that lane. It needs the base iOS platform
 and the iOS 16.4 simulator runtime installed through `xcodebuild -downloadPlatform iOS`, else
 the storyboard build fails and the whole lane reports `0 passed 0 failed`. See [ios.md](ios.md).
+The app is a native arm64 simulator build, `aarch64-apple-ios-sim` for iOS 14, so a Mac
+with Apple silicon runs it with no Rosetta. The project of `hilen-mobile` leaves arm64 out
+of a simulator build for its universal lib, the lane lifts that on its xcodebuild line.
+The device of a far job or a CI runner is deleted after the run, so the lane first copies
+the failure pictures of the app to `target/ios/failures/`. The CI job runs on a macOS
+runner of GitHub, downloads the iOS 16.4 runtime from Apple, which needs no Apple ID,
+and uploads those pictures, the helper log and its xcresult when it fails. It sets
+`HILEN_IOS_NO_DESKTOP`, which runs the lane with no Simulator app like a far job, since
+the runner of the helper hung for 480 s on the desktop path there.
 
 `make ui-ios` streams the suite live, the same `Started`/`OK` lines the desktop lane prints, so
 a hang names the test it stuck on. The app logs through NSLog, which tags every console line
@@ -65,6 +80,12 @@ simulator lane forwards it, `simctl` only passes `SIMCTL_CHILD_` prefixed variab
 app and the lane adds that prefix itself. `make ui-ios-human` is the watchable simulator run,
 see Human mode below.
 
+On the Linux builder `pc` the lane runs as a `far` job with `trunk` from nix and the GLX
+extension of Xvfb off, `far --on linux nix shell nixpkgs#trunk --command xvfb-run -a
+--server-args="-screen 0 1600x1500x24 -extension GLX" bun build/web/drive.ts --only
+"Name"`. With GLX on, Xvfb loads the EGL driver of the parked NVIDIA card and crashes
+before the browser starts, seen on 2026-11-02.
+
 The browser lane is `make ui-web`. Its driver, `build/web/drive.ts` run by Bun, builds the
 atomics wasm, serves it with the isolation headers and opens a real installed browser, Chrome
 by default, `BROWSER=firefox` switches. A page has no env vars, so the autorun fires from the
@@ -73,9 +94,28 @@ The report arrives over the inspect WebSocket instead of the console, and on fai
 driver saves an app screenshot to `target/web-test/ui-web-failure.png` over the same socket.
 A failing test also pushes its own frame the moment it fails, saved as
 `target/web-test/failures/<test>.png`, so a flake leaves its picture although the page
-has no filesystem. Every asset group downloads before the suite starts and a miss is
-fatal, a suite on the default font would fail on pixels far from the cause, which is
-how a cut font download once looked like a wrapping bug. See [inspect.md](inspect.md).
+has no filesystem. The app's log lines at info and above travel the same socket as they
+happen, `web_log.rs` forwards them, so the driver prints `Started` and `OK` live like the
+desktop lane and keeps them in `target/web-test/app-<browser>.log`. A test that never
+finishes is caught by the driver's stall watchdog: after `--stall` seconds of silence,
+180 by default, it names the last line the app said, takes the failure screenshot and
+exits, instead of sitting out the 40 minute report timeout of the whole suite. Every asset group downloads
+before the suite starts and a miss is fatal, a suite on the default font would fail on
+pixels far from the cause, which is how a cut font download once looked like a wrapping
+bug. See [inspect.md](inspect.md).
+
+On CI both browsers draw on a software GPU, Chrome through SwiftShader and Firefox
+through Mesa, and a few pixels come out unlike a real GPU there. A rectangle edge on
+a fractional pixel row is one, under MSAA the SDF alpha and the sample coverage
+combine and the sample pattern is the GPU's own, so keep probes off such rows, see
+the leftovers in [roadmap.md](roadmap.md). SwiftShader also returned a zero `fwidth`
+in the pixel quads on a quad's diagonal, which the SDF shaders now guard, pinned by
+`Quad diagonal`.
+
+Chrome reads WGSL with its own parser, stricter than naga on desktop. It refused the
+sky shader for `a * b ^ c * d` with no parentheses. The page logs `Fatal GPU error`
+and draws nothing after it, so every later test that reads pixels fails on the clear
+color. Look for that line first when a browser run fails a long run of tests.
 
 A wasm panic aborts the whole instance, there is no unwinding to catch it like the native
 runner does. The panic beacon names the running test, the driver records it as failed,
@@ -86,7 +126,7 @@ final report, so one panicking test cannot hide the rest of the suite.
 
 A level is not a view, so a level check is not a UI test. It is a `#[level]` struct with
 `impl LevelTest`, registered by the same kind of ctor into `hilen::LEVEL_TESTS`, and run
-by the `level-test` crate, which also holds the corpus. The runner installs an empty root
+by the `level-test` crate, which also holds the tests. The runner installs an empty root
 on the test canvas, starts the level at scale 1 so a retina window does not move the
 probes, hands the level to `perform_test` and stops it afterwards. The flags match
 `ui-test`: `--list`, `--test-name`, `--headless`, `--record-colors`, `--human`,
@@ -101,7 +141,10 @@ cargo run -p level-test -- --test-name SpriteCutout --human
 
 Scene tests are the 3D twin, a `#[scene]` with `impl SceneTest` registered into
 `hilen::SCENE_TESTS` and run by the `scene-test` crate with the same flags, `make scene`
-runs the suite. See [scene.md](scene.md).
+runs the suite. They live in `scene-test-suite`, which `demo` links, so `HILEN_RUN_TESTS`
+and `hilen_run_tests` run them after the UI tests on every device lane, in one
+`HILEN_TEST_RESULT` line, and `HILEN_TEST_ONLY` names one like a view. A name shared by
+a view and a scene, `Transparency` is one, runs both. See [scene.md](scene.md).
 
 ## Run from the editor
 
@@ -182,13 +225,11 @@ the view tree first — they usually show the problem immediately.
 
 Never edit test expectations (`check_colors` data, asserted values) to make a failing
 test pass. The expectations are the spec: the UI must behave exactly like before. If a
-test fails after a code change, the code is wrong. Expectations change only when the new
-look or behavior is intended and explicitly approved.
+test fails after a code change, the code is wrong. Expectations change only when the
+task changes that look or behavior on purpose.
 
-Never change existing UI tests while implementing a new feature unless the user
-explicitly allows it. Design the feature so old tests stay green: make new behavior
-opt-in instead of changing defaults. If a new mechanism genuinely invalidates an old
-assertion, stop and ask before touching it.
+Do not change an existing UI test to fit a new feature. Design the feature so old tests
+stay green: make new behavior opt-in instead of changing defaults.
 
 Temporary edits that are never committed are allowed — for example breaking one
 expectation on purpose to verify the failure machinery. Say what you are doing first,
@@ -221,15 +262,23 @@ no place to hang that condition.
 `--screenshot <path>` requires one `--test-name` and selects the headless runner by itself.
 The runner saves the final tested frame when the test does not choose a capture point. A
 test that needs an earlier exact state calls `capture_screenshot()` there; it still saves
-only when the command requested an output path. Screenshot mode is for fast agent inspection,
-not a substitute for the required `--human` user review.
+only when the command requested an output path. Screenshot mode is for fast agent inspection.
 
 `--shots <dir>` selects the headless runner too and takes any test subset or the whole
 suite. It saves a clean frame, no probe markers, at every `check_colors` and every
 `checkpoint`, as `<dir>/<test>-<NN>-<label>.png` with `NN` counting up per test, so the
 files sort in run order and an agent sees every verified state from one run. A check
-saves before it asserts, so a failing check still leaves its frame. `checkpoint` is the
-way to name a state a test wants on disk that no check pins.
+saves before it asserts, so a failing check still leaves its frame. In a shots run a
+failing check does not end the test: every wrong point of the check goes into one
+failure and the test goes on, so the later states are saved too and the report lists
+all the points at once. `checkpoint` is the way to name a state a test wants on disk
+that no check pins.
+
+A probe has to hold with 4 samples and with 1. A browser on WebGL draws with 1 sample,
+see [webos.md](webos.md), and there a pixel on the edge of a path, a thin stroke or a
+rect on a fractional row is fully the shape or fully the background. Run a test with
+`HILEN_MSAA=1` to check it, and with `--shots` under both counts to see every point
+that differs.
 
 For profiling, pass `--fps-report` to print a report at the end of the run: frames, duration
 and average fps per test. Per-test fps varies a lot between runs — macOS sometimes paces frames
@@ -255,7 +304,10 @@ lower one wins, so a canvas has to clear both.
 
 Width and height must fit the smallest supported screen, 640 by 1136 on an iPhone 5S,
 or the test cannot run on device. Height must also fit the desktop render surface,
-which is `App::initial_size`, 1200 by 1000 by default and not overridden by `ui-test`.
+which is the `initial_size` of the test runner app, 1200 by 1000, set in `ActorApp` in
+`hilen/src/app_runner.rs`. A test window always opens at that size, a test run and a
+headless run never read or write a remembered window, see Window placement in
+[CLAUDE.md](../CLAUDE.md).
 So the real ceiling is 640 by 1000, and 1136 is unreachable on desktop.
 
 Going over is silent, not loud. Nothing below 1000 renders, and the probe recorder
@@ -279,7 +331,8 @@ around the canvas, so probes within a blur radius of a canvas edge pick that up.
 consistent on every screen, since the canvas is always smaller than the frame.
 
 Global state is reset per test: the root background, the clear color, the string state,
-the drag scrolling platform default, the hover state with its drag lock, and any running
+the drag scrolling platform default, the hover state with its drag lock, the global
+`DialogStyle` and `BugReportStyle`, the bug report email, and any running
 level, since a level is not in the view tree and one left by a test
 would draw under every test after it.
 A test that fails part way never reaches its own cleanup, and without the reset every
@@ -319,7 +372,7 @@ impl ViewTest for MyTest {
   test view, not the host.
 
 Nothing here is async. A UI test drives the main thread through `from_main` and never awaits. The
-corpus was async for years and not one test awaited anything, which cost a second registry, a
+suite was async for years and not one test awaited anything, which cost a second registry, a
 boxed future type and a hand written call list.
 
 ### A generic view cannot be a test
@@ -345,6 +398,33 @@ The engine's own test modules are gated behind the same feature with `#[cfg]`, s
 default-features build compiles none of them. Without the gate an app pulling the engine as a
 path dependency sees their dead code warnings, since an unregistered test view is unused.
 
+## On a phone
+
+The render tests run on a real iPhone as a step of every App Store release, see "The
+simulator is no proof" in [damage.md](damage.md). In the engine repo, with the phone
+unlocked:
+
+```bash
+make device args=iphone
+hilen-inspect --device iphone run-tests --only "Frames over a flow,Partial frames"
+```
+
+- `make device` sends the demo, which links every test, to the loader on the phone.
+- `run-tests --only` takes a comma list in either spelling and runs only those tests in
+  the app. A name no test has is an error. With no `--only` the whole suite runs.
+- `run-tests --timeout` is 900 seconds by default. A phone that locked or an app that
+  left the front gives an error after it, not a run that never ends.
+- A run keeps the display of a phone on from the first test to the report,
+  `keep_on_for_tests` in `system/screen_awake.rs`, so the phone cannot lock in the
+  middle. The test `Screen awake lifecycle` turns that off for its own checks.
+- `--device` holds the tunnel to the phone open for the whole command, see "A real
+  device" in [hot-reload.md](hot-reload.md). Before that the report of a run was lost
+  with `No route to host`.
+- `Frames over a flow` goes a list, a screen opened from it, back and a fling, and
+  compares frames that change a small mark with whole frames of the same state. A frame
+  that changed nothing did not show the iPhone bug, a small change did. It caught the bug
+  more often than `Partial frames`, 6 of 6 against 2 of 6.
+
 ## Platform gating
 
 Every UI test must run on every supported UI-test platform where the production behavior exists.
@@ -356,9 +436,11 @@ fixture layout, screenshot workflow or convenient reproduction is never a valid 
 
 Platform gating is allowed only when the production feature itself is compiled out or cannot
 exist on that platform. Gate such a test where the feature is gated, not with a runtime skip.
-`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. Typing goes through the
-screen keyboard on a phone rather than injected key events, so the text field tests are desktop
-only as well.
+`Hover::update` is `#[cfg(any(desktop, wasm))]`, so `hover.rs` is too. The older text field
+tests type with injected key events and probe the caret and the selection the engine draws. On
+an iPhone a system text field takes the keys and draws those, so these tests are desktop only.
+The `Screen keyboard` tests type through the real keyboard and run on a phone too, see System
+input below.
 Test counts may differ between platforms only for these feature-availability gates. Never gate a
 cross-platform rendering, layout or interaction regression merely to make the current fixture fit.
 Gate the module in its `mod.rs`, with a comment saying which feature is missing:
@@ -403,26 +485,75 @@ That is the whole thing. The harness builds the view and hands it to `perform_te
 never calls `UITest::start` for its own view. It registers as `My test`.
 
 To test an existing widget, give it a fixture view to live in and put the impl on the fixture.
-The corpus does this throughout, and a fixture is usually what you want anyway, since its
+The suite does this throughout, and a fixture is usually what you want anyway, since its
 `setup` arranges the scene the widget is tested in.
 
-Test helpers: `inject_touches`, `inject_scroll`, `inject_right_click`, `inject_long_press`,
+Test helpers: `inject_touches`, `inject_scroll`, `inject_scroll_x` (a sideways wheel), `inject_trackpad_scroll` (a trackpad scroll in points, sent as the physical pixels a window reports through the real conversion, the content moves exactly that far), `inject_trackpad_scroll_end` (the end of a trackpad scroll that still carries a delta, as macOS sends it after merging it with the next scroll, it moves nothing), `inject_pinch` (a trackpad pinch, 2 fingers go through `inject_touches` with finger ids), `inject_right_click`, `inject_long_press`,
+`inject_mouse_motion` (raw motion for a captured `Cursor`, dropped while it is free),
+`inject_file_hover`, `inject_file_hover_end`, `inject_file_drop` (a file or a folder dragged onto the window, see [file-drop.md](file-drop.md)),
 `wait_for_tooltip`, `check_colors` (asserts pixel colors at coordinates). To read UI state from test code use `from_main` (see [dispatch.md](dispatch.md)).
 
 An animation samples real time, so its mid flight frames depend on machine speed and
 a test can normally only check the settled state. A test that needs an exact frame
 opts into frame stepped time: `Clock::enter_stepped()` on the main thread freezes
 the engine clock, and `step_frames(n)` moves it by `n` frames of 16.666 ms, rendering
-each one. `Animation` and `AnimatedImage` read that clock, so after `step_frames(15)`
+each one. `Animation`, `AnimatedImage` and `time::frame_seconds` follow it, so after `step_frames(15)`
 a 0.5 s animation sits at exactly half and a gif with 100 ms frames is on frame 1
 after `step_frames(6)`, on every platform. The runner leaves stepped mode before
 every test, so a test never has to clean it up on the failure path. `Frame stepped
 animation` and `Animated gif` are the examples. `Animation drives frames` must never
 run stepped, it proves free running animations request their own frames.
 
+A declared loop, `run_loop`, runs on the frame path in every test, the runner turns
+the layers of the system off before each test, since a check reads the frame and a
+layer is not in it. A test pins a loop at a phase with stepped time: enter it, then
+start the loop, then `step_frames`. `Declared loop` turns the layers on to test them,
+see [loops.md](loops.md).
+
+## System input
+
+The screen keyboard of a phone is drawn by another process, and no event the engine sends
+to itself reaches it. A test that types on a phone uses `ui_test::system_input`: `tap`,
+`type_text`, `press_return` and `wait_until`. Where a helper outside the app is set, these
+ask it for a real tap on the screen or on a key. Everywhere else they inject, so one test
+runs on every platform.
+
+On iOS the helper is `SystemInput`, an XCUITest of the mobile project. `sim-test.py`
+builds it, starts it next to the app and passes its address in `HILEN_SYSTEM_INPUT`. The
+test sends one line per request over a local socket, `tap x y`, `type text`, `key return`,
+and gets `ok` back when the action is done. The lane turns "Connect Hardware Keyboard" of
+the Simulator off for the run, with it on there is no screen keyboard, and puts the old
+value back at the end. A phone with no helper fails such a test with a message that
+names the lane, it never goes on with injected keys.
+
+System input lands some frames after the call, so a test waits for a state with
+`wait_until`, it never counts frames. `type_text` and `press_return` wait by themselves
+until the screen keyboard is up and stands still, a key tapped while it slides in lands
+on nothing. A key is tapped by its name, so the text can hold
+only what the first 2 pages of the keyboard have. A fresh device covers its first
+keyboard with a card about typing by sliding a finger, and its keys take no tap, so the
+lane writes `DidShowContinuousPathIntroduction` into `com.apple.keyboard.preferences`
+of the device before the app starts. A tap of the system in the top 20 points of an
+iPhone 8 lands in the status bar and never reaches the app, keep a field that a test
+taps for real below canvas y 40. 2 taps on one point within 250 ms are a
+double click on desktop and select the word, tap a second point a few pixels away.
+
+`screen_keyboard(up, top)` waits until the screen keyboard stands still, up or away.
+A phone moves the real one. Everywhere else the engine is told about a stand in with
+its top edge at `top`, so a test of what the keyboard moves runs on every platform,
+see [screen-keyboard.md](screen-keyboard.md).
+
+`system_request` asks what only the system knows: `keyboard 1` and `keyboard 0` wait
+until the keyboard is up or down, `secure` counts the secure system fields, `has key a`
+says whether a key is on screen. `screen_ink` reads the box and the color of what is
+drawn in an area from a capture of the whole screen. A capture of the engine frame holds
+no system view, so this is the only way to compare the system text field with the
+engine text, which `Screen keyboard look` does.
+
 ## What a run takes from the app
 
-A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32,
+A run is not read only. It overrides the UI scale to 1, sets the default label text size to 32
+and the default label text inset to 16 points, the 16 pixels the tests were recorded with,
 takes the app's global styles away, paints its own clear color, pins the root to the test canvas
 and tears the app's root view down. `run_test_map` snapshots all of it and hands it back at the
 end, then asks the app for a new root view, so an app that runs its own suite lands back on its
@@ -437,12 +568,10 @@ the harness scale of 1 is not the screen's 2.
 
 One test per file. Deliberate decision to keep files small.
 
-A new UI test is not finished when it passes. Always show it to the user for approval.
-The agent launches the `--human` run of every new or changed test itself, tells the user
-the window is up and asks them to check it, then waits for their verdict. Never hand the
-user the command to run. After the verdict, stop and wait. Do not mention, plan, or run
-`make ci`, `make smoke`, or any commit step until the user brings up committing or
-pushing.
+The author of a test is also the one who reviews its look. A new or changed test is
+finished when it passes and every picture of its `--shots` run was opened and is right:
+no view over another by mistake, no text cut, every label readable. A test is opened in
+a window, with `--human` or `--present`, only when the user asks to see it.
 
 ## Presentation mode
 
@@ -464,7 +593,9 @@ frame time after it the way an app title shows it, `Font zoo check 1 | 1.23ms`, 
 second while frames render and frozen while the loop sleeps, so a stalled loop is visible in the
 title. Prompts go through `Window::set_title_prefix`, which keeps the frame time, unlike
 `Window::set_title`, which replaces the whole title. The run holds until ctrl before asserting, ctrl and not space so a hold with a selected text
-field does not type the advance key into it. After each test the title shows the result and
+field does not type the advance key into it. The run goes on only once ctrl is up again,
+else a key the test injects right after the hold arrives with the real ctrl, and a plain
+Escape reaches the keymap as ctrl plus Escape. After each test the title shows the result and
 the run holds again. Works for one test or the whole suite. Rejected together with `--headless`.
 `UI_TEST_HUMAN_CLEAN=1` holds at every check without the probe markers, to look at the
 checked state itself, the title still names the check.
@@ -476,7 +607,7 @@ Prompts land in the tab title, `Window::set_title` writes `document.title` on wa
 winit's web backend only sets the canvas `alt` attribute, which nobody sees. Click the
 page once so key events reach the canvas, then ctrl advances the same way.
 
-The simulator lane has it too. `make ui-ios-human`, or `rust build/ios/sim-test.rs --human`,
+The simulator lane has it too. `make ui-ios-human`, or `uv run build/ios/sim-test.py --human`,
 passes `HILEN_HUMAN` into the app, the device spelling of `--human`, and always streams.
 Combine it with `HILEN_TEST_ONLY` to watch one test, `HILEN_TEST_ONLY="Font zoo" make
 ui-ios-human`. A phone has no window title and no ctrl key, so there every hold draws a
@@ -522,6 +653,18 @@ yield no candidates at all. Its labels recorded nothing but the background aroun
 glyphs and read as tested: `Label stress` pinned 26 of its 40 labels, and blanking the
 other 14 kept the suite green. Uniform along a stem holds however thin the stem is.
 
+The picker skips the edges of every svg on screen, where its coverage changes. resvg on
+desktop and the page in a browser shade such a pixel differently, by up to 266 on a
+thin icon stroke, so a probe there failed only on the browser lane. The fills of an
+icon and the ground around it stay. A block recorded before this rule can still hold
+such a probe, re-record it when the browser lane fails on an icon edge.
+
+The picker also skips the soft edge of any shape: a pixel uniform along the edge whose
+2 neighbors across it differ by more than a check allows, while it lies between them.
+SwiftShader in Chrome shades that blend unlike a desktop GPU, the edge of a cell of
+`Charts` came out 62 off. A thin stem keeps its probes, its ground is the same on both
+sides. Re-record a block whose browser failure names such an edge.
+
 Changing the picker does not invalidate existing blocks. `stable_color` is only reached
 under `--record-colors`, a normal run just compares the pinned pixels, so old blocks keep
 passing and a test only gains the better probes when someone re-records it.
@@ -534,20 +677,16 @@ it survives the next re-record.
 `--record-colors --human` combined shows the freshly picked probes the same way normal
 human runs show existing ones, to review what gets pinned before pasting.
 
-Re-recording an existing block rewrites the spec. Approval of a code change is not
-approval to re-record, and approval to record is not approval of the recorded result.
-The gates, every one mandatory:
+Re-recording an existing block rewrites the spec, so it happens only when the task
+changes that look on purpose. The steps, every one mandatory:
 
-1. Inspect the failure screenshot and confirm the render is intentionally different.
-2. Name the test, explain why its pixels moved, ask permission to record, and wait.
-3. Record only that test with `--headless --test-name <name> --record-colors`.
-4. Paste the block over the old one and compare the two. Keep every probe inside the
-   declared canvas.
-5. Show the recorded render and probe markers with `--test-name <name> --human
-   --record-colors`.
-6. Stop and wait for explicit acceptance. Run no other test, suite, check or commit while
-   that review is pending. A passing rerun proves nothing, the expectation came from that
-   same render.
+1. Open the failure screenshot and name why the pixels moved. A reason you cannot name
+   is a bug in the change, fix the code.
+2. Record only that test with `--headless --test-name <name> --record-colors`.
+3. Paste the block over the old one and compare the two. Every probe that changed has
+   to follow from the reason of step 1. Keep every probe inside the declared canvas.
+4. Open the `--shots` pictures of the test and check the whole fixture. A passing rerun
+   proves nothing, the expectation came from that same render.
 
 A recorded block is large. Keep it in a `const` next to the test rather than inline, so
 the function stays readable and within the line limit.

@@ -23,10 +23,11 @@ use crate::{
         color::{BLACK, CLEAR, Color, U8Color, WHITE},
     },
     ui::{
-        Button, Container, Label, Setup, TouchStack, UIManager, ViewData, ViewFrame, ViewSubviews, WeakView,
+        Button, Container, Input, Label, NamedKey, Setup, TouchStack, UIManager, ViewData, ViewFrame,
+        ViewSubviews, WeakView,
     },
     ui_test::{TEST_NAME, capture::save_shot},
-    window::{NamedKey, Window},
+    window::Window,
 };
 
 static HUMAN_MODE: AtomicBool = AtomicBool::new(false);
@@ -120,7 +121,7 @@ pub(crate) fn show_probes(probes: &[((u32, u32), U8Color)], test_name: &str, ind
         let mut markers: Vec<WeakView> = vec![];
 
         let mut add = |frame: (f32, f32, f32, f32), fill, border| {
-            let mut view = Container::new();
+            let view = Container::new();
             view.set_z_position(0.1);
             view.set_color(fill)
                 .set_border_color(border)
@@ -172,7 +173,7 @@ fn hold(prompt: String) {
     };
     Window::set_title_prefix(title);
     #[cfg(feature = "scene")]
-    from_main(|| SceneManager::set_paused(true));
+    from_main(|| SceneManager::set_held(true));
 
     let overlay = if Platform::MOBILE {
         Some(show_tap_prompt(prompt))
@@ -182,7 +183,7 @@ fn hold(prompt: String) {
 
     wait_for_advance();
     #[cfg(feature = "scene")]
-    from_main(|| SceneManager::set_paused(false));
+    from_main(|| SceneManager::set_held(false));
 
     if let Some(mut overlay) = overlay {
         from_main(move || {
@@ -196,7 +197,7 @@ const PROMPT_BAR_HEIGHT: f32 = 40.0;
 
 fn show_tap_prompt(prompt: String) -> WeakView {
     from_main(move || {
-        let mut overlay = Button::new();
+        let overlay = Button::new();
         overlay.set_z_position(0.05);
 
         let overlay = UIManager::root_view().add_subview_to_root(overlay);
@@ -255,5 +256,28 @@ fn wait_for_advance() {
 
     if receiver.recv().is_err() {
         warn!("Failed to receive human continue signal");
+    }
+
+    wait_for_ctrl_release();
+}
+
+/// The run goes on only once the advance key is up again. A test that
+/// injects a key right after a hold otherwise gets the real ctrl with it,
+/// and a plain Escape reaches the keymap as ctrl plus Escape. Windows
+/// reports the press before the key event and a Mac after it, so the
+/// press gets a short time to show up first. A tap on a phone holds no
+/// modifier and only pays that short wait.
+fn wait_for_ctrl_release() {
+    const STEP: Duration = Duration::from_millis(5);
+
+    for _ in 0..20 {
+        if Input::command_held() {
+            break;
+        }
+        sleep(STEP);
+    }
+
+    while Input::command_held() {
+        sleep(STEP);
     }
 }

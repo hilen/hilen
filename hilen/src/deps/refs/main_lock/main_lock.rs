@@ -40,6 +40,17 @@ impl<T> MainLock<T> {
         rf.as_mut().unwrap()
     }
 
+    /// Drops the value. The next `get_mut` or `get_or_init` makes a new one.
+    pub fn clear(&self) {
+        *self.get_internal() = None;
+    }
+
+    /// Moves the value out. The next `get_mut` or `get_or_init` makes a new
+    /// one.
+    pub fn take(&self) -> Option<T> {
+        self.get_internal().take()
+    }
+
     pub fn is_set(&self) -> bool {
         self.get_internal().is_some()
     }

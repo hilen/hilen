@@ -34,6 +34,11 @@ and the stamp matches. If not — panic with the type name, instead of use-after
 The stamp protects from address reuse: when the allocator gives the same address to a new object,
 the old `Weak` still reports dead, because the stamp differs.
 
+Two `Weak` are equal, and hash the same, when they point at the same object: the same data
+address and stamp. That holds for trait objects too, a `Weak<dyn Node>` a scene query hands
+back equals the `Weak<dyn Node>` of the node it hit. The vtable half of a trait object pointer
+is left out, it can differ for one object between codegen units.
+
 ## Runtime checks
 
 The `refs` crate's default `checks` feature came along as the `hilen` feature of the same
@@ -56,6 +61,12 @@ must uphold the same rules themselves.
 The `#[view]` macro rewrites `#[init]` fields to `Weak<Field>`. Real ownership lives in
 `ViewBase.subviews: Vec<Own<dyn View>>` — the view tree owns children, like in Swift.
 Methods take `self: Weak<Self>`, so closures capture `self` by copy.
+
+The children of `#[init]` fields are made when the view is added, by `add_subview` or
+`UIManager::set_view`, never by `new()`. Until then each field holds
+`Weak::init_field("#[init] View.field")`, and a call through it panics with
+`The #[init] view View.field is used before its view was added` and the fix, instead
+of the plain message of a pointer that was never set.
 
 This is also why Hilen requires nightly Rust. `Weak<Self>` is a custom smart-pointer method
 receiver, enabled by `arbitrary_self_types`. Replacing it with a stable receiver would change the

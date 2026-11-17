@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 
 use reflected::{Field, Type};
+use zeroize::Zeroizing;
 
-use crate::ui::ToLabel;
+use crate::wipe::filtered;
 
 #[derive(Debug)]
 pub enum TextFieldConstraint {
@@ -21,17 +22,15 @@ impl TextFieldConstraint {
         }
     }
 
-    pub(crate) fn filter(&self, string: impl ToLabel) -> String {
-        let string = string.to_label();
-        let symbols = self.accepted_symbols(&string);
-        string.clone().chars().filter(|c| symbols.contains(*c)).collect()
+    /// The chars of `text` this constraint accepts. The copy never grows
+    /// and wipes itself when dropped, the text may be that of a secure
+    /// field.
+    pub(crate) fn filter(&self, text: &str) -> Zeroizing<String> {
+        let symbols = self.accepted_symbols();
+        filtered(text, |char| symbols.contains(char))
     }
 
-    pub(crate) fn accept_char(&self, char: char, string: &str) -> bool {
-        self.accepted_symbols(string).contains(char)
-    }
-
-    fn accepted_symbols(&self, _str: &str) -> &str {
+    fn accepted_symbols(&self) -> &str {
         match self {
             Self::Integer => "-0123456789",
             Self::Float => "-0.123456789",
@@ -39,15 +38,14 @@ impl TextFieldConstraint {
     }
 }
 
-pub(crate) trait AcceptChar {
-    fn accept_char(&self, char: char, string: &str) -> bool;
-}
+#[cfg(test)]
+mod tests {
+    use super::TextFieldConstraint;
 
-impl AcceptChar for Option<TextFieldConstraint> {
-    fn accept_char(&self, char: char, string: &str) -> bool {
-        match self {
-            Some(constraint) => constraint.accept_char(char, string),
-            None => true,
-        }
+    #[test]
+    fn a_constraint_keeps_only_its_own_chars() {
+        assert_eq!(TextFieldConstraint::Integer.filter("-12a.5 6").as_str(), "-1256");
+        assert_eq!(TextFieldConstraint::Float.filter("-12a.5 6").as_str(), "-12.56");
+        assert_eq!(TextFieldConstraint::Integer.filter("").as_str(), "");
     }
 }

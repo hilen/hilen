@@ -10,6 +10,13 @@ use crate::{
 static OBJECT_DRAWER: MainLock<TexturedSpriteBoxPipeline> = MainLock::new();
 static BACKGROUND: MainLock<BackgroundPipeline> = MainLock::new();
 
+/// Drops what is built for a sample count. Each part is made again when
+/// it is next used.
+pub(crate) fn drop_pipelines() {
+    OBJECT_DRAWER.clear();
+    BACKGROUND.clear();
+}
+
 pub struct GameDrawer;
 
 impl GameDrawer {
@@ -24,13 +31,7 @@ impl GameDrawer {
         for object in &game.objects {
             if let Shape::Rect(size) = object.shape {
                 OBJECT_DRAWER.get_mut().add_with_image(
-                    TexturedSpriteInstance {
-                        position: object.position,
-                        size,
-                        scale: 1.0,
-                        rotation: object.rotation,
-                        z_position: 0.85,
-                    },
+                    TexturedSpriteInstance::new(object.position, size, object.rotation, 0.85),
                     object.texture,
                 );
             }
@@ -39,11 +40,8 @@ impl GameDrawer {
         OBJECT_DRAWER.get_mut().draw(
             pass,
             SpriteView {
-                camera_pos:      Point::default(),
-                resolution:      area,
-                camera_rotation: 0.0,
-                scale:           1.0,
-                _padding:        0,
+                resolution: area,
+                ..Default::default()
             },
         );
 

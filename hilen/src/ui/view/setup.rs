@@ -42,3 +42,34 @@ impl<T: View + 'static> Setup for T {
     default fn before_setup(self: Weak<Self>) {}
     default fn inspect(self: Weak<Self>) {}
 }
+
+#[cfg(all(test, feature = "checks"))]
+mod tests {
+    use std::ops::Deref;
+
+    use serial_test::serial;
+
+    use crate::{
+        self as hilen,
+        deps::hreads::set_current_thread_as_main,
+        ui::{Container, Setup, view},
+    };
+
+    #[view]
+    struct Holder {
+        #[init]
+        inner: Container,
+    }
+
+    /// The control center called a method on its `#[init]` tab bar before
+    /// `set_view` and its page died with "never initialized weak pointer".
+    #[test]
+    #[serial]
+    #[should_panic(expected = "The #[init] view Holder.inner is used before its view was added")]
+    fn an_init_view_used_before_the_add_names_itself() {
+        set_current_thread_as_main();
+        // Leaked, a view dropped while the test unwinds panics a second time.
+        let holder = Box::leak(Box::new(Holder::new()));
+        let _ = holder.inner.deref();
+    }
+}

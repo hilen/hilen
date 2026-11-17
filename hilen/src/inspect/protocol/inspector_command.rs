@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     gm::color::Color,
-    ui::{ModifiersState, NamedKey},
+    ui::{Code, Modifiers, NamedKey},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,8 +11,137 @@ pub enum InspectorCommand {
     Screenshot,
     ListEdits,
     RunTests,
+    /// Runs only the tests of a comma separated list, in either spelling,
+    /// like `run-tests --only` asks. The phone lane of a release uses it.
+    RunTestsNamed {
+        names: String,
+    },
     GetBuildTime,
     GetStartTime,
+    /// How the app draws: the graphics backend, the samples, whether frames
+    /// can be partial, and the plan of each of the newest frames. The
+    /// answer is `RenderInfo`. A bug that shows on the screen and in no
+    /// picture of the inspector starts here, see `docs/inspect.md`.
+    RenderInfo,
+    /// Turns partial frames off or back on, then answers like `RenderInfo`.
+    /// The way to draw every frame whole in a page, which has no env for
+    /// `HILEN_DAMAGE=0`.
+    SetDamage {
+        on: bool,
+    },
+    /// Logs the app into a dev account of its backend, with no password,
+    /// see `Login::dev`. The answer is `LoggedIn`. An app with no `login`
+    /// feature answers with an error.
+    DevLogin {
+        email: String,
+    },
+    /// Closes the app the way closing its window does. Desktop only, a
+    /// phone or a browser page has no such exit.
+    Quit,
+    /// Saves every frame the app draws after an input, `frames` of them,
+    /// the first one is the frame that holds what the input did. With an
+    /// input, a tap, keys, a hover, a scroll or a drag, the app plays it
+    /// and records. With none the record waits up to `wait_ms` for the
+    /// next press, key or wheel turn of the user.
+    Record {
+        frames:  u32,
+        input:   Option<UIRequest>,
+        #[serde(default)]
+        wait_ms: u32,
+    },
+    /// Starts a record of every frame the app draws. It runs until
+    /// `RecordStop` and keeps its last 10 seconds, each frame at 1 pixel
+    /// per point with no loss. No frame is left out: when the app cannot
+    /// pack fast enough it waits, and the frame says so. It drops the
+    /// record kept before it.
+    RecordStart,
+    /// `RecordStart` with no pictures: it keeps only the layouts, see
+    /// `RecordLayouts`, and the app draws every frame while it runs. For a
+    /// phone, whose pictures do not fit its memory.
+    RecordLayoutsStart,
+    /// Stops the running record. The app keeps its frames until the next
+    /// start.
+    RecordStop,
+    /// Asks for the list of the kept frames, with no pictures.
+    RecordInfo,
+    /// Asks for the pictures of the kept frames from the index `from`
+    /// on, at most `count` of them. The answer is `KeptFrames`.
+    RecordFrames {
+        from:  u32,
+        count: u32,
+    },
+    /// Asks for the layouts of the record: the whole view tree, like `UI`
+    /// gives it, at each frame where it differs from the frame before. The
+    /// answer is `KeptLayouts`.
+    RecordLayouts,
+    /// Freezes the engine clock and the drawing until `Resume`.
+    Pause,
+    /// Draws the next frames of a paused app, each moves the clock by one
+    /// frame of 60 a second.
+    Step {
+        frames: u32,
+    },
+    Resume,
+    /// Starts a run of the speed test on this connection. With `to_app`
+    /// the client then sends bytes and the app counts them, else the app
+    /// sends bytes for `ms`. The bytes are no JSON, they go in pieces
+    /// behind their length and a length of 0 ends the run. The answer
+    /// after them is `Speed`.
+    Speed {
+        to_app: bool,
+        ms:     u32,
+    },
+    /// Asks a hot build which library runs, see `docs/hot-reload.md`. Every
+    /// other build answers with an error.
+    HotInfo,
+    /// Lists the files a hot build has under `root`, a folder below its hot
+    /// folder, so only the changed assets of an app are sent.
+    HotFiles {
+        root: String,
+    },
+    /// A piece of a file for the hot folder, a library or an asset. The
+    /// piece at offset 0 starts the file again.
+    HotChunk {
+        /// The path below the hot folder.
+        file:        String,
+        offset:      u64,
+        data_base64: String,
+    },
+    /// The same piece with no base64: its `len` bytes follow this command
+    /// on the connection as they are, and the transport puts them into
+    /// `data`. The sender does not wait for the answer before the next
+    /// piece. As base64 the 45 MB library of an app went at 12.7 MB a
+    /// second over a link that carries 45.
+    HotBytes {
+        file:   String,
+        offset: u64,
+        len:    u32,
+        #[serde(skip)]
+        data:   Vec<u8>,
+    },
+    /// Makes the loader swap to a library that was sent. `root` is the
+    /// folder below the hot folder that holds the `assets` of the app.
+    HotSwap {
+        library: String,
+        root:    Option<String>,
+    },
+    /// A command of the app itself, see `hilen::app_commands`. The answer
+    /// is `Answer` with its text.
+    App {
+        name: String,
+        args: Vec<String>,
+    },
+    /// Lists the open windows, the main one as 0 and every extra window
+    /// that is up. The answer is `Windows`.
+    Windows,
+    /// Runs `command` in the window of that number from `Windows`. A
+    /// command that reads or drives views, a screenshot included, then
+    /// works on that window. Any other command answers with an error for a
+    /// window other than 0.
+    InWindow {
+        window:  usize,
+        command: Box<InspectorCommand>,
+    },
     UI(UIRequest),
 }
 
@@ -47,23 +176,43 @@ pub enum UIRequest {
     Tap {
         view_id:   String,
         #[serde(default)]
-        modifiers: ModifiersState,
+        modifiers: Modifiers,
         #[serde(default)]
         right:     bool,
+        /// Send the touch although another view covers the tap point.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        force:     bool,
+    },
+    /// Move the cursor to a view center, or outside the window with no view.
+    /// Waits on the inspector worker so delayed tooltips can appear before
+    /// replying.
+    Hover {
+        view_id: Option<String>,
+        #[serde(default)]
+        wait_ms: u32,
     },
     /// Plays the keys in order with the modifiers held, then releases them.
     Keys {
         keys:      Vec<Key>,
-        modifiers: ModifiersState,
+        modifiers: Modifiers,
+    },
+    /// Holds physical keys down for `ms`, as `Keys::held` reads them,
+    /// then releases them. For input read every frame, like walking.
+    Hold {
+        keys: Vec<Code>,
+        ms:   u32,
     },
     /// A left drag from one window point to another: began, moved steps
     /// and ended through the real input pipeline. Window coordinates in
-    /// points. For drag driven behavior like selecting text.
+    /// points. For drag driven behavior like selecting text. Above 0,
+    /// `step_ms` is the time between 2 touches, 0 sends all at once.
     Drag {
-        from:  (f32, f32),
-        to:    (f32, f32),
+        from:    (f32, f32),
+        to:      (f32, f32),
         #[serde(default)]
-        steps: usize,
+        steps:   usize,
+        #[serde(default)]
+        step_ms: u32,
     },
     /// A wheel scroll aimed at a view's center, or at the window center
     /// with no view. It lands on the deepest scroll view under that
@@ -77,6 +226,11 @@ pub enum UIRequest {
     Resize {
         width:  f32,
         height: f32,
+    },
+    /// Holds a file over the window like a drag from a file manager, or
+    /// ends the hold with no path. Nothing is dropped. Desktop only.
+    FileHover {
+        path: Option<String>,
     },
 }
 

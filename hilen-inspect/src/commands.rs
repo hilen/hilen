@@ -1,0 +1,591 @@
+use std::path::PathBuf;
+
+use anyhow::{Result, bail};
+use clap::Subcommand;
+use hilen::{
+    gm::color::Color,
+    inspect::protocol::{AppCommand, Client, InspectorCommand, PAGE_PORT, UIRequest},
+};
+use serde_json::{json, to_string_pretty};
+
+use super::{
+    build_time, drag, find, find_matches,
+    frames::{kept_frames, pause, record, record_start, record_stop, resume, step},
+    get_ui, hold,
+    input::{RecordArgs, hover, keys, scroll, tap},
+    print_edited, print_tree, quit, run_tests, screenshot, scroll_to, send,
+    speed::speed,
+    wait,
+    window::windows,
+};
+
+#[derive(Subcommand)]
+pub(super) enum Command {
+    /// List running apps discovered on the local network
+    Apps,
+    /// List the paired iPhones, iPads and Apple TVs of this Mac and the
+    /// address an app answers at on each, with `--device` only that one
+    Devices,
+    /// Print which library the hot loader on the network runs
+    HotStatus,
+    /// Take apps that run as a page, like a dev package on an LG TV, and
+    /// list them like native apps until stopped. Every other command then
+    /// reaches them. See "An installed TV app" in docs/inspect.md
+    WebBridge {
+        /// The port the pages dial
+        #[arg(long, default_value_t = PAGE_PORT)]
+        port:   u16,
+        /// An ssh destination, like root@192.168.0.155, to keep a reverse
+        /// tunnel to, so a page there dials 127.0.0.1 and lands here
+        #[arg(long)]
+        tunnel: Option<String>,
+        /// The own address ssh sends from, for a machine whose default
+        /// route does not reach the device
+        #[arg(long)]
+        bind:   Option<String>,
+    },
+    /// Send a library and the assets of an app to the hot loader on the
+    /// network and wait until the loader runs it
+    HotSend {
+        /// The app as 1 dynamic library, signed for the phone
+        library: PathBuf,
+        /// The name of the app, its assets go into a folder of that name
+        name:    String,
+        /// The `assets` folder of the app
+        #[arg(long)]
+        assets:  Option<PathBuf>,
+    },
+    /// List the open windows of the app: number, size in points, title.
+    /// `--window` with a number reads and drives that window
+    Windows,
+    /// Print a compact overview of the view tree: label, frame, id per line
+    Tree,
+    /// Print full JSON of every view whose label contains the query, or with
+    /// this exact id
+    View {
+        /// Label substring, case insensitive, or an exact view id
+        query: String,
+    },
+    /// Print the whole view tree as JSON
+    Ui,
+    /// Save a screenshot as PNG and print its path
+    Screenshot {
+        /// Output file. Defaults to te-screenshot.png in the temp dir.
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// Edit a layout rule: offset for Side and Anchor rules, ratio for Relative
+    /// rules
+    EditRule {
+        /// View id from `tree` or `view`
+        view_id:    String,
+        /// Index into the view's placer rules from `view`
+        rule_index: usize,
+        offset:     f32,
+        /// Disable the rule instead of keeping it applied
+        #[arg(long)]
+        disable:    bool,
+    },
+    /// Set the text of a `Label`, `Button` or `TextField`
+    SetText { view_id: String, text: String },
+    /// Set the background color of a view, components 0 to 1
+    SetColor {
+        view_id: String,
+        r:       f32,
+        g:       f32,
+        b:       f32,
+        #[arg(default_value_t = 1.0)]
+        a:       f32,
+    },
+    /// Tap the center of a view: touch began plus ended, like a real click
+    Tap {
+        /// Exact view id, exact visible text or exact label field name
+        /// like `save_button` or `BackupPane.save_button`. Substrings
+        /// match only with `--fuzzy`, so a short query can never land on
+        /// an unrelated view.
+        #[arg(required_unless_present = "near")]
+        query:  Option<String>,
+        /// Also match label and text substrings, tried after the exact
+        /// rungs. An ambiguous query still lists the candidates.
+        #[arg(long)]
+        fuzzy:  bool,
+        /// Tap the view nearest to the view with this exact text, on the
+        /// same row. Reaches the unnamed button next to a label.
+        #[arg(long, conflicts_with = "query")]
+        near:   Option<String>,
+        /// With --near, only consider views of this type. Default Button.
+        #[arg(long, requires = "near")]
+        r#type: Option<String>,
+        /// Hold the command modifier for this tap, Cmd on a Mac
+        #[arg(long)]
+        cmd:    bool,
+        #[arg(long)]
+        shift:  bool,
+        #[arg(long)]
+        alt:    bool,
+        /// A right click instead of a left one, fires the secondary
+        /// action such as a context menu
+        #[arg(long)]
+        right:  bool,
+        /// Send the touch although another view covers the tap point. The
+        /// app refuses such a tap otherwise and names the covering view.
+        #[arg(long)]
+        force:  bool,
+        #[command(flatten)]
+        record: RecordArgs,
+    },
+    /// Move the pointer to a view without pressing a button
+    Hover {
+        /// Exact id, visible text or label field name, as with tap
+        #[arg(required_unless_present = "clear", conflicts_with = "clear")]
+        query:  Option<String>,
+        #[arg(long, requires = "query")]
+        fuzzy:  bool,
+        /// Move the pointer outside the window and clear hover
+        #[arg(long)]
+        clear:  bool,
+        /// Milliseconds to wait before replying; use 600 for tooltips
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=60_000))]
+        wait:   u32,
+        #[command(flatten)]
+        record: RecordArgs,
+    },
+    /// One line per matching view: label, text, absolute frame, status,
+    /// id. Matches id, label and text by substring, case insensitive.
+    Find {
+        query: String,
+        /// Include hidden and offscreen views
+        #[arg(long)]
+        all:   bool,
+    },
+    /// Poll until a visible view matches the query, then print it
+    Wait {
+        query:   String,
+        /// Seconds to wait before giving up
+        #[arg(long, default_value_t = 10.0)]
+        timeout: f32,
+    },
+    /// Drag with the left button held, window points, for drag driven
+    /// behavior like selecting text
+    Drag {
+        from_x:  f32,
+        from_y:  f32,
+        to_x:    f32,
+        to_y:    f32,
+        /// Moved events between begin and end
+        #[arg(long, default_value_t = 8)]
+        steps:   usize,
+        /// Milliseconds between 2 touches, like 16 for a real pointer. 0
+        /// sends all of them in 1 frame
+        #[arg(long, default_value_t = 0)]
+        step_ms: u32,
+    },
+    /// Wheel scroll at the window center, or at a view with --at.
+    /// Positive dy scrolls toward the top of the content.
+    Scroll {
+        dy:     f32,
+        /// Aim at this view instead of the window center
+        #[arg(long)]
+        at:     Option<String>,
+        #[command(flatten)]
+        record: RecordArgs,
+    },
+    /// Scroll the page until the view is inside the window
+    ScrollTo { query: String },
+    /// Resize the window, in points
+    Resize { width: f32, height: f32 },
+    /// Hold a file over the window like a drag from a file manager, the
+    /// way a drop mark shows. Nothing is dropped
+    FileHover {
+        /// The path the app sees, it does not have to exist
+        #[arg(required_unless_present = "end", conflicts_with = "end")]
+        path: Option<String>,
+        /// End the hold, like a drag that left the window
+        #[arg(long)]
+        end:  bool,
+    },
+    /// Hold physical keys down for a while, then release them, for input
+    /// read every frame like walking. A single letter or digit names its
+    /// key, anything else is a W3C code name like Space or `ArrowUp`
+    Hold {
+        #[arg(required = true)]
+        keys: Vec<String>,
+        /// Milliseconds to hold
+        #[arg(long, default_value_t = 500, value_parser = clap::value_parser!(u32).range(1..=60_000))]
+        ms:   u32,
+    },
+    /// Type text or press one named key, with modifiers held only for that
+    /// input. Keys go where a real keyboard would send them, the focused text
+    /// field and the app keymap.
+    Keys {
+        /// Text to type, every char in order
+        #[arg(required_unless_present = "key")]
+        text:   Option<String>,
+        /// A named key instead of text, a W3C key name like Enter,
+        /// Escape, Tab, Backspace or `ArrowDown`
+        #[arg(long, conflicts_with = "text")]
+        key:    Option<String>,
+        /// Hold the command modifier, Cmd on a Mac and Ctrl elsewhere
+        #[arg(long)]
+        cmd:    bool,
+        #[arg(long)]
+        shift:  bool,
+        #[arg(long)]
+        alt:    bool,
+        #[command(flatten)]
+        record: RecordArgs,
+    },
+    /// Save the frames the app draws after the next click, key or wheel
+    /// turn of the user, 1 PNG each, to show a glitch by doing it once
+    Record {
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=120))]
+        frames:  u32,
+        /// Folder for the frames
+        #[arg(long)]
+        out:     PathBuf,
+        /// Seconds to wait for the input
+        #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u32).range(1..=60))]
+        timeout: u32,
+    },
+    /// Start a record of every frame the app draws. It runs until
+    /// record-stop and keeps its last 10 seconds
+    RecordStart {
+        /// Keep only the layouts and no pictures, for a phone. The app
+        /// draws every frame while it runs
+        #[arg(long)]
+        layouts_only: bool,
+    },
+    /// Stop the running record, the app keeps its frames
+    RecordStop,
+    /// Save the frames of the last record, 1 PNG each at 1 pixel per
+    /// point, with the time of each frame and the gap to the one before
+    Frames {
+        /// Folder for the frames
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Freeze the clock and the drawing of the app. An input sent after
+    /// it shows in the next stepped frame.
+    Pause,
+    /// Draw the next frames of a paused app
+    Step {
+        #[arg(default_value_t = 1)]
+        frames: u32,
+    },
+    /// Let a paused app run again
+    Resume,
+    /// Set the UI scale of the app
+    SetScale { scale: f32 },
+    /// Play a sound in the app, to tell which instance is which
+    PlaySound,
+    /// List all edits applied to the app in this session
+    Edits,
+    /// Run the app's whole UI test suite in the app and report every failure
+    RunTests {
+        /// Only these tests, a comma separated list, like
+        /// "Partial frames,Frames over a flow"
+        #[arg(long)]
+        only:    Option<String>,
+        /// Seconds to wait for the report. A phone that locks freezes the
+        /// app in the middle of a test, the run then fails instead of
+        /// hanging.
+        #[arg(long, default_value_t = 900)]
+        timeout: u64,
+    },
+    /// When the running app's Rust code was compiled, against the newest source
+    /// file here. Tells a stale binary from a current one before anything is
+    /// tested against it.
+    BuildTime,
+    /// How the app draws: the backend, the samples, whether frames can be
+    /// partial, and the plan of each of its newest frames. The first stop
+    /// for a glitch that shows on the screen and in no picture of the
+    /// inspector, which shows what the app drew, not what the screen showed
+    RenderInfo,
+    /// Turn partial frames off or back on in the running app, then print
+    /// like render-info. A page has no env to turn them off, this is its
+    /// switch
+    Damage {
+        /// on or off
+        state: String,
+    },
+    /// Measure the link to the app: the time of a round trip, then raw
+    /// bytes to the app and from it, like iperf
+    Speed {
+        /// Seconds of each direction
+        #[arg(long, default_value_t = 3)]
+        seconds: u32,
+    },
+    /// Log the app into a dev account of its backend, with no password. The
+    /// backend needs the dev-login feature of hilen-server. A new email makes
+    /// a new account, the same email logs back into it. The app shows the
+    /// account at its next start
+    DevLogin { email: String },
+    /// Run a command of the app itself, one it registered with
+    /// `hilen::app_commands::register`, like a test flight of a game, and
+    /// print its answer
+    App {
+        name: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Close the app the way closing its window does and wait until its
+    /// process is gone. Desktop only.
+    Quit {
+        /// Seconds to wait for the process to end
+        #[arg(long, default_value_t = 10)]
+        timeout: u64,
+    },
+}
+
+pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
+    match command {
+        Command::Apps
+        | Command::Devices
+        | Command::HotStatus
+        | Command::HotSend { .. }
+        | Command::WebBridge { .. } => unreachable!(),
+        Command::Ui => {
+            let (scale, root) = get_ui(client).await?;
+            println!("{}", to_string_pretty(&json!({ "scale": scale, "root": root }))?);
+        }
+        Command::Windows => windows(client).await?,
+        Command::Tree => {
+            let (_, root) = get_ui(client).await?;
+            let class = hilen::ui::WidthClass::of(root.frame.size.width);
+            println!("width class: {}", format!("{class:?}").to_lowercase());
+            print_tree(&root, 0);
+        }
+        Command::View { query } => {
+            let (_, root) = get_ui(client).await?;
+            let mut found = vec![];
+            find_matches(&root, &query, &mut found)?;
+            if found.is_empty() {
+                bail!("No view matches: {query}");
+            }
+            for view in found {
+                println!("{}", to_string_pretty(&view)?);
+            }
+        }
+        Command::Screenshot { out } => screenshot(client, out).await?,
+        Command::PlaySound => {
+            send(client, InspectorCommand::PlaySound).await?;
+            println!("ok");
+        }
+        Command::RunTests { only, timeout } => run_tests(client, only, timeout).await?,
+        Command::BuildTime => build_time(client).await?,
+        Command::RenderInfo => render_info(client, InspectorCommand::RenderInfo).await?,
+        Command::Damage { state } => damage(client, &state).await?,
+        Command::Speed { seconds } => speed(client, seconds).await?,
+        Command::Quit { timeout } => quit(client, timeout).await?,
+        answer @ (Command::App { .. } | Command::DevLogin { .. } | Command::Edits) => {
+            run_answer(client, answer).await?;
+        }
+        Command::Find { query, all } => find(client, &query, all).await?,
+        Command::Wait { query, timeout } => wait(client, &query, timeout).await?,
+        Command::Drag {
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            steps,
+            step_ms,
+        } => drag(client, (from_x, from_y), (to_x, to_y), steps, step_ms).await?,
+        Command::ScrollTo { query } => scroll_to(client, &query).await?,
+        Command::Resize { width, height } => {
+            send(client, UIRequest::Resize { width, height }.into()).await?;
+            println!("ok");
+        }
+        Command::FileHover { path, end: _ } => {
+            send(client, UIRequest::FileHover { path }.into()).await?;
+            println!("ok");
+        }
+        Command::Hold { keys, ms } => hold(client, &keys, ms).await?,
+        Command::SetScale { scale } => {
+            send(client, UIRequest::SetScale(scale).into()).await?;
+            println!("ok");
+        }
+        input @ (Command::Tap { .. }
+        | Command::Hover { .. }
+        | Command::Scroll { .. }
+        | Command::Keys { .. }
+        | Command::Record { .. }
+        | Command::RecordStart { .. }
+        | Command::RecordStop
+        | Command::Frames { .. }
+        | Command::Pause
+        | Command::Step { .. }
+        | Command::Resume) => run_input(client, input).await?,
+        edit => run_edit(client, edit).await?,
+    }
+
+    Ok(())
+}
+
+async fn damage(client: &Client, state: &str) -> Result<()> {
+    let on = match state {
+        "on" => true,
+        "off" => false,
+        other => anyhow::bail!("damage takes on or off, not {other}"),
+    };
+    render_info(client, InspectorCommand::SetDamage { on }).await
+}
+
+/// The commands that print what the app answers, split out of `run` to
+/// keep it readable.
+async fn run_answer(client: &Client, command: Command) -> Result<()> {
+    match command {
+        Command::App { name, args } => {
+            let AppCommand::Answer(text) = send(client, InspectorCommand::App { name, args }).await? else {
+                bail!("Unexpected response to app");
+            };
+            println!("{text}");
+        }
+        Command::DevLogin { email } => {
+            let AppCommand::LoggedIn { id, email } =
+                send(client, InspectorCommand::DevLogin { email }).await?
+            else {
+                bail!("Unexpected response to dev-login");
+            };
+            println!("logged in as {email}, user {id}, the app shows it at its next start");
+        }
+        Command::Edits => {
+            let AppCommand::Edits(edits) = send(client, InspectorCommand::ListEdits).await? else {
+                bail!("Unexpected response to edits");
+            };
+            println!("{}", to_string_pretty(&edits)?);
+        }
+        _ => unreachable!("run sends only the answer commands here"),
+    }
+    Ok(())
+}
+
+/// The commands that send an input, with the frame record and the frame
+/// step, split out of `run` to keep it readable.
+async fn run_input(client: &Client, command: Command) -> Result<()> {
+    match command {
+        Command::Tap {
+            query,
+            fuzzy,
+            near,
+            r#type,
+            cmd,
+            shift,
+            alt,
+            right,
+            force,
+            record,
+        } => {
+            tap(
+                client,
+                query,
+                fuzzy,
+                (near, r#type),
+                [cmd, shift, alt],
+                [right, force],
+                &record,
+            )
+            .await?;
+        }
+        Command::Hover {
+            query,
+            fuzzy,
+            clear: _,
+            wait,
+            record,
+        } => hover(client, query, fuzzy, wait, &record).await?,
+        Command::Scroll { dy, at, record } => scroll(client, dy, at, &record).await?,
+        Command::Keys {
+            text,
+            key,
+            cmd,
+            shift,
+            alt,
+            record,
+        } => keys(client, text, key, [cmd, shift, alt], &record).await?,
+        Command::Record { frames, out, timeout } => record(client, frames, &out, timeout).await?,
+        Command::RecordStart { layouts_only } => record_start(client, layouts_only).await?,
+        Command::RecordStop => record_stop(client).await?,
+        Command::Frames { out } => kept_frames(client, &out).await?,
+        Command::Pause => pause(client).await?,
+        Command::Step { frames } => step(client, frames).await?,
+        Command::Resume => resume(client).await?,
+        _ => unreachable!("only the input commands reach run_input"),
+    }
+
+    Ok(())
+}
+
+/// The live edit commands, split out of `run` to keep it readable.
+async fn run_edit(client: &Client, command: Command) -> Result<()> {
+    match command {
+        Command::EditRule {
+            view_id,
+            rule_index,
+            offset,
+            disable,
+        } => {
+            let request = UIRequest::EditRule {
+                view_id: view_id.clone(),
+                rule_index,
+                offset,
+                enabled: !disable,
+            };
+            print_edited(client, request, &view_id).await?;
+        }
+        Command::SetText { view_id, text } => {
+            let request = UIRequest::SetText {
+                view_id: view_id.clone(),
+                text,
+            };
+            print_edited(client, request, &view_id).await?;
+        }
+        Command::SetColor { view_id, r, g, b, a } => {
+            let request = UIRequest::SetColor {
+                view_id: view_id.clone(),
+                color:   Color::rgba(r, g, b, a),
+            };
+            print_edited(client, request, &view_id).await?;
+        }
+        _ => unreachable!("only the edit commands reach run_edit"),
+    }
+
+    Ok(())
+}
+
+/// Prints how the app draws and sums up the plans of its newest frames.
+async fn render_info(client: &Client, command: InspectorCommand) -> Result<()> {
+    let AppCommand::RenderInfo(info) = send(client, command).await? else {
+        anyhow::bail!("Unexpected response to a render info request");
+    };
+    println!(
+        "backend {}, {} samples, partial frames {}",
+        info.backend,
+        info.samples,
+        if info.damage_on { "on" } else { "off" }
+    );
+    let partial = info.frames.iter().filter(|frame| frame.whole.is_none()).count();
+    println!(
+        "the newest {} frames: {partial} partial, {} whole",
+        info.frames.len(),
+        info.frames.len() - partial
+    );
+    let mut reasons: Vec<(&str, usize)> = Vec::new();
+    for frame in &info.frames {
+        if let Some(why) = &frame.whole {
+            match reasons.iter_mut().find(|(known, _)| known == why) {
+                Some((_, count)) => *count += 1,
+                None => reasons.push((why, 1)),
+            }
+        }
+    }
+    for (why, count) in reasons {
+        println!("  whole {count} times: {why}");
+    }
+    for frame in info.frames.iter().rev().take(10).rev() {
+        match &frame.whole {
+            Some(why) => println!("frame {}  whole: {why}", frame.number),
+            None => println!("frame {}  partial, {} regions", frame.number, frame.regions),
+        }
+    }
+    Ok(())
+}

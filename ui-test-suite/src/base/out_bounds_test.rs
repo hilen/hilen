@@ -18,7 +18,7 @@ struct OutBounds {
 }
 
 impl Setup for OutBounds {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.test
             .set_color(WHITE)
             .set_text("AA")

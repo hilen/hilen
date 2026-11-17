@@ -1,14 +1,139 @@
 #![cfg(target_arch = "wasm32")]
 
-use std::{panic::PanicHookInfo, sync::OnceLock};
+use std::{
+    panic::PanicHookInfo,
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use crate::deps::refs::main_lock::MainLock;
 
 static PANIC_BEACON_URL: OnceLock<String> = OnceLock::new();
 
+/// What to add to the time of the page, in seconds, to get
+/// `monotonic_seconds`. Both run on the same clock, so it is read once.
+static PAGE_TIME_OFFSET: OnceLock<f64> = OnceLock::new();
+
 type ReloadListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>;
 
 static RELOAD_SHORTCUT_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
+
+type PointerLockListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut()>;
+
+static POINTER_LOCK_LISTENER: MainLock<Option<PointerLockListener>> = MainLock::new();
+
+/// The browser lets the mouse go on its own Escape and never reports
+/// that key to the page, and it refuses a lock asked for without a
+/// click. Both show as the lock leaving the canvas, so `Cursor` learns
+/// of them here.
+pub(crate) fn install_pointer_lock_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let document = web_sys::window()
+        .expect("Failed to get browser window")
+        .document()
+        .expect("Failed to get browser document");
+
+    let listener = Closure::<dyn FnMut()>::new({
+        let document = document.clone();
+        move || {
+            if document.pointer_lock_element().is_none() {
+                crate::ui::Cursor::release();
+                crate::window::request_frame();
+            }
+        }
+    });
+
+    for event in ["pointerlockchange", "pointerlockerror"] {
+        document
+            .add_event_listener_with_callback(event, listener.as_ref().unchecked_ref())
+            .expect("Failed to install the pointer lock listener");
+    }
+
+    POINTER_LOCK_LISTENER.set(Some(listener));
+}
+
+type DropListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::DragEvent)>;
+
+static DROP_LISTENERS: MainLock<[DropListener; 3]> = MainLock::new();
+
+/// Files held over the page and dropped on it. Without this the browser opens
+/// a dropped file in place of the page. Only a drag with files is touched, a
+/// drag of a text in a text field stays with the browser.
+pub(crate) fn install_file_drop_listener() {
+    use std::{cell::Cell, path::PathBuf, rc::Rc};
+
+    use web_sys::{
+        DragEvent,
+        wasm_bindgen::{JsCast, closure::Closure},
+    };
+
+    use crate::{filesystem::picker::web::read_all, ui::UIManager, window::request_frame};
+
+    fn holds_files(event: &DragEvent) -> bool {
+        event
+            .data_transfer()
+            .is_some_and(|data| data.types().iter().any(|kind| kind.as_string().as_deref() == Some("Files")))
+    }
+
+    let window = web_sys::window().expect("Failed to get browser window");
+    let held = Rc::new(Cell::new(false));
+
+    let over = Closure::<dyn FnMut(DragEvent)>::new({
+        let held = held.clone();
+        move |event: DragEvent| {
+            if !holds_files(&event) {
+                return;
+            }
+            event.prevent_default();
+            if !held.replace(true) {
+                UIManager::trigger_hover_file(PathBuf::new());
+                request_frame();
+            }
+        }
+    });
+
+    // Fires for every element the drag leaves, only one with no next element
+    // left the page.
+    let left = Closure::<dyn FnMut(DragEvent)>::new({
+        let held = held.clone();
+        move |event: DragEvent| {
+            if event.related_target().is_none() && held.replace(false) {
+                UIManager::trigger_hover_file_end();
+                request_frame();
+            }
+        }
+    });
+
+    let dropped = Closure::<dyn FnMut(DragEvent)>::new(move |event: DragEvent| {
+        if !holds_files(&event) {
+            return;
+        }
+        event.prevent_default();
+        if held.replace(false) {
+            UIManager::trigger_hover_file_end();
+        }
+        let files = event.data_transfer().and_then(|data| data.files());
+        wasm_bindgen_futures::spawn_local(async move {
+            let files = read_all(files).await;
+            log::info!("{} files dropped on the page", files.len());
+            for file in files {
+                UIManager::trigger_drop_bytes(file);
+            }
+            request_frame();
+        });
+    });
+
+    for (name, listener) in [("dragover", &over), ("dragleave", &left), ("drop", &dropped)] {
+        window
+            .add_event_listener_with_callback(name, listener.as_ref().unchecked_ref())
+            .expect("Failed to install the file drop listener");
+    }
+
+    DROP_LISTENERS.set([over, left, dropped]);
+}
 
 static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
 
@@ -16,7 +141,95 @@ static CANVAS: MainLock<Option<web_sys::HtmlCanvasElement>> = MainLock::new();
 /// it back out. The page's static content behind it, a landing text or a
 /// download link, shows again instead of a blank page.
 pub(crate) fn keep_canvas(canvas: Option<web_sys::HtmlCanvasElement>) {
+    if let Some(canvas) = &canvas {
+        install_context_lost_listener(canvas);
+    }
     CANVAS.set(canvas);
+}
+
+type ContextLostListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut()>;
+
+static CONTEXT_LOST_LISTENER: MainLock<Option<ContextLostListener>> = MainLock::new();
+static CONTEXT_LOST: AtomicBool = AtomicBool::new(false);
+
+/// A browser takes the WebGL context away when the page uses too much
+/// memory, an LG TV does it near 250 MB. Every GL call after that fails
+/// and wgpu panics on the next texture. The page stops drawing and shows
+/// its fallback content, like on any other fatal GPU error.
+fn install_context_lost_listener(canvas: &web_sys::HtmlCanvasElement) {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut()>::new(|| {
+        log::error!("Fatal: the browser took the WebGL context away, most likely the page ran out of memory");
+        CONTEXT_LOST.store(true, Ordering::Relaxed);
+        drop_canvas();
+    });
+
+    canvas
+        .add_event_listener_with_callback("webglcontextlost", listener.as_ref().unchecked_ref())
+        .expect("Failed to install the context lost listener");
+
+    CONTEXT_LOST_LISTENER.set(Some(listener));
+}
+
+/// True once the browser dropped the WebGL context. No frame may draw
+/// after that.
+pub(crate) fn context_lost() -> bool {
+    CONTEXT_LOST.load(Ordering::Relaxed)
+}
+
+/// A phone or a tablet: its main pointer is a finger, so a text field brings
+/// up a screen keyboard.
+pub(crate) fn touch_is_main_input() -> bool {
+    web_sys::window()
+        .and_then(|window| window.match_media("(pointer: coarse)").ok().flatten())
+        .is_some_and(|query| query.matches())
+}
+
+/// An LG TV. It names webOS in its user agent, the C1 with a zero for the
+/// letter o, `Web0S`.
+pub(crate) fn is_webos() -> bool {
+    web_sys::window()
+        .and_then(|window| window.navigator().user_agent().ok())
+        .is_some_and(|agent| agent.contains("Web0S") || agent.contains("webOS"))
+}
+
+/// Where the canvas sits in the page, in CSS pixels, with the CSS pixels
+/// one device pixel is. An element of the page is laid over or under a view
+/// with it.
+pub(crate) fn canvas_css_origin() -> (f64, f64, f64) {
+    let ratio = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio());
+    let Some(canvas) = CANVAS.get_mut().as_ref() else {
+        return (0.0, 0.0, ratio);
+    };
+    let rect = canvas.get_bounding_client_rect();
+    (rect.left(), rect.top(), ratio)
+}
+
+/// The canvas winit made, for an element that has to sit next to it in
+/// the page.
+pub(crate) fn canvas() -> Option<web_sys::HtmlCanvasElement> {
+    CANVAS.get_mut().clone()
+}
+
+/// The time of the refresh the browser draws a frame for, in
+/// `monotonic_seconds`. It is the time a `requestAnimationFrame` callback
+/// gets, read from `document.timeline`, since winit keeps that argument
+/// to itself. None in a browser that has no `document.timeline`, like
+/// Chromium 79 of an LG TV.
+pub(crate) fn refresh_seconds() -> Option<f64> {
+    use web_sys::js_sys::Reflect;
+
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let timeline = Reflect::get(&document, &"timeline".into()).ok()?;
+    if !timeline.is_object() {
+        return None;
+    }
+    let page_ms = Reflect::get(&timeline, &"currentTime".into()).ok()?.as_f64()?;
+    let page_now = window.performance()?.now() / 1000.0;
+    let offset = PAGE_TIME_OFFSET.get_or_init(|| crate::monotonic::monotonic_seconds() - page_now);
+    Some(page_ms / 1000.0 + offset)
 }
 
 /// Whether the page exposes `navigator.gpu`. Only a secure context does,
@@ -31,6 +244,25 @@ pub(crate) fn has_webgpu() -> bool {
 pub(crate) fn drop_canvas() {
     if let Some(canvas) = CANVAS.get_mut().take() {
         canvas.remove();
+    }
+    show_fallback();
+}
+
+/// `build/web/boot.js` hides the `#fallback` block of the page while the app
+/// loads, with this class on `<html>`. A GPU failure raises no browser error
+/// the script could see, so the engine takes the class off itself.
+const LOADING_CLASS: &str = "hilen-loading";
+
+fn show_fallback() {
+    let Some(root) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+    else {
+        log::warn!("No document element to show the fallback block of the page in");
+        return;
+    };
+    if let Err(error) = root.class_list().remove_1(LOADING_CLASS) {
+        log::warn!("Failed to take {LOADING_CLASS} off the page: {error:?}");
     }
 }
 
@@ -63,11 +295,88 @@ pub(crate) fn install_reload_shortcut_listener() {
     RELOAD_SHORTCUT_LISTENER.set(Some(listener));
 }
 
-/// Sends panics to console.error and, when a driver flag is in the url, to
-/// the driver's `/te-panic` endpoint. The origin is captured now, on the main
-/// thread, because a worker that panics later has no `window` to ask.
+static TV_BACK_LISTENER: MainLock<Option<ReloadListener>> = MainLock::new();
+
+/// The Back key of an LG remote. It has the key code 461 and no name every
+/// webOS version agrees on, so it is read by its code here, before winit
+/// sees it, and handed on as Escape.
+const WEBOS_BACK_KEY_CODE: u32 = 461;
+
+pub(crate) fn install_tv_back_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|event: web_sys::KeyboardEvent| {
+        if event.key_code() == WEBOS_BACK_KEY_CODE {
+            event.stop_immediate_propagation();
+            event.prevent_default();
+            crate::ui::Input::on_key(crate::ui::NamedKey::Escape);
+            crate::window::request_frame();
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "keydown",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the TV back key listener");
+
+    TV_BACK_LISTENER.set(Some(listener));
+}
+
+type WheelListener = web_sys::wasm_bindgen::closure::Closure<dyn FnMut(web_sys::WheelEvent)>;
+
+static WHEEL_LISTENER: MainLock<Option<WheelListener>> = MainLock::new();
+
+/// The browser starts the back or forward swipe of 2 fingers on a trackpad
+/// only from a wheel event no listener cancelled, and winit cancels every
+/// one on the canvas. A sideways move no view takes is stopped here, before
+/// winit sees it, and stays with the browser. A pinch comes with Ctrl and
+/// always goes to the engine.
+pub(crate) fn install_wheel_listener() {
+    use web_sys::wasm_bindgen::{JsCast, closure::Closure};
+
+    let listener = Closure::<dyn FnMut(web_sys::WheelEvent)>::new(|event: web_sys::WheelEvent| {
+        let target = event.target();
+        let target = target.as_ref().and_then(|target| target.dyn_ref::<web_sys::Node>());
+        let on_canvas = canvas().is_some_and(|canvas| target.is_some() && canvas.is_same_node(target));
+        if !on_canvas || event.ctrl_key() {
+            return;
+        }
+        // winit turns the delta of the page around, the engine moves by this.
+        #[allow(clippy::cast_possible_truncation)]
+        let delta = crate::gm::flat::Point::new(-event.delta_x() as f32, -event.delta_y() as f32);
+        if crate::ui::Input::wheel_goes_to_browser(delta) {
+            event.stop_immediate_propagation();
+        }
+    });
+
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_capture(true);
+
+    web_sys::window()
+        .expect("Failed to get browser window")
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "wheel",
+            listener.as_ref().unchecked_ref(),
+            &options,
+        )
+        .expect("Failed to install the wheel listener");
+
+    WHEEL_LISTENER.set(Some(listener));
+}
+
+/// Sends panics to console.error and, in a build with the inspector or when a
+/// driver flag is in the url, to the `/te-panic` endpoint of the server. The
+/// origin is captured now, on the main thread, because a worker that panics
+/// later has no `window` to ask.
 pub(crate) fn install_panic_hook() {
-    if query_flag("hilen_inspect") || query_flag("hilen_run_tests") {
+    if cfg!(feature = "inspect") || query_flag("hilen_run_tests") {
         let origin = web_sys::window()
             .expect("Failed to get browser window")
             .location()
@@ -81,6 +390,9 @@ pub(crate) fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         console_error_panic_hook::hook(info);
         report_panic(info);
+        crate::web_visit::report_panic(info);
+        #[cfg(feature = "bug-report")]
+        crate::bug_report::report_panic(info);
     }));
 }
 
@@ -132,9 +444,9 @@ pub(crate) fn query_flag(name: &str) -> bool {
         .any(|pair| pair == name || pair.split_once('=').is_some_and(|(key, _)| key == name))
 }
 
-/// Value of `name` in the page query string. Only the browser test
-/// autorun reads parameters, the app facing flags are boolean.
-#[cfg(feature = "ui-tests")]
+/// Value of `name` in the page query string. The browser test autorun
+/// reads its parameters here, and `hilen_msaa` is the one app facing
+/// parameter, the other app facing flags are boolean.
 pub(crate) fn query_param(name: &str) -> Option<String> {
     page_search().trim_start_matches('?').split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
@@ -145,7 +457,6 @@ pub(crate) fn query_param(name: &str) -> Option<String> {
 /// `location.search` keeps the query percent encoded, so a spaced test
 /// name arrives as `Reload%20shortcuts%20test` and a raw compare against
 /// registered names matches nothing.
-#[cfg(feature = "ui-tests")]
 fn decode_query_value(value: &str) -> String {
     match web_sys::js_sys::decode_uri_component(value) {
         Ok(decoded) => decoded.into(),

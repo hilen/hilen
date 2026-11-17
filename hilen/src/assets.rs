@@ -11,7 +11,7 @@ static PROGRESS: MainLock<Event<f32>> = MainLock::new();
 pub struct Assets;
 
 impl Assets {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "gpu"))]
     pub(crate) fn init(root_path: impl Into<PathBuf>) {
         use crate::deps::refs::manage::DataManager;
 
@@ -23,10 +23,10 @@ impl Assets {
 
         let paths = crate::assets_paths::AssetsPaths::new(root_path);
 
-        crate::window::image::Image::set_root_path(&paths.images);
-        #[cfg(feature = "audio")]
+        crate::image::Image::set_root_path(&paths.images);
+        #[cfg(sound)]
         crate::audio::Sound::set_root_path(&paths.sounds);
-        crate::window::Font::set_root_path(&paths.fonts);
+        crate::text::Font::set_root_path(&paths.fonts);
         #[cfg(feature = "scene")]
         crate::scene::Model::set_root_path(&paths.models);
     }
@@ -37,6 +37,13 @@ impl Assets {
             .expect("Assets root path is not set yet")
             .as_path()
             .join("assets")
+    }
+
+    /// `path`, or `None` before the app started. A unit test reads files
+    /// with no app around.
+    #[cfg(desktop)]
+    pub(crate) fn started_path() -> Option<PathBuf> {
+        ROOT_PATH.get().map(|root| root.join("assets"))
     }
 
     /// Fired on the main thread with the loaded fraction while a group
@@ -72,7 +79,7 @@ impl Assets {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) use web_assets::start_boot_preload;
+pub(crate) use web_assets::{has_file, start_boot_preload};
 
 #[cfg(target_arch = "wasm32")]
 impl Assets {
@@ -117,7 +124,7 @@ mod web_assets {
     use log::error;
     use serde::Deserialize;
 
-    #[cfg(feature = "audio")]
+    #[cfg(sound)]
     use crate::audio::Sound;
     #[cfg(feature = "scene")]
     use crate::scene::Model;
@@ -126,7 +133,7 @@ mod web_assets {
             hreads::on_main,
             refs::manage::{DataManager, fetch_bytes},
         },
-        window::{Font, image::Image},
+        text::Font,
     };
 
     static BOOT_DONE: AtomicBool = AtomicBool::new(false);
@@ -148,6 +155,14 @@ mod web_assets {
 
     pub(crate) fn boot_done() -> bool {
         BOOT_DONE.load(Ordering::Acquire)
+    }
+
+    /// Whether an asset group has the file `name`, `None` before the
+    /// manifest came.
+    pub(crate) fn has_file(name: &str) -> Option<bool> {
+        MANIFEST
+            .get()
+            .map(|manifest| manifest.files.iter().any(|file| file.name == name))
     }
 
     /// The listener registers before the flag re-check, so a trigger
@@ -172,15 +187,23 @@ mod web_assets {
             match fetch_manifest().await {
                 Ok(manifest) => {
                     let manifest = MANIFEST.get_or_init(|| manifest);
-                    if let Err(err) = load_entries(manifest, "boot").await {
+                    // An app whose files all sit in named groups, or a new
+                    // one with none yet, has no boot group, that is no error.
+                    if !manifest.files.iter().any(|file| file.group == "boot") {
+                        log::debug!("The asset manifest has no boot group, nothing to preload");
+                    } else if let Err(err) = load_entries(manifest, "boot").await {
                         error!("Boot asset preload failed: {err}");
                     }
+                }
+                Err(err) if is_not_found(&err) => {
+                    log::debug!("No asset manifest, the app ships no asset files");
                 }
                 Err(err) => error!("Asset manifest fetch failed: {err}"),
             }
 
             BOOT_DONE.store(true, Ordering::Release);
             BOOT_EVENT.notify(usize::MAX);
+            crate::image::early::report_unknown();
             on_main(|| super::PROGRESS.trigger(1.0));
 
             log::debug!("Boot assets ready in {} ms", boot_started.elapsed().as_millis());
@@ -209,6 +232,14 @@ mod web_assets {
         }
 
         Ok(())
+    }
+
+    /// A page with every file inside its wasm has no `assets.json`, and its
+    /// server answers 404 for it.
+    fn is_not_found(err: &anyhow::Error) -> bool {
+        err.downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            .is_some_and(|status| status == reqwest::StatusCode::NOT_FOUND)
     }
 
     async fn fetch_manifest() -> Result<Manifest> {
@@ -254,17 +285,19 @@ mod web_assets {
         let url = format!("assets/{}/{}?h={}", entry.kind, entry.name, entry.hash);
 
         match entry.kind.as_str() {
+            // Only the bytes, a picture is decoded when a view first
+            // asks for it, see `window/image/pending.rs`.
             "images" => {
-                Image::download(&entry.name, &url).await?;
+                crate::image::pending::download(&entry.name, &url).await?;
             }
             "fonts" => {
                 Font::download(&entry.name, &url).await?;
             }
-            #[cfg(feature = "audio")]
+            #[cfg(sound)]
             "sounds" => {
                 Sound::download(&entry.name, &url).await?;
             }
-            #[cfg(not(feature = "audio"))]
+            #[cfg(not(sound))]
             "sounds" => return Err(anyhow!("Sound asset {} needs the audio feature", entry.name)),
             #[cfg(feature = "scene")]
             "models" => {

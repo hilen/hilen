@@ -105,9 +105,35 @@ fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
+// The distance change per screen pixel that the coverage ramp divides by.
+// SwiftShader, Chrome's software WebGPU, returns a `fwidth` of zero in the
+// pixel quads on the shared diagonal of the two triangles of a quad, and
+// the division blanked those pixels in the CI web lane. The distance
+// changes by one local unit per local unit and a local unit is `scale`
+// screen pixels, so that known width stands in for a zero.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
+}
+
+// The pixel on the inner edge of a border is `fill` parts fill and the
+// rest border. The two mix weighted by their alpha. A straight mix let a
+// clear fill, black at zero alpha, darken a solid border there, and let a
+// faint border outweigh an opaque fill. Returns straight alpha.
+fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
+    let alpha: f32 = mix(border.a, inner.a, fill);
+    if alpha <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb: vec3<f32> = mix(border.rgb * border.a, inner.rgb * inner.a, fill) / alpha;
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIRectInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
     let size: vec2<f32> = instance.size;
     let local_pos: vec2<f32> = in.uv * size;
@@ -116,7 +142,7 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // One derivative for the whole shader. A `fwidth` inside a branch sits in
     // non uniform control flow, where the result is undefined.
-    let width: f32 = fwidth(dist);
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
 
     let coverage: f32 = edge_coverage(dist, width);
 
@@ -127,8 +153,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 1 in the fill interior, 0 in the border band, one pixel ramp
         // at the fill to border boundary.
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, instance.color.rgb, fill);
-        alpha = mix(instance.border_color.a, instance.color.a, fill);
+        let mixed = border_mix(instance.border_color, instance.color, fill);
+        rgb = mixed.rgb;
+        alpha = mixed.a;
     }
 
     alpha *= coverage;

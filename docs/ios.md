@@ -58,7 +58,9 @@ iOS 16 property that upstream messages with no availability check, which breaks 
 below 16. `wgpu_text` is the fork at github.com/VladasZ/wgpu-text, pinned by git rev, and
 it builds against that same `hilen-wgpu`, because a stock `wgpu` next to it would give two
 `wgpu` crates whose types do not interchange. Do not swap either back to upstream without
-checking on an old device first.
+checking on an old device first. The EDR guard went upstream as
+[gfx-rs/wgpu#10257](https://github.com/gfx-rs/wgpu/pull/10257), the rest of the fork's
+state against upstream is in [forks.md](forks.md).
 
 ## A7 limits
 
@@ -101,3 +103,108 @@ with explicit tail padding. Reordering one silently feeds every shader that shar
 whatever landed at the offset it expected — `ui_backdrop.wgsl` shares `UIRectInstance` with
 `ui_rect.wgsl` and broke exactly that way. The layout tests next to each instance struct
 exist to catch it.
+
+## The app views are the safe area
+
+The container of the app views in `RootView` has the place and the size of the safe
+area of the screen, below the status bar and above the home bar. The root view itself
+and its background cover the whole screen. A view at `b(0)` so ends above the home
+bar, with no code in the app.
+
+Both numbers come from the window, never from the `Resized` event: on iOS that event
+carries the whole screen. `record_inner_size` in `hilen/src/window/window.rs` asks the
+window for its inner size there. The UI test `App views fit screen` checks it at the
+start, after a turn of the phone and in fullscreen, where the status bar is gone.
+
+## The system text field
+
+While a `TextField` is edited, a real `UITextField` sits exactly over it and takes the
+keys, a `UITextView` for a multiline field. So the keyboard, autocorrect, text composing
+and the selection handles are the ones of iOS. The engine draws no text and no caret for
+that time, its label shows only the placeholder of an empty field. The Rust half is
+`hilen/src/ui/views/basic/text_field/system_field.rs`, the native half is
+`hilen/native/ios/hilen_text.m`.
+
+- The native file is compiled into the engine library by `hilen/build.rs` with `cc`, so
+  the 2 halves are always 1 version and the Xcode project of an app carries nothing for
+  it. `hilen.h` of the mobile template still has the 3 old `hilen_ios_*keyboard`
+  functions, only for apps on an engine from before this.
+- The build script takes the compiler from `xcrun --find clang`. The first `clang` on
+  the PATH can be the one of the Command Line Tools, older than the iOS SDK, and it
+  fails on the modules of that SDK.
+- On open the system field gets the text, the font file with its axis values, the text
+  size, the color, the alignment, the insets and the secure flag, so the switch is not
+  visible. `Screen keyboard look` measures that on a capture of the screen. A field with
+  a number constraint opens the numbers page of the keyboard.
+- Every change of the text goes to the engine at once, so `changed` and the constraints
+  work per key. Return in a single line field arrives as Enter. Return in a multiline
+  field is a new line the system adds itself, the engine gets it as Enter only when the
+  owner of the field took that key with `take_keys`, and the system adds no line then.
+  A change of the UI scale
+  opens the system field again with the new sizes. The keyboard leaves for about 30 ms
+  then, so `UIManager::set_scale` says nothing when the scale is the one it has. iOS
+  lays the engine view out again when a text area gets its first letter or loses its
+  last one, and that resize sets the same scale. `Screen keyboard first letter` checks it.
+- A key of the screen keyboard is no event of the engine window, so the callbacks of
+  the system field, `changed`, `returned` and `ended`, each ask for a frame themselves.
+  Without that the screen keeps the last frame: the hint of an empty field stays under
+  the typed text, and a view that follows `changed` does not move. `Screen keyboard
+  typed frames` types letter by letter and checks that each one brings a frame.
+- Closing has to take the keys from the engine view too. The winit view can be a first
+  responder, it takes the keys the moment its subview lets them go, and the keyboard
+  stayed up.
+- The system field follows the engine field every frame, `ViewCallbacks::update`, so
+  it stays over a field that scrolls.
+- Apple TV has none of this, the code is behind `all(ios, not(tvos))`.
+
+The native file also tells the engine where the keyboard is, and the engine keeps the
+edited field in view, see [screen-keyboard.md](screen-keyboard.md).
+
+Open: password autofill, see [roadmap.md](roadmap.md).
+
+## The pickers
+
+`Paths::pick_image` opens `UIImagePickerController` and `Paths::pick_file_bytes` opens
+`UIDocumentPickerViewController`, the Files browser. Both are in
+`hilen/src/filesystem/picker`, present on the view controller of winit and answer
+through a delegate that objc2 makes at run time.
+
+- The Files browser hands over a copy of the file in the temp folder of the app. So
+  the read needs no security scope and no permission. The copy is deleted after the
+  read.
+- From iOS 14 the picker is made with `initForOpeningContentTypes:asCopy:` and the
+  extensions become `UTType` objects. The class is looked up by name at run time,
+  the binding of it would link `UniformTypeIdentifiers`, which iOS 12 and 13 do not
+  have.
+- iOS 12 and 13 get `initWithDocumentTypes:inMode:` in the import mode with
+  `public.item`, so they show every file and ignore the extensions.
+- Both initializers are sent with `msg_send!`. The typed one of objc2 for the old
+  call is marked deprecated and would be a warning.
+- Apple TV has no picker, both calls answer `None` there.
+
+`Paths::take_photo` opens the same `UIImagePickerController` on its camera source,
+the camera screen of iOS. It needs `NSCameraUsageDescription`, which the build writes
+from `usage` of `[camera]` in `hilen.toml`. iOS stops an app that opens the camera
+with none. The camera screen asks for the camera itself. A photo of the camera has no
+file, so it is the JPEG of the image at quality 0.9. A PNG of it was many times bigger
+and drops the turn the phone was held at, which the JPEG keeps in its EXIF orientation.
+`Paths::can_take_photo` is false in the simulator, which has no camera, and in an app
+with no usage text, so an app shows a camera button only where it opens. The Android
+and the desktop screens are an entry of [roadmap.md](roadmap.md).
+
+`Paths::pick_images` opens `PHPickerViewController` from iOS 14, in
+`picker/ios_photos.rs`, with `selectionLimit` and the images filter. objc2 binds the
+controller only on macOS, so it is made by name with `msg_send!`, and a missing class
+is how iOS 12 and 13 are told apart, they get the picker of 1 photo. The picker asks
+for the compatible form of a photo, so a HEIC one comes as a JPEG. Each photo is
+read from the file `loadFileRepresentationForTypeIdentifier` hands over, inside its
+handler, since iOS deletes the file once the handler returns. The crate
+`objc2-photos-ui` links PhotosUI, which iOS has since iOS 8.
+
+`Paths::save_file_bytes` opens the same controller made to export, in
+`picker/ios_save.rs`. The bytes go into a file with the suggested name in the temp
+folder of the app, the sheet copies it to where the user says, and the copy in the
+temp folder is deleted after. From iOS 14 it is `initForExportingURLs:asCopy:`, iOS
+12 and 13 get `initWithURL:inMode:` in the export mode. The answer is the name of the
+saved file, iOS gives no path an app may write to later. Apple TV answers `None`.
+`Paths::save_file`, the dialog that gives a path, is desktop only and answers `None`.

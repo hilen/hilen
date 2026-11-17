@@ -1,5 +1,7 @@
 mod cell_callbacks;
 mod container;
+pub(crate) mod depth_order;
+pub(crate) mod double_tap;
 mod setup;
 mod view;
 mod view_animation;
@@ -18,6 +20,7 @@ mod view_transition;
 
 pub use cell_callbacks::*;
 pub use container::*;
+pub(crate) use double_tap::DoubleTap;
 pub use setup::*;
 pub use view::*;
 pub use view_animation::*;

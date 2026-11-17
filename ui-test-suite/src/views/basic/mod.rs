@@ -1,11 +1,18 @@
+mod accent_card;
 mod background;
 mod button;
 mod button_disabled;
+mod button_icon;
+mod button_title_size;
 mod checkbox;
+mod checkbox_disabled;
+mod chips_segmented;
 mod command_held;
 mod corner_radii;
 mod dynamic_clear_color;
+mod form_fields;
 mod gradient;
+mod group_opacity;
 /// Hover needs a pointer, and there is no such thing on a touch screen. `Input`
 /// only calls `Hover::update` under `#[cfg(any(desktop, wasm))]`, so on a phone
 /// this test waits for an event the engine never sends, asserts on the main
@@ -16,21 +23,47 @@ mod hover;
 /// The cursor icon rides on hover, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_cursor;
+/// Front view and scroll clip picking of hover, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_front;
 /// Hover re-pick on view removal, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_removal;
+/// Hover re-pick after a scroll, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_scroll;
+/// Hover of a whole subtree, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_within;
+mod image_cut;
 mod image_scissor;
+mod image_view_icon;
 mod inject_touch;
+mod layout_shortcuts;
 mod nine_segment;
+mod opacity;
 mod rounded_clip;
 mod secondary_click;
 mod shadow;
 mod slider;
+mod slider_drag;
 mod slider_horizontal;
 mod slider_sizing;
+mod stick_images;
 mod switch;
+mod switch_colors;
 mod theme_switch;
+mod tool_button;
+mod tool_button_fill;
+mod tool_button_look;
+/// The on fills under the pointer, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod tool_button_on_hover;
+mod tool_button_picture;
 /// Hover tooltips need a pointer, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod tooltip_hidden;
 #[cfg(any(desktop, wasm))]
 mod tooltip_hover;
 mod tooltip_long_press;
+mod view_select;

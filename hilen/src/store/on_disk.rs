@@ -1,10 +1,11 @@
 use std::{
     fmt::{Debug, Formatter},
-    fs::{self, remove_file},
     marker::PhantomData,
     path::{Path, PathBuf},
 };
 
+#[cfg(all(any(feature = "login", feature = "secrets"), not_wasm))]
+use hilen_session::SessionStore;
 use parking_lot::Mutex;
 
 use crate::{filesystem::Paths, store::storable::Storable};
@@ -12,34 +13,182 @@ use crate::{filesystem::Paths, store::storable::Storable};
 static ROOT_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 fn set_value<T: serde::ser::Serialize>(value: T, path: &Path) {
-    let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
+    if let Err(error) = try_set_value(value, path) {
+        // A native store is a file of the app, a failed write there is a
+        // broken install. A browser or a TV can refuse a write any time.
+        #[cfg(all(not_wasm, not(tvos)))]
+        panic!("{error}");
+        #[cfg(any(wasm, tvos))]
+        log::warn!("{error}");
     }
-    fs::write(path, json).expect("Failed to write to file");
 }
 
-fn get_value<T: Storable>(path: &Path) -> Option<T> {
-    if !path.exists() {
-        return None;
-    }
+fn try_set_value<T: serde::ser::Serialize>(value: T, path: &Path) -> Result<(), StoreError> {
+    let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
+    backend::write(path, &json).map_err(|reason| StoreError {
+        path: path.to_owned(),
+        reason,
+    })
+}
 
-    let json = fs::read_to_string(path).expect("Failed to read file");
+/// A write the platform refused, like a full disk or a browser storage that
+/// is over its quota or blocked. `reason` is the text of the platform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreError {
+    pub path:   PathBuf,
+    pub reason: String,
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to save {}: {}", self.path.display(), self.reason)
+    }
+}
+
+impl std::error::Error for StoreError {}
+
+fn get_value<T: Storable>(path: &Path) -> Option<T> {
+    let json = backend::read(path)?;
     serde_json::from_str(&json).expect("Failet to parse json")
 }
 
 fn get_or_init_value<T: Storable + Default>(path: &Path) -> T {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-
-    if !path.exists() {
+    let Some(json) = backend::read(path) else {
         let new = T::default();
         set_value(&new, path);
         return new;
-    }
-    let json = fs::read_to_string(path).expect("Failed to read file");
+    };
     serde_json::from_str(&json).expect("Failet to parse json")
+}
+
+#[cfg(all(not_wasm, not(tvos)))]
+mod backend {
+    use std::{
+        fs::{create_dir_all, read_to_string, remove_file, write as write_file},
+        io::ErrorKind,
+        path::Path,
+    };
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        if !path.exists() {
+            return None;
+        }
+        Some(read_to_string(path).expect("Failed to read file"))
+    }
+
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        write_file(path, json).map_err(|error| error.to_string())
+    }
+
+    /// A store that was never written, or was reset before, has no file.
+    pub(super) fn remove(path: &Path) {
+        if let Err(error) = remove_file(path)
+            && error.kind() != ErrorKind::NotFound
+        {
+            log::warn!("failed to remove {}: {error}", path.display());
+        }
+    }
+}
+
+/// tvOS gives an app no folder that keeps its files, the system may empty
+/// the caches folder while the app does not run. The user defaults of the
+/// app stay, so every store file is 1 entry there, named after its path
+/// under the root. tvOS ends an app whose defaults pass 1 MB, a store is
+/// for settings, not for data.
+#[cfg(tvos)]
+mod backend {
+    use std::path::Path;
+
+    use objc2::rc::Retained;
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    /// A store this big is logged, the whole of the defaults has 1 MB.
+    const BIG: usize = 100 * 1024;
+
+    // The root holds the folder of the app, which the system may rename
+    // with an update, so the key has only the part below it.
+    fn key(path: &Path) -> Retained<NSString> {
+        let root = super::ROOT_PATH.lock().clone().map(super::expand_tilde);
+        let below = root.and_then(|root| path.strip_prefix(root).ok().map(Path::to_owned));
+        let name = below.unwrap_or_else(|| path.to_owned());
+        NSString::from_str(&format!("hilen-store:{}", name.display()))
+    }
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        let text = NSUserDefaults::standardUserDefaults().stringForKey(&key(path))?;
+        Some(text.to_string())
+    }
+
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
+        if json.len() > BIG {
+            log::warn!(
+                "{} is {} bytes, the user defaults of tvOS hold 1 MB in all",
+                path.display(),
+                json.len()
+            );
+        }
+        let text = NSString::from_str(json);
+        unsafe { NSUserDefaults::standardUserDefaults().setObject_forKey(Some(&text), &key(path)) };
+        Ok(())
+    }
+
+    pub(super) fn remove(path: &Path) {
+        NSUserDefaults::standardUserDefaults().removeObjectForKey(&key(path));
+    }
+}
+
+/// A browser has no files. Every store file is one `localStorage` entry
+/// named after its path. It is per origin and survives a reload and a
+/// restart of the browser. A browser that blocks it keeps nothing, the
+/// app then runs on defaults, which is logged once per call.
+#[cfg(wasm)]
+mod backend {
+    use std::path::Path;
+
+    use web_sys::{Storage, window};
+
+    fn key(path: &Path) -> String {
+        format!("hilen-store:{}", path.display())
+    }
+
+    fn storage() -> Option<Storage> {
+        let storage = window().and_then(|window| window.local_storage().ok().flatten());
+        if storage.is_none() {
+            log::warn!("this browser gives no localStorage, nothing is stored");
+        }
+        storage
+    }
+
+    pub(super) fn read(path: &Path) -> Option<String> {
+        match storage()?.get_item(&key(path)) {
+            Ok(json) => json,
+            Err(error) => {
+                log::warn!("failed to read {} from localStorage: {error:?}", path.display());
+                None
+            }
+        }
+    }
+
+    pub(super) fn write(path: &Path, json: &str) -> Result<(), String> {
+        let Some(storage) = storage() else {
+            return Err("this browser gives no localStorage".to_string());
+        };
+        storage
+            .set_item(&key(path), json)
+            .map_err(|error| format!("localStorage refused the write: {error:?}"))
+    }
+
+    pub(super) fn remove(path: &Path) {
+        let Some(storage) = storage() else {
+            return;
+        };
+        if let Err(error) = storage.remove_item(&key(path)) {
+            log::warn!("failed to remove {} from localStorage: {error:?}", path.display());
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -58,24 +207,31 @@ impl<T: Storable> OnDisk<T> {
 
     pub fn set(&self, val: impl Into<T>) {
         let val = val.into();
-        set_value(val, &expand_tilde(self.full_path()));
+        set_value(val, &rooted(&self.path));
+    }
+
+    /// `set` that gives the refusal back, so the app can tell the user that
+    /// nothing was saved, like when a browser storage is full.
+    pub fn try_set(&self, val: impl Into<T>) -> Result<(), StoreError> {
+        try_set_value(val.into(), &rooted(&self.path))
     }
 
     pub fn get(&self) -> Option<T> {
-        get_value(&expand_tilde(self.full_path()))
+        get_value(&rooted(&self.path))
     }
 
     pub fn reset(&self) {
-        remove_file(expand_tilde(self.full_path())).expect("Failed to remove file");
+        backend::remove(&rooted(&self.path));
     }
+}
 
-    fn full_path(&self) -> PathBuf {
-        if let Some(root) = &*ROOT_PATH.lock() {
-            root.join(&self.path)
-        } else {
-            self.path.clone()
-        }
-    }
+/// Where a store file lives on disk, under the root the app set.
+pub(crate) fn rooted(path: &Path) -> PathBuf {
+    let full = ROOT_PATH
+        .lock()
+        .as_ref()
+        .map_or_else(|| path.to_owned(), |root| root.join(path));
+    expand_tilde(full)
 }
 
 impl<T: Storable + Default> OnDisk<T> {
@@ -85,14 +241,25 @@ impl<T: Storable + Default> OnDisk<T> {
         self.set(val);
     }
 
+    /// `edit` that gives a refused write back, see `try_set`.
+    pub fn try_edit(&self, edit: impl FnOnce(&mut T)) -> Result<(), StoreError> {
+        let mut val = self.get().unwrap_or_default();
+        edit(&mut val);
+        self.try_set(val)
+    }
+
     pub fn get_or_init(&self) -> T {
-        get_or_init_value(&expand_tilde(self.full_path()))
+        get_or_init_value(&rooted(&self.path))
     }
 }
 
 impl<T> OnDisk<T> {
     pub fn set_root_path(path: impl AsRef<Path>) {
         *ROOT_PATH.lock() = Some(path.as_ref().to_path_buf());
+        // The login session lives next to the other files, see hilen-session.
+        // A `SecretStore` with no credential store of the system does too.
+        #[cfg(all(any(feature = "login", feature = "secrets"), not_wasm))]
+        SessionStore::set_root(expand_tilde(path.as_ref()));
     }
 }
 
@@ -121,6 +288,7 @@ mod test {
     use std::sync::LazyLock;
 
     use serde::{Deserialize, Serialize};
+    use serial_test::serial;
 
     use crate::{filesystem::Paths, store::OnDisk};
 
@@ -137,7 +305,9 @@ mod test {
     fn check_send<T: Send>(_send: &T) {}
     fn check_sync<T: Sync>(_sync: &T) {}
 
+    // The root is one global, the start test in `app_starter` sets it too.
     #[test]
+    #[serial(on_disk_root)]
     fn stored() {
         OnDisk::<()>::set_root_path("~/.test_on_disk/");
 
@@ -147,6 +317,10 @@ mod test {
         check_sync(&STORED_STRUCT);
 
         STORED.set(10);
+        STORED.reset();
+        assert_eq!(STORED.get(), None);
+        // The second reset finds no file. It panicked, and an app that
+        // reset a store at its start died there.
         STORED.reset();
         assert_eq!(STORED.get(), None);
 
@@ -164,6 +338,27 @@ mod test {
         assert_eq!(INITIALIZED.get_or_init(), 0);
         assert_eq!(INITIALIZED.get(), Some(0));
         INITIALIZED.reset();
+    }
+
+    #[test]
+    #[serial(on_disk_root)]
+    fn a_refused_write_is_an_error() {
+        let root = std::env::temp_dir().join(format!("hilen_refused_write_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // A file where the store wants a folder makes every write fail.
+        std::fs::write(root.join("blocked"), "").unwrap();
+        OnDisk::<()>::set_root_path(&root);
+
+        let store = OnDisk::<i32>::new("blocked/value.json");
+        let error = store.try_set(5).unwrap_err();
+        assert!(error.path.ends_with("blocked/value.json"), "{error}");
+        assert!(store.try_edit(|value| *value += 1).is_err());
+
+        let fine = OnDisk::<i32>::new("fine.json");
+        fine.try_set(5).unwrap();
+        assert_eq!(fine.get(), Some(5));
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

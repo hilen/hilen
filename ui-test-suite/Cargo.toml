@@ -4,15 +4,23 @@ version.workspace = true
 
 name = "ui-test-suite"
 
+[features]
+# The video playback test, on wherever a consumer turns `hilen/video` on.
+video = ["hilen/video"]
+
 [dependencies]
 anyhow = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+image = { workspace = true, features = ["default-formats", "gif", "png"] }
 log = { workspace = true }
 parking_lot = { workspace = true }
 pretty_assertions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-hilen = { workspace = true, features = ["inspect", "level", "ui-tests"] }
+hilen = { workspace = true, features = ["camera", "diff-view", "inspect", "level", "math", "plot", "ui-tests"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { workspace = true }

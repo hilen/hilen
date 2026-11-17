@@ -16,7 +16,7 @@ impl ScrollContent {
 }
 
 impl ViewCallbacks for ScrollContent {
-    fn content_size(&self) -> &Size {
+    fn layout_size(&self) -> &Size {
         &self.content_size
     }
 }

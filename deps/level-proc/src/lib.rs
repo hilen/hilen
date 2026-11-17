@@ -17,6 +17,10 @@ struct Kind {
     register:    &'static str,
     /// Whether the crate feature that turns the test ctor on is set.
     tests:       bool,
+    /// A method of the setup called once a frame before its steps.
+    frame_start: Option<&'static str>,
+    /// A method of the base called once a frame after its steps.
+    frame_end:   Option<&'static str>,
 }
 
 #[proc_macro_attribute]
@@ -32,6 +36,8 @@ pub fn level(_args: TokenStream, stream: TokenStream) -> TokenStream {
             registrable: "LevelRegistrable",
             register:    "register_if_level_test",
             tests:       cfg!(feature = "level-tests"),
+            frame_start: None,
+            frame_end:   None,
         },
     )
 }
@@ -49,6 +55,8 @@ pub fn scene(_args: TokenStream, stream: TokenStream) -> TokenStream {
             registrable: "SceneRegistrable",
             register:    "register_if_scene_test",
             tests:       cfg!(feature = "scene-tests"),
+            frame_start: Some("frame"),
+            frame_end:   Some("update_grass"),
         },
     )
 }
@@ -122,6 +130,16 @@ fn expand(stream: TokenStream, kind: &Kind) -> TokenStream {
         quote!()
     };
 
+    let frame_start = kind.frame_start.map(|method| {
+        let method = format_ident!("{method}");
+        quote! { object.#method(frame_time); }
+    });
+
+    let frame_end = kind.frame_end.map(|method| {
+        let method = format_ident!("{method}");
+        quote! { object.#method(); }
+    });
+
     quote! {
         #stream
 
@@ -130,6 +148,11 @@ fn expand(stream: TokenStream, kind: &Kind) -> TokenStream {
         #test_registration
 
         impl #generics hilen::#module::#internal for #name <#type_params> {
+            fn __internal_takes_keys(&self) -> bool {
+                use hilen::#module::#setup;
+                self.takes_keys()
+            }
+
             fn __internal_setup(&self) {
                 use hilen::#module::#setup;
                 let mut object = hilen::refs::weak_from_ref(self);
@@ -148,11 +171,14 @@ fn expand(stream: TokenStream, kind: &Kind) -> TokenStream {
                 } else {
                     1
                 };
+                #frame_start
                 let dt = frame_time / steps as f32;
                 for _ in 0..steps {
                     object.update(dt);
                     object.update_physics(dt);
+                    object.after_physics(dt);
                 }
+                #frame_end
             }
         }
 

@@ -9,7 +9,7 @@ use crate::gm::{
     flat::{Point, Size},
 };
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Screenshot {
     pub data: Vec<U8Color>,
     pub size: Size<u32>,
@@ -34,7 +34,8 @@ impl Screenshot {
         *color
     }
 
-    pub(crate) fn save(&self, path: &Path) -> Result<()> {
+    /// Writes the picture to `path` as a png.
+    pub fn save(&self, path: &Path) -> Result<()> {
         let mut bytes = Vec::with_capacity(self.data.len() * 4);
 
         for color in &self.data {

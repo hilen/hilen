@@ -9,6 +9,7 @@ mod app;
 mod interface;
 mod levels;
 mod no_physics;
+#[cfg(feature = "scene")]
 mod scenes;
 
 hilen::register_app!(DemoApp);

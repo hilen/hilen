@@ -1,4 +1,4 @@
-use crate::{ui::KeymapKey, window::NamedKey};
+use crate::ui::{KeymapKey, NamedKey};
 
 /// A key with the modifiers that must be held for it to fire.
 /// `cmd` is the command modifier: Cmd on a Mac, Ctrl everywhere else.
@@ -28,6 +28,7 @@ impl KeyCombo {
         }
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn matches(&self, key: KeymapKey, cmd_held: bool, shift_held: bool) -> bool {
         if self.key != key {
             return false;

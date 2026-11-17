@@ -3,7 +3,7 @@ use hilen::{
     RenderPass,
     dispatch::from_main,
     refs::Weak,
-    ui::{ViewCallbacks, view},
+    ui::{DrawsItself, Setup, UIDrawer, view},
     ui_test::{UITest, check_colors},
 };
 use log::debug;
@@ -26,8 +26,14 @@ struct RenderTestView {
     case: Case,
 }
 
-impl ViewCallbacks for RenderTestView {
-    fn before_render(&self, pass: &mut RenderPass) {
+impl Setup for RenderTestView {
+    fn setup(self: Weak<Self>) {
+        UIDrawer::draws_itself(self);
+    }
+}
+
+impl DrawsItself for RenderTestView {
+    fn draw(&self, pass: &mut RenderPass) {
         match self.case {
             Occlusion => {
                 render_occlusion(pass);

@@ -18,6 +18,10 @@ pub struct ViewRepr {
     pub color:          Color,
     pub text:           Option<String>,
     pub hidden:         bool,
+    /// Subviews outside this frame are cut off, like the rows of a
+    /// scroll view.
+    #[serde(default)]
+    pub clips:          bool,
     pub placer:         Placer,
     pub subviews:       Vec<Own<ViewRepr>>,
 }
@@ -32,6 +36,7 @@ impl Default for ViewRepr {
             color:          Color::default(),
             text:           None,
             hidden:         false,
+            clips:          false,
             placer:         Placer::empty(),
             subviews:       vec![],
         }

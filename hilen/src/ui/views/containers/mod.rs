@@ -1,6 +1,8 @@
+mod canvas;
 mod scrolling;
 mod table_view;
 
+pub use canvas::*;
 pub use scrolling::*;
 pub use table_view::*;
 mod movable_view;

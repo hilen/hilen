@@ -11,26 +11,41 @@ scene:
 	cargo run -p scene-test
 
 ui:
-	rust ./build/ui-test.rs
+	uv run -q --no-dev ./build/ui-test.py
 
 uui:
 	cargo run -p ui-test --release -- --headless
 
 # One test per engine pillar, the fast pre-commit check. Desktop only,
 # debug, headless. Full lanes still run for rendering-heavy changes.
-SMOKE_TESTS = TestColorChecker,ButtonPress,InjectTouch,AnchorLayoutTest,TableView2Test,WheelScrollTest,LabelFitText,LabelFont,ImageView,NineSegment,GameView,AnimationDrivesFrames,ShowModally,BackdropBlurTest
+SMOKE_TESTS = TestColorChecker,ButtonPress,InjectTouch,AnchorLayoutTest,TableView2Test,WheelScrollTest,LabelFitText,LabelFont,ImageView,NineSegment,GameView,AnimationDrivesFrames,AnimationFromFinish,SideSwipeSlide,ShowModally,BackdropBlurTest
 
 smoke:
 	cargo run -p ui-test -- --headless --test-name $(SMOKE_TESTS)
 
 ui-ios:
-	rust ./build/ios/sim-test.rs
+	uv run -q --no-dev ./build/ios/sim-test.py
 
 ui-ios-human:
-	rust ./build/ios/sim-test.rs --human
+	uv run -q --no-dev ./build/ios/sim-test.py --human
 
 ui-ios-present:
-	rust ./build/ios/sim-test.rs --present
+	uv run -q --no-dev ./build/ios/sim-test.py --present
+
+# Hot reload in the iOS simulator: 2 builds of the `hot-test` app swapped in
+# one process, see docs/hot-reload.md.
+# `hot-test` is also the folder of the app the lane builds.
+# `make hot-test args="tv"` runs the lane in the Apple TV simulator.
+.PHONY: hot-test
+hot-test:
+	uv run -q --no-dev ./build/ios/hot-test.py $(args)
+
+# Tells if a development build on the paired iPhone may load a library from
+# its data folder, `make load-test args="tv"` asks the paired Apple TV. See
+# "What iOS allows" in docs/hot-reload.md.
+.PHONY: load-test
+load-test:
+	uv run -q --no-dev ./build/ios/load-test.py $(args)
 
 ui-web-present:
 	bun build/web/drive.ts --browser $(BROWSER) --present --only "$(HILEN_TEST_ONLY)"
@@ -72,6 +87,32 @@ ios-debug:
 	rm -f ./target/universal/release/libdemo.a
 	cp ./target/universal/debug/libdemo.a ./target/universal/release/libdemo.a
 
+# The one Java class of the android glue, built into the dex the engine embeds.
+# Run it after a change to hilen/android/NativeHandler.java and commit the dex.
+android-dex:
+	docker build --platform linux/amd64 -t hilen-android-dex ./build/android
+	docker run --rm --platform linux/amd64 -v "$(CURDIR)/hilen/android:/work" -w /work hilen-android-dex sh -c '\
+		javac --release 8 -Xlint:-options -d /tmp/classes NativeHandler.java && \
+		mkdir /tmp/dex && \
+		$$ANDROID_HOME/build-tools/34.0.0/d8 --min-api 26 --output /tmp/dex /tmp/classes/io/hilen/NativeHandler.class && \
+		cp /tmp/dex/classes.dex native_handler.dex'
+
+# The Java half of btleplug, the crate under the `bluetooth` feature, built
+# into the dex the engine embeds for Android. The sources come from the
+# btleplug of Cargo.lock, so run it after every btleplug bump and commit the dex.
+android-btleplug-dex:
+	cargo fetch
+	docker build --platform linux/amd64 -t hilen-android-dex ./build/android
+	version=$$(cargo pkgid btleplug | sed 's/.*@//'); \
+	java=$$(ls -d $${CARGO_HOME:-$$HOME/.cargo}/registry/src/*/btleplug-$$version/src/droidplug/java/src/main/java | head -n 1); \
+	test -d "$$java" || { echo "no Java sources of btleplug $$version"; exit 1; }; \
+	docker run --rm --platform linux/amd64 -v "$$java:/src:ro" -v "$(CURDIR)/hilen/android:/work" -w /work hilen-android-dex sh -c '\
+		jar=$$ANDROID_HOME/platforms/android-34/android.jar && \
+		javac --release 8 -Xlint:-options -cp $$jar -d /tmp/classes $$(find /src -name "*.java") && \
+		mkdir /tmp/dex && \
+		$$ANDROID_HOME/build-tools/34.0.0/d8 --min-api 26 --lib $$jar --output /tmp/dex $$(find /tmp/classes -name "*.class") && \
+		cp /tmp/dex/classes.dex btleplug.dex'
+
 fix-lint:
 	cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
 
@@ -81,8 +122,26 @@ ci:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo clippy -p demo --features bench --all-targets -- -D warnings
+	# A crate of shared views turns the defaults off, every app turns them on.
+	# With no `gpu` there is no wgpu and no winit, only the views.
+	cargo clippy -p hilen --no-default-features --all-targets -- -D warnings
+	cargo clippy -p hilen --no-default-features --features gpu --all-targets -- -D warnings
 	cargo clippy -p demo --target wasm32-unknown-unknown --all-targets -- -D warnings
+	# demo turns `ui-tests` on, which hides what a plain GUI app compiles on wasm.
+	cargo clippy -p example-app --target wasm32-unknown-unknown --all-targets -- -D warnings
 	cargo machete
+	# The Python build scripts, see the python skill of thing.
+	cd build && uv run -q ruff format --check .
+	cd build && uv run -q ruff check .
+	cd build && uv run -q ty check
+	cd build && uv run -q pytest -q
+	# The Blender scripts, typed with the stubs of fake-bpy-module.
+	cd deps/models && uv run -q ruff format --check .
+	cd deps/models && uv run -q ruff check .
+	cd deps/models && uv run -q ty check
+	# ty sees only the files of a project, a Python file anywhere else slips past it.
+	@if git ls-files '*.py' | grep -v '^deps/models/'; then \
+		echo "a Python file outside build and deps/models, ty does not check it"; exit 1; fi
 
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings

@@ -1,0 +1,395 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::Result;
+
+use crate::session_store::{open, platform, seal};
+
+/// A desktop keeps its secrets in sealed files. A Mac ties the right to read
+/// a Keychain entry to the signature of the binary, so every new build of an
+/// app asked for the password of the login keychain.
+const FILES_BY_DEFAULT: bool = cfg!(not(mobile));
+
+/// When set, every store keeps its secret in a sealed file. Also for tests
+/// and for a tool that runs where the credential store of the system must not
+/// be asked, like a build machine with no user logged in.
+static FILES_ONLY: AtomicBool = AtomicBool::new(FILES_BY_DEFAULT);
+
+/// One secret of this app on this device under a name, like the refresh token
+/// of an account.
+///
+/// With the `keychain` feature it lives in the credential store of a phone,
+/// the Keychain on iOS and the Keystore on Android, other apps do not get it
+/// from there. On desktop, in a browser, and without the feature it is a file
+/// sealed like the session of `SessionStore`.
+pub struct SecretStore {
+    name:        &'static str,
+    #[cfg(all(feature = "keychain", target_os = "ios"))]
+    shared:      bool,
+    #[cfg(all(feature = "keychain", any(target_os = "ios", target_os = "tvos")))]
+    device_only: bool,
+}
+
+impl SecretStore {
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            #[cfg(all(feature = "keychain", target_os = "ios"))]
+            shared: false,
+            #[cfg(all(feature = "keychain", any(target_os = "ios", target_os = "tvos")))]
+            device_only: false,
+        }
+    }
+
+    /// A secret that never leaves this device. On iOS and tvOS the Keychain
+    /// leaves it out of a backup that goes to another device, so a copied
+    /// phone holds none of it. Elsewhere it is the same as `new`.
+    #[cfg(feature = "keychain")]
+    pub(crate) const fn device_only(name: &'static str) -> Self {
+        Self {
+            name,
+            #[cfg(all(feature = "keychain", target_os = "ios"))]
+            shared: false,
+            #[cfg(all(feature = "keychain", any(target_os = "ios", target_os = "tvos")))]
+            device_only: true,
+        }
+    }
+
+    /// The secret lives in the credential store of the system and not in a
+    /// sealed file.
+    #[cfg(feature = "keychain")]
+    pub(crate) fn in_credential_store(&self) -> bool {
+        #[cfg(not_wasm)]
+        {
+            self.entry().is_some()
+        }
+
+        #[cfg(wasm)]
+        {
+            false
+        }
+    }
+
+    /// A secret the widget extension of the app reads too. On iOS it goes into
+    /// the keychain group of the `[widget]` table of `hilen.toml`, under the
+    /// service `hilen-shared` and the name as the account, readable after the
+    /// first unlock, so a widget reads it while the phone is locked. Elsewhere
+    /// it is the same as `new`.
+    pub const fn shared(name: &'static str) -> Self {
+        Self {
+            name,
+            #[cfg(all(feature = "keychain", target_os = "ios"))]
+            shared: true,
+            #[cfg(all(feature = "keychain", any(target_os = "ios", target_os = "tvos")))]
+            device_only: false,
+        }
+    }
+
+    /// The name secrets are filed under in the credential store of the
+    /// system. `hilen` sets it to the project name of the app.
+    #[cfg(not_wasm)]
+    pub fn set_service(service: impl ToString) {
+        #[cfg(feature = "keychain")]
+        keychain::set_service(service.to_string());
+        #[cfg(not(feature = "keychain"))]
+        let _ = service.to_string();
+    }
+
+    /// From now on every store keeps its secret in a sealed file.
+    pub fn keep_in_files() {
+        FILES_ONLY.store(true, Ordering::SeqCst);
+    }
+
+    /// From now on the secrets go to the credential store, a mock in memory
+    /// in a test.
+    #[cfg(all(test, feature = "keychain"))]
+    pub(crate) fn use_credential_store() {
+        FILES_ONLY.store(false, Ordering::SeqCst);
+    }
+
+    /// `None` when nothing is stored, and when what is stored does not open.
+    pub fn load(&self) -> Option<String> {
+        #[cfg(all(feature = "keychain", not_wasm))]
+        if let Some(entry) = self.entry() {
+            return keychain::get(&entry, self.name);
+        }
+
+        platform::read(&self.file())
+            .and_then(|sealed| sealed.map(|sealed| open(&sealed)).transpose())
+            .unwrap_or_else(|error| {
+                log::warn!("the stored secret {} does not open: {error}", self.name);
+                None
+            })
+    }
+
+    pub fn save(&self, secret: &str) -> Result<()> {
+        #[cfg(all(feature = "keychain", not_wasm))]
+        if let Some(entry) = self.entry() {
+            return keychain::set(&entry, secret);
+        }
+
+        platform::write(&self.file(), &seal(secret)?)
+    }
+
+    /// Clearing what is not there is fine.
+    pub fn clear(&self) -> Result<()> {
+        #[cfg(all(feature = "keychain", not_wasm))]
+        if let Some(entry) = self.entry() {
+            return keychain::delete(&entry);
+        }
+
+        platform::remove(&self.file())
+    }
+
+    fn file(&self) -> String {
+        format!("{}.secret", self.name)
+    }
+
+    #[cfg(all(feature = "keychain", not_wasm))]
+    fn entry(&self) -> Option<keyring_core::Entry> {
+        if FILES_ONLY.load(Ordering::SeqCst) {
+            return None;
+        }
+        #[cfg(target_os = "ios")]
+        if self.shared {
+            return keychain::shared_entry(self.name);
+        }
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        if self.device_only {
+            return keychain::device_only_entry(self.name);
+        }
+        keychain::entry(self.name)
+    }
+}
+
+#[cfg(all(feature = "keychain", not_wasm))]
+mod keychain {
+    use std::sync::{LazyLock, Mutex, PoisonError};
+
+    #[cfg(not(mobile))]
+    use anyhow::bail;
+    use anyhow::{Result, anyhow};
+    #[cfg(any(mobile, test))]
+    use keyring_core::set_default_store;
+    use keyring_core::{Entry, Error};
+
+    static SERVICE: Mutex<Option<String>> = Mutex::new(None);
+
+    /// Set by a test before the first secret that wants the real store of
+    /// the system, every other test gets a mock in memory.
+    #[cfg(test)]
+    pub(super) static REAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    pub(super) fn set_service(service: String) {
+        *SERVICE.lock().unwrap_or_else(PoisonError::into_inner) = Some(service);
+    }
+
+    fn start() -> Result<()> {
+        // A test asks for the real store only when it says so, a build
+        // machine may have none or show a dialog.
+        #[cfg(test)]
+        if !REAL.load(std::sync::atomic::Ordering::SeqCst) {
+            set_default_store(keyring_core::mock::Store::new()?);
+            return Ok(());
+        }
+
+        #[cfg(not(mobile))]
+        bail!("a desktop keeps its secrets in sealed files");
+
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        let store = keyring_store_apple::protected::Store::new()?;
+        #[cfg(target_os = "android")]
+        let store = keyring_store_android::Store::new()?;
+
+        #[cfg(mobile)]
+        set_default_store(store);
+        #[cfg(mobile)]
+        Ok(())
+    }
+
+    /// False when the system has no credential store. It is asked once, and
+    /// the reason goes to the log once.
+    static STARTED: LazyLock<bool> = LazyLock::new(|| match start() {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!("no credential store on this system, secrets go to sealed files: {error}");
+            false
+        }
+    });
+
+    pub(super) fn entry(name: &str) -> Option<Entry> {
+        if !*STARTED {
+            return None;
+        }
+
+        let service = SERVICE.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let Some(service) = service else {
+            log::error!("no service name for the secret {name}, call SecretStore::set_service first");
+            return None;
+        };
+
+        Entry::new(&service, name)
+            .inspect_err(|error| log::error!("no credential store entry for {name}: {error}"))
+            .ok()
+    }
+
+    /// The service of every shared secret, the Swift of an app asks for it.
+    #[cfg(target_os = "ios")]
+    const SHARED_SERVICE: &str = "hilen-shared";
+    /// The `Info.plist` key `hilen-mobile` writes the keychain group into.
+    #[cfg(target_os = "ios")]
+    const GROUP_KEY: &str = "HilenKeychainGroup";
+
+    #[cfg(target_os = "ios")]
+    pub(super) fn shared_entry(name: &str) -> Option<Entry> {
+        use std::{collections::HashMap, sync::Arc};
+
+        use keyring_core::api::CredentialStoreApi;
+        use keyring_store_apple::protected::Store;
+        use objc2_foundation::{NSBundle, NSString};
+
+        static STORE: LazyLock<Option<Arc<Store>>> = LazyLock::new(|| {
+            let group = NSBundle::mainBundle()
+                .objectForInfoDictionaryKey(&NSString::from_str(GROUP_KEY))
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .map(|value| value.to_string());
+            let Some(group) = group else {
+                log::error!(
+                    "the app has no {GROUP_KEY}, a shared secret needs the [widget] table in hilen.toml"
+                );
+                return None;
+            };
+            log::info!("shared secrets go into the keychain group {group}");
+            Store::new_with_configuration(&HashMap::from([("access-group", group.as_str())]))
+                .inspect_err(|error| log::error!("no keychain store for the group {group}: {error}"))
+                .ok()
+        });
+
+        STORE
+            .as_ref()?
+            .build(
+                SHARED_SERVICE,
+                name,
+                Some(&HashMap::from([("access-policy", "AfterFirstUnlock")])),
+            )
+            .inspect_err(|error| log::error!("no shared keychain entry for {name}: {error}"))
+            .ok()
+    }
+
+    /// An entry the Keychain keeps on this device only, readable after the
+    /// first unlock, so a request of the app in the background still has it.
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
+    pub(super) fn device_only_entry(name: &str) -> Option<Entry> {
+        use std::collections::HashMap;
+
+        if !*STARTED {
+            return None;
+        }
+        let service = SERVICE.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let Some(service) = service else {
+            log::error!("no service name for the secret {name}, call SecretStore::set_service first");
+            return None;
+        };
+
+        Entry::new_with_modifiers(
+            &service,
+            name,
+            &HashMap::from([("access-policy", "AfterFirstUnlockThisDeviceOnly")]),
+        )
+        .inspect_err(|error| log::error!("no credential store entry for {name}: {error}"))
+        .ok()
+    }
+
+    pub(super) fn get(entry: &Entry, name: &str) -> Option<String> {
+        match entry.get_password() {
+            Ok(secret) => Some(secret),
+            Err(Error::NoEntry) => None,
+            Err(error) => {
+                log::warn!("the stored secret {name} does not open: {error}");
+                None
+            }
+        }
+    }
+
+    pub(super) fn set(entry: &Entry, secret: &str) -> Result<()> {
+        entry
+            .set_password(secret)
+            .map_err(|error| anyhow!("the credential store did not take the secret: {error}"))
+    }
+
+    pub(super) fn delete(entry: &Entry) -> Result<()> {
+        match entry.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(error) => Err(anyhow!("the credential store did not drop the secret: {error}")),
+        }
+    }
+}
+
+#[cfg(all(test, not_wasm))]
+mod test {
+    use std::env::temp_dir;
+
+    use anyhow::Result;
+    use serial_test::serial;
+
+    use super::SecretStore;
+    use crate::{SessionStore, session_store::platform};
+
+    static STORE: SecretStore = SecretStore::new("test-account");
+
+    fn use_files() {
+        SessionStore::set_root(temp_dir().join("hilen-secret-test"));
+        SecretStore::keep_in_files();
+    }
+
+    #[test]
+    #[serial]
+    fn save_load_clear() -> Result<()> {
+        use_files();
+
+        STORE.clear()?;
+        assert_eq!(STORE.load(), None);
+
+        STORE.save("secret one")?;
+        assert_eq!(STORE.load().as_deref(), Some("secret one"));
+
+        STORE.save("secret two")?;
+        assert_eq!(STORE.load().as_deref(), Some("secret two"));
+
+        STORE.clear()?;
+        assert_eq!(STORE.load(), None);
+        STORE.clear()
+    }
+
+    #[test]
+    #[serial]
+    fn a_secret_is_not_on_disk_as_text_and_not_in_the_session_file() -> Result<()> {
+        use_files();
+        SessionStore::clear()?;
+
+        STORE.save("a very recognizable secret")?;
+        let bytes = platform::read("test-account.secret")?.expect("the file was just written");
+        assert!(!String::from_utf8_lossy(&bytes).contains("recognizable"));
+        assert_eq!(SessionStore::load(), None);
+
+        STORE.clear()
+    }
+
+    /// A desktop app that asked the Keychain made a Mac ask for the password
+    /// of the login keychain after each new build.
+    #[cfg(all(feature = "keychain", not(mobile)))]
+    #[test]
+    #[serial]
+    fn a_desktop_never_asks_the_credential_store() -> Result<()> {
+        use std::sync::atomic::Ordering;
+
+        super::FILES_ONLY.store(super::FILES_BY_DEFAULT, Ordering::SeqCst);
+        SessionStore::set_root(temp_dir().join("hilen-secret-test-desktop"));
+        SecretStore::set_service("hilen-session-test");
+
+        assert!(!STORE.in_credential_store());
+        STORE.save("kept in a file")?;
+        assert!(platform::read("test-account.secret")?.is_some());
+        assert_eq!(STORE.load().as_deref(), Some("kept in a file"));
+        STORE.clear()
+    }
+}

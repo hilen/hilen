@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use educe::Educe;
 use rapier2d::{
-    dynamics::{CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet},
+    dynamics::{
+        CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, SoftBodySet,
+    },
     geometry::{ColliderHandle, CollisionEvent, NarrowPhase},
     pipeline::PhysicsPipeline,
     prelude::{BroadPhaseBvh, Vec2},
@@ -33,6 +35,7 @@ pub(crate) struct LevelPhysics {
     narrow_phase:     NarrowPhase,
     impulse_joints:   ImpulseJointSet,
     multibody_joints: MultibodyJointSet,
+    soft_bodies:      SoftBodySet,
     ccd_solver:       CCDSolver,
 
     pub(crate) events: EventHandler,
@@ -61,6 +64,7 @@ impl LevelPhysics {
             &mut self.sets.colliders,
             &mut self.impulse_joints,
             &mut self.multibody_joints,
+            &mut self.soft_bodies,
             &mut self.ccd_solver,
             &(),
             &self.events.handler,
@@ -116,6 +120,7 @@ impl LevelPhysics {
                 collider,
                 &mut self.island_manager,
                 &mut self.sets.rigid_bodies,
+                &mut self.soft_bodies,
                 true,
             );
         }
@@ -127,6 +132,7 @@ impl LevelPhysics {
                 &mut self.sets.colliders,
                 &mut self.impulse_joints,
                 &mut self.multibody_joints,
+                &mut self.soft_bodies,
                 true,
             );
         }

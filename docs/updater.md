@@ -1,27 +1,92 @@
 # Self update
 
-`system::Updater` in `hilen/src/system/updater.rs` updates a desktop app in
-place. Mobile goes through the stores and wasm updates by rehosting, so every
-call outside the desktop is a no-op like `system::Router`.
+The updater lives in its own crate, `hilen-updater`, with no UI dependency.
+It has no wgpu, no winit and no `hilen`, so a binary with no window, like a
+daemon, updates itself with it. `system::Updater` in
+`hilen/src/system/updater.rs` is the app layer on top of it. `hilen`
+re-exports the crate as `hilen::updater`. Mobile goes through the stores and
+wasm updates by rehosting, so every call outside the desktop is a no-op like
+`system::Router`. The crate keeps only its types there.
+`hilen` links it through its `updater` feature, on by default, which also holds
+`system::Updater`, `UpdateState` and the update hooks of `App`.
 
-## The contract
+## A binary with no window
 
-The app opts in from `App::update_source`:
+The binary gives the 3 values as plain arguments and calls the crate:
 
 ```rust
-fn update_source(&self) -> PinnedFuture<Option<UpdateSource>> {
-    Box::pin(async {
-        Ok(Some(UpdateSource {
-            manifest_url:    "https://host/app/download/updater.json".into(),
-            current_version: env!("CARGO_PKG_VERSION").into(),
-            verify_key:      VERIFY_KEY.into(),
-        }))
-    })
+use hilen_updater::{UpdateSource, check, install, relaunch};
+
+let source = UpdateSource::new(
+    "https://get.vladas.xyz/banda/updater.json",
+    env!("CARGO_PKG_VERSION"),
+    include_str!("../assets/update-key.pub"),
+);
+if let Some(info) = check(&source).await? {
+    install(info).await?;
+    relaunch()?;
 }
 ```
 
-`verify_key` is the hex of a raw 32 byte ed25519 public key. Its private half
-signs every release artifact in CI and never ships. The manifest:
+- `UpdateSource::new(url, version, key)` trims the line break of an
+  included key. `DEFAULT_UPDATE_HOST` is the host of the default address.
+- `check`, `install` and `install_with_progress` behave as in the calls
+  below.
+- `relaunch()` starts the new binary at the same path and ends the process
+  with exit code 0. `start_new_binary()` only starts it, for a program that
+  stops itself in its own way. A daemon under a service manager can also
+  just exit after `install` and let the manager start the new file.
+- `platform_key()` returns the manifest key of this binary.
+- The crate has its own reqwest client with the same TLS setup as the
+  engine, rustls on the ring provider. It installs that provider as the
+  process default once, a second install changes nothing.
+- The release scripts sign a daemon binary like an app binary,
+  `uv run build/release/sign.py <file>` takes any file. A daemon listed in
+  `daemons` of the `[release]` table of `hilen.toml` is built, signed and
+  given its own `<daemon>-updater.json` by the shared release workflow, the
+  hilen skill chapter `updater.md` has the details.
+## The app side
+
+An app gives 1 thing, its public key:
+
+```rust
+fn update_key(&self) -> Option<&'static str> {
+    Some(include_str!("../assets/update-key.pub"))
+}
+```
+
+The key is the hex of a raw 32 byte ed25519 public key. Its private half signs
+every release artifact in CI and never ships. With the key the engine does the
+rest:
+
+- The version is the one of the app's own package. `register_app!` puts it into
+  the app as `hilen_app_version`, so an app with an update key needs
+  `register_app!`.
+- The manifest address is `<DEFAULT_UPDATE_HOST>/<project_name>/updater.json`,
+  with `https://get.vladas.xyz` as the host and the `project_name` of the app's
+  `hilen.toml`. An app that ships from another place returns the full address
+  from `App::update_url`.
+- The env var `<NAME>_UPDATE_URL`, the project name in capitals with `_` for
+  `-`, wins over both. It points a build at a local file server with a hand
+  made `updater.json`, the way to test the whole flow without a release.
+- 3 seconds after launch the engine checks once.
+
+`system::UpdateState` holds what a view shows. All of it is main thread only:
+
+- `UpdateState::get()` gives `phase()`, one of `Idle`, `Checking`, `Available`
+  and `Installing`, the found `version()`, the download `progress()` in whole
+  percent, the `error()` of the last failed check or install, and the short
+  forms `has_update()` and `busy()`.
+- `UpdateState::on_change(view, action)` runs the action after every change for
+  as long as the view lives. Any number of views can subscribe.
+- `UpdateState::check()` asks again, `UpdateState::install()` downloads,
+  verifies, swaps the binary and starts the new one. A failed install goes back
+  to `Idle` with the error set.
+
+`App::update_source` is still there for an app that builds its source by itself
+or decides it at run time. Its default builds the source from `update_key` and
+`update_url`. The first check after launch runs only for an app with
+`update_key`. The manifest:
 
 ```json
 {
@@ -50,7 +115,8 @@ permissions, so the swap stays on one filesystem.
 
 ## The calls
 
-- `Updater::check()` fetches the manifest and returns `Ok(Some(UpdateInfo))`
+- `Updater::check()` reads `App::update_source` on main, then
+  `hilen_updater::check` fetches the manifest and returns `Ok(Some(UpdateInfo))`
   only when the manifest version is newer by semver, has an entry for
   this platform, and the swap target's directory is writable. A binary the
   user cannot swap, like a deb install in `/usr/bin`, gets no offer and
@@ -61,22 +127,35 @@ permissions, so the swap stays on one filesystem.
 - `Updater::install_with_progress(info, |done, total| ..)` is the same with
   the download reported as bytes so far and the Content-Length, `None`
   when the server sent no length. `install` is this with a no-op callback.
-- `Updater::relaunch()` spawns the new binary at the same path and stops
-  this one.
+- `Updater::relaunch()` spawns the new binary at the same path through
+  `start_new_binary` and stops this one through `AppRunner`.
 
-All three run on tokio, so an app wires them with `spawn` and `on_main` like
-any other fetch. The callback runs on the download task, post to main
-before touching a view.
+All of them run on tokio, a binary with no window calls them from its own
+runtime. `UpdateState` wraps them with `spawn` and `on_main`, so
+an app normally never calls them. An app that does wires them like any other
+fetch. The progress callback runs on the download task, post to main before
+touching a view.
 
 ## What the swap means for packaging
 
 The updater replaces one file, so an app that self updates must ship as one
-executable. A helper next to the binary is never updated, fold it into the
+executable. That covers its assets too. An installed app has no `assets`
+folder: the Mac bundle and the Windows installer pack only the binary. So a
+desktop app that ships calls `hilen::embed_assets!();` once, next to
+`register_app!`. It packs the `fonts`, `images`, `models` and `sounds` folders
+of the app's `assets` into the binary at build time. The engine reads a file
+from disk when it is there and from the packed copy when it is not, so a run
+from the repo still sees an edited file at once. The start log says how many
+files were packed when no folder was found. A file added to `assets` is packed
+by the next build that compiles the app crate, a release build always does. A helper next to the binary is never updated, fold it into the
 main binary behind an env var or an argument. On mac the swapped binary sits
 inside the signed `.app`, so CI signs the bare binary with the same identity
 before hashing it, and the bundle keeps launching. On Windows the installer
 is only for the first install, later versions swap the exe directly.
 
-The kukareker port at `~/dev/apps/kukareker` is the reference wiring, its
-`src/updater.rs` holds the app state and its `build/release/` scripts sign
-and publish the manifest.
+Kukareker and Blackforge were wired before `UpdateState` existed. Each still
+carries its own state module in `updater.rs` and overrides `update_source`,
+which keeps working. Their `build/release/` scripts sign and publish the
+manifest. They are not a template for other apps.
+Each app keeps its own release pipeline, runners and download host, and a
+game can ship in a completely different way.

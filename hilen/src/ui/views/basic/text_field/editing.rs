@@ -1,47 +1,43 @@
 //! The caret, the selection, the keys and the clipboard of a text field.
 
-use web_time::{Duration, Instant};
+#[cfg(not_wasm)]
+use std::thread;
+use std::{ops::Range, time::Duration};
 
-use super::{MASK, MULTILINE_TOP_INSET, TextField, mask};
+#[cfg(not_wasm)]
+use anyhow::Error;
+use plat::Platform;
+use zeroize::Zeroizing;
+
+use super::{MASK, MULTILINE_TOP_INSET, MultilineEnter, SYSTEM_EDITS, TextField, mask};
+#[cfg(not_wasm)]
+use crate::deps::hreads::on_main;
 use crate::{
     deps::refs::Weak,
     gm::{
         LossyConvert, ToF32,
-        color::Color,
         flat::{Point, Rect},
     },
     system::Clipboard,
+    text::TextLayout,
     ui::{
-        Container, Input, TextAlignment, TouchStack, UIManager, VerticalAlignment, View, ViewSubviews,
-        WeakView,
-        text_field_constraint::AcceptChar,
-        view::{ViewData, ViewFrame, ViewTouch},
+        Container, Input, NamedKey, ScreenKeyboard, TextAlignment, TouchStack, UIManager, VerticalAlignment,
+        View, ViewSubviews, WeakView,
+        text_selection::{SELECTION_COLOR, word_range},
+        view::{ViewData, ViewFrame, ViewTouch, depth_order},
     },
-    window::{NamedKey, TextLayout},
+    wipe::joined,
 };
 
-const SELECTION_COLOR: Color = Color::rgba(0.2, 0.5, 1.0, 0.35);
+/// How long a copy of a shown secret may stay on the clipboard. iOS removes
+/// it after this time, see `Clipboard::set_secret`.
+const SECRET_COPY_STAYS: Duration = Duration::from_secs(60);
 
-/// Two taps this close in time and place select the word.
-const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
-const DOUBLE_CLICK_DISTANCE: f32 = 6.0;
-
+// The entered text, the one the caret indexes, is read through `text`,
+// which borrows it. Nothing here copies it to read it, a copy of a secure
+// field would be freed with the password still in it. An edit builds the
+// new text with `joined`, in one buffer that wipes itself.
 impl TextField {
-    /// The text the caret indexes, empty while the placeholder shows.
-    pub(super) fn entered_text(&self) -> String {
-        if self.placeholding {
-            String::new()
-        } else {
-            self.text().to_string()
-        }
-    }
-
-    /// The text the label draws, the mask of a secure field.
-    fn display_text(&self) -> String {
-        let text = self.entered_text();
-        if self.is_secure() { mask(&text) } else { text }
-    }
-
     /// A byte index into the entered text as a byte index into the
     /// displayed text. The two differ only in a secure field, where every
     /// character becomes one mask character.
@@ -49,7 +45,7 @@ impl TextField {
         if !self.is_secure() {
             return byte;
         }
-        self.entered_text()[..byte].chars().count() * MASK.len_utf8()
+        self.text()[..byte].chars().count() * MASK.len_utf8()
     }
 
     /// The inverse of `display_byte`.
@@ -58,7 +54,7 @@ impl TextField {
             return display;
         }
         let chars = display / MASK.len_utf8();
-        let text = self.entered_text();
+        let text = self.text();
         text.char_indices().nth(chars).map_or(text.len(), |(index, _)| index)
     }
 
@@ -71,8 +67,12 @@ impl TextField {
         Some((anchor.min(self.caret), anchor.max(self.caret)))
     }
 
+    /// The layout of the displayed text, which the label holds: the
+    /// entered text, or its mask in a secure field. While the field is
+    /// empty the label holds the placeholder and nothing is displayed.
     fn layout(&self) -> TextLayout {
-        self.label.text_layout_for(&self.display_text())
+        let displayed = if self.placeholding { "" } else { self.label.text() };
+        self.label.text_layout_for(displayed)
     }
 
     pub(super) fn on_char(self: Weak<Self>, ch: char) {
@@ -81,7 +81,7 @@ impl TextField {
         }
 
         if Input::command_held() {
-            self.on_command(ch);
+            self.on_command(Input::shortcut_char(ch));
             return;
         }
 
@@ -96,14 +96,14 @@ impl TextField {
         if backspace {
             self.delete_backward();
         } else {
-            self.insert(&ch.to_string());
+            self.insert(ch.encode_utf8(&mut [0; 4]));
         }
     }
 
     fn on_command(mut self: Weak<Self>, ch: char) {
         match ch.to_ascii_lowercase() {
             'a' => {
-                let len = self.entered_text().len();
+                let len = self.text().len();
                 self.anchor = Some(0);
                 self.caret = len;
                 self.update_caret();
@@ -120,23 +120,58 @@ impl TextField {
     }
 
     fn copy(self: Weak<Self>) {
-        let text = self.selected_text();
-        if text.is_empty() || self.is_secure() {
+        // A field that hides its text copies nothing.
+        if self.is_secure() {
             return;
         }
-        if let Err(err) = Clipboard::set_text(text) {
+        let Some((start, end)) = self.selection() else {
+            return;
+        };
+        let selected = &self.text()[start..end];
+
+        // A field that shows its secret copies it the way a secret is
+        // copied, kept on this device and out of clipboard managers.
+        let copied = if self.holds_secret() {
+            Clipboard::set_secret(selected, SECRET_COPY_STAYS)
+        } else {
+            Clipboard::set_text(selected)
+        };
+        if let Err(err) = copied {
             log::error!("Failed to copy from a text field: {err}");
         }
     }
 
-    // A page cannot read the clipboard synchronously, so the browser has
-    // no paste shortcut.
+    // In a browser the element that takes the keys pastes by itself, see
+    // `browser_field`.
     #[cfg(not_wasm)]
     fn paste(self: Weak<Self>) {
         match Clipboard::get_text() {
-            Ok(text) => self.insert(&text),
-            Err(err) => log::warn!("Nothing to paste: {err}"),
+            // Wiped after the insert, a paste into a secure field is the
+            // usual way a password gets there.
+            Ok(text) => self.insert(&Zeroizing::new(text)),
+            Err(no_text) => self.paste_image(no_text),
         }
+    }
+
+    /// The clipboard holds no text. A picture in it goes to the owner
+    /// through `image_pasted`. Making its png file takes up to half a
+    /// second for a big screenshot, so it runs off the main thread and
+    /// the event fires some frames later.
+    #[cfg(not_wasm)]
+    fn paste_image(self: Weak<Self>, no_text: Error) {
+        thread::spawn(move || {
+            let image = Clipboard::get_image();
+            on_main(move || match image {
+                // The field can be gone by now.
+                Ok(Some(image)) if self.is_ok() => {
+                    log::debug!("Pasted a picture of {} by {} pixels", image.width, image.height);
+                    self.image_pasted.trigger(image);
+                }
+                Ok(Some(_)) => log::debug!("A pasted picture came after its text field was gone"),
+                Ok(None) => log::warn!("Nothing to paste: {no_text}"),
+                Err(err) => log::warn!("Failed to read a picture to paste: {err}"),
+            });
+        });
     }
 
     pub(super) fn on_key(self: Weak<Self>, key: NamedKey) {
@@ -144,22 +179,44 @@ impl TextField {
             return;
         }
 
-        let shift = Input::modifiers().shift_key();
+        let shift = Input::modifiers().shift();
 
         match key {
             // Focus moves even in a multiline field, the way a browser
             // text area treats Tab, so it sits above the Enter case and
             // never inserts a tab character.
             NamedKey::Tab => self.select_next_field(shift),
+            // A chat box sends on a plain Enter and stays in edit for
+            // the next message. A phone keyboard has no Shift to ask for
+            // a new line with, so there Enter stays the new line.
+            NamedKey::Enter
+                if self.multiline
+                    && self.multiline_enter == MultilineEnter::Submit
+                    && !shift
+                    && !Platform::MOBILE
+                    && !ScreenKeyboard::on_this_device() =>
+            {
+                let text = self.text().to_string();
+                self.submitted.trigger(text);
+            }
             NamedKey::Enter if self.multiline => self.insert("\n"),
-            NamedKey::Enter | NamedKey::Escape => UIManager::unselect_view(),
+            NamedKey::Enter => {
+                let text = if self.holds_secret() {
+                    mask(self.text())
+                } else {
+                    self.text().to_string()
+                };
+                UIManager::unselect_view();
+                self.submitted.trigger(text);
+            }
+            NamedKey::Escape => UIManager::unselect_view(),
             NamedKey::ArrowLeft => {
                 if let Some((start, _)) = self.selection().filter(|_| !shift) {
                     self.move_caret(start, false);
                     return;
                 }
-                let text = self.entered_text();
-                let target = text[..self.caret].chars().last().map_or(0, |ch| self.caret - ch.len_utf8());
+                let caret = self.caret;
+                let target = self.text()[..caret].chars().last().map_or(0, |ch| caret - ch.len_utf8());
                 self.move_caret(target, shift);
             }
             NamedKey::ArrowRight => {
@@ -167,11 +224,8 @@ impl TextField {
                     self.move_caret(end, false);
                     return;
                 }
-                let text = self.entered_text();
-                let target = text[self.caret..]
-                    .chars()
-                    .next()
-                    .map_or(self.caret, |ch| self.caret + ch.len_utf8());
+                let caret = self.caret;
+                let target = self.text()[caret..].chars().next().map_or(caret, |ch| caret + ch.len_utf8());
                 self.move_caret(target, shift);
             }
             NamedKey::Home | NamedKey::End => {
@@ -235,7 +289,7 @@ impl TextField {
 
         // Selecting the already selected field is a no-op in
         // `set_selected`, so a lone field keeps its editing session.
-        fields[next].focus();
+        fields[next].focus_with_keyboard();
     }
 
     /// Puts the caret at `byte`. With `extend` the anchor stays where the
@@ -255,42 +309,42 @@ impl TextField {
 
     /// Replaces the selection, or inserts at the caret, with `text`.
     pub(super) fn insert(mut self: Weak<Self>, text: &str) {
-        let mut current = self.entered_text();
-
-        if let Some((start, end)) = self.selection() {
-            current.replace_range(start..end, "");
+        let selection = self.selection();
+        if let Some((start, _)) = selection {
             self.caret = start;
         }
         self.anchor = None;
 
-        let mut inserted = String::new();
-        for ch in text.chars() {
-            let probe = format!("{current}{inserted}");
-            if self.constraint.accept_char(ch, &probe) {
-                inserted.push(ch);
-            }
-        }
+        // Only a constraint needs a copy, the chars it accepts.
+        let accepted = self.constraint.as_ref().map(|constraint| constraint.filter(text));
+        let inserted = accepted.as_ref().map_or(text, |accepted| accepted.as_str());
 
         if inserted.is_empty() {
             self.update_caret();
             return;
         }
 
-        let caret = self.caret.min(current.len());
-        current.insert_str(caret, &inserted);
-        self.caret = caret + inserted.len();
-        self.commit(current);
+        let current = self.text();
+        let (start, end) = selection.unwrap_or_else(|| {
+            let caret = self.caret.min(current.len());
+            (caret, caret)
+        });
+        let edited = joined(&[&current[..start], inserted, &current[end..]]);
+
+        self.caret = start + inserted.len();
+        self.commit(edited);
     }
 
     fn delete_selection(mut self: Weak<Self>) -> bool {
         let Some((start, end)) = self.selection() else {
             return false;
         };
-        let mut text = self.entered_text();
-        text.replace_range(start..end, "");
+        let current = self.text();
+        let edited = joined(&[&current[..start], &current[end..]]);
+
         self.caret = start;
         self.anchor = None;
-        self.commit(text);
+        self.commit(edited);
         true
     }
 
@@ -299,22 +353,39 @@ impl TextField {
             return;
         }
 
-        let mut text = self.entered_text();
+        let caret = self.caret;
+        let current = self.text();
 
-        let Some(ch) = text[..self.caret].chars().last() else {
+        let Some(ch) = current[..caret].chars().last() else {
             return;
         };
 
-        self.caret -= ch.len_utf8();
-        text.remove(self.caret);
-        self.commit(text);
+        let start = caret - ch.len_utf8();
+        let edited = joined(&[&current[..start], &current[caret..]]);
+
+        self.caret = start;
+        self.commit(edited);
     }
 
     /// Shows typed text without moving the caret, unlike `set_text`
     /// which puts the caret at the end.
-    fn commit(mut self: Weak<Self>, text: String) {
+    pub(super) fn replace(mut self: Weak<Self>, range: Range<usize>, text: &str) {
+        let accepted = self.constraint.as_ref().map(|constraint| constraint.filter(text));
+        let replaced = accepted.as_ref().map_or(text, |accepted| accepted.as_str());
+
+        let current = self.text();
+        let end = current.floor_char_boundary(range.end);
+        let start = current.floor_char_boundary(range.start.min(end));
+        let edited = joined(&[&current[..start], replaced, &current[end..]]);
+
+        self.anchor = None;
+        self.caret = start + replaced.len();
+        self.commit(edited);
+    }
+
+    fn commit(mut self: Weak<Self>, text: Zeroizing<String>) {
         let caret = self.caret;
-        self.set_text(text);
+        self.replace_text(text);
         self.caret = caret;
         self.update_caret();
     }
@@ -343,20 +414,15 @@ impl TextField {
 
     pub(super) fn on_touch_began(mut self: Weak<Self>, position: Point) {
         let byte = self.byte_at(position);
-        let now = Instant::now();
 
-        let double = self.last_tap.is_some_and(|(at, where_)| {
-            now.duration_since(at) < DOUBLE_CLICK_INTERVAL
-                && (where_ - position).length() < DOUBLE_CLICK_DISTANCE
-        });
-        self.last_tap = Some((now, position));
-
-        if double {
+        // A double click selects the word, and so does every fast click
+        // after it.
+        if self.clicks.tap_in_row(position) {
             self.select_word_at(byte);
             return;
         }
 
-        if Input::modifiers().shift_key() {
+        if Input::modifiers().shift() {
             self.move_caret(byte, true);
             return;
         }
@@ -375,6 +441,11 @@ impl TextField {
     }
 
     pub(super) fn on_touch_ended(mut self: Weak<Self>) {
+        // A phone opens its keyboard only inside a user gesture, and the end
+        // of a tap is one in every browser.
+        #[cfg(wasm)]
+        super::browser_field::grab_focus();
+
         if self.anchor == Some(self.caret) {
             self.anchor = None;
             self.update_caret();
@@ -383,22 +454,10 @@ impl TextField {
 
     /// Selects the run of letters and digits around `byte`.
     fn select_word_at(mut self: Weak<Self>, byte: usize) {
-        let text = self.entered_text();
-        let is_word = |ch: char| ch.is_alphanumeric();
+        let word = word_range(self.text(), byte);
 
-        let start = text[..byte]
-            .char_indices()
-            .rev()
-            .take_while(|(_, ch)| is_word(*ch))
-            .last()
-            .map_or(byte, |(index, _)| index);
-        let end = text[byte..]
-            .char_indices()
-            .find(|(_, ch)| !is_word(*ch))
-            .map_or(text.len(), |(index, _)| byte + index);
-
-        self.anchor = Some(start);
-        self.caret = end;
+        self.anchor = Some(word.start);
+        self.caret = word.end;
         self.update_caret();
     }
 
@@ -429,7 +488,7 @@ impl TextField {
 
     /// Sizes the label to the field, or in multiline mode to its lines
     /// when they need more, so the scroll content grows with the text.
-    pub(super) fn update_layout(mut self: Weak<Self>) {
+    pub(super) fn update_layout(self: Weak<Self>) {
         let width = self.width();
         let height = self.height();
 
@@ -440,20 +499,30 @@ impl TextField {
             let label_height = content.max(height - MULTILINE_TOP_INSET);
             self.label.set_frame((0.0, MULTILINE_TOP_INSET, width, label_height));
             self.scroll.set_content_height(label_height + MULTILINE_TOP_INSET);
+            // A field that got higher shows more of its lines. Without this
+            // it keeps the offset it had while it was low, with lines
+            // scrolled out above and empty room under the last one.
+            let lowest = (height - self.scroll.content_height()).min(0.0);
+            if self.scroll.get_scroll_content_offset() < lowest {
+                self.scroll.set_content_offset(lowest);
+            }
         } else {
             self.label.set_frame((0.0, 0.0, width, height));
             self.scroll.set_content_height(height);
         }
     }
 
-    pub(super) fn update_caret(mut self: Weak<Self>) {
+    pub(super) fn update_caret(self: Weak<Self>) {
         self.update_layout();
 
-        if !self.is_editing {
+        if !self.is_editing || SYSTEM_EDITS {
             self.caret_view.set_hidden(true);
             self.clear_selection_views();
             return;
         }
+
+        #[cfg(wasm)]
+        super::browser_field::sync(&self);
 
         let layout = self.layout();
         let (top, line_starts) = self.line_origins(&layout);
@@ -496,8 +565,6 @@ impl TextField {
         };
         let (start, end) = (self.display_byte(start), self.display_byte(end));
 
-        let label_z = self.label.z_position();
-
         for (index, line) in layout.lines.iter().enumerate() {
             if line.end < start || line.start > end {
                 continue;
@@ -521,8 +588,8 @@ impl TextField {
             view.set_color(SELECTION_COLOR);
             view.set_frame(rect);
             // Added after the label, so it would draw over the glyphs.
-            // Push it just behind the label, still in front of the field.
-            view.__base_view().z_position = label_z + UIManager::additional_z_offset();
+            // Ordered before it, still in front of the field.
+            depth_order::set_raise(&*view, -1);
             self.selection_views.push(view);
         }
     }

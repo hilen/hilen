@@ -12,7 +12,13 @@ struct MeshInstance {
     lights: vec4<u32>,
     normal_scale: f32,
     joint_base: u32,
-    padding: vec2<u32>,
+    emissive: f32,
+    cutout: f32,
+    occlusion_strength: f32,
+    unlit: f32,
+    fade: f32,
+    fade_flip: f32,
+    shallow: vec4<f32>,
 }
 
 // See `MeshLight` for what the fourth components carry.
@@ -41,11 +47,30 @@ var base_sampler: sampler;
 var normal_texture: texture_2d<f32>;
 @group(3) @binding(3)
 var normal_sampler: sampler;
+// Plain data like the normal map, metallic in blue and roughness in
+// green, the glTF packing.
+@group(3) @binding(4)
+var metallic_roughness_texture: texture_2d<f32>;
+@group(3) @binding(5)
+var metallic_roughness_sampler: sampler;
+// The share of the light from all around in red.
+@group(3) @binding(6)
+var occlusion_texture: texture_2d<f32>;
+@group(3) @binding(7)
+var occlusion_sampler: sampler;
+// The flow of a flowing mesh in red and green, its depth in blue and the
+// opposite of its foam in alpha, see `water_texel`.
+@group(3) @binding(8)
+var flow_texture: texture_2d<f32>;
+@group(3) @binding(9)
+var flow_sampler: sampler;
 
 struct Vertex {
     @location(0) pos: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    // Four encoded sRGB bytes, red in the lowest, see `Vertex3D::color`.
+    @location(14) color: u32,
 }
 
 struct Instance {
@@ -66,32 +91,99 @@ struct SkinVertex {
     @location(13) weights: vec4<f32>,
 }
 
-// Six components cross the stage boundary. An A7 draws nothing above
+// Seven components cross the stage boundary. An A7 draws nothing above
 // eight, see docs/ios.md, so the material and the light list stay in
 // the storage buffers, the world position is rebuilt from the depth,
-// and only the index of the instance comes along.
+// only the index of the instance comes along, and the vertex color
+// comes packed and flat, one per triangle.
+// Invariant, a cut out node is drawn twice and the second draw tests its
+// depth for equal.
 struct VertexOutput {
-    @builtin(position) pos: vec4<f32>,
+    @invariant @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) instance: u32,
+    @location(3) @interpolate(flat) color: u32,
 }
 
-fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: Instance) -> VertexOutput {
+fn place(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, color: u32, instance: Instance) -> VertexOutput {
     let model = mat4x4<f32>(instance.model0, instance.model1, instance.model2, instance.model3);
     let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
 
     var out: VertexOutput;
-    out.pos = view.view_proj * model * vec4<f32>(pos, 1.0);
+    out.pos = view.view_proj * vec4<f32>(model_offset(model, pos), 1.0);
     out.uv = uv;
     out.normal = normalize(normal_matrix * normal);
     out.instance = instance.index;
+    out.color = color;
     return out;
 }
 
 @vertex
 fn v_main(vertex: Vertex, instance: Instance) -> VertexOutput {
-    return place(vertex.pos, vertex.normal, vertex.uv, instance);
+    return place(vertex.pos, vertex.normal, vertex.uv, vertex.color, instance);
+}
+
+// A mesh whose colors fade across a triangle, see
+// `Model::from_smooth_mesh`. The color takes 4 components where the flat
+// one takes 1, and the uv gives up its 2, so eight components cross the
+// stage boundary, all an A7 draws, see docs/ios.md.
+struct SmoothOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) normal: vec3<f32>,
+    @location(1) @interpolate(flat) instance: u32,
+    @location(2) color: vec4<f32>,
+}
+
+// A mesh whose texture runs along a flow, see `Model::from_flowing_mesh`. The
+// place in the flow map takes the room of the flat color, so 2 values, the uv,
+// the normal and the index of the instance make the eight an A7 draws, see
+// docs/ios.md.
+struct FlowOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) @interpolate(flat) instance: u32,
+    @location(3) map: vec2<f32>,
+}
+
+// The fastest flow, `FLOW_RANGE` of `Vertex3D`.
+const FLOW_RANGE: f32 = 0.5;
+// The cells of the grid along 1 uv unit.
+const FLOW_CELLS: f32 = 4.0;
+// The flow in uv units a second where the ripples are the smallest and the
+// strongest.
+const FLOW_FULL: f32 = 0.4;
+// How many more ripples full flow has than still water.
+const FLOW_TILING: f32 = 1.5;
+// How strong the ripples of still water are, full flow is 1.
+const FLOW_CALM: f32 = 0.25;
+// How much ripple a point needs more than the share of foam it has left to
+// show white, how soft that edge is, and how white the foam is.
+const FOAM_EDGE: f32 = 0.2;
+const FOAM_WHITE: f32 = 0.9;
+
+@vertex
+fn v_flow(vertex: Vertex, instance: Instance) -> FlowOutput {
+    let placed = place(vertex.pos, vertex.normal, vertex.uv, vertex.color, instance);
+    var out: FlowOutput;
+    out.pos = placed.pos;
+    out.uv = placed.uv;
+    out.normal = placed.normal;
+    out.instance = placed.instance;
+    out.map = unpack2x16unorm(vertex.color);
+    return out;
+}
+
+@vertex
+fn v_smooth(vertex: Vertex, instance: Instance) -> SmoothOutput {
+    let placed = place(vertex.pos, vertex.normal, vec2<f32>(0.0), vertex.color, instance);
+    var out: SmoothOutput;
+    out.pos = placed.pos;
+    out.normal = placed.normal;
+    out.instance = placed.instance;
+    out.color = unpack4x8unorm(vertex.color);
+    return out;
 }
 
 // The blend of the four joint matrices that move this vertex. A joint
@@ -109,7 +201,145 @@ fn v_skinned(vertex: Vertex, instance: Instance, skin: SkinVertex) -> VertexOutp
     let matrix = skin_matrix(skin, instance.joint_base);
     let pos = (matrix * vec4<f32>(vertex.pos, 1.0)).xyz;
     let normal = mat3x3<f32>(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * vertex.normal;
-    return place(pos, normal, vertex.uv, instance);
+    return place(pos, normal, vertex.uv, vertex.color, instance);
+}
+
+// One blade of a grass patch, see `GrassBlade`.
+struct Blade {
+    @location(3) place: vec4<f32>,
+    @location(4) size: f32,
+    @location(5) tint: u32,
+    @location(6) slot: u32,
+    @location(7) normal: u32,
+}
+
+// How much of the ground's normal a blade's normal takes. Lit by its own
+// face a thin blade flips from bright to dark as it turns, lit nearly
+// like the ground under it a field reads as 1 surface.
+const GRASS_UP: f32 = 0.7;
+// The units around the player's trail that grass leans away in.
+const GRASS_PUSH_REACH: f32 = 1.0;
+// Grass closer to the camera than this is not drawn, so a blade never
+// fills the view.
+const GRASS_NEAR: f32 = 2.0;
+
+// A blade of a grass patch with its wind and push. The patch draws
+// through its own bind of group 1:
+// `instances` holds 1 instance per patch slot, read by the fragment stage
+// as for any node, and `joints` 1 matrix per slot, see `Grass`. Its first
+// column is the fade: where blades thin out from, the length of the
+// thinning, 1 over the band a blade shrinks over and the blade count. The
+// second is the 4 phases of the sway, the third the sway distance, the
+// push distance and 1 over the height of a full bend, the last the
+// patch's origin.
+@vertex
+fn v_grass(vertex: Vertex, blade: Blade, @builtin(instance_index) rank: u32) -> VertexOutput {
+    // 2 matrices a patch: its numbers, and the turn of its field's own
+    // axes, which everything below works in until the end.
+    let field = joints[blade.slot * 2u];
+    let turn4 = joints[blade.slot * 2u + 1u];
+    let field_turn = mat3x3<f32>(turn4[0].xyz, turn4[1].xyz, turn4[2].xyz);
+    let to_field = transpose(field_turn);
+    let fade = field[0];
+    let phases = field[1];
+    let sway = field[2];
+    // The middle of the patch from the camera, and its place in the field.
+    let patch_middle = field[3].xyz - view.camera_pos.xyz;
+    let patch_in_field = vec2<f32>(field[3].w, sway.w);
+    let root = patch_middle + field_turn * blade.place.xyz;
+
+    // The blades of a patch lie in random order, so the first ones stay
+    // the farthest out and the field thins evenly. Each shrinks away over
+    // a band before its own distance, so none pops.
+    let share = 1.0 - f32(rank) / fade.w;
+    let gone = fade.x + share * fade.y;
+    let grown = saturate((gone - length(root)) * fade.z);
+
+    let local = vertex.pos * blade.size * grown;
+    let turn = vec2<f32>(cos(blade.place.w), sin(blade.place.w));
+    var pos = vec3<f32>(turn.x * local.x + turn.y * local.z, local.y, turn.x * local.z - turn.y * local.x);
+
+    // The turn that takes straight up onto the ground's normal, so a blade
+    // stands out of a slope. Its columns are where x, y and z go.
+    let flat = unpack2x16snorm(blade.normal);
+    let rise = sqrt(max(1.0 - dot(flat, flat), 0.0));
+    let k = 1.0 / (1.0 + rise);
+    let tilt = mat3x3<f32>(
+        vec3<f32>(1.0 - flat.x * flat.x * k, -flat.x, -flat.x * flat.y * k),
+        vec3<f32>(flat.x, rise, flat.y),
+        vec3<f32>(-flat.x * flat.y * k, -flat.y, 1.0 - flat.y * flat.y * k),
+    );
+
+    var bent = tilt * pos;
+    let rest = length(bent);
+    // How much a point bends, its height in the mesh over the height of a
+    // full bend, a straight line, so the root stays.
+    let bend = saturate(vertex.pos.y * sway.z);
+
+    // The wind: a steady lean along it and a gust, a wave running along
+    // the wind times 3 sines across and along it.
+    // The wind laid onto the field's ground.
+    let wind_flat = (to_field * view.grass_wind.xyz).xz;
+    let wind = select(vec2<f32>(0.0), normalize(wind_flat), dot(wind_flat, wind_flat) > 1e-8);
+    let strength = view.grass_wind.w;
+    let world = patch_in_field + blade.place.xz + bent.xz;
+    let across = dot(world, vec2<f32>(-wind.y, wind.x));
+    let along = dot(world, wind);
+    let wave = vec3<f32>(across, across, along) * vec3<f32>(-0.3, -0.432, -0.2);
+    let gust = sin(phases.x + wave.z);
+    let waves = sin(phases.yzw + wave);
+    let rough = abs(2.0 * waves.x * waves.y) * 0.75 + 0.25;
+    let wind3 = vec3<f32>(wind.x, 0.0, wind.y);
+    let swing = wind3 * (gust * waves.z * sway.x * bend * strength * rough);
+    let steady = wind3 * (sway.x * bend * strength * 0.4);
+    var shift = swing * 0.5 + steady;
+    shift.y -= 0.5 * length(shift.xz);
+    bent += shift;
+
+    // The push: within reach of the line from where the feet were to
+    // where they are, so a walk leaves a trail, out from the player and
+    // down, only above the feet.
+    if view.grass_push.w > 0.5 {
+        let point = blade.place.xyz + bent;
+        let feet = to_field * (view.grass_push.xyz - patch_middle);
+        let trail_end = (to_field * (view.grass_trail.xyz - patch_middle)).xz;
+        let from_feet = point.xz - feet.xz;
+        let trail = trail_end - feet.xz;
+        let trail_length = length(trail);
+        var apart = length(from_feet);
+        if trail_length >= 0.01 {
+            let back = trail / trail_length;
+            let behind = dot(back, from_feet);
+            if behind > trail_length {
+                apart = length(trail_end - point.xz);
+            } else if behind >= 0.0 {
+                apart = abs(dot(vec2<f32>(back.y, -back.x), from_feet));
+            }
+        }
+        let push = (1.0 - min(apart / GRASS_PUSH_REACH, 1.0)) * bend * sway.y;
+        let out_of_way = blade.place.xz - feet.xz;
+        let away = out_of_way / max(length(out_of_way), 1e-4);
+        if feet.y < point.y {
+            bent += vec3<f32>(away.x * push, -push, away.y * push);
+        }
+    }
+
+    // Every point keeps its distance from the root, so a blade swings as
+    // if hinged there and never stretches.
+    let reach = length(bent);
+    if reach > 1e-5 {
+        bent *= rest / reach;
+    }
+
+    let n = vec3<f32>(turn.x * vertex.normal.x + turn.y * vertex.normal.z, vertex.normal.y, turn.x * vertex.normal.z - turn.y * vertex.normal.x);
+
+    var out: VertexOutput;
+    out.pos = view.view_proj * vec4<f32>(root + field_turn * bent, 1.0);
+    out.uv = vertex.uv;
+    out.normal = normalize(field_turn * mix(tilt * n, tilt[1], GRASS_UP));
+    out.instance = blade.slot;
+    out.color = pack4x8unorm(unpack4x8unorm(vertex.color) * unpack4x8unorm(blade.tint));
+    return out;
 }
 
 // The Filament mobile model: Lambert diffuse, GGX distribution, the
@@ -185,6 +415,8 @@ struct Surface {
     f0: vec3<f32>,
     f90: f32,
     roughness: f32,
+    // 1 for `Material::dust`.
+    dust: f32,
 }
 
 // Light arriving from `to_light` with `radiance`, both already scaled
@@ -204,7 +436,9 @@ fn shade(s: Surface, to_light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
     let v = v_smith_ggx_fast(s.nov, nol, s.roughness);
     let f = f_schlick(s.f0, s.f90, loh);
 
-    return (s.diffuse + PI * d * v * f) * radiance * nol;
+    // Lommel-Seeliger for dust, 1 where Lambert is 1, see `Material::dust`.
+    let diffuse_light = select(nol, 2.0 * nol / (nol + s.nov), s.dust > 0.5);
+    return (s.diffuse * diffuse_light + PI * d * v * f * nol) * radiance;
 }
 
 // How much the sun reaches a point of a cascade's map, 0 in shadow and
@@ -251,9 +485,10 @@ struct CascadePoint {
     inside: f32,
 }
 
-fn cascade_place(layer: i32, p: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoint {
+// `offset` is the point from the camera, what the cascade maps take.
+fn cascade_place(layer: i32, offset: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoint {
     let texel = view.sun_texel[layer];
-    let pushed = p + n * texel * NORMAL_OFFSET * (1.0 - nol);
+    let pushed = offset + n * texel * NORMAL_OFFSET * (1.0 - nol);
     let clip = view.sun_view_proj[layer] * vec4<f32>(pushed, 1.0);
     let ndc = clip.xyz / clip.w;
     var point: CascadePoint;
@@ -270,13 +505,13 @@ fn cascade_place(layer: i32, p: vec3<f32>, n: vec3<f32>, nol: f32) -> CascadePoi
 
 // The shadow of `p` in a cascade's map, blended into the next map that
 // holds the point when `p` sits in the edge band.
-fn cascade_blend(layer: i32, point: CascadePoint, p: vec3<f32>, n: vec3<f32>, nol: f32) -> f32 {
+fn cascade_blend(layer: i32, point: CascadePoint, offset: vec3<f32>, n: vec3<f32>, nol: f32) -> f32 {
     let shadow = cascade_shadow(layer, point.uv, point.depth);
     if point.inside >= 1.0 {
         return shadow;
     }
     for (var next = layer + 1; next < SHADOW_CASCADES; next++) {
-        let other = cascade_place(next, p, n, nol);
+        let other = cascade_place(next, offset, n, nol);
         if other.inside >= 0.0 {
             return mix(cascade_shadow(next, other.uv, other.depth), shadow, point.inside);
         }
@@ -291,18 +526,17 @@ fn cascade_blend(layer: i32, point: CascadePoint, p: vec3<f32>, n: vec3<f32>, no
 // and a little around it, so the last map does not hold what the near
 // ones do, and a pixel too coarse for every map that holds it keeps
 // the coarsest of those. Outside every map the sun reaches.
-fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
+fn sun_shadow(p: vec3<f32>, offset: vec3<f32>, n: vec3<f32>) -> f32 {
     if view.sun_color.w < 0.5 {
         return 1.0;
     }
-    let to_eye = view.camera_pos.xyz - p;
-    let facing = max(abs(dot(n, normalize(to_eye))), 0.1);
-    let footprint = length(to_eye) * view.camera_pos.w / view.viewport.y / facing;
+    let facing = max(abs(dot(n, to_eye_of(p))), 0.1);
+    let footprint = pixel_size_at(p) / facing;
     let nol = saturate(dot(n, -view.sun_dir.xyz));
     var held = -1;
     var held_point: CascadePoint;
     for (var layer = 0; layer < SHADOW_CASCADES; layer++) {
-        let point = cascade_place(layer, p, n, nol);
+        let point = cascade_place(layer, offset, n, nol);
         if point.inside < 0.0 {
             continue;
         }
@@ -311,10 +545,10 @@ fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
             held_point = point;
             continue;
         }
-        return cascade_blend(layer, point, p, n, nol);
+        return cascade_blend(layer, point, offset, n, nol);
     }
     if held >= 0 {
-        return cascade_blend(held, held_point, p, n, nol);
+        return cascade_blend(held, held_point, offset, n, nol);
     }
     return 1.0;
 }
@@ -323,59 +557,284 @@ fn sun_shadow(p: vec3<f32>, n: vec3<f32>) -> f32 {
 // taking over from `fog_range.x` units away over the length of its
 // fade. Linear light, the fog color is tonemapped with the rest.
 fn fogged(color: vec3<f32>, p: vec3<f32>) -> vec3<f32> {
+    // The air's haze comes first, a fog then lies over it, the medium the
+    // camera itself stands in.
+    let hazed = select(color, air_haze(color, p - view.camera_pos.xyz), has_air());
     if view.fog_color.w < 0.5 {
-        return color;
+        return hazed;
     }
     let distance = length(p - view.camera_pos.xyz);
     let amount = saturate((distance - view.fog_range.x) * view.fog_range.y);
-    return mix(color, view.fog_color.rgb, amount);
+    return mix(hazed, view.fog_color.rgb, amount);
 }
 
 fn light_index(packed: vec4<u32>, slot: u32) -> u32 {
     return (packed[slot / 2u] >> ((slot % 2u) * 16u)) & 0xffffu;
 }
 
-@fragment
-fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
+// The lit color of a fragment and its alpha.
+// What the textures say about a fragment. Everything with a derivative is
+// in here, so a node can drop a fragment after this and pay for no light,
+// see `f_grass`. The discard comes after every sample, the derivatives of a
+// dropped fragment are not to be trusted.
+struct Sampled {
+    base:       vec3<f32>,
+    alpha:      f32,
+    metallic:   f32,
+    perceptual: f32,
+    occlusion:  f32,
+    offset:     vec3<f32>,
+    world_pos:  vec3<f32>,
+    flat:       vec3<f32>,
+    normal:     vec3<f32>,
+}
+
+fn sampled(in: VertexOutput) -> Sampled {
+    return sample_maps(in.pos, in.uv, in.normal, in.instance, unpack4x8unorm(in.color));
+}
+
+// A smooth mesh has no uv, so it reads the first texel of each map.
+fn sampled_smooth(in: SmoothOutput) -> Sampled {
+    return sample_maps(in.pos, vec2<f32>(0.0), in.normal, in.instance, in.color);
+}
+
+struct FlowCell {
+    slope: vec2<f32>,
+    base:  vec4<f32>,
+}
+
+// 1 cell of the grid with its 1 flow, at `offset` among the 4 cells over a
+// point. It turns the maps around its own middle, so a mesh of many pieces
+// lines up however far its uv runs, and turning every pixel on its own would
+// tear the pattern where the flow bends. Read with the gradients of the whole
+// surface, the jump of the uv at the edge of a cell would pick a wrong mip.
+fn flow_cell(in: FlowOutput, map_per_uv: f32, offset: vec2<f32>) -> FlowCell {
+    let center = (floor(in.uv * FLOW_CELLS + offset * 0.5) + (1.0 - offset) * 0.5) / FLOW_CELLS;
+    let flow = (textureSampleLevel(flow_texture, flow_sampler, in.map + (center - in.uv) * map_per_uv, 0.0).xy * 2.0 - 1.0) * FLOW_RANGE;
+    let speed = length(flow);
+    let way = select(vec2<f32>(0.0, 1.0), flow / max(speed, 1e-4), speed > 1e-3);
+    let across = vec2<f32>(way.y, -way.x);
+    let share = saturate(speed / FLOW_FULL);
+    let tiling = 1.0 + share * FLOW_TILING;
+    let turn = mat2x2<f32>(across.x, way.x, across.y, way.y) * tiling;
+    // Whole uv units away a cell gets the same start, the pieces of a mesh fit.
+    // A start that grows evenly from cell to cell would slant the pattern.
+    var mixed = fract(fract(center).xyx * 97.0 * 0.1031);
+    mixed += dot(mixed, mixed.yzx + 33.33);
+    let start = fract((mixed.xx + mixed.yz) * mixed.zy);
+    let at = turn * (in.uv - center) + start - vec2<f32>(0.0, view.flow.x * speed * tiling);
+    let dx = turn * dpdx(in.uv);
+    let dy = turn * dpdy(in.uv);
+    let map = textureSampleGrad(normal_texture, normal_sampler, at, dx, dy).xy * 2.0 - 1.0;
+    var out: FlowCell;
+    out.slope = (across * map.x + way * map.y) * mix(FLOW_CALM, 1.0, share);
+    out.base = textureSampleGrad(base_texture, base_sampler, at, dx, dy);
+    return out;
+}
+
+// The 4 cells over a point, each has no weight at its edge, where the next
+// cell takes over. Averages flatten the ripples, the root brings them back.
+fn sampled_flow(in: FlowOutput) -> Sampled {
+    let map_per_uv = (length(dpdx(in.map)) + length(dpdy(in.map))) / max(length(dpdx(in.uv)) + length(dpdy(in.uv)), 1e-6);
+    let t = abs(2.0 * fract(in.uv * FLOW_CELLS) - 1.0);
+    let weights = vec4<f32>((1.0 - t.x) * (1.0 - t.y), t.x * (1.0 - t.y), (1.0 - t.x) * t.y, t.x * t.y);
+    let a = flow_cell(in, map_per_uv, vec2<f32>(0.0, 0.0));
+    let b = flow_cell(in, map_per_uv, vec2<f32>(1.0, 0.0));
+    let c = flow_cell(in, map_per_uv, vec2<f32>(0.0, 1.0));
+    let d = flow_cell(in, map_per_uv, vec2<f32>(1.0, 1.0));
+    let slope = (a.slope * weights.x + b.slope * weights.y + c.slope * weights.z + d.slope * weights.w) / max(length(weights), 1e-3);
+    let base = a.base * weights.x + b.base * weights.y + c.base * weights.z + d.base * weights.w;
+    let white = vec4<f32>(1.0);
+    var out = sample_with_normal(in.pos, in.uv, in.normal, in.instance, white, vec3<f32>(slope, 1.0));
+    let look = textureSampleLevel(flow_texture, flow_sampler, in.map, 0.0);
     let instance = instances[in.instance];
-    let texel = textureSample(base_texture, base_sampler, in.uv);
-    var map = textureSample(normal_texture, normal_sampler, in.uv).xyz * 2.0 - 1.0;
-    map = vec3<f32>(map.xy * instance.normal_scale, map.z);
+    let linear = mix(srgb_to_linear(instance.shallow.rgb), srgb_to_linear(instance.color.rgb), look.b);
+    out.base = linear * srgb_to_linear(base.rgb);
+    out.alpha = mix(instance.shallow.a, instance.color.a, look.b) * base.a;
+    // The foam opens where the ripples are the highest and runs with them. At
+    // no foam no ripple is high enough, so water with none stays as it was.
+    let foam = 1.0 - look.a;
+    let shown = smoothstep(1.0 - foam, 1.0 - foam + FOAM_EDGE, length(slope)) * saturate(foam * 4.0);
+    out.base = mix(out.base, vec3<f32>(FOAM_WHITE), shown);
+    out.alpha = mix(out.alpha, 1.0, shown);
+    out.perceptual = mix(out.perceptual, 1.0, shown);
+    return out;
+}
 
-    let base = srgb_to_linear(instance.color.rgb) * srgb_to_linear(texel.rgb);
-    let alpha = instance.color.a * texel.a;
-    let metallic = instance.metallic;
+fn lit(in: VertexOutput) -> vec4<f32> {
+    return shade_sampled(sampled(in), in.instance);
+}
+
+fn lit_smooth(in: SmoothOutput) -> vec4<f32> {
+    return shade_sampled(sampled_smooth(in), in.instance);
+}
+
+// `tint` is the vertex color, encoded sRGB like every color.
+fn sample_maps(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>) -> Sampled {
+    let map = textureSample(normal_texture, normal_sampler, uv).xyz * 2.0 - 1.0;
+    return sample_with_normal(pos, uv, normal, index, tint, map);
+}
+
+// The share of each of the 3 sides a triplanar read takes, by the normal
+// in the node's space. The power keeps the blend to a narrow band at the
+// edges between the sides, a wide one smears 2 pictures into each other.
+fn triplanar_weights(n: vec3<f32>) -> vec3<f32> {
+    let w = pow(abs(n), vec3<f32>(4.0));
+    return w / max(w.x + w.y + w.z, 1e-5);
+}
+
+// A side's uv and its derivatives. The x side reads zy, the y side xz and
+// the z side xy, each mirrored on its back so a picture is never read in
+// reverse.
+struct Plane {
+    uv: vec2<f32>,
+    dx: vec2<f32>,
+    dy: vec2<f32>,
+}
+
+fn triplanar_plane(axis: u32, p: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, n: vec3<f32>, repeats: f32) -> Plane {
+    var out: Plane;
+    if axis == 0u {
+        let flip = vec2<f32>(select(-1.0, 1.0, n.x >= 0.0), 1.0) * repeats;
+        out = Plane(p.zy * flip, dx.zy * flip, dy.zy * flip);
+    } else if axis == 1u {
+        let flip = vec2<f32>(select(-1.0, 1.0, n.y >= 0.0), 1.0) * repeats;
+        out = Plane(p.xz * flip, dx.xz * flip, dy.xz * flip);
+    } else {
+        let flip = vec2<f32>(select(1.0, -1.0, n.z >= 0.0), 1.0) * repeats;
+        out = Plane(p.xy * flip, dx.xy * flip, dy.xy * flip);
+    }
+    return out;
+}
+
+fn triplanar_read(t: texture_2d<f32>, s: sampler, x: Plane, y: Plane, z: Plane, w: vec3<f32>) -> vec4<f32> {
+    return textureSampleGrad(t, s, x.uv, x.dx, x.dy) * w.x
+        + textureSampleGrad(t, s, y.uv, y.dx, y.dy) * w.y
+        + textureSampleGrad(t, s, z.uv, z.dx, z.dy) * w.z;
+}
+
+// The normal map of each side laid on the surface by the whiteout blend of
+// Ben Golus, "Normal Mapping for a Triplanar Shader", in the node's space.
+// A mirrored side mirrors its slope with it.
+fn triplanar_normal(x: Plane, y: Plane, z: Plane, w: vec3<f32>, n: vec3<f32>, scale: f32) -> vec3<f32> {
+    var tx = textureSampleGrad(normal_texture, normal_sampler, x.uv, x.dx, x.dy).xyz * 2.0 - 1.0;
+    var ty = textureSampleGrad(normal_texture, normal_sampler, y.uv, y.dx, y.dy).xyz * 2.0 - 1.0;
+    var tz = textureSampleGrad(normal_texture, normal_sampler, z.uv, z.dx, z.dy).xyz * 2.0 - 1.0;
+    tx.x *= select(-1.0, 1.0, n.x >= 0.0);
+    ty.x *= select(-1.0, 1.0, n.y >= 0.0);
+    tz.x *= select(1.0, -1.0, n.z >= 0.0);
+    let bx = vec3<f32>(tx.xy * scale + n.zy, abs(tx.z) * n.x);
+    let by = vec3<f32>(ty.xy * scale + n.xz, abs(ty.z) * n.y);
+    let bz = vec3<f32>(tz.xy * scale + n.xy, abs(tz.z) * n.z);
+    return normalize(bx.zyx * w.x + by.xzy * w.y + bz.xyz * w.z);
+}
+
+// `sample_maps` with the normal map already read.
+fn sample_with_normal(pos: vec4<f32>, uv: vec2<f32>, normal: vec3<f32>, index: u32, tint: vec4<f32>, read: vec3<f32>) -> Sampled {
+    let instance = instances[index];
+    let texel = textureSample(base_texture, base_sampler, uv);
+    let map = vec3<f32>(read.xy * instance.normal_scale, read.z);
+
+    // The decode of a full channel lands a hair under one in f32, which
+    // moved pixels of every mesh when vertex colors came in, and white
+    // is what every mesh without vertex colors carries.
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    let base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb);
+    let alpha = instance.color.a * tint.a * texel.a;
+    let metal_rough = textureSample(metallic_roughness_texture, metallic_roughness_sampler, uv);
+    let metallic = instance.metallic * metal_rough.b;
     // Below this a highlight collapses to a few pixels of noise.
-    let perceptual = clamp(instance.roughness, 0.045, 1.0);
+    let perceptual = clamp(instance.roughness * metal_rough.g, 0.045, 1.0);
+    let occlusion_texel = textureSample(occlusion_texture, occlusion_sampler, uv).r;
+    let occlusion = 1.0 + instance.occlusion_strength * (occlusion_texel - 1.0);
 
-    let world_pos = world_position(in.pos);
+    let offset = camera_offset(pos);
+    let world_pos = view.camera_pos.xyz + offset;
+    let flat = normalize(normal);
+    var bent = perturb_normal(flat, world_pos, uv, map);
+    var out = Sampled(base, alpha, metallic, perceptual, occlusion, offset, world_pos, flat, bent);
+
+    // The node's own space, so the maps stay on a node that turns: the
+    // inverse of the model's turn is the transpose of the normal matrix.
+    // The derivatives come before the branch, they need every fragment.
+    let model = instance.model;
+    let turn = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
+    let unturn = transpose(mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz));
+    let local = unturn * (offset - (model[3].xyz - view.camera_pos.xyz));
+    let local_dx = dpdx(local);
+    let local_dy = dpdy(local);
+    let repeats = instance.normal1.w;
+    if repeats > 0.0 {
+        let n = normalize(transpose(turn) * flat);
+        let w = triplanar_weights(n);
+        let px = triplanar_plane(0u, local, local_dx, local_dy, n, repeats);
+        let py = triplanar_plane(1u, local, local_dx, local_dy, n, repeats);
+        let pz = triplanar_plane(2u, local, local_dx, local_dy, n, repeats);
+        let texel3 = triplanar_read(base_texture, base_sampler, px, py, pz, w);
+        out.base = srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel3.rgb);
+        out.alpha = instance.color.a * tint.a * texel3.a;
+        let mr3 = triplanar_read(metallic_roughness_texture, metallic_roughness_sampler, px, py, pz, w);
+        out.metallic = instance.metallic * mr3.b;
+        out.perceptual = clamp(instance.roughness * mr3.g, 0.045, 1.0);
+        let occ3 = triplanar_read(occlusion_texture, occlusion_sampler, px, py, pz, w).r;
+        out.occlusion = 1.0 + instance.occlusion_strength * (occ3 - 1.0);
+        let local_bent = triplanar_normal(px, py, pz, w, n, instance.normal_scale);
+        let normal_matrix = mat3x3<f32>(instance.normal0.xyz, instance.normal1.xyz, instance.normal2.xyz);
+        out.normal = normalize(normal_matrix * local_bent);
+    }
+    return out;
+}
+
+fn shade_sampled(in: Sampled, index: u32) -> vec4<f32> {
+    let instance = instances[index];
+    let base = in.base;
+    let metallic = in.metallic;
+    let perceptual = in.perceptual;
+    let offset = in.offset;
+    let world_pos = in.world_pos;
 
     var s: Surface;
-    s.normal = perturb_normal(normalize(in.normal), world_pos, in.uv, map);
-    s.to_eye = normalize(view.camera_pos.xyz - world_pos);
+    s.normal = in.normal;
+    s.to_eye = to_eye_of(world_pos);
     s.nov = max(dot(s.normal, s.to_eye), 1e-4);
     s.diffuse = base * (1.0 - metallic);
     s.f0 = mix(vec3<f32>(0.04), base, metallic);
     s.f90 = saturate(dot(s.f0, vec3<f32>(50.0 * 0.33)));
     s.roughness = perceptual * perceptual;
+    s.dust = instance.normal0.w;
 
     var color: vec3<f32>;
     if view.ambient.w > 0.5 {
         // The sky lights the diffuse through its harmonics and the
         // reflection through the mip that matches the roughness.
         let reflected = reflect(-s.to_eye, s.normal);
-        let specular = sky_radiance(reflected, perceptual * 5.0);
+        // The air has no cube to reflect, its 9 numbers stand in, a
+        // blurred sky.
+        let specular = select(sky_radiance(reflected, perceptual * 5.0), sky_irradiance(reflected), has_air());
         color = sky_irradiance(s.normal) * s.diffuse + specular * env_brdf(s.f0, perceptual, s.nov);
     } else {
         // A flat ambient stands in for a sky. Its diffuse is the Lambert
         // term, its reflection the base reflectance.
         color = view.ambient.rgb * (s.diffuse + s.f0);
     }
+    // Occlusion darkens only the light from all around, never the sun
+    // or a lamp, as glTF asks.
+    color *= in.occlusion;
 
-    color += shade(s, -view.sun_dir.xyz, view.sun_color.rgb) * sun_shadow(world_pos, normalize(in.normal));
+    let to_sun = -view.sun_dir.xyz;
+    color += shade(s, to_sun, view.sun_color.rgb) * sun_shadow(world_pos, offset, in.flat)
+        * light_through(offset, to_sun, view.occlusion.y) * air_light_at(offset, to_sun);
 
     for (var slot = 0u; slot < instance.light_count; slot++) {
         let light = lights[light_index(instance.lights, slot)];
+        if light.position.w < 0.0 {
+            // Directional, full strength from everywhere a ball does not
+            // hide it.
+            let to_light = light.position.xyz;
+            let through = light_through(offset, to_light, light.direction.w) * air_light_at(offset, to_light);
+            color += shade(s, to_light, light.color.rgb * through);
+            continue;
+        }
 
         let to_light = light.position.xyz - world_pos;
         let distance2 = max(dot(to_light, to_light), 1e-4);
@@ -392,5 +851,218 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color += shade(s, l, light.color.rgb * attenuation);
     }
 
-    return vec4<f32>(encode(fogged(color, world_pos)), alpha);
+    // Its own glow, the base color the lights would have shown.
+    color += base * instance.emissive;
+
+    // An unlit node shows its base color alone. A select and not an early
+    // return: the flag differs per instance, and the derivatives above
+    // need every fragment to take the same path.
+    color = select(color, base, instance.unlit > 0.5);
+
+    return vec4<f32>(encode(fogged(color, world_pos)), in.alpha);
+}
+
+// A translucent node, blended by its alpha.
+@fragment
+fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return lit(in);
+}
+
+// An opaque node replaces the target, so it writes a full alpha. The
+// alpha of its texture would leave a hole in a scene picture.
+@fragment
+fn f_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(lit(in).rgb, 1.0);
+}
+
+// An opaque node whose material has no maps, `f_opaque` with the plain
+// texels folded in: it reads no texture and builds no normal frame, the
+// cost of every pixel of a ground that sets only a color. The plain
+// normal texel of 128 is a hair off flat, this one is flat.
+@fragment
+fn f_plain_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let tint = unpack4x8unorm(in.color);
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    // The white texel decodes a hair under one too, kept for the same pixels.
+    let white = srgb_to_linear(vec3<f32>(1.0));
+    let offset = camera_offset(in.pos);
+    let flat = normalize(in.normal);
+    let sampled = Sampled(
+        srgb_to_linear(instance.color.rgb) * tint_linear * white,
+        instance.color.a * tint.a,
+        instance.metallic,
+        clamp(instance.roughness, 0.045, 1.0),
+        1.0,
+        offset,
+        view.camera_pos.xyz + offset,
+        flat,
+        flat,
+    );
+    return vec4<f32>(shade_sampled(sampled, in.instance).rgb, 1.0);
+}
+
+// A solid node whose material has a base color texture and no other map,
+// `f_opaque` with the white metallic, roughness and occlusion texels
+// folded in: 1 texture read and no normal frame. A map converted from an
+// old game has only such materials, and the 3 other reads and the frame
+// were most of its fragment time. The flat normal is the one
+// `f_plain_opaque` takes. The light pass of a cut out node takes it too.
+@fragment
+fn f_base_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let tint = unpack4x8unorm(in.color);
+    let tint_linear = select(srgb_to_linear(tint.rgb), vec3<f32>(1.0), tint.rgb == vec3<f32>(1.0));
+    let texel = textureSample(base_texture, base_sampler, in.uv);
+    let offset = camera_offset(in.pos);
+    let flat = normalize(in.normal);
+    let sampled = Sampled(
+        srgb_to_linear(instance.color.rgb) * tint_linear * srgb_to_linear(texel.rgb),
+        instance.color.a * tint.a * texel.a,
+        instance.metallic,
+        clamp(instance.roughness, 0.045, 1.0),
+        1.0,
+        offset,
+        view.camera_pos.xyz + offset,
+        flat,
+        flat,
+    );
+    return vec4<f32>(shade_sampled(sampled, in.instance).rgb, 1.0);
+}
+
+// A cut out node, see `Material::cutout`, or a fading one, see
+// `Material::fade`. Its own entry, so a plain opaque draw carries no
+// discard. The color it returns goes nowhere, `f_opaque` lights what
+// stays, see `MeshDraw::CutoutDepth`.
+@fragment
+fn f_cutout_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    if coverage(in) < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return vec4<f32>(0.0);
+}
+
+// The 3 entries above for a mesh with fading colors.
+@fragment
+fn f_smooth_main(in: SmoothOutput) -> @location(0) vec4<f32> {
+    return lit_smooth(in);
+}
+
+@fragment
+fn f_smooth_opaque(in: SmoothOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(lit_smooth(in).rgb, 1.0);
+}
+
+@fragment
+fn f_smooth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
+    let surface = sampled_smooth(in);
+    let instance = instances[in.instance];
+    if surface.alpha < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return vec4<f32>(shade_sampled(surface, in.instance).rgb, 1.0);
+}
+
+// The 2 entries of `f_main` and `f_opaque` for a mesh with a flow.
+@fragment
+fn f_flow_main(in: FlowOutput) -> @location(0) vec4<f32> {
+    return shade_sampled(sampled_flow(in), in.instance);
+}
+
+@fragment
+fn f_flow_opaque(in: FlowOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade_sampled(sampled_flow(in), in.instance).rgb, 1.0);
+}
+
+// The blades of grass that stay, cut out and dropped near the camera. The
+// color it returns goes nowhere, `f_grass` lights them, see
+// `MeshDraw::GrassDepth`.
+@fragment
+fn f_grass_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    if coverage(in) < instances[in.instance].cutout || length(camera_offset(in.pos)) < GRASS_NEAR {
+        discard;
+    }
+    return vec4<f32>(0.0);
+}
+
+@fragment
+fn f_grass(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(shade_sampled(sampled(in), in.instance).rgb, 1.0);
+}
+
+// The 24 bits a depth photo has for a distance, spread on a log scale
+// from 1 mm to 10 km, see `scene/photo.rs`, which reads them back. A
+// log scale keeps the same share of precision at every distance, and a
+// pixel where the multisample resolve mixed 2 surfaces still lands
+// between them.
+const DEPTH_LOG_NEAR: f32 = -9.965784;
+const DEPTH_LOG_FAR: f32 = 13.287712;
+const DEPTH_STEPS: f32 = 16777214.0;
+
+// The distance from the camera to the fragment along the line of sight
+// as 3 bytes in red, green and blue. The full 24 bits, white, is left
+// for a pixel with nothing on it.
+fn depth_color(pos: vec4<f32>) -> vec4<f32> {
+    let along = max(dot(camera_offset(pos), view.eye.xyz), 1e-6);
+    let part = saturate((log2(along) - DEPTH_LOG_NEAR) / (DEPTH_LOG_FAR - DEPTH_LOG_NEAR));
+    let steps = u32(round(part * DEPTH_STEPS));
+    let bytes = vec3<u32>(steps >> 16u, (steps >> 8u) & 255u, steps & 255u);
+    return vec4<f32>(vec3<f32>(bytes) / 255.0, 1.0);
+}
+
+// The alpha `lit` gives a fragment, without the light.
+fn coverage(in: VertexOutput) -> f32 {
+    let texel = textureSample(base_texture, base_sampler, in.uv);
+    return instances[in.instance].color.a * unpack4x8unorm(in.color).a * texel.a;
+}
+
+@fragment
+fn f_depth(in: VertexOutput) -> @location(0) vec4<f32> {
+    return depth_color(in.pos);
+}
+
+@fragment
+fn f_depth_cutout(in: VertexOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    if coverage(in) < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return depth_color(in.pos);
+}
+
+// `f_depth_cutout` for a mesh with fading colors. A smooth node that is
+// not cut out needs no entry of its own, the plain `f_depth` reads only
+// the position.
+@fragment
+fn f_smooth_depth_cutout(in: SmoothOutput) -> @location(0) vec4<f32> {
+    let instance = instances[in.instance];
+    let texel = textureSample(base_texture, base_sampler, vec2<f32>(0.0));
+    if instance.color.a * in.color.a * texel.a < instance.cutout || faded_out(in.pos.xy, instance.fade, instance.fade_flip) {
+        discard;
+    }
+    return depth_color(in.pos);
+}
+
+// An edge lies on the faces it borders, at their depth, so a line drawn
+// there loses to them on every other pixel. Each fragment moves this
+// share of its distance toward the camera. The reversed depth shrinks
+// like 1 over the distance, so a share of it is the same share of the
+// distance. Depth bias would do this, WebGPU allows it only for
+// triangles.
+const WIREFRAME_PULL: f32 = 0.002;
+// White, encoded like the frame, unlit and unfogged.
+const WIREFRAME_COLOR: vec4<f32> = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+
+struct WireframeOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn f_wireframe(in: VertexOutput) -> WireframeOutput {
+    var out: WireframeOutput;
+    out.color = WIREFRAME_COLOR;
+    out.depth = min(in.pos.z * (1.0 + WIREFRAME_PULL), 1.0);
+    return out;
 }

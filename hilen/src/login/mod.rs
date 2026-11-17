@@ -1,0 +1,28 @@
+//! Login with Google, Apple or Discord for an app with a `hilen-server`
+//! backend, behind the `login` feature. `GoogleLoginButton`, `AppleLoginButton`
+//! and `DiscordLoginButton` are the ready views, `Login` the calls under them
+//! for an app that draws its own. A device with no keyboard, a TV, logs in
+//! through a phone: `QrCodeView` shows the link of `Login::start_with_code`.
+
+#[cfg(feature = "ui-tests")]
+mod apple_login_button_test;
+mod client;
+#[cfg(feature = "ui-tests")]
+mod discord_login_button_test;
+#[cfg(feature = "ui-tests")]
+mod google_login_button_test;
+mod hand_back;
+mod login_button;
+#[cfg(feature = "ui-tests")]
+mod login_button_texts_test;
+mod qr_code_view;
+#[cfg(feature = "ui-tests")]
+mod qr_code_view_test;
+mod view;
+mod wire;
+
+pub use client::{LinkedProviders, Login, LoginCode, Provider};
+pub use login_button::{AppleLoginButton, DiscordLoginButton, GoogleLoginButton};
+pub use qr_code_view::QrCodeView;
+pub use view::View;
+pub use wire::LoginUser;

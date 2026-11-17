@@ -1,7 +1,6 @@
-use std::{
-    mem::take,
-    sync::mpsc::{Receiver, channel},
-};
+#[cfg(any(feature = "gpu", test))]
+use std::mem::take;
+use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::Result;
 // The main thread drains the queue every frame while workers push into
@@ -30,14 +29,21 @@ static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 
 /// Register a callback that fires whenever work is queued for the main thread
 /// from another thread. An event driven main loop uses this to wake from sleep
-/// and drain the queue, instead of polling every frame just in case. The wasm
-/// loop is browser driven and never sleeps, so nothing registers one there.
-#[cfg(any(not_wasm, test))]
+/// and drain the queue, instead of polling every frame just in case.
+#[cfg(any(feature = "gpu", test))]
 pub fn set_dispatch_waker(waker: impl Fn() + Send + Sync + 'static) {
     *WAKER.lock() = Some(Box::new(waker));
 }
 
-fn wake_main() {
+/// Drops the work that still waits for the main thread, and the waker. A hot
+/// build that is stopped runs no frame again, nobody would take that work.
+#[cfg(hot)]
+pub(crate) fn stop_dispatch() {
+    CALLBACKS.lock().clear();
+    *WAKER.lock() = None;
+}
+
+pub(crate) fn wake_main() {
     if let Some(waker) = WAKER.lock().as_ref() {
         waker();
     }
@@ -113,7 +119,23 @@ pub fn ok_main(action: impl FnOnce() + Send + 'static) -> Result<()> {
     Ok(())
 }
 
+/// Queues `action` for the next turn of the main loop, also when the caller
+/// is the main thread. `on_main` runs it at once there.
+pub(crate) fn on_main_later(action: impl FnOnce() + Send + 'static) {
+    CALLBACKS.lock().push(Box::new(action));
+    wake_main();
+}
+
 pub fn after(delay: f32, action: impl FnOnce() + Send + 'static) {
+    // A task of a page runs on the thread that spawned it. A worker that then
+    // blocks, like the tests waiting for a frame record that only this timer
+    // ends, never runs it, and `Inspect frames` hung in every browser. The main
+    // thread of a page never blocks, so the timer runs there.
+    #[cfg(wasm)]
+    if !crate::deps::hreads::is_main_thread() {
+        on_main(move || after(delay, action));
+        return;
+    }
     crate::deps::hreads::spawn(async move {
         crate::deps::hreads::sleep(delay).await;
         CALLBACKS.lock().push(Box::new(action));
@@ -121,6 +143,7 @@ pub fn after(delay: f32, action: impl FnOnce() + Send + 'static) {
     });
 }
 
+#[cfg(any(feature = "gpu", test))]
 pub fn invoke_dispatched() {
     let actions = take(&mut *CALLBACKS.lock());
 

@@ -8,26 +8,45 @@ use crate::render::{
     pipelines::{pipeline_type::PipelineType, rect_pipeline::RectPipeline},
 };
 
+#[cfg(feature = "scene")]
+mod air_textures;
 #[cfg(feature = "level")]
 mod background_pipeline;
 mod lab_pipeline;
 #[cfg(feature = "scene")]
+mod mesh_binds;
+#[cfg(feature = "scene")]
 mod mesh_pipeline;
+#[cfg(feature = "scene")]
+mod picture_pipeline;
 mod pipeline_type;
+#[cfg(feature = "level")]
+mod pixel_blit_pipeline;
 #[cfg(feature = "level")]
 mod polygon_pipeline;
 mod rect_pipeline;
 #[cfg(feature = "scene")]
 mod shadow_pass;
+#[cfg(feature = "scene")]
+mod sky_view;
+#[cfg(feature = "level")]
+mod terrain_pipeline;
 mod ui_backdrop_pipeline;
 mod ui_blur_pipeline;
 mod ui_clip_pipeline;
+mod ui_group_pipeline;
 mod ui_path_pipeline;
 
 #[cfg(feature = "level")]
-const SPRITE_CODE: &str = include_str!("shaders/sprite.wgsl");
+const SPRITE_CODE: &str = concat!(
+    include_str!("shaders/sprite_view.wgsl"),
+    include_str!("shaders/sprite.wgsl")
+);
 #[cfg(feature = "level")]
-const TEXTURED_SPRITE_CODE: &str = include_str!("shaders/sprite_textured.wgsl");
+const TEXTURED_SPRITE_CODE: &str = concat!(
+    include_str!("shaders/sprite_view.wgsl"),
+    include_str!("shaders/sprite_textured.wgsl")
+);
 const UI_CODE: &str = include_str!("shaders/ui_rect.wgsl");
 const UI_IMAGE_CODE: &str = include_str!("shaders/ui_image.wgsl");
 const UI_GRADIENT_CODE: &str = include_str!("shaders/ui_gradient.wgsl");
@@ -46,6 +65,9 @@ pub(crate) type TexturedSpriteBoxPipeline = RectPipeline<
 >;
 
 pub type UIRectPipeline = RectPipeline<{ PipelineType::Color }, "ui_rect", UI_CODE, RectView, UIRectInstance>;
+/// The rect shader with a blend that erases, see `PipelineType::Hole`.
+#[cfg(wasm)]
+pub type UIHolePipeline = RectPipeline<{ PipelineType::Hole }, "ui_hole", UI_CODE, RectView, UIRectInstance>;
 
 pub type UIImageRectPipeline =
     RectPipeline<{ PipelineType::Image }, "ui_image_rect", UI_IMAGE_CODE, RectView, UIImageInstance>;
@@ -60,15 +82,22 @@ pub(crate) type UIShadowPipeline =
 pub use background_pipeline::BackgroundPipeline;
 pub(crate) use lab_pipeline::LabPipeline;
 #[cfg(feature = "scene")]
-pub(crate) use mesh_pipeline::MeshKey;
-#[cfg(feature = "scene")]
 pub use mesh_pipeline::MeshPipeline;
+#[cfg(feature = "scene")]
+pub(crate) use mesh_pipeline::{GrassDraw, MeshKey, Reach};
+#[cfg(feature = "scene")]
+pub(crate) use picture_pipeline::PicturePipeline;
+#[cfg(feature = "level")]
+pub(crate) use pixel_blit_pipeline::PixelBlitPipeline;
 #[cfg(feature = "level")]
 pub use polygon_pipeline::PolygonPipeline;
 pub use rect_pipeline::ImageKey;
+#[cfg(feature = "level")]
+pub(crate) use terrain_pipeline::TerrainPipeline;
 pub use ui_backdrop_pipeline::UIBackdropPipeline;
 pub use ui_blur_pipeline::UIBlurPipeline;
 pub(crate) use ui_clip_pipeline::UIClipPipeline;
+pub use ui_group_pipeline::UIGroupPipeline;
 pub use ui_path_pipeline::UIPathPipeline;
 
 use crate::render::data::{UIGradientInstance, UIImageInstance, UIShadowInstance};

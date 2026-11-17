@@ -23,12 +23,12 @@ struct Transparency {
 
 impl Setup for Transparency {
     fn setup(self: Weak<Self>) {
-        self.background.set_image("gradient.png").place().back();
+        self.background.set_image("test/gradient.png").place().back();
 
-        self.view_1.set_image("wood-window.png");
-        self.view_2.set_image("wood-window.png").place().tl(50);
-        self.view_3.set_image("wood-window.png").place().tl(100);
-        self.view_4.set_image("wood-window.png").place().tl(150);
+        self.view_1.set_image("test/wood-window.png");
+        self.view_2.set_image("test/wood-window.png").place().tl(50);
+        self.view_3.set_image("test/wood-window.png").place().tl(100);
+        self.view_4.set_image("test/wood-window.png").place().tl(150);
 
         [self.view_1, self.view_2, self.view_3, self.view_4].apply(|v| {
             v.place().size(280, 280);

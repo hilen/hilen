@@ -1,7 +1,7 @@
 use hilen::{
     refs::main_lock::MainLock,
-    render::data::{PathData, RectView, UIRectInstance},
-    ui::{BLUE, CLEAR, CornerRadii, FillRule, RED, VectorPath},
+    render::data::{RectView, UIRectInstance},
+    ui::{BLUE, CLEAR, CornerRadii, FillRule, PathData, RED, VectorPath},
     window::{RenderPass, Window},
 };
 
@@ -15,7 +15,7 @@ pub(crate) fn render_path(pass: &mut RenderPass) {
             .fill_mesh(FillRule::NonZero);
 
         let mut path = PathData::new(BLUE.into(), &vertices, &indices);
-        path.prepare((200, 200).into(), Window::render_size(), 1.0, 0.5);
+        path.prepare((200, 200).into(), Window::render_size(), 1.0, 0.5, 1.0);
 
         path.into()
     });

@@ -6,8 +6,9 @@
 
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::Path,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize};
@@ -52,8 +53,16 @@ pub(crate) async fn start_test_server() -> String {
     let app = Router::new()
         .route("/users", get(users))
         .route("/posts", post(create_post))
-        .route("/posts/{id}", patch(patch_post).delete(delete_post))
-        .route("/file", get(file));
+        .route(
+            "/posts/{id}",
+            patch(patch_post).put(patch_post).delete(delete_post),
+        )
+        .route("/header/{name}", get(header))
+        .route("/status/{code}", get(status))
+        .route("/empty", post(empty))
+        .route("/bytes", post(bytes))
+        .route("/file", get(file))
+        .route("/secret", get(secret));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind the test server");
     let address = listener.local_addr().expect("Failed to read the test server address");
@@ -103,4 +112,43 @@ async fn delete_post() -> Json<Empty> {
 
 async fn file() -> Vec<u8> {
     vec![0x5A; FILE_SIZE]
+}
+
+/// The bytes a file behind a login holds, every byte value and no text.
+pub(crate) fn secret_bytes() -> Vec<u8> {
+    (0..=255).chain([0, 255, 0x89, 0xC3, 0x28]).collect()
+}
+
+/// The bytes of `secret_bytes` for the token `abc`, a 401 for any other.
+async fn secret(headers: HeaderMap) -> Result<Vec<u8>, StatusCode> {
+    match headers.get("authorization").and_then(|value| value.to_str().ok()) {
+        Some("Bearer abc") => Ok(secret_bytes()),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// The value of one request header as the server got it.
+async fn header(Path(name): Path<String>, headers: HeaderMap) -> Json<Option<String>> {
+    Json(headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned))
+}
+
+async fn status(Path(code): Path<u16>) -> (StatusCode, String) {
+    let status = StatusCode::from_u16(code).expect("The test asked for a status that does not exist");
+
+    (status, format!("status {code}"))
+}
+
+/// 200 with no body at all.
+async fn empty() {}
+
+/// How many bytes the body had, their sum, and the content type it came
+/// with.
+async fn bytes(headers: HeaderMap, body: Bytes) -> Json<(usize, u64, Option<String>)> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let sum = body.iter().map(|byte| u64::from(*byte)).sum();
+
+    Json((body.len(), sum, content_type))
 }

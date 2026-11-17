@@ -4,7 +4,10 @@ use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 use crate::gm::flat::{Point, Vertex2D};
 #[cfg(feature = "scene")]
-use crate::gm::volume::{SkinVertex, Vertex3D};
+use crate::{
+    gm::volume::{SkinVertex, Vertex3D},
+    render::data::{LineVertex, WideLine},
+};
 
 pub(crate) trait VertexLayout: Sized {
     const ATTRIBS: &'static [VertexAttribute];
@@ -32,7 +35,7 @@ impl VertexLayout for Vertex2D {
 #[cfg(feature = "scene")]
 impl VertexLayout for Vertex3D {
     const ATTRIBS: &'static [VertexAttribute] =
-        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 14 => Uint32];
     const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
         array_stride: size_of::<Self>() as BufferAddress,
         step_mode:    VertexStepMode::Vertex,
@@ -44,6 +47,28 @@ impl VertexLayout for Vertex3D {
 #[cfg(feature = "scene")]
 impl VertexLayout for SkinVertex {
     const ATTRIBS: &'static [VertexAttribute] = &wgpu::vertex_attr_array![12 => Uint16x4, 13 => Float32x4];
+    const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
+        array_stride: size_of::<Self>() as BufferAddress,
+        step_mode:    VertexStepMode::Vertex,
+        attributes:   Self::ATTRIBS,
+    };
+}
+
+/// One line per instance, the vertex index picks the corner of its quad.
+#[cfg(feature = "scene")]
+impl VertexLayout for WideLine {
+    const ATTRIBS: &'static [VertexAttribute] =
+        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32, 2 => Float32x3, 3 => Float32, 4 => Float32x4];
+    const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
+        array_stride: size_of::<Self>() as BufferAddress,
+        step_mode:    VertexStepMode::Instance,
+        attributes:   Self::ATTRIBS,
+    };
+}
+
+#[cfg(feature = "scene")]
+impl VertexLayout for LineVertex {
+    const ATTRIBS: &'static [VertexAttribute] = &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
     const VERTEX_LAYOUT: VertexBufferLayout<'static> = VertexBufferLayout {
         array_stride: size_of::<Self>() as BufferAddress,
         step_mode:    VertexStepMode::Vertex,

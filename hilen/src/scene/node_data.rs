@@ -3,19 +3,34 @@ use educe::Educe;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::volume::{Quat, Shape3, Vec3},
-    scene::{Material, Mesh, Node, Playback},
+    scene::{ColliderShape, JointPose, Line3, Material, Mesh, Node, Playback, fade::FadeRun},
 };
 
 #[derive(Educe)]
 #[educe(Default)]
 pub struct NodeData {
-    pub(crate) position: Vec3,
+    pub(crate) position:       Vec3,
     #[educe(Default = Quat::IDENTITY)]
-    pub(crate) rotation: Quat,
+    pub(crate) rotation:       Quat,
     /// Uniform, on top of the shape's own size, see `NodeTemplates::set_scale`.
     #[educe(Default = 1.0)]
-    pub(crate) scale:    f32,
-    pub(crate) shape:    Shape3,
+    pub(crate) scale:          f32,
+    /// A stretch of the drawn mesh alone along each of its axes, see
+    /// `NodeTemplates::set_mesh_scale`.
+    #[educe(Default = Vec3::ONE)]
+    pub(crate) mesh_scale:     Vec3,
+    pub(crate) shape:          Shape3,
+    /// A collider put on in place of the shape's own, with where it sits
+    /// from the origin, see `NodeTemplates::set_collider`.
+    pub(crate) collider:       Option<(ColliderShape, Vec3)>,
+    /// The node this one hangs on, null for none. While it lives the
+    /// position and rotation are the parent's local ones, see
+    /// `NodeTemplates::attach_to`.
+    pub(crate) parent:         Weak<dyn Node>,
+    /// The world scale the rapier collider was last built at, so a parent
+    /// that grows is noticed on the next step.
+    #[educe(Default = 1.0)]
+    pub(crate) collider_scale: f32,
 
     pub(crate) collision_enabled: bool,
 
@@ -23,13 +38,29 @@ pub struct NodeData {
     /// `NodeTemplates::play`. Without one a model draws at rest.
     pub(crate) playback: Option<Playback>,
 
+    /// The joints of the model an app placed itself, by the node index of
+    /// the model's tree, see `NodeTemplates::set_joint`. Empty while none
+    /// is set.
+    pub(crate) joint_poses: Vec<Option<JointPose>>,
+
+    /// The fade running on the node, see `NodeTemplates::fade_to`.
+    pub(crate) fade_run: Option<FadeRun>,
+
     pub tag: u32,
+
+    /// Lines in the node's own space, so they move, turn and grow with
+    /// it, the edges of a part or its outline, see `Line3`.
+    pub lines: Vec<Line3>,
 
     pub material: Material,
 
     /// The unit mesh of a primitive shape. A model draws its own
     /// meshes, see `Shape3::Model`.
     pub mesh:         Option<Weak<Mesh>>,
+    /// A touch of another node starts, after the step that found it. It
+    /// follows rapier and fires from up to 0.02 before the touch, or
+    /// sooner for 2 bodies that meet within the step, so a fast blow is
+    /// seen before the solver slows it.
     pub on_collision: Event<Weak<dyn Node>>,
     /// A touch that no view took landed on this node, the nearest one
     /// under the finger. Carries the point hit in the world.
@@ -46,6 +77,21 @@ impl NodeData {
         }
     }
 
+    /// The node's own uniform size, see `NodeTemplates::set_scale`.
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// The stretch of the drawn mesh, see `NodeTemplates::set_mesh_scale`.
+    pub fn mesh_scale(&self) -> Vec3 {
+        self.mesh_scale
+    }
+
+    /// The node this one is attached to.
+    pub fn parent(&self) -> Option<Weak<dyn Node>> {
+        self.parent.is_ok().then_some(self.parent)
+    }
+
     /// Moves the playing clip on by `dt` seconds of scene time.
     pub(crate) fn advance_animation(&mut self, dt: f32) {
         let Shape3::Model(model) = self.shape else {
@@ -53,6 +99,18 @@ impl NodeData {
         };
         if let (Some(playback), true) = (self.playback.as_mut(), model.is_ok()) {
             playback.advance(dt, model.clips()[playback.clip].duration);
+        }
+    }
+
+    /// Moves the running fade on by `dt` seconds of scene time.
+    pub(crate) fn advance_fade(&mut self, dt: f32) {
+        let Some(run) = self.fade_run else {
+            return;
+        };
+        let (fade, done) = run.step(self.material.fade, dt);
+        self.material.fade = fade;
+        if done {
+            self.fade_run = None;
         }
     }
 }

@@ -5,6 +5,8 @@ mod noise_view;
 mod polygon_view;
 mod render_view;
 mod root_layout_view;
+#[cfg(macos)]
+mod video_page;
 
 pub mod dev;
 mod home_view;

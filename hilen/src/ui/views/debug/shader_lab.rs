@@ -9,12 +9,13 @@ use crate::{
         color::{BLACK, Color, WHITE},
         flat::{CornerRadii, Rect, Size},
     },
+    image::Image,
     render::{
         InstanceBinding, LabPipeline,
         data::{RectView, UIRectInstance},
     },
-    ui::{Label, UIManager, ViewCallbacks, ViewData, ViewFrame, ViewSubviews},
-    window::{RenderPass, image::Image},
+    ui::{DrawsItself, Label, Setup, UIDrawer, UIManager, ViewCallbacks, ViewData, ViewFrame, ViewSubviews},
+    window::RenderPass,
 };
 
 /// One shader to compare against the others. The source must be a drop in
@@ -168,8 +169,16 @@ impl ViewCallbacks for ShaderLab {
         self.laid_out = self.size();
         self.build_grid();
     }
+}
 
-    fn before_render(&self, pass: &mut RenderPass) {
+impl Setup for ShaderLab {
+    fn setup(self: Weak<Self>) {
+        UIDrawer::draws_itself(self);
+    }
+}
+
+impl DrawsItself for ShaderLab {
+    fn draw(&self, pass: &mut RenderPass) {
         let resolution = UIManager::render_area();
         let scale = UIManager::scale();
         let instances = self.instances.max(1);

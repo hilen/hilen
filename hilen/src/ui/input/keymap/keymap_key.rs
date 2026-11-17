@@ -1,4 +1,4 @@
-use crate::window::NamedKey;
+use crate::ui::NamedKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeymapKey {

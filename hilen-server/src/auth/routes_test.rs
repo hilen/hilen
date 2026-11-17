@@ -1,0 +1,823 @@
+//! The Apple routes from the first page to the deleted account, on a SQLite
+//! file, against a small server that stands in for Apple. Apple refuses
+//! `localhost` as a return address, so the real one cannot be asked here.
+
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result, anyhow};
+use axum::{
+    Json, Router,
+    body::Body,
+    extract::State,
+    http::{
+        HeaderMap, Request, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
+        request::Builder,
+    },
+    response::Response,
+    routing::{get, post},
+    serve,
+};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use http_body_util::BodyExt;
+use reqwest::Url;
+use serde::{Deserialize, Serialize};
+use serde_json::from_slice;
+use sha2::{Digest, Sha256};
+use tokio::{net::TcpListener, spawn};
+use tower::ServiceExt;
+
+use crate::{
+    apple_key::test_key,
+    auth::{AppleConfig, AuthConfig, AuthState, DiscordConfig, auth_routes, cookie, store_test::sqlite},
+};
+
+#[derive(Serialize)]
+struct Tokens {
+    id_token:      String,
+    refresh_token: &'static str,
+}
+
+/// Every form body the stand in got, the token requests and the revokes.
+type Received = Arc<Mutex<Vec<String>>>;
+
+async fn token(State(received): State<Received>, body: String) -> Json<Tokens> {
+    received.lock().expect("the test lock").push(body);
+    let claims = r#"{"sub":"001.abc","email":"ana@example.com","email_verified":"true"}"#;
+    Json(Tokens {
+        id_token:      format!("header.{}.signature", URL_SAFE_NO_PAD.encode(claims)),
+        refresh_token: "refresh-1",
+    })
+}
+
+async fn revoke(State(received): State<Received>, body: String) {
+    received.lock().expect("the test lock").push(body);
+}
+
+/// Starts the stand in on a free port and gives its origin.
+async fn fake_apple(received: Received) -> Result<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let app = Router::new()
+        .route("/auth/token", post(token))
+        .route("/auth/revoke", post(revoke))
+        .with_state(received);
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the stand in for Apple stopped: {error}");
+        }
+    });
+    Ok(origin)
+}
+
+#[derive(Deserialize)]
+struct Done {
+    status: String,
+    token:  String,
+    user:   DoneUser,
+}
+
+#[derive(Deserialize)]
+struct DoneUser {
+    name:  String,
+    email: String,
+}
+
+async fn text_of(response: Response) -> Result<String> {
+    let bytes = response.into_body().collect().await?.to_bytes();
+    Ok(String::from_utf8(bytes.to_vec())?)
+}
+
+fn request(method: &str, uri: &str) -> Builder {
+    Request::builder().method(method).uri(uri)
+}
+
+fn location(response: &Response) -> Result<Url> {
+    Ok(Url::parse(
+        response
+            .headers()
+            .get(LOCATION)
+            .context("the redirect has no address")?
+            .to_str()?,
+    )?)
+}
+
+fn query_value(url: &Url, name: &str) -> Result<String> {
+    url.query_pairs()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.into_owned())
+        .ok_or_else(|| anyhow!("{url} has no {name}"))
+}
+
+fn challenge_of(verifier: &str) -> String {
+    hex::encode(Sha256::digest(verifier.as_bytes()))
+}
+
+/// The login routes with Apple on, against the stand in for Apple.
+async fn apple_app(config: impl FnOnce(AuthConfig) -> AuthConfig) -> Result<Router> {
+    let apple_origin = fake_apple(Received::default()).await?;
+    let mut apple = AppleConfig::new("com.example.web", "TEAM123456", "KEY1234567", test_key()?);
+    apple.token_url = format!("{apple_origin}/auth/token");
+    apple.revoke_url = format!("{apple_origin}/auth/revoke");
+    let base = AuthConfig::new("Test App", "https://app.example.com", "id", "secret").with_apple(apple);
+    let (_pool, db) = sqlite().await?;
+    Ok(auth_routes(AuthState::new(db, config(base))))
+}
+
+/// A person opens `link` and logs in at Apple. The answer is the last
+/// response their browser gets from this server.
+async fn log_in_through(app: &Router, link: &str) -> Result<Response> {
+    let response = app.clone().oneshot(request("GET", link).body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER, "{link}");
+    let oauth_state = query_value(&location(&response)?, "state")?;
+
+    let form = Url::parse_with_params(
+        "http://form.invalid/",
+        [("code", "the code"), ("state", &*oauth_state)],
+    )?;
+    Ok(app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/apple/callback")
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(form.query().unwrap_or_default().to_owned()))?,
+        )
+        .await?)
+}
+
+/// The status of a poll, `pending` or `done`.
+async fn poll_status(app: &Router, verifier: &str, code: Option<&str>) -> Result<String> {
+    #[derive(Deserialize)]
+    struct Status {
+        status: String,
+    }
+    #[derive(Serialize)]
+    struct Poll<'a> {
+        verifier: &'a str,
+        code:     Option<&'a str>,
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_string(&Poll { verifier, code })?))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: Status = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    Ok(status.status)
+}
+
+/// The attack: somebody makes a login link with a verifier of their own and
+/// gets another person to log in with it. The person who logged in holds the
+/// code that went back, the one who made the link polls with the verifier
+/// and never gets a session, on any way back.
+#[tokio::test]
+async fn a_login_started_by_another_client_never_gives_it_a_session() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let attacker = "the verifier of the one who made the link";
+    let challenge = challenge_of(attacker);
+
+    // To a native app on the device of the person who logged in.
+    let response = log_in_through(&app, &format!("/auth/apple?challenge={challenge}&port=51234")).await?;
+    let back = location(&response)?;
+    assert_eq!(back.host_str(), Some("127.0.0.1"));
+    assert_eq!(back.port(), Some(51234));
+    let code = query_value(&back, "code")?;
+    assert_eq!(code.len(), 64);
+
+    for _ in 0..3 {
+        assert_eq!(poll_status(&app, attacker, None).await?, "pending");
+    }
+    assert_eq!(
+        poll_status(&app, attacker, Some(&"a1".repeat(32))).await?,
+        "pending"
+    );
+
+    // A code that went back from this login does not open another login.
+    let other = "the verifier of another app";
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=51235", challenge_of(other)),
+    )
+    .await?;
+    assert_eq!(location(&response)?.port(), Some(51235));
+    assert_eq!(poll_status(&app, other, Some(&code)).await?, "pending");
+
+    // To a page of this server, the code stays in the browser of the person.
+    let page_verifier = "the verifier behind a page link";
+    let page_challenge = challenge_of(page_verifier);
+    let response = log_in_through(&app, &format!("/auth/apple?challenge={page_challenge}&page=1")).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = text_of(response).await?;
+    assert!(text.contains(&format!(
+        r#"localStorage.setItem("hilen-login-{page_challenge}", ""#
+    )));
+    assert_eq!(poll_status(&app, page_verifier, None).await?, "pending");
+
+    // A link with no way back is refused before the provider is asked.
+    let response = app
+        .clone()
+        .oneshot(
+            request("GET", &format!("/auth/apple?challenge={}", challenge_of("bare"))).body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // And a short code that would finish by the verifier alone is not given.
+    let response = app
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"challenge":"{challenge}","provider":"apple"}}"#
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+/// The app that started the login gets the code back and with its verifier
+/// the session, once.
+#[tokio::test]
+async fn the_app_that_started_the_login_gets_the_session_with_the_code() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let verifier = "the secret of the app";
+
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+
+    assert_eq!(poll_status(&app, verifier, Some(&code)).await?, "done");
+    assert_eq!(poll_status(&app, verifier, Some(&code)).await?, "pending");
+
+    // The page the app sends the browser on to.
+    let response = app.oneshot(request("GET", "/auth/done").body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text_of(response).await?.contains("You are signed in to Test App"));
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct AccessToken {
+    access_token: &'static str,
+}
+
+/// Starts a stand in for Discord that answers with `user`.
+async fn fake_discord(user: &'static str) -> Result<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let origin = format!("http://{}", listener.local_addr()?);
+    let app = Router::new()
+        .route(
+            "/token",
+            post(|| async {
+                Json(AccessToken {
+                    access_token: "the access",
+                })
+            }),
+        )
+        .route(
+            "/user",
+            get(move |headers: HeaderMap| async move {
+                assert_eq!(
+                    headers.get("authorization").and_then(|value| value.to_str().ok()),
+                    Some("Bearer the access")
+                );
+                user
+            }),
+        );
+    spawn(async move {
+        if let Err(error) = serve(listener, app).await {
+            eprintln!("the stand in for Discord stopped: {error}");
+        }
+    });
+    Ok(origin)
+}
+
+async fn discord_app(user: &'static str) -> Result<Router> {
+    let origin = fake_discord(user).await?;
+    let mut discord = DiscordConfig::new("the client", "the secret");
+    discord.token_url = format!("{origin}/token");
+    discord.user_url = format!("{origin}/user");
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret").with_discord(discord);
+    let (_pool, db) = sqlite().await?;
+    Ok(auth_routes(AuthState::new(db, config)))
+}
+
+/// A person opens `link` and says yes at Discord.
+async fn log_in_at_discord(app: &Router, link: &str) -> Result<Response> {
+    let response = app.clone().oneshot(request("GET", link).body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER, "{link}");
+    let oauth_state = query_value(&location(&response)?, "state")?;
+    Ok(app
+        .clone()
+        .oneshot(
+            request(
+                "GET",
+                &format!("/auth/discord/callback?code=the+code&state={oauth_state}"),
+            )
+            .body(Body::empty())?,
+        )
+        .await?)
+}
+
+#[tokio::test]
+async fn a_discord_login_gives_the_app_its_session() -> Result<()> {
+    let app = discord_app(
+        r#"{"id":"228","username":"vladasz.","global_name":"Vladas","avatar":"abc","email":"ana@example.com","verified":true}"#,
+    )
+    .await?;
+    let verifier = "the secret of the app";
+
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+
+    assert_eq!(poll_status(&app, verifier, None).await?, "pending");
+    assert_eq!(poll_status(&app, verifier, Some(&code)).await?, "done");
+    Ok(())
+}
+
+/// The session token a finished login gives its app.
+async fn session_of(app: &Router, verifier: &str, code: &str) -> Result<String> {
+    #[derive(Serialize)]
+    struct Poll<'a> {
+        verifier: &'a str,
+        code:     &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Session {
+        token: String,
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_string(&Poll { verifier, code })?))?,
+        )
+        .await?;
+    let session: Session = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    Ok(session.token)
+}
+
+// The failure this prevents: with the join by email off, a user of Apple
+// could never add Discord. And a link must land only in the user whose
+// session asked for it.
+#[tokio::test]
+async fn a_signed_in_user_links_a_second_provider() -> Result<()> {
+    #[derive(Deserialize)]
+    struct Providers {
+        linked:  Vec<String>,
+        offered: Vec<String>,
+    }
+
+    let discord_origin = fake_discord(
+        r#"{"id":"228","username":"ana.","global_name":"Ana","email":"ana@example.com","verified":true}"#,
+    )
+    .await?;
+    let mut discord = DiscordConfig::new("the client", "the secret");
+    discord.token_url = format!("{discord_origin}/token");
+    discord.user_url = format!("{discord_origin}/user");
+    let app = apple_app(|config| config.with_discord(discord).with_no_email_join()).await?;
+
+    let first = "the verifier of the first sign in";
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=40000", challenge_of(first)),
+    )
+    .await?;
+    let token = session_of(&app, first, &query_value(&location(&response)?, "code")?).await?;
+
+    // Discord on the same email, with no link asked: refused.
+    let plain = "a sign in with no link";
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(plain)),
+    )
+    .await?;
+    assert!(text_of(response).await?.contains("signs in only with Apple"));
+
+    // Nobody asks for a link without a session.
+    let linked = "the verifier of the link";
+    let body = format!(r#"{{"challenge":"{}"}}"#, challenge_of(linked));
+    let ask = |bearer: Option<String>| {
+        let mut builder = request("POST", "/auth/link").header(CONTENT_TYPE, "application/json");
+        if let Some(bearer) = bearer {
+            builder = builder.header("authorization", format!("Bearer {bearer}"));
+        }
+        builder.body(Body::from(body.clone()))
+    };
+    let response = app.clone().oneshot(ask(None)?).await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app.clone().oneshot(ask(Some(token.clone()))?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(linked)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+    assert_eq!(poll_status(&app, linked, Some(&code)).await?, "done");
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("GET", "/auth/providers")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let providers: Providers = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    assert_eq!(providers.linked, ["apple", "discord"]);
+    assert_eq!(providers.offered, ["google", "apple", "discord"]);
+
+    // From now on Discord signs in to the same user with no link.
+    let later = "a later sign in with discord";
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(later)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+    assert_eq!(poll_status(&app, later, Some(&code)).await?, "done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_discord_account_with_no_verified_email_gets_no_session() -> Result<()> {
+    let app = discord_app(r#"{"id":"228","username":"vladasz.","email":"ana@example.com","verified":false}"#)
+        .await?;
+    let verifier = "the secret of the app";
+
+    let response = log_in_at_discord(
+        &app,
+        &format!("/auth/discord?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+
+    assert!(text_of(response).await?.contains("Sign in did not work"));
+    assert_eq!(poll_status(&app, verifier, None).await?, "pending");
+    Ok(())
+}
+
+#[tokio::test]
+async fn discord_answers_404_when_it_is_not_set_up() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let link = format!("/auth/discord?challenge={}&port=40000", challenge_of("v"));
+
+    let response = app.oneshot(request("GET", &link).body(Body::empty())?).await?;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_apple_login_runs_from_the_page_to_the_deleted_account() -> Result<()> {
+    let received = Received::default();
+    let apple_origin = fake_apple(received.clone()).await?;
+
+    let mut apple = AppleConfig::new("com.example.web", "TEAM123456", "KEY1234567", test_key()?);
+    apple.token_url = format!("{apple_origin}/auth/token");
+    apple.revoke_url = format!("{apple_origin}/auth/revoke");
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret").with_apple(apple);
+
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let verifier = "the secret of the app";
+    let challenge = hex::encode(Sha256::digest(verifier.as_bytes()));
+
+    // The app opens the page, the browser is sent on to Apple.
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("/auth/apple?challenge={challenge}&page=1")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = Url::parse(
+        response
+            .headers()
+            .get(LOCATION)
+            .context("the redirect has no address")?
+            .to_str()?,
+    )?;
+    assert_eq!(location.host_str(), Some("appleid.apple.com"));
+    let (_, oauth_state) = location
+        .query_pairs()
+        .find(|(name, _)| name == "state")
+        .ok_or_else(|| anyhow!("the redirect has no state"))?;
+
+    // Apple posts the form back, with the name of a first login.
+    let form = Url::parse_with_params(
+        "http://form.invalid/",
+        [
+            ("code", "the code"),
+            ("state", &*oauth_state),
+            ("user", r#"{"name":{"firstName":"Ana","lastName":"Maria"}}"#),
+        ],
+    )?;
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/apple/callback")
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(form.query().unwrap_or_default().to_owned()))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = text_of(response).await?;
+    assert!(text.contains("You are signed in to Test App"));
+    let key = format!(r#"localStorage.setItem("hilen-login-{challenge}", ""#);
+    let code = text
+        .split_once(&key)
+        .and_then(|(_, rest)| rest.get(..64))
+        .context("the last page holds no code")?
+        .to_owned();
+
+    let token_request = received.lock().expect("the test lock")[0].clone();
+    assert!(token_request.contains("code=the+code"));
+    assert!(token_request.contains("client_id=com.example.web"));
+    assert!(token_request.contains("grant_type=authorization_code"));
+    assert!(token_request.contains("redirect_uri=https%3A%2F%2Fapp.example.com%2Fauth%2Fapple%2Fcallback"));
+
+    // The app polls and gets its session.
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"verifier":"{verifier}","code":"{code}"}}"#
+                )))?,
+        )
+        .await?;
+    let done: Done = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    assert_eq!(done.status, "done");
+    assert_eq!(done.user.name, "Ana Maria");
+    assert_eq!(done.user.email, "ana@example.com");
+    let bearer = format!("Bearer {}", done.token);
+
+    // Only a session deletes an account.
+    let response = app
+        .clone()
+        .oneshot(request("POST", "/auth/delete").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/delete")
+                .header(AUTHORIZATION, &bearer)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let revoke_request = received.lock().expect("the test lock")[1].clone();
+    assert!(revoke_request.contains("token=refresh-1"));
+    assert!(revoke_request.contains("token_type_hint=refresh_token"));
+
+    let response = app
+        .oneshot(request("GET", "/auth/me").header(AUTHORIZATION, &bearer).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct Code {
+    code: String,
+}
+
+/// A TV asks for a code, a person types it on a phone in any case and with a
+/// dash, and the phone lands on the login page of the TV's own challenge.
+/// That link needs no way back, the TV polls with the verifier alone.
+#[tokio::test]
+async fn a_short_code_leads_to_the_login_of_its_challenge() -> Result<()> {
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret").with_code_login();
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let challenge = "a1".repeat(32);
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"challenge":"{challenge}","provider":"google"}}"#
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let code: Code = from_slice(&response.into_body().collect().await?.to_bytes())?;
+    assert_eq!(code.code.len(), 6);
+
+    // The page without a code is the form.
+    let response = app.clone().oneshot(request("GET", "/auth/code").body(Body::empty())?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text_of(response).await?.contains("Type the code from the screen."));
+
+    let typed = format!("{}-{}", &code.code[..3], &code.code[3..]).to_lowercase();
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("/auth/code?code={typed}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers().get(LOCATION).context("the redirect has no address")?,
+        &format!("/auth/google?challenge={challenge}")
+    );
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("/auth/google?challenge={challenge}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(location(&response)?.host_str(), Some("accounts.google.com"));
+
+    // A code nobody was given shows the form again with the reason.
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/auth/code?code=ZZZZZZ").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text_of(response).await?.contains("This code is not known or too old."));
+
+    // Apple is not set up here, its code is refused like its page.
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(
+                    r#"{{"challenge":"{challenge}","provider":"apple"}}"#
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(
+            request("POST", "/auth/code")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"challenge":"short","provider":"google"}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_apple_routes_are_not_there_without_the_config() -> Result<()> {
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let challenge = "a1".repeat(32);
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("/auth/apple?challenge={challenge}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(
+            request("POST", "/auth/apple/callback")
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("code=c&state=s"))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+/// The login with no password is not in a build without `dev-login`, the
+/// build every server with real users runs.
+#[cfg(not(feature = "dev-login"))]
+#[tokio::test]
+async fn the_dev_login_is_not_there_without_the_feature() -> Result<()> {
+    let config = AuthConfig::new("Test App", "https://app.example.com", "id", "secret");
+    let (_pool, db) = sqlite().await?;
+    let app: Router = auth_routes(AuthState::new(db, config));
+
+    let response = app
+        .oneshot(
+            request("POST", "/auth/dev")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"email":"ana@example.com"}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+/// The answer of a poll that asks for its session as a cookie.
+async fn poll_for_cookie(app: &Router, verifier: &str, code: &str) -> Result<Response> {
+    #[derive(Serialize)]
+    struct Poll<'a> {
+        verifier: &'a str,
+        code:     &'a str,
+        cookie:   bool,
+    }
+    Ok(app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/poll")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_string(&Poll {
+                    verifier,
+                    code,
+                    cookie: true,
+                })?))?,
+        )
+        .await?)
+}
+
+/// `GET /auth/me` with the cookie, with or without the marker header.
+async fn me_with_cookie(app: &Router, cookie: &str, marked: bool) -> Result<StatusCode> {
+    let mut builder = request("GET", "/auth/me").header(COOKIE, cookie);
+    if marked {
+        builder = builder.header(cookie::HEADER, cookie::HEADER_VALUE);
+    }
+    Ok(app.clone().oneshot(builder.body(Body::empty())?).await?.status())
+}
+
+// The failure this prevents: a page in a browser that keeps its token where
+// any script of the origin can read it.
+#[tokio::test]
+async fn a_page_gets_its_session_as_a_cookie_no_script_can_read() -> Result<()> {
+    let app = apple_app(|config| config).await?;
+    let verifier = "the secret of the page";
+    let response = log_in_through(
+        &app,
+        &format!("/auth/apple?challenge={}&port=40000", challenge_of(verifier)),
+    )
+    .await?;
+    let code = query_value(&location(&response)?, "code")?;
+
+    let response = poll_for_cookie(&app, verifier, &code).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let set_cookie = response
+        .headers()
+        .get(SET_COOKIE)
+        .context("the poll set no cookie")?
+        .to_str()?
+        .to_owned();
+    let body = text_of(response).await?;
+    assert!(body.starts_with(r#"{"status":"kept","user":{"#), "{body}");
+    assert!(!body.contains("token"), "the answer holds the token: {body}");
+    for attribute in [
+        "HttpOnly",
+        "SameSite=Strict",
+        "Secure",
+        "Path=/;",
+        "Max-Age=7776000",
+    ] {
+        assert!(
+            set_cookie.contains(attribute),
+            "{attribute} is missing in {set_cookie}"
+        );
+    }
+    let cookie = set_cookie.split(';').next().context("the cookie has no value")?.to_owned();
+
+    assert_eq!(me_with_cookie(&app, &cookie, true).await?, StatusCode::OK);
+    assert_eq!(
+        me_with_cookie(&app, &cookie, false).await?,
+        StatusCode::UNAUTHORIZED,
+        "a request a page of another site could make counts the cookie"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/auth/logout")
+                .header(COOKIE, &cookie)
+                .header(cookie::HEADER, cookie::HEADER_VALUE)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cleared = response
+        .headers()
+        .get(SET_COOKIE)
+        .context("the logout kept the cookie")?
+        .to_str()?;
+    assert!(cleared.starts_with("hilen_session=; Max-Age=0;"), "{cleared}");
+    assert_eq!(
+        me_with_cookie(&app, &cookie, true).await?,
+        StatusCode::UNAUTHORIZED
+    );
+    Ok(())
+}

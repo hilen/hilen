@@ -1,8 +1,14 @@
+#[cfg(feature = "scene")]
+use hilen::level::LevelManager;
 use hilen::{
     refs::Own,
     ui::{Setup, UIManager, View},
 };
 
+#[cfg(feature = "scene")]
+use crate::interface::scenes::Scene3D;
+#[cfg(macos)]
+use crate::interface::video_page::VideoPage;
 use crate::interface::{
     dev::MenuView,
     landing::Landing,
@@ -13,7 +19,7 @@ use crate::interface::{
 
 /// Every screen the sidebar can open. In place pages render inside the
 /// home shell next to the sidebar, full screen pages take the whole
-/// window because they draw a level behind the UI.
+/// window because they draw a level or a scene behind the UI.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     #[default]
@@ -23,21 +29,27 @@ pub enum Page {
     Fonts,
     Scrolling,
     Noise,
+    #[cfg(feature = "scene")]
+    Scene3D,
     Layout,
     Dev,
+    #[cfg(macos)]
+    Video,
 }
 
 impl Page {
-    pub const ALL: [Page; 8] = [
-        Page::Landing,
-        Page::Effects,
-        Page::Noise,
-        Page::Widgets,
-        Page::Fonts,
-        Page::Scrolling,
-        Page::Layout,
-        Page::Dev,
-    ];
+    /// Every page in sidebar order. A function, so a page that exists on
+    /// some platforms only can sit in the list without a second array.
+    pub fn all() -> Vec<Page> {
+        let mut pages = vec![Page::Landing, Page::Effects, Page::Noise];
+        #[cfg(feature = "scene")]
+        pages.push(Page::Scene3D);
+        pages.extend([Page::Widgets, Page::Fonts, Page::Scrolling]);
+        #[cfg(macos)]
+        pages.push(Page::Video);
+        pages.extend([Page::Layout, Page::Dev]);
+        pages
+    }
 
     pub fn title(self) -> &'static str {
         match self {
@@ -47,8 +59,12 @@ impl Page {
             Page::Fonts => "Fonts",
             Page::Scrolling => "Scrolling",
             Page::Noise => "Noise",
+            #[cfg(feature = "scene")]
+            Page::Scene3D => "3D Game",
             Page::Layout => "Layout",
             Page::Dev => "Dev",
+            #[cfg(macos)]
+            Page::Video => "Video",
         }
     }
 
@@ -61,8 +77,12 @@ impl Page {
             Page::Fonts => "nav_fonts.svg",
             Page::Scrolling => "nav_scrolling.svg",
             Page::Noise => "nav_noise.svg",
+            #[cfg(feature = "scene")]
+            Page::Scene3D => "nav_scene.svg",
             Page::Layout => "nav_layout.svg",
             Page::Dev => "nav_dev.svg",
+            #[cfg(macos)]
+            Page::Video => "nav_video.svg",
         }
     }
 
@@ -76,18 +96,24 @@ impl Page {
             Page::Fonts => "fonts",
             Page::Scrolling => "scrolling",
             Page::Dev => "dev",
+            #[cfg(macos)]
+            Page::Video => "video",
             _ => "",
         }
     }
 
     pub fn from_path(path: &str) -> Page {
-        Page::ALL
+        Page::all()
             .into_iter()
             .find(|page| page.is_in_place() && page.path() == path.trim_matches('/'))
             .unwrap_or(Page::Landing)
     }
 
     pub fn is_in_place(self) -> bool {
+        #[cfg(macos)]
+        if self == Page::Video {
+            return true;
+        }
         matches!(
             self,
             Page::Landing | Page::Widgets | Page::Effects | Page::Fonts | Page::Scrolling | Page::Dev
@@ -102,6 +128,8 @@ impl Page {
             Page::Fonts => TextFonts::new(),
             Page::Scrolling => ScrollTables::new(),
             Page::Dev => MenuView::new(),
+            #[cfg(macos)]
+            Page::Video => VideoPage::new(),
             _ => Landing::new(),
         }
     }
@@ -111,6 +139,11 @@ impl Page {
         match self {
             Page::Noise => {
                 UIManager::set_view(NoiseView::new());
+            }
+            #[cfg(feature = "scene")]
+            Page::Scene3D => {
+                LevelManager::stop_level();
+                UIManager::set_view(Scene3D::new());
             }
             Page::Layout => {
                 UIManager::set_view(RootLayoutView::new());

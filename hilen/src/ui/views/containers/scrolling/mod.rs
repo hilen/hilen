@@ -1,17 +1,27 @@
 #[cfg(feature = "ui-tests")]
 mod auto_content_test;
 #[cfg(feature = "ui-tests")]
+mod bar_drag_test;
+#[cfg(feature = "ui-tests")]
 mod bar_theme_test;
 #[cfg(feature = "ui-tests")]
 mod clip_test;
 #[cfg(feature = "ui-tests")]
 mod drag_cancel_test;
 #[cfg(feature = "ui-tests")]
+mod fling_again_test;
+#[cfg(feature = "ui-tests")]
+mod horizontal_scroll_test;
+#[cfg(feature = "ui-tests")]
+mod keeps_end_test;
+#[cfg(feature = "ui-tests")]
 mod multitouch_scroll_test;
 mod scroll_content;
 #[cfg(feature = "ui-tests")]
 mod scroll_test;
 mod scroll_view;
+#[cfg(feature = "ui-tests")]
+mod sideways_wheel_test;
 #[cfg(feature = "ui-tests")]
 mod wheel_scroll_test;
 

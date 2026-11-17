@@ -1,0 +1,137 @@
+use std::mem::take;
+
+use plat::Platform;
+#[cfg(feature = "gpu")]
+use winit::window::CursorGrabMode;
+
+use crate::{gm::flat::Point, ui::UIEvent, window::slots::WindowLock};
+
+#[derive(Default)]
+struct CursorState {
+    captured:   bool,
+    /// Hidden by the app, apart from a capture.
+    hidden:     bool,
+    /// Raw mouse motion since `take_motion` last ran.
+    motion:     Point,
+    on_capture: UIEvent<bool>,
+}
+
+static CURSOR: WindowLock<CursorState> = WindowLock::new();
+
+/// The mouse of a game. Captured, it is hidden, kept inside the window
+/// and reported as raw motion, the way a first person game turns its
+/// camera. Escape, a lost window focus or `release` give it back.
+pub struct Cursor;
+
+impl Cursor {
+    /// Hides the mouse and holds it in the window. A phone has no
+    /// mouse, so there nothing changes and `captured` stays false.
+    pub fn capture() {
+        if Platform::MOBILE {
+            return;
+        }
+        Self::set_captured(true);
+    }
+
+    pub fn release() {
+        Self::set_captured(false);
+    }
+
+    pub fn captured() -> bool {
+        CURSOR.captured
+    }
+
+    /// Hides the mouse pointer over the window and leaves it free, the way
+    /// a video player does after a few still seconds. A capture hides it
+    /// too, and a release shows it again only when it is not hidden here.
+    pub fn hide() {
+        Self::set_hidden(true);
+    }
+
+    pub fn show() {
+        Self::set_hidden(false);
+    }
+
+    /// Hidden by `hide`. A captured mouse is hidden as well and reads false
+    /// here.
+    pub fn hidden() -> bool {
+        CURSOR.hidden
+    }
+
+    fn set_hidden(hidden: bool) {
+        if Self::hidden() == hidden {
+            return;
+        }
+        CURSOR.get_mut().hidden = hidden;
+        #[cfg(feature = "gpu")]
+        if let Some(window) = crate::window::Window::winit_window() {
+            window.set_cursor_visible(!hidden && !Self::captured());
+        }
+    }
+
+    /// Fires with `true` when the mouse is captured and `false` when it
+    /// is released, by `release`, Escape or a lost focus alike.
+    pub fn on_capture() -> &'static UIEvent<bool> {
+        &CURSOR.on_capture
+    }
+
+    /// The raw mouse motion since the last call, in the units the
+    /// system reports, so a player turns by it once per step. Zero
+    /// while the mouse is free.
+    pub fn take_motion() -> Point {
+        take(&mut CURSOR.get_mut().motion)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn add_motion(delta: Point) {
+        if Self::captured() {
+            CURSOR.get_mut().motion += delta;
+        }
+    }
+
+    /// A test that captured the mouse and failed must not leave it
+    /// captured for the next test.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn reset() {
+        Self::release();
+        Self::show();
+        CURSOR.get_mut().motion = Point::default();
+    }
+
+    fn set_captured(captured: bool) {
+        if Self::captured() == captured {
+            return;
+        }
+        let state = CURSOR.get_mut();
+        state.captured = captured;
+        state.motion = Point::default();
+        #[cfg(feature = "gpu")]
+        if let Some(window) = crate::window::Window::winit_window() {
+            grab(window, captured);
+        }
+        Self::on_capture().trigger(captured);
+    }
+}
+
+#[cfg(feature = "gpu")]
+fn grab(window: &winit::window::Window, captured: bool) {
+    let mode = if captured {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
+    // Windows and X11 cannot lock the cursor in place, only keep it in
+    // the window. Hidden and read as raw motion that looks the same.
+    let result = window.set_cursor_grab(mode).or_else(|error| {
+        if captured {
+            log::debug!("Locking the cursor failed, confining it: {error}");
+            window.set_cursor_grab(CursorGrabMode::Confined)
+        } else {
+            Err(error)
+        }
+    });
+    if let Err(error) = result {
+        log::warn!("Failed to grab the cursor: {error}");
+    }
+    window.set_cursor_visible(!captured && !Cursor::hidden());
+}

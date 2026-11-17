@@ -1,0 +1,987 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+use anyhow::{Result, anyhow, bail};
+use parking_lot::Mutex;
+use serde::de::DeserializeOwned;
+use sha2::{Digest, Sha256};
+
+#[cfg(not_wasm)]
+use crate::system::browser_sheet;
+use crate::{
+    deps::{
+        hreads::{now, on_main, sleep, spawn},
+        netrun::rest::{Call, RequestError},
+        refs::main_lock::MainLock,
+    },
+    login::{
+        hand_back::HandBack,
+        view::{self, View},
+        wire::{
+            COOKIE_HEADER, COOKIE_HEADER_VALUE, CodeRequest, CodeResponse, LinkRequest, LoginUser,
+            PollRequest, PollResponse, ProvidersResponse,
+        },
+    },
+    store::SessionStore,
+    ui::UIEvent,
+};
+
+/// Triggered on the main thread when a login that came back to this page
+/// in the same tab was done, see `Login::changed`.
+pub(super) static CHANGED: MainLock<UIEvent<()>> = MainLock::new();
+
+const POLL_SECONDS: f32 = 2.0;
+/// How often a wait between 2 polls looks for a cancel and for a closed
+/// sheet, so both end the wait at once.
+const LOOK_SECONDS: f32 = 0.1;
+/// The server drops a login nobody finished after the same time.
+const GIVE_UP_SECONDS: f64 = 600.0;
+/// A laptop that just woke up or a server restart fails a few polls in a row.
+const MAX_FAILURES: u32 = 5;
+
+static SERVER: Mutex<Option<String>> = Mutex::new(None);
+
+/// Set by `Login::keep_session_in_cookie` on a page in a browser.
+static COOKIE: AtomicBool = AtomicBool::new(false);
+
+/// True while a login that came back to this page in the same tab finishes.
+static RESUMING: AtomicBool = AtomicBool::new(false);
+
+/// The user of the cookie session. The page holds no token, so it learns its
+/// user again from `current_user` at each start.
+static COOKIE_USER: Mutex<Option<LoginUser>> = Mutex::new(None);
+
+/// How a request proves its session.
+pub(super) enum Credential {
+    /// The browser sends the cookie by itself, the request adds the header
+    /// the server wants with it.
+    Cookie,
+    Bearer(String),
+}
+
+impl Credential {
+    pub(super) fn on(self, call: Call) -> Call {
+        match self {
+            Self::Cookie => call.header(COOKIE_HEADER, COOKIE_HEADER_VALUE),
+            Self::Bearer(token) => call.bearer(token),
+        }
+    }
+}
+
+fn cookie_mode() -> bool {
+    COOKIE.load(Ordering::SeqCst)
+}
+
+/// The credential of the active session, none when nobody is logged in. A
+/// cookie session always has one, only the server knows if it is still live.
+pub(super) fn credential() -> Option<Credential> {
+    if cookie_mode() {
+        Some(Credential::Cookie)
+    } else {
+        SessionStore::load().map(Credential::Bearer)
+    }
+}
+
+fn set_cookie_user(user: Option<LoginUser>) {
+    *COOKIE_USER.lock() = user;
+}
+
+/// Forgets the active session here, the others stay.
+fn clear_active() -> Result<()> {
+    if cookie_mode() {
+        set_cookie_user(None);
+        Ok(())
+    } else {
+        SessionStore::clear()
+    }
+}
+
+/// Every `start` and every `cancel` moves it on. A poll loop that sees another
+/// number than its own knows it is no longer wanted.
+static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+
+/// The attempt whose browser sheet the user closed by hand. Its poll loop
+/// asks the server one more time and ends.
+static CLOSED: AtomicU64 = AtomicU64::new(0);
+
+/// How the wait for a login ended.
+enum Waited {
+    Done(Result<LoginUser>),
+    /// `Login::cancel`, or a newer attempt took over.
+    Cancelled,
+    /// The user closed the browser sheet by hand with the login not done.
+    Closed,
+}
+
+/// Who the user logs in with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Provider {
+    Google,
+    /// The backend needs its Apple config, without it the page answers 404.
+    Apple,
+    /// The backend needs its Discord config, without it the page answers 404.
+    Discord,
+}
+
+impl Provider {
+    /// The route of the backend that starts this login.
+    const fn route(self) -> &'static str {
+        match self {
+            Self::Google => "google",
+            Self::Apple => "apple",
+            Self::Discord => "discord",
+        }
+    }
+
+    /// The provider of a route name, none for one this build does not know.
+    fn of_route(route: &str) -> Option<Self> {
+        [Self::Google, Self::Apple, Self::Discord]
+            .into_iter()
+            .find(|provider| provider.route() == route)
+    }
+
+    /// The name a person reads, like `Google`.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Google => "Google",
+            Self::Apple => "Apple",
+            Self::Discord => "Discord",
+        }
+    }
+}
+
+/// How the signed in user signs in, see [`Login::providers`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LinkedProviders {
+    /// The providers the user signs in with.
+    pub linked:  Vec<Provider>,
+    /// The providers the server offers. One that is not in `linked` can be
+    /// added with [`Login::link`].
+    pub offered: Vec<Provider>,
+}
+
+impl LinkedProviders {
+    /// The providers the user can still add.
+    pub fn missing(&self) -> Vec<Provider> {
+        self.offered
+            .iter()
+            .copied()
+            .filter(|provider| !self.linked.contains(provider))
+            .collect()
+    }
+}
+
+/// What a device with no keyboard shows, so its user finishes the login on a
+/// phone, see `Login::start_with_code`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoginCode {
+    /// 6 letters and digits, with none that look alike.
+    pub code: String,
+    /// The page where the code is typed, `<server>/auth/code`.
+    pub page: String,
+    /// The same page with the code already in it. A `QrCodeView` of this
+    /// link takes a phone straight to the login.
+    pub link: String,
+}
+
+/// Login against the `auth` routes of a `hilen-server` backend, with Google
+/// or with Apple.
+///
+/// The app never talks to the provider. It opens a page of its own backend in
+/// the browser. At the end of the login the backend gives a one time code
+/// back to this app instance, to a port it listens on or, in a browser, to
+/// the storage of its page, and the app trades the code and a secret made
+/// here for the session. The page address carries only the hash of the
+/// secret, and the code reaches only the device that logged in, so a login
+/// link that somebody else started gives that somebody nothing.
+///
+/// Every callback runs on the main thread.
+pub struct Login;
+
+impl Login {
+    /// The origin of the app backend, like `https://myapp.example.com`. Call
+    /// it once at launch, before anything else here.
+    pub fn set_server(origin: impl ToString) {
+        let server = origin.to_string().trim_end_matches('/').to_owned();
+        *SERVER.lock() = Some(server.clone());
+        #[cfg(wasm)]
+        same_tab::resume(server);
+    }
+
+    /// Keeps the session of a page in a browser in a cookie of its server that
+    /// no script can read, in place of a token in `localStorage`. Call it at
+    /// launch, before `set_server`. Only a page in a browser does it, an app on
+    /// any other platform keeps its token as before.
+    ///
+    /// The page has 1 login then. It holds no token, so `token` is always
+    /// `None`, and it knows its user only after `current_user`. The backend
+    /// needs a `hilen-server` with the cookie session, see `auth/cookie.rs`
+    /// there. An older backend answers with a token, which is kept as before.
+    pub fn keep_session_in_cookie() {
+        if cfg!(wasm) {
+            COOKIE.store(true, Ordering::SeqCst);
+            log::info!("the session of this page is kept in a cookie");
+        } else {
+            log::debug!("only a page in a browser keeps its session in a cookie, this app keeps a token");
+        }
+    }
+
+    /// Triggered when a login finished on its own, with no `done` to call: a
+    /// page in a browser leaves for the provider in the same tab and finishes
+    /// the login after it came back, see `same_tab`. Read
+    /// [`Login::active_user`] again then.
+    pub fn changed() -> &'static UIEvent<()> {
+        &CHANGED
+    }
+
+    /// Opens the login page and waits for the user to finish there. Call it
+    /// straight from a tap, a browser blocks a page opened any later. A
+    /// cancelled login never calls `done`.
+    ///
+    /// On an iPhone the page opens in a browser sheet over the app, and the
+    /// sheet closes by itself when the login is done. A sheet the user closes
+    /// by hand before that is a cancel.
+    pub fn start(provider: Provider, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        Self::start_with_close(provider, done, || {});
+    }
+
+    /// How the signed in user signs in, and what the server offers.
+    pub fn providers(done: impl FnOnce(Result<LinkedProviders>) + Send + 'static) {
+        spawn(async move {
+            let result = fetch_providers().await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Adds `provider` to the signed in user, so both sign in ways open the
+    /// same account. It runs like [`Login::start`]: the login page of the
+    /// provider opens, and `done` gets the user. The server takes the link
+    /// only for an account of the provider with the email of the user, and
+    /// only from this session, any other ends on a page that says why.
+    pub fn link(provider: Provider, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        let verifier = match new_verifier() {
+            Ok(verifier) => verifier,
+            Err(error) => return done(Err(error)),
+        };
+        spawn(async move {
+            let asked = ask_link(&verifier).await;
+            on_main(move || match asked {
+                Ok(()) => {
+                    log::info!("the server takes a link of {}", provider.route());
+                    Self::begin(provider, Some(verifier), done, || {});
+                }
+                Err(error) => done(Err(error)),
+            });
+        });
+    }
+
+    /// `start` for a login button. `closed` runs when the user closed the
+    /// browser sheet by hand with the login not done, so the button can end
+    /// its waiting look. Only an iPhone has such a sheet.
+    pub(crate) fn start_with_close(
+        provider: Provider,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+        closed: impl FnOnce() + Send + 'static,
+    ) {
+        Self::begin(provider, None, done, closed);
+    }
+
+    /// Starts the login with `verifier`, a new one when none is given. A
+    /// link has its verifier already, the server knows its challenge.
+    fn begin(
+        provider: Provider,
+        verifier: Option<String>,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+        closed: impl FnOnce() + Send + 'static,
+    ) {
+        if let Err(error) = view::refuse_change("a login") {
+            return done(Err(error));
+        }
+
+        // A page in a browser goes to the provider in the same tab, a second
+        // tab looked like the login hung. The page is gone then, so `done`
+        // is called only when the login could not start.
+        #[cfg(wasm)]
+        {
+            drop(closed);
+            if let Err(error) = server().and_then(|server| same_tab::leave(&server, provider, verifier)) {
+                done(Err(error));
+            }
+        }
+
+        #[cfg(not_wasm)]
+        {
+            let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+
+            let opened = server().and_then(|server| {
+                let verifier = match verifier {
+                    Some(verifier) => verifier,
+                    None => new_verifier()?,
+                };
+                let challenge = challenge(&verifier);
+                let hand_back = HandBack::open(&server, &challenge)?;
+                log::info!("{} login started", provider.route());
+                let page = format!(
+                    "{server}/auth/{}?challenge={challenge}&{}",
+                    provider.route(),
+                    hand_back.query()
+                );
+                let sheet = browser_sheet::open(page, move || {
+                    log::info!("the user closed the login sheet");
+                    CLOSED.store(attempt, Ordering::SeqCst);
+                })?;
+                Ok((server, verifier, hand_back, sheet))
+            });
+
+            let (server, verifier, hand_back, sheet) = match opened {
+                Ok(opened) => opened,
+                Err(error) => return done(Err(error)),
+            };
+
+            spawn(async move {
+                let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
+                drop(hand_back);
+                // Does nothing when the user closed the sheet, and where a
+                // platform has none.
+                browser_sheet::close(sheet);
+
+                match waited {
+                    Waited::Done(result) => on_main(move || done(result)),
+                    Waited::Closed => on_main(closed),
+                    Waited::Cancelled => {}
+                }
+            });
+        }
+    }
+
+    /// The login of a device with no keyboard and no browser of its own, a
+    /// TV. Nothing opens here. The server gives a short code, `shown` gets
+    /// it to put on the screen, and the user finishes the login on a phone,
+    /// through the QR code of `LoginCode::link` or by typing the code into
+    /// `LoginCode::page`. Then `done` gets the user, as after `start`.
+    /// `done` is not called when no code came, `shown` has the error then.
+    pub fn start_with_code(
+        provider: Provider,
+        shown: impl FnOnce(Result<LoginCode>) + Send + 'static,
+        done: impl FnOnce(Result<LoginUser>) + Send + 'static,
+    ) {
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+
+        spawn(async move {
+            let started = async {
+                view::refuse_change("a login")?;
+                let server = server()?;
+                let verifier = new_verifier()?;
+                let code = ask_code(&server, &challenge(&verifier), provider).await?;
+                log::info!("{} login with a code started", provider.route());
+                Ok::<_, anyhow::Error>((server, verifier, code))
+            }
+            .await;
+
+            let (server, verifier, code) = match started {
+                Ok(started) => started,
+                Err(error) => {
+                    log::warn!("no login code: {error:#}");
+                    return on_main(move || shown(Err(error)));
+                }
+            };
+
+            on_main(move || shown(Ok(code)));
+
+            // Nothing opens here, so there is no sheet to close. Nothing can
+            // come back from the phone either, the poll needs no code.
+            if let Waited::Done(result) = wait_for_login(&server, &verifier, None, attempt).await {
+                on_main(move || done(result));
+            }
+        });
+    }
+
+    /// Stops waiting for a login started with `start` or `start_with_code`.
+    pub fn cancel() {
+        ATTEMPT.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// The token of the active session, for the `Authorization: Bearer`
+    /// header of the app's own requests. `None` when nobody is logged in.
+    ///
+    /// In a view of another user it is still the token of the own session,
+    /// and a request sent with it by hand is no view. In a view of a visitor
+    /// it is `None`.
+    pub fn token() -> Option<String> {
+        if cookie_mode() || view::current() == Some(View::SignedOut) {
+            return None;
+        }
+        SessionStore::load()
+    }
+
+    /// Everybody logged in on this device, in the order they logged in. A
+    /// new login adds to the list, it does not log the others out.
+    pub fn accounts() -> Vec<LoginUser> {
+        if let Some(view) = view::current() {
+            return view.user().into_iter().collect();
+        }
+        if cookie_mode() {
+            return COOKIE_USER.lock().clone().into_iter().collect();
+        }
+        SessionStore::sessions()
+            .into_iter()
+            .filter_map(|session| session.user)
+            .collect()
+    }
+
+    /// The user of the active session as it was stored, with no request.
+    /// `None` when nobody is active. `current_user` asks the server. In a
+    /// view it is the user the app is shown as, see `Login::view_as`.
+    pub fn active_user() -> Option<LoginUser> {
+        if let Some(view) = view::current() {
+            return view.user();
+        }
+        if cookie_mode() {
+            return COOKIE_USER.lock().clone();
+        }
+        SessionStore::active_user()
+    }
+
+    /// Makes the session of this user, an `id` of `accounts`, the active one.
+    /// Every request after it goes out as that user.
+    pub fn switch(id: &str) -> Result<()> {
+        view::refuse_change("a switch of the login")?;
+        if cookie_mode() {
+            if Self::active_user().is_some_and(|user| user.id == id) {
+                return Ok(());
+            }
+            bail!("a page with its session in a cookie has 1 login");
+        }
+        SessionStore::switch(id)?;
+        log::info!("the active login is now user {id}");
+        Ok(())
+    }
+
+    /// Ends the session of this user on the server and forgets it here, the
+    /// other sessions stay. Nobody is active after it when it was the active
+    /// one. The local half happens even when the server cannot be reached.
+    pub fn forget(id: &str, done: impl FnOnce(Result<()>) + Send + 'static) {
+        let id = id.to_owned();
+        spawn(async move {
+            let result = forget_session(&id).await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Sends a request of the app with the session token as its
+    /// `Authorization: Bearer` header, to any route behind the login.
+    /// When nobody is logged in nothing is sent and the answer is
+    /// `RequestError::Unauthorized`, the same as a session the server no
+    /// longer knows, so 1 match arm sends the user back to the login.
+    /// It runs on the calling task, call it inside `spawn`.
+    ///
+    /// In a view the request goes out as the app is shown, see
+    /// `Login::view_as`: with the header of the view, or not at all for a
+    /// visitor.
+    pub async fn send<Out: DeserializeOwned>(call: Call) -> Result<Out, RequestError> {
+        match view::dress(call) {
+            Some(call) => call.send().await,
+            None => Err(RequestError::Unauthorized),
+        }
+    }
+
+    /// `send` for an answer that is a file, its bytes as they came, like a
+    /// log only the logged in user may read. Save them with
+    /// `Paths::save_file_bytes`.
+    pub async fn send_bytes(call: Call) -> Result<Vec<u8>, RequestError> {
+        match view::dress(call) {
+            Some(call) => call.send_bytes().await,
+            None => Err(RequestError::Unauthorized),
+        }
+    }
+
+    /// Who the active session belongs to, for the app launch. `None` when
+    /// nobody is active, also when the server no longer knows the session,
+    /// which then is forgotten here too. The other sessions stay.
+    pub fn current_user(done: impl FnOnce(Result<Option<LoginUser>>) + Send + 'static) {
+        spawn(async move {
+            let result = fetch_current_user().await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Ends the active session on the server and forgets it here, the other
+    /// sessions stay and none of them becomes active. The local half happens
+    /// even when the server cannot be reached.
+    pub fn logout(done: impl FnOnce(Result<()>) + Send + 'static) {
+        spawn(async move {
+            let result = end_session().await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Ends every session of the active user on the server, on every
+    /// device, and forgets the active one here. A session stolen from
+    /// another device stops working at once. When the server cannot be
+    /// reached nothing changes, so the user can try again.
+    pub fn logout_everywhere(done: impl FnOnce(Result<()>) + Send + 'static) {
+        spawn(async move {
+            let result = end_every_session().await;
+            on_main(move || done(result));
+        });
+    }
+
+    /// Removes the account on the server for good, with everything the
+    /// server keeps for it, and forgets the session here. The session stays
+    /// when the server cannot be reached, so the user can try again.
+    pub fn delete_account(done: impl FnOnce(Result<()>) + Send + 'static) {
+        spawn(async move {
+            let result = delete_user().await;
+            on_main(move || done(result));
+        });
+    }
+}
+
+#[cfg(feature = "inspect")]
+impl Login {
+    /// Logs into a dev account with no password, on a backend built with
+    /// the `dev-login` feature of `hilen-server`. A new email makes a new
+    /// account there, the same email logs back into it, and no Google or
+    /// Apple user is ever reached. The session is kept like after any login,
+    /// the app sees it at its next start. Only an app with `inspect` has it,
+    /// `hilen-inspect dev-login` calls it.
+    pub fn dev(email: impl ToString, done: impl FnOnce(Result<LoginUser>) + Send + 'static) {
+        let email = email.to_string();
+        spawn(async move {
+            let result = dev_login(&email).await;
+            on_main(move || done(result));
+        });
+    }
+}
+
+#[cfg(feature = "inspect")]
+async fn dev_login(email: &str) -> Result<LoginUser> {
+    use crate::login::wire::DevRequest;
+
+    view::refuse_change("a login")?;
+    let call = Call::post(format!("{}/auth/dev", server()?)).body(DevRequest { email });
+    match call.send::<PollResponse>().await {
+        Ok(PollResponse::Done { token, user }) => {
+            log::info!("dev login done for user {}", user.id);
+            SessionStore::add(&token, user.clone())?;
+            Ok(user)
+        }
+        Ok(PollResponse::Pending) => bail!("the server gave no session for the dev login"),
+        Ok(PollResponse::Kept { .. }) => {
+            bail!("the server put the dev login into a cookie, it asked for a token")
+        }
+        Err(error) => {
+            log::warn!("the dev login of {email} failed: {error}");
+            bail!("the dev login failed, a server needs the dev-login feature for it: {error}")
+        }
+    }
+}
+
+#[cfg(feature = "ui-tests")]
+impl Login {
+    /// Puts another server in and hands the old one back, for a test that has
+    /// to be sure a tap cannot open a real login page.
+    pub(super) fn swap_server(server: Option<String>) -> Option<String> {
+        use std::mem::replace;
+
+        replace(&mut *SERVER.lock(), server)
+    }
+}
+
+pub(super) fn server() -> Result<String> {
+    SERVER
+        .lock()
+        .clone()
+        .ok_or_else(|| anyhow!("no login server, call Login::set_server at launch"))
+}
+
+fn new_verifier() -> Result<String> {
+    let mut bytes = [0; 32];
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("no random bytes for the login: {error}"))?;
+    Ok(hex::encode(bytes))
+}
+
+/// What the browser gets to see of the verifier.
+fn challenge(verifier: &str) -> String {
+    hex::encode(Sha256::digest(verifier.as_bytes()))
+}
+
+/// Waits for the end of the login. With a `hand_back` it polls once a code
+/// came back, the server takes the verifier only with that code. Without
+/// one, for a device with no keyboard, it polls every 2 seconds.
+async fn wait_for_login(server: &str, verifier: &str, hand_back: Option<&HandBack>, attempt: u64) -> Waited {
+    let give_up_at = now() + GIVE_UP_SECONDS;
+    let mut failures = 0;
+    let mut code = None;
+
+    loop {
+        let closed = wait_for_next_poll(attempt, hand_back).await;
+
+        if ATTEMPT.load(Ordering::SeqCst) != attempt {
+            log::debug!("login attempt {attempt} was cancelled, the wait ends");
+            return Waited::Cancelled;
+        }
+        if now() > give_up_at {
+            return Waited::Done(Err(anyhow!("the login took too long, try again")));
+        }
+
+        if let Some(back) = hand_back {
+            if let Some(new) = back.take_code() {
+                code = Some(new);
+            }
+            if code.is_none() {
+                if closed {
+                    log::info!("the login sheet was closed before the login was done, the wait ends");
+                    return Waited::Closed;
+                }
+                continue;
+            }
+        }
+
+        // A user can finish the login and close the sheet before the next
+        // poll, so a closed sheet still gets 1 poll.
+        match poll(server, verifier, code.as_deref()).await {
+            Ok(PollResponse::Done { token, user }) => {
+                if cookie_mode() {
+                    log::warn!("the server gave a token, it keeps no session in a cookie yet");
+                }
+                log::info!("login done");
+                return Waited::Done(SessionStore::add(&token, user.clone()).map(|()| user));
+            }
+            Ok(PollResponse::Kept { user }) => {
+                log::info!("login done, the session is in a cookie");
+                set_cookie_user(Some(user.clone()));
+                return Waited::Done(Ok(user));
+            }
+            Ok(PollResponse::Pending) if closed => {
+                log::info!("the login sheet was closed before the login was done, the wait ends");
+                return Waited::Closed;
+            }
+            Ok(PollResponse::Pending) => {
+                if code.take().is_some() {
+                    log::warn!("the server did not take the code that came back, the wait goes on");
+                }
+                failures = 0;
+            }
+            Err(error) if closed => {
+                log::warn!("the last login poll after the sheet was closed failed: {error}");
+                return Waited::Closed;
+            }
+            Err(error) => {
+                failures += 1;
+                log::warn!("login poll {failures} of {MAX_FAILURES} failed: {error}");
+                if failures >= MAX_FAILURES {
+                    return Waited::Done(Err(error));
+                }
+            }
+        }
+    }
+}
+
+/// Sleeps until the next poll is due. It ends early for a cancel, for a
+/// sheet the user closed and for a code that came back. The answer says
+/// whether the sheet of this attempt was closed.
+async fn wait_for_next_poll(attempt: u64, hand_back: Option<&HandBack>) -> bool {
+    let poll_at = now() + f64::from(POLL_SECONDS);
+
+    loop {
+        if CLOSED.load(Ordering::SeqCst) == attempt {
+            return true;
+        }
+        if ATTEMPT.load(Ordering::SeqCst) != attempt
+            || now() >= poll_at
+            || hand_back.is_some_and(HandBack::has_code)
+        {
+            return false;
+        }
+        sleep(LOOK_SECONDS).await;
+    }
+}
+
+async fn ask_code(server: &str, challenge: &str, provider: Provider) -> Result<LoginCode> {
+    let call = Call::post(format!("{server}/auth/code")).body(CodeRequest {
+        challenge,
+        provider: provider.route(),
+    });
+
+    match call.send::<CodeResponse>().await {
+        Ok(response) => Ok(login_code(server, response.code)),
+        Err(RequestError::Unauthorized) => bail!("the server refused to give a login code"),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn login_code(server: &str, code: String) -> LoginCode {
+    let page = format!("{server}/auth/code");
+    LoginCode {
+        link: format!("{page}?code={code}"),
+        page,
+        code,
+    }
+}
+
+async fn poll(server: &str, verifier: &str, code: Option<&str>) -> Result<PollResponse> {
+    let call = Call::post(format!("{server}/auth/poll")).body(PollRequest {
+        verifier,
+        code,
+        cookie: cookie_mode(),
+    });
+
+    match call.send().await {
+        Ok(response) => Ok(response),
+        Err(RequestError::Unauthorized) => bail!("the server refused the login poll"),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Tells the server that the login of this verifier is a link for the user
+/// of the active session.
+async fn ask_link(verifier: &str) -> Result<()> {
+    let call = Call::post(format!("{}/auth/link", server()?)).body(LinkRequest {
+        challenge: &challenge(verifier),
+    });
+    Ok(Login::send::<()>(call).await?)
+}
+
+async fn fetch_providers() -> Result<LinkedProviders> {
+    let call = Call::get(format!("{}/auth/providers", server()?));
+    let answer: ProvidersResponse = Login::send(call).await?;
+    let known = |routes: &[String]| -> Vec<Provider> {
+        routes.iter().filter_map(|route| Provider::of_route(route)).collect()
+    };
+    Ok(LinkedProviders {
+        linked:  known(&answer.linked),
+        offered: known(&answer.offered),
+    })
+}
+
+/// A login that came back to this page finishes first. Asked before it, the
+/// server has no session yet: the answer was a 401 that cleared the user the
+/// login set a moment later, and a page in cookie mode showed its login again.
+async fn wait_for_resume() {
+    let give_up_at = now() + GIVE_UP_SECONDS;
+    while RESUMING.load(Ordering::SeqCst) && now() < give_up_at {
+        sleep(LOOK_SECONDS).await;
+    }
+}
+
+async fn fetch_current_user() -> Result<Option<LoginUser>> {
+    wait_for_resume().await;
+    // A view never asks: a 401 for it must not drop the own session.
+    if let Some(view) = view::current() {
+        return Ok(view.user());
+    }
+    let Some(credential) = credential() else {
+        return Ok(None);
+    };
+    let token = match &credential {
+        Credential::Bearer(token) => Some(token.clone()),
+        Credential::Cookie => None,
+    };
+
+    let call = credential.on(Call::get(format!("{}/auth/me", server()?)));
+    match call.send::<LoginUser>().await {
+        Ok(user) => {
+            match token {
+                // A session of an engine with 1 login gets its user here, and
+                // a new name or picture reaches the list of accounts.
+                Some(token) => SessionStore::set_user(&token, user.clone())?,
+                None => set_cookie_user(Some(user.clone())),
+            }
+            Ok(Some(user))
+        }
+        Err(RequestError::Unauthorized) => {
+            clear_active()?;
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+async fn end_session() -> Result<()> {
+    view::refuse_change("a logout")?;
+    let Some(credential) = credential() else {
+        return Ok(());
+    };
+    clear_active()?;
+    logout_on_server(credential).await
+}
+
+async fn end_every_session() -> Result<()> {
+    view::refuse_change("a logout")?;
+    let Some(credential) = credential() else {
+        bail!("nobody is logged in");
+    };
+    let call = credential.on(Call::post(format!("{}/auth/logout/all", server()?)));
+    // An unknown session has nothing left to end on the server.
+    match call.send::<()>().await {
+        Ok(()) | Err(RequestError::Unauthorized) => {}
+        Err(error) => return Err(error.into()),
+    }
+    log::info!("every session of the active user is ended on the server");
+    clear_active()
+}
+
+async fn forget_session(id: &str) -> Result<()> {
+    view::refuse_change("a logout")?;
+    if cookie_mode() {
+        let active = Login::active_user().is_some_and(|user| user.id == id);
+        return if active { end_session().await } else { Ok(()) };
+    }
+    let Some(token) = SessionStore::remove(id)? else {
+        return Ok(());
+    };
+    log::info!("the login of user {id} is forgotten on this device");
+    logout_on_server(Credential::Bearer(token)).await
+}
+
+async fn logout_on_server(credential: Credential) -> Result<()> {
+    let call = credential.on(Call::post(format!("{}/auth/logout", server()?)));
+
+    // An unknown session is as logged out as it gets.
+    match call.send::<()>().await {
+        Ok(()) | Err(RequestError::Unauthorized) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+async fn delete_user() -> Result<()> {
+    view::refuse_change("a delete of the account")?;
+    if credential().is_none() {
+        bail!("nobody is logged in");
+    }
+
+    // A session the server no longer knows has no account to delete.
+    match Login::send::<()>(Call::post(format!("{}/auth/delete", server()?))).await {
+        Ok(()) | Err(RequestError::Unauthorized) => {
+            log::info!("the account is deleted");
+            clear_active()
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+#[path = "client_test.rs"]
+mod test;
+
+#[cfg(all(test, not_wasm))]
+#[path = "view_test.rs"]
+mod view_test;
+
+/// The login of a page in a browser in 1 tab. Before the page leaves for the
+/// provider it keeps the verifier and its own address. The last page of the
+/// server writes the code and sends the browser back to that address, and at
+/// the next start `Login::set_server` finishes the login with the kept
+/// verifier.
+#[cfg(wasm)]
+mod same_tab {
+    use std::sync::atomic::Ordering;
+
+    use anyhow::{Result, anyhow};
+    use web_sys::{Storage, window};
+
+    use super::{ATTEMPT, CHANGED, Provider, RESUMING, Waited, challenge, new_verifier, wait_for_login};
+    use crate::{
+        deps::hreads::{on_main, spawn},
+        login::hand_back::HandBack,
+    };
+
+    /// The verifier and the challenge of the login this page left for.
+    const PENDING: &str = "hilen-login-same-tab";
+
+    /// Where the last page of the server sends the browser back to, the same
+    /// key as `HandBack::return_key` of the server.
+    fn return_key(challenge: &str) -> String {
+        format!("hilen-login-return-{challenge}")
+    }
+
+    fn storage() -> Result<Storage> {
+        window()
+            .ok_or_else(|| anyhow!("no window"))?
+            .local_storage()
+            .map_err(|error| anyhow!("localStorage is blocked: {error:?}"))?
+            .ok_or_else(|| anyhow!("no localStorage"))
+    }
+
+    pub(super) fn leave(server: &str, provider: Provider, verifier: Option<String>) -> Result<()> {
+        let verifier = match verifier {
+            Some(verifier) => verifier,
+            None => new_verifier()?,
+        };
+        let challenge = challenge(&verifier);
+        // Checks that the page is on the origin of its server, the last page
+        // can write only there.
+        drop(HandBack::open(server, &challenge)?);
+        let location = window().ok_or_else(|| anyhow!("no window"))?.location();
+        let here = format!(
+            "{}{}{}",
+            location.pathname().unwrap_or_default(),
+            location.search().unwrap_or_default(),
+            location.hash().unwrap_or_default()
+        );
+        let storage = storage()?;
+        storage
+            .set_item(PENDING, &format!("{verifier} {challenge}"))
+            .map_err(|error| anyhow!("failed to keep the login: {error:?}"))?;
+        storage
+            .set_item(&return_key(&challenge), &here)
+            .map_err(|error| anyhow!("failed to keep the address: {error:?}"))?;
+        log::info!("{} login started in this tab, back to {here}", provider.route());
+        location
+            .assign(&format!(
+                "{server}/auth/{}?challenge={challenge}&page=1",
+                provider.route()
+            ))
+            .map_err(|error| anyhow!("failed to open the login: {error:?}"))
+    }
+
+    /// Finishes the login this page left for, if it came back with a code.
+    pub(super) fn resume(server: String) {
+        let pending = match storage().and_then(|storage| {
+            let pending = storage.get_item(PENDING).map_err(|error| anyhow!("{error:?}"))?;
+            if pending.is_some() {
+                storage.remove_item(PENDING).map_err(|error| anyhow!("{error:?}"))?;
+            }
+            Ok(pending)
+        }) {
+            Ok(Some(pending)) => pending,
+            Ok(None) => return,
+            Err(error) => {
+                log::warn!("the login of this tab cannot be read: {error}");
+                return;
+            }
+        };
+        let Some((verifier, challenge)) = pending.split_once(' ') else {
+            log::warn!("the kept login of this tab is broken, it is dropped");
+            return;
+        };
+        if let Ok(storage) = storage() {
+            storage.remove_item(&return_key(challenge)).ok();
+        }
+        let hand_back = match HandBack::open(&server, challenge) {
+            Ok(hand_back) => hand_back,
+            Err(error) => {
+                log::warn!("the login of this tab cannot finish: {error}");
+                return;
+            }
+        };
+        // Back with no code: the user went back from the provider.
+        if !hand_back.has_code() {
+            log::info!("the page came back with no login, it was cancelled");
+            return;
+        }
+        let verifier = verifier.to_owned();
+        let attempt = ATTEMPT.fetch_add(1, Ordering::SeqCst) + 1;
+        log::info!("the login of this tab came back, it finishes");
+        RESUMING.store(true, Ordering::SeqCst);
+        spawn(async move {
+            let waited = wait_for_login(&server, &verifier, Some(&hand_back), attempt).await;
+            RESUMING.store(false, Ordering::SeqCst);
+            match waited {
+                Waited::Done(Ok(_)) => on_main(|| CHANGED.trigger(())),
+                Waited::Done(Err(error)) => log::warn!("the login of this tab failed: {error}"),
+                Waited::Closed | Waited::Cancelled => {}
+            }
+        });
+    }
+}

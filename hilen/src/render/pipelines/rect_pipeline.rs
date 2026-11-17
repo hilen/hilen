@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bytemuck::Pod;
 use indexmap::IndexMap;
 use wgpu::{
@@ -8,17 +10,16 @@ use wgpu::{
 use crate::{
     deps::refs::Weak,
     gm::flat::{Point, Size, Vertex2D},
+    image::{Image, RASTER_KEEP_FRAMES},
     render::{
+        PipelineShape, WithSamples,
         device_helper::DeviceHelper,
         pipelines::pipeline_type::PipelineType,
         uniform::{InstanceBinding, UniformBind, draw_instances, instances_shader, make_uniform_layout},
         vec_buffer::VecBuffer,
         vertex_layout::VertexLayout,
     },
-    window::{
-        Window,
-        image::{Image, RASTER_KEEP_FRAMES},
-    },
+    window::{Window, msaa_sample_count},
 };
 
 /// What one draw of the image pipeline binds. A raster size selects an
@@ -27,11 +28,20 @@ use crate::{
 pub struct ImageKey {
     pub image:  Weak<Image>,
     pub raster: Option<(u32, u32)>,
+    /// Set for an image that views at different depths share and that has
+    /// soft edges, like the glow of a text. Each depth is then a batch of
+    /// its own, so the batches can be drawn farthest first. The bits of the
+    /// z position.
+    pub depth:  Option<u32>,
 }
 
 impl From<Weak<Image>> for ImageKey {
     fn from(image: Weak<Image>) -> Self {
-        Self { image, raster: None }
+        Self {
+            image,
+            raster: None,
+            depth: None,
+        }
     }
 }
 
@@ -69,7 +79,8 @@ pub struct RectPipeline<
 
     // Managed images live for the whole process, see docs/refs.md, so an
     // image key cannot die. Svg raster keys come and go with the sizes
-    // drawn and are dropped with their rasters.
+    // drawn and are dropped with their rasters. Depth keys come and go
+    // with the views and are dropped the same way.
     instances: IndexMap<ImageKey, VecBuffer<Instance>>,
 }
 
@@ -79,9 +90,9 @@ impl<
     const SHADER_CODE: &'static str,
     View: Default + Pod,
     Instance: VertexLayout,
-> Default for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
+> WithSamples for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
 {
-    fn default() -> Self {
+    fn with_samples(samples: u32) -> Self {
         let device = Window::device();
         let binding = InstanceBinding::device();
 
@@ -112,22 +123,30 @@ impl<
         });
 
         let pipeline = if TYPE.image() {
-            device.pipeline(
+            device.pipeline_blended(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                CompareFunction::Less,
-                PrimitiveTopology::TriangleStrip,
                 &[Vertex2D::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
+                PipelineShape {
+                    depth_compare: CompareFunction::Less,
+                    topology: PrimitiveTopology::TriangleStrip,
+                    samples,
+                },
+                TYPE.blend(),
             )
         } else {
-            device.pipeline(
+            device.pipeline_blended(
                 &format!("{NAME}_pipeline"),
                 &uniform_layout,
                 &shader,
-                CompareFunction::Less,
-                PrimitiveTopology::TriangleStrip,
                 &[Point::VERTEX_LAYOUT, Instance::VERTEX_LAYOUT],
+                PipelineShape {
+                    depth_compare: CompareFunction::Less,
+                    topology: PrimitiveTopology::TriangleStrip,
+                    samples,
+                },
+                TYPE.blend(),
             )
         };
 
@@ -159,6 +178,27 @@ impl<
         self.instances.entry(image.into()).or_default().push(instance);
     }
 
+    /// Draws the image batches farthest first, by the farthest instance of
+    /// each. The batches otherwise go in the order their images were first
+    /// drawn in the process, and a soft cutout edge drawn before the batch
+    /// behind it blends with the clear color, then hides that batch there
+    /// by depth, a halo that depends on which image loaded first. The
+    /// interface has the same need, a text glow whose image is older than
+    /// the picture behind it would draw first.
+    pub(crate) fn sort_back_to_front(&mut self, depth: impl Fn(&Instance) -> f32) {
+        let farthest: HashMap<ImageKey, f32> = self
+            .instances
+            .iter()
+            .map(|(key, batch)| (*key, batch.queued().iter().map(&depth).fold(f32::MIN, f32::max)))
+            .collect();
+        self.instances.sort_by(|a, _, b, _| farthest[b].total_cmp(&farthest[a]));
+    }
+
+    /// Whether anything was added since the last `draw`.
+    pub(crate) fn has_queued(&self) -> bool {
+        self.instances.values().any(|instances| !instances.is_empty())
+    }
+
     pub fn draw(&mut self, render_pass: &mut RenderPass, view: View) {
         if self.instances.is_empty() {
             return;
@@ -186,7 +226,7 @@ impl<
             draw_instances(
                 render_pass,
                 &self.instances_layout,
-                &format!("{NAME}_instances_bind"),
+                NAME,
                 1,
                 1,
                 TYPE.vertex_range(),
@@ -197,7 +237,21 @@ impl<
         // After the loads, a key added this frame has its frame stamped
         // only by load and would otherwise be dropped before it draws.
         let frame = Window::render_frame();
-        self.instances
-            .retain(|key, instances| key.raster.is_none() || instances.frame() + RASTER_KEEP_FRAMES >= frame);
+        self.instances.retain(|key, instances| {
+            (key.raster.is_none() && key.depth.is_none()) || instances.frame() + RASTER_KEEP_FRAMES >= frame
+        });
+    }
+}
+
+impl<
+    const TYPE: PipelineType,
+    const NAME: &'static str,
+    const SHADER_CODE: &'static str,
+    View: Default + Pod,
+    Instance: VertexLayout,
+> Default for RectPipeline<TYPE, NAME, SHADER_CODE, View, Instance>
+{
+    fn default() -> Self {
+        Self::with_samples(msaa_sample_count())
     }
 }

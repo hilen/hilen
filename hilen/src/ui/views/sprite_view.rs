@@ -1,7 +1,7 @@
 use ui_proc::view;
 
 use crate::{
-    deps::refs::Weak,
+    deps::refs::{Weak, weak_from_ref},
     level::Sprite,
     ui::{AlertErr, Setup, TextField, ViewCallbacks, ViewData},
 };
@@ -45,7 +45,8 @@ impl ViewCallbacks for SpriteView {
 }
 
 impl SpriteView {
-    pub fn set_sprite(&mut self, sprite: Weak<dyn Sprite>) {
-        self.sprite = sprite;
+    pub fn set_sprite(&self, sprite: Weak<dyn Sprite>) {
+        let mut this = weak_from_ref(self);
+        this.sprite = sprite;
     }
 }

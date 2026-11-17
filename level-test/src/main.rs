@@ -1,6 +1,6 @@
 //! The level test runner. Every `impl LevelTest` registers into
 //! `hilen::LEVEL_TESTS` through a ctor, the same way a UI test registers
-//! into `UI_TESTS`, and this binary runs that map. The corpus lives in
+//! into `UI_TESTS`, and this binary runs that map. The tests live in
 //! this crate, so nothing has to keep a separate rlib linked.
 
 #![allow(incomplete_features)]
@@ -8,6 +8,19 @@
 
 mod blade_tunnel;
 mod cutout;
+mod grass_across_chunk_border;
+mod level_leaves_keys;
+mod level_lights;
+mod level_mouse;
+mod level_time;
+mod pixel_art;
+mod sprite_edges;
+mod sprite_flip;
+mod sprite_image_scale;
+mod sprite_tint;
+mod terrain_ground;
+mod tile_framing;
+mod tile_layers;
 
 use std::{collections::BTreeMap, panic::set_hook, path::PathBuf, process::exit};
 

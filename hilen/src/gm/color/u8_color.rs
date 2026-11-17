@@ -26,17 +26,29 @@ impl U8Color {
             0
         };
 
+        let digits = bytes.len() - offset;
+        assert!(
+            digits == 6 || digits == 8,
+            "A hex color has 6 digits, #rrggbb, or 8 with the alpha, #rrggbbaa"
+        );
+
         let r = hex_char_to_u8(bytes[offset]) * 16 + hex_char_to_u8(bytes[offset + 1]);
         let g = hex_char_to_u8(bytes[offset + 2]) * 16 + hex_char_to_u8(bytes[offset + 3]);
         let b = hex_char_to_u8(bytes[offset + 4]) * 16 + hex_char_to_u8(bytes[offset + 5]);
+        let a = if digits == 8 {
+            hex_char_to_u8(bytes[offset + 6]) * 16 + hex_char_to_u8(bytes[offset + 7])
+        } else {
+            255
+        };
 
-        Self { r, g, b, a: 255 }
+        Self { r, g, b, a }
     }
 
     pub fn as_hex(&self) -> String {
         format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn diff_u8(self, other: Self) -> i16 {
         (i16::from(self.r) - i16::from(other.r)).abs()
             + (i16::from(self.g) - i16::from(other.g)).abs()
@@ -87,5 +99,14 @@ mod tests {
     fn test_color_from_hex() {
         assert_eq!(U8Color::parse_hex("858AE3"), U8Color::const_rgb(133, 138, 227));
         assert_eq!(U8Color::parse_hex("#50C5B7"), U8Color::const_rgb(80, 197, 183));
+        assert_eq!(
+            U8Color::parse_hex("#00000055"),
+            U8Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0x55,
+            }
+        );
     }
 }

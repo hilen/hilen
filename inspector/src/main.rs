@@ -9,6 +9,8 @@ use crate::app::InspectorApp;
 mod app;
 mod ui;
 
+hilen::register_app!(InspectorApp);
+
 fn main() {
     InspectorApp::start();
 }

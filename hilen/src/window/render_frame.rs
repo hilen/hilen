@@ -5,6 +5,16 @@ use wgpu::{
 
 use crate::gm::color::Color;
 
+/// What a pass draws into in place of the frame, see
+/// `RenderFrame::push_target`.
+pub(crate) struct PassTarget {
+    /// The color the pass draws into, multisampled when the frame is.
+    pub(crate) color:   TextureView,
+    /// Where a multisampled color resolves to at every pass end.
+    pub(crate) resolve: Option<TextureView>,
+    pub(crate) depth:   TextureView,
+}
+
 /// One frame's render encoding. Owns the encoder and the render pass
 /// together, which `forget_lifetime` makes possible, so the frame can
 /// be split into several passes to sample the already drawn scene.
@@ -26,6 +36,9 @@ pub struct RenderFrame {
     /// readback.
     msaa_view:    Option<TextureView>,
     present_view: Option<TextureView>,
+    /// The images the passes draw into in place of the frame, the last
+    /// one is current. A group fade draws its views into one.
+    targets:      Vec<PassTarget>,
 }
 
 impl RenderFrame {
@@ -35,9 +48,21 @@ impl RenderFrame {
         present_view: Option<TextureView>,
         depth_view: TextureView,
         msaa_view: Option<TextureView>,
-        clear_color: Color,
+        // The color the frame starts from. With none the frame draws over
+        // the color of the frame before, see `ui::damage`. Depth and
+        // stencil start empty in every frame.
+        clear_color: Option<Color>,
         timestamp_writes: Option<RenderPassTimestampWrites>,
     ) -> Self {
+        let color_load = clear_color.map_or(LoadOp::Load, |color| {
+            LoadOp::Clear(wgpu::Color {
+                r: f64::from(color.r),
+                g: f64::from(color.g),
+                b: f64::from(color.b),
+                a: f64::from(color.a),
+            })
+        });
+
         // The bench GPU timer measures the first pass only. The
         // benchmark never blurs, so its frame is exactly one pass.
         let pass = begin_pass(
@@ -45,12 +70,7 @@ impl RenderFrame {
             msaa_view.as_ref().unwrap_or(&scene_view),
             msaa_view.as_ref().map(|_| &scene_view),
             &depth_view,
-            LoadOp::Clear(wgpu::Color {
-                r: f64::from(clear_color.r),
-                g: f64::from(clear_color.g),
-                b: f64::from(clear_color.b),
-                a: f64::from(clear_color.a),
-            }),
+            color_load,
             true,
             timestamp_writes,
         );
@@ -62,6 +82,7 @@ impl RenderFrame {
             depth_view,
             msaa_view,
             present_view,
+            targets: vec![],
         }
     }
 
@@ -69,18 +90,53 @@ impl RenderFrame {
     /// the color and depth drawn so far.
     pub(crate) fn pass(&mut self) -> &mut RenderPass<'static> {
         if self.pass.is_none() {
-            self.pass = Some(begin_pass(
-                &mut self.encoder,
-                self.msaa_view.as_ref().unwrap_or(&self.scene_view),
-                self.msaa_view.as_ref().map(|_| &self.scene_view),
-                &self.depth_view,
-                LoadOp::Load,
-                false,
-                None,
-            ));
+            self.pass = Some(match self.targets.last() {
+                Some(target) => begin_pass(
+                    &mut self.encoder,
+                    &target.color,
+                    target.resolve.as_ref(),
+                    &target.depth,
+                    LoadOp::Load,
+                    false,
+                    None,
+                ),
+                None => begin_pass(
+                    &mut self.encoder,
+                    self.msaa_view.as_ref().unwrap_or(&self.scene_view),
+                    self.msaa_view.as_ref().map(|_| &self.scene_view),
+                    &self.depth_view,
+                    LoadOp::Load,
+                    false,
+                    None,
+                ),
+            });
         }
 
         self.pass.as_mut().expect("pass just ensured")
+    }
+
+    /// Ends the current pass and opens one on `target`, cleared to nothing,
+    /// with a depth and a stencil of its own. Every pass draws there until
+    /// `pop_target`.
+    pub(crate) fn push_target(&mut self, target: PassTarget) {
+        self.pass = None;
+        self.pass = Some(begin_pass(
+            &mut self.encoder,
+            &target.color,
+            target.resolve.as_ref(),
+            &target.depth,
+            LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            true,
+            None,
+        ));
+        self.targets.push(target);
+    }
+
+    /// Ends the pass on the current target. The next `pass` call draws on
+    /// into what was current before it, with everything there kept.
+    pub(crate) fn pop_target(&mut self) {
+        self.pass = None;
+        self.targets.pop();
     }
 
     /// Ends the current pass so the scene texture can be read. Returns

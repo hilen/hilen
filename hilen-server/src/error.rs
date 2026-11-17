@@ -13,6 +13,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("forbidden")]
     Forbidden,
+    /// No session, or one that ended. The app sends the user to log in again.
+    #[error("unauthorized")]
+    Unauthorized,
     #[error("internal: {0}")]
     Internal(#[from] anyhow::Error),
 }
@@ -35,6 +38,7 @@ impl IntoResponse for AppError {
             Self::NotFound => (StatusCode::NOT_FOUND, "not found".to_string()),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_string()),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
             Self::Internal(e) => {
                 tracing::error!("internal error: {e:?}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())

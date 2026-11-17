@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
     paths-ignore:
       - "**.md"
   pull_request:
@@ -23,10 +23,19 @@ jobs:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
+
+      # clippy builds the whole workspace several times over.
+      - name: Free disk space
+        run: uv run -q --no-dev build/scripts/free_action_runner.py
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libssl-dev xorg-dev libasound2-dev
+          sudo apt-get install -y cmake pkg-config libssl-dev xorg-dev libxcb1-dev \
+            libasound2-dev libdbus-1-dev libudev-dev libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libvulkan-dev
 
       - name: Install quality tools
         uses: taiki-e/install-action@v2
@@ -62,14 +71,23 @@ jobs:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
 
-      - name: Install deps
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Free disk space
+        run: uv run -q --no-dev build/scripts/free_action_runner.py
+
+      # mesa-vulkan-drivers is lavapipe, the software Vulkan the headless
+      # runner draws with on a machine with no GPU.
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libssl-dev xorg-dev libasound2-dev \
-            mesa-common-dev libgl1-mesa-dev libglu1-mesa-dev mesa-vulkan-drivers
+          sudo apt-get install -y cmake pkg-config libssl-dev xorg-dev libxcb1-dev \
+            libasound2-dev libdbus-1-dev libudev-dev libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libvulkan-dev mesa-vulkan-drivers
 
       - name: Run UI tests
-        run: cargo run -p ui-test --profile=ci -- --headless
+        run: cargo run -p ui-test -- --headless
 
   # A real installed browser, headed as the driver wants, but drawing into a
   # virtual display, so a run never opens a window on anyone's desktop.
@@ -79,10 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Chrome is off for now. Dawn on SwiftShader draws the readback
-        # frame at quarter scale, so 33 tests read wrong pixels while the
-        # screen is correct. Restore chrome here once that bug is fixed.
-        browser: [firefox]
+        browser: [chrome, firefox]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -96,7 +111,7 @@ jobs:
         with:
           tool: trunk
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb mesa-vulkan-drivers
@@ -119,29 +134,66 @@ jobs:
 
   ios-ui-tests:
     name: iOS UI Tests
-    runs-on: mac
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      # The Xcode of the work macs. Without the simulator list of the account
+      # the storyboard compiler fails with "iOS 26.2 Platform Not Installed".
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app
+          sudo xcodebuild -runFirstLaunch
+          xcodebuild -runFirstLaunch -checkForNewerComponents || true
+          ls ~/Library/Developer/Xcode/SDKToSimulatorIndexMapping.plist
+
+      # The lane runs on an iPhone 8, which needs the iOS 16.4 runtime, and no
+      # image of GitHub has it. Apple serves it with no Apple ID, the first
+      # request only gives the download cookie.
+      - name: Add the iOS 16.4 simulator runtime
+        run: |
+          dmg="$RUNNER_TEMP/ios-16.4.dmg"
+          path=/Developer_Tools/iOS_16.4_Simulator_Runtime/iOS_16.4_Simulator_Runtime.dmg
+          curl -sfL -c "$RUNNER_TEMP/apple.jar" -o /dev/null \
+            "https://developerservices2.apple.com/services/download?path=$path"
+          curl -sfL -b "$RUNNER_TEMP/apple.jar" -o "$dmg" "https://download.developer.apple.com$path"
+          xcrun simctl runtime add "$dmg"
+          rm "$dmg"
+          xcrun simctl runtime list
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
 
       - name: Run UI tests on the iOS simulator
-        run: rust ./build/ios/sim-test.rs
+        # The path of a far job on kotik, see HILEN_IOS_NO_DESKTOP in the lane.
+        env:
+          HILEN_IOS_NO_DESKTOP: "1"
+        run: uv run -q --no-dev ./build/ios/sim-test.py
+
+      - name: Upload failure pictures and the helper log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-failures
+          path: |
+            target/ios/failures/
+            target/ios/system-input.log
+            target/ios/system-input/Logs/Test/
+          if-no-files-found: ignore
 
   build:
-    name: Build
+    name: Build (${{ matrix.target.os }})
     strategy:
       fail-fast: false
       matrix:
         target: [
-            { os: macos, runner: macos-latest },
+            { os: macos, runner: macos-26 },
             { os: windows, runner: windows-latest },
 
-            { os: ios, runner: mac },
+            { os: ios, runner: macos-26 },
             { os: android, runner: ubuntu-latest },
           ]
     runs-on: ${{ matrix.target.runner }}
@@ -151,20 +203,29 @@ jobs:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
 
-      - name: Free Space
-        if: ${{ matrix.target.os != 'windows' }}
-        run: rust build/scripts/free_action_runner.rs
+      - name: Free disk space
+        if: ${{ matrix.target.os == 'android' }}
+        run: uv run -q --no-dev build/scripts/free_action_runner.py
+
+      # The Xcode of the work macs, see the iOS UI tests above.
+      - name: Select Xcode
+        if: ${{ matrix.target.os == 'ios' }}
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app
+          sudo xcodebuild -runFirstLaunch
+          xcodebuild -runFirstLaunch -checkForNewerComponents || true
+          ls ~/Library/Developer/Xcode/SDKToSimulatorIndexMapping.plist
 
       - name: Build and test
         if: ${{ matrix.target.os != 'windows' }}
-        run: rust build/build.rs ${{ matrix.target.os }}
+        run: uv run -q --no-dev build/build.py ${{ matrix.target.os }}
 
       - name: Build and test Windows
         if: ${{ matrix.target.os == 'windows' }}
-        run: rust build/build.rs
+        run: uv run -q --no-dev build/build.py
 
   linux:
     name: Build Linux
@@ -187,11 +248,11 @@ jobs:
           token: ${{secrets.GITHUB_TOKEN}}
           submodules: recursive
 
-      - name: Setup rustscript
-        uses: VladasZ/rustscript@v0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
 
-      - name: Free Space
-        run: rust build/scripts/free_action_runner.rs
+      - name: Free disk space
+        run: uv run -q --no-dev build/scripts/free_action_runner.py
 
       - name: Build
-        run: echo ${{ matrix.target.container }} && rust build/in_docker.rs ${{ matrix.target.container }}
+        run: echo ${{ matrix.target.container }} && uv run -q --no-dev build/in_docker.py ${{ matrix.target.container }}

@@ -1,8 +1,19 @@
+#[cfg(wasm)]
+mod browser_field;
 mod editing;
+#[cfg(all(ios, not(tvos)))]
+mod system_field;
+mod taken_keys;
+#[cfg(any(wasm, test))]
+mod utf16;
+
+use std::{mem::take, ops::Range};
 
 use ui_proc::view;
-use web_time::Instant;
+use zeroize::Zeroizing;
 
+#[cfg(any(all(ios, not(tvos)), wasm))]
+use crate::ui::view::ViewCallbacks;
 use crate::{
     deps::{
         refs::{Weak, weak_from_ref},
@@ -11,19 +22,23 @@ use crate::{
     gm::{
         ToF32,
         color::{BLACK, CLEAR, GRAY, LIGHTER_GRAY, WHITE},
-        flat::Point,
     },
+    system::ClipboardImage,
+    text::Font,
     ui::{
-        Container, Label, ScrollView, Setup, TextAlignment, TextFieldConstraint, ToLabel, UIColor, UIEvents,
-        UIManager, VerticalAlignment, ViewSubviews,
-        view::{View, ViewData, ViewFrame, ViewTouch},
+        Container, Label, NamedKey, ScreenKeyboard, ScrollView, Setup, TextAlignment, TextFieldConstraint,
+        ToLabel, UIColor, UIEvents, UIManager, VerticalAlignment, ViewSubviews,
+        view::{DoubleTap, View, ViewData, ViewFrame, ViewTouch},
     },
-    window::Font,
 };
 
 /// Space above the first line of a multiline field, so the text does not
 /// touch the top edge the way a text area does not.
 const MULTILINE_TOP_INSET: f32 = 8.0;
+
+/// On an iPhone a system text field covers the field while it is edited and
+/// draws the text, the caret and the selection itself, see `system_field`.
+pub(super) const SYSTEM_EDITS: bool = cfg!(all(ios, not(tvos)));
 
 /// What a secure field draws for every character.
 pub(super) const MASK: char = '\u{2022}';
@@ -32,22 +47,37 @@ pub(super) fn mask(text: &str) -> String {
     std::iter::repeat_n(MASK, text.chars().count()).collect()
 }
 
+/// What a plain Enter does in a multiline field.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MultilineEnter {
+    #[default]
+    NewLine,
+    /// Fires `submitted` and keeps the field in edit, a chat box.
+    Submit,
+}
+
 #[view]
 pub struct TextField {
     pub(crate) constraint: Option<TextFieldConstraint>,
 
     placeholder:       String,
     text_color:        UIColor,
-    selected_color:    UIColor,
+    /// The fill while the field is edited, none keeps the field's own.
+    selected_color:    Option<UIColor>,
     background_color:  UIColor,
     placeholder_color: Option<UIColor>,
     placeholding:      bool,
     is_editing:        bool,
     multiline:         bool,
+    /// What a plain Enter does in a multiline field.
+    multiline_enter:   MultilineEnter,
 
     /// The real text of a secure field, `None` for a plain one. The label
-    /// only ever shows one mask character per character of it.
-    secret: Option<String>,
+    /// only ever shows one mask character per character of it. Every
+    /// change puts a new buffer here, and the old one writes zeros over
+    /// itself before its memory is freed, so does the last one when the
+    /// field is dropped.
+    secret: Option<Zeroizing<String>>,
 
     /// Byte index into the text where typing inserts.
     caret: usize,
@@ -56,12 +86,33 @@ pub struct TextField {
     /// `None` or equal to the caret means nothing is selected.
     anchor: Option<usize>,
 
-    /// The last tap, to tell a double click.
-    last_tap: Option<(Instant, Point)>,
+    /// The click before, to tell a double click.
+    clicks: DoubleTap,
 
     pub changed: Event<String>,
 
     pub editing_ended: Event<String>,
+
+    /// Enter in a single line field. It fires after `editing_ended`, with
+    /// the same text, so a form confirms on it the way its button does.
+    /// A multiline field fires it only with `set_submit_on_enter`, Enter
+    /// is a new line there otherwise.
+    pub submitted: Event<String>,
+
+    /// A paste that found a picture in the clipboard and no text, with
+    /// that picture as a png file. The field itself takes nothing from
+    /// it, the owner keeps the picture. It fires a moment after the keys,
+    /// the png file is made on another thread. The paste shortcut of a
+    /// desktop fires it, and a paste of a png in a browser. iOS and Android
+    /// do not, see `Clipboard::get_image`.
+    pub image_pasted: Event<ClipboardImage>,
+
+    /// A press of a key named with `take_keys`, while the field is
+    /// edited. The field itself does nothing with that press.
+    pub key_taken: Event<NamedKey>,
+
+    /// The keys of `take_keys`.
+    taken_keys: Vec<NamedKey>,
 
     /// All of these live inside the scroll content so a multiline field
     /// scrolls its lines, the selection and the caret together. A single
@@ -74,10 +125,18 @@ pub struct TextField {
     scroll: ScrollView,
 }
 
+#[cfg(all(ios, not(tvos)))]
+impl Drop for TextField {
+    fn drop(&mut self) {
+        if self.is_editing {
+            system_field::dropped(self);
+        }
+    }
+}
+
 impl Setup for TextField {
     fn setup(mut self: Weak<Self>) {
         self.text_color = BLACK.into();
-        self.selected_color = GRAY.into();
         self.placeholding = true;
 
         self.scroll.place().back();
@@ -100,45 +159,95 @@ impl Setup for TextField {
                 self.on_touch_ended();
             }
         });
-        self.size_changed().sub(move || self.update_layout());
+        // The caret and the selection are laid out in points from the frame
+        // and from the text layout, which is shaped in screen pixels. So
+        // both move when the frame or the UI scale changes.
+        self.size_changed().sub(move || self.update_caret());
+        UIManager::on_scale_changed(self, move |_| {
+            self.update_caret();
+            // The system field counts in pixels, so its text size and its
+            // insets are other numbers at the new scale.
+            #[cfg(all(ios, not(tvos)))]
+            if self.is_editing {
+                system_field::begin(self);
+            }
+        });
         self.update_layout();
     }
 
     fn on_selection_changed(mut self: Weak<Self>, selected: bool) {
+        // Closing the system field accepts a pending autocorrection, which
+        // reports one last change. The field takes it only while it still
+        // counts as edited.
+        #[cfg(all(ios, not(tvos)))]
+        if !selected {
+            system_field::end();
+        }
+        #[cfg(wasm)]
+        if !selected {
+            browser_field::end();
+        }
+
         self.is_editing = selected;
 
         if selected {
             UIEvents::keyboard_key().val(self, move |key| self.on_key(key));
             UIEvents::keyboard_input().val(self, move |key| self.on_char(key));
-            UIManager::open_keyboard(self.absolute_frame());
+            #[cfg(all(ios, not(tvos)))]
+            system_field::begin(self);
+            #[cfg(wasm)]
+            browser_field::begin(self);
         } else {
-            if let Some(string) = UIManager::close_keyboard() {
-                self.set_text(string);
-            }
             UIEvents::keyboard_input().unsubscribe(self);
             UIEvents::keyboard_key().unsubscribe(self);
 
             self.anchor = None;
-            self.editing_ended.trigger(self.label.text().to_string());
+            let ended_with = if self.holds_secret() {
+                mask(self.text())
+            } else {
+                self.label.text().to_string()
+            };
+            self.editing_ended.trigger(ended_with);
         }
 
-        let color = if selected {
-            // Keep the original theme pair, not the resolved plain color,
-            // so the field keeps following theme switches after editing.
-            self.background_color = self.ui_color();
-            self.selected_color
-        } else {
-            self.background_color
-        };
-
-        self.set_color(color);
+        if let Some(selected_color) = self.selected_color {
+            let color = if selected {
+                // Keep the original theme pair, not the resolved plain color,
+                // so the field keeps following theme switches after editing.
+                self.background_color = self.ui_color();
+                selected_color
+            } else {
+                self.background_color
+            };
+            self.set_color(color);
+        }
         self.update_caret();
+        self.show_or_hide_label();
+    }
+}
+
+#[cfg(all(ios, not(tvos)))]
+impl ViewCallbacks for TextField {
+    fn update(&mut self) {
+        if self.is_editing {
+            system_field::follow(self);
+        }
+    }
+}
+
+#[cfg(wasm)]
+impl ViewCallbacks for TextField {
+    fn update(&mut self) {
+        if self.is_editing {
+            browser_field::follow(self);
+        }
     }
 }
 
 impl TextField {
-    pub fn set_alignment(&mut self, alignment: TextAlignment) -> &mut Self {
-        self.label.set_alignment(alignment);
+    pub fn set_alignment(&self, alignment: TextAlignment) -> &Self {
+        let this = weak_from_ref(self);
+        this.label.set_alignment(alignment);
         self
     }
 
@@ -164,24 +273,73 @@ impl TextField {
         self
     }
 
+    /// The Enter of a chat box. In a multiline field a plain Enter fires
+    /// `submitted` with the text and the field stays in edit, the owner
+    /// clears it and the user types on. Shift and Enter is the new line.
+    /// A phone keyboard has no Shift, so there Return stays a new line
+    /// and a button sends. A single line field ignores this, its Enter
+    /// always submits.
+    pub fn set_submit_on_enter(&self, submit: bool) -> &Self {
+        weak_from_ref(self).multiline_enter = if submit {
+            MultilineEnter::Submit
+        } else {
+            MultilineEnter::NewLine
+        };
+        self
+    }
+
+    /// What the user entered. The placeholder is a hint drawn by the label,
+    /// never text, so an empty field reads as empty.
+    ///
+    /// The text is borrowed from the field, nothing is copied. A copy the
+    /// caller makes of a secret is the caller's to wipe.
     pub fn text(&self) -> &str {
+        if self.placeholding {
+            return "";
+        }
         match &self.secret {
-            Some(secret) => secret,
+            Some(secret) => secret.as_str(),
             None => self.label.text(),
         }
     }
 
     /// A password field. The entered text stays readable through `text`,
     /// the label shows one bullet per character and copy is disabled.
+    ///
+    /// From the first `set_secure(true)` on, the field holds a secret for
+    /// good, also while `set_secure(false)` shows the text. Such a field:
+    ///
+    /// - writes zeros over its text before the memory is freed, on every change
+    ///   and when the field is dropped, and makes no copy on the way that is
+    ///   freed as it is,
+    /// - never puts the text into `changed` and `editing_ended`, which hand a
+    ///   `String` to the subscriber. Both carry one bullet per character, the
+    ///   real text is read with `text`,
+    /// - copies shown text with `Clipboard::set_secret`.
+    ///
+    /// What stays outside of this: a `String` given to `set_text` by
+    /// value is the copy of the caller, single typed characters pass
+    /// through the window system and the event queue as they are, on iOS
+    /// the system text field that owns the keyboard keeps its own copy,
+    /// in a browser the element that takes the keys keeps its own copy, and
+    /// a shown text leaves glyphs behind like every drawn text, see
+    /// `Label::set_secret`.
     pub fn set_secure(&self, secure: bool) -> &Self {
-        let text = self.entered_text();
-        weak_from_ref(self).secret = secure.then(String::new);
-        self.set_text(text);
-        self
+        if secure {
+            self.label.set_secret(true);
+        }
+        let text = Zeroizing::new(self.text().to_owned());
+        weak_from_ref(self).secret = secure.then(Zeroizing::default);
+        self.replace_text(text)
     }
 
     pub fn is_secure(&self) -> bool {
         self.secret.is_some()
+    }
+
+    /// The field was secure at some point, see `set_secure`.
+    pub(super) fn holds_secret(&self) -> bool {
+        self.label.is_secret()
     }
 
     /// Height of the scrollable content, the lines plus the inset in
@@ -202,61 +360,149 @@ impl TextField {
         caret.y() >= top - 0.5 && caret.max_y() <= top + self.height() + 0.5
     }
 
-    /// The selected text, empty when nothing is selected.
+    /// The selected text, empty when nothing is selected. A copy the
+    /// caller owns, also of a secure field.
     pub fn selected_text(&self) -> String {
         match self.selection() {
-            Some((start, end)) => self.entered_text()[start..end].to_string(),
+            Some((start, end)) => self.text()[start..end].to_string(),
             None => String::new(),
         }
     }
 
-    /// While empty the field shows its placeholder and `text` returns
-    /// that placeholder, so a reader needs this to tell entered text
-    /// from the hint.
+    /// The field is empty and its label draws the placeholder.
     pub fn is_placeholding(&self) -> bool {
         self.placeholding
     }
 
     pub fn set_text(&self, text: impl ToLabel) -> &Self {
-        let text = self.filter_constraint(text);
+        self.replace_text(Zeroizing::new(text.to_label()))
+    }
 
-        if self.secret.is_some() {
-            weak_from_ref(self).secret = Some(text.clone());
-        }
+    /// Every change of the text ends here. The text comes in a buffer
+    /// that wipes itself, so a part that is not kept, the chars a
+    /// constraint drops or the whole text of a field that shows it, never
+    /// stays behind in freed memory.
+    pub(super) fn replace_text(&self, text: Zeroizing<String>) -> &Self {
+        let mut this = weak_from_ref(self);
+
+        let mut text = match &self.constraint {
+            Some(constraint) => constraint.filter(&text),
+            None => text,
+        };
+        let len = text.len();
+
+        // A field that holds a secret never hands it to an event.
+        let masked = self.holds_secret().then(|| mask(&text));
 
         if text.is_empty() && !self.placeholder.is_empty() {
-            weak_from_ref(self).placeholding = true;
+            this.placeholding = true;
             self.label.set_text(self.placeholder.clone());
             self.label.set_text_color(self.placeholder_color.unwrap_or(LIGHTER_GRAY.into()));
         } else {
-            weak_from_ref(self).placeholding = false;
-            if self.is_secure() {
-                self.label.set_text(mask(&text));
-            } else {
-                self.label.set_text(&text);
-            }
+            this.placeholding = false;
+            match &masked {
+                Some(masked) if self.is_secure() => self.label.set_text(masked),
+                _ => self.label.set_text(text.as_str()),
+            };
             self.label.set_text_color(self.text_color);
         }
 
-        weak_from_ref(self).caret = text.len();
-        weak_from_ref(self).anchor = None;
-        weak_from_ref(self).update_caret();
+        let changed_to = masked.unwrap_or_else(|| take(&mut *text));
 
-        self.changed.trigger(text);
+        if self.is_secure() {
+            this.secret = Some(text);
+        }
+
+        this.caret = len;
+        this.anchor = None;
+        this.update_caret();
+        self.show_or_hide_label();
+
+        // A constraint that dropped a typed character, or a `set_text` call,
+        // changed the text under the system field.
+        #[cfg(all(ios, not(tvos)))]
+        if self.is_editing {
+            system_field::set_text(self.text());
+        }
+        #[cfg(wasm)]
+        if self.is_editing {
+            browser_field::sync(self);
+        }
+
+        self.changed.trigger(changed_to);
         self
     }
 
-    #[cfg(feature = "level")]
-    pub(crate) fn is_editing(&self) -> bool {
+    /// The system field draws the entered text while it edits, so the
+    /// label then shows only the placeholder of an empty field.
+    fn show_or_hide_label(&self) {
+        self.label.set_hidden(SYSTEM_EDITS && self.is_editing && !self.placeholding);
+    }
+
+    /// The user changed the text in the system field.
+    #[cfg(any(all(ios, not(tvos)), wasm))]
+    pub(super) fn system_text_changed(&self, text: Zeroizing<String>) {
+        if self.text() != text.as_str() {
+            self.replace_text(text);
+        }
+    }
+
+    /// The user moved the caret or the selection in the element of a browser,
+    /// or typed. The 2 are bytes of the entered text.
+    #[cfg(wasm)]
+    pub(super) fn system_selection_changed(self: Weak<Self>, anchor: usize, caret: usize) {
+        let mut this = self;
+        this.anchor = (anchor != caret).then_some(anchor);
+        this.caret = caret;
+        this.update_caret();
+    }
+
+    /// An editing session is open, the field has the keys.
+    pub fn is_editing(&self) -> bool {
         self.is_editing
     }
 
     /// Programmatic focus, the same editing session a tap starts. The
     /// caret lands at the end of the entered text.
+    ///
+    /// On a device with a screen keyboard this does nothing. A focus set
+    /// by code, at the start of a screen or on a switch of a chat, would
+    /// bring the keyboard up over the screen with no word from the user.
+    /// There only a tap on the field opens it, or `focus_with_keyboard`.
     pub fn focus(&self) {
-        weak_from_ref(self).caret = self.entered_text().len();
+        if ScreenKeyboard::on_this_device() {
+            return;
+        }
+        self.focus_with_keyboard();
+    }
+
+    /// `focus` that also brings the screen keyboard of a phone up, for a
+    /// screen the user opened to type, a search page or a rename prompt.
+    pub fn focus_with_keyboard(&self) {
+        weak_from_ref(self).caret = self.text().len();
         weak_from_ref(self).anchor = None;
         UIManager::set_selected(self.weak_view(), true);
+    }
+
+    /// Puts `text` in at the caret, in the place of a selection, like a
+    /// paste. The caret ends after it, so what is typed next follows it. A
+    /// field that is not edited takes it at its last caret, the end of a
+    /// text set by `set_text`.
+    pub fn insert_text(&self, text: &str) {
+        weak_from_ref(self).insert(text);
+    }
+
+    /// Where the caret is, a byte offset into `text()`.
+    pub fn caret(&self) -> usize {
+        self.caret.min(self.text().len())
+    }
+
+    /// Puts `text` in the place of the bytes `range` of the text and leaves
+    /// the caret after it, so dictation can swap the words it put in for a
+    /// newer guess. An end past the text is cut to the text, an edge inside
+    /// a char moves back to the start of that char.
+    pub fn replace_range(&self, range: Range<usize>, text: &str) {
+        weak_from_ref(self).replace(range, text);
     }
 
     pub fn clear(&self) -> &Self {
@@ -267,15 +513,9 @@ impl TextField {
         self.text().is_empty()
     }
 
-    fn filter_constraint(&self, text: impl ToLabel) -> String {
-        match &self.constraint {
-            Some(constraint) => constraint.filter(text),
-            None => text.to_label(),
-        }
-    }
-
-    pub fn float_only(&mut self) -> &mut Self {
-        self.constraint = TextFieldConstraint::Float.into();
+    pub fn float_only(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.constraint = TextFieldConstraint::Float.into();
         self
     }
 
@@ -284,8 +524,10 @@ impl TextField {
         self
     }
 
+    /// Another fill while the field is edited. Without it the field keeps
+    /// the color it has.
     pub fn set_selected_color(&self, color: impl Into<UIColor>) -> &Self {
-        weak_from_ref(self).selected_color = color.into();
+        weak_from_ref(self).selected_color = Some(color.into());
         self
     }
 
@@ -317,6 +559,11 @@ impl TextField {
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
         self.label.set_text_size(size);
         self
+    }
+
+    /// The hint shown while the field is empty.
+    pub fn placeholder(&self) -> &str {
+        &self.placeholder
     }
 
     pub fn set_placeholder(&self, placeholder: impl ToLabel) -> &Self {

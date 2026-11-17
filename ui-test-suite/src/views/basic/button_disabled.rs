@@ -52,7 +52,7 @@ impl ViewTest for ButtonDisabled {
         assert_eq!(get_state::<u32>(), 1);
 
         from_main(move || {
-            let mut button = view.button;
+            let button = view.button;
             button.set_enabled(false);
         });
         assert!(!view.button.is_enabled());
@@ -64,7 +64,7 @@ impl ViewTest for ButtonDisabled {
         assert_eq!(get_state::<u32>(), 1);
 
         from_main(move || {
-            let mut button = view.button;
+            let button = view.button;
             button.set_enabled(true);
         });
         assert!(view.button.is_enabled());
@@ -80,7 +80,7 @@ impl ViewTest for ButtonDisabled {
         // the resolved color instead of the pair would leave the button
         // stuck on whatever the theme was when it got disabled.
         from_main(move || {
-            let mut button = view.button;
+            let button = view.button;
             button.set_color(UIColor::Dynamic(DynamicColor::new(
                 "#3b82f6".into(),
                 "#1d4ed8".into(),

@@ -3,17 +3,19 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use parking_lot::Mutex;
 
 use crate::{
     AppRunner,
+    deps::hreads::from_main,
     gm::color::U8Color,
     ui_test::{
         TEST_NAME,
+        checks::MAX_DIFF,
         human::{human_mode, show_probes},
     },
-    window::Screenshot,
+    window::{Screenshot, msaa_sample_count, set_msaa_sample_count},
 };
 
 static RECORD_COLORS: AtomicBool = AtomicBool::new(false);
@@ -96,7 +98,12 @@ pub(crate) fn next_check_index(test_name: &str) -> usize {
 
 pub(crate) fn print_recorded_colors() -> Result<()> {
     let screenshot = AppRunner::take_screenshot()?;
-    let probes = pick_probes(&screenshot);
+    #[cfg(not_wasm)]
+    let mut skip = svg_edges::pixels();
+    #[cfg(wasm)]
+    let mut skip = std::collections::HashSet::new();
+    skip.extend(sample_count_edges(&screenshot)?);
+    let probes = pick_probes(&screenshot, &skip);
 
     let test_name = TEST_NAME.lock().clone();
     let index = next_check_index(&test_name);
@@ -124,11 +131,35 @@ pub(crate) fn print_recorded_colors() -> Result<()> {
 
 type Probe = ((u32, u32), U8Color);
 
+/// The pixels that differ between this frame and the same frame drawn with
+/// the other sample count, 1 for 4 and 4 for 1. A probe has to hold with
+/// both: the edge of a polygon or a scene mesh is a blend with 4 samples and
+/// fully one side with 1. Probes recorded on such edges with 4 failed 32
+/// tests on the iPhone simulator, which draws with 1, see docs/ui-tests.md.
+fn sample_count_edges(shot: &Screenshot) -> Result<std::collections::HashSet<(u32, u32)>> {
+    let count = from_main(msaa_sample_count);
+    let other = if count == 1 { 4 } else { 1 };
+    from_main(move || set_msaa_sample_count(other));
+    let other_shot = AppRunner::take_screenshot();
+    from_main(move || set_msaa_sample_count(count));
+    let other_shot = other_shot?;
+    ensure!(
+        other_shot.size == shot.size,
+        "the frame with {other} samples is {:?}, the first is {:?}",
+        other_shot.size,
+        shot.size
+    );
+    Ok((0..shot.size.height)
+        .flat_map(|y| (0..shot.size.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| shot.get_pixel((x, y)).diff_u8(other_shot.get_pixel((x, y))) > STABLE_TOLERANCE)
+        .collect())
+}
+
 /// Picks stable pixels covering every distinct color region. Candidates
 /// are clustered by color and each cluster gets a share of the probes,
 /// spread spatially, so text bodies get pinned alongside backgrounds.
 /// Small enclosed features cluster separately and go first.
-fn pick_probes(shot: &Screenshot) -> Vec<Probe> {
+fn pick_probes(shot: &Screenshot, skip: &std::collections::HashSet<(u32, u32)>) -> Vec<Probe> {
     let (width, height) = match *CANVAS.lock() {
         Some((width, height)) => (width.min(shot.size.width), height.min(shot.size.height)),
         None => (shot.size.width, shot.size.height),
@@ -140,6 +171,9 @@ fn pick_probes(shot: &Screenshot) -> Vec<Probe> {
 
     for y in (margin..height.saturating_sub(margin)).step_by(GRID_STEP as usize) {
         for x in (margin..width.saturating_sub(margin)).step_by(GRID_STEP as usize) {
+            if skip.contains(&(x, y)) {
+                continue;
+            }
             if let Some(color) = stable_color(shot, x, y) {
                 candidates.push(((x, y), color));
             }
@@ -313,6 +347,100 @@ fn directional_run(shot: &Screenshot, probe: &Probe, (dx, dy): (i64, i64)) -> u3
     SMALL_FEATURE_EXTENT + 1
 }
 
+/// Screen pixels on the edge of an svg on screen, where its coverage
+/// changes. resvg on desktop and the browser on a page shade such a pixel
+/// differently, a thin icon stroke by up to 266, so a probe there fails on 1
+/// lane however well both draw. The fills and the ground stay.
+#[cfg(not_wasm)]
+mod svg_edges {
+    use std::collections::HashSet;
+
+    use crate::{
+        deps::hreads::from_main,
+        gm::LossyConvert,
+        image::Svg,
+        ui::{ImageView, UIManager, View, ViewData, ViewSubviews},
+    };
+
+    pub(super) fn pixels() -> HashSet<(u32, u32)> {
+        from_main(|| {
+            let mut pixels = HashSet::new();
+            collect(UIManager::root_view_static(), UIManager::scale(), &mut pixels);
+            pixels
+        })
+    }
+
+    fn collect(view: &dyn View, scale: f32, pixels: &mut HashSet<(u32, u32)>) {
+        if view.is_hidden() {
+            return;
+        }
+        if let Some(image_view) = view.as_any().downcast_ref::<ImageView>()
+            && image_view.image().is_ok()
+            && let Some(svg) = &image_view.image().svg
+        {
+            mark(image_view, svg, scale, pixels);
+        }
+        for sub in view.subviews() {
+            collect(&**sub, scale, pixels);
+        }
+    }
+
+    fn mark(view: &ImageView, svg: &Svg, scale: f32, pixels: &mut HashSet<(u32, u32)>) {
+        let frame = view.image_frame();
+        let left: u32 = (frame.origin.x * scale).floor().max(0.0).lossy_convert();
+        let top: u32 = (frame.origin.y * scale).floor().max(0.0).lossy_convert();
+        let right: u32 = ((frame.origin.x + frame.size.width) * scale).ceil().max(0.0).lossy_convert();
+        let bottom: u32 = ((frame.origin.y + frame.size.height) * scale).ceil().max(0.0).lossy_convert();
+
+        // The 3 parts of a cut map to the raster by their own rules.
+        if view.cut().is_some() {
+            for y in top..=bottom {
+                for x in left..=right {
+                    pixels.insert((x, y));
+                }
+            }
+            return;
+        }
+
+        let size = view.svg_raster_size(scale);
+        let alpha = svg.alpha(size);
+        let uv = view.uv_rect();
+        let at = |x: i64, y: i64| {
+            let x = x.clamp(0, i64::from(size.width) - 1);
+            let y = y.clamp(0, i64::from(size.height) - 1);
+            alpha[usize::try_from(y * i64::from(size.width) + x).unwrap_or(0)]
+        };
+
+        for y in top..bottom {
+            for x in left..right {
+                let mut u = ((x.lossy_convert() + 0.5) / scale - frame.origin.x) / frame.size.width;
+                let mut v = ((y.lossy_convert() + 0.5) / scale - frame.origin.y) / frame.size.height;
+                if view.flip_x {
+                    u = 1.0 - u;
+                }
+                if view.flip_y {
+                    v = 1.0 - v;
+                }
+                let raster_x: f32 = (uv.origin.x + u * uv.size.width) * size.width.lossy_convert();
+                let raster_y: f32 = (uv.origin.y + v * uv.size.height) * size.height.lossy_convert();
+                let (rx, ry): (i64, i64) =
+                    (raster_x.floor().lossy_convert(), raster_y.floor().lossy_convert());
+
+                // An edge is where the coverage changes. The filter of the
+                // GPU blends a pixel with its neighbors, so all 9 count. An
+                // even part cover, like a soft layer, shades the same in both.
+                let around = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)));
+                let (low, high) = around
+                    .map(|(dx, dy)| at(rx + dx, ry + dy))
+                    .fold((u8::MAX, u8::MIN), |(low, high), a| (low.min(a), high.max(a)));
+                if low != high {
+                    pixels.insert((x, y));
+                }
+            }
+        }
+    }
+}
+
 fn stable_color(shot: &Screenshot, x: u32, y: u32) -> Option<U8Color> {
     let center = shot.get_pixel((x, y));
 
@@ -321,10 +449,66 @@ fn stable_color(shot: &Screenshot, x: u32, y: u32) -> Option<U8Color> {
             && shot.get_pixel((x + dx, y + dy)).diff_u8(center) <= STABLE_TOLERANCE
     };
 
+    // The soft edge of a shape is uniform along the edge and a blend of the
+    // 2 sides across it. A software GPU in a browser shades it unlike a real
+    // one, the edge of a cell of `Charts` came out 62 off in Chrome. Sides
+    // closer than a check allows can never fail it.
+    let blend_across = |dx: u32, dy: u32| {
+        let before = shot.get_pixel((x - dx, y - dy));
+        let after = shot.get_pixel((x + dx, y + dy));
+        before.diff_u8(after) > MAX_DIFF
+            && center.diff_u8(before) > STABLE_TOLERANCE
+            && center.diff_u8(after) > STABLE_TOLERANCE
+            && between(before, center, after)
+    };
+
     // Vertical catches a stem, horizontal catches a bar.
-    if uniform_along(0, STABLE_RADIUS) || uniform_along(STABLE_RADIUS, 0) {
-        Some(center)
-    } else {
-        None
+    let stem = uniform_along(0, STABLE_RADIUS) && !blend_across(STABLE_RADIUS, 0);
+    let bar = uniform_along(STABLE_RADIUS, 0) && !blend_across(0, STABLE_RADIUS);
+    (stem || bar).then_some(center)
+}
+
+/// Whether every channel of `middle` lies between those of `a` and `b`.
+fn between(a: U8Color, middle: U8Color, b: U8Color) -> bool {
+    [(a.r, middle.r, b.r), (a.g, middle.g, b.g), (a.b, middle.b, b.b)]
+        .into_iter()
+        .all(|(a, middle, b)| (a.min(b)..=a.max(b)).contains(&middle))
+}
+
+#[cfg(test)]
+mod test {
+    use super::stable_color;
+    use crate::{
+        gm::{color::U8Color, flat::Size},
+        window::Screenshot,
+    };
+
+    const CELL: U8Color = U8Color::const_rgb(0x79, 0xa0, 0xdf);
+    const WHITE: U8Color = U8Color::const_rgb(0xff, 0xff, 0xff);
+    const EDGE: U8Color = U8Color::const_rgb(0x88, 0xab, 0xe3);
+
+    /// 3 columns, 3 rows high, each column of 1 color.
+    fn columns(left: U8Color, middle: U8Color, right: U8Color) -> Screenshot {
+        Screenshot::new([left, middle, right].repeat(3), Size::new(3, 3))
+    }
+
+    /// The right edge column of a heat map cell in `Charts`, the probe
+    /// that Chrome drew 62 off.
+    #[test]
+    fn a_soft_edge_between_2_colors_is_no_probe() {
+        assert_eq!(stable_color(&columns(CELL, EDGE, WHITE), 1, 1), None);
+    }
+
+    /// A thin stem of text has the same ground on both sides.
+    #[test]
+    fn a_stem_on_one_ground_stays_a_probe() {
+        assert_eq!(stable_color(&columns(WHITE, CELL, WHITE), 1, 1), Some(CELL));
+    }
+
+    /// A dark line between 2 grounds is darker than both, no blend of them.
+    #[test]
+    fn a_line_between_2_grounds_stays_a_probe() {
+        let line = U8Color::const_rgb(0x20, 0x20, 0x20);
+        assert_eq!(stable_color(&columns(CELL, line, WHITE), 1, 1), Some(line));
     }
 }

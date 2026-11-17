@@ -1,10 +1,21 @@
 //! The inspect channel for a browser page. A page cannot listen on TCP and
-//! has no mDNS, so the direction inverts: when the `hilen_inspect` query flag
-//! is set, the app dials out to the server that served the page, same origin,
-//! at `/hilen-inspect`. The protocol stays the same request in, response out
+//! has no mDNS, so the direction inverts: a page built with the `inspect`
+//! feature dials out to the server that served the page, same origin, at
+//! `/hilen-inspect`. Only a dev build has the feature, so it needs no flag in
+//! the address. The protocol stays the same request in, response out
 //! JSON, one WebSocket text message per frame instead of a length prefix.
+//!
+//! An app installed on a TV opens from a file, it has no server to dial and
+//! no query. Its dev build bakes the address in, `HILEN_INSPECT_URL`, and
+//! dials it at every start and again whenever the socket closes.
 
-use std::sync::mpsc::{Sender, channel};
+use std::{
+    hint::black_box,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Sender, channel},
+    },
+};
 
 use parking_lot::Mutex;
 use web_sys::{
@@ -15,10 +26,18 @@ use web_sys::{
 use crate::{
     deps::{hreads::on_main, refs::main_lock::MainLock},
     inspect::{
-        InspectService,
+        InspectService, MARKER,
         protocol::{AppCommand, InspectorCommand},
     },
+    ui::UIManager,
 };
+
+/// The address the dev build of an installed app dials, set when it is
+/// compiled. See "An installed TV app" in `docs/inspect.md`.
+const BAKED_URL: Option<&str> = option_env!("HILEN_INSPECT_URL");
+/// A baked address is dialed again this long after its socket closed, the
+/// tunnel to it can come up after the app.
+const REDIAL_MS: i32 = 3000;
 
 /// Lives on the main thread, where the socket's JS callbacks fire.
 static SOCKET: MainLock<Option<WebSocket>> = MainLock::new();
@@ -26,24 +45,39 @@ static SOCKET: MainLock<Option<WebSocket>> = MainLock::new();
 /// Requests cross from the socket callbacks to the inspect worker here.
 static REQUESTS: Mutex<Option<Sender<InspectorCommand>>> = Mutex::new(None);
 
-pub(crate) fn start_if_requested() {
-    if !crate::web::query_flag("hilen_inspect") {
-        return;
+/// Whether the socket is open, readable from any thread. The log
+/// forwarder asks before every line, and it must not touch the socket
+/// itself, which lives on the main thread.
+static OPEN: AtomicBool = AtomicBool::new(false);
+
+/// Set by the inspect worker when it runs. A worker whose script type does not
+/// fit the page dies before its first line, and the browser tells only its
+/// console, so the page checks this after `WORKER_WAIT_MS`.
+static WORKER_UP: AtomicBool = AtomicBool::new(false);
+
+/// Log lines from before the socket opened, the start of the page, like the
+/// backend line. They go out when it opens, else a page connects with no
+/// word about how it started.
+static EARLY: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+const KEPT_EARLY: usize = 300;
+
+/// Keeps a log line for the socket that is not open yet.
+pub(crate) fn keep_early(level: &str, message: String) {
+    let mut early = EARLY.lock();
+    if early.len() < KEPT_EARLY {
+        early.push((level.to_string(), message));
     }
+}
+const WORKER_WAIT_MS: i32 = 5000;
 
-    let location = web_sys::window().expect("Failed to get browser window").location();
-    let protocol = location.protocol().expect("Failed to get location protocol");
-    let host = location.host().expect("Failed to get location host");
-    let scheme = if protocol == "https:" { "wss" } else { "ws" };
-    let url = format!("{scheme}://{host}/hilen-inspect");
+pub(crate) fn is_open() -> bool {
+    OPEN.load(Ordering::Relaxed)
+}
 
-    let socket = match WebSocket::new(&url) {
-        Ok(socket) => socket,
-        Err(err) => {
-            log::error!("Failed to open inspect socket at {url}: {err:?}");
-            return;
-        }
-    };
+pub(crate) fn start_if_requested() {
+    black_box(MARKER);
+
+    let url = BAKED_URL.map_or_else(page_url, str::to_string);
 
     let (sender, receiver) = channel::<InspectorCommand>();
     *REQUESTS.lock() = Some(sender);
@@ -52,7 +86,14 @@ pub(crate) fn start_if_requested() {
     // `from_main` and `RunTests` runs the whole suite, neither may happen on
     // the main thread.
     crate::deps::hreads::spawn_thread(move || {
+        // A worker that never starts leaves every request in the channel with
+        // no error, the page then answers nothing. This line tells the 2 apart.
+        WORKER_UP.store(true, Ordering::Relaxed);
+        log::info!("Inspect worker runs");
         while let Ok(request) = receiver.recv() {
+            let shown = format!("{request:?}");
+            let kind = shown.split([' ', '(', '{']).next().unwrap_or_default();
+            log::info!("Inspect worker takes {kind}");
             let response = InspectService::process_command(request);
             let data = serde_json::to_string(&response);
 
@@ -61,11 +102,57 @@ pub(crate) fn start_if_requested() {
             on_main(move || drop(response));
 
             match data {
-                Ok(frame) => send_frame(frame),
+                Ok(frame) => send_frame(frame, false),
                 Err(err) => log::error!("Failed to serialize inspect response: {err}"),
             }
         }
     });
+
+    check_worker();
+    dial(url);
+}
+
+/// Says loudly when the worker did not start, every request would wait in
+/// the channel with no answer and no error.
+fn check_worker() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let check = Closure::once_into_js(|| {
+        if !WORKER_UP.load(Ordering::Relaxed) {
+            log::error!(
+                "The inspect worker did not start, so the inspector answers nothing. A page \
+                 whose script is an ES module, like the one trunk builds, needs the hilen \
+                 feature `module-workers`. A classic page, like a packaged webOS app, needs it off"
+            );
+        }
+    });
+    if let Err(err) =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(check.unchecked_ref(), WORKER_WAIT_MS)
+    {
+        log::error!("Failed to plan the check of the inspect worker: {err:?}");
+    }
+}
+
+/// The server that served the page.
+fn page_url() -> String {
+    let location = web_sys::window().expect("Failed to get browser window").location();
+    let protocol = location.protocol().expect("Failed to get location protocol");
+    let host = location.host().expect("Failed to get location host");
+    let scheme = if protocol == "https:" { "wss" } else { "ws" };
+    format!("{scheme}://{host}/hilen-inspect")
+}
+
+/// Opens the socket. A baked address is dialed again after a failure.
+fn dial(url: String) {
+    let socket = match WebSocket::new(&url) {
+        Ok(socket) => socket,
+        Err(err) => {
+            log::error!("Failed to open inspect socket at {url}: {err:?}");
+            redial(url);
+            return;
+        }
+    };
 
     let onmessage = Closure::<dyn FnMut(MessageEvent)>::new(|event: MessageEvent| {
         let Some(text) = event.data().as_string() else {
@@ -88,13 +175,25 @@ pub(crate) fn start_if_requested() {
     onmessage.forget();
 
     let onopen = Closure::<dyn FnMut()>::new(|| {
+        OPEN.store(true, Ordering::Relaxed);
         log::info!("Inspect socket connected");
+        hello();
+        let early = std::mem::take(&mut *EARLY.lock());
+        for (level, message) in early {
+            push_log(&level, format!("before the inspector connected: {message}"));
+        }
     });
     socket.set_onopen(Some(onopen.as_ref().unchecked_ref()));
     onopen.forget();
 
-    let onclose = Closure::<dyn FnMut()>::new(|| {
-        log::warn!("Inspect socket closed");
+    // A failed dial closes too, so a baked address that is not up yet is
+    // tried again every few seconds. Only the close of an open socket says
+    // so, the tries would fill the log.
+    let onclose = Closure::<dyn FnMut()>::new(move || {
+        if OPEN.swap(false, Ordering::Relaxed) {
+            log::warn!("Inspect socket closed");
+        }
+        redial(url.clone());
     });
     socket.set_onclose(Some(onclose.as_ref().unchecked_ref()));
     onclose.forget();
@@ -102,29 +201,80 @@ pub(crate) fn start_if_requested() {
     SOCKET.set(Some(socket));
 }
 
+/// Dials a baked address again after a pause. A page that dials its own
+/// server stays closed, its driver opens the page again.
+fn redial(url: String) {
+    if BAKED_URL.is_none() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let again = Closure::once_into_js(move || dial(url));
+    if let Err(err) =
+        window.set_timeout_with_callback_and_timeout_and_arguments_0(again.unchecked_ref(), REDIAL_MS)
+    {
+        log::error!("Failed to plan the next inspect dial: {err:?}");
+    }
+}
+
+/// Tells the other side which app this is, by its id and the title of the
+/// page, so a bridge can list it like a native app.
+fn hello() {
+    let name = web_sys::window()
+        .and_then(|window| window.document())
+        .map(|document| document.title())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "page".to_string());
+    push(AppCommand::Hello {
+        app_id: UIManager::app_instance_id().to_string(),
+        name,
+    });
+}
+
 /// Sends a frame the driver did not request, the test autorun delivers its
 /// report this way. Quietly does nothing when the channel is not up.
 pub(crate) fn push(command: AppCommand) {
     on_main(move || match serde_json::to_string(&command) {
-        Ok(frame) => send_frame(frame),
+        Ok(frame) => send_frame(frame, false),
         Err(err) => log::error!("Failed to serialize inspect push: {err}"),
     });
 }
 
+/// `push` for a log line. Says nothing when it fails, a log line about a
+/// dropped log line would forward itself without end.
+pub(crate) fn push_log(level: &str, message: String) {
+    let command = AppCommand::Log {
+        level: level.to_string(),
+        message,
+    };
+    on_main(move || {
+        if let Ok(frame) = serde_json::to_string(&command) {
+            send_frame(frame, true);
+        }
+    });
+}
+
 /// Main thread only, the socket lives there.
-fn send_frame(frame: String) {
+fn send_frame(frame: String, quiet: bool) {
     on_main(move || {
         let Some(socket) = SOCKET.get_mut() else {
-            log::warn!("Inspect frame dropped, no socket");
+            if !quiet {
+                log::warn!("Inspect frame dropped, no socket");
+            }
             return;
         };
 
         if socket.ready_state() != WebSocket::OPEN {
-            log::warn!("Inspect frame dropped, socket is not open");
+            if !quiet {
+                log::warn!("Inspect frame dropped, socket is not open");
+            }
             return;
         }
 
-        if let Err(err) = socket.send_with_str(&frame) {
+        if let Err(err) = socket.send_with_str(&frame)
+            && !quiet
+        {
             log::error!("Failed to send inspect frame: {err:?}");
         }
     });

@@ -5,7 +5,12 @@ The `scene` module is the 3D twin of `level`, behind the `scene` cargo feature. 
 scene, nodes are `Own<dyn Node>` the way sprites are, and `SceneDrawer` draws them
 with `MainLock` pipelines on `VecBuffer`. Physics is `rapier3d`, math is glam
 re-exported from `gm::volume`. The scene draws every frame while one is loaded,
-like a level.
+like a level, and counts as continuous work for the pacing of the loop, see
+[dispatch.md](dispatch.md).
+
+1 world unit is 1 meter. Gravity is 9.81 down, a speed is meters per second, a
+light's range and a camera's `near` and `far` are meters, and a depth photo reads
+meters. A model made in other units is fitted with `set_scale` on its node.
 
 ## Writing a scene
 
@@ -36,9 +41,50 @@ SceneManager::set_scene(Playground::default());
 collider, so what is drawn is what collides. `Body` is dynamic, `Wall` a fixed and
 bouncy collider, `Prop` is only drawn. `NodeTemplates` carries `set_color`,
 `set_material`, `set_metallic`, `set_roughness`, `set_position`, `set_rotation`,
-`set_scale`, `set_friction` and `set_restitution`, and a `Body` has `set_velocity`,
-`add_impulse` and `set_damping`. Rapier has no rolling resistance, so a ball on a
-plane rolls forever without damping.
+`set_pose`, `set_scale`, `set_mesh_scale`, `set_friction` and `set_restitution`, and
+a `Body` has `set_velocity`, `add_impulse` and `set_damping`. Rapier has no rolling
+resistance, so a ball on a plane rolls forever without damping.
+
+A `Body` also has `angular_velocity` and `set_angular_velocity`, `mass` and `set_mass`,
+and `set_gravity_scale`. A collider from its shape weighs what its volume gives at a
+density of 1, a few grams for a stone, so a game that wants real pushes sets the mass.
+With a gravity scale of 0 a body floats, and a game moves it by its speed, like a hand:
+it still pushes what it meets and is pushed back. `sleep()` puts a body to sleep: it
+stays where it is, also on a slope, and the ground does not wake it. The touch of a body
+that moves wakes it, and so do a push, a speed or a weld, the way rapier has it. A thing
+a game lays down still starts this way, a round stone on a slope rolls off at once
+otherwise. `is_sleeping()` asks.
+
+`Weld::new(a, b)` holds 2 bodies together as 1 rigid thing, in the pose they have to
+each other at that moment, the grip of a hand on a stone. The 2 do not collide with
+each other while it lasts. `strain()` is the impulse it needed in the last step, in
+N s, so a game can let go of a thing that is hit too hard. `release()` ends it, and it
+also ends when 1 of the bodies leaves the scene.
+
+`node.contact_with(other)` gives a `Contact` while the 2 nodes touch: the deepest point
+of the touch in the world, the normal from the node toward the other, and the impulse
+of the last step. Like `on_collision` it follows rapier and answers from up to 0.02
+before the touch, or sooner for 2 bodies that meet within the step. In `on_collision`
+it gives the point of the blow. The impulse there
+is still 0, the touch only starts in that step, so a game that needs the speed of a
+blow keeps the speeds of the bodies from the step before.
+
+`set_pose` sets the place and the turn in 1 write to the physics, for a world that
+moves every node each frame. `set_mesh_scale(Vec3)` stretches only the drawn mesh
+along each of its axes, on top of `set_scale`, so props of 1 shape stretched each
+its own way share 1 model and draw in 1 batch. The collider, `node_at`, triangle
+picking and the attached nodes keep the uniform scale, so a stretched solid gets
+its collider from `set_collider`. Rapier has no stretched ball, and a child of a
+node stretched and turned would be sheared. `Mesh scale` and `Node pose` hold both.
+
+`SceneSetup::frame(dt)` runs once a frame before the physics steps, with the whole
+frame time. `update` and `after_physics` run once per step, `PHYSICS_SUBSTEPS` times
+a frame in a scene with physics, so only what has to move with the physics belongs
+there. A game that streamed its world in `update` paid for it 4 times a frame.
+`SceneManager::set_paused(true)` holds the scene's time, its physics and the `frame`
+and `update` calls, and keeps drawing it, a game under its pause menu. A new scene
+and `stop_scene` start it again. The test harness holds a scene with its own flag,
+so the end of a human hold does not start a game the app paused.
 
 The world is right handed with y up, the glTF and Blender convention. A plane is
 drawn at its origin facing up and its collider slab hangs below it, so a body rests
@@ -46,22 +92,201 @@ on the drawn surface. `Camera::orbit` turns the camera around its target and
 `Camera::zoom` moves it along the line of sight, the demo page and presentation
 mode drive them from a drag and the wheel.
 
+## A scene inside a view
+
+`SceneView` draws the running scene inside its own frame, so a scene can sit next
+to other views, like a 3D preview next to a code editor:
+
+```rust
+let preview = self.add_view::<SceneView>();
+preview.place().t(0).b(0).r(0).w(500);
+let scene = preview.set_scene(Part::default());
+```
+
+The view runs the one scene of `SceneManager`. `set_scene` on it replaces a scene
+that ran over the whole window, and `SceneManager::set_scene` takes the scene out
+of the view again. `SceneManager::host` gives the view a scene draws in. The scene
+stops when its view is gone.
+
+The scene draws in `prepare`, before the frame's pass opens, into an image of the
+view's size in pixels, through the same targets and copy pass a picture uses, see
+Pictures below. The camera takes the aspect of that image. The view shows the image
+with an `ImageView` inside it, so it clips, sits under the views over it and next to
+the views beside it like any view. The main pass draws no scene then, and the frame
+is not drawn whole for it. The view asks for every frame with
+`keep_frames_exempt` while it holds the scene, so only its rect is drawn again, see
+[damage.md](damage.md). `set_background` is what shows where the scene draws
+nothing, clear by default. A sky or fog covers it.
+
+A drag on the view turns the camera around its target, or the head of a player,
+the wheel and a pinch zoom, and a tap picks a node the way a touch on a scene over
+the whole window does, in the pixels of the view. `set_camera_controls(false)`
+leaves the drag and the zoom to the app. A drag that begins on the scene's
+`TransformHandle` goes to the handle. `ray`, `node_at` and `view_point` on the scene
+measure in the frame of the view, and `view_point` gives points of the root view
+inside that frame. A touch outside the view never reaches the scene. Only 1 scene
+runs, so only 1 view shows a scene at a time.
+
+## A graph of z = f(x, y)
+
+`SurfacePlotView` is a view that draws `z = f(x, y)` as a surface over a
+square, over a floor grid with the 3 axes, in a `SceneView` of its own, so the
+drag turns the camera and the wheel zooms. Math z is up, the y of the scene,
+and math y runs away from the camera. `set_function` colors by height, blue
+low and red high. `set_colored_function` takes the height and a color of each
+point from 1 call, the modulus surface of a complex function is the case.
+`set_range(half)` is the square, `set_steps` the cells a side, 80 at the start.
+A value that is not finite leaves a hole, a height past twice the half width
+of the floor is cut flat. Every triangle has a back side, since back faces are
+culled. It runs the one scene of `SceneManager`, like any `SceneView`. The
+last surface model is not freed when the view goes away.
+
+`SurfacePlotView::picture(function, half, name, size)` draws the same graph
+once into an image with no scene running, seen from where the live view
+starts, through `SceneManager::picture`. It is for a graph in a list or a
+chat, where only 1 live scene can run. The test is `Surface still`.
+
+## Orthographic camera
+
+`Camera::projection` is `Projection::Perspective`, the default, or
+`Projection::Orthographic { height }`, where a thing has the same size on the screen
+at any distance and `height` is the world height the view shows, the front, top and
+side views of a part. `Camera::orthographic(position, target, height)` makes one.
+The camera stands outside what it shows, it sees from its near plane on.
+
+`ray` follows the projection. An orthographic ray starts on the near plane at its
+pixel and goes along the line of sight, so every ray of the view is parallel.
+`screen_point` reads the depth along the line of sight, since w stays 1. `zoom`
+scales the height and leaves the camera where it is. `view_height(depth)` and
+`units_per_pixel(world, area)` give the size of the view and of 1 pixel at a point,
+the same at every depth for an orthographic camera.
+
+The shader gets the line of sight and the height in the `eye` vector of
+`SceneUniform`. Every pixel then looks along that line, for the specular light and
+the size of a pixel the shadow cascades pick a map by. A sky needs nothing, its
+direction comes from the near and the far point of the pixel. An orthographic
+slice of the view is a box, so its cascade sphere sits in the middle of it, see
+`slice_sphere`.
+
+## Lines
+
+`Line3` is a straight line in a scene, `width` pixels wide at any distance, in its
+own color. The lines in `SceneBase::lines` are in the world, the ones in a node's
+`lines` are in its own space and move, turn and grow with it. `Line3::grid` and
+`Line3::axes` make a floor grid and the 3 axes in `AXIS_COLORS`.
+`MeshData::edges(crease_degrees)` gives the edges of a mesh worth a line, where 2
+triangles meet at more than that angle and where a triangle has no neighbor, with
+the corners of flat faces welded:
+
+```rust
+let edges = mesh.edges(30.0).into_iter().map(|[a, b]| Line3::new(a, b, dark).width(2));
+let mut part = self.make_node::<Prop>(Shape3::Model(Model::from_mesh("part", mesh)), Vec3::ZERO);
+part.lines = edges.collect();
+self.lines = Line3::grid(20.0, 1.0, gray);
+```
+
+A line hides behind the nodes in front of it, or draws over everything with
+`on_top`, the outline of a selected part or a handle. Each line is 1 instance of a
+quad of 6 vertices that `wide_lines.wgsl` spreads across the screen from its 2
+ends, with square ends so a polyline has no gaps. A line that crosses the near plane
+is cut there. The tested lines draw after the opaque nodes and before the
+translucent ones, the ones on top last. A line sits a little nearer to the eye
+along its line of sight, so it keeps its pixel and a face it lies on does not cut
+it: a thousandth of its distance, plus 2.5 pixels of the world for each pixel from
+its middle to its edge. That holds a floor seen down to about 22 degrees. The cost
+is a hidden edge that shows for a few pixels where it leaves a corner of a part.
+
+## Triangle hits
+
+`hit_triangle(ray)` on a scene gives the nearest triangle of a model that the ray
+meets on its drawn side, as a `TriangleHit` with the node, the distance, the point,
+the normal and the index of the triangle. `triangle_at(pixel)` does it for the ray
+of a pixel. Only nodes that draw a model take part, at rest, and the box around
+each node is tried first. A model keeps its triangles in model space for this,
+`Model::triangle_count` and `Model::triangle(index)`. For a mesh built in code the
+index is the triangle of its `MeshData`, 3 indices each, since the split into 16 bit
+parts keeps their order. So an app reads its own data per triangle, like the part a
+CSG library made it from. `node_at` and a touch still use the box around a model.
+A mesh made from `PreparedMesh::without_picking` keeps no triangles, 36 bytes each
+for its whole life, so ground that is never picked by triangle costs no memory for
+it. `triangle_count` is 0 there and `hit_triangle` finds nothing.
+
+## Transform handle
+
+`TransformHandle` in `SceneBase::handle` draws 3 arrows to move along x, y and z, 3
+rings to turn about them and 3 boxes on the arrows to scale along them, over
+everything, `size` pixels long at any distance. It stands on a node with
+`TransformHandle::on(node)`, or at its own `position`. The axes are the world's, or
+the node's with `local`. `modes` picks which parts show.
+
+A `SceneView` hands it every drag that begins on a part, a box before an arrow
+before a ring, in place of turning the camera. The part held draws yellow. The
+handle changes nothing by itself, `on_drag` gets a `HandleDrag` with the part, the
+axis and the amount from the start of the drag, on every move and once more with
+`ended`. The amount is world units along the axis for a move, radians about it by
+the right hand for a turn, and a factor for a scale. `snap` rounds each to a step.
+
+```rust
+let mut handle = TransformHandle::on(part.weak_node());
+handle.snap.turns = Some(PI / 12.0);
+handle.on_drag.val(move |drag| match drag.part.mode {
+    HandleMode::Move => part.set_position(start + drag.axis * drag.amount),
+    HandleMode::Turn => part.set_rotation(Quat::from_axis_angle(drag.axis, drag.amount) * turned),
+    HandleMode::Scale => part.set_scale(scale * drag.amount),
+});
+self.handle = Some(handle);
+```
+
+A move takes the point of the axis nearest to the ray of the pointer. A scale is
+the ratio of that point's distance from the center to the one at the press. A turn
+is the angle the pointer went round the center on the screen, the other way when
+the axis points away from the eye. A node has 1 scale for all axes, so a scale
+along 1 axis is for the app to apply, a CAD app writes it into its source.
+`press`, `drag_to` and `release` drive the handle from code of the app.
+
 ## Models
 
 `Model` is a `.glb` on the GPU, a managed resource like an `Image`. It loads from
 `assets/models` through `filesystem::read_bytes`, so the APK and the browser
 manifest serve it like any asset, and `Model::get("tree.glb")` returns the one
 copy. `Shape3::Model(model)` puts it on a node. The meshes, the metallic roughness
-materials, the embedded base color and normal textures and the node tree load, the
+materials, the embedded base color, normal, metallic roughness and occlusion
+textures and the node tree load, the
 tree flattened into parts with their placements, so a node draws every mesh of the
 file at its own size and with its own materials. `set_scale` sizes a node uniformly
 on top of that, so a model in other units fits the scene, the collider and picking
 follow. A primitive without a material
-takes the node's `Material`. The collider is the box around the model's `bounds`,
+takes the node's `Material`. A material with `alphaMode` `MASK` loads as a cutout
+with its `alphaCutoff`, `BLEND` as translucent. A material marked
+`KHR_materials_unlit` loads as `unlit`, `unlit_quad.glb` is the fixture and
+`deps/models/make_unlit_quad.ts` makes it with Bun. `doubleSided` is not read, back
+faces are always culled. The collider is the box around the model's `bounds`,
 placed where the bounds are, so a model whose origin sits at its feet still rests
 on the floor. A primitive over 65535 vertices is split into parts so every lane
 draws 16 bit indices, and one without normals shades flat as glTF asks. Only a
 `.glb` with embedded buffers and images loads, triangles only, no morph targets.
+
+A model that the app did not ship, like a file a user or a server hands it, loads in
+2 steps. `PreparedMesh::from_glb(bytes, name)` reads a `.glb` on any thread and gives
+an error for a file that does not parse, where `Model::load` panics.
+`MeshData::from_stl(bytes)` reads a binary or an ASCII STL into a mesh with a normal
+per face, also with an error for a bad file. A binary STL is told by its size, since
+many start with `solid` like an ASCII one. `Model::from_prepared` then uploads it on
+the main thread. The code is `hilen/src/scene/model/stl.rs`.
+
+Both loaders of a `.glb` join the parts of a static model that draw the same, the
+same material and the same vertex color mode, into 1 mesh with every part's place
+baked into its vertices, `merge::static_parts` in `hilen/src/scene/model/merge.rs`.
+A map of 4798 primitives with 1468 materials draws about 1550 meshes so, and the
+main thread of its frame went from 10.4 to 5.1 ms on an M1, measured with the Time
+Profiler of Instruments in a window in front on 2026-11-11. A model with a skin or a
+clip keeps its parts, a clip moves them 1 by 1. Picking keeps the triangles in the
+order of the file, they are taken before the join. Translucent parts of 2 materials
+draw in the order of their materials after the join, not in the order of the file.
+Both loaders also decode the embedded images and build their mips on the calling
+thread, spread over the cores, `images::decode`, so the upload on the main thread
+only makes the textures. On wasm the upload decodes them, a browser decodes a jpeg
+itself.
 
 ## Skins and animations
 
@@ -84,25 +309,129 @@ the scene's update steps, the same clock as the physics. The bounds, and with
 them the collider and picking, are the rest pose. `Fox.glb` is the Khronos glTF
 sample fox with its Survey, Walk and Run clips, see `Fox.license.md` next to it.
 
+An app can also place the joints of a model itself, with no clip, like a hand whose
+fingers close from the mouse wheel:
+
+```rust
+let model = Model::get("hand.glb");
+let knuckle = model.joint("index-finger-phalanx-proximal").expect("the hand has the joint");
+let (place, turn) = model.joint_rest(knuckle).expect("a joint of this model");
+hand.set_joint(knuckle, place, turn * Quat::from_rotation_x(0.6));
+let tip = hand.joint_transform(knuckle).map(|joint| joint.transform_point3(Vec3::ZERO));
+```
+
+- `Model::joint(name)` gives a `Joint`, a handle that holds for every node that draws
+  that model. Look a name up once and keep the handle. It finds every named node of the
+  file, the joints of a skin and any other node, like the armature or a mesh node. An
+  unknown name gives `None`. `Model::joint_names` lists the names. A static model, with
+  no skin and no clip, keeps no nodes, so it has no joints.
+- `NodeTemplates::joint(name)` is the same lookup on a node. It logs an error for an
+  unknown name and for a node with no such model, like `play` does.
+- `Model::joint_rest(joint)` gives the translation and the rotation of the joint at
+  rest, in the space of its parent node in the file.
+- `set_joint(joint, translation, rotation)` on a node puts the joint there, in the
+  space of its parent, in place of the rest values. The scale stays. Every node below
+  it in the tree moves with it. `clear_joint(joint)` gives it back, `clear_joints`
+  gives all back.
+- Over a playing clip a set joint wins for that joint: its translation and rotation
+  are the set ones, its scale is the clip's, and every other joint plays on.
+  `stop_animation` leaves the set joints as they are.
+- `joint_transform(joint)` on a node is where the joint is now, with the clip and the
+  set joints, the pose that is drawn. It is in the space of the model, without the
+  place, the turn and the scale of the node, so a point `p` of it is at
+  `node.position() + node.rotation() * (p * node.world_scale())` in the world. Each
+  call walks the whole tree of the model.
+- Not every model has its joints in a tree. The WebXR generic hand has all 25 joints
+  side by side under 1 root, each placed in the space of the whole hand. There a set
+  joint moves only itself, and the app sets every joint of a finger.
+- A node with a set joint draws like one that plays a clip: the drawer walks the tree
+  each frame, the shadow pass draws the same pose, and no pass leaves the node out by
+  its rest bounds. The bounds, the collider and picking stay the rest pose. The code is
+  `hilen/src/scene/model/joints.rs`.
+
 The Blender sources sit next to the exports in `assets/models`. One file exports
-with `blender --background --python build/export_glb.py -- assets/models/tree.blend`,
-skins and actions included, and the script also mends what the old files miss. Only the `.glb` files
-reach the browser manifest.
+with `blender --background --python deps/models/export_glb.py -- assets/models/tree.blend`,
+skins and actions included, and the script also mends what the old files miss.
+`deps/models/make_tree.py` builds the tree fixture from scratch, a trunk and four
+cone tiers and nothing else, since a model's collider is the box around its bounds
+and a ground plane in the file would make it a slab. `deps/models/make_leaf_card.py`
+builds the leaf card, 2 crossed quads with a masked leaf texture. Only the `.glb` files reach
+the browser manifest.
 
 ## Materials and lights
 
 Every node has a `Material`: `color`, `metallic`, `roughness`, an optional base
 color `texture` that multiplies the color per texel, an optional `normal_map` in
 tangent space with green up, the glTF convention, and `normal_scale` for its
-depth. No tangents are stored, the shader builds the frame from the screen
+depth. `emissive` makes a node glow by its own color: its base color
+times the value is added to what the lights give it, so 1 shows the full color
+even at night. It lights nothing around it, a point light does that, the flames
+of a campfire are both. `unlit`, or `set_unlit(true)` on a node, draws the base color
+times the texture as it is, with no light and no shadow on it, only the fog over it.
+A photo scan carries its light in its texture already. The `Unlit` scene test
+keeps a red box red under a blue sun. No tangents are stored, the shader builds the frame from the screen
 derivatives of the position and the uv. A `color` with alpha below one makes the
 node translucent, see below.
 
+`metallic_roughness_map` holds metallic in its blue channel and roughness in its
+green, as glTF packs them. The shader multiplies `metallic` and `roughness` by
+them per pixel, so a circuit board with a factor of 1 gets shiny pads and a dull
+solder mask. `occlusion_map` holds ambient occlusion in its red channel, and
+`occlusion_strength`, 1 by default, scales it as 1 + strength times red minus 1.
+It darkens only the sky or flat ambient light, never the sun or a lamp, as glTF
+asks. Both maps are often 1 image. A material without them binds the plain white
+texture, which draws exactly as before. The loader is
+`hilen/src/scene/model/material_source.rs`, and the scene test `Metal roughness`
+checks a quad whose 1 texture has a metal half, a rough half and an occluded half.
+
+`triplanar`, or `set_triplanar(repeats)` on a node, reads the texture and every map
+from 3 sides of the node's own space in place of the uv, `repeats` times a unit, and
+blends the 3 by the normal raised to the 4th power. So a mesh made in code needs no uv,
+and a texture stays on a node that turns or rolls. 0 reads by the uv as before. The
+normal maps of the 3 sides are laid on the surface by the whiteout blend of Ben
+Golus, "Normal Mapping for a Triplanar Shader", and a side seen from its back is
+mirrored, so no picture is read in reverse. It adds no value between the stages, so
+the A7 limit holds: the fragment works out its place in the node's space from the
+world position it already rebuilds and the transpose of the normal matrix, the
+inverse of the model's turn. The setting rides in `normal1.w` of `MeshInstance`, so
+the instance stays 208 bytes. Each map is read 3 times with `textureSampleGrad`, its
+derivatives taken before the branch, so the branch needs no uniform control flow. A
+triplanar material with only a base texture still takes the full path,
+`MeshKey::triplanar` keeps it off `f_base_opaque`. A flowing mesh ignores it. The
+scene test `Triplanar` holds a turned box and a ball with a checker and a ridged
+normal map, whole squares on every face of the box.
+
+`cutout` cuts a node out by its alpha, leaves on a quad: `set_cutout(threshold)`,
+`Material::CUTOUT` is the usual 0.5. A fragment whose alpha, the color's times the
+vertex color's times the texel's, is under the threshold is not drawn. The rest is
+solid: depth written, batched with the opaque nodes, lit and shadowed the same, even
+with a color alpha below one. The edge is hard, a pixel is in or out.
+
+`fade` draws a share of a node, 1 all of it and 0 none, for a level of detail or a
+new tree that should not pop: `set_fade(0.4)`, or `fade_to(1.0, 0.3)` to run it over
+0.3 s of scene time, stepped with the clips in `SceneBase::update_physics`. Below 1
+the node goes through the cutout pipelines, and `faded_out` of `fade.wgsl`, put in
+front of the mesh and the shadow shaders, drops every fragment whose 4 by 4 ordered
+dither threshold, in pixels of the target, is over the fade. The rest is solid with
+depth like a cut out node, and the shadow pass drops the same share in texels of
+the map, so the shadow is as thin as the node. A fade of 0 is not drawn at all, 1
+draws as a node that never faded. `set_fade_flip(true)` keeps the other share of the
+pattern: a node fading in and a flipped one fading out at the same place, with fades
+that add up to 1, cover every pixel once, a cross fade with no hole. The fade and the
+flip fill the 2 words of padding `MeshInstance` had. It is 208 bytes since the
+`shallow` color of water, and a unit test checks that `mesh.wgsl` and `shadow.wgsl`
+read the same offsets the Rust side writes. Each
+comparison in `faded_out` sits in its own parentheses, a bare `a < b, c > d` in WGSL
+parses as a template list.
+
 The shading is the Filament mobile model: Lambert diffuse, GGX, the fast height
 correlated Smith visibility and the Schlick Fresnel. A scene has one `sun`, a
-directional light, plus any number of point and spot `lights`. Every node is drawn
-with the nearest eight lights whose range reaches it, picked on the CPU each frame
-and packed into the instance as indices into one storage buffer of lights. A
+directional light, plus any number of point, spot and directional `lights`.
+`Light::directional(direction)` is a second sun, the moon at night, and
+`angular_radius` gives it a disc for the occluders, see Planets and space. Every
+node is drawn with the nearest eight lights whose range reaches it, picked on the
+CPU each frame, a directional light first since it reaches everything, and packed
+into the instance as indices into one storage buffer of lights. A
 light's intensity is the brightness of a white matte surface facing it, one unit
 away for a point or spot, so the Lambert term carries no `1 / pi` and the specular
 one a `pi`.
@@ -135,14 +464,27 @@ them by distance, a depth texture cannot be filtered and a comparison sampler do
 not work on iOS 12. Acne is held off by a slope scaled bias in the pass, a depth
 bias of one texel and a push of up to a texel and a half along the normal that
 fades as the surface turns to face the sun, so a floor under a high sun keeps its
-shadows against its posts. Translucent nodes receive but do not cast.
+shadows against its posts.
+
+The maps are built around the camera, not the world's origin. A cascade's view
+projection takes a point minus the camera's position, and both passes work out that
+offset with small numbers, see the next section. With world numbers, a few
+kilometers out the 32 bit floats lost about a millimeter, the bias of the fine map,
+and the ground shadowed itself in dots that grew the farther the camera went.
+`Terrain shadows` and the unit tests in `scene/shadow.rs` hold this. Translucent
+nodes receive but do not cast. A cut out
+node casts the shadow of what is drawn: its batches go through the cutout twins of
+the shadow pipelines, the only ones with a fragment stage, which read the same
+instance, vertex color and texel alpha and drop the same fragments.
 
 `fog` is distance fog, `Fog::new(color, start, end)`: every surface blends towards
 the color with its distance from the camera, untouched up to `start` and wholly fog
 from `end` on, in linear light before the tonemap. The sky is fog colored at the
 horizon and clears with height, gone where the view rises past `height`, 0.4 by
 default, and without a sky the fog color fills the background, so fogged ground
-always meets fog above it.
+always meets fog above it. `Fog::around` is for a camera inside the fog, like water
+or smoke: the sky is fog color every way it looks. With an atmosphere the fog lies
+over its haze, `Fog over air` checks it.
 
 `sky` is a cube map, `Sky::gradient` for a smooth one and `Sky::from_faces` for six
 images. The skybox draws it behind everything and every surface reflects it: the
@@ -153,6 +495,106 @@ flat `ambient` color stands in. Highlights roll off through the Khronos PBR Neut
 compression without its black offset, so a color under the knee lands on screen as
 the hex it was written as.
 
+`day_night_sky` is a sky the shader draws every frame, so a game can move it with its
+clock, see `DayNightSky`: a blue gradient that darkens with `night`, an orange glow on
+the horizon towards a low sun by `sunset`, the sun disc and its glow, and at night
+stars from `star_seed` twinkling by `twinkle` and the moon disc with its glow. It is
+drawn in place of the cube `sky`, which still lights the scene when both are set, and
+fog blends it at the horizon the same way. It lights nothing itself, the game moves
+`sun` and `ambient` with it. Its values reach the sky shader as three vectors of
+`SceneUniform`.
+
+## Planets and space
+
+A planet is a sphere in the scene, and the engine keeps it there with its own
+math in 32 bit floats around the camera. A game keeps its true places in 64 bit
+and moves the scene to them, the bubble of geblings, see its `docs/planet.md`.
+
+- `move_world(WorldMove { turn, shift })` moves and turns everything of the scene
+  by 1 rigid move in 1 call: every node with its speed and spin, the player, the
+  camera, the gravity and its wells, the sun, the lights, the occluders, the turn
+  of the stars, the lines, the wind, the handle and the frames of the grass, in
+  `scene/scene/scene_move.rs`. A game calls it when the player gets far from the
+  origin, so the floats stay fine. An offset collider turns with its wall. The
+  scene test `Moved world` checks a scene before and after a move.
+- `set_wells` puts `GravityWell`s, point masses with a `gm` and a `radius`, in
+  place of the 1 uniform gravity, `scene/gravity.rs`. `gravity_at` sums their pull
+  at a point. Every awake dynamic body gets that pull as an impulse each substep.
+- The player's up follows the pull. `Player::frame` is the least turn that puts
+  its y against the pull, and `up`, `forward` and `right` come from it, so a walk,
+  a jump, a fall, a flight, the eyes and the third person pivot work on any side of
+  a planet. `Planet walk` walks a player round a small planet.
+- `occluders` holds up to 4 `Occluder` balls, a center, a radius and a `transmit`
+  color, black by default. Each pixel, and each step of the air, works out what
+  share of a light's disc each ball hides, `light_through` in `atmosphere.wgsl`.
+  That 1 test gives the night side with its soft edge, a solar eclipse under the
+  moon, a lunar eclipse in the planet's shadow and the shadow of a planet on its
+  air. A ball is skipped by a cheap cosine bound where the disc lies wholly past its
+  edge or wholly behind it, where the full test gives exactly 0 or 1. `Night and
+  eclipse` and `Moonlight` check them.
+- `space_sky` with a `SpaceSky` draws the sky of a world in space in place of `sky`
+  and `day_night_sky`: the stars, turned by `stars`, the sun's disc of
+  `Sun::angular_radius`, and with an `Atmosphere` the air, from the ground and from
+  space. `sun_glare` puts a glare round the sun, a core that falls with the square of
+  the angle and a wide dim halo, dimmed by the share of the sun the occluders hide, on
+  the sky only. `air_brightness` scales the light of the air, the sky, the haze and the
+  sky's light in the shade, for ground colors picked for a sun of 1. Both are opt in,
+  0 and 1 by default. `Sun glare` checks the glare and its loss behind a ball. The
+  stars come from an integer hash of their cell, a `sin` hash of large numbers moved
+  every star with any change of the shader. `Atmosphere::earth` is Earth's air, `Atmosphere::scaled` shrinks it to a
+  small planet with the same colors from the ground. The air is Hillaire 2020: 2
+  tables built on the CPU in `scene/atmosphere.rs` when the shape of the air
+  changes, the transmittance and the multiple scattering, uploaded as half floats
+  by `render/pipelines/air_textures.rs`. The sky marches 24 steps per texel of
+  the sky view table, see below, the haze over a surface 2, a `fog` lies over that, and the ambient light comes from the
+  air on the CPU. A step over 8.75 heights of both hazes and over the ozone is
+  skipped, under 1 color step, and a step in full shadow only dims what lies behind
+  it. Only the sky adds the sunlit ground of the air where its ray ends on the
+  ground ball, the haze over a surface never does, the surface stands for the ground.
+  A sea at the ground radius drawn as flat triangles sags under the ball and was lit
+  pale by it. `Sea under air` holds a coarse sea from 60 km to its own color. `Planet
+  sky` shows the sky from the ground at noon, at sunset, at night and from 60 km out.
+- `Material::dust`, `set_dust`, reflects by the Lommel-Seeliger law of moon dust, so
+  a full moon is flat and bright to its edge. `Moon dust` checks it.
+- `Grass::origin` and `Grass::turn` put a field on the side of a planet, the field
+  works in its own axes, `to_field` and `to_world`. `Grass on a planet side` grows
+  one on a slope of a ball.
+
+A point past the top of the air gets the light clean in `air_light_at`, unless its line
+to the light goes through the air, then it gets what the air lets through from where that
+line enters. The table of the air holds only points inside it, so a moon read from it came
+out orange. `Light past the air` holds a white ball grey.
+
+A planet from space in a window of 4096 by 2304 took 39 to 48 ms of GPU work a
+frame on an M1 Pro, 90 percent of it the air. Drawing the sky after the opaque nodes
+and the 3 skips above brought it to 9.6 ms with no pixel moved by more than 1
+color step, measured with Metal System Trace in geblings on 2026-10-29.
+
+The sky reads the air from the sky view table of Hillaire 2020, `render/pipelines/sky_view.rs`.
+Once a frame, before the frame's pass, a pass of its own marches the 24 steps for each texel
+of a 512 by 256 table, the light of the air in red, green and blue and what gets through it.
+A sky pixel reads both at its direction, and adds the stars, the sun's disc and the glare
+itself, so they stay sharp. The table turns around the camera's up across its width and
+runs from straight up to straight down along its height. The upper half is the sky and the
+lower half the ground, the rows crowd toward the horizon, and a read stays inside its half,
+so the filter never mixes the ground into the sky. A ground texel lets nothing through.
+Only a frame with a `SpaceSky` with air builds it. In geblings at noon and in the
+afternoon, headless, the sky came out the same as with the march per pixel, only a few
+cells of 8 pixels moved. Its gain in a window was not measured yet.
+
+The table is built again only when the view moves past it, `SkyKey` in
+`render/pipelines/sky_view.rs`: the up of the camera or the sun turned by more than
+0.0005 radians, the camera climbed more than 0.5 m and a thousandth of its height,
+an occluder moved, or the shape or the brightness of the air changed. The ambient
+light of the air, 2048 steps of the air on the main thread, is kept by the same rule
+of `AirPlace`. A day of 24 minutes turns the sun past the step in 0.1 s.
+
+`air_haze` runs for every lit pixel, so it is the dearest part of a lit node. In
+geblings at 500 m by day in a window of 2880 by 1872 on an M1 Pro, 8 steps took 41.9
+ms of fragment work a frame, 4 steps 29.5 ms, 2 steps 16.4 ms and no haze 17.8 ms,
+measured with Metal System Trace on 2026-10-30. It takes 2 steps. Haze per vertex
+would need 6 more components, more than an A7 draws, see below.
+
 ## Picking
 
 A touch that no view takes falls through to the scene, the way a level gets one.
@@ -162,68 +604,605 @@ box, so a model is hit on its bounds. The nearest node gets `on_touch` with the
 world point hit, then the scene's `on_tap` fires with the ray, hit or not.
 `node_at` and `ray` on the scene answer the same question without a touch.
 
+The other way round, `Camera::screen_point` gives the pixel a world point lands on,
+and `view_point` on the scene the same place in points of the root view, where a view
+centered sits over it, a damage number or a name over a node. Both are `None` for a
+point behind the camera, so the view can hide. A scene test puts such views over its
+scene in `SceneTest::overlay`, which runs in the test and in presentation.
+
+A scene takes the arrow keys and Enter, so the key focus is off while it runs. A scene
+that only draws behind the views answers false in `SceneSetup::takes_keys`, see
+[focus.md](focus.md).
+
 ## Player
 
 `add_player` puts a first person `Player` in a scene with physics: a capsule on
 rapier's kinematic character controller, with gravity, small steps, a jump on
-space and a push on the bodies it walks into. `w` `a` `s` `d` or the arrows walk it
+space and a push on the bodies it walks into. `Player::drift` is an outside speed that
+adds to the walk with every collision, for wind, a conveyor or a river, it stays until the
+game changes it. `w` `a` `s` `d` or the arrows walk it
 while held, read through `Keys::held`, and `look` turns it, the demo page calls
 that from a drag. While a player exists the camera looks out of its eyes.
+`add_player` makes a capsule 1.8 tall and 0.7 wide, `add_player_sized` takes the
+radius and the height for a smaller or bigger hero. `walk_keys` set to `WalkKeys::WasdOnly`
+leaves the arrow keys to the game. `teleport` puts the player
+somewhere at once with no fall left, the way a game respawns it. A rising player is
+never grounded and never snapped down, so a jump is not ended in its first step while
+the capsule is still within the controller's offset of the ground.
+
+A scene steps by the real time of its frames, measured on `frame_seconds`, at most
+1/15 s a frame, each frame in `PHYSICS_SUBSTEPS` parts. A fixed step of 1/60 s a frame
+ran the whole scene in slow motion under 60 frames a second. A stepped scene test keeps
+the fixed 1/60 s, so its frames stay exact.
+
+`motion` set to `Motion::Parked` takes the player out of the physics and holds it still,
+a hero that sits down. Its capsule touches nothing, so bodies can lie inside its radius,
+no key, mouse, drift or fall moves it, and the scene leaves the camera to the game,
+which puts it in the head of the seated body. Back to `Motion::Walk`, the capsule
+collides again and the player walks on from where it was.
+
+`motion` set to `Motion::Fly` makes the player fly, a jet or a free camera: no gravity, no jump, no
+snap to the ground and no step up ledges. `w` and `s` move it along its whole
+`direction`, the pitch included, `a` and `d` to the side, space straight up and ctrl
+straight down. It still slides along what it hits, also at 300 m/s into a hill.
+Back to `Motion::Walk`, it falls from where it is. The unit tests in `scene/player.rs` fly a
+player up, hold it still, stop it at a hill and drop it.
+
+`steer` set to a direction moves the player from code in place of the keys, for an
+autopilot or a player a test drives. It moves the same way a held key does, at `speed`
+along the direction and with every collision. A walking player takes it level, a flying
+one takes it whole, so a climb or a sink is in the direction. `None` gives the keys back.
+`teleport` every frame is no way to drive a player, the next physics step puts it back.
+
+`Cursor::capture()` takes the mouse the way a game does: hidden, held inside the
+window, and reported as raw motion, which the player reads every step through
+`Cursor::take_motion` and turns by `look_speed` radians per unit. Escape frees the
+mouse and nothing else sees that Escape, so a page can bind its own Escape to
+capture again, a lost window focus frees it too, and `Cursor::on_capture` tells a
+page when to hide or show its controls. Windows and X11 cannot lock the cursor in
+place, there it is confined to the window, which looks the same once hidden. The
+browser needs a click before it locks and lets go on its own Escape, both reach
+`Cursor` through the pointer lock events. A phone has no mouse and `capture` does
+nothing there.
+
+`third_person` on the player puts the camera over its shoulder instead of in its
+eyes, see `ThirdPerson`: it turns around a pivot above the capsule with the yaw
+and pitch, sits `distance` behind and `shoulder` to the right, and looks where the
+player looks. Every step a ray from the pivot to that spot pulls the camera to
+`margin` in front of the first collider on the way, never closer than
+`min_distance`. Nodes in `skip` are looked through, like a swing's hitbox. The
+player is no node, so a game draws its body itself and moves it to
+`Player::position` in the scene's `after_physics`, which runs right after each
+physics step, once the player and the camera moved. Moved in `update` the body lags 1
+step of travel behind the camera, 25 m at 6 km/s. `Ride with player` flies a player at
+6 km/s and holds a box placed there to 1 cm of its place from the camera.
+
+## Meshes from code
+
+`Model::from_mesh(name, MeshData)` uploads geometry built in code, a terrain or a
+procedural prop, and stores it under `name` like a loaded file, so `Model::get`
+returns it too. The indices are `u32` and a mesh of any size is split into 16 bit
+parts, `model/split.rs`, the same split a big glTF primitive gets. It has no
+material, the node's own draws it, and it collides and picks as the box around
+its vertices unless a collider is put on.
+
+`Vertex3D::color` multiplies the node's material color, white by default, so a
+mesh built from parts of different colors is one mesh. A triangle takes one
+color: the shader passes it packed and flat, the seventh of the eight values an
+A7 lets cross from the vertex to the fragment, so `from_mesh` panics when the
+three corners of a triangle differ. A full channel passes as exactly one, the
+sRGB decode of 255 lands a hair under it in f32 and moved pixels of every mesh.
+
+`Model::from_smooth_mesh(name, MeshData)` takes the same data and fades the color
+across each triangle between its 3 corners, in encoded sRGB, alpha included, so 2
+colors of a mesh meet with no saw edge:
+
+```rust
+let ground = Model::from_smooth_mesh("dug ground", mesh);
+self.make_node::<Prop>(Shape3::Model(ground), Vec3::ZERO).set_color(Color::hex("#ffffff"));
+```
+
+Eight values is all an A7 has, so the room for the color comes from the uv. The
+entry `v_smooth` of `mesh.wgsl` passes the normal, 3 values, the index of the
+instance, 1, and the color, 4, and no uv. So `Vertex3D::uv` is not read, the
+texture and the maps of the material show only their first texel, a warning says
+so when the textures are bound, and a clump of `Grass` cannot be such a mesh, it
+panics. The choice is per mesh, a mesh from `from_mesh` draws as before through the same
+pipelines and pays a read of a flag per node and per batch. The pipelines of a smooth mesh, opaque,
+cut out and translucent, its cut out twin in the shadow pass, and its cut out
+depth photo pipeline are made at the first such mesh, so an app with none does not wait
+for them. A plain shadow, a plain depth photo and a wireframe read only the position,
+so they draw a smooth mesh through the pipelines of a flat one. `Smooth colors` holds
+each way of drawing it, the unit test `every_mesh_shader_stays_in_the_room_of_an_a7`
+counts the values of each shader.
+
+`Model::from_flowing_mesh(name, MeshData)` runs the texture and the normal map along a
+flow, the way a river runs with no new mesh per frame, and `PreparedMesh::flowing` does
+the slow part on a worker. Every vertex comes from `Vertex3D::flowing`, with its uv and its
+place in `Material::flow_map`, a small image of `flow_texel`s in uv units a second, up to
+`FLOW_RANGE` each way. The node's material alone gives the color, the place takes the room
+of the vertex color, so the eight values of an A7 hold. It cannot be cut out.
+
+`water_texel` adds a look to a texel: blue is the depth, from `Material::shallow_color` at
+0 to the node's color at 1, and alpha the opposite of the foam, so the flat texel of a mesh
+with no flow map is deep water with no foam. Foam opens on the highest slopes of the normal
+map, so it runs with the ripples, and it needs a normal map. Neither takes a new value
+between the stages. `Water look` checks it. It did not run on an A7 yet.
+
+The surface is cut in a grid of 4 cells a uv unit, the directional flow of
+[Catlike Coding](https://catlikecoding.com/unity/tutorials/flow/directional-flow/). Each
+cell reads 1 flow at its middle and turns the maps to it around that middle, so a ripple
+faces the way the water goes, and 4 cells overlap over a pixel, each with no weight at its
+edge. A normal map for this has its crests across green. Faster water has smaller and
+stronger ripples, up to `FLOW_FULL` in `mesh.wgsl`. A pixel reads the flow map 4 times, the
+normal map 4 times and the texture 5 times. The clock is `SceneBase::flow_time`, it runs
+with the scene and `flow_frozen` holds it for a picture. A scene draws every frame, see
+`docs/damage.md`, so the clock needs no paint key. `uv` and the place in the map must
+grow in step over the mesh, the shader reads their ratio from the derivatives. Cells can
+show in a sharp reflection, a second grid at double the reads is the known answer.
+
+## Colliders, queries and parents
+
+A node collides as its drawn shape until `set_collider(ColliderShape, offset)`
+puts on a box, ball, capsule, cylinder, heightfield, triangle mesh, convex hull or
+voxels.
+`Heightfield` is a grid of
+heights, row by row along +x, rows stepping along +z, centered on the node, and
+`Heightfield::mesh` builds the matching ground cut along the same diagonal rapier
+cuts each cell, so what is drawn is what bodies rest on. `cut_hole(row, column)`
+takes the ground out of 1 cell, in the collider and in the mesh, so a cave mesh can
+take its place. `TriMesh` collides as the triangles of a `MeshData`, with shared
+corners merged and the inner edges fixed so a body does not catch on them. 2
+triangle mesh shapes are equal only when they share 1 mesh. `Voxels` are cubes of
+1 size at integer cells. `show_colliders` draws every kind, a heightfield as a
+coarse grid, a triangle mesh and a convex hull as their edges and voxels as their
+cubes.
+
+`ConvexHull` is the smallest convex solid around a list of points, for a body of any
+shape that falls and lands, where a triangle mesh has no inside and a box leaves it
+hanging in the air:
+
+```rust
+let Some(hull) = ConvexHull::from_mesh(&lump) else {
+    return; // Flat, on 1 line, or too few points.
+};
+let mut body = self.make_node::<Body>(Shape3::Model(Model::from_mesh("lump", lump)), place);
+body.set_collider(ColliderShape::ConvexHull(Arc::new(hull)), Vec3::ZERO);
+```
+
+`from_points` and `from_mesh` answer `None` for points that make no solid: under 4
+different points, all on 1 line or 1 plane, so thin that the hull fills less than a
+millionth of the cube of its longest side, or a point that is not finite. So a
+`ColliderShape::ConvexHull` always holds a solid. Repeated points are merged first, a
+mesh repeats a corner per triangle. The points are in the space of the node, the mass
+and its center come from the solid, so the origin of the node can lie anywhere. A node
+scale so small that the hull falls apart in floats, like 0, makes it a ball of that
+size with a warning. The hull is parry's quickhull, `scene/convex_hull.rs`. `vertices`
+and `triangles` give the result, a mesh to draw that fits the collider exactly.
+`cast_ray`, `cast_shape` and `overlapping` meet it and take it, and `move_world` moves
+it like any other collider, `Convex hull collider` holds these on a real `Body` and a
+real `Wall`.
+
+`cast_ray`, `cast_shape` and `overlapping` on the scene answer what a ray or a
+swept or placed shape meets, as a `QueryHit` with the node, the distance, the
+point and the normal. Nodes in `skip` and the scene's player are left out.
+
+`attach_to(parent)` hangs a node on another: its position, rotation and scale
+become the parent's local ones, down any chain, and `detach` keeps it where and
+as big as it is in the world. `world_scale` is the scale times every parent's. A
+child's collider moves and grows along every step. A `Body` cannot hang on a
+parent and a loop of parents panics.
+
+## Pictures
+
+`SceneManager::picture(scene, name, size, background)` draws a scene once into a
+managed `Image` of `size` pixels, a picture of a model for a grid or a list. The
+scene is set up, drawn with its own camera, sun, lights, sky and nodes, and
+dropped. The running scene and the frame on screen are not touched, and none has
+to run. `background` shows where nothing is drawn, `CLEAR` leaves the picture see
+through, a sky or fog covers it. The image is keyed by the name and the size, the
+same pair draws into the same image again, so a view over it shows the new
+picture with nothing set on it. A picture has no time, so its scene has no
+physics, it is made of `Prop` nodes, anything else panics.
+
+`SceneDrawer::picture` gathers the scene into the one shared `MeshPipeline` with
+its own encoder and submits it at once, then `forget_frame` empties the
+pipeline, so the frame's own draw on the same frame number does not draw the
+picture's nodes again. For the same reason `MeshPipeline::prepare` zeroes the
+range of every batch nothing was added to. The pass draws into targets of the
+picture's size in the surface format with the frame's sample count, the
+pipelines are the frame's own, and resolves. `PicturePipeline` then copies the
+resolved frame into the image's RGBA texture with the color divided by its
+alpha: over a clear background the frame holds color times coverage, from the
+multisample resolve and from every blended node, and an image draws with
+straight alpha, so without the divide every outline gets a dark rim. The
+targets are kept for the next picture of the same size. 50 pictures of 256
+pixels take about 18 ms of CPU time in a debug build and 12 ms in release on an
+M series Mac, models and textures are managed and load once.
+
+A picture has 1 level, so drawn much smaller than its size it picks scattered
+texels and flickers. `SceneManager::mipped_picture(scene, name, size, background,
+cutout)` draws the scene through the photo path, reads the pixels back and builds
+every level on the CPU with `hilen_pixels::mip_chain`, an atlas of far trees for
+example. A native GPU is waited for in the call and the image made on the calling
+thread, call it on the main one. A browser gives the pixels after a frame of the
+loop, so the result is a future to `spawn`. With a `cutout` threshold,
+`keep_coverage` scales the alpha of every smaller level so the share of texels at or
+over the threshold stays that of the full size, found by halving a scale in steps of
+1/256 and taking the side of a step nearer to it. A plain box filter thins far leaves to
+nothing. The image is stored under `name`, a second call replaces it. A 1024 pixel
+atlas of 64 trees takes about 1.4 s in release, most of it the read back and the
+levels.
+
+## Photos
+
+`SceneManager::photo(camera, size, background)` draws the running scene through
+another `Camera` and gives its pixels back, a `ScenePhoto` with `size` and `rgba`,
+4 bytes a pixel from the top row, straight alpha. It is for a virtual camera in
+a scene, like the phone of a 3D scanner rig that takes 4032 x 3024 photos while
+the rig shows live on screen. The scene's own camera does not move and the frame
+on screen does not change. It works for the scene of the window and for one in a
+`SceneView`.
+
+```rust
+let photo = SceneManager::photo(phone_camera, (4032, 3024), BLACK);
+spawn(async move {
+    match photo.await {
+        Ok(photo) => save_jpeg(&photo.rgba, photo.size),
+        Err(err) => log::error!("no photo of the rig: {err}"),
+    }
+});
+```
+
+The draw is sent in the call, so photos taken in a row each show the scene at
+their own call. On native the future waits for the GPU and reads the bytes, in a
+browser it ends after the next frame of the loop. No scene, a size of 0, a side
+over the GPU limit, 8192 in a browser, or a buffer too big for the GPU is an
+error.
+
+`SceneDrawer::photo` draws through the same targets and `PicturePipeline` as a
+picture, into an RGBA texture kept for the next photo of the same size, and in
+the same encoder copies it into a buffer through `State::read_screen`, the path
+of a screenshot. A 4032 x 3024 photo takes 9 to 16 ms in a debug build on an M
+series Mac. Its targets with 4 samples take about 450 MB of GPU memory and stay
+for the next photo, which is not measured on a phone yet. The scene tests
+`Photo of scene` and `Photo of scene in view` check 6 known pixels of a big
+photo, take 24 small ones on a full turn, and check that the screen is the same
+before and after.
+
+`ScenePhoto::save(path)` writes a photo to a png with its alpha, so a photo whose pixels
+a depth photo cut away keeps them clear. `Screenshot::save` writes every pixel opaque.
+
+`SceneManager::depth_photo(camera, size)` draws the same way and gives a
+`SceneDepth`, the distance in meters from the camera to the surface under every
+pixel along the line of sight, infinity where only the sky, a translucent node or
+nothing is. The turnscan simulator blurs its phone photos by it, the way a lens out
+of focus does. A multisampled depth buffer cannot be read on WebGL2, so the nodes
+are drawn a second time through the fragment entries `f_depth` and
+`f_depth_cutout` of `mesh.wgsl`, which write the distance as 24 bits in red, green
+and blue on a log scale from 1 mm to 10 km, white for no surface. Inside a surface
+it comes back to a millionth of itself. On an edge the resolve mixes the samples,
+and the pixel lands within about 3 percent of their mix. The 4 pipelines are made
+at the first depth photo, an app that takes none does not wait for them. The scene
+test `Depth photo of scene` checks the distance of a cube face, 2 floor points and
+the sky against the camera, then a plain photo and the screen after it.
+
+## Grass
+
+`SceneBase::grass` holds fields of grass that grow around the player, or
+around the camera with no player, `scene/grass.rs`. `Grass::new(model,
+ground)` takes the mesh of 1 clump and a function that answers what grows at
+a point of the ground: a `GrassSpot` with the height, the ground's normal,
+which the clump stands along, and a tint, or none for no grass there. The
+field grows in square patches, `patch_size` 10 by default, the nearest
+first, and asks `ground` at most `spots_per_frame` times a frame, so a
+streamed world grows its grass over a few frames. A patch out of reach goes.
+`regrow` and `regrow_around` let patches grow again after the ground or the
+answer of `ground` changed, a chunk that loaded or a floor built on it. An old
+patch draws until its new one is grown, nearest first, so a regrow shows no bare
+ground. The same seed and the same cell give the same blades, and every random draw is
+taken for every spot, so a hole in a field leaves the blades around it in
+place.
+
+A patch is 1 vertex buffer of `GrassBlade`s, 32 bytes each: the root from
+the patch's origin, the turn about up, the scale, the tint, the ground's
+normal as 2 snorm16 and the patch's slot. Each frame the CPU culls whole
+patches by their sphere and sends 1 `MeshInstance` and 1 matrix per patch,
+in a slot the patch keeps while it lives, a blade names its slot since an
+A7 cannot draw from a base instance. Each patch is 1 instanced draw of
+`v_grass` and `f_grass` in mesh.wgsl, after the opaque nodes. The fragment
+is lit, shadowed and fogged like a node through the same `lit`, cuts out by
+the material's `cutout` and drops everything within 2 units of the camera,
+so a blade never fills the view. Grass casts no shadow.
+
+Grass draws in 2 passes, like a cut out node. `MeshDraw::GrassDepth` writes only the depth
+of the blades that stay, through `f_grass_depth`, which has the discard, then
+`MeshDraw::Grass` lights them through `f_grass` with an `Equal` depth test. Blades overlap
+many times over a pixel, and in geblings on the ground at 3072 by 1728 they added about 20
+ms of fragment work with 1 lit pass each, measured with Metal System Trace with Time
+Profiler on, on 2026-10-30.
+
+Up to `thin_from` every blade is drawn, to `distance` they go 1 by 1. The
+blades of a patch lie in random order and blade `rank` is gone past
+`thin_from + (1 - rank / count) * (distance - thin_from)`, shrinking away over
+the last 15 percent of that, so the edge of a field has no line and no
+blade pops. The CPU leaves out the blades already gone at a patch's nearest
+point.
+
+`Wind` on the scene, a direction on the ground and a strength from 0 to 1,
+moves every field. A point bends by its height in the mesh over
+`bend_height`, a straight line from 0 at the root. The wind leans it along
+the wind by `0.4 * sway_distance * strength` times that bend, and a gust
+swings it, a wave running along the wind times 3 sines across and along it.
+`Grass::advance` runs the 4 phases on with the scene's time and keeps each
+under a full turn, so the sway never jumps however long a scene runs. The
+player pushes grass within 1 unit of the line from where its feet were a
+moment ago to where they are, so a walk leaves a trail, out from the player
+and down by `push_distance`, only above its feet. After the wind and the
+push every point is put back at its distance from the root, so a blade
+swings as if hinged there and never stretches.
+
+`Grass::blade` and `Grass::tuft` build simple blade meshes. A clump of cards
+cut out of a texture of thin blades in its alpha looks far better from a
+distance: `Image::from_cutout_data` makes such a texture from RGBA bytes
+with mip levels that keep the share of texels over the cutout, a box filter
+thins far blades to nothing. Give the cards normals straight up, so a field
+is lit like the ground under it.
+
+The scene test `Grass field` grows a field of wide blades with a bare square
+and a tinted half, leans it in the wind after an exact count of steps, and
+grows it again 300 m away. The unit tests in `scene/grass.rs` hold the
+planting, the ring order, the thinning count and the meshes.
 
 ## How it draws
 
-The scene draws in the main render pass, before the level and the UI, into the
-viewport depth band 0.6 to 1.0. The UI draws at 0.5 and closer, a level sprite at
-0.85, so the UI stays in front of any scene and a level can share the frame. The
-band costs about one and a half bits of depth precision, the camera near plane
-matters far more, keep it at 0.1 or above.
+A scene over the whole root area draws in the main render pass, before the level
+and the UI. A scene in a `SceneView` draws into the image of the view instead, see
+above. The depth is reversed, 1 on the near plane and 0 at `far`, where 32 bit
+floats are densest, compared with `Greater`, and `Camera::far` may be
+`f32::INFINITY` for no far plane, so a stone 1 m away and a moon 300 km away share
+1 frame. The scene draws in the whole depth range, so `MeshPipeline::fill_depth`
+writes 0 over the viewport before it and 1 after it, and the UI over it tests depth
+as before, `depth_fill.wgsl`. `Near and far` checks both ends.
 
-The sky draws first, one triangle with no depth test. `MeshPipeline` then does one
-instanced indexed draw per unit mesh and texture pair for the opaque nodes, and one
-draw per translucent node after them, back to front, blended and without a depth
-write. The instance carries the model matrix, the inverse transpose for normals and
-its own index in the buffer, see `MeshInstance`, so a translucent node drawn alone
-from the middle of the buffer needs no base instance, which an A7 cannot draw. The
+Everything draws relative to the camera, so a world kilometers big keeps its
+millimeters far from its origin. `SceneUniform::view_proj` and `inv_view_proj` take
+a point minus the camera's position, built in 64 bit on the CPU. A vertex turns by
+its model first and adds the model's place minus the camera's after,
+`model_offset` in scene_common.wgsl, both small near the camera. A fragment gets
+its offset from the camera from `camera_offset`, and the world position is the
+camera plus that offset. Lines subtract the camera before their view projection.
+
+`MeshPipeline` does one instanced indexed draw per unit mesh and texture pair for
+the opaque nodes, then the grass, then the sky, one triangle at the far depth of 0
+with an `Equal` test, so it shades only the pixels no node covers. The air makes
+the sky the dearest shader of a frame, drawn first it ran under the whole planet.
+Then one draw per translucent node, back to front, blended and without a depth
+write. A cut out node is an opaque batch of its own, `MeshKey::cutout`, drawn after
+the solid nodes and twice: `MeshDraw::CutoutDepth` writes only the depth of the
+fragments that stay, through `f_cutout_depth`, which has the only discard, then
+`MeshDraw::Cutout` lights them through `f_opaque` with an `Equal` depth test, so
+layers of quads light a pixel once. The position is `@invariant` for that test. A
+mesh with fading colors keeps 1 draw, `f_smooth_cutout`, it drops a fragment before
+its light. A near to far order of the cut out batches
+gave nothing on an M1 Pro on 2026-10-30, 10.6 to 10.7 frame ms with and without it,
+so there is none. An opaque node writes alpha 1 through `f_opaque`, the alpha of
+its texture would leave a hole in a scene picture. Every opaque batch lands in one instance buffer with one upload per frame. A
+buffer per batch cost a staging buffer per batch every frame. The instance carries the
+model matrix, the inverse transpose for normals and its own index in the buffer, see
+`MeshInstance`, so a batch or a translucent node drawn from a slice in the middle of
+the buffer needs no base instance, which an A7 cannot draw. The
 fragment reads the material and the light list from a storage binding at that
-index. Six float components cross the vertex to fragment boundary, the uv, the
-normal and the flat index, and the world position is rebuilt from the depth. An A7
-draws nothing above eight, see [ios.md](ios.md). Indices are 16 bit so every lane
+index. Seven float components cross the vertex to fragment boundary, the uv, the
+normal, the flat index and the flat packed vertex color, and the world position is
+rebuilt from the depth. An A7
+draws nothing above eight, see [ios.md](ios.md). A mesh with fading colors carries
+eight, see Meshes from code. The cutout shadow pass carries
+four, the uv, the index and the color, two for a mesh with fading colors, the index
+and the alpha. Every mesh buffer loads once per
+frame, so the bind groups over the view, the lights, the instances and
+the textures are kept from frame to frame and remade only when a buffer grows, a
+count changes, the sky or the shadow map is replaced or an image dies, see
+`render/bind_cache.rs`. Meshes with the same images share 1 textures bind, every
+mesh with no maps the plain one, and `prepare` checks the images of each bind once a
+frame, the draws read it by an index with no check. A solid node whose material has
+no maps draws through `f_plain_opaque`, which reads no texture and builds no normal
+frame, the cost of every pixel of a ground that sets only a color. A solid node whose
+material has a base color texture and no other map draws through `f_base_opaque`,
+which reads that 1 texture and builds no normal frame, `MeshKey::base_only`, and so
+does the light pass of such a cut out node. The other 3 maps read white there. A map
+converted from an old game has only such materials, the cost of that path is not
+measured yet. The plain normal
+texel of 128 was a hair off flat, so a surface with a uv may move by a color step,
+no recorded test did. Indices are 16 bit so every lane
 draws them. Back faces are culled, so every primitive is wound counter clockwise
 seen from outside, pinned by unit tests on the geometry.
+
+Each pass leaves out the opaque nodes it cannot see. A node keeps the sphere around it,
+its center and the length of its half extents, and `prepare` loads 1 range of instances
+per pass into each batch: 1 for the camera and 1 for each cascade of the sun. A pass
+draws only its own range and skips a batch whose range is empty. The test is against the
+same view projection the GPU clips with, `render/frustum.rs`, so a node it leaves out
+would have drawn no pixel, and the picture stays the same. A cascade tests its own box,
+so a node behind the camera still casts its shadow into the view, the scene test
+`Shadow out of view` pins that and fails when a cascade culls by the camera. A skinned
+part and a part of a playing clip are never left out, their rest bounds do not hold the
+pose. A translucent node is left out when the camera cannot see its sphere, a posed
+one never. `HILEN_CULL=0` in the env draws every node in
+every pass, the A/B for a measurement. In geblings, standing in a forest with the sun
+held still, a headless frame went from 2.43 ms to 1.44 ms.
+
+On a GPU that is not Apple's the solid batches draw nearest first, by their nearest
+instance, so the depth test spares the pixels behind. Apple's GPU shades only the
+nearest surface of a pixel whatever the order, `hides_covered_pixels` in
+`window/msaa.rs`, and a near to far order gave nothing on an M1 Pro. A node with no
+body and no parent gives its place and turn from its own fields, every move of its
+collider writes them too, and each node is read once a frame, not 3 or 4 times
+through rapier. With these, the bind sharing and the kept sky, geblings took 5.0 ms
+of CPU work a frame on the ground where it took 8.1, and 5.6 ms in flight where it
+took 9.9, the median of 3 headless runs each on an M4 Pro on 2026-11-04 with the
+Time Profiler of Instruments, the GPU side not measured.
+
+`GpuCapture::frames(count, path)` captures the GPU work of the next frames into a
+`.gputrace` file that Xcode replays with the time of every pass and draw,
+`window/gpu_capture.rs`. Metal only, and the app must start with
+`METAL_CAPTURE_ENABLED=1`. Metal System Trace in Instruments times whole command
+buffers only, and a headless run lowers the GPU clock to its free frame rate, so
+only a run in a window in front, with the GPU full, measures a shader's cost.
+
+`SceneManager::set_render_scale(share)` draws a scene over the whole window at that
+share of the width and the height of its pixels, into an image `SceneDrawer` keeps, the
+route of a `SceneView`. `UIDrawer::draw_behind_views` stretches it over the frame before
+any view, so a see through view blends over the scene. Queued with the views it would come
+after their rects. The views stay sharp, and what shows where nothing draws is the
+window's clear color, as without a scale. `stop_scene` sets it back to 1, a scene in a
+`SceneView` ignores it. `SceneManager::set_scene_samples(1, 2 or 4)` gives that picture
+its own sample count, 1 by default, the views keep the frame's. Its pipelines are made
+at the first such frame, so an app that never draws under a scale does not wait for
+them. Over an opaque clear color the samples resolve straight into the image the frame
+stretches, a picture over a clear one goes through the copy that divides out the
+alpha. `Render scale` holds the colors at 1 and at 0.5 with 1 and with 4 samples, and
+that the slanted edges of a turned box differ between them. In geblings at
+4096 by 2304 on an M1 Pro, 22 ms of GPU work a frame held only 45 fps, 3328 by 1872 took
+16.3 ms and held 60, measured with Metal System Trace on 2026-10-30.
+
+A stream of ground can do its slow work on a worker. `BuiltTriMesh::new` builds a triangle
+mesh collider on any thread, `ColliderShape::Built` puts it on a node at no cost. A node of
+another scale builds its own from the mesh. Those trees and edge fixes took 51 percent of
+the main thread in a flight over geblings. `PreparedMesh::new` and `smooth` split and check
+a mesh on any thread and leave only the upload to `Model::from_prepared`.
 
 Colors are encoded sRGB like the whole frame, see [colors.md](colors.md). The
 shader decodes, lights in linear, tonemaps and encodes at the end of the fragment.
 Textures and the sky cube hold encoded bytes too and are decoded after the sample.
 
+`show_colliders` on the scene draws every collider as a green wireframe after the
+nodes: the twelve edges of a box or of a model's bounds, three rings on a ball,
+nothing for a plane, whose slab is the floor itself. The lines go through a small
+line pipeline on the same view uniform, depth tested against the nodes, and sit a
+little outside their solid so the faces do not cut them.
+
+`show_wireframe` on the scene draws the edge of every triangle of every node as a
+white line over the scene. A mesh builds its edge index buffer the first time a
+wireframe draws it, each edge of the triangles once, so the lines cost nothing on the
+CPU per frame. It keeps no copy of its indices for that, it reads them back from the
+GPU then: a native GPU is waited for and the edges draw that frame, a browser answers
+later and the edges show from the frame they land. Built at every upload they took a
+third of the main thread of a game that streams its ground. The wireframe pipelines are the mesh pipelines with a line list, made at
+the first frame that shows a wireframe. They use the same vertex entries and
+instances, so a model and a skinned mesh draw their edges where they stand. An edge
+lies on its own faces, so the fragment moves its depth 0.2 % of its distance toward
+the camera, depth bias is for triangles only in WebGPU. A hidden edge stays hidden,
+the edges of a translucent node show through it.
+
 ## Tests
 
 A scene test is a `#[scene]` with `impl SceneTest`, registered by a ctor into
 `hilen::SCENE_TESTS` behind the `scene-tests` feature and run by the `scene-test`
-crate, which also holds the corpus. Same flags as `level-test`, `make scene` runs
-the suite. `Primitives` orbits the camera around every shape, `Materials` is the
+crate, the tests live in `scene-test-suite`. Same flags as `level-test`, `make scene` runs
+the suite. `demo` links `scene-test-suite` too, so `make ui-ios` and `make ui-web` run
+the scene tests after the UI tests. The three that cast shadows pin
+`shadow_map_size`, the default is 1024 on a phone and in the browser, and the
+lanes would draw a softer shadow edge than the desktop recorded.
+`Primitives` orbits the camera around every shape, `Materials` is the
 metallic by roughness chart, `Lights` a point and a spot light, `Textures` a
 texture and a normal map, `Skybox` chrome under a sky, `Transparency` blended
-balls from both sides, `Drop balls` a physics rest, `Models` the monkey, the tree
+balls from both sides, `Models` the monkey, the tree
 and the textured cube from `assets/models` with the monkey dropped onto its
 bounds, `Shadows` a post, a ball, a floating crate and the monkey under a low sun,
 `Picking` taps landing on the nearest node and on the sky, `Player walk` a
 player shoving a crate into a wall and jumping, `Animations` a skinned bar
 bending, the fox running and a windmill spinning, checked at rest, frozen mid
-clip and held after a single run, `Cascades` a thin pole and a row of posts down
+clip and held after a single run, `Joint poses` the same bar with a bone turned, a
+bone moved, a bone given back and a bone held over the frozen bend clip, all set from
+code and read back with `joint_transform`, `Cascades` a thin pole and a row of posts down
 a field hundreds of units long with the camera walking it, its middle check on
 the spot where a floor pixel too coarse for the maps holding it once fell through
-to the sun, and `FogTest` posts fading into fog under a sky fogged at the horizon,
-the fog then pushed back and taken away. The loop runs free, so the frames between two
-waits vary by one. A check of a pose in flight freezes the clip at a chosen time
-through `set_animation_speed(0)` and `set_animation_time` first. A human hold
-pauses the scene's time, so the probes sit on a still picture. Rapier is deterministic on one machine, a
-lane that disagrees needs its `enhanced-determinism` feature. `hold_key` and
-`release_key` drive the player from a test.
+to the sun, `FogTest` posts fading into fog under a sky fogged at the horizon,
+the fog then pushed back and taken away, `Colliders` the wireframes off and on
+over a ball, a turned crate, the monkey and a prop without one, `Wireframe` the
+edges of a ball, a crate, the monkey and a translucent ball off and on, and `Mouse look` a
+player turned by a stream of captured mouse motion onto a crate, then left alone
+by the same stream once Escape freed the mouse. `Code meshes` is a terrain split
+into parts under a knot, a lathed vase, a twisted star and a rock, all built in
+code, `Vertex colors` a camp of meshes colored face by face, `Flow` 2 surfaces with their
+clock held at 2 moments, 1 running right and 1 running down, `Smooth colors` a flat
+quad with a saw line next to quads whose colors fade, unlit, cut out by a fading
+alpha, blended and dithered, with their shadows, their edges and a depth photo,
+`Convex hull collider` a lump that falls and rests on a triangle mesh, a pyramid
+wall that the queries meet, and the same answers after `move_world`, `Collider shapes`
+bodies of every collider shape resting on heightfield hills, `Scene queries`
+rays, a sweep and a hitbox against static walls, `Node parenting` a knight whose
+arm, sword and hitbox follow its swing, walk and growth, and `Third person
+camera` a figure turning so a wall pulls the camera in. `Day and night` a field under
+a `DayNightSky` at noon, in the afternoon, at sunset, at dusk and at night with the
+moon, and `View points` labels over a circling ball and a post, the post's hidden once
+it is behind the camera. `Scene picture` a tree in a
+running scene next to a picture of it in an `ImageView`, the same image drawn again
+with the monkey, then 50 more pictures with the frame unchanged, and `Scene picture
+clear` one picture with a clear and with a given background over a light and a dark
+view while no scene runs. `Glow` orange flames at night glowing by 0, 0.5 and 1, then the dark one
+turned to full glow. `Cutout` quads of leaves over a wall, not cut, cut out, 2
+crossed that hide each other by depth and the masked `leaf_card.glb`, then the
+threshold lowered so the leaves grow, and `Cutout shadows` the same quads over a
+floor, a square shadow from the one not cut and leaf shadows from the rest.
+`Node fade` cubes over a wall at fades 0, 1/4, 1/2, 3/4 and 1, a blue and a flipped
+red cube at a half each at the same place with no wall between, and a cube that runs
+`fade_to` from 0 to 1 and stays whole. `Fade shadows` 3 cubes over a floor at 1, a
+half and 0 under a sun that casts, a whole shadow, a dithered one and none. `Mipped
+picture` the same picture of a tree of balls on cut out quads at full size, a
+quarter and a 16th, plain on top and mipped below. `Moved world`, `Planet walk`,
+`Near and far`, `Moonlight`, `Night and eclipse`, `Grass on a planet side`, `Moon
+dust` and `Planet sky` are in Planets and space above.
+`Terrain shadows` is a streaming world as heavy as a game: 5 by 5 chunks of steep
+ground with 10 trees and 4 rocks each come and go around a flying jet, over a coarse
+ground and a sea 2400 m wide, under a day sky with shadows and fog. The test flies the
+jet to 4 places up to 19 km from the origin under 2 suns, and the shadows hold no dots
+anywhere. In `--present` the jet flies with `w`, space, ctrl, shift and a drag.
+`Scene in view` runs its scene in a tall `SceneView` next to a panel with a label
+over it, picks the ball with a tap, turns and zooms the camera, narrows the view
+and removes it. `Orthographic camera` shows 3 cubes at 3 depths as 3 squares of 1
+size, the same camera in perspective, a view from above with shadows, a tap on the
+far cube and a zoom. `Scene lines` has a grid, the axes, the edges of a part that
+turn with it, a line hidden by a ball and one on top, a line through the near plane
+and the same lines seen orthographic. `Triangle picking` taps the 2 parts of an L
+built as 1 mesh and the empty corner of the L. `Transform handle test` drags the x
+arrow, the y ring with a snap and the z box of a handle on a crate, pulls the camera
+back and drags off the handle. A scene test leaves its scene on screen through the final
+human hold, the next test or the end of the run stops it. The loop runs free, so the frames
+between two waits vary by one. A check of a pose in flight freezes the clip at a
+chosen time through `set_animation_speed(0)` and `set_animation_time` first. A
+human hold pauses the scene's time, so the probes sit on a still picture.
+`hold_key`, `release_key` and `inject_mouse_motion` drive the player from a test.
+
+A test never checks a picture after simulated physics. Where a body comes to
+rest is the result of rapier, and a new rapier release moves it by a few
+pixels: the jump from 0.33 to 0.36 failed every recorded picture of that kind
+while the scenes were right. Such a test reads values from the scene and checks
+them with a tolerance, a body rests on the ground under it, the wall stopped
+the player, the camera sits behind the figure, and it holds at each state with
+`checkpoint(label)`, so a human run still stops there. `Collider shapes`,
+`Player walk`, `Mouse look` and `Third person camera` work this way. A test
+that only shows that bodies fall and come to rest tests rapier and not the
+engine, so there is none.
+
+A test that reads where physics ends up returns true from `SceneTest::stepped`.
+Its scene stands still from the setup on and `step_scene(n)` moves it by exactly
+`n` steps, so every lane takes the same number. Three things made a rest land
+elsewhere per lane, each found by printing the positions as raw bits on desktop,
+in Chrome and on the x86_64 simulator. The free running loop takes another
+number of steps between two waits on every lane. glam's SIMD sums in another
+order on arm64, x86_64 and wasm, so `scene-tests` turns on `glam/scalar-math`
+next to rapier's `enhanced-determinism`. And `cos` and `sin` of the system
+differ in the last bit, so a test writes a start velocity out as numbers. With
+all three the player and the crate of `Player walk` end on identical bits on
+the three lanes. `parallel` in rapier was not a cause, desktop gives the same
+result with and without it.
 
 ```bash
 cargo run -p scene-test -- --list
 cargo run -p scene-test -- --headless --test-name Primitives
-cargo run -p scene-test -- --test-name DropBalls --human
+cargo run -p scene-test -- --test-name PlayerWalk --human
 cargo run -p scene-test -- --test-name Materials --present
 ```
 
@@ -234,6 +1213,5 @@ the keys walk it.
 
 ## What is next
 
-The remaining deliveries are in [roadmap.md](roadmap.md): an embeddable scene
-view, and culling nodes outside a cascade's box on the CPU so a short shadow
-distance also cuts the shadow passes on a big level.
+The remaining deliveries are in [roadmap.md](roadmap.md). A scene in a view is above,
+and only 1 scene runs at a time.

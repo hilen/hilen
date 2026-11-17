@@ -4,7 +4,7 @@ use hilen::{
     RenderPass,
     game::{Game, GameDrawer, Object, Shape},
     refs::{Own, Weak, manage::DataManager},
-    ui::{Image, Point, Setup, ViewCallbacks, ViewData, ViewTest, view},
+    ui::{DrawsItself, Image, Point, Setup, UIDrawer, ViewData, ViewTest, view},
     ui_test::check_colors,
 };
 
@@ -17,6 +17,7 @@ pub struct GameView {
 
 impl Setup for GameView {
     fn setup(mut self: Weak<Self>) {
+        UIDrawer::draws_itself(self);
         self.apply_style(HAS_BACK_BUTTON);
 
         self.game.skybox = Image::get("sky.png");
@@ -31,8 +32,8 @@ impl Setup for GameView {
     }
 }
 
-impl ViewCallbacks for GameView {
-    fn before_render(&self, pass: &mut RenderPass) {
+impl DrawsItself for GameView {
+    fn draw(&self, pass: &mut RenderPass) {
         GameDrawer::draw(pass, self.game.weak().deref_mut());
     }
 }

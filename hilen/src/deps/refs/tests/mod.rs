@@ -93,6 +93,23 @@ fn null_weak_panic() {
     let _ = default.deref();
 }
 
+// A scene query hands back the node it hit as a trait object, and a game
+// has to tell whether that is one of its own nodes.
+#[serial]
+#[wasm_bindgen_test(unsupported = test)]
+fn unsized_weak_equality() {
+    set_current_thread_as_main();
+    let five = Own::new(5);
+    let ten = Own::new(10);
+    let a: Weak<dyn Any> = five.weak();
+    let b: Weak<dyn Any> = five.weak();
+    let other: Weak<dyn Any> = ten.weak();
+
+    assert_eq!(a, b);
+    assert_ne!(a, other);
+    assert_eq!([a, other].iter().filter(|weak| **weak == b).count(), 1);
+}
+
 #[serial]
 #[wasm_bindgen_test(unsupported = test)]
 #[should_panic(expected = "Dereferencing already freed weak pointer: i32")]
@@ -113,6 +130,15 @@ fn const_weak_default() {
     const WEAK: Weak<bool> = Weak::const_default();
     set_current_thread_as_main();
     assert!(WEAK.is_null());
+}
+
+#[serial]
+#[should_panic(expected = "The #[init] view Screen.title is used before its view was added")]
+#[wasm_bindgen_test(unsupported = test)]
+fn deref_unset_init_field() {
+    set_current_thread_as_main();
+    let field = Weak::<u32>::init_field("#[init] Screen.title");
+    let _ = field.deref();
 }
 
 #[serial]

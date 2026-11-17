@@ -1,4 +1,7 @@
 #[cfg(not_wasm)]
+use std::time::{Duration, Instant};
+
+#[cfg(not_wasm)]
 use anyhow::Result;
 
 #[cfg(not_wasm)]
@@ -72,9 +75,12 @@ impl InfiniteScrollTest {
     /// flight. The scroll that presses the bottom lands first, the
     /// `bottom_reached` event fires on a later layout frame, so a flag
     /// check right after the scroll can run before the fetch even starts.
+    /// The limit is real time, not frames. The fetch sleeps half a second,
+    /// and 1200 empty headless frames once took only 277 ms.
     #[cfg(not_wasm)]
     fn wait_for_cells(view: Weak<Self>, expected: usize) {
-        for _ in 0..1200 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
             let settled = from_main(move || view.data_size == expected && !view.requesting);
             if settled {
                 return;

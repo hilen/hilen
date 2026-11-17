@@ -5,7 +5,8 @@ use wgpu::{
 
 use crate::{
     gm::flat::Point,
-    render::{data::PathData, device_helper::DeviceHelper, vertex_layout::VertexLayout},
+    render::{device_helper::DeviceHelper, vertex_layout::VertexLayout},
+    ui::PathData,
     window::Window,
 };
 

@@ -106,7 +106,10 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
 
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIShadowInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
     let radius: f32 = pick_radius(in.local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(in.local_pos, instance.size * 0.5, radius);

@@ -107,7 +107,7 @@ fn drag_both(begin_y: i32, left_dy: i32, right_dy: i32, steps: i32) -> String {
     seq
 }
 
-fn fill(mut scroll: Weak<ScrollView>, accent: Color, prefix: &'static str) {
+fn fill(scroll: Weak<ScrollView>, accent: Color, prefix: &'static str) {
     for i in 0..ROWS {
         let row = scroll.add_view::<MultitouchRow>();
         row.set_row(i, accent, prefix);

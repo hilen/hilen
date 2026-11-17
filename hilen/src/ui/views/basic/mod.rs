@@ -1,20 +1,29 @@
+mod accent_card;
 mod animated_image;
 mod button;
 mod checkbox;
 mod circle_view;
+mod image_cut;
 mod image_view;
 mod label;
 mod label_runs;
+mod label_selection;
+mod label_style;
 mod nine_segment_image_view;
 mod progress_view;
 mod slider;
 mod switch;
 mod text_field;
+mod tool_button;
+#[cfg(feature = "video")]
+mod video_view;
 
+pub use accent_card::{AccentCard, BarSide};
 pub use animated_image::AnimatedImage;
 pub use button::Button;
 pub use checkbox::*;
 pub use circle_view::CircleView;
+pub use image_cut::{CutAxis, ImageCut};
 pub use image_view::*;
 pub use label::*;
 pub use label_runs::RunStyle;
@@ -23,3 +32,6 @@ pub use progress_view::*;
 pub use slider::*;
 pub use switch::*;
 pub use text_field::TextField;
+pub use tool_button::ToolButton;
+#[cfg(feature = "video")]
+pub use video_view::VideoView;

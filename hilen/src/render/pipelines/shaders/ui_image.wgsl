@@ -139,18 +139,43 @@ fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
 }
 
+// The distance change per screen pixel, zero guarded, see ui_rect.wgsl.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
+}
+
+// The pixel on the inner edge of a border is `fill` parts fill and the
+// rest border. The two mix weighted by their alpha. A straight mix let a
+// clear fill, black at zero alpha, darken a solid border there, and let a
+// faint border outweigh an opaque fill. Returns straight alpha.
+fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
+    let alpha: f32 = mix(border.a, inner.a, fill);
+    if alpha <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb: vec3<f32> = mix(border.rgb * border.a, inner.rgb * inner.a, fill) / alpha;
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIImageInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
-    let tex = textureSample(t_diffuse, s_diffuse, in.uv);
+    // Under MSAA a pixel the quad edge only partly covers runs at its
+    // center, outside the quad, with the uv past the image. The sampler
+    // repeats, so it would draw the texels of the opposite edge there.
+    let half_texel = 0.5 / vec2<f32>(textureDimensions(t_diffuse));
+    let uv = clamp(in.uv, half_texel, 1.0 - half_texel);
+    let tex = textureSample(t_diffuse, s_diffuse, uv);
     let local_pos: vec2<f32> = in.corner_uv * instance.size;
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
 
-    // One derivative for the whole shader. A `fwidth` inside the border
-    // branch is non uniform control flow, Chrome rejects the shader.
-    let width: f32 = fwidth(dist);
+    // Zero guarded, see ui_rect.wgsl.
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
 
     let coverage: f32 = edge_coverage(dist, width);
 
@@ -159,11 +184,14 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if instance.border_width > 0.0 {
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, tex.rgb, fill);
-        alpha = mix(instance.border_color.a, tex.a, fill);
+        let mixed = border_mix(instance.border_color, tex, fill);
+        rgb = mixed.rgb;
+        alpha = mixed.a;
     }
 
-    alpha *= coverage;
+    // The fade of the view's opacity, 0 to 255 in bits 8 to 15 of the flags.
+    let fade: f32 = f32((instance.flags >> 8u) & 255u) / 255.0;
+    alpha *= coverage * (1.0 - fade);
 
     if alpha < 0.004 {
         discard;

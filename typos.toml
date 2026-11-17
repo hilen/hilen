@@ -12,3 +12,7 @@ trak = "trak"
 udid = "udid"
 # numer_denom_ms - the image crate gif frame delay accessor
 numer = "numer"
+# oint, hom, multline - LaTeX commands and environments the math parser reads
+oint = "oint"
+hom = "hom"
+multline = "multline"

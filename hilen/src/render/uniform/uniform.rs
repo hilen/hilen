@@ -168,7 +168,8 @@ fn gcd(a: u64, b: u64) -> u64 {
 /// The instance declaration of a UI shader, rewritten for the uniform path.
 /// `var<storage, read> instances: array<T>;` becomes a uniform array of one
 /// chunk, which is what the chunked draw binds. The storage binding gets the
-/// source back untouched.
+/// source back untouched. So does a shader with no storage at all, a level
+/// sprite shader reads its instances as vertex attributes only.
 pub(crate) fn instances_shader(source: &str, stride: u64, binding: InstanceBinding) -> Cow<'_, str> {
     const STORAGE: &str = "var<storage, read> instances: array<";
 
@@ -176,9 +177,13 @@ pub(crate) fn instances_shader(source: &str, stride: u64, binding: InstanceBindi
         return source.into();
     }
 
-    let start = source
-        .find(STORAGE)
-        .expect("a UI shader declares its instances as a storage array");
+    let Some(start) = source.find(STORAGE) else {
+        assert!(
+            !source.contains("var<storage"),
+            "a UI shader declares its instances as a storage array"
+        );
+        return source.into();
+    };
     let type_start = start + STORAGE.len();
     let type_end = type_start + source[type_start..].find(">;").expect("instance array declaration ends");
     let per_chunk = InstanceChunks::new(stride).per_chunk();
@@ -207,23 +212,30 @@ pub(crate) fn draw_instances<T: Pod>(
     instances: &VecBuffer<T>,
 ) {
     let range = instances.range();
-    let bind = |offset: u64, size: u64| {
-        Window::device().create_bind_group(&BindGroupDescriptor {
-            label: Some(label),
-            layout,
-            entries: &[BindGroupEntry {
-                binding:  0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: instances.buffer(),
-                    offset,
-                    size: NonZeroU64::new(size),
-                }),
-            }],
-        })
+    let bind = |pass: &mut RenderPass, offset: u64, size: u64| {
+        instances.with_bind(
+            offset,
+            size,
+            || {
+                Window::device().create_bind_group(&BindGroupDescriptor {
+                    label: Some(label),
+                    layout,
+                    entries: &[BindGroupEntry {
+                        binding:  0,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: instances.buffer(),
+                            offset,
+                            size: NonZeroU64::new(size),
+                        }),
+                    }],
+                })
+            },
+            |bind| pass.set_bind_group(group, bind, &[]),
+        );
     };
 
     if instances.binding() == InstanceBinding::Storage {
-        pass.set_bind_group(group, &bind(range.start, range.end - range.start), &[]);
+        bind(pass, range.start, range.end - range.start);
         pass.set_vertex_buffer(vertex_slot, instances.slice());
         pass.draw(vertices, 0..instances.len());
         return;
@@ -235,7 +247,7 @@ pub(crate) fn draw_instances<T: Pod>(
 
     while left > 0 {
         let count = left.min(chunks.per_chunk());
-        pass.set_bind_group(group, &bind(offset, chunks.bytes()), &[]);
+        bind(pass, offset, chunks.bytes());
         pass.set_vertex_buffer(vertex_slot, instances.buffer().slice(offset..range.end));
         pass.draw(vertices.clone(), 0..count);
         offset += chunks.bytes();
@@ -266,7 +278,57 @@ pub(crate) fn make_storage_layout(name: &str, shader: ShaderStages) -> BindGroup
 
 #[cfg(test)]
 mod test {
-    use super::InstanceChunks;
+    use super::{InstanceBinding, InstanceChunks, instances_shader};
+
+    /// A level sprite shader has no instance array, the demo died with it at
+    /// start on WebGL2.
+    #[test]
+    fn a_shader_without_storage_passes_the_uniform_path_untouched() {
+        let source = "struct SpriteInstance { @location(2) position: vec2<f32> }";
+        assert_eq!(instances_shader(source, 32, InstanceBinding::Uniform), source);
+    }
+
+    #[test]
+    #[should_panic(expected = "declares its instances as a storage array")]
+    fn a_storage_array_in_another_spelling_is_refused() {
+        instances_shader(
+            "var<storage, read> rects: array<UIRectInstance>;",
+            80,
+            InstanceBinding::Uniform,
+        );
+    }
+
+    /// On WebGL the instances are a uniform array, and ANGLE on Direct3D 11
+    /// took over a minute to link a shader that copies a whole instance out
+    /// of it by a dynamic index. The page froze Edge and Chrome on Windows.
+    /// A shader on the uniform path takes a pointer to its instance.
+    #[test]
+    fn no_shader_on_the_uniform_path_copies_its_instance() {
+        let shaders = [
+            ("ui_rect", include_str!("../pipelines/shaders/ui_rect.wgsl")),
+            ("ui_image", include_str!("../pipelines/shaders/ui_image.wgsl")),
+            (
+                "ui_gradient",
+                include_str!("../pipelines/shaders/ui_gradient.wgsl"),
+            ),
+            ("ui_shadow", include_str!("../pipelines/shaders/ui_shadow.wgsl")),
+            ("ui_clip", include_str!("../pipelines/shaders/ui_clip.wgsl")),
+            (
+                "ui_backdrop",
+                include_str!("../pipelines/shaders/ui_backdrop.wgsl"),
+            ),
+        ];
+        for (name, source) in shaders {
+            assert!(
+                source.contains("&instances["),
+                "{name} reads its instance through a pointer"
+            );
+            assert!(
+                !source.contains("= instances["),
+                "{name} copies its instance out of the array"
+            );
+        }
+    }
 
     /// The WebGL2 limits, a 16 KiB binding at 256 byte offsets.
     fn webgl2(stride: u64) -> InstanceChunks {

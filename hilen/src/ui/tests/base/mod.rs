@@ -1,15 +1,49 @@
 mod animated_gif;
 mod animation_drives_frames;
-/// The bug report dialog rides Sentry, which does not run on wasm.
-#[cfg(not_wasm)]
+mod animation_from_finish;
+mod animation_of_removed_view;
+mod app_views_fit_screen;
+/// The bug report dialog exists only with the `bug-report` feature.
+#[cfg(feature = "bug-report")]
 mod bug_report_dialog;
+#[cfg(feature = "bug-report")]
+mod bug_report_style;
+mod double_tap;
+/// Only a browser gets a file later than a view asks for it.
+#[cfg(wasm)]
+mod early_icon;
+mod even_frame_time;
+mod focus_ring_place;
 mod frame_stepped_animation;
+mod frames_over_a_flow;
+mod held_drag;
 mod hidden_parent_touch;
 mod hidden_touch;
+mod idle_draws_no_frame;
+mod keep_frames_while;
 mod manual_z_position;
 mod offscreen_clip;
 mod outline;
 mod overlay_touch_layer;
+mod partial_frames;
+mod removal_repaints_little;
+mod removed_view_is_freed;
+mod sample_count_switch;
+mod screen_orientation;
 mod script_wrap;
+mod second_window;
+/// Typing goes through the screen keyboard on a phone, a field takes
+/// injected chars on desktop only.
+#[cfg(desktop)]
+mod stale_selection;
 mod switch_look;
+/// A browser page cannot read the system fonts, `Font::set_system_fallback`
+/// does nothing there.
+#[cfg(not_wasm)]
+mod system_font_fallback;
+mod tab_shell_screen_edge;
 mod title_frames;
+/// A phone and a page fill the screen, only a desktop window has an
+/// initial size.
+#[cfg(desktop)]
+mod window_size;

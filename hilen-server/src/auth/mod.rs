@@ -1,0 +1,416 @@
+//! Google, Apple and Discord login for an app backend. The engine client is
+//! `hilen::login`, the two halves only share the wire.
+//!
+//! An app never sends its user to a provider by itself. It opens
+//! `/auth/google?challenge=`, `/auth/apple?challenge=` or
+//! `/auth/discord?challenge=` of this server in the browser, this server runs
+//! the normal web login of that provider, gives a one time code back to the app
+//! that started it, and the app trades its verifier and that code at
+//! `/auth/poll` for its session token. The provider secrets stay here. How the
+//! code goes back is in `hand_back.rs`.
+//!
+//! ```ignore
+//! let db = build_db(&config.database_url).await?;
+//! auth::migrate(&db).await?;
+//!
+//! let auth = AuthState::new(db.clone(), AuthConfig::from_env("My App")?);
+//! let app = base_routes("my-app").merge(auth_routes(auth)).merge(my_routes()).with_state(db);
+//! ```
+//!
+//! After that any route that takes a [`User`] argument is for logged in users
+//! only.
+
+mod apple;
+pub mod cookie;
+#[cfg(feature = "dev-login")]
+mod dev;
+#[cfg(all(test, feature = "dev-login"))]
+pub(crate) mod dev_test;
+mod discord;
+mod google;
+pub(crate) mod hand_back;
+pub(crate) mod identity;
+#[cfg(test)]
+mod join_test;
+pub(crate) mod routes;
+#[cfg(test)]
+mod routes_test;
+pub(crate) mod session;
+pub(crate) mod store;
+#[cfg(test)]
+pub(crate) mod store_test;
+mod user;
+pub mod view_as;
+#[cfg(test)]
+mod view_as_test;
+mod wire;
+
+use std::{
+    env,
+    fmt::{self, Debug, Formatter},
+    sync::Arc,
+};
+
+use anyhow::{Context, Result};
+use axum::extract::FromRef;
+use reqwest::Client;
+use sqlx::types::Uuid;
+
+pub use self::{
+    identity::Provider,
+    routes::auth_routes,
+    user::User,
+    view_as::{ViewAs, Viewing},
+    wire::UserInfo,
+};
+use crate::{Db, web::install_tls_provider};
+
+const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const APPLE_AUTH_URL: &str = "https://appleid.apple.com/auth/authorize";
+const APPLE_TOKEN_URL: &str = "https://appleid.apple.com/auth/token";
+const APPLE_REVOKE_URL: &str = "https://appleid.apple.com/auth/revoke";
+const DISCORD_AUTH_URL: &str = "https://discord.com/oauth2/authorize";
+const DISCORD_TOKEN_URL: &str = "https://discord.com/api/oauth2/token";
+const DISCORD_USER_URL: &str = "https://discord.com/api/users/@me";
+
+/// Creates and updates `users`, `identities`, `sessions` and `pending_logins`,
+/// on Postgres or on SQLite, each from its own files. The record of what ran
+/// is in a table of its own, so the app's migrator on the same database never
+/// sees these files and never complains about them.
+pub async fn migrate(db: impl Into<Db>) -> Result<()> {
+    match db.into() {
+        Db::Postgres(pool) => {
+            let mut migrator = sqlx::migrate!("./migrations");
+            migrator.dangerous_set_table_name("_hilen_auth_migrations");
+            migrator.run(&pool).await
+        }
+        Db::Sqlite(pool) => {
+            let mut migrator = sqlx::migrate!("./migrations_sqlite");
+            migrator.dangerous_set_table_name("_hilen_auth_migrations");
+            migrator.run(&pool).await
+        }
+    }
+    .context("the hilen auth migrations failed")
+}
+
+/// The user of a session token, `None` for a token that is unknown or ended.
+/// The same check the [`User`] extractor does with the bearer header. It is
+/// for a route that gets the token another way, like a websocket, which
+/// cannot carry the header and sends the token in its first frame.
+pub async fn user_of_token(db: &Db, token: &str) -> Result<Option<User>, sqlx::Error> {
+    session::user_of(db, token).await
+}
+
+/// A new session of a user this server knows, for a device that logs in
+/// another way than through a provider, like with a pairing code. The answer
+/// is the token, it goes only to that device. A logout ends it like any other.
+pub async fn create_session(db: &Db, user_id: sqlx::types::Uuid) -> Result<String> {
+    session::create(db, user_id).await
+}
+
+/// One Google client of the type "Web application" per app. Its allowed
+/// redirect address is [`AuthConfig::redirect_uri`]. Apple and Discord are
+/// optional, see [`AppleConfig`] and [`DiscordConfig`].
+#[derive(Clone, Debug)]
+pub struct AuthConfig {
+    /// For a person to read, on the page the browser ends on.
+    pub app_name:             String,
+    /// Where the world reaches this server, like `https://myapp.example.com`.
+    pub public_origin:        String,
+    pub google_client_id:     String,
+    pub google_client_secret: String,
+    pub google_auth_url:      String,
+    pub google_token_url:     String,
+    /// `None` leaves the Apple routes answering 404.
+    pub apple:                Option<AppleConfig>,
+    /// `None` leaves the Discord routes answering 404.
+    pub discord:              Option<DiscordConfig>,
+    /// The login of a device with no keyboard through a short code, off by
+    /// default, see [`AuthConfig::with_code_login`].
+    pub code_login:           bool,
+    /// Users who may sign in only with some providers, see
+    /// [`AuthConfig::with_only_providers`].
+    pub provider_limits:      Vec<(Uuid, Vec<Provider>)>,
+    /// A first login through a new provider joins the user of the same
+    /// email, on by default, see [`AuthConfig::with_no_email_join`].
+    pub joins_by_email:       bool,
+    /// Who may ask `/auth/me` and `/auth/providers` as another user, see
+    /// [`AuthConfig::with_view_as`].
+    pub view_as:              Option<ViewAs>,
+}
+
+impl AuthConfig {
+    pub fn new(
+        app_name: impl ToString,
+        public_origin: impl ToString,
+        google_client_id: impl ToString,
+        google_client_secret: impl ToString,
+    ) -> Self {
+        Self {
+            app_name:             app_name.to_string(),
+            public_origin:        public_origin.to_string().trim_end_matches('/').to_owned(),
+            google_client_id:     google_client_id.to_string(),
+            google_client_secret: google_client_secret.to_string(),
+            google_auth_url:      GOOGLE_AUTH_URL.to_owned(),
+            google_token_url:     GOOGLE_TOKEN_URL.to_owned(),
+            apple:                None,
+            discord:              None,
+            code_login:           false,
+            provider_limits:      Vec::new(),
+            joins_by_email:       true,
+            view_as:              None,
+        }
+    }
+
+    /// Lets the users of `view_as` ask `/auth/me` and `/auth/providers` as
+    /// another user, so the app of a viewer learns the name, the picture
+    /// and the sign in ways of the user it shows. Each such `/auth/me` is
+    /// the start of a view and is logged. The routes of the app itself take
+    /// the view through [`ViewAs::layer`].
+    #[must_use]
+    pub fn with_view_as(mut self, view_as: ViewAs) -> Self {
+        self.view_as = Some(view_as);
+        self
+    }
+
+    /// Turns on the login of a device with no keyboard, a TV, through a
+    /// short code its user types on a phone, the `/auth/code` routes.
+    /// Nothing can go back from the phone to the TV, so such a login is
+    /// finished by its verifier alone. A person who sends a code of their
+    /// own TV to someone else gets the session of that someone when they
+    /// log in with it. Turn it on only for an app that runs on a TV.
+    #[must_use]
+    pub const fn with_code_login(mut self) -> Self {
+        self.code_login = true;
+        self
+    }
+
+    /// Turns Sign in with Apple on.
+    #[must_use]
+    pub fn with_apple(mut self, apple: AppleConfig) -> Self {
+        self.apple = Some(apple);
+        self
+    }
+
+    /// Lets `user` sign in only with `providers`. A login of that user
+    /// through another provider is refused and changes nothing, also when
+    /// its email would join the user. Every other user signs in as before.
+    /// For an account that must not be as weak as its weakest provider,
+    /// like the admin.
+    #[must_use]
+    pub fn with_only_providers(mut self, user: Uuid, providers: &[Provider]) -> Self {
+        self.provider_limits.push((user, providers.to_vec()));
+        self
+    }
+
+    /// A first login through a new provider no more joins the user of the
+    /// same email. It is refused, and the page names the providers that
+    /// user signs in with. Without this, whoever takes over the account of
+    /// a user at 1 provider gets into the user of the app too, also when
+    /// that user never signed in there. Users joined before stay joined.
+    #[must_use]
+    pub fn with_no_email_join(mut self) -> Self {
+        self.joins_by_email = false;
+        self
+    }
+
+    /// The rules a login is checked by.
+    pub(crate) fn login_rules(&self) -> store::LoginRules<'_> {
+        store::LoginRules {
+            limits:         &self.provider_limits,
+            joins_by_email: self.joins_by_email,
+        }
+    }
+
+    /// Turns the Discord login on.
+    #[must_use]
+    pub fn with_discord(mut self, discord: DiscordConfig) -> Self {
+        self.discord = Some(discord);
+        self
+    }
+
+    /// Reads `PUBLIC_ORIGIN`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
+    /// and the names of [`AppleConfig::from_env`] and
+    /// [`DiscordConfig::from_env`] when they are set.
+    pub fn from_env(app_name: &str) -> Result<Self> {
+        let mut config = Self::new(
+            app_name,
+            env::var("PUBLIC_ORIGIN").context("PUBLIC_ORIGIN required")?,
+            env::var("GOOGLE_CLIENT_ID").context("GOOGLE_CLIENT_ID required")?,
+            env::var("GOOGLE_CLIENT_SECRET").context("GOOGLE_CLIENT_SECRET required")?,
+        );
+        config.apple = AppleConfig::from_env()?;
+        config.discord = DiscordConfig::from_env()?;
+        Ok(config)
+    }
+
+    /// The address to allow in the Google console.
+    pub fn redirect_uri(&self) -> String {
+        format!("{}/auth/google/callback", self.public_origin)
+    }
+
+    /// The redirect to allow on the `OAuth2` page of the Discord application.
+    pub fn discord_redirect_uri(&self) -> String {
+        format!("{}/auth/discord/callback", self.public_origin)
+    }
+
+    /// The return address to allow on the Apple service id.
+    pub fn apple_redirect_uri(&self) -> String {
+        format!("{}/auth/apple/callback", self.public_origin)
+    }
+}
+
+/// The login of Discord. It needs an application of the Discord developer
+/// portal with [`AuthConfig::discord_redirect_uri`] as a redirect of its
+/// `OAuth2` page. An account with no verified email cannot log in.
+#[derive(Clone)]
+pub struct DiscordConfig {
+    pub client_id:     String,
+    pub client_secret: String,
+    pub auth_url:      String,
+    pub token_url:     String,
+    pub user_url:      String,
+}
+
+impl DiscordConfig {
+    pub fn new(client_id: impl ToString, client_secret: impl ToString) -> Self {
+        Self {
+            client_id:     client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            auth_url:      DISCORD_AUTH_URL.to_owned(),
+            token_url:     DISCORD_TOKEN_URL.to_owned(),
+            user_url:      DISCORD_USER_URL.to_owned(),
+        }
+    }
+
+    /// Reads `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. `None` when the
+    /// first one is not set or empty, a compose file passes an unset name on
+    /// as an empty one. With it the secret is required.
+    pub fn from_env() -> Result<Option<Self>> {
+        let Some(client_id) = env::var("DISCORD_CLIENT_ID").ok().filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self::new(
+            client_id,
+            env::var("DISCORD_CLIENT_SECRET")
+                .context("DISCORD_CLIENT_SECRET required with DISCORD_CLIENT_ID")?,
+        )))
+    }
+}
+
+// Written by hand to keep the secret out of every log line.
+impl Debug for DiscordConfig {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DiscordConfig")
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Sign in with Apple, the web flow. It needs a service id tied to the App ID
+/// of the app, with [`AuthConfig::apple_redirect_uri`] as its return address,
+/// and a key with Sign in with Apple enabled.
+#[derive(Clone)]
+pub struct AppleConfig {
+    /// The service id, Apple's client id of the web flow.
+    pub service_id:  String,
+    pub team_id:     String,
+    pub key_id:      String,
+    /// The text of the `.p8` file Apple hands out once.
+    pub private_key: String,
+    pub auth_url:    String,
+    pub token_url:   String,
+    pub revoke_url:  String,
+}
+
+impl AppleConfig {
+    pub fn new(
+        service_id: impl ToString,
+        team_id: impl ToString,
+        key_id: impl ToString,
+        private_key: impl ToString,
+    ) -> Self {
+        Self {
+            service_id:  service_id.to_string(),
+            team_id:     team_id.to_string(),
+            key_id:      key_id.to_string(),
+            private_key: private_key.to_string(),
+            auth_url:    APPLE_AUTH_URL.to_owned(),
+            token_url:   APPLE_TOKEN_URL.to_owned(),
+            revoke_url:  APPLE_REVOKE_URL.to_owned(),
+        }
+    }
+
+    /// Reads `APPLE_SERVICE_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID` and
+    /// `APPLE_PRIVATE_KEY`. `None` when there is no `APPLE_SERVICE_ID`, with it
+    /// the other 3 are required. The key may have its line breaks written as
+    /// `\n`, for an env file that holds one line per value.
+    pub fn from_env() -> Result<Option<Self>> {
+        let Ok(service_id) = env::var("APPLE_SERVICE_ID") else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self::new(
+            service_id,
+            env::var("APPLE_TEAM_ID").context("APPLE_TEAM_ID required with APPLE_SERVICE_ID")?,
+            env::var("APPLE_KEY_ID").context("APPLE_KEY_ID required with APPLE_SERVICE_ID")?,
+            env::var("APPLE_PRIVATE_KEY")
+                .context("APPLE_PRIVATE_KEY required with APPLE_SERVICE_ID")?
+                .replace("\\n", "\n"),
+        )))
+    }
+}
+
+// Written by hand to keep the private key out of every log line.
+impl Debug for AppleConfig {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AppleConfig")
+            .field("service_id", &self.service_id)
+            .field("team_id", &self.team_id)
+            .field("key_id", &self.key_id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+pub struct AuthState {
+    pub(crate) db:     Db,
+    pub(crate) config: Arc<AuthConfig>,
+    pub(crate) http:   Client,
+}
+
+impl AuthState {
+    pub fn new(db: impl Into<Db>, config: AuthConfig) -> Self {
+        install_tls_provider();
+
+        Self {
+            db:     db.into(),
+            config: Arc::new(config),
+            http:   Client::new(),
+        }
+    }
+}
+
+impl FromRef<AuthState> for Db {
+    fn from_ref(state: &AuthState) -> Self {
+        state.db.clone()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::AuthConfig;
+
+    #[test]
+    fn redirect_uri_ignores_a_trailing_slash() {
+        let config = AuthConfig::new("App", "https://app.example.com/", "id", "secret");
+        assert_eq!(
+            config.redirect_uri(),
+            "https://app.example.com/auth/google/callback"
+        );
+    }
+}

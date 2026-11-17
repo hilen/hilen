@@ -1,25 +1,27 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     mpsc::Receiver,
 };
 
 use anyhow::{Context, Result, bail};
-#[cfg(any(desktop, wasm))]
+#[cfg(wasm)]
 use log::error;
 use log::{info, warn};
 use plat::Platform;
+#[cfg(not_wasm)]
+use wgpu::CompositeAlphaMode;
 #[cfg(linux)]
 use wgpu::InstanceFlags;
 use wgpu::{
-    Adapter, Backends, CompositeAlphaMode, Device, DeviceDescriptor, ExperimentalFeatures, Features,
-    Instance, InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
-    RequestAdapterOptions, SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
+    Adapter, Backends, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
+    InstanceDescriptor, Limits, MemoryHints, PowerPreference, PresentMode, Queue, RequestAdapterOptions,
+    SurfaceColorSpace, SurfaceConfiguration, TextureUsages, Trace,
 };
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
 #[cfg(desktop)]
-use crate::window::icon::apply_icon;
+use crate::window::icon::set_icon;
 use crate::{
     deps::hreads::on_main,
     gm::{
@@ -30,6 +32,7 @@ use crate::{
     window::{
         Screenshot, UserEvent,
         app_handler::AppHandler,
+        msaa::set_adapter,
         screen::Screen,
         state::{State, surface_texture_format},
         surface::Surface,
@@ -39,10 +42,6 @@ use crate::{
 static VSYNC: AtomicBool = AtomicBool::new(true);
 static MAX_FRAME_LATENCY: AtomicU32 = AtomicU32::new(2);
 static QUIT_ON_ESCAPE: AtomicBool = AtomicBool::new(false);
-static RENDER_FRAME: AtomicU64 = AtomicU64::new(0);
-/// Mirrors `Screen::Headless` so any thread can check it. Set once at
-/// startup, never changes.
-static HEADLESS: AtomicBool = AtomicBool::new(false);
 /// The browser surface is render attachment only, and the android
 /// swapchain rejects the copy usage on some devices. Screenshots there
 /// read the scene texture instead of copying the surface.
@@ -81,12 +80,6 @@ impl Window {
         &Self::current().queue
     }
 
-    /// Rendering goes to an offscreen texture, there is no window and no
-    /// display. Decided at startup. Callable from any thread.
-    pub fn headless() -> bool {
-        HEADLESS.load(Ordering::Relaxed)
-    }
-
     #[cfg(desktop)]
     pub(crate) fn is_resizing() -> bool {
         Self::current().is_resizing
@@ -114,7 +107,22 @@ impl Window {
     /// query reads it, see `Screen::Windowed`.
     pub(crate) fn record_inner_size(&mut self, size: PhysicalSize<u32>) {
         match &mut self.screen {
-            Screen::Windowed { size: recorded, .. } => *recorded = Size::new(size.width, size.height),
+            Screen::Windowed {
+                size: recorded,
+                winit_window,
+                ..
+            } => {
+                // A `Resized` event of iOS carries the whole screen. The
+                // inner size there is the safe area, which only the window
+                // tells. With the size of the event the app views ended
+                // below the screen by the height of the status bar.
+                let size = if Platform::IOS {
+                    winit_window.inner_size()
+                } else {
+                    size
+                };
+                *recorded = Size::new(size.width, size.height);
+            }
             #[cfg(not_wasm)]
             Screen::Headless { .. } => {}
         }
@@ -248,7 +256,8 @@ impl Window {
             .request_device(&DeviceDescriptor {
                 required_features,
                 // Doesn't work on some Androids
-                // required_features: Features::POLYGON_MODE_LINE, // | Features::POLYGON_MODE_POINT,
+                // required_features: Features::POLYGON_MODE_LINE, // |
+                // Features::POLYGON_MODE_POINT,
                 required_limits,
                 label: None,
                 memory_hints: MemoryHints::Performance,
@@ -341,11 +350,26 @@ impl Window {
         #[cfg(not_wasm)]
         let instance = Self::instance();
 
+        #[cfg(wasm)]
+        crate::web_visit::step("instance");
+
+        #[cfg(all(windows, feature = "xr"))]
+        let xr = crate::xr::boot();
+
         let (instance, surface, adapter) = Self::adapter_on(instance, winit_window.clone()).await?;
 
+        #[cfg(all(windows, feature = "xr"))]
+        let adapter = crate::xr::adapter_for(&instance, xr.as_ref(), adapter).await;
+
         let info = adapter.get_info();
+        set_adapter(&info);
 
         info!("Backend: {}", info.backend);
+        #[cfg(wasm)]
+        crate::web_visit::step(format!(
+            "adapter {} {} {} {}",
+            info.backend, info.name, info.driver, info.driver_info
+        ));
 
         // Everything down the line asks for the render format, so the
         // browser canvas format resolves first.
@@ -353,6 +377,13 @@ impl Window {
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
         let (device, queue) = Self::request_device(&adapter).await?;
+        #[cfg(wasm)]
+        crate::web_visit::step("device");
+
+        #[cfg(all(windows, feature = "xr"))]
+        if let Some(xr) = xr {
+            crate::xr::start(xr, &device);
+        }
 
         // A browser reports a failed pipeline or a bad draw through this
         // event and otherwise carries on, every later frame of the page
@@ -411,6 +442,26 @@ impl Window {
         Ok(())
     }
 
+    /// An extra window on the GPU of `main`, see `AppWindow`.
+    #[cfg(not_wasm)]
+    pub(crate) fn extra(main: &Self, screen: Screen) -> Self {
+        let mut state = State::default();
+        state.clear_color = main.state.clear_color;
+        Self {
+            state,
+            instance: main.instance.clone(),
+            adapter: main.adapter.clone(),
+            device: main.device.clone(),
+            queue: main.queue.clone(),
+            screen,
+            // The frame time is in the title of the main window only.
+            title_set: true,
+            title_prefix: None,
+            #[cfg(desktop)]
+            is_resizing: false,
+        }
+    }
+
     #[cfg(not_wasm)]
     pub(crate) async fn create_headless(size: Size<u32>) -> Result<Self> {
         let instance = Self::instance();
@@ -426,10 +477,11 @@ impl Window {
             .context("Could not get a GPU adapter")?;
 
         let info = adapter.get_info();
+        set_adapter(&info);
 
         info!("Backend: {} (headless)", info.backend);
 
-        HEADLESS.store(true, Ordering::Relaxed);
+        Self::set_headless();
 
         let (device, queue) = Self::request_device(&adapter).await?;
 
@@ -515,11 +567,7 @@ impl Window {
     /// the icon from the bundle or the page, so the call does nothing there.
     pub fn set_icon(data: &'static [u8]) {
         #[cfg(desktop)]
-        on_main(move || {
-            if let Err(err) = apply_icon(data) {
-                error!("Failed to set the app icon: {err}");
-            }
-        });
+        set_icon(data);
         #[cfg(not(desktop))]
         log::debug!(
             "The {} byte app icon is not applied here, the bundle or the page carries it",
@@ -605,7 +653,7 @@ impl Window {
         QUIT_ON_ESCAPE.store(enable, Ordering::Relaxed);
     }
 
-    pub(crate) fn quit_on_escape() -> bool {
+    pub fn quit_on_escape() -> bool {
         QUIT_ON_ESCAPE.load(Ordering::Relaxed)
     }
 
@@ -617,6 +665,11 @@ impl Window {
         });
     }
 
+    #[cfg(all(windows, feature = "xr"))]
+    pub(crate) fn vsync() -> bool {
+        VSYNC.load(Ordering::Relaxed)
+    }
+
     /// How many frames the GPU is allowed to buffer ahead of the display.
     /// Default is 2 - lowest input latency. 3 renders faster but adds up to
     /// one frame of lag. Backends clamp unsupported values.
@@ -625,16 +678,6 @@ impl Window {
             MAX_FRAME_LATENCY.store(latency, Ordering::Relaxed);
             Self::reconfigure_surface();
         });
-    }
-
-    /// Index of the frame currently being rendered. Bumps once per rendered
-    /// frame, before any draw code runs.
-    pub fn render_frame() -> u64 {
-        RENDER_FRAME.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn next_render_frame() {
-        RENDER_FRAME.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn reconfigure_surface() {
@@ -649,38 +692,31 @@ impl Window {
             surface.presentable.configure(&window.device, &surface_config_with_size(size));
         }
     }
-
-    #[cfg(feature = "level")]
-    pub(crate) fn display_refresh_rate() -> u32 {
-        let Some(window) = Self::winit_window() else {
-            return 60;
-        };
-        window.current_monitor().map_or(60, |monitor| {
-            monitor.refresh_rate_millihertz().unwrap_or(60_000) / 1000
-        })
-    }
 }
 
 pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceConfiguration {
     let size: Size<u32> = size.into();
 
     SurfaceConfiguration {
-        usage:        if SURFACE_COPY {
+        usage:                       if SURFACE_COPY {
             TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC
         } else {
             TextureUsages::RENDER_ATTACHMENT
         },
-        format:       surface_texture_format(),
-        color_space:  SurfaceColorSpace::Auto,
-        width:        size.width,
-        height:       size.height,
-        present_mode: if VSYNC.load(Ordering::Relaxed) || Platform::MOBILE {
+        format:                      surface_texture_format(),
+        color_space:                 SurfaceColorSpace::Auto,
+        width:                       size.width,
+        height:                      size.height,
+        present_mode:                if VSYNC.load(Ordering::Relaxed) || Platform::MOBILE {
             PresentMode::AutoVsync
         } else {
             PresentMode::AutoNoVsync
         },
-        alpha_mode:   CompositeAlphaMode::Auto,
-        view_formats: vec![],
+        #[cfg(wasm)]
+        alpha_mode:                  crate::window::state::web_formats::alpha_mode(),
+        #[cfg(not_wasm)]
+        alpha_mode:                  CompositeAlphaMode::Auto,
+        view_formats:                vec![],
 
         desired_maximum_frame_latency: MAX_FRAME_LATENCY.load(Ordering::Relaxed),
     }

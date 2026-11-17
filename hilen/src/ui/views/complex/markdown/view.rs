@@ -1,0 +1,1065 @@
+use std::{mem::take, ops::Range};
+
+#[cfg(not(feature = "code-colors"))]
+use log::debug;
+use log::{info, warn};
+use ui_proc::view;
+
+#[cfg(feature = "code-colors")]
+use crate::ui::CodeHighlighter;
+#[cfg(feature = "math")]
+use crate::ui::{
+    MathView,
+    views::complex::math::{self, MathBox},
+};
+use crate::{
+    deps::{
+        refs::{Own, Weak},
+        vents::Event,
+    },
+    gm::{
+        LossyConvert,
+        color::WHITE,
+        flat::{CornerRadii, LineCap, LineJoin, Point, Rect, StrokeStyle, VectorPath},
+    },
+    system::{Clipboard, open_url},
+    ui::{
+        Container, DrawingView, ImageView, Label, MarkdownBoxTables, MarkdownLinkHosts, MarkdownListMarkers,
+        MarkdownStyle, RunStyle, Setup, TextAlignment, TextSelection, Toast, UIColor, UIImages,
+        VerticalAlignment, ViewCallbacks, ViewFrame, ViewSubviews,
+        view::{ViewData, ViewTouch},
+        views::complex::markdown::{
+            link_host::own_host,
+            model::{Block, Item, Kind, Marker, Styled},
+            parse::{COPY_ROOM, Reading, read},
+            selection::marker_text,
+        },
+    },
+    window::request_frame,
+};
+
+const CODE_PAD: f32 = 10.0;
+const QUOTE_INDENT: f32 = 14.0;
+const QUOTE_BAR: f32 = 3.0;
+const MARKER_GAP: f32 = 6.0;
+const TASK_BOX: f32 = 14.0;
+const CELL_PAD_X: f32 = 10.0;
+/// The padding of a cell in a table squeezed into a narrow column.
+const SQUEEZED_PAD_X: f32 = 6.0;
+const CELL_PAD_Y: f32 = 6.0;
+const MIN_COLUMN: f32 = 48.0;
+/// No text is laid out narrower, a deep list in a small window still
+/// shows words.
+const MIN_WIDTH: f32 = 40.0;
+/// A bound no line reaches, to ask a label for the width of its text.
+const UNBOUND: f32 = 100_000.0;
+/// The copy icon of a code block.
+const CODE_BUTTON: f32 = 16.0;
+/// How much of the room after a link its copy icon fills.
+const ICON_SHARE: f32 = 0.8;
+/// The most a formula grows to match the x height of the text.
+#[cfg(feature = "math")]
+const MAX_MATH_GROWTH: f32 = 1.3;
+/// A display formula wider than its column shrinks to fit, but not
+/// below this share of its size, a tiny formula cannot be read.
+#[cfg(feature = "math")]
+const MIN_MATH_SHARE: f32 = 0.6;
+/// The room above and below a display formula, in body text sizes.
+#[cfg(feature = "math")]
+const DISPLAY_PAD: f32 = 0.3;
+
+/// A markdown text drawn as blocks, one under the other: paragraphs,
+/// headings, lists with tasks, quotes, code with colors, tables and
+/// rules. Inside a text: bold, italic, struck, code and links. A tap on
+/// a link fires `link_tapped` and opens the address, `set_opens_links`
+/// turns the opening off for an app that handles its links itself. A
+/// bare url is a link too, also one in inline code. `set_copy_buttons`
+/// adds a copy icon to every link and code block.
+///
+/// The view does not size itself. `height_for_width` says how high the
+/// text is at a width, the owner gives it that room, the way a table
+/// asks for the height of a cell. A view that got its text already lays
+/// it out again when its width changes.
+#[view]
+pub struct MarkdownView {
+    /// A link was tapped, the value is its address.
+    pub link_tapped: Event<String>,
+    /// A copy button or inline code put a text on the clipboard, the
+    /// value is that text.
+    pub copied:      Event<String>,
+    /// A tap on a link only fires the event.
+    keeps_links:     bool,
+    /// A copy icon after every link and in the corner of every code
+    /// block, and a tap on inline code copies it.
+    copy_buttons:    bool,
+    /// The markdown of the last `set_text`, read again when
+    /// `copy_buttons` changes.
+    source:          Option<String>,
+    /// The links of the running layout that get a copy icon: the label,
+    /// the byte of the room after the link and the address.
+    pending_copies:  Vec<(Weak<Label>, usize, String)>,
+    /// The inline formulas of the running layout: the label, the byte
+    /// their room starts at, the LaTeX source, the size in points and
+    /// the color of the text around it.
+    pending_maths:   Vec<(Weak<Label>, usize, String, f32, UIColor)>,
+
+    pub(super) blocks: Vec<Block>,
+    /// The label of every text in reading order, made by the last layout.
+    /// Kept only while the text can be selected, see `set_selectable`,
+    /// none otherwise.
+    pub(super) texts:  Option<Vec<Weak<Label>>>,
+
+    text_color: Option<UIColor>,
+    /// The text or its color changed since the last layout.
+    stale:      bool,
+    laid_width: f32,
+    height:     f32,
+    layouts:    usize,
+}
+
+impl Setup for MarkdownView {
+    fn setup(self: Weak<Self>) {
+        self.size_changed().sub(move || {
+            if self.is_ok() {
+                self.lay_out_if_needed(self.width());
+            }
+        });
+    }
+}
+
+impl ViewCallbacks for MarkdownView {
+    /// The layout a change of the text or its color waits for. It runs in
+    /// the update pass of the frame, before the frame is drawn, so no frame
+    /// shows the old text. A hidden view gets no update and lays out when
+    /// it is shown or measured.
+    fn update(&mut self) {
+        if self.stale {
+            let width = self.width();
+            self.weak().lay_out_if_needed(width);
+        }
+    }
+
+    /// A copy icon is a picture with its color written in, a new layout
+    /// tints it again.
+    fn theme_changed(&mut self) {
+        if self.copy_buttons {
+            self.weak().changed();
+        }
+    }
+}
+
+/// Where the next block goes and how wide it may be.
+#[derive(Clone, Copy)]
+struct Column {
+    x:      f32,
+    width:  f32,
+    /// The space between 2 blocks here.
+    gap:    f32,
+    color:  UIColor,
+    /// The empty strip a label keeps at the side its text starts from.
+    /// Everything that is not a text is moved in by it, so a code block
+    /// or a table starts where the text above it starts.
+    margin: f32,
+    /// The width of 1 space of the body text.
+    space:  f32,
+}
+
+impl MarkdownView {
+    /// GitHub flavored markdown, with tables, task lists and strikethrough.
+    pub fn set_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
+        self.source = Some(text.to_string());
+        let style = MarkdownStyle::current();
+        let own = own_host();
+        self.blocks = read(
+            text,
+            Reading {
+                keeps_line_breaks: style.keeps_line_breaks,
+                copy_rooms:        self.copy_buttons,
+                hosts_but:         (style.link_hosts == MarkdownLinkHosts::Outside).then_some(own.as_str()),
+                box_tables:        style.box_tables == MarkdownBoxTables::Table,
+            },
+        );
+        self.changed();
+        self
+    }
+
+    /// A text shown as it is, one paragraph with no marks read.
+    pub fn set_plain_text(mut self: Weak<Self>, text: &str) -> Weak<Self> {
+        self.source = None;
+        self.blocks = vec![Block::Paragraph(Styled::plain(text))];
+        self.changed();
+        self
+    }
+
+    /// A small copy icon right after every link and in the top right
+    /// corner of every code block, and a tap on inline code copies its
+    /// text. A copy puts the text on the clipboard and shows `Copied` in
+    /// a `Toast` next to what was copied. Off by default.
+    pub fn set_copy_buttons(mut self: Weak<Self>, on: bool) -> Weak<Self> {
+        if self.copy_buttons == on {
+            return self;
+        }
+        self.copy_buttons = on;
+        if let Some(source) = self.source.clone() {
+            self.set_text(&source);
+        }
+        self
+    }
+
+    /// Whether a tap on a link opens it with `open_url`. On by default.
+    pub fn set_opens_links(mut self: Weak<Self>, opens: bool) -> Weak<Self> {
+        self.keeps_links = !opens;
+        self
+    }
+
+    /// The color of the plain text, the one of `MarkdownStyle` when not set.
+    pub fn set_text_color(mut self: Weak<Self>, color: impl Into<UIColor>) -> Weak<Self> {
+        let color = Some(color.into());
+        if self.text_color == color {
+            return self;
+        }
+        self.text_color = color;
+        self.changed();
+        self
+    }
+
+    /// Lays the text out at a width and gives the height it takes.
+    pub fn height_for_width(self: Weak<Self>, width: f32) -> f32 {
+        self.lay_out_if_needed(width);
+        self.height
+    }
+
+    /// How many times this view laid its text out since it was made. A
+    /// layout makes every label again, so this is the number to watch when
+    /// a list of texts is slow.
+    pub fn layout_count(&self) -> usize {
+        self.layouts
+    }
+
+    /// A text and its color mostly change together, so nothing is laid out
+    /// here. The layout runs once for all of them in `update`, or before
+    /// that in `height_for_width`, which does not wait.
+    pub(super) fn changed(mut self: Weak<Self>) {
+        self.stale = true;
+        // A change made after the update pass of this frame needs 1 more.
+        request_frame();
+    }
+
+    fn lay_out_if_needed(mut self: Weak<Self>, width: f32) {
+        // A view with no frame yet has nothing to lay out against.
+        if width <= 0.0 || (!self.stale && (self.laid_width - width).abs() < 0.5) {
+            return;
+        }
+        self.stale = false;
+        self.laid_width = width;
+        self.layouts += 1;
+
+        self.remove_all_subviews();
+        if let Some(texts) = &mut self.texts {
+            texts.clear();
+        }
+        let style = MarkdownStyle::current();
+        let mut probe = self.add_view::<Label>();
+        probe.set_alignment(TextAlignment::Left);
+        style.inset(probe);
+        let margin = probe.text_inset();
+        // A space at the end of a text measures as nothing, so the space
+        // is taken from between 2 letters.
+        probe.set_text_size(style.text_size).set_font(style.fonts().regular);
+        let apart = probe.set_text("x x").size_for_width(UNBOUND).width;
+        let space = apart - probe.set_text("xx").size_for_width(UNBOUND).width;
+        probe.remove_from_superview();
+
+        let column = Column {
+            x: 0.0,
+            width,
+            gap: style.block_gap,
+            color: self.text_color.unwrap_or(style.text),
+            margin,
+            space,
+        };
+        let mut y = 0.0;
+        // The list is taken out for the walk, the views are made on `self`.
+        let blocks = take(&mut self.blocks);
+        self.blocks(&style, &blocks, column, &mut y);
+        self.blocks = blocks;
+        self.height = y;
+        self.place_copy_buttons(&style);
+        self.place_maths();
+    }
+
+    /// The view of every inline formula of this layout, over the room
+    /// its label keeps for it, with its baseline on the baseline of the
+    /// line. The labels have their frames by now.
+    #[cfg_attr(not(feature = "math"), allow(clippy::unused_self, unused_mut))]
+    fn place_maths(mut self: Weak<Self>) {
+        #[cfg(feature = "math")]
+        for (label, start, source, size, color) in take(&mut self.pending_maths) {
+            let layout = label.text_layout_for(label.text());
+            let Some(line) = (0..layout.line_count()).find(|line| layout.line_range(*line).contains(&start))
+            else {
+                continue;
+            };
+            let Some(laid) = math_box(&source, size, false) else {
+                continue;
+            };
+            // From the top of a line to its baseline, see
+            // `ShapedLayout::place`.
+            let rise = match label.line_height() {
+                Some(height) => (height - (layout.ascent - layout.descent)) / 2.0 + layout.ascent,
+                None => layout.ascent,
+            };
+            let frame = *label.frame();
+            let x = frame.origin.x + label.text_inset() + layout.x_on_line(line, start);
+            let y = frame.origin.y + layout.line_top(line) + rise - laid.ascent;
+            let view = self.add_view::<MathView>();
+            view.set_color(color);
+            view.set_font(crate::text::Font::math_darkened(
+                MarkdownStyle::current().math_darkening,
+            ));
+            let size = view.set_box(laid);
+            view.set_frame((x, y, size.width, size.height));
+        }
+    }
+
+    /// The copy icon of every link of this layout, over the room the
+    /// parser left after the link. The labels have their frames by now.
+    fn place_copy_buttons(mut self: Weak<Self>, style: &MarkdownStyle) {
+        for (label, room, url) in take(&mut self.pending_copies) {
+            let layout = label.text_layout_for(label.text());
+            let Some(line) = (0..layout.line_count()).find(|line| layout.line_range(*line).contains(&room))
+            else {
+                continue;
+            };
+            let left = layout.x_on_line(line, room);
+            let right = layout.x_on_line(line, room + COPY_ROOM.len_utf8());
+            let size = ((right - left).min(layout.line_height) * ICON_SHARE).round();
+            let frame = *label.frame();
+            let x = frame.origin.x + label.text_inset() + left + (right - left - size) / 2.0;
+            let y = frame.origin.y + layout.line_top(line) + (layout.line_height - size) / 2.0;
+            self.copy_button(style, url, (x, y, size, size));
+        }
+    }
+
+    fn copy_button(self: Weak<Self>, style: &MarkdownStyle, text: String, frame: (f32, f32, f32, f32)) {
+        let button = self.add_view::<ImageView>();
+        button.set_image(UIImages::copy(style.link.resolve()));
+        button.set_frame(frame);
+        button.enable_touch();
+        button
+            .touch()
+            .up_inside
+            .val(button, move |_| self.copy(&text, *button.absolute_frame()));
+    }
+
+    /// Puts `text` on the clipboard and says so in a `Toast` over `over`,
+    /// a rect in the points of the screen.
+    fn copy(self: Weak<Self>, text: &str, over: Rect) {
+        match Clipboard::set_text(text) {
+            Ok(()) => {
+                info!("copied {} bytes", text.len());
+                Toast::show("Copied", over);
+                self.copied.trigger(text.to_string());
+            }
+            Err(err) => {
+                warn!("a copy of {} bytes failed: {err:#}", text.len());
+                Toast::show("Copy failed", over);
+            }
+        }
+    }
+
+    fn open_link(self: Weak<Self>, url: &str) {
+        self.link_tapped.trigger(url.to_string());
+        if self.keeps_links {
+            return;
+        }
+        info!("opening the link {url}");
+        if let Err(err) = open_url(url) {
+            warn!("the link {url} did not open: {err:#}");
+        }
+    }
+
+    fn blocks(self: Weak<Self>, style: &MarkdownStyle, blocks: &[Block], column: Column, y: &mut f32) {
+        for (index, block) in blocks.iter().enumerate() {
+            if index > 0 {
+                *y += column.gap;
+            }
+            self.block(style, block, column, y);
+        }
+    }
+
+    fn block(self: Weak<Self>, style: &MarkdownStyle, block: &Block, column: Column, y: &mut f32) {
+        match block {
+            Block::Paragraph(text) => self.text(style, text, style.text_size, false, column, y),
+            Block::Heading { level, text } => {
+                self.text(style, text, style.heading_size(*level), true, column, y);
+            }
+            Block::Code { language, text } => self.code(style, language, text, column, y),
+            Block::Quote(blocks) => self.quote(style, blocks, column, y),
+            Block::List(items) => self.list(style, items, column, y),
+            Block::Table { head, rows } => self.table(style, head, rows, column, y),
+            Block::Math(source) => self.display_math(style, source, column, y),
+            Block::Rule => {
+                self.line(
+                    style,
+                    column.x + column.margin,
+                    *y + 4.0,
+                    column.width - column.margin * 2.0,
+                    1.0,
+                );
+                *y += 9.0;
+            }
+        }
+    }
+
+    fn text(
+        self: Weak<Self>,
+        style: &MarkdownStyle,
+        text: &Styled,
+        size: f32,
+        heading: bool,
+        column: Column,
+        y: &mut f32,
+    ) {
+        let width = column.width.max(MIN_WIDTH);
+        let label = self.label(style, text, size, heading, column.color);
+        let height = label.size_for_width(width).height;
+        label.set_frame((column.x, *y, width, height));
+        *y += height;
+    }
+
+    /// A text with its bold, italic, struck, code and link ranges drawn
+    /// as such.
+    fn label(
+        mut self: Weak<Self>,
+        style: &MarkdownStyle,
+        text: &Styled,
+        size: f32,
+        heading: bool,
+        color: UIColor,
+    ) -> Weak<Label> {
+        let fonts = style.fonts();
+        let label = self.add_view::<Label>();
+        style.inset(label);
+        label
+            .set_multiline(true)
+            .set_text_size(size)
+            .set_alignment(TextAlignment::Left)
+            .set_vertical_alignment(VerticalAlignment::Top);
+        if let Some(line_height) = style.line_height_for(size) {
+            label.set_line_height(line_height);
+        }
+        // A table drawn with box chars stands only when the line breaks
+        // stay, and then its lines join like in a terminal.
+        label.set_joins_box_chars(style.keeps_line_breaks);
+        label.set_font(if heading { fonts.bold } else { fonts.regular });
+        label.set_text(&text.text);
+        label.set_text_color(color);
+        let rooms = self.math_rooms(style, text, size, label, color);
+        label.set_font_runs(text_runs(style, text, heading).into_iter().chain(rooms));
+        label.set_color_runs(text.spans.iter().filter_map(|span| {
+            let color = if span.style.link {
+                style.link
+            } else if span.style.kind == Kind::Code {
+                style.inline_code
+            } else if span.style.kind == Kind::Host {
+                style.dim_text
+            } else {
+                return None;
+            };
+            Some((span.range.clone(), color))
+        }));
+        let codes: Vec<Range<usize>> = if self.copy_buttons {
+            text.spans
+                .iter()
+                .filter(|span| span.style.kind == Kind::Code && !span.style.link)
+                .map(|span| span.range.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if !text.links.is_empty() || !codes.is_empty() {
+            let links: Vec<(Range<usize>, String)> =
+                text.links.iter().map(|link| (link.range.clone(), link.url.clone())).collect();
+            let whole = text.text.clone();
+            label.enable_touch();
+            label.touch().up_inside.val(label, move |touch| {
+                // The release of a drag that selected text is no click.
+                if self.is_selectable() && !TextSelection::is_empty() {
+                    return;
+                }
+                let ranges: Vec<Range<usize>> = links.iter().map(|(range, _)| range.clone()).collect();
+                if let Some((index, _)) = piece_at(label, &ranges, touch.position) {
+                    self.open_link(&links[index].1);
+                } else if let Some((index, piece)) = piece_at(label, &codes, touch.position) {
+                    let at = label.absolute_frame().origin;
+                    let over = Rect::new(
+                        at.x + piece.origin.x,
+                        at.y + piece.origin.y,
+                        piece.size.width,
+                        piece.size.height,
+                    );
+                    self.copy(&whole[codes[index].clone()], over);
+                }
+            });
+        }
+        if self.copy_buttons {
+            for link in &text.links {
+                if text.text[link.range.end..].starts_with(COPY_ROOM) {
+                    self.pending_copies.push((label, link.range.end, link.url.clone()));
+                }
+            }
+        }
+        self.note_text(label);
+        label
+    }
+
+    /// The room of every inline formula of `text`, as wide as the formula
+    /// is. The views of them are placed by `place_maths`.
+    fn math_rooms(
+        mut self: Weak<Self>,
+        style: &MarkdownStyle,
+        text: &Styled,
+        size: f32,
+        label: Weak<Label>,
+        color: UIColor,
+    ) -> Vec<(Range<usize>, RunStyle)> {
+        let size = math_size(style, size);
+        text.spans
+            .iter()
+            .filter(|span| span.style.kind == Kind::Math)
+            .filter_map(|span| {
+                let source = text.text[span.range.clone()].trim_matches('$').to_string();
+                let (width, ascent, depth) = math_extent(&source, size)?;
+                self.pending_maths.push((label, span.range.start, source, size, color));
+                // The gap TeX keeps between a tall line and its neighbor,
+                // its 1 pt `\lineskip` at 10 pt.
+                let gap = size * 0.1;
+                Some((
+                    span.range.clone(),
+                    RunStyle::room(width).reaching(ascent + gap, depth + gap),
+                ))
+            })
+            .collect()
+    }
+
+    fn code(
+        self: Weak<Self>,
+        style: &MarkdownStyle,
+        language: &str,
+        code: &str,
+        column: Column,
+        y: &mut f32,
+    ) {
+        let x = column.x + column.margin;
+        let width = (column.width - column.margin * 2.0).max(MIN_WIDTH);
+        // The background first, a later view draws over an earlier one.
+        let background = self.add_view::<Container>();
+        background.set_color(style.code_background).set_corner_radius(8);
+
+        let label = self.add_view::<Label>();
+        label
+            .set_multiline(true)
+            .set_text_size(style.code_size)
+            .set_alignment(TextAlignment::Left)
+            .set_vertical_alignment(VerticalAlignment::Top);
+        label.set_font(style.fonts().mono);
+        label.set_joins_box_chars(true);
+        // A log line often has no space, it would run past the box.
+        label.set_breaks_long_words(true);
+        label.set_text(code);
+        label.set_text_color(column.color);
+        #[cfg(feature = "code-colors")]
+        if let Some(mut highlighter) = CodeHighlighter::for_language(language) {
+            label.set_color_runs(highlighter.color_runs(code));
+        }
+        #[cfg(not(feature = "code-colors"))]
+        debug!("code of {language:?} in 1 color, the code-colors feature of hilen is off");
+
+        // The copy icon keeps a strip at the right, no code runs under it.
+        let button_room = if self.copy_buttons { CODE_BUTTON } else { 0.0 };
+        let inner = width - CODE_PAD * 2.0 - button_room;
+        let height = label.size_for_width(inner).height;
+        background.set_frame((x, *y, width, height + CODE_PAD * 2.0));
+        label.set_frame((x + CODE_PAD, *y + CODE_PAD, inner, height));
+        self.note_text(label);
+        if self.copy_buttons {
+            let left = x + width - CODE_PAD / 2.0 - CODE_BUTTON;
+            self.copy_button(
+                style,
+                code.to_string(),
+                (left, *y + CODE_PAD / 2.0, CODE_BUTTON, CODE_BUTTON),
+            );
+        }
+        *y += height + CODE_PAD * 2.0;
+    }
+
+    fn quote(self: Weak<Self>, style: &MarkdownStyle, blocks: &[Block], column: Column, y: &mut f32) {
+        let top = *y;
+        let inner = Column {
+            x:      column.x + QUOTE_INDENT,
+            width:  column.width - QUOTE_INDENT,
+            gap:    style.block_gap,
+            color:  style.dim_text,
+            margin: column.margin,
+            space:  column.space,
+        };
+        self.blocks(style, blocks, inner, y);
+        let bar = self.add_view::<Container>();
+        bar.set_color(style.line).set_corner_radius(QUOTE_BAR / 2.0);
+        bar.set_frame((column.x + column.margin, top, QUOTE_BAR, *y - top));
+    }
+
+    fn list(self: Weak<Self>, style: &MarkdownStyle, items: &[Item], column: Column, y: &mut f32) {
+        // One line of body text, the height of a marker.
+        let line_height = style.body_line();
+        let inline = style.list_markers == MarkdownListMarkers::Inline;
+        // Every marker first, in a column the widest one sets where the
+        // texts start.
+        let markers: Vec<Option<Weak<Label>>> = items
+            .iter()
+            .map(|item| {
+                let text = marker_text(item.marker)?;
+                let label = self.add_view::<Label>();
+                style.inset(label);
+                label
+                    .set_text_size(style.text_size)
+                    .set_alignment(if inline {
+                        TextAlignment::Left
+                    } else {
+                        TextAlignment::Right
+                    })
+                    .set_vertical_alignment(VerticalAlignment::Top);
+                // The same line box as the text of the item, so the marker
+                // stays on the baseline of its first line.
+                if let Some(line_height) = style.line_height {
+                    label.set_line_height(line_height);
+                }
+                label.set_font(style.fonts().regular);
+                label.set_text(text);
+                label.set_text_color(style.dim_text);
+                Some(label)
+            })
+            .collect();
+        // In a column a marker starts where a text of this column starts,
+        // and the text of an item starts `MARKER_GAP` after the widest
+        // marker. The
+        // measured width of a label has 1 margin in it, the frame gets 2,
+        // so a right aligned marker keeps the left one free.
+        let margin = column.margin;
+        let widest = markers
+            .iter()
+            .flatten()
+            .map(|label| label.size_for_width(UNBOUND).width.ceil() + margin)
+            .fold(TASK_BOX + margin * 2.0, f32::max);
+
+        for (index, (item, marker)) in items.iter().zip(markers).enumerate() {
+            if index > 0 {
+                *y += style.item_gap;
+            }
+            let top = *y;
+            let (marker_width, indent) = if inline {
+                // The text of the item starts 1 space after the ink of its
+                // own marker. The measured width has the margin in it that
+                // the label of the item adds again.
+                let measured = marker.map_or(TASK_BOX + margin, |label| label.size_for_width(UNBOUND).width);
+                (measured.ceil() + margin, measured - margin + column.space)
+            } else {
+                (widest, widest - margin * 2.0 + MARKER_GAP)
+            };
+            let inner = Column {
+                x: column.x + indent,
+                width: column.width - indent,
+                gap: style.item_gap,
+                color: column.color,
+                margin,
+                space: column.space,
+            };
+            if let Some(marker) = marker {
+                self.note_text(marker);
+            }
+            let first = self.subviews().len();
+            self.blocks(style, &item.blocks, inner, y);
+            // A first line that grew for a tall formula has its text lower,
+            // the marker goes down with it.
+            let grown = self.first_line_growth(first, top);
+            if let Some(marker) = marker {
+                marker.set_frame((column.x, top + grown, marker_width, line_height));
+            }
+            if let Marker::Task(done) = item.marker {
+                // In the middle of the first line when the style sets the
+                // pitch.
+                let drop = style.line_height.map_or(1.0, |height| ((height - TASK_BOX) / 2.0).round());
+                self.task_box(style, done, column.x + margin, top + grown + drop);
+            }
+            // An item with no text still takes its line.
+            *y = y.max(top + line_height);
+        }
+    }
+
+    /// How much the first line of the text at `top` grew above its box,
+    /// for the first label made since the subview at index `first`.
+    fn first_line_growth(self: Weak<Self>, first: usize, top: f32) -> f32 {
+        self.subviews()
+            .get(first..)
+            .unwrap_or_default()
+            .iter()
+            .find_map(Own::downcast_weak::<Label>)
+            .filter(|label| (label.frame().origin.y - top).abs() < 0.5)
+            .map_or(0.0, |label| label.text_layout_for(label.text()).line_top(0))
+    }
+
+    fn task_box(self: Weak<Self>, style: &MarkdownStyle, done: bool, x: f32, y: f32) {
+        let square = self.add_view::<Container>();
+        square.set_corner_radius(3);
+        square.set_frame((x, y, TASK_BOX, TASK_BOX));
+        if !done {
+            square.set_border_color(style.dim_text).set_border_width(1.5);
+            return;
+        }
+        square.set_color(style.link);
+        let check = self.add_view::<DrawingView>();
+        check.set_frame((x, y, TASK_BOX, TASK_BOX));
+        // White in both themes, the square under it has a strong color in both.
+        check.add_stroke(
+            &VectorPath::polyline([(3.2, 7.4), (6.0, 10.0), (10.8, 4.4)]),
+            WHITE,
+            StrokeStyle {
+                width: 1.6,
+                cap: LineCap::Round,
+                join: LineJoin::Round,
+                ..StrokeStyle::default()
+            },
+        );
+    }
+
+    fn table(
+        self: Weak<Self>,
+        style: &MarkdownStyle,
+        head: &[Styled],
+        rows: &[Vec<Styled>],
+        column: Column,
+        y: &mut f32,
+    ) {
+        let columns = rows.iter().map(Vec::len).fold(head.len(), usize::max);
+        if columns == 0 {
+            return;
+        }
+        // The frame and the head background first, the texts draw over them.
+        let frame = self.add_view::<Container>();
+        frame.set_border_color(style.line).set_border_width(1).set_corner_radius(6);
+        let head_background = self.add_view::<Container>();
+        head_background
+            .set_color(style.table_head)
+            .set_corner_radii(CornerRadii::top(5));
+
+        let mut cells: Vec<Vec<Weak<Label>>> = Vec::with_capacity(rows.len() + 1);
+        cells.push(
+            head.iter()
+                .map(|text| self.label(style, text, style.text_size, true, column.color))
+                .collect(),
+        );
+        for row in rows {
+            cells.push(
+                row.iter()
+                    .map(|text| self.label(style, text, style.text_size, false, column.color))
+                    .collect(),
+            );
+        }
+
+        let mut widths = vec![MIN_COLUMN; columns];
+        for row in &cells {
+            for (width, label) in widths.iter_mut().zip(row) {
+                let natural = label.size_for_width(UNBOUND).width.ceil() + CELL_PAD_X * 2.0;
+                *width = width.max(natural);
+            }
+        }
+        let total: f32 = widths.iter().sum();
+        let left = column.x + column.margin;
+        let room = (column.width - column.margin * 2.0).max(MIN_WIDTH);
+        let pad = if total > room {
+            widths = squeezed(&cells, columns, room);
+            SQUEEZED_PAD_X
+        } else {
+            CELL_PAD_X
+        };
+        // A word wider than its cell, in a narrow column of a phone,
+        // breaks at the letter that overflows and stays inside its cell.
+        for label in cells.iter().flatten() {
+            label.set_breaks_long_words(true);
+        }
+        let total: f32 = widths.iter().sum();
+        let min_row = style.body_line();
+
+        let top = *y;
+        for (index, row) in cells.iter().enumerate() {
+            let height = row
+                .iter()
+                .zip(&widths)
+                .map(|(label, width)| label.size_for_width(width - pad * 2.0).height)
+                .fold(min_row, f32::max)
+                + CELL_PAD_Y * 2.0;
+            if index == 0 {
+                head_background.set_frame((left + 1.0, top + 1.0, total - 2.0, height - 1.0));
+            } else {
+                self.line(style, left, *y, total, 1.0);
+            }
+            let mut x = left;
+            for (label, width) in row.iter().zip(&widths) {
+                label.set_frame((
+                    x + pad,
+                    *y + CELL_PAD_Y,
+                    width - pad * 2.0,
+                    height - CELL_PAD_Y * 2.0,
+                ));
+                x += width;
+            }
+            *y += height;
+        }
+        let mut x = left;
+        for width in &widths[..columns - 1] {
+            x += width;
+            self.line(style, x, top, 1.0, *y - top);
+        }
+        frame.set_frame((left, top, total, *y - top));
+    }
+
+    /// A display formula centered in the column, made smaller when it is
+    /// wider than the column.
+    #[cfg(feature = "math")]
+    fn display_math(self: Weak<Self>, style: &MarkdownStyle, source: &str, column: Column, y: &mut f32) {
+        let room = (column.width - column.margin * 2.0).max(MIN_WIDTH);
+        let mut size = math_size(style, style.text_size);
+        let Some(mut laid) = math_box(source, size, true) else {
+            return;
+        };
+        if laid.width > room {
+            size *= (room / laid.width).max(MIN_MATH_SHARE);
+            if let Some(smaller) = math_box(source, size, true) {
+                laid = smaller;
+            }
+        }
+        let pad = (style.text_size * DISPLAY_PAD).round();
+        let view = self.add_view::<MathView>();
+        view.set_color(column.color);
+        view.set_font(crate::text::Font::math_darkened(style.math_darkening));
+        let laid_size = view.set_box(laid);
+        let x = column.x + column.margin + ((room - laid_size.width) / 2.0).max(0.0);
+        view.set_frame((x, *y + pad, laid_size.width, laid_size.height));
+        *y += laid_size.height + pad * 2.0;
+    }
+
+    /// Not reached, the parser makes no formula without the feature.
+    #[cfg(not(feature = "math"))]
+    #[allow(clippy::unused_self)]
+    fn display_math(self: Weak<Self>, _style: &MarkdownStyle, _source: &str, _column: Column, _y: &mut f32) {}
+
+    fn line(self: Weak<Self>, style: &MarkdownStyle, x: f32, y: f32, width: f32, height: f32) {
+        let line = self.add_view::<Container>();
+        line.set_color(style.line);
+        line.set_frame((x, y, width, height));
+    }
+}
+
+/// The font of every bold, italic, code, struck and link range of a
+/// text. A formula has a room of its own, see `math_rooms`.
+fn text_runs(style: &MarkdownStyle, text: &Styled, heading: bool) -> Vec<(Range<usize>, RunStyle)> {
+    let fonts = style.fonts();
+    text.spans
+        .iter()
+        .filter(|span| span.style.kind != Kind::Math)
+        .filter_map(|span| {
+            let run = span.style;
+            let bold = heading || run.face.is_bold();
+            let font = match (run.kind == Kind::Code, bold, run.face.is_italic()) {
+                (true, true, _) => Some(fonts.mono_bold),
+                (true, false, _) => Some(fonts.mono),
+                (false, true, true) => Some(fonts.bold_italic),
+                (false, false, true) => Some(fonts.italic),
+                // The font of a heading is bold already.
+                (false, true, false) => (!heading).then_some(fonts.bold),
+                (false, false, false) => None,
+            };
+            (font.is_some() || run.link || run.strike).then(|| {
+                (
+                    span.range.clone(),
+                    RunStyle {
+                        font,
+                        underline: run.link,
+                        strikethrough: run.strike,
+                        ..RunStyle::default()
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+/// How big a formula is next to text of `size` points. Latin Modern
+/// Math has a small x height, so the math is made bigger until its
+/// lowercase letters are as tall as the ones of the body font.
+#[cfg(feature = "math")]
+fn math_size(style: &MarkdownStyle, size: f32) -> f32 {
+    let x_height = |font: Weak<crate::text::Font>| {
+        let face = font.face();
+        face.x_height()
+            .map(|height| f32::from(height) / face.units_per_em().lossy_convert())
+    };
+    let ratio = match (
+        x_height(style.fonts().regular),
+        x_height(crate::text::Font::math()),
+    ) {
+        (Some(text), Some(math)) if math > 0.0 => (text / math).clamp(1.0, MAX_MATH_GROWTH),
+        _ => 1.0,
+    };
+    size * ratio * style.math_scale
+}
+
+#[cfg(not(feature = "math"))]
+fn math_size(_style: &MarkdownStyle, size: f32) -> f32 {
+    size
+}
+
+#[cfg(feature = "math")]
+fn math_box(source: &str, size: f32, display: bool) -> Option<MathBox> {
+    let nodes = math::parse(source).ok()?;
+    math::lay_out(&nodes, size, display).ok()
+}
+
+/// The width of an inline formula and how far it reaches above and below
+/// its baseline.
+#[cfg(feature = "math")]
+fn math_extent(source: &str, size: f32) -> Option<(f32, f32, f32)> {
+    math_box(source, size, false).map(|laid| (laid.width, laid.ascent, laid.depth))
+}
+
+#[cfg(not(feature = "math"))]
+fn math_extent(_source: &str, _size: f32) -> Option<(f32, f32, f32)> {
+    None
+}
+
+/// The widths of the columns of a table wider than its `room`. The labels
+/// of its cells lose their inset, and a cell keeps only `SQUEEZED_PAD_X`
+/// on each side.
+/// Then every column gets its widest word, and what is left of the room
+/// goes to the columns by how much more their text wants, see `fit`.
+/// Every column used to shrink by the same share, and a column of short
+/// words broke them letter by letter next to a column of long texts.
+fn squeezed(cells: &[Vec<Weak<Label>>], columns: usize, room: f32) -> Vec<f32> {
+    let mut least = vec![0.0_f32; columns];
+    let mut most = vec![0.0_f32; columns];
+    for row in cells {
+        for ((least, most), label) in least.iter_mut().zip(most.iter_mut()).zip(row) {
+            label.set_text_inset(0);
+            // Wrapped at every space, the widest line is the widest word.
+            *least = least.max(label.widest_line(1.0).ceil() + SQUEEZED_PAD_X * 2.0);
+            *most = most.max(label.widest_line(UNBOUND).ceil() + SQUEEZED_PAD_X * 2.0);
+        }
+    }
+    fit(&least, &most, room)
+}
+
+/// Column widths for `room` from the least width of each column and the
+/// most it wants, the way a browser lays out a table. All at their most
+/// when that fits. Else every column gets its least and the rest of the
+/// room by how much more it wants. When even the least do not fit, the
+/// widest columns shrink to 1 width that fills the room, so a column of
+/// short words keeps them whole and only the longest words break.
+fn fit(least: &[f32], most: &[f32], room: f32) -> Vec<f32> {
+    let floor: f32 = least.iter().sum();
+    let top: f32 = most.iter().sum();
+    if top <= room {
+        return most.to_vec();
+    }
+    if floor >= room {
+        let cap = cap_for(least, room);
+        return least.iter().map(|width| width.min(cap)).collect();
+    }
+    let wanted = top - floor;
+    least
+        .iter()
+        .zip(most)
+        .map(|(least, most)| least + (most - least) * (room - floor) / wanted)
+        .collect()
+}
+
+/// The width no column may pass so that `widths`, each cut to it, fill
+/// `room`.
+fn cap_for(widths: &[f32], room: f32) -> f32 {
+    let mut sorted = widths.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    let mut left = room;
+    let mut count = sorted.len();
+    for width in sorted {
+        let count_f: f32 = count.lossy_convert();
+        if width * count_f > left {
+            return left / count_f;
+        }
+        left -= width;
+        count -= 1;
+    }
+    f32::MAX
+}
+
+/// The range of text drawn at a point of a label, and the rect of its
+/// piece on that line, both in the points of the label. A range that
+/// wraps is hit on every line it has a piece on.
+fn piece_at(label: Weak<Label>, ranges: &[Range<usize>], point: Point) -> Option<(usize, Rect)> {
+    let layout = label.text_layout_for(label.text());
+    // The label draws its text from its top edge.
+    if point.y < 0.0 || point.y >= layout.lines_bottom() {
+        return None;
+    }
+    let line = layout.line_at_y(point.y);
+    let on_line = layout.line_range(line);
+    let inset = label.text_inset();
+    let x = point.x - inset;
+    ranges.iter().enumerate().find_map(|(index, range)| {
+        let start = range.start.max(on_line.start);
+        let end = range.end.min(on_line.end);
+        if start >= end {
+            return None;
+        }
+        let left = layout.x_on_line(line, start);
+        let right = layout.x_on_line(line, end);
+        (x >= left && x <= right).then(|| {
+            (
+                index,
+                Rect::new(
+                    inset + left,
+                    layout.line_box_top(line),
+                    right - left,
+                    layout.line_box_height(line),
+                ),
+            )
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit;
+
+    fn near(widths: &[f32], wanted: &[f32]) -> bool {
+        widths.len() == wanted.len() && widths.iter().zip(wanted).all(|(a, b)| (a - b).abs() < 0.01)
+    }
+
+    #[test]
+    fn a_table_that_fits_gets_its_widths() {
+        assert!(near(&fit(&[20.0, 30.0], &[40.0, 50.0], 100.0), &[40.0, 50.0]));
+    }
+
+    #[test]
+    fn the_room_left_goes_to_the_columns_that_want_more() {
+        // A column of short words keeps them whole, the long text wraps.
+        let widths = fit(&[40.0, 60.0], &[40.0, 260.0], 200.0);
+        assert!(near(&widths, &[40.0, 160.0]), "{widths:?}");
+    }
+
+    #[test]
+    fn words_wider_than_the_room_break_only_in_the_widest_columns() {
+        // The short word keeps its column, the 2 wide ones share the rest.
+        let widths = fit(&[40.0, 100.0, 300.0], &[40.0, 200.0, 600.0], 200.0);
+        assert!(near(&widths, &[40.0, 80.0, 80.0]), "{widths:?}");
+    }
+}

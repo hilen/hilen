@@ -11,6 +11,23 @@ pub enum AppCommand {
         height:     u32,
         png_base64: String,
     },
+    /// The answer to a record, in the order the frames were drawn.
+    Frames {
+        frames: Vec<FrameRepr>,
+        /// What the input said, like the view a hover landed on.
+        #[serde(default)]
+        note:   Option<String>,
+    },
+    /// The record from a start to a stop, with no pictures.
+    Record(RecordRepr),
+    /// Pictures of the record from a start to a stop, the oldest first.
+    KeptFrames(Vec<KeptFrameRepr>),
+    /// The layouts of the record from a start to a stop, the oldest first.
+    KeptLayouts(Vec<LayoutRepr>),
+    /// The app is paused, with the frames drawn since the pause.
+    Paused {
+        frame: u64,
+    },
     Edits(Vec<EditEntry>),
     TestResults {
         total:    usize,
@@ -23,12 +40,172 @@ pub enum AppCommand {
         test:       String,
         png_base64: String,
     },
+    /// A log line of a browser page, pushed as it happens so the test
+    /// driver prints the app's progress like the desktop lane does and a
+    /// stuck run names the last thing the app said.
+    Log {
+        level:   String,
+        message: String,
+    },
+    /// Pushed by a page right after its socket opens, so a bridge that
+    /// serves it to the tools can announce it like a native app.
+    Hello {
+        app_id: String,
+        name:   String,
+    },
     /// Unix seconds of when the app's Rust code was compiled, see
     /// `hilen/build.rs`.
     BuildTime(u64),
+    RenderInfo(RenderInfoRepr),
     /// Unix seconds of when this app process started.
     StartTime(u64),
+    /// The user of a dev login.
+    LoggedIn {
+        id:    String,
+        email: String,
+    },
+    /// The end of a run of the speed test: the bytes the app got or sent,
+    /// and how long that took on its side.
+    Speed {
+        bytes: u64,
+        ms:    u64,
+    },
+    /// The library a hot build runs, none for the one packed in the loader.
+    Hot {
+        library: Option<String>,
+        /// It takes a file in raw pieces, `HotBytes`. A build from before
+        /// 2026-10-13 says nothing and gets the pieces as base64.
+        #[serde(default)]
+        raw:     bool,
+    },
+    HotFiles(Vec<HotFileRepr>),
+    /// What a command of the app answered.
+    Answer(String),
+    /// The open windows, the main one first.
+    Windows(Vec<WindowRepr>),
     UI(UIResponse),
+}
+
+/// An open window of the app.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowRepr {
+    /// 0 for the main window, what `InWindow` takes.
+    pub number: usize,
+    pub title:  String,
+    /// The size of the content in points.
+    pub width:  f32,
+    pub height: f32,
+}
+
+/// A file a hot build already has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotFileRepr {
+    /// The path below the listed folder, with `/` between its parts.
+    pub path: String,
+    pub len:  u64,
+    /// `file_hash` of its bytes.
+    pub hash: u64,
+}
+
+/// The hash both sides of a hot send compare a file by, FNV-1a.
+pub fn file_hash(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordRepr {
+    pub running:  bool,
+    /// Frames the app drew since the start of the record.
+    pub drawn:    u32,
+    /// Frames the record took since its start. With `skipped` at 0 it is
+    /// `drawn`, less the few still on their way while the record runs.
+    pub recorded: u32,
+    /// Frames lost because the packers of the app did not answer. They
+    /// are in no list. It is 0 in a healthy app.
+    pub skipped:  u32,
+    /// Frames the app waited for its packers at, see `FrameInfoRepr`.
+    pub stalled:  u32,
+    /// The kept frames, the oldest first.
+    pub frames:   Vec<FrameInfoRepr>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameInfoRepr {
+    /// The count of the frame from the start of the record, from 0.
+    pub index:    u32,
+    /// Milliseconds from the start of the record to the draw of the frame.
+    pub ms:       f32,
+    /// Milliseconds from the start of the record to the moment the frame
+    /// reached the screen. Only Metal tells it, on a Mac and an iPhone.
+    /// It is `None` on other systems, for a frame of a covered window and
+    /// for a frame the screen dropped.
+    #[serde(default)]
+    pub shown_ms: Option<f32>,
+    pub width:    u32,
+    pub height:   u32,
+    /// The app waited for the packers of the record before this frame,
+    /// so its gap is the cost of the record and not of the app.
+    pub stalled:  bool,
+}
+
+/// How the app draws, see `InspectorCommand::RenderInfo`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderInfoRepr {
+    /// Like `Metal`, `Vulkan`, `BrowserWebGpu` or `Gl`, the last one is
+    /// WebGL in a browser.
+    pub backend:   String,
+    pub samples:   u32,
+    /// Whether a frame can draw only what changed.
+    pub damage_on: bool,
+    /// The newest frames, the oldest first.
+    pub frames:    Vec<FramePlanRepr>,
+}
+
+/// 1 frame as the damage planned it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FramePlanRepr {
+    /// The count of planned frames since the start of the app.
+    pub number:  u64,
+    /// Why it was drawn whole, `None` for a partial frame.
+    pub whole:   Option<String>,
+    /// The regions of a partial frame, 0 when nothing changed.
+    pub regions: usize,
+}
+
+/// The view tree of a record at a frame where it changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutRepr {
+    /// The frame the tree was taken at, the index of `FrameInfoRepr`.
+    pub index: u32,
+    /// Milliseconds from the start of the record to that frame.
+    pub ms:    f32,
+    /// The `ViewRepr` of the root as JSON.
+    pub json:  String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeptFrameRepr {
+    pub info:       FrameInfoRepr,
+    /// The picture in the QOI format, RGB with no loss.
+    pub qoi_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameRepr {
+    /// The count of the frame from the input, the frame of the input is
+    /// 0. In a record from a start to a stop it counts from the start.
+    pub index:      u32,
+    /// Milliseconds from the input, or from the start, to the draw of the
+    /// frame.
+    pub ms:         f32,
+    pub width:      u32,
+    pub height:     u32,
+    pub png_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

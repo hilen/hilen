@@ -17,7 +17,7 @@ impl Setup for ManualZPosition {
 impl ViewTest for ManualZPosition {
     fn perform_test(view: Weak<Self>) -> Result<()> {
         let z = from_main(move || {
-            let mut container = Container::new();
+            let container = Container::new();
             container.set_z_position(UIManager::ROOT_VIEW_Z_OFFSET);
             let added = view.add_subview(container);
             added.z_position()

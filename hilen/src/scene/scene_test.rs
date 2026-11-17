@@ -1,6 +1,5 @@
 use anyhow::Result;
 use ui_proc::view;
-use winit::keyboard::KeyCode;
 
 use crate::{
     SCENE_TESTS,
@@ -9,8 +8,8 @@ use crate::{
         LossyConvert,
         flat::{Point, Size},
     },
-    scene::{Scene, SceneManager},
-    ui::{Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
+    scene::{Scene, SceneManager, SceneView},
+    ui::{Code, Keys, Setup, UIEvents, UIManager, ViewCallbacks, ViewTouch},
     ui_test::{UITest, UITestEntry, get_test_name},
 };
 
@@ -47,6 +46,33 @@ pub trait SceneTest: Scene + SceneRegistrable + Default {
     fn canvas() -> (u32, u32) {
         (600, 600)
     }
+
+    /// Puts views over the scene once it started, the labels a game hangs
+    /// over its nodes, in the test and in presentation alike. `view` is
+    /// the root over the whole canvas. Nothing by default.
+    fn overlay(_: Weak<Self>, _: Weak<SceneTestView>) {}
+
+    /// A `SceneView` inside `view` to run the scene in, made here, for a
+    /// test of a scene that shares the canvas with other views. None runs
+    /// it over the whole canvas.
+    fn scene_view(_: Weak<SceneTestView>) -> Option<Weak<SceneView>> {
+        None
+    }
+
+    /// A stepped scene stands still from its setup on and moves only by
+    /// `step_scene`. A test that pins where physics ends up needs it, a
+    /// free running scene takes another number of steps on every lane.
+    fn stepped() -> bool {
+        false
+    }
+}
+
+/// Moves a stepped scene on by exactly `steps` of its update and returns
+/// once the last one ran, see `SceneTest::stepped`.
+#[cfg(feature = "scene-tests")]
+pub fn step_scene(steps: u32) {
+    from_main(move || SceneManager::grant_steps(steps));
+    while from_main(SceneManager::steps_left) > 0 {}
 }
 
 /// The root a scene test runs under. The scene draws beneath the UI, so
@@ -115,18 +141,12 @@ impl ViewCallbacks for SceneTestView {
         if !self.presenting || SceneManager::no_scene() {
             return;
         }
-        let axis = |negative: [KeyCode; 2], positive: [KeyCode; 2]| {
-            let held = |keys: [KeyCode; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
+        let axis = |negative: [Code; 2], positive: [Code; 2]| {
+            let held = |keys: [Code; 2]| f32::from(u8::from(keys.iter().any(|key| Keys::held(*key))));
             held(positive) - held(negative)
         };
-        let forward = axis(
-            [KeyCode::KeyS, KeyCode::ArrowDown],
-            [KeyCode::KeyW, KeyCode::ArrowUp],
-        );
-        let right = axis(
-            [KeyCode::KeyA, KeyCode::ArrowLeft],
-            [KeyCode::KeyD, KeyCode::ArrowRight],
-        );
+        let forward = axis([Code::KeyS, Code::ArrowDown], [Code::KeyW, Code::ArrowUp]);
+        let right = axis([Code::KeyA, Code::ArrowLeft], [Code::KeyD, Code::ArrowRight]);
         if forward == 0.0 && right == 0.0 {
             return;
         }
@@ -165,15 +185,22 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
         Some(|| {
             let (width, height) = T::canvas();
 
-            UITest::set(SceneTestView::new(), width, height, true, get_test_name::<T>());
+            let view = UITest::set(SceneTestView::new(), width, height, true, get_test_name::<T>());
 
-            let scene = from_main(|| SceneManager::set_scene(T::default()));
+            let scene = from_main(move || {
+                let scene = start::<T>(view);
+                // Only a build with scene tests has the stepped time, a game
+                // on `scene` alone keeps the fast path and must still compile.
+                #[cfg(feature = "scene-tests")]
+                SceneManager::set_stepped(T::stepped());
+                T::overlay(scene, view);
+                scene
+            });
 
-            let result = T::perform_test(scene);
-
-            from_main(SceneManager::stop_scene);
-
-            result
+            // The scene stays up through the final human hold and until the
+            // window closes. The next test stops it as it starts, and an in
+            // app run stops it with the rest of the harness in `restore_app`.
+            T::perform_test(scene)
         })
     }
 
@@ -189,10 +216,23 @@ impl<T: Scene + SceneTest + 'static> MaybeSceneTest for T {
                 UIManager::override_scale(1.0);
                 let canvas = Size::new(width.lossy_convert(), height.lossy_convert());
                 UIManager::root_view().set_test_canvas(canvas);
-                SceneManager::set_scene(T::default());
-                view.enable_orbit();
+                let scene = start::<T>(view);
+                T::overlay(scene, view);
+                // A scene view turns and zooms its own camera.
+                if SceneManager::host().is_none() {
+                    view.enable_orbit();
+                }
             });
         })
+    }
+}
+
+/// Starts the scene of `T` over the whole canvas `view`, or in the
+/// `SceneView` the test makes there.
+fn start<T: SceneTest + 'static>(view: Weak<SceneTestView>) -> Weak<T> {
+    match T::scene_view(view) {
+        Some(host) => host.set_scene(T::default()),
+        None => SceneManager::set_scene(T::default()),
     }
 }
 

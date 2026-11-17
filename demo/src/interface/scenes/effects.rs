@@ -74,7 +74,7 @@ impl EffectsScene {
         let img = photo.add_view::<ImageView>();
         img.set_image("cat.png");
         img.place().t(34).lrb(10);
-        let mut blur = photo.add_view::<BlurView>();
+        let blur = photo.add_view::<BlurView>();
         blur.set_blur_radius(6).set_color(WHITE.with_alpha(0.1)).set_corner_radius(10);
         blur.place().t(34).rb(10).w(74);
 

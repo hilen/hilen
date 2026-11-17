@@ -9,7 +9,7 @@ use crate::{
         flat::{Rect, Size},
     },
     ui::{
-        Label, View, ViewSubviews, WeakView,
+        Label, ScreenKeyboard, View, ViewSubviews, WeakView,
         layout::{
             Anchor, Tiling,
             layout_rule::{LayoutRule, Placement},
@@ -75,6 +75,10 @@ impl Placer {
             Placement::Between { a, b } => between_2_layout(frame, *a, *b),
             Placement::BetweenSuper { side, view } => {
                 self.between_super_layout(frame, *side, *view);
+            }
+            Placement::AboveKeyboard { offset } => {
+                let covered = ScreenKeyboard::cover(self.view.superview().deref());
+                self.simple_layout(frame, Anchor::Bot, *offset + covered);
             }
             Placement::Tiling(tiling) => self.tiling_layout(frame, tiling),
         }
@@ -142,7 +146,7 @@ impl Placer {
             }
             Anchor::Width => frame.size.width = offset,
             Anchor::Height => frame.size.height = offset,
-            Anchor::CenterX => frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0,
+            Anchor::CenterX => frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0 + offset,
             Anchor::CenterY => frame.origin.y = s_content.height / 2.0 - frame.height() / 2.0 + offset,
             Anchor::Center => {
                 frame.origin.x = s_content.width / 2.0 - frame.width() / 2.0;
@@ -179,33 +183,115 @@ impl Placer {
 
         match tiling {
             Tiling::Background => *frame = s_content.into(),
-            Tiling::Horizontally => place_horizontally(self.view.subviews(), *self.all_margin.borrow()),
-            Tiling::Vertically => place_vertically(self.view.subviews(), *self.all_margin.borrow()),
+            Tiling::Horizontally => {
+                place_horizontally(
+                    self.view.subviews(),
+                    *self.all_margin.borrow(),
+                    *self.padding.borrow(),
+                );
+            }
+            Tiling::Vertically => {
+                place_vertically(
+                    self.view.subviews(),
+                    *self.all_margin.borrow(),
+                    *self.padding.borrow(),
+                );
+            }
             Tiling::LeftHalf => *frame = (0, 0, s_content.width / 2.0, s_content.height).into(),
             Tiling::RightHalf => {
                 *frame = (s_content.width / 2.0, 0, s_content.width / 2.0, s_content.height).into();
             }
             Tiling::Distribute(ratio) => distribute_with_ratio(frame.size, self.view.subviews(), ratio),
             Tiling::Wrap => self.wrap_layout(frame),
+            Tiling::StackVertically => self.stack_ver_layout(frame),
+            Tiling::StackHorizontally => self.stack_hor_layout(frame),
         }
+    }
+
+    /// See `Placer::stack_ver`. Like a wrap, the parent lays out before its
+    /// children, so each child runs its own rules here, after it got its
+    /// width, and the stack reads the height they give.
+    fn stack_ver_layout(&mut self, frame: RMut) {
+        let gap = *self.all_margin.borrow();
+        let pad = *self.padding.borrow();
+        let width = (frame.width() - pad * 2.0).max(0.0);
+
+        let mut y = pad;
+        let mut first = true;
+
+        for view in self.view.subviews() {
+            let mut view = view.weak();
+            if view.is_hidden() {
+                continue;
+            }
+            if !first {
+                y += gap;
+            }
+            first = false;
+
+            view.set_frame((pad, y, width, view.height()));
+            view.layout();
+            let height = own_height(view, width);
+            view.set_frame((pad, y, width, height));
+            y += height;
+        }
+
+        frame.size.height = y + pad;
+    }
+
+    /// See `Placer::stack_hor`.
+    fn stack_hor_layout(&mut self, frame: RMut) {
+        let gap = *self.all_margin.borrow();
+        let pad = *self.padding.borrow();
+
+        let mut sizes = vec![];
+        for view in self.view.subviews() {
+            let mut view = view.weak();
+            if view.is_hidden() {
+                continue;
+            }
+            view.layout();
+            let mut size = view.frame().size;
+            if let Some(fit) = label_fit(view, None) {
+                size = fit;
+            }
+            sizes.push((view, size));
+        }
+
+        let row = sizes.iter().map(|(_, size)| size.height).fold(0.0, f32::max);
+        let mut x = pad;
+        for (index, (view, size)) in sizes.iter().enumerate() {
+            if index > 0 {
+                x += gap;
+            }
+            view.set_frame((x, pad + (row - size.height) / 2.0, size.width, size.height));
+            x += size.width;
+        }
+
+        frame.size.height = row + pad * 2.0;
     }
 
     /// Rows of subviews in declaration order. A child keeps its own size,
     /// only its origin is set. Wraps before a child that would cross the
     /// container width, each row is as tall as its tallest child. Hidden
     /// children take no space. Sets the container height to the content.
+    /// The view of `wrap_around` stays out of the rows, a row beside it is
+    /// shorter.
     fn wrap_layout(&mut self, frame: RMut) {
         let margin = *self.all_margin.borrow();
         let width = frame.width();
+        let corner_view = *self.wrap_around.borrow();
+        let corner = corner_frame(corner_view);
 
         let mut x = 0.0;
         let mut y = 0.0;
         let mut row_height: f32 = 0.0;
+        let mut span = (0.0, width);
 
         for view in self.view.subviews() {
             let mut view = view.weak();
 
-            if view.is_hidden() {
+            if view.is_hidden() || corner_view.is_some_and(|corner| corner.raw() == view.raw()) {
                 continue;
             }
 
@@ -217,10 +303,36 @@ impl Placer {
 
             let size = view.frame().size;
 
-            if x > 0.0 && x + size.width > width {
-                x = 0.0;
-                y += row_height + margin;
-                row_height = 0.0;
+            loop {
+                let height = row_height.max(size.height);
+                let new_span = row_span(corner, width, margin, y, height);
+
+                if x > span.0 {
+                    // A taller child can make a started row reach the
+                    // corner view, then it goes to the next row too.
+                    if new_span == span && x + size.width <= span.1 {
+                        break;
+                    }
+                    y += row_height + margin;
+                    row_height = 0.0;
+                    span = row_span(corner, width, margin, y, 0.0);
+                    x = span.0;
+                    continue;
+                }
+
+                // Too wide for the room beside the corner view, so the
+                // row moves under it, where the full width is free.
+                if let Some(corner) = corner
+                    && new_span != (0.0, width)
+                    && new_span.0 + size.width > new_span.1
+                {
+                    y = corner.max_y() + margin;
+                    continue;
+                }
+
+                span = new_span;
+                x = span.0;
+                break;
             }
 
             view.set_position((x, y));
@@ -229,7 +341,8 @@ impl Placer {
             row_height = row_height.max(size.height);
         }
 
-        frame.size.height = y + row_height;
+        let bottom = corner.map_or(0.0, |corner| corner.max_y());
+        frame.size.height = (y + row_height).max(bottom);
     }
 
     fn between_super_layout(&mut self, frame: RMut, side: Anchor, view: WeakView) {
@@ -260,24 +373,77 @@ impl Placer {
     }
 }
 
-fn place_vertically(views: &[Own<dyn View>], margin: f32) {
-    distribute::<{ Axis::Y }>(views, margin);
+/// The height a stack child gives at `width`: its own rules, or the height
+/// of its text for a label with no height rule.
+fn own_height(view: WeakView, width: f32) -> f32 {
+    label_fit(view, Some(width)).map_or(view.height(), |size| size.height)
 }
 
-fn place_horizontally(views: &[Own<dyn View>], margin: f32) {
-    distribute::<{ Axis::X }>(views, margin);
+/// The size of a label's text when its placer sets no size of its own, at
+/// `width` or on 1 line.
+fn label_fit(view: WeakView, width: Option<f32>) -> Option<Size> {
+    let has = *view.__base_view().placer.has();
+    let label = view.as_any().downcast_ref::<Label>()?;
+    match width {
+        Some(width) if !has.height => Some(label.size_for_width(width)),
+        None if !has.width && !has.height => Some(label.size_for_width(f32::MAX)),
+        _ => None,
+    }
 }
 
-fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32) {
+/// The frame of the view a wrap keeps clear, laid out now for the same
+/// reason as the children of the wrap.
+fn corner_frame(view: Option<WeakView>) -> Option<Rect> {
+    let mut view = view?;
+    if view.is_null() || view.is_hidden() {
+        return None;
+    }
+    view.layout();
+    Some(*view.frame())
+}
+
+/// Where a row at `y` of this height starts and ends. A row that touches
+/// the corner view ends before it, or starts after it when the view is in
+/// the left half.
+fn row_span(corner: Option<Rect>, width: f32, margin: f32, y: f32, height: f32) -> (f32, f32) {
+    let Some(corner) = corner else {
+        return (0.0, width);
+    };
+    if y >= corner.max_y() || y + height <= corner.y() {
+        return (0.0, width);
+    }
+    if corner.center().x < width / 2.0 {
+        (corner.max_x() + margin, width)
+    } else {
+        (0.0, corner.x() - margin)
+    }
+}
+
+fn place_vertically(views: &[Own<dyn View>], margin: f32, padding: f32) {
+    distribute::<{ Axis::Y }>(views, margin, padding);
+}
+
+fn place_horizontally(views: &[Own<dyn View>], margin: f32, padding: f32) {
+    distribute::<{ Axis::X }>(views, margin, padding);
+}
+
+/// Tiles `views` in equal parts along `AXIS`, `margin` between them and
+/// `padding` inside the edges of the superview.
+fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32, padding: f32) {
     let Some(last) = views.last() else {
         return;
     };
 
-    let super_frame = *last.superview().frame();
+    let full = last.superview().frame().with_zero_origin();
+    let super_frame = Rect::new(
+        full.origin.x + padding,
+        full.origin.y + padding,
+        (full.width() - padding * 2.0).max(0.0),
+        (full.height() - padding * 2.0).max(0.0),
+    );
 
     if views.len() == 1 {
-        let back = super_frame.with_zero_origin();
-        last.set_frame(back);
+        last.set_frame(super_frame);
         return;
     }
 
@@ -288,13 +454,13 @@ fn distribute<const AXIS: Axis>(views: &[Own<dyn View>], margin: f32) {
     let length = left_length / views.len().lossy_convert();
     let other_length = super_frame.other_length::<AXIS>();
 
-    let mut last_pos: f32 = 0.0;
+    let mut last_pos: f32 = padding;
 
     for view in views {
         let mut frame = *view.frame();
 
         frame.set_position::<AXIS>(last_pos);
-        frame.set_other_position::<AXIS>(0);
+        frame.set_other_position::<AXIS>(padding);
         frame.set_length::<AXIS>(length);
         frame.set_other_length::<AXIS>(other_length);
 

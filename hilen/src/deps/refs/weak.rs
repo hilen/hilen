@@ -32,7 +32,24 @@ impl<T: ?Sized> Clone for Weak<T> {
     }
 }
 
+/// The start of the name an `#[init]` field of a view holds until its view
+/// is added, see [`Weak::init_field`].
+#[cfg(feature = "checks")]
+const INIT_FIELD: &str = "#[init] ";
+
 impl<T> Weak<T> {
+    /// The value of an `#[init]` field before `add_subview` or
+    /// `UIManager::set_view` makes its view. `label` is `#[init] View.field`.
+    /// A call through it panics with that name and the fix, instead of the
+    /// plain message of a pointer that was never set.
+    pub const fn init_field(label: &'static str) -> Self {
+        Self {
+            ptr:       null_mut(),
+            stamp:     0,
+            type_name: label,
+        }
+    }
+
     pub const fn const_default() -> Self {
         Self {
             ptr:       null_mut(),
@@ -107,10 +124,7 @@ impl<T: ?Sized> Weak<T> {
         let Some(stamp) = RefCounter::stamp_for_address(self.addr()) else {
             return false;
         };
-        if stamp != self.stamp {
-            return false;
-        }
-        true
+        stamp == self.stamp
     }
 
     pub fn is_null(&self) -> bool {
@@ -163,9 +177,9 @@ impl<T: ?Sized> Weak<T> {
         );
 
         if self.ptr.is_null() {
-            error!("Dereferencing never initialized weak pointer: {}", self.type_name);
-            // backtrace();
-            panic!("Dereferencing never initialized weak pointer: {}", self.type_name);
+            let message = never_set_message(self.type_name);
+            error!("{message}");
+            panic!("{message}");
         }
 
         if self.is_null() {
@@ -246,6 +260,18 @@ impl<T: ?Sized> DerefMut for Weak<T> {
     }
 }
 
+#[cfg(feature = "checks")]
+fn never_set_message(type_name: &str) -> String {
+    match type_name.strip_prefix(INIT_FIELD) {
+        Some(field) => format!(
+            "The #[init] view {field} is used before its view was added. #[init] views are made \
+             when the view is added with add_subview or UIManager::set_view, so call this after the \
+             add, or keep the value in a data field and use it in setup"
+        ),
+        None => format!("Dereferencing never initialized weak pointer: {type_name}"),
+    }
+}
+
 impl<T: ?Sized> Default for Weak<T> {
     default fn default() -> Self {
         trait Trait {}
@@ -273,17 +299,20 @@ impl<T> Default for Weak<T> {
     }
 }
 
-impl<T> Eq for Weak<T> {}
+impl<T: ?Sized> Eq for Weak<T> {}
 
-impl<T> PartialEq<Self> for Weak<T> {
+/// The same object is the same data address and stamp. A trait object
+/// compares on its data address alone, the vtable half of its pointer can
+/// differ for one object between codegen units.
+impl<T: ?Sized> PartialEq<Self> for Weak<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.ptr == other.ptr && self.stamp == other.stamp
+        self.addr() == other.addr() && self.stamp == other.stamp
     }
 }
 
-impl<T> Hash for Weak<T> {
+impl<T: ?Sized> Hash for Weak<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.ptr.hash(state);
+        self.addr().hash(state);
         self.stamp.hash(state);
     }
 }

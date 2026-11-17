@@ -1,8 +1,14 @@
 use std::cell::RefCell;
+#[cfg(feature = "gpu")]
+use std::mem::take;
 
+#[cfg(feature = "gpu")]
+use crate::ui::{Input, KeymapKey};
+#[cfg(feature = "gpu")]
+use crate::ui::{Modifiers, NamedKey};
 use crate::{
     deps::refs::Weak,
-    ui::{Input, KeyAction, KeyCombo, KeymapKey},
+    ui::{KeyAction, KeyCombo},
 };
 
 #[derive(Default)]
@@ -20,11 +26,180 @@ impl Keymap {
         self.keys.borrow_mut().push(KeyAction::new(subscriber, combo, action));
     }
 
+    #[cfg(feature = "gpu")]
     pub(crate) fn check(&self, key: impl Into<KeymapKey>) {
-        let key = key.into();
+        self.check_keys(&[key.into()]);
+    }
+
+    /// A typed character, and the Latin one of the same key when the
+    /// layout typed another, see `latin_candidate`. The Latin one is
+    /// checked only when no binding took the typed one.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn check_char(&self, typed: char, latin: Option<char>) {
+        match latin {
+            Some(latin) => self.check_keys(&[typed.into(), latin.into()]),
+            None => self.check_keys(&[typed.into()]),
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    fn check_keys(&self, keys: &[KeymapKey]) {
         let modifiers = Input::modifiers();
-        let cmd = modifiers.super_key() || modifiers.control_key();
-        let shift = modifiers.shift_key();
-        self.keys.borrow_mut().retain(|a| a.check(key, cmd, shift));
+        let shift = modifiers.shift();
+        // An action may bind keys itself, a screen it swaps in binds its
+        // own in `setup`, so the list is not borrowed while actions run.
+        // A binding added by an action joins after the run, it never
+        // sees the press that added it.
+        let mut actions = take(&mut *self.keys.borrow_mut());
+        actions.retain(KeyAction::is_alive);
+        for &key in keys {
+            let cmd = command_held(key, modifiers);
+            let mut fired = false;
+            for action in &actions {
+                fired |= action.check(key, cmd, shift);
+            }
+            if fired {
+                break;
+            }
+        }
+        actions.append(&mut self.keys.borrow_mut());
+        *self.keys.borrow_mut() = actions;
+    }
+}
+
+/// Whether the command modifier is held besides the pressed key.
+///
+/// A press of Ctrl itself must not count as Ctrl held. Windows reports the new
+/// modifier state before the key event and a Mac after it, so without this a
+/// plain `NamedKey::Control` binding, the advance key of a human test run,
+/// fires on a Mac and never on Windows.
+#[cfg(feature = "gpu")]
+fn command_held(key: KeymapKey, modifiers: Modifiers) -> bool {
+    let control = modifiers.ctrl() && key != KeymapKey::Named(NamedKey::Control);
+    let command = modifiers.meta() && key != KeymapKey::Named(NamedKey::Meta);
+    control || command
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod test {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use serial_test::serial;
+
+    use super::{Keymap, command_held};
+    use crate::{
+        deps::{hreads::set_current_thread_as_main, refs::Own},
+        ui::{KeymapKey, Modifiers, NamedKey},
+    };
+
+    #[test]
+    fn a_modifier_press_does_not_hold_itself() {
+        // What Windows hands over for a bare Ctrl press.
+        assert!(!command_held(NamedKey::Control.into(), Modifiers::CONTROL));
+        assert!(!command_held(NamedKey::Meta.into(), Modifiers::META));
+        // What a Mac hands over for the same press.
+        assert!(!command_held(NamedKey::Control.into(), Modifiers::empty()));
+    }
+
+    #[test]
+    fn a_held_modifier_counts_for_every_other_key() {
+        assert!(command_held(KeymapKey::Char('b'), Modifiers::CONTROL));
+        assert!(command_held(KeymapKey::Char('b'), Modifiers::META));
+        assert!(command_held(NamedKey::Enter.into(), Modifiers::CONTROL));
+        assert!(!command_held(KeymapKey::Char('b'), Modifiers::SHIFT));
+    }
+
+    #[test]
+    fn the_other_modifier_still_counts() {
+        // Cmd held while Ctrl is pressed is a real combo.
+        assert!(command_held(
+            NamedKey::Control.into(),
+            Modifiers::CONTROL | Modifiers::META
+        ));
+    }
+
+    // A screen swapped in by a key action binds its own keys in `setup`,
+    // on the same keymap, while the press is still being dispatched. That
+    // used to panic with the key list borrowed twice.
+    #[test]
+    #[serial]
+    fn an_action_can_bind_a_key_while_its_press_is_checked() {
+        // A `Weak` is read on the main thread only, the test thread is it.
+        set_current_thread_as_main();
+        thread_local! {
+            static KEYMAP: Keymap = Keymap::default();
+        }
+        // Any owned value stands in for a screen, an empty type has no
+        // address for a `Weak` to point at.
+        let screen = Own::new(1_u8);
+        let next_screen = Own::new(2_u8);
+        let fired = Arc::new(AtomicUsize::new(0));
+
+        let next = next_screen.weak();
+        let count = fired.clone();
+        KEYMAP.with(|keymap| {
+            keymap.add(screen.weak(), NamedKey::Escape, move || {
+                let count = count.clone();
+                KEYMAP.with(|keymap| {
+                    keymap.add(next, NamedKey::Escape, move || {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    });
+                });
+            });
+        });
+
+        KEYMAP.with(|keymap| keymap.check(NamedKey::Escape));
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            0,
+            "a binding never sees the press that added it"
+        );
+
+        KEYMAP.with(|keymap| keymap.check(NamedKey::Escape));
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            1,
+            "the added binding fires on the next press"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn the_latin_key_fires_only_when_the_typed_one_did_not() {
+        set_current_thread_as_main();
+        let keymap = Keymap::default();
+        let screen = Own::new(1_u8);
+        let latin = Arc::new(AtomicUsize::new(0));
+        let cyrillic = Arc::new(AtomicUsize::new(0));
+
+        let count = latin.clone();
+        keymap.add(screen.weak(), 'b', move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        keymap.check_char('и', Some('b'));
+        assert_eq!(
+            latin.load(Ordering::SeqCst),
+            1,
+            "a Cyrillic press fires the Latin binding"
+        );
+
+        let count = cyrillic.clone();
+        keymap.add(screen.weak(), 'и', move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        });
+        keymap.check_char('и', Some('b'));
+        assert_eq!(
+            cyrillic.load(Ordering::SeqCst),
+            1,
+            "a binding on the typed letter fires"
+        );
+        assert_eq!(
+            latin.load(Ordering::SeqCst),
+            1,
+            "and the Latin one does not fire with it"
+        );
     }
 }

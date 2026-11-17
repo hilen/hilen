@@ -2,22 +2,31 @@ use std::path::PathBuf;
 
 use wgpu::CommandEncoder;
 use winit::{
-    event::{ElementState, KeyEvent, MouseButton, Touch},
+    event::{KeyEvent, Touch, TouchPhase},
     window::Theme,
 };
 
 use crate::{
     gm::flat::{Point, Size},
+    ui::{ElementState, MouseButton, damage::Damage},
     window::RenderFrame,
 };
 
 pub trait WindowEvents {
     fn window_ready(&mut self) {}
     fn update(&mut self) {}
+    /// The frame of an extra window: its layout and its input state. The
+    /// rest of `update` runs once, with the main window.
+    fn update_window(&mut self) {}
     /// Before the frame's first pass opens, for work the frame reads,
     /// like a shadow map.
     fn prepare(&mut self, _encoder: &mut CommandEncoder) {}
     fn render(&mut self, _frame: &mut RenderFrame) {}
+    /// What the next `render` has to draw again, see `ui::damage`. Asked
+    /// once for every frame that is drawn.
+    fn damage(&mut self) -> Damage {
+        Damage::Whole("no view tree")
+    }
     /// Whether this frame must render into a texture that can be
     /// sampled mid frame, for example to blur the drawn scene.
     fn needs_sampleable_frame(&self) -> bool {
@@ -31,12 +40,23 @@ pub trait WindowEvents {
         false
     }
     fn mouse_scroll(&mut self, _delta: Point) {}
+    /// A pinch on a trackpad, `growth` is the share the content grew by
+    /// since the last event.
+    fn pinch(&mut self, _growth: f32, _phase: TouchPhase) {}
+    /// Raw mouse motion, not tied to a cursor position, so it keeps
+    /// coming while a captured cursor sits still.
+    fn mouse_motion(&mut self, _delta: Point) {}
     fn cursor_left(&mut self) {}
+    fn focus_changed(&mut self, _focused: bool) {}
     fn touch_event(&mut self, _touch: Touch) -> bool {
         false
     }
     fn key_event(&mut self, _event: KeyEvent) {}
     fn modifiers_changed(&mut self, _modifiers: winit::event::Modifiers) {}
+    /// A file or a folder is held over the window, 1 call per item.
+    fn hovered_file(&mut self, _path: PathBuf) {}
+    /// The held items left the window with no drop.
+    fn hovered_file_cancelled(&mut self) {}
     fn dropped_file(&mut self, _path: PathBuf) {}
     fn theme_changed(&mut self, _theme: Theme) {}
 }

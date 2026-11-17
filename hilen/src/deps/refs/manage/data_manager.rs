@@ -1,5 +1,6 @@
+#[cfg(feature = "net")]
+use std::borrow::Cow;
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, btree_map::Entry},
     mem::transmute,
     ops::Deref,
@@ -9,10 +10,17 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use event_listener::Event;
+#[cfg(all(not_wasm, feature = "net"))]
+use reqwest::{
+    StatusCode,
+    header::{ETAG, IF_NONE_MATCH},
+};
+use web_time::Instant;
 
+#[cfg(feature = "net")]
+use crate::deps::netrun::rest::client;
 use crate::deps::{
     hreads::on_main,
-    netrun::rest::client,
     refs::{
         __internal_deps::{Mutex, RwLockReadGuard, RwLockWriteGuard},
         Own, Weak,
@@ -44,7 +52,7 @@ fn insert_or_existing<T: Managed>(
 /// Fetch needs an absolute url. A relative one is resolved against the
 /// document base url, so a page hosted under a path prefix points its
 /// asset fetches there with a base tag instead of hitting the site root.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "net"))]
 fn absolute_url(url: &str) -> Cow<'_, str> {
     if url.contains("://") {
         return url.into();
@@ -64,7 +72,7 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
         .into()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "net"))]
 fn absolute_url(url: &str) -> Cow<'_, str> {
     url.into()
 }
@@ -72,15 +80,70 @@ fn absolute_url(url: &str) -> Cow<'_, str> {
 /// Plain HTTP fetch with the same root relative url resolution the
 /// managed downloads use. For data that is not a managed resource,
 /// like the asset manifest.
+#[cfg(feature = "net")]
 pub async fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
-    let data = client()
-        .get(absolute_url(url).as_ref())
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    fetch_bytes_with(url, &[]).await
+}
+
+/// `fetch_bytes` with request headers, for a server behind a login. A 404
+/// page is an error here, not bytes, or it would fail later in a parser.
+#[cfg(feature = "net")]
+pub async fn fetch_bytes_with(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
+    let url = absolute_url(url);
+    #[cfg(target_arch = "wasm32")]
+    if super::file_xhr::is_file(&url) {
+        return super::file_xhr::read(&url).await;
+    }
+
+    let mut request = client().get(url.as_ref());
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let data = request.send().await?.error_for_status()?.bytes().await?;
     Ok(data.to_vec())
+}
+
+/// What a conditional fetch brought back.
+#[cfg(all(not_wasm, feature = "net"))]
+pub(crate) enum Fetched {
+    /// The server still has the picture the etag names.
+    NotModified,
+    Fresh {
+        bytes: Vec<u8>,
+        etag:  Option<String>,
+    },
+}
+
+/// `fetch_bytes_with` that also sends `etag` as `If-None-Match` when there
+/// is one, and hands back the etag of a fresh answer.
+#[cfg(all(not_wasm, feature = "net"))]
+pub(crate) async fn fetch_if_changed(
+    url: &str,
+    headers: &[(&str, &str)],
+    etag: Option<&str>,
+) -> Result<Fetched> {
+    let mut request = client().get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    if let Some(etag) = etag {
+        request = request.header(IF_NONE_MATCH, etag);
+    }
+
+    let response = request.send().await?;
+    if response.status() == StatusCode::NOT_MODIFIED {
+        return Ok(Fetched::NotModified);
+    }
+    let response = response.error_for_status()?;
+    let etag = response
+        .headers()
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(ToString::to_string);
+    Ok(Fetched::Fresh {
+        bytes: response.bytes().await?.to_vec(),
+        etag,
+    })
 }
 
 pub trait DataManager<T: Managed> {
@@ -151,9 +214,19 @@ pub trait DataManager<T: Managed> {
             return existing.weak();
         }
 
-        let new = Own::new(T::load_path(&Self::full_path(&name)));
+        // The pending bytes stay until the entry is stored. Two threads
+        // asking at once then both decode the real file, and neither
+        // falls through to a path that a browser does not have.
+        let new = Own::new(if let Some(data) = T::pending_data(&name) {
+            T::load_data(&data, &name)
+        } else {
+            T::pending_missing(&name);
+            T::load_path(&Self::full_path(&name))
+        });
 
-        insert_or_existing(Self::storage_mut(), name, new)
+        let stored = insert_or_existing(Self::storage_mut(), name.clone(), new);
+        T::pending_loaded(&name);
+        stored
     }
 
     fn load(data: &[u8], name: impl ToString) -> Weak<T> {
@@ -168,65 +241,94 @@ pub trait DataManager<T: Managed> {
         insert_or_existing(Self::storage_mut(), name, new)
     }
 
+    #[cfg(feature = "net")]
     #[allow(async_fn_in_trait)]
     async fn download(name: impl ToString, url: &str) -> Result<Weak<T>> {
-        /// Wakes the waiters even if the leading download errors,
-        /// panics, or its task is dropped mid await.
-        struct FinishGuard {
-            in_flight: &'static InFlightDownloads,
-            name:      String,
-        }
-
-        impl Drop for FinishGuard {
-            fn drop(&mut self) {
-                if let Some(event) = self.in_flight.lock().remove(&self.name) {
-                    event.notify(usize::MAX);
-                }
-            }
-        }
-
-        let name = name.to_string();
-
-        if let Some(existing) = Self::get_existing(&name) {
-            return Ok(existing);
-        }
-
-        let waiter = {
-            let mut in_flight = Self::in_flight_downloads().lock();
-
-            if let Some(existing) = Self::storage().get(&name) {
-                return Ok(existing.weak());
-            }
-
-            if let Some(event) = in_flight.get(&name) {
-                Some(event.listen())
-            } else {
-                in_flight.insert(name.clone(), Arc::new(Event::new()));
-                None
-            }
-        };
-
-        if let Some(listener) = waiter {
-            listener.await;
-            return Self::get_existing(&name)
-                .ok_or_else(|| anyhow!("Download of '{name}' failed in the task which started it"));
-        }
-
-        let _guard = FinishGuard {
-            in_flight: Self::in_flight_downloads(),
-            name:      name.clone(),
-        };
-
-        // Without the status check a 404 page would be stored as the
-        // resource bytes and fail later in the parser, far from here.
-        let data = client()
-            .get(absolute_url(url).as_ref())
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
-
-        Ok(Self::load(&data, &name))
+        Self::download_from(name, fetch_bytes(url)).await
     }
+
+    /// Loads the resource `name` from the bytes `source` gives. The same
+    /// name asked for while that runs waits for it instead of starting a
+    /// second one, and `source` runs only for the first.
+    #[allow(async_fn_in_trait)]
+    async fn download_from(
+        name: impl ToString,
+        source: impl Future<Output = Result<Vec<u8>>>,
+    ) -> Result<Weak<T>> {
+        let name = name.to_string();
+        let label = name.clone();
+        download_loaded::<T>(name, async move {
+            let started = Instant::now();
+            let data = source.await?;
+            let fetched = started.elapsed();
+
+            let load_started = Instant::now();
+            let loaded = Self::load(&data, &label);
+
+            log::debug!(
+                "Asset {label}: {} bytes fetched in {} ms, loaded in {} ms",
+                data.len(),
+                fetched.as_millis(),
+                load_started.elapsed().as_millis()
+            );
+
+            Ok(loaded)
+        })
+        .await
+    }
+}
+
+/// `download_from` for a `source` that stores the resource under `name`
+/// by itself, like a picture the browser decodes. The same name asked for
+/// while that runs waits for it, and `source` runs only for the first.
+pub(crate) async fn download_loaded<T: Managed>(
+    name: String,
+    source: impl Future<Output = Result<Weak<T>>>,
+) -> Result<Weak<T>> {
+    /// Wakes the waiters even if the leading download errors,
+    /// panics, or its task is dropped mid await.
+    struct FinishGuard {
+        in_flight: &'static InFlightDownloads,
+        name:      String,
+    }
+
+    impl Drop for FinishGuard {
+        fn drop(&mut self) {
+            if let Some(event) = self.in_flight.lock().remove(&self.name) {
+                event.notify(usize::MAX);
+            }
+        }
+    }
+
+    if let Some(existing) = T::get_existing(&name) {
+        return Ok(existing);
+    }
+
+    let waiter = {
+        let mut in_flight = T::in_flight_downloads().lock();
+
+        if let Some(existing) = T::storage().get(&name) {
+            return Ok(existing.weak());
+        }
+
+        if let Some(event) = in_flight.get(&name) {
+            Some(event.listen())
+        } else {
+            in_flight.insert(name.clone(), Arc::new(Event::new()));
+            None
+        }
+    };
+
+    if let Some(listener) = waiter {
+        listener.await;
+        return T::get_existing(&name)
+            .ok_or_else(|| anyhow!("Download of '{name}' failed in the task which started it"));
+    }
+
+    let _guard = FinishGuard {
+        in_flight: T::in_flight_downloads(),
+        name:      name.clone(),
+    };
+
+    source.await
 }

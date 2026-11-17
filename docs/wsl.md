@@ -55,7 +55,7 @@ software too, and the UI pipelines fail validation on the GL backend anyway.
 
 ## What the engine does on WSL
 
-At startup, when `WSL_DISTRO_NAME` is set, `window/wsl.rs` adjusts two
+At startup, when `WSL_DISTRO_NAME` is set, `window/wsl/mod.rs` adjusts two
 environment variables before winit starts:
 
 - It drops `WAYLAND_DISPLAY`, so winit uses X11 through Xwayland. The
@@ -70,10 +70,25 @@ environment variables before winit starts:
   scale 1 to Linux clients for every monitor, whatever Windows is set to, so
   a window would come out at one physical pixel per logical pixel. The log
   carries the value the Windows side reports for each monitor, for example
-  `rdpMonitor[0]: desktopScaleFactor:150`, and the engine uses the first
-  monitor's, so the window has the same size as a native Windows build. A
+  `rdpMonitor[1]: desktopScaleFactor:150`, and the engine uses the monitor
+  whose geometry line says `is_primary:1`, so the window has the same size
+  as a native Windows build. The primary is not always monitor 0, Windows
+  numbers them by position. Weston prints the layout it computed in the
+  same shape right after, with `desktopScaleFactor:0` on every monitor,
+  and winit refuses a zero scale, so a zero is skipped. A
   `WINIT_X11_SCALE_FACTOR` set by the user wins. One scale applies to every
   monitor, a window moved to a monitor with a different scale keeps it.
+
+X11 carries no theme, so winit reports none and the engine would stay
+light whatever Windows is set to. At window ready `window/wsl/theme.rs`
+reads `AppsUseLightTheme` from the registry with `reg.exe` and then
+follows it: one `powershell.exe` child waits on the registry change
+event and prints the new value on every change, no polling, and each
+line reaches `Theme::set_system` on the main thread. The script travels
+as `-EncodedCommand`, since the execution policy refuses a script file on
+a WSL path and PowerShell drops a script fed on stdin at end of input
+before its loop runs. Killing the interop stub ends the Windows process,
+so the watcher goes down with the app.
 
 ## Where a fresh window opens
 

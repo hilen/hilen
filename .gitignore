@@ -123,3 +123,11 @@ example-app/dist/*
 
 .claude/
 assets/assets.json
+
+# Archives built by build/ffmpeg.rs and the release scripts
+/dist/
+
+# The uv project of the Blender scripts in deps/models.
+.venv/
+__pycache__/
+.ruff_cache/

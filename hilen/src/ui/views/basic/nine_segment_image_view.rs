@@ -5,8 +5,8 @@ use ui_proc::view;
 use crate::{
     deps::refs::Weak,
     gm::Apply,
+    image::Image,
     ui::{ImageView, Setup, ViewCallbacks, ViewFrame},
-    window::image::Image,
 };
 
 #[view]

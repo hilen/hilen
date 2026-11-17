@@ -1,12 +1,13 @@
 // Shared by the mesh and the sky shader, prepended to both by
 // `MeshPipeline` after a line declaring `SHADOW_CASCADES`. See
-// `SceneView` for what the fields carry.
+// `SceneUniform` for what the fields carry.
 
-struct SceneView {
+struct SceneUniform {
     view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     sun_view_proj: array<mat4x4<f32>, SHADOW_CASCADES>,
     camera_pos: vec4<f32>,
+    eye: vec4<f32>,
     sun_dir: vec4<f32>,
     sun_color: vec4<f32>,
     ambient: vec4<f32>,
@@ -15,11 +16,24 @@ struct SceneView {
     sun_depth: vec4<f32>,
     fog_color: vec4<f32>,
     fog_range: vec4<f32>,
+    sky_sun: vec4<f32>,
+    sky_moon: vec4<f32>,
+    sky_params: vec4<f32>,
     irradiance: array<vec4<f32>, 9>,
+    grass_wind: vec4<f32>,
+    grass_push: vec4<f32>,
+    grass_trail: vec4<f32>,
+    occluders: array<vec4<f32>, 4>,
+    transmit: array<vec4<f32>, 4>,
+    occlusion: vec4<f32>,
+    air: array<vec4<f32>, 6>,
+    space: vec4<f32>,
+    stars: array<vec4<f32>, 3>,
+    flow: vec4<f32>,
 }
 
 @group(0) @binding(0)
-var<uniform> view: SceneView;
+var<uniform> view: SceneUniform;
 
 @group(0) @binding(1)
 var sky_cube: texture_cube<f32>;
@@ -77,11 +91,44 @@ fn fragment_ndc(frag: vec4<f32>) -> vec3<f32> {
     );
 }
 
-// Where a fragment is in the world. Rebuilt here instead of carried
+// Where a fragment is from the camera. Rebuilt here instead of carried
 // from the vertex stage, an A7 draws nothing above eight components.
+// `inv_view_proj` maps to the camera's space with its origin on the
+// camera, so the numbers stay small a few kilometers out in the world.
+fn camera_offset(frag: vec4<f32>) -> vec3<f32> {
+    let offset = view.inv_view_proj * vec4<f32>(fragment_ndc(frag), 1.0);
+    return offset.xyz / offset.w;
+}
+
+// Where a fragment is in the world.
 fn world_position(frag: vec4<f32>) -> vec3<f32> {
-    let world = view.inv_view_proj * vec4<f32>(fragment_ndc(frag), 1.0);
-    return world.xyz / world.w;
+    return view.camera_pos.xyz + camera_offset(frag);
+}
+
+// Where a point of a model is from the camera, what `view_proj` takes:
+// the model's own turn first, then its place minus the camera's. Both
+// stay small near the camera, so a model kilometers out keeps its
+// millimeters, which the world numbers lost.
+fn model_offset(model: mat4x4<f32>, pos: vec3<f32>) -> vec3<f32> {
+    let turned = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz) * pos;
+    return turned + (model[3].xyz - view.camera_pos.xyz);
+}
+
+// The unit direction from `p` to the eye. An orthographic camera looks
+// along one line, so every point sees it the same way.
+fn to_eye_of(p: vec3<f32>) -> vec3<f32> {
+    if view.eye.w > 0.0 {
+        return -view.eye.xyz;
+    }
+    return normalize(view.camera_pos.xyz - p);
+}
+
+// The world size of a pixel on a surface at `p`, before its slant.
+fn pixel_size_at(p: vec3<f32>) -> f32 {
+    if view.eye.w > 0.0 {
+        return view.eye.w / view.viewport.y;
+    }
+    return length(view.camera_pos.xyz - p) * view.camera_pos.w / view.viewport.y;
 }
 
 fn sky_radiance(dir: vec3<f32>, level: f32) -> vec3<f32> {

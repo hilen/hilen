@@ -3,7 +3,7 @@ use plat::Platform;
 
 use crate::{
     deps::refs::Weak,
-    ui::{UIManager, View, ViewData, ViewFrame, WeakView, layout::Anchor},
+    ui::{View, ViewData, WeakView, layout::Anchor, view::depth_order},
 };
 
 pub trait WithHeader: View {
@@ -19,7 +19,7 @@ pub trait WithHeader: View {
             return;
         }
 
-        header.bump_z_position(UIManager::subview_z_offset() * 10.0);
+        depth_order::set_raise(&*header, 1);
 
         if Platform::IOS {
             header.place().lr(0).t(40).h(self.header_size());

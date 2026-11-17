@@ -1,18 +1,58 @@
 //! Access to OS services that are not part of the window: the clipboard,
-//! links, browser history and the system locale.
+//! links, browser history, the system locale and where the build was
+//! installed from.
 
 #[cfg(android)]
-mod android_jni;
+pub(crate) mod android_jni;
+pub(crate) mod app_activity;
+#[cfg(feature = "login")]
+// A page in a browser logs in within its own tab, see `same_tab` of the login.
+#[cfg(not_wasm)]
+pub(crate) mod browser_sheet;
 mod clipboard;
+mod install_source;
+#[cfg(target_os = "ios")]
+mod ios_delegate;
+pub(crate) mod links;
 mod locale;
+mod media_session;
+pub(crate) mod open_files;
 mod open_url;
 mod router;
+mod screen_awake;
+#[cfg(feature = "updater")]
+mod update_state;
+#[cfg(feature = "updater")]
 mod updater;
 
-pub use clipboard::Clipboard;
+pub use app_activity::AppActivity;
+pub use clipboard::{Clipboard, ClipboardImage};
+pub use install_source::{InstallSource, install_source};
+pub use links::{Links, OpenedLink};
 pub use locale::{language_code, locale};
-pub use open_url::open_url;
+#[cfg(tvos)]
+pub(crate) use media_session::deliver as deliver_media_command;
+pub use media_session::{MediaCommand, MediaSession, NowPlaying};
+pub use open_files::OpenFiles;
+pub use open_url::{is_safe_link, leave_for, open_url};
 pub use router::Router;
 #[cfg(wasm)]
 pub(crate) use router::install_popstate_listener;
-pub use updater::{UpdateArtifact, UpdateInfo, UpdateManifest, UpdateSource, Updater};
+pub use screen_awake::ScreenAwake;
+#[cfg(mobile)]
+pub(crate) use screen_awake::keep_on_for_tests;
+#[cfg(feature = "updater")]
+pub use update_state::{UpdatePhase, UpdateState};
+
+/// Sets the handlers of the system that need the event loop, before the app
+/// handler runs: the app delegate of iOS for links and push. The call is
+/// empty elsewhere.
+#[cfg(feature = "gpu")]
+pub(crate) fn install_platform_handlers() {
+    #[cfg(target_os = "ios")]
+    ios_delegate::install();
+}
+#[cfg(feature = "updater")]
+pub(crate) use updater::app_update_source;
+#[cfg(feature = "updater")]
+pub use updater::{DEFAULT_UPDATE_HOST, UpdateArtifact, UpdateInfo, UpdateManifest, UpdateSource, Updater};

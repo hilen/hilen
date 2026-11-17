@@ -34,9 +34,18 @@ fn run_app(event_loop: EventLoop<UserEvent>, app: &'static mut AppHandler) {
     });
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(hot)))]
 fn run_app(event_loop: EventLoop<UserEvent>, app: &mut AppHandler) {
     event_loop.run_app(app).expect("Event loop failed");
+}
+
+/// A hot build is started by a loader that owns `UIApplicationMain`, so the
+/// event loop hooks into the running app and this returns.
+#[cfg(hot)]
+fn run_app(event_loop: EventLoop<UserEvent>, app: &'static mut AppHandler) {
+    use winit::platform::ios::EventLoopExtIOSAttach;
+
+    event_loop.run_app_attached(app);
 }
 
 #[cfg(not(target_os = "android"))]
@@ -46,11 +55,10 @@ pub extern "C" fn hilen_start_app() -> std::ffi::c_int {
     hilen_start_with_app(unsafe { hilen_create_app() })
 }
 
-/// Handed over from `android_main` and consumed when the event loop is
-/// built, which happens deep in a path shared with every other platform,
-/// so it cannot arrive there as a parameter.
+/// Handed over from `android_main`. The event loop takes a clone; system
+/// services retain access to the activity for requests such as window flags.
 #[cfg(target_os = "android")]
-static ANDROID_APP: crate::__internal_macro_deps::Mutex<Option<crate::AndroidApp>> =
+pub(crate) static ANDROID_APP: crate::__internal_macro_deps::Mutex<Option<crate::AndroidApp>> =
     crate::__internal_macro_deps::Mutex::new(None);
 
 #[cfg(target_os = "android")]
@@ -71,18 +79,84 @@ pub(crate) fn hilen_start_with_app_headless(app: Box<dyn App>) -> std::ffi::c_in
     start_with_app(app, true)
 }
 
+/// The data folder exists and is the `OnDisk` root before the app runs any
+/// code of its own, so an app with no setup stores in the right place.
+#[cfg(not_wasm)]
+fn prepare_storage() {
+    use std::fs::create_dir_all;
+
+    use crate::{filesystem::Paths, store::OnDisk};
+
+    let dir = Paths::storage();
+    if let Err(err) = create_dir_all(&dir) {
+        log::error!("Failed to create the data folder {}: {err}", dir.display());
+    }
+    log::info!("Data folder: {}", dir.display());
+    // Secrets are filed under the name of the data folder, the project name
+    // on desktop. A test runner has no project name and gets the name of its
+    // temp folder.
+    #[cfg(feature = "secrets")]
+    if let Some(name) = dir.file_name() {
+        crate::store::SecretStore::set_service(name.to_string_lossy().trim_start_matches('.'));
+    }
+
+    OnDisk::<()>::set_root_path(dir);
+}
+
+/// A start with a link that another copy of the app took ends here, before
+/// the app runs any code of its own.
+#[cfg(desktop)]
+fn start_desktop_links(headless: bool) {
+    if !headless && !crate::filesystem::Paths::test_storage() && !crate::window::placement_store::test_env() {
+        crate::system::links::start_desktop();
+    }
+}
+
+/// What a page listens to in the browser, around the canvas.
+#[cfg(wasm)]
+fn install_page_listeners() {
+    crate::system::install_popstate_listener();
+    crate::system::links::receive_start_url();
+    crate::web::install_reload_shortcut_listener();
+    crate::web::install_pointer_lock_listener();
+    crate::web::install_file_drop_listener();
+    crate::web::install_tv_back_listener();
+    crate::web::install_wheel_listener();
+}
+
+/// The future is 'static, so it resolves on the browser loop while the app
+/// starts, and reporting turns on when it lands.
+#[cfg(all(wasm, feature = "bug-report"))]
+fn start_web_reports(app: &dyn App) {
+    let sentry_url = app.sentry_url();
+    crate::deps::hreads::spawn(async move {
+        match sentry_url.await {
+            Ok(Some(url)) => crate::bug_report::set_dsn(&url),
+            Ok(None) => {}
+            Err(err) => log::warn!("Failed to get sentry URL: {err}"),
+        }
+    });
+}
+
 fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     fn start(app: Box<dyn App>, headless: bool) {
         keep_ctor_linked();
         crate::deps::hreads::set_current_thread_as_main();
 
-        // Apps build their own reqwest clients, so the process default has
-        // to be in place before `before_launch`, not only before the
-        // engine's first request.
         #[cfg(not_wasm)]
-        crate::deps::netrun::tls::install_provider();
+        prepare_storage();
+
+        #[cfg(desktop)]
+        crate::window::placement_store::open(headless);
+
+        #[cfg(desktop)]
+        start_desktop_links(headless);
 
         app.before_launch();
+
+        // After `before_launch`, so an app that turns the system fallback
+        // off never walks the font folders.
+        crate::ui::Font::prepare_system_fallback();
 
         #[cfg(not_wasm)]
         if headless {
@@ -103,29 +177,33 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         let event_loop = {
             use winit::platform::android::EventLoopBuilderExtAndroid;
             EventLoop::<UserEvent>::with_user_event()
-                .with_android_app(ANDROID_APP.lock().take().expect("AndroidApp is not set"))
+                .with_android_app(ANDROID_APP.lock().as_ref().expect("AndroidApp is not set").clone())
                 .build()
                 .unwrap()
         };
 
-        // Native sleeps until an event or a requested frame, so an idle screen
-        // costs no CPU. Background work wakes the loop through the dispatch
-        // waker. Wasm keeps the browser driven polling it had.
+        // The loop sleeps until an event or a requested frame, so an idle
+        // screen costs no CPU. Background work wakes the loop through the
+        // dispatch waker. A page asks the browser for its frame the same way.
         #[cfg(not_wasm)]
         {
             event_loop.set_control_flow(ControlFlow::Wait);
             crate::window::set_wake_proxy(event_loop.create_proxy());
-            crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
         }
         #[cfg(wasm)]
         {
             event_loop.set_control_flow(ControlFlow::Poll);
-            crate::system::install_popstate_listener();
-            crate::web::install_reload_shortcut_listener();
+            install_page_listeners();
         }
+        crate::deps::hreads::set_dispatch_waker(crate::window::request_frame);
+
+        crate::system::install_platform_handlers();
 
         let app = AppHandler::new(AppRunner::new(app), &event_loop);
         run_app(event_loop, app);
+
+        #[cfg(linux)]
+        crate::window::wsl::theme::stop();
     }
 
     #[cfg(feature = "inspect")]
@@ -134,20 +212,13 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
     let headless = headless || std::env::var("HILEN_HEADLESS").is_ok();
 
     #[cfg(not_wasm)]
-    AppRunner::setup_log(app.log_targets());
+    AppRunner::setup_log(app.log_targets(), app.log_files_kept());
 
     #[cfg(linux)]
     crate::window::wsl::prepare();
 
-    // Android swallows stdout and stderr, logcat is the only output that
-    // reaches the developer, so a panic goes through the log too.
-    #[cfg(target_os = "android")]
-    {
-        std::panic::set_hook(Box::new(|panic| {
-            let backtrace = std::backtrace::Backtrace::force_capture();
-            log::error!("{panic}\nBacktrace: {backtrace}");
-        }));
-    }
+    #[cfg(any(desktop, target_os = "android"))]
+    crate::panic_log::install();
 
     #[cfg(target_os = "ios")]
     {
@@ -160,9 +231,16 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         // Panics go to console.error and, under a test driver, to its
         // `/te-panic` endpoint, since the driver has no console access.
         crate::web::install_panic_hook();
-        console_log::init_with_level(log::Level::Debug).expect("Couldn't initialize logger");
+        crate::web_log::init(app.log_targets());
 
         log::info!("Hello from wasm");
+
+        if let Some(path) = app.visit_report_path() {
+            crate::web_visit::start(path);
+        }
+
+        #[cfg(feature = "bug-report")]
+        start_web_reports(std::ops::Deref::deref(&app));
     }
 
     #[cfg(wasm)]
@@ -170,18 +248,71 @@ fn start_with_app(app: Box<dyn App>, headless: bool) -> std::ffi::c_int {
         start(app, headless);
     }
 
-    #[cfg(not_wasm)]
+    #[cfg(hot)]
+    {
+        #[cfg(feature = "net")]
+        crate::deps::netrun::tls::install_provider();
+        #[cfg(feature = "bug-report")]
+        crate::hot::enter_runtime(std::ops::Deref::deref(&app));
+        #[cfg(not(feature = "bug-report"))]
+        crate::hot::enter_runtime();
+
+        start(app, headless);
+    }
+
+    #[cfg(all(not_wasm, not(hot)))]
     {
         let rt = tokio::runtime::Runtime::new().unwrap();
 
+        // Sentry builds a reqwest client and apps build their own in
+        // `before_launch`, so the process default has to be in place before
+        // both, not only before the engine's first request.
+        #[cfg(feature = "net")]
+        crate::deps::netrun::tls::install_provider();
+
         rt.block_on(async {
+            #[cfg(feature = "bug-report")]
             let sentry_guard = AppRunner::setup_sentry(std::ops::Deref::deref(&app)).await;
 
             start(app, headless);
 
+            #[cfg(feature = "bug-report")]
             drop(sentry_guard);
         });
     }
 
     0
+}
+
+#[cfg(all(test, desktop))]
+mod test {
+    use std::fs::remove_dir_all;
+
+    use anyhow::Result;
+    use serial_test::serial;
+
+    use crate::{app_starter::prepare_storage, filesystem::Paths, store::OnDisk};
+
+    /// The step the starter runs before `before_launch`. An app that sets
+    /// no root of its own must find its settings in the data folder, never
+    /// in the working directory.
+    #[test]
+    #[serial(on_disk_root)]
+    fn the_data_folder_exists_and_is_the_on_disk_root_before_the_app_runs() -> Result<()> {
+        Paths::use_test_storage();
+        let dir = Paths::storage();
+        if dir.exists() {
+            remove_dir_all(&dir)?;
+        }
+
+        prepare_storage();
+
+        assert!(dir.is_dir(), "{} was not created", dir.display());
+        let stored: OnDisk<u32> = OnDisk::new("prepare_storage_test.json");
+        stored.set(7_u32);
+        assert!(dir.join("prepare_storage_test.json").is_file());
+        assert_eq!(stored.get(), Some(7));
+        stored.reset();
+        Ok(())
+    }
 }

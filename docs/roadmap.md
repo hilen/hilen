@@ -1,5 +1,8 @@
 # Engine gaps
 
+The entries are in priority order. The first entry is the top priority, work on it
+before any other. A new gap goes in as the first entry.
+
 Open engine features still missing, found by porting real apps. Each entry lists the
 current state in code, what is needed, and what it blocks. When one lands it needs UI
 tests like any other engine change, then it moves out of this file. This roadmap holds
@@ -16,92 +19,1202 @@ learners), the beekeeper web UI in the `local` repo at `beekeeper/web`, and kuka
 github.com/hilen/kukareker (a git client). Full visual and functional parity with each
 original is the acceptance bar. Their ports drove the gaps below.
 
-## Bug reporting and Sentry on wasm
+## The camera screen on Android and on a desktop
 
-Found by bringing karkas style bug reporting into the engine. Desktop, iOS and
-Android landed, the browser did not.
+- Current: `Paths::take_photo(title)` opens the camera screen of iOS,
+  `UIImagePickerController` on its camera source, and in a browser the file chooser
+  with `capture`. On Android, on a desktop and on tvOS it answers `None` at once and
+  `Paths::can_take_photo()` says false, see `hilen/src/filesystem/picker/mod.rs`.
+- Needed: on Android the camera app of the system through
+  `MediaStore.ACTION_IMAGE_CAPTURE`, with a file of the app as `EXTRA_OUTPUT`, so the
+  photo comes at full size and not as the small picture of the result. On a desktop
+  a capture view on the `camera` feature: the live picture in a `CameraView`, a button
+  that takes the photo and a way back. Both answer through `take_photo`, and
+  `can_take_photo` turns true where a camera is found.
+- Blocks: a camera button of any app on Android and on a desktop.
 
-- Current: `App::sentry_url` and `BugReport` are native only. The sentry crate
-  does not run on wasm, so `setup_sentry` is gated `not_wasm` and `BugReport::open`
-  is a browser no-op like `system::Router`.
-- Needed: hand build the Sentry envelope, the event JSON plus attachment items,
-  and POST it to the DSN's envelope endpoint through `netrun`. The report dialog
-  and the rings are engine views and plain state, only the transport is missing.
-- Blocks: bug reports and crash events from web apps.
+## Siri intents, the proof on a phone
 
-## Web lane scroll injection determinism
+- Current: the `intents` feature and the `[[intent]]` tables of `hilen-mobile` make
+  App Intents that call Rust handlers, see `docs/intents.md`. Shopping builds with 1
+  for the simulator and for a device, Apple took its phrases, and it is on TestFlight.
+  Nothing of it ran on a phone yet.
+- Needed: on a phone, "Hey Siri, add to Shopping list", the answer "milk", and the
+  item in the list. Once with the app closed, so iOS starts it in the background with
+  no window, and once with the phone locked. The item must reach the server in both.
+  Android App Actions and the Shortcuts app of macOS are later entries.
+- Blocks: trust in the Siri intents of every app, the lock screen remote of nome.
 
-Found by `Table view 2 test` failing only in the browser lane once MSAA 4x made
-frames heavier. The frame stepped clock, `gm::Clock` with `ui_test::step_frames`,
-now exists, so this is a small job on top of it.
+## Several photos at once, the proof on a phone
 
-- Current: the test injects 100 wheel scrolls and taps the rows it expects at the
-  bottom. On desktop and the iOS simulator the landed offset is stable, in Chrome
-  the run lands at a different offset every time, 50 rows, 33 rows, zero rows, so
-  how many deltas take effect depends on frame pacing. With `HILEN_MSAA=1` the lane
-  passes by timing luck. Rendering is not involved, `Drawing paths` pins the same
-  pixels in all three lanes.
-- Needed: scroll inertia reads `Clock` instead of real elapsed time, and the test
-  runs stepped, so one injected wheel delta is one applied delta regardless of
-  frame rate.
-- Blocks: a green `make ui-web` at MSAA 4x. Accepted as a known flake for now.
+- Current: `Paths::pick_images(title, max)` gives the picked images in the order of the
+  pick, see the pickers of `docs/ios.md` and `docs/android.md`. It builds for iOS and
+  Android, and the demo has a "Pick images" button in its menu. Neither picker was
+  opened on a phone yet.
+- Needed: on an iPhone with iOS 14 or later, 3 photos picked at once, a HEIC one among
+  them, come back as 3 files in the order of the pick, the HEIC one as a JPEG. On an
+  Android phone the same with `max` 2 stops the pick at 2.
+- Blocks: trust in the photo button of the compose box of banda on iOS.
 
-## Pause continuous work while the window is not visible
+## A packed mesh vertex
 
-- Current: a live animation or a loaded level keeps the loop polling even
-  when the window is minimized, fully covered, or on another desktop. A
-  browser tab throttles `requestAnimationFrame` on its own, native does not.
-- Needed: listen to winit's occluded event in the app handler and hold the
-  loop in `Wait` while the window is occluded, then request a frame when it
-  shows again. Animations keep their clock, so a long hold still lands them
-  at the end state on the first frame back.
-- Blocks: nothing visible, only CPU and battery in a background window.
+- Current: `Vertex3D` is 36 bytes, the position, the normal and the uv as full floats
+  and the packed color, see `gm/volume/vertex3d.rs`. Every mesh pipeline and the shadow
+  shader read that layout.
+- Needed: a vertex of 24 bytes, the normal as 2 snorm16 like `GrassBlade`, the uv as 2
+  f16, with every pipeline layout and the shadow shader moved to it, and a Metal System
+  Trace A/B of the vertex time.
+- Blocks: less vertex memory and bandwidth for a ground of millions of triangles, like
+  the planet of geblings, which draws its near tiles again in up to 3 shadow maps.
 
-## Button cannot measure its title
+## Global keys on Windows and Linux
 
-Found by the studio port, the admin page filter tabs.
+- Current: `GlobalKey::register` answers with an error there, the `global-keys` feature
+  pulls global-hotkey on macOS only, see `docs/global-keys.md`.
+- Needed: the same call on Windows and on X11, global-hotkey has both, and an answer
+  for Wayland, which has no global keys for an app.
+- Blocks: the screenshot of banda on Windows and Linux.
 
-- Current: `Label::content_size` and `size_for_width` measure the text.
-  `Button` has no text measurement, its `content_size` comes from
-  `ViewCallbacks` and reflects the frame, near zero before layout, so a
-  button cannot be sized to its title. The studio admin page works around
-  it with touch enabled `Label`s styled as tabs.
-- Needed: title measurement on `Button`, or one measuring API shared by
-  every text carrying view, so `content_size` means the same thing on
-  `Label` and `Button`.
-- Blocks: any row of buttons sized by their titles, filter tabs, toolbars,
-  segmented controls.
+## Screen pictures on Windows and Linux
 
-## Text stack rework
+- Current: `ScreenPicture::all` answers with an error there, xcap is pulled on macOS
+  only, on Linux it needs pipewire on every builder, see `docs/screen-capture.md`.
+- Needed: the pictures on Windows and on Linux, X11 and Wayland.
+- Blocks: the screenshot of banda on Windows and Linux.
 
-Found by the FontZoo emoji page. Parked until a real need for color emoji or
-font fallback.
+## A window over everything on Windows and Linux
 
-- Current: shaping goes through rustybuzz via `ShapedLayout`, so GPOS kerning,
-  GSUB and variable font axes apply. But rasterization still goes through wgpu_text,
-  glyph_brush and ab_glyph, outline glyphs only, a single channel atlas tinted by
-  the text color. Color emoji tables, CBDT, sbix and COLR, are ignored, so emoji
-  render monochrome via the bundled `NotoEmoji.ttf`. No font fallback chains.
-  See [text.md](text.md).
-- Needed: migrate label rendering to cosmic-text with swash. Brings font fallback
-  chains and color emoji in every format. Large: replaces the glyph atlas and
-  `draw_label`, and invalidates every recorded text expectation in the UI tests.
-- Blocks: colorful emoji. Nothing in the driver apps today.
+- Current: `WindowLevel::AboveAll` is only on top through winit there, the panel of
+  `window/extra_mac.rs` is macOS only, see `docs/windows-more.md`.
+- Needed: a window over the task bar and every other window, that takes the keys and
+  gives the focus back when it closes.
+- Blocks: the screenshot of banda on Windows and Linux.
 
-## Siri Remote input for tvOS
+## A shell with tabs when narrow and a sidebar when wide
 
-Found by the tvOS display bring-up, see [tvos.md](tvos.md). Waits for a real
-tvOS app need.
+- Current: `TabShell` puts the bar of tabs at the bottom on every width. A sidebar is
+  app code, the demo and the file browser each have their own.
+- Needed: 1 shell that shows the tabs at the bottom when the window is narrow and a
+  sidebar on the left when it is medium or wide, with the same sections, names and
+  icons. A change of width keeps the open section and its pushed pages.
+- Blocks: 1 app that adapts from a phone to an iPad to a desktop window.
 
-- Current: the engine builds for tvOS and renders in the Apple TV simulator, but the
-  UI is touch driven through `WindowEvent::Touch` and Apple TV has no touch screen.
-  The app draws and nothing can drive it.
-- Needed: a remote input path. Siri Remote events arrive through the UIKit focus
-  engine and `UIPress`, and winit's UIKit backend forwards direct touches only, so
-  the winit fork needs press and focus forwarding, and the engine needs to map that
-  onto its views, most likely a focus model over the existing key and touch events.
-- Blocks: any interactive tvOS app, and the tvOS UI test lane, since what a test can
-  assert depends on this path.
+## A list and its detail that adapt to the width
+
+- Current: `NavigationView` is a stack, and `SplitView` in
+  `ui/views/containers/split_view.rs` is "Three panels side by side" with dividers that
+  never fold.
+- Needed: a list and a detail side by side when wide, with the selected row kept
+  marked, and the detail pushed on a stack when narrow. A change of width moves the open
+  detail between the 2 forms.
+- Blocks: every list and detail screen on an iPad and a desktop.
+
+## Measure the look of a running app with the inspector
+
+- Current: `ViewRepr` in `inspect/protocol/ui/view.rs` carries the label, id, frame,
+  content offset, color, text, hidden, clips, placer and subviews. It has no text color,
+  text size, font, corner radius, border, and no mark of what can be tapped. The
+  inspector has no command to switch the theme, a check of dark needs a code edit.
+- Needed: those fields in `ViewRepr`, a `hilen-inspect theme light|dark|system`
+  command, and a `hilen-inspect audit` command that prints, as JSON, every tap target
+  under its size, text under its contrast, text that is cut, views that overlap, views
+  outside the window, and edges 1 to 3 points apart.
+- Blocks: measured reviews of the `ux` skill, which judge by eye until it lands.
+
+## A sheet and a popover
+
+- Current: `ModalView` is a box in the center, sized by `modal_size`. `ContextMenu` is
+  the only panel tied to the view that opened it. There is no sheet and no popover.
+- Needed: a sheet that comes from the bottom on a narrow window, closes with a swipe
+  down and asks first when work would be lost. A popover that points at the view that
+  opened it on a wide window and becomes a sheet on a narrow one.
+- Blocks: filters, pickers and short forms on an iPhone and an iPad.
+
+## Text that grows with the system text size
+
+- Current: the default label size is a fixed 16 points in `label.rs`, and
+  `UIManager::override_scale` scales the whole UI. Nothing reads the text size the
+  user set in iOS, called Dynamic Type, or the font scale of Android.
+- Needed: read that setting, give `UIManager::text_scale()` and an event when it changes,
+  and let text sizes follow it, with rows that grow to fit.
+- Blocks: readable text for users with a larger system text size.
+
+## Hover with a pointer on an iPad
+
+- Current: hover follows the cursor only under `#[cfg(any(desktop, wasm))]` in
+  `ui/input/input.rs`. A trackpad or a mouse on an iPad gives no hover.
+- Needed: hover from the iPad pointer, the same look as on a desktop.
+- Blocks: the hover look of every control on an iPad with a trackpad.
+
+## Keyboard shortcuts on an iPad
+
+- Current: nothing in the engine registers a `UIKeyCommand`. `docs/text.md` says the
+  arrows, Tab and Escape of a hardware keyboard on an iPhone or an iPad stay with the
+  system field. Whether a Cmd key of the keymap fires on an iPad outside a field is not
+  proven by any test.
+- Needed: the shortcuts of the keymap work on an iPad with a hardware keyboard and show
+  in the iPad menu bar.
+- Blocks: keyboard work on an iPad.
+
+## An icon before each text of a drop down
+
+- Current: `TextDropDown` shows text only, and the default row of `DropDown` has no
+  icon. An app that wants an icon per entry, like Bug and Idea, has to write its own
+  cells around `DropDown`.
+- Needed: an icon before the text of each row and of the closed box, from a file or
+  from bytes, in the color of the text of its row.
+- Blocks: the Bug and Idea box of the forum, and every menu entry with an icon.
+
+## Text entry in a browser, the proof on a real phone
+
+- Current: while a `TextField` is edited in a browser, an invisible `<input>` or
+  `<textarea>` has the focus and lies over it, `text_field/browser_field.rs`. Paste, undo
+  and composed text come from the browser, and the engine still draws the text. `Text
+  field browser` passes in Chromium and Firefox on the browser lane, in Firefox with no
+  check of the way back from the canvas, a window under a bare Xvfb has no focus.
+  `ScreenKeyboard::on_this_device` asks `(pointer: coarse)` in a browser, and a resize of
+  the visual viewport goes to `ScreenKeyboard::moves_to`. No phone ran any of it. The
+  element takes no touches, so a long press offers no Paste on a phone, only the bar of
+  the keyboard does. No real input method was typed with, the test sends its events.
+- Needed: a run in Safari on an iPhone and Chrome on an Android phone: a tap opens the
+  keyboard, typing reaches the field, the field stays in view. A real input method on a
+  desktop. A long press with Paste on a phone.
+- Blocks: calling text entry done on a phone browser.
+
+## Pick several files or a folder in a browser, the proof with a real chooser
+
+- Current: `Paths::pick_files_bytes` and `Paths::pick_folder_bytes` are there, a file of a
+  folder says where it lay in `PickedFile::folder`. A phone picks 1 file and no folder.
+  `UIManager::on_drop_bytes` gives the bytes of files dropped on a page, and `File drop
+  browser` passes in Chromium and Firefox. A dropped folder has no bytes and is left out.
+  A chooser needs a real click, no test opened one, on a desktop or in a browser.
+- Needed: both picks tried by hand or by a browser driver in a real chooser. A pick of
+  several files on a phone. A folder dropped on a page.
+- Blocks: calling the upload of a report folder proven.
+
+## Discord login, the proof against the real Discord
+
+- Current: `/auth/discord`, `DiscordConfig`, `Provider::Discord` and `DiscordLoginButton`
+  are there. The route tests run against a stand in for Discord, so the answers of the
+  real one were not seen.
+- Needed: 1 login through a real Discord application.
+- Blocks: the sign in of the forum of blackforge.
+
+## Open a file from the system on Windows, Linux and the phones
+
+The Mac is done, see [open-files.md](open-files.md).
+
+- Current: `OpenFiles::on_open` gets a path on a Mac from the Apple Event and on every
+  desktop from the start arguments, the arguments are not run on Windows and Linux yet.
+  `build/release/win.py` and `linux.py` write no file types. A second start with a file on
+  Windows or Linux opens a second app, `hand_over` in `system/links/desktop.rs` carries only
+  links. iOS, Android and the browser never call `receive`.
+- Needed: the types of `[open_files]` in the installer of Windows and in the Linux desktop
+  entry, a second start that hands its file to the running app, and the file of a document
+  on iOS and Android.
+- Blocks: Open With and a double click on a file for an app on these platforms.
+
+## Speech to text on Android and in a browser
+
+The `speech` feature hears the microphone on macOS, iOS, Windows and Linux, see
+`docs/speech.md`.
+
+- Current: `Dictation::start` answers `SpeechError::Unsupported` on Android and in a
+  browser, `hilen/src/speech/none.rs`. `SpeechModels::download` refuses in a browser.
+- Needed:
+  - Android: the `RECORD_AUDIO` permission in the manifest from the `[speech]` table
+    and its ask at run time through the activity, like the camera. cpal has an
+    Android host. sherpa-onnx links shared libs there, they go into the jniLibs.
+  - A browser: `getUserMedia` for the samples and the wasm build of sherpa-onnx, and
+    the models in the storage of the page.
+  - Languages other than English, the streaming Zipformer models of other languages.
+- Blocks: the mic button of banda on an Android phone and on the web.
+
+## Push on Android, in a browser and on a desktop
+
+Shopping sends a push for a friend request, a shared list, an added item and a purchase.
+
+- Current: the `push` feature of `hilen` takes pushes from APNs on iOS only, see
+  `docs/push.md`. `Push::request` answers with an error on every other system, in
+  `hilen/src/push/none.rs`. `hilen-server/src/push` sends only to APNs.
+- Needed:
+  - Android: Firebase Cloud Messaging, the token, the permission of Android 13 and
+    newer, the tap, and an FCM sender in `hilen-server`. The `hilen-mobile` Android
+    project needs the Firebase setup.
+  - A browser: Web Push with a service worker and VAPID keys, and its sender.
+  - macOS: the same `UNUserNotificationCenter` and APNs as iOS, with the entitlement in
+    the Mac bundle.
+  - Windows and Linux: a desktop app runs only while it is open, so a push there is a
+    message the open app gets from its backend and shows as a system notification.
+- Blocks: push in shopping on every system but iOS.
+
+## A multiline label as wide as its own text wraps
+
+An item row sizes its quantity label to the text with `size_for_width(f32::MAX).width`,
+then asks the height at that width. `2 банки небольшие` measures 126.39 points wide, and
+at that width it breaks into 2 lines, in the measure and on the screen.
+
+- Current: `Label::size_for_width` in `hilen/src/ui/views/basic/label.rs` gives the
+  measured width plus `alignment_margin`, and wraps at `width - margin`, so the second
+  call wraps at exactly the measured width of the text. The font layout breaks the last
+  word there, the edge is not counted as room enough. The draw wraps at the frame width
+  the same way.
+- Needed: a text wraps at a width only when it is wider than that width. A label sized
+  to its own measure keeps 1 line, in `size_for_width` and in the draw. A unit test
+  pins it for left, right and center alignment and for a few texts and sizes.
+- Blocks: nothing today. Shopping moved its quantity to a full width line, where the
+  bug does not show. Any label sized to its own text still wraps a word too early.
+
+## Scroll a subview of a scroll view into sight
+
+Its sideways row of library tabs has to show the selected tab. When the window gets
+narrower, the row stays at its start and the selected tab is out of sight.
+
+- Current: `ScrollView::set_content_offset_x` in
+  `hilen/src/ui/views/containers/scrolling/scroll_view.rs` clamps the offset against the
+  frame the view has now. In a `size_changed` handler of the screen the frame of the
+  scroll view is still the old one, so a wide old frame clamps the offset to 0. No
+  call scrolls a subview into sight, and no event runs after layout.
+- Needed: a call on `ScrollView`, and `TableView`, that keeps a subview in sight, both
+  ways, like `scroll_to_row` keeps a row. It holds until the next layout, so it also
+  works right after a change of rules or a resize.
+- Blocks: the tab row of flixen after a window resize from wide to narrow.
+
+## A scroll view with no scroll bar
+
+Its row of library tabs scrolls sideways on a phone, where 4 of 7 tabs do not fit. A bar
+under the tabs runs into the line that marks the selected tab, and a row of tabs on a
+phone shows no bar.
+
+- Current: `ScrollView::update_bar` and `update_bar_x` in
+  `hilen/src/ui/views/containers/scrolling/scroll_view.rs` show a bar whenever the
+  content is longer than the view. No call hides it, `scrolling.md` in the skill and
+  the docs name none.
+- Needed: a call on `ScrollView`, and on `TableView` through it, that turns the bars
+  off, each way on its own. The content still scrolls by drag, wheel and
+  `set_content_offset_x`. A view with the bars off has no grab area either.
+- Blocks: the sideways tab row of flixen, which shows a bar under its tabs until then.
+  Also the strip of recent posters there, which shows a bar under its captions.
+
+## Text selection on a touch screen, like native iOS
+
+- Current: a long press on a selectable label or markdown view takes the word under
+  the finger, `hit.unit(Granularity::Word)` in `hilen/src/ui/text_selection/mod.rs:374`.
+  Only the same finger, still down, moves the end of the selection, word by word. The
+  release opens the menu with Copy and Select All, `text_selection/menu.rs`. Once the
+  finger is up the selection cannot change, a tap drops it. `docs/text-selection.md`
+  says so under Limits: "No drag handles on a touch screen".
+- Needed: the way iOS does it, for `Label`, `MarkdownView` and a selection over the
+  rows of a table:
+  - 2 handles, a round knob with a line, at the start and the end of the selection.
+    Each one is dragged on its own after the finger was lifted, by characters, not
+    only by words. A handle dragged to the edge of a scroll view scrolls it.
+  - A magnifier over the finger while a handle or the long press moves.
+  - The menu stays over the selection after a handle moves and moves with it, Copy
+    and Select All as now.
+  - A double tap takes a word and a triple tap the paragraph, like a click on desktop.
+  - The handles and the menu follow the text when the list scrolls, and go away with
+    the selection.
+  - A UI test on the touch path: long press, lift, drag each handle, copy.
+- Blocks: banda on iPhone, where copying part of a reply of an agent is a daily need.
+  Every app with selectable text on a phone or a tablet.
+
+## Swipe back from the left edge, the proof on a phone
+
+- Current: `NavigationView` owns every way back of a pushed page, the swipe, the
+  `BackButton`, Escape and the Android back, see `docs/navigation.md`. The UI tests
+  `Navigation swipe` and `Navigation shell swipe` pass on the desktop lane with drag
+  scrolling on. shopping swipes back in the iOS simulator. A real iPhone is not
+  checked, and the simulator is no proof. Whether the Android system back gesture
+  reaches Escape is not checked on a device.
+- Needed:
+  - The swipe, the back button and the drawing of the page below on a real iPhone,
+    with `make device`.
+  - The Android system back on a device pops the top page.
+- Blocks: the proof that swipe back works on a phone, in every app on hilen.
+
+## The Sentry release names the version of Cargo.toml, not of hilen.toml
+
+Every event of skaityk 3.0.14, the bug reports SKAITYK-C and SKAITYK-D among them,
+carries the release `skaityk@0.1.0`.
+
+- Current: `register_app!` in `hilen/src/app.rs` makes `hilen_app_version` return
+  `env!("CARGO_PKG_VERSION")`. Skaityk keeps `version = "0.1.0"` in `Cargo.toml` and
+  its real version, `version = "3.0.14"`, in `hilen.toml`, which `make patch` and the
+  iOS project already use, see `docs/widgets.md`. `deps/project-proc` already reads
+  `project_name` from that file.
+- Needed: a macro in `deps/project-proc` next to `project_name!()` that gives the
+  `version` of `hilen.toml`, and the version of `Cargo.toml` when the file has none.
+  `register_app!` uses it, so the Sentry release, the start log line and the updater
+  all see the same version. A unit test in `project-proc` for both cases.
+- Blocks: the right release on every Sentry event of skaityk, and of any app that keeps
+  its version only in `hilen.toml`.
+
+## Browser lane tests that the pictures of the page made flaky
+
+2 full runs of the browser lane on the Linux builder, every test but `Camera view test`
+and `Inspect frames`.
+
+- Current: `AppRunner::take_screenshot` waits for the pictures the last frame drew and
+  takes the shot again when the shot frame started one. Still, in a full run:
+  - `Image view s v g` failed 1 of 2, the background at 84 432 where a blue svg fill is.
+  - `Stick images` failed 1 of 2, the background at 444 104, 2 pixels inside the ring.
+  - `Rounded clip` failed 2 of 2, `#00ffff` at the corner 498 102 where the scene has no
+    cyan, while the failure screenshot taken after it looks right. Clean `dev` never
+    reaches this test in a full run, `Inspect frames` stalls first, so it is not known
+    whether the change made it.
+  All 3 pass when run alone.
+- Needed: find the frame where a picture of the page is missing from a shot, and the
+  cause of the cyan corner. Run the same full list on clean `dev` with `Inspect frames`
+  left out, to know which of them are old.
+- Blocks: a green browser lane.
+
+## Widgets on iOS, the proof on a phone and the remote of nome
+
+Nome wants a lock screen widget that works like a remote: Start, Stop and the BPM, with
+the phone locked. Banda has a Live Activity and a home screen widget, kept fresh by push
+from its backend.
+
+- Current: the `[widget]` table of `hilen-mobile` adds a WidgetKit extension with the
+  Swift of the app, a keychain group both targets share, `aps-environment` and the
+  Live Activity keys, see `docs/widgets.md`. `SecretStore::shared` writes into that
+  group. Banda builds with it for the simulator and for a device, nothing of it ran
+  on a phone yet. There is no App Group, an app has no way to take an App Intent
+  from Swift into Rust, and the generated `Info.plist` has no `UIBackgroundModes`
+  with `audio`, so the sound of an app stops when the phone locks, see the entry
+  "Video on iOS, the proof on a phone".
+- Needed:
+  - The proof for banda: a Live Activity started by a push of its backend on a
+    locked iPhone, and the home screen widget reading the glance with the token the
+    app put into the shared keychain group. The simulator here runs iOS 16.4, which
+    has no push to start and no widget push. Also unproven: a hilen app that iOS
+    wakes in the background for the token of a Live Activity started by push.
+  - For nome: an App Group in the `[widget]` table, and an intent that adopts
+    `AudioPlaybackIntent`, runs in the process of the app, started in the
+    background, and calls a Rust handler that the app registers, like `start`,
+    `stop` and `bpm+5`. The intent code must be in both the app target and the
+    extension target, the `shared` folder of the table, else background audio fails
+    on a device while the simulator hides it, see
+    [Apple forum 736445](https://developer.apple.com/forums/thread/736445). The
+    `audio` background mode comes with the same work. Apple must not ask for an
+    unlock before the intent runs, see `IntentAuthenticationPolicy`. The proof is a
+    tap on a button of the lock screen widget of a locked iPhone that starts the
+    sound. Android and macOS widgets are later entries.
+- Blocks: trust in the widget and the Live Activity of banda, the lock screen remote
+  of nome.
+
+## A partial frame over several samples on an iPhone
+
+The iOS simulator does not show it.
+
+- Current: with 4 samples a partial frame draws over the multisampled texture of the
+  frame before, see `docs/damage.md`. On the phone that texture comes back black or
+  with an older screen: the app flashes black, and a back press shows the screen
+  before it again. 1 sample, which keeps the frame in the scene texture, and
+  `HILEN_DAMAGE=0` both draw right on the same phone. The passes store the texture,
+  Metal gets `StoreAndMultisampleResolve`, and the texture is not memoryless, so the
+  cause is not found. iOS now draws 1 sample by default, and with more samples every
+  frame there is whole, `WHY_IPHONE_SAMPLES` in `window/state/kept.rs`.
+- Needed: the cause, proven on a phone, and partial frames with several samples on
+  iOS, or the whole frame rule kept with the reason written down.
+- Blocks: partial frames for an iOS app that sets 2 or 4 samples.
+
+## Shaders for WebGL made at build time, with no naga in the wasm
+
+- Current: on WebGL the wgpu fork of hilen translates every WGSL shader to GLSL with
+  naga while the app starts. In the TV build of flixen `naga` is 617 KB of code, the
+  largest crate of the file, with `codespan_reporting` 19 KB for its error text. The
+  rest of the GPU stack is `hilen_wgpu_core` 359 KB, `hilen_wgpu` 151 KB and
+  `hilen_wgpu_hal` 137 KB.
+- Needed: GLSL made from the WGSL of the engine and of an app at build time, and a
+  WebGL path of the wgpu fork that takes it with no naga linked. The WebGPU path of a
+  new browser keeps WGSL. Find first how much of naga wgpu core also needs for its
+  checks, and whether a smaller naga feature set gives part of the gain with less
+  work.
+- Found on 2026-10-17 while starting it, nothing built yet:
+  - naga by module in the TV build of flixen: `front::wgsl` 203 KB,
+    `proc::constant_evaluator` 101 KB, `valid` about 150 KB, `back::glsl` 73 KB, the
+    IR and arenas about 90 KB. The GLSL writer and part of the IR may have to stay, so
+    the gain is about 0.45 to 0.64 MB.
+  - GLES in the fork already takes a GLSL string, `ShaderModuleSource::Passthrough`
+    in `wgpu-hal/src/gles/device.rs`, but that path skips `consume_reflection`. WebGL2
+    is GLSL ES 3.0, which has no `layout(binding = N)`, so ready GLSL also needs the
+    reflection naga makes: uniform names, texture and sampler pairs, varyings.
+  - Not every shader is known at build time. The shader lab compiles typed WGSL. The
+    `fs_main_darken` entry of the text fork takes `stem_px` as an override, its value
+    comes from the font setting, and naga writes it into the GLSL. Apps make their own
+    shaders, like the mesh materials and `video/nv12.rs`. `instances_shader` is fixed
+    per pipeline and can be made ahead.
+  - So naga cannot leave every browser build. The safe shape is an opt-in feature for
+    the TV build only: a recording run collects every shader, entry point and constant
+    value, the build makes GLSL and reflection for them, the shader lab is off there,
+    and a shader missing from the record fails loudly. The risk is a shader added
+    later that only fails on the TV.
+- Blocks: up to about 1.4 s of the start of a hilen app on a TV, an estimate.
+
+## A picker of the sound output, AirPlay on Apple
+
+A user wants the metronome to play on a HomePod, from a button inside the app.
+
+- Current: a grep for `airplay` and `AVRoutePicker` in `docs` and `hilen/src` finds
+  nothing. The `audio` feature plays on the default output of the system, kira opens
+  it in `hilen/src/audio/manager.rs`, and an app cannot see or pick another output.
+- Needed: 1 view that opens a picker of the sound output on every platform. On iOS
+  and macOS it is the system AirPlay list, `AVRoutePickerView`, the only public way to
+  reach a HomePod. On Android the system output switcher. On Windows, Linux and in a
+  browser a list of the output devices that the engine draws, which moves the output
+  of kira to the picked device, and `selectAudioOutput` in a browser that has it. A
+  UI test for the drawn list, and a check by hand on an iPhone with a HomePod.
+- Blocks: playing nome on a HomePod.
+
+## The metallic and roughness texture of a glTF material
+
+Its simulator shows a circuit board, the Sparkfun 5 Stars model from Sketchfab, where
+the copper, the solder mask and the solder differ in shine per pixel.
+
+- Current: `hilen/src/scene/model/parse.rs` reads only `metallic_factor` and
+  `roughness_factor` of a material. The `metallicRoughnessTexture` is never read, so
+  a material with a metallic factor of 1 and the real values in its texture draws as
+  full metal everywhere. 5 of the 6 materials of that board are such. The occlusion
+  texture is not read either.
+- Needed: the loader reads the `metallicRoughnessTexture`, blue for metallic and
+  green for roughness as glTF says, and the shader multiplies the 2 factors by it per
+  pixel. The `occlusionTexture` darkens the ambient light per pixel the same way. A
+  scene test with a model whose texture has a metal half and a rough half checks a
+  pixel of each half.
+- Blocks: a correct look of the circuit board in the turnscan simulator, and so the
+  photos its photogrammetry is tested with.
+
+## A picture of a scene as bytes
+
+Its simulator renders a 3D rig with an object on a turntable, and a virtual phone in the
+scene takes 4032 x 3024 photos that go to a photogrammetry pipeline like real ones.
+
+- Current: `SceneDrawer::picture` in `hilen/src/scene_drawer.rs` draws a scene once
+  into an image of any size, off screen, with its own encoder. It is `pub(crate)`, and
+  the image stays on the GPU. The only way back to pixels is
+  `AppRunner::take_screenshot`, which reads the whole window at its own size.
+- Needed: a public call that draws a scene through a given `Camera` into a size the
+  app picks, larger than the window too, reads the pixels back, and gives RGBA bytes
+  and the size, async, with no change to the frame on screen. A picture of a scene
+  in a `SceneView` and of the window scene both work. It runs on every platform,
+  WebGL included, and a scene test checks a known pixel of a picture.
+- Blocks: the virtual camera of the turnscan simulator.
+
+## Bluetooth LE devices
+
+The app drives the servos of its turntable through a Seeed XIAO nRF52840 board over
+Bluetooth LE.
+
+- Current: the engine has no Bluetooth. A grep of the repo finds no Bluetooth crate in
+  any `Cargo.toml`, no CoreBluetooth code and no `NSBluetoothAlwaysUsageDescription`
+  in the iOS project.
+- Needed: the central role of Bluetooth LE. An app scans for devices with a given
+  service UUID, connects, finds the services and characteristics, reads, writes, and
+  subscribes to notifications. A lost connection is an event. It works on every
+  platform that has the hardware: iOS, macOS, Windows, Linux, Android, and the browser
+  through Web Bluetooth where the browser has it. The engine puts the permission texts
+  into the iOS and Android projects from the app config. Check
+  [btleplug](https://github.com/deviceplug/btleplug) first, it may cover most of the
+  platforms.
+- Blocks: the Bluetooth link of turnscan to its board.
+
+## Find a device on the local network
+
+Its Wi-Fi boards and a fake board on a Mac announce a service on the local network, and
+the app has to find them.
+
+- Current: `mdns-sd` is in the engine only under the `inspect` feature, and only to
+  announce the inspect server. `hilen/src/inspect/bonjour.rs` says that on a real
+  iPhone `mdns-sd` stays silent, because an app needs an entitlement from Apple to send
+  multicast of its own. So the system Bonjour service announces there. No app can
+  browse for a service, on any platform.
+- Needed: an app browses for a service type, like `_turnscan._tcp`, and gets every
+  device that comes and goes, with its name, address, port and text record. On iOS
+  this goes through the system Bonjour service, and the engine writes
+  `NSBonjourServices` and `NSLocalNetworkUsageDescription` into the project from the
+  app config. The other native platforms use `mdns-sd`. A browser has no mDNS, so
+  there the call gives a clear error.
+- Blocks: the Wi-Fi link of turnscan to its boards and to its fake board.
+
+## A small animation keeps the whole engine busy
+
+Its results and the 10 s Time Profiler run are in `results/` there. 2 consults of Claude
+and Codex read the code, their answers are not kept in the repo.
+
+- Current:
+  - At 120 Hz on an M1 Pro, idle for 60 s, the ui-compare app uses 43.7% of a core
+    with a turning `RingSpinner` in a frosted bar and 37.5% with a plain bar. The
+    Tauri copy uses 0.1% and 0.0%. WebKit draws no frame for a CSS rotation, it hands
+    the rotation to the system compositor. With the frosted bar hilen misses frames,
+    295 long gaps in 60 s against 10. `HILEN_DAMAGE=0` and `HILEN_MSAA=1` change no
+    CPU number.
+  - A Core Animation layer that turns a ring, or shows 120 pictures of it in a loop,
+    costs its app 0.03% at 120 Hz while its main thread sleeps, `tools/layer` in
+    ui-compare. The cost of a frame that hilen or a bare wgpu or Metal loop draws
+    itself is not measured yet. The `floor-hilen` number, 21.6%, is a whole frame,
+    its root calls `keep_frames_while`, which marks the root and every child changed.
+  - Every frame of the app is whole. A visible `BlurView` forces it in
+    `damage/walk.rs`. `damage::paint_rect` gives a `DrawingView` its whole clip, and
+    with no view above that clips, 1 small path damages the whole window.
+  - Waste in every frame, read from the code and the profile:
+    - `Queue::write_buffer` makes a new staging buffer and a Metal buffer through a
+      kernel call for every upload, and `maintain` frees it, about 0.5 ms a frame.
+    - 3 Metal command buffers a frame, the pending writes, the render, and 1 that the
+      wgpu fork makes only to present, `wgpu-hal/src/metal/mod.rs`.
+    - `State::render` takes the drawable before it plans the damage, so a frame with
+      nothing to draw still encodes, resolves the window and presents.
+    - The pacer is `Poll` on every platform but iOS, `window/redraw.rs`. On macOS the
+      winit fork runs it as a run loop timer at now, the frame only paces because the
+      drawable blocks. The timer and kevent take about 170 µs a frame.
+    - `RingSpinner` makes 3 new GPU buffers and a bind group every frame.
+    - The update walk, the damage walk and `stamp_for_address`, about 400 µs a frame.
+    - Text placement, the glyph draw cache and the vertices are redone every frame,
+      shaping is already cached.
+  - A browser page draws on every display refresh, also with nothing moving,
+    `app_handler.rs` asks for a redraw in every turn of the loop.
+  - Declared loops landed, [loops.md](loops.md). On macOS, iOS and tvOS a Core
+    Animation layer shows the pictures of a loop and the app draws no frame for it.
+    The same ui-compare app at 60 Hz, idle for 20 s, 5 runs each in 1 session: 0.1% of
+    a core with the loop on a layer, 24.5% before, Tauri 0.2%. Memory went from 128 to
+    157 MB, the cause is not checked. Everything that is not a declared loop on an
+    Apple system, a closure animation, a scroll, a covered or clipped loop and every
+    other platform, still pays the whole frame below.
+- Needed, in this order. Each step lands with its UI test and its own A/B per
+  [benchmark.md](benchmark.md), 5 runs per side, idle runs of 60 s, never 2 changes
+  in 1 A/B.
+  1. The floor, with no engine change. `floor-hilen` keeps frames on the dot, not the
+     root, and counts its own frames, the capture tops at 112 fps. A bare Metal loop in
+     `tools/layer` and a bare wgpu loop, each with a whole window surface and a small
+     one. The "nothing" case runs under the same recorder. No other load on the
+     machine. It gives the CPU per presented frame of Metal, wgpu and hilen.
+  2. No new buffer per upload. Upload storage is kept and used again once the GPU is
+     done with it, a mapped buffer is never in a submit. `RingSpinner` writes its arc
+     into the same 3 buffers every frame and takes its time from `frame_seconds`. A
+     kept buffer gets a content revision, the damage key hashes the revision and not
+     the buffer. The proof counts buffers made and freed, not the live count.
+  3. In the wgpu fork, present from the render command buffer. The submit is told
+     which surface texture it finishes, Metal first, the other backends as today.
+  4. No frame without damage: the damage is planned before the drawable is taken.
+  5. Pacing from the display: the `FrameWake` pacer of iOS on desktop, a display link
+     wake on `Wait`, macOS first.
+  6. Paint bounds for a `DrawingView`: the box of its meshes joined with its own frame,
+     it never clips to its frame. A partial frame with 1 blur on the screen uses the
+     blur result of the frame before when nothing under the blur changed, 2 blurs or a
+     change under it keep the whole frame.
+  7. Frames on demand in a browser. The loop stays on `Wait`, which Firefox needs, and
+     asks for a redraw only when input, a timer, async work or `keep_frames_while`
+     asks.
+  8. Retained drawing. A set of changed views in place of the update walk and the
+     damage walk, kept draw lists per view, and a check mode that runs the full walk
+     next to it on every frame of the suite. A view is changed from anywhere, also by
+     a write to a field, so the record goes around setters, layout and the animation
+     callbacks. The draw order is planned again when opacity, overlap, a clip or an
+     effect changes, not only the tree.
+  9. Text kept across frames, placed glyphs and their vertex range per label, dropped
+      when the glyph atlas changes. A new 120 Hz profile of scroll decides it, at
+      120 Hz hilen is only level with Tauri there.
+  10. More layers. Declared loops have the flipbook on Apple systems. Still missing:
+      keyframe animations, a transform or fade the compositor runs, a small surface
+      the engine draws into so the window is not presented again, and the other
+      platforms, Windows DirectComposition, a browser a page element, Linux a
+      `wl_subsurface`, Android a `SurfaceControl`. A screen capture test of the layer
+      pixels at fixed phases on a Mac, today only its place and flip are checked.
+  - Later, only when a GPU measurement asks for it: a small multisampled target for
+    a region, resolved into a small 1 sample texture and copied into the kept scene.
+  - Target: the Mac and iOS reach the Tauri idle numbers, about 0.1% of a core, and
+    keep the lead in drag, startup and memory. Other platforms get the steps where
+    they apply, with no CPU target until Tauri is measured there.
+- Blocks: battery life of any app with a spinner, a progress mark or a looping mark
+  on the screen.
+
+## A phone has no keys for a view that reads the keyboard itself
+
+Its terminal page reads every key itself, see A view that reads the keys itself in
+[focus.md](focus.md). On a Mac that works. On an iPhone the terminal shows and updates,
+and nobody can type into it.
+
+- Current: the screen keyboard of a phone comes up only for an edited `TextField`,
+  which is a system text field there, see The system text field in [ios.md](ios.md).
+  Its 3 callbacks in `hilen/src/ui/views/basic/text_field/system_field.rs` are
+  `changed` with the whole text, `returned` and `ended`. So `UIEvents::keyboard_input`
+  and `UIEvents::keyboard_key` never fire from the screen keyboard: no char, no
+  Backspace, no arrow. The native file `hilen/native/ios/hilen_text.m` sets no row of
+  keys above the keyboard. Android was not looked at.
+- Needed: a view that is no text field asks for the screen keyboard and gives it
+  back. While it has it, every typed char fires `keyboard_input` and Backspace and
+  Return fire `keyboard_key`, with nothing kept as a text, and with no autocorrect
+  and no capital first letter. A row of extra keys above the keyboard that an app
+  fills, like Esc, Tab, Ctrl and the arrows, each a key event or a held modifier.
+  The place of the keyboard comes through `ScreenKeyboard` as for a field, so the
+  view can make itself smaller. A UI test on the simulator lane types through the
+  real keyboard with `system_input`.
+- Blocks: typing into a terminal of banda on a phone, the key row of its plan.
+
+## A play after a long pause is not proven in flixen yet
+
+A video was paused for 9 minutes. The play after it showed the spinner for 34 seconds,
+the connection gave no byte and no error for 32 of them.
+
+- Current: a play after more than 60 seconds of pause opens fresh connections, and
+  a read that hangs for 3 seconds while the video plays is broken,
+  `hilen/src/video/player/fresh.rs`, with unit tests in
+  `hilen/src/video/player/restart.rs`. Nobody tried it in the real app.
+- Needed: flixen on a pin with this change. Pause an episode for a few minutes,
+  play, and read the log: the line `the picture and the sound open fresh
+  connections` is there and the state is not `Buffering` for longer than about a
+  second. Then delete this entry.
+- Blocks: nothing, the fix is in.
+
+## A list of pieces with other cuts makes a new player
+
+It wants a live picture while an edge of a clip is trimmed, and a seek slider that does
+not lag.
+
+- Current: `VideoView::set_pieces` with other cuts makes a new player,
+  `Player::replaced_by` in `hilen/src/video/player/pieces.rs`. That is a new decode
+  thread that opens every file again, so a trim cannot show its edge on every step of
+  a drag. A seek into another piece also opens its file again, `Pieces::seek` in
+  `hilen/src/video/decoder/pieces.rs` keeps only the readers of the current and the
+  next piece, also when both pieces are cuts of 1 file. The decode thread of a list
+  runs only the newest seek that waits and gives up a seek for a newer one, with
+  unit tests on a small h264 file. Nobody dragged the slider of kutreel on it yet.
+- Needed: a `set_pieces` with other cuts of the same files keeps the player and its
+  open readers. A seek into another piece of the same file uses the open reader. A
+  drag of the seek slider of kutreel on its 1080p HEVC files at 60 frames per second,
+  with a look at the `video: seek` lines of its log.
+- Blocks: a live picture while an edge is trimmed in kutreel. The app waits for the
+  edge to rest for now.
+
+## The file picker is proven only on an iPhone
+
+It wants an upload button for files on the phone.
+
+- Current: `Paths::pick_file_bytes(title, extensions)` in
+  `hilen/src/filesystem/picker` lets the user pick 1 file of any kind and gives a
+  `PickedFile` with its bytes, see "The pickers" in [ios.md](ios.md) and "The picker
+  glue is a dex" in [android.md](android.md). The code compiles with no warning for
+  macOS, the iPhone, a hot build, the Apple TV simulator, a browser and Android. Unit
+  tests cover the extensions, the `accept` of a browser and the MIME types of Android.
+  On 2026-10-10 the 3 buttons of the Dev page of the demo, a file of any kind, a pdf
+  or txt file and an image, were tried by hand on an iPhone 16 Pro Max and worked.
+  banda calls it on iOS since that day.
+- Needed: on an iPhone a cancel by the button and by a swipe down, nobody said how
+  those went. The same pick on iOS 12 or 13. A pick on an Android phone with 0, 1 and 2
+  extensions, and a look at which files are greyed out. A pick in the rfd dialog on
+  macOS, Windows and Linux, and in a browser. The image picker shares the changed
+  Android and browser code, so 1 image pick on Android and in a browser too.
+- Blocks: nothing today. banda shows its upload button only on iOS.
+
+## tvOS, hot reload and hot swap
+
+Asked for on 2026-10-10, the driver is flixen, `~/dev/apps/flixen`, a player on an
+Apple TV. Its TV screens can only be tried with a full build and a TestFlight upload.
+
+- Current: hot reload and hot swap work in the Apple TV simulator and on a real Apple
+  TV, see "An Apple TV" in [hot-reload.md](hot-reload.md). 3 fixes that the real TV
+  showed have no test: the touch surface of the remote, the `Pause` command that
+  means play, and the sound decode thread a closed video left behind, see
+  [tvos.md](tvos.md). A simulator cannot make the first 2.
+- Needed: a swap on the TV after a played video, 2 times with more than 5 seconds in
+  between, it crashed before the fix. A test for the decode thread, the count of
+  threads before and after a closed video. The cause of the first swap after an
+  install that did not start. Many swaps in a row on the TV and what each leaves. A
+  glide after a swipe on the remote, and its speed checked by a person. `make hot
+  args="tv"` run from the folder of an app that pins hilen.
+- Blocks: trust in a swap on a TV after a video.
+
+## The even frame time is not proven on a real screen
+
+- Current: `time::frame_seconds` gives 1 even time per frame and `Animation` runs on
+  it, see "The time of a frame" in [dispatch.md](dispatch.md). The follower behind it
+  is proven by unit tests with made up frame times. On a real display it is not.
+  Blast moves a play line by `SoundClock::beats_at(frame_seconds())`, an even line
+  moves 12.6 pixels in every frame. 3 recordings with `hilen-inspect hover --frames
+  120` on a 60 Hz display gave steps of 1 to 55, 3 to 18 and 3 to 38 pixels, with up
+  to 73 ms between 2 frames. The window was in the background and the machine was
+  busy. 1 recording before the change gave 8 to 18 pixels and 9 to 24 ms. It is not
+  known if the frames came that unevenly from the load, from the background window or
+  from the change itself. All of these recordings made the app draw, `hover --frames`
+  asks for every frame itself. On 2026-10-12 the record from a start to a stop, which
+  asks for nothing in a window on screen, showed what the app does alone: during a
+  playback blast drew about 8 frames a second, each picture 130 to 170 ms on screen.
+  The cause was in blast. It called `keep_frames_while` in `setup`, where its
+  condition was still false, so the engine dropped the condition in the first frame,
+  see "A view that needs every frame" in [dispatch.md](dispatch.md). With the call
+  moved to the start of the player, a record of 3.1 seconds on a 60 Hz display has
+  185 frames with 0 lost, and all 184 gaps on screen are 16.7 ms. The steps of the
+  line in pixels were not measured in that record.
+- Needed: measure the steps of the line from the pictures and the screen times of a
+  record, see "Frame by frame" in [inspect.md](inspect.md), with the window in front,
+  with and without the frame time. Nothing ran on a 120 Hz display, in a browser, on
+  Windows, Linux, iOS or Android.
+- Blocks: the proof that the play line of blast moves in even steps.
+
+## The feed of a sound clock is not proven behind a covered window
+
+- Current: `SoundClock::set_feed` is called on a timer with no frame, proven by unit
+  tests. Blast plays with a still mouse and no late hit. A window that is fully
+  covered or minimized was never tried in a real app.
+- Needed: play in blast, cover the window fully, then minimize it, listen, and read
+  the log for `skipped` lines.
+- Blocks: nothing until it fails.
+
+## tvOS, the run on an Apple TV
+
+The remote, the safe area, stored settings, the media command of the remote and video
+landed on 2026-10-10 and run in the Apple TV simulator, see [tvos.md](tvos.md).
+
+- Current: the engine never ran on a real Apple TV. A tvOS build of the demo is in
+  TestFlight, version 1.0 build 1, sent by `build/tvos/flight.py`. `make fly` never
+  ran as 1 command for both systems. In the simulator the remote drives the demo and
+  its shell keeps inside `UIManager::safe_area()`. The hilen skill has no tvOS
+  chapter. There is no tvOS lane of the UI suite, single tests run by hand with
+  `HILEN_TEST_ONLY`. `Key focus long press` did not run there.
+- Needed: the demo from TestFlight on a real Apple TV, driven with its remote, and a
+  film played there with sound. Check 4K and HDR output, the frame rate, hardware
+  decode named in the first frame log line, and the latent `statusBarFrame` trap of
+  [tvos.md](tvos.md). 1 run of `make fly` that sends the iOS and the tvOS build. A
+  tvOS lane for the UI tests, like `build/ios/sim-test.py`. A tvOS chapter in the
+  hilen skill.
+- Blocks: a tvOS release of any app.
+
+## tvOS, the session, the Keychain and the Now Playing panel
+
+- Current: on tvOS the sealed session of `SessionStore` is an entry of the user
+  defaults, and the `keychain` feature of `hilen-session` builds with the protected
+  store of iOS, see Stored data in [tvos.md](tvos.md). Both compile and never ran.
+  `MediaSession` builds and links on tvOS. Its panel was never seen, no test played
+  something long enough, and no command of a phone or of Siri was sent.
+- Needed: a login on tvOS that is still there after a restart, in an app with the
+  `login` feature. A secret saved and read through the Keychain there. A film that
+  shows in the Now Playing panel of tvOS, paused from the panel.
+- Blocks: a login and the system playback controls of a tvOS app.
+
+## Sound clock and MIDI input, the proof on real devices
+
+The driver is blast, `~/dev/apps/blast`, a drum practice app.
+
+- Current: both are proven by unit tests only, on macOS and on Linux. The clock tests
+  play the audio thread by hand and the MIDI tests use a fake device. No sound of a
+  clock went through a real output device, and no real MIDI device was opened, on any
+  platform. The engine compiles for iOS and for the browser with both features on.
+  A build for Windows and for Android with the `midi` feature was never made. The
+  test `a_message_of_a_core_midi_source_arrives` in `hilen/src/midi/midi_test.rs`
+  sends through a virtual CoreMIDI source. It is ignored, and it never passed: on the
+  build machine kotik midir gives `InitError` when it makes its CoreMIDI client. The
+  clock gives the time the audio thread is at. A speaker is later than that by the
+  delay of the output device, and the engine does not know that delay. In a browser
+  the time of a MIDI message is taken on the main thread, so a busy frame makes it
+  late.
+- Needed: play a pattern of 16th notes at 280 BPM on a `SoundClock` on a Mac, an iPad
+  and an iPhone and hear that it is even. Open a real MIDI device on each of them,
+  plug it in and pull it out, and compare the time of a hit with the clock. Run the
+  ignored CoreMIDI test on a Mac with a login session. Build with `midi` for Windows
+  and Android and try a device there, and in a browser with Web MIDI. Decide whether
+  the clock should know the delay of the output device, and whether a MIDI message
+  should take its time from the system where the system gives one, like the packet
+  time of CoreMIDI and the event time of Web MIDI.
+- Blocks: nothing in the engine. blast finds out on its first run with a drum module.
+
+## A touch on a button ends the editing of a text field
+
+- Current: every touch that begins on a view selects that view, and a touch no view
+  takes unselects, `check_touch` in `hilen/src/ui/view/view_touch.rs`,
+  `UIManager::set_selected(weak_from_ref(view), true)` and `UIManager::unselect_view()`.
+  So a tap on a send button next to an edited `TextField` ends the editing and the
+  screen keyboard closes before the message is sent. The log of the phone shows it:
+  `on_selection_changed(false)` from `check_touch`, then `screen keyboard moves to None`
+  40 ms later, then the send. A view has no way to say that a touch on it leaves the
+  selection where it is. `TextField::focus()` cannot put the keyboard back, it does
+  nothing on a device with a screen keyboard, and `focus_with_keyboard()` after the
+  tap would close the keyboard and open it again.
+- Needed: a view can be marked so that a touch on it does not change the selected
+  view, like a button in a web page that prevents the default of its mouse down. The
+  edited field stays edited and the keyboard stays up, the tap still fires. A UI test
+  on the real keyboard: a field is edited, a tap on such a button, the field is still
+  edited and the keyboard reported no move.
+- Blocks: the send button of banda on a phone, the keyboard closes at every message.
+
+## Video pictures, pieces and export, Windows and iOS
+
+- Current: `VideoFrames`, `VideoView::set_pieces` and `VideoExport` landed, see
+  [video.md](video.md). Their unit tests and UI tests pass on macOS only. The Windows
+  ffmpeg archive of release `ffmpeg-9.0-4` has no h264 encoder, so an export fails on
+  Windows. `build/ffmpeg-win/build.sh` now turns Media Foundation on, `h264_mf` and
+  `aac_mf`, but no archive built that way is published. Nothing of the 3 ran on iOS.
+  The pictures and the export do not tone map an HDR source, the export cuts 10 bit
+  to 8 bit.
+- Needed: prove that a Windows build links the new archive, publish it per
+  [video.md](video.md) and pin it. On a real Windows machine run
+  `cargo test -p hilen --features video --lib -- video::` and the video UI tests, and
+  play an exported file in another player. Run the same tests on the iOS simulator.
+  Tone map an HDR source in the pictures and in the export, the way the view does.
+- Blocks: the export of kutreel on Windows.
+
+## A key binding with Alt
+
+- Current: a `KeyCombo` has only `cmd` and `shift`, `hilen/src/ui/input/keymap/key_combo.rs`.
+  `Keymap::check` in `keymap.rs` reads the Control, the Super and the Shift key of
+  `Input::modifiers()` and never Alt, so a binding cannot ask for Alt, and Alt held
+  changes nothing for a plain binding. `KeyCombo::cmd('n')` is Cmd+N on a Mac and
+  Ctrl+N on Windows and Linux. An app that wants Cmd+N on a Mac and Alt+N on the other
+  systems cannot bind the second one.
+- Needed: a combo with Alt, like `KeyCombo::alt('n')` and one with Alt and Shift. It
+  fires only while Alt is held, and a plain binding and a command binding of the same
+  key do not fire then. On a Mac Option changes the char that arrives, Option+N is a
+  dead key, so the match there goes by the key and not by the char. The `keys --alt`
+  call of `hilen-inspect` must reach such a binding. A unit test next to the ones in
+  `keymap.rs`, and a UI test that presses the key with and without Alt.
+- Blocks: Alt+N for a new session in banda on Windows and Linux.
+
+## A table keeps a scroll place that is set before its first layout
+
+A chat page is made new on every switch and puts the reader back where they were. The
+chat stood at its top for a frame and then jumped.
+
+- Current: `layout_cells` in `views/containers/table_view/table_view.rs` returns
+  while the table has no height, and a view gets its size only in the layout of the
+  frame after it was added. So `reload_data` on a new table lays out no row, the
+  content has no height, and `set_content_offset` and `scroll_to_bottom` cut the
+  place to 0. Banda gives its table the old size by hand before the reload,
+  `restore` in `src/ui/session_page/rows.rs`.
+- Needed: a table with no size yet keeps a scroll place that was asked for, an offset
+  or the end, and goes there in the first layout it has a size in, before that frame
+  is drawn. `scroll_to_row` already does this, its doc says "a table with no size yet
+  scrolls once it gets one".
+- Blocks: banda can drop the size it sets by hand.
+
+## Work that runs after this turn of the main loop
+
+- Current: `on_main` in `deps/hreads/dispatch.rs` runs its closure at once when it is
+  already on the main thread. `after(0.0)` goes through a tokio task, so when it runs
+  against the next frame is not fixed. The markdown view now lays out in its own
+  `update`, since nothing else waits for the end of the turn.
+- Needed: a call that runs a closure on the main thread after the code of this turn
+  and before the next frame is drawn. A view that gets several changes in a row can
+  then do its work once, also a view that is hidden and gets no `update`.
+- Blocks: nothing. Banda uses `after(0.0)` in several places where it means this.
+
+## The login poll waits 2 seconds
+
+- Current: `wait_for_login` in `hilen/src/login/client.rs` asks the server every
+  `POLL_SECONDS`, 2 seconds. A fresh login shows in the app up to 2 seconds after the
+  browser finished it.
+- Needed: a shorter wait at the start that grows, or a long poll on the server side,
+  so the app moves on within a few 100 ms of the login.
+- Blocks: nothing, it happens once per device.
+
+## The browser websocket does not say why it failed to open
+
+- Current: the native client reports a failed upgrade with its HTTP status, like
+  `HTTP error: 404 Not Found`. The browser client in `deps/netrun/ws/web.rs` gives
+  only `WebSocket failed`, a browser hides the status of a failed handshake.
+- Needed: a way for an app to tell a server that has no such route from a lost link
+  on every platform, like a plain request to the same path first, or a field on
+  `WsEvent::Error` that says when the status is not known.
+- Blocks: banda in the browser asks an old backend for its socket every 15 seconds
+  and not every 60, it cannot tell the 2 cases apart.
+
+## The Postgres twin of the token login test never runs
+
+- Current: `a_token_alone` in `hilen-server/src/auth/store_test.rs` passes on SQLite.
+  Its Postgres twin is ignored, it needs a server.
+- Needed: a lane that starts a Postgres and runs the ignored tests of `hilen-server`,
+  like `sqlx.sh test` of a backend does.
+- Blocks: nothing. The Postgres path of the login is proven only by the apps on it.
+
+## A warning in every build of every app
+
+Seen on 2026-10-08 with the nightly toolchain of the workspace.
+
+- Current: `#![feature(generic_const_exprs)]` in `hilen/src/lib.rs` line 9 makes the
+  compiler print "is not supported with the next-generation trait solver" for the
+  `hilen` crate in every build, also in the build of an app. An app cannot reach a
+  build with 0 warnings.
+- Needed: the engine builds with no warning, by dropping the feature or by what the
+  compiler note asks for.
+- Blocks: nothing.
+
+## Frame record and frame step, the proof in banda and on the other lanes
+
+A popup opened with 3 wrong frames: the pills of a row sat left of the popup until their
+anchors settled. The user saw a flicker and had no way to show it or to look at it.
+
+- Current: `hilen-inspect` saves every frame after an input, `tap <query> --frames 30
+  --out <dir>` and `record`, and walks a paused app with `pause`, `step [n]` and
+  `resume`, see [inspect.md](inspect.md). The `Inspect frames` UI test passes on the
+  desktop, the iOS simulator and the browser lanes, and both were driven by hand on the
+  demo window on macOS.
+- Needed: bump the pin of banda, open the popup with `tap --frames`, and see the 3
+  wrong frames in the pictures. Start a `record` with a real click, the test covers only
+  the record that no input starts.
+- Blocks: nothing. This entry is deleted once the popup of banda is seen in the frames.
+
+## Keys the owner of an edited text field takes for itself
+
+Its compose box shows a list of slash commands above the field while the text starts
+with `/`. Up and Down have to move the marked row, Tab and Enter have to fill the marked
+command in, Escape has to close the list, and the field has to stay in edit through all
+of it.
+
+- Current: `Input::on_key` in `hilen/src/ui/input/input.rs` calls
+  `UIManager::keymap().check(key)` and then always
+  `UIEvents::keyboard_key().trigger(key)`. The edited `TextField` handles that event in
+  `on_key` of `hilen/src/ui/views/basic/text_field/editing.rs`: Tab selects the next
+  field, Enter submits or adds a line, Escape ends the edit with
+  `UIManager::unselect_view`, an up or down arrow moves the caret. A keymap binding
+  for 1 of these keys runs too, but nothing can stop the field from acting on the
+  same press. `TextField` has the events `changed`, `editing_ended`, `submitted` and
+  `image_pasted`, none for a key.
+- Needed: a way for the owner of a field to take named keys while the field is
+  edited, switched on and off at run time, like a list of keys with 1 callback. A
+  press of a taken key goes to the owner only. The field does not move its caret,
+  does not submit, does not lose the edit and does not jump to the next field. A key
+  that is not taken works as now. It must work for a single line and a multiline
+  field, on every platform with a keyboard.
+- Blocks: the keyboard side of the command list in banda, and any completion list,
+  mention list or search drop down that opens under a field that is being typed in.
+
+## Screen keyboard, the proof in banda and on Android
+
+The keyboard frame, the field that stays in view, `b_keyboard` and the focus by code
+that opens no keyboard landed, see [screen-keyboard.md](screen-keyboard.md).
+
+- Current: proven by 4 UI tests on desktop, with a stand in for the keyboard, and on
+  the iOS simulator lane with the real one. banda has the pin `da1b9180` and its
+  compose box is placed with `b_keyboard`. Its chat was tried on the iPhone 14
+  simulator, iOS 16.4, with the engine that makes the app views the safe area: the
+  compose box sits above the home bar, a tap on its field opens the keyboard, and the
+  box rides on the keyboard with its 16 points of gap while the list above gets
+  shorter. No real iPhone ran it, and the pin of banda is still older than the safe
+  area fix. The move runs on an ease curve close to the one of iOS, not measured
+  against the real keyboard. Android opens no screen keyboard at all, a tap on a
+  `TextField` there brings nothing up, so there is nothing to follow yet.
+- Needed: the pin of banda moved to an engine with the safe area fix, and the chat
+  tried on a real iPhone, with the 3 `compose.focus()` calls of
+  `src/ui/session_page/mod.rs` left as they are. A screen keyboard on Android, opened
+  by an edited field, with its frame passed to `ScreenKeyboard::moves_to`.
+- Blocks: calling the chat of banda done on a phone, and every text field on Android.
+
+## The wheel delta does not tell which way the user turned the wheel
+
+Its player turns the volume with the wheel, up is louder.
+
+- Current: `UIEvents::on_scroll` gives the delta the system reports, `scroll_pixels` in
+  `hilen/src/window/app_handler.rs`. On a Mac with natural scrolling on, the default,
+  that delta is already turned around, so a wheel turned up gives a negative `y`. That
+  is right for content that scrolls and wrong for a value like volume or zoom. The
+  window code of `hilen-winit` reads `scrollingDeltaY` in `scroll_wheel` of
+  `platform_impl/macos/view.rs` and never reads `isDirectionInvertedFromDevice`, so no
+  app can tell. flixen turns the sign around on every Mac, which is wrong again with
+  natural scrolling switched off.
+- Needed: the wheel event also carries the turn of the device itself, or a flag that
+  the system turned it around. On a Mac from `isDirectionInvertedFromDevice`, on the
+  other platforms from their own setting where the system reports the turned value. A
+  test for the sign with the flag on and off.
+- Blocks: the right volume direction in the flixen player on a Mac with natural
+  scrolling off, and the `cfg!(target_os = "macos")` sign turn in `wheel_volume` of
+  `crates/flixen/src/ui/player_screen.rs`, which goes away then.
+
+## A paragraph of only bold text before a list is not drawn by MarkdownView
+
+Its chat draws what Claude wrote with `MarkdownView::set_text`, and Claude often writes
+a bold line as a small header right above a list.
+
+- Current: a text like `**Done**` on 1 line with a list on the next line, `- first`,
+  shows the list and an empty gap where the bold line should be. The text is there: a
+  selection over that place copies `Done`, so the block is parsed and laid out, and
+  only its drawing is missing. A bold word inside a longer paragraph is drawn. The
+  cause is not found yet, prove it before a fix. Seen on hilen `dc3d50d5`, and before
+  the text selection landed, so the selection did not bring it.
+- Needed: the bold paragraph is drawn like any other paragraph. A UI test with a bold
+  only paragraph right above a list, above a paragraph and at the end of a text.
+- Blocks: the small headers of an answer in the banda chat.
+
+## A key combo with Alt, and a combo that wins over the focus ring and a text field
+
+It jumps between its sessions with Cmd and an arrow on a Mac, and has to do the same
+with Alt and an arrow on Windows and Linux.
+
+- Current: `KeyCombo` in `hilen/src/ui/input/keymap/key_combo.rs` has `cmd` and
+  `shift` only, and `cmd` is Cmd or Ctrl, `command_held` in `keymap.rs` takes both. No
+  binding can ask for Alt. `Input::on_key` in `hilen/src/ui/input/input.rs` hands an
+  arrow to `Focus::on_key` first, which takes it with any modifier held while the ring
+  is active, so a combo with an arrow reaches the keymap only while a text field has
+  the keys. That field then gets the same press through `keyboard_key` and also moves
+  its caret.
+- Needed: `KeyCombo::alt(key)`, and a way to bind 1 action to Cmd on a Mac and Alt
+  elsewhere. A press that matches a bound combo with a modifier goes to that binding
+  only, not to the focus ring and not to the focused text field. A plain arrow stays
+  with the ring and the field. A UI test for both.
+- Blocks: the session switch keys of banda on Windows and Linux.
+
+## An image from the clipboard on Android, in a browser and on a real phone
+
+Its compose box takes a screenshot from the clipboard and sends it with a prompt.
+`Clipboard::get_image` and the `image_pasted` event of `TextField` landed, see
+[clipboard.md](clipboard.md).
+
+- Current: proven on macOS with a real screenshot in banda, and by unit tests and the
+  UI test `Text field image paste` on the store of the process. Windows and Linux use
+  the same `arboard` code and were not run, Linux only under X11. iOS reads
+  `UIPasteboard.image`, it compiles and never ran, and a paste there does not fire
+  the event, the system text field pastes by itself. Android and the browser answer
+  none.
+- Needed: a picture from the clipboard on Android, through a `ContentResolver`, and
+  in a browser, where the read answers later after a permission prompt. A paste on a
+  phone that fires `image_pasted`. A run on Windows, on Linux and on an iPhone.
+- Blocks: pictures in the prompts of banda on a phone and in a browser.
+
+## File browser, the proof in an app and on the other lanes
+
+Its New session page picks the folder a session starts in, on another machine.
+`FileBrowser`, `FilePicker` and the `FileSource` trait landed, see
+[file-browser.md](file-browser.md).
+
+- Current: proven by 14 UI tests on desktop, on a tree held in memory, and by unit
+  tests of `LocalFiles` on a temp folder. banda uses `FilePicker` with its own source
+  for the folders of another machine, run on macOS against a Linux machine. The tests did not
+  run on the iOS simulator lane or the browser lane, 3 of them type through
+  `system_input`. `LocalFiles` was not run on Windows, where the roots are the drive
+  letters and a hidden file is an attribute, nor on a phone. The view has no drag and
+  drop, no copy and paste of files, no preview, and no style call for an app with its
+  own palette. A delete on `LocalFiles` is for good, nothing goes to a trash.
+- Needed: the 14 tests green on `make ui-ios` and `make ui-web`. A run of a
+  `LocalFiles` browser on Windows. A style call, so the picker takes the palette of
+  the app, the way `MenuStyle` does for `ContextMenu`.
+- Blocks: a folder picker in the colors of banda.
+
+## Google access, the proof on a phone, in a browser and with a linked account
+
+The feature landed, see [google-access.md](google-access.md).
+
+- Current: proven on a Mac debug build against the live backend of lendar. The main
+  account signed in, the Drive app folder was read and the calendars synced. No
+  second account was linked against the real Google yet, the 2 device tests run
+  against a stand in for the Drive folder. The secure store ran only on a Mac, for
+  Windows, Linux and Android `hilen-session` was only compiled. Nothing ran on iOS,
+  on Android or in a browser, and no signed release build read the Keychain yet.
+- Needed: a real link of a second account and its return on a second device. The
+  sign in on an iPhone, on Android and in a browser. A signed Mac release that
+  reads the Keychain with no dialog, and a run of the store on Windows and Linux.
+- Blocks: lendar on iOS, Android and in the browser.
+
+## Canvas and pinch, the proof on real input
+
+`CanvasView`, the scale of a subtree and the pinch event landed, see
+[canvas.md](canvas.md).
+
+- Current: proven by the UI tests `Canvas zoom` and `Canvas pinch` on desktop, with
+  injected touches only. No real trackpad and no real finger made a pinch yet. The
+  browser path, a wheel turn with Ctrl held, was never built or run, and the 2 tests
+  did not run on the iOS simulator lane or the browser lane. Windows and Linux get no
+  trackpad pinch, winit reports none there. A view that draws by itself, a
+  `VideoView`, does not scale inside a canvas. A `ScrollView` inside a zoomed canvas
+  drags at the speed of the screen, not of its content. After a pinch ends with 1
+  finger still down, that finger pans only after it lifts and touches again. The
+  touch recorder prints finger touches and no trackpad pinch.
+- Needed: the Lan Atlas map on `CanvasView`, a pinch on a Mac trackpad, on a phone and
+  in a browser, and the 2 tests green on `make ui-ios` and `make ui-web`. Then the
+  small points above, each with its test.
+- Blocks: calling the map screen of Lan Atlas done on a phone and in a browser.
+
+## Video on iOS, the proof on a phone
+
+The `video` feature builds and plays on iOS now, see [video.md](video.md), and its UI
+tests pass on the simulator. No real iPhone ran it yet.
+
+- Current: proven on the iOS 16.4 simulator only, where h264 decodes in
+  software and HEVC in hardware. The audio session, `Window::set_orientations`,
+  the phone side of `Window::set_fullscreen` and `MediaSession` on iOS are
+  written and compile for a device. On Android `set_orientations` only keeps
+  its value. A film stops when the phone locks, an app has no background
+  audio mode.
+- Needed: a film played on a tethered iPhone, with hardware decode named in
+  the first frame log line, sound with the silent switch on, the screen turned
+  by a player, and play, pause and seek from the control center and from
+  headphones. `UIBackgroundModes` with `audio` in the generated `Info.plist`,
+  as a knob of `hilen.toml`, so the sound goes on behind the lock screen and
+  the lock screen shows the film. The orientation call on Android, through
+  `setRequestedOrientation`.
+- Blocks: calling flixen on an iPhone and an iPad done.
+
+## Flixen, the media player gaps
+
+Its first version is macOS only. The gaps landed in 8 batches: tracks and subtitles,
+HDR, fullscreen, pointer hide and screen awake, SQLite in `hilen-server`, view opacity
+with the group fade, the line limit and text outline, image downloads, playback speed,
+Now Playing and the media keys, zlib and dav1d, the whole track subtitle read. See
+[video.md](video.md), [text.md](text.md) and [login.md](login.md). What is left:
+
+### What the flixen batches left open
+
+- AV1 always decodes in software through dav1d, also on a Mac whose hardware
+  has an AV1 decoder, ffmpeg lists dav1d first. Picking the hardware decoder
+  where VideoToolbox has one needs such a Mac to prove it, an M3 or newer.
+- Now Playing and the media keys are macOS and iOS only. Windows needs the System
+  Media Transport Controls. Raise this point only when the roadmap is read
+  on Windows.
+- Linux needs MPRIS for the same. Raise this point only when the roadmap is
+  read on Linux.
+- The outline and the soft shadow of a label are images made on the CPU
+  now, see [text.md](text.md). The effect entry points of the `wgpu_text`
+  fork, `vs_effect` and `fs_effect`, are unused and can leave the fork. They
+  were never run on an A7 device.
+- A film with no index of its subtitle packets is read through once when a
+  subtitle track is picked, over http that downloads the whole file. Until
+  that read is done a seek finds only a line that began in the 10 seconds
+  before its target.
+- The data folder on Android is made and set by the engine, the code
+  compiles in the docker build and has not run on a device or an emulator.
+- A group fade draws into an image of the frame size with its own depth and
+  multisample target, made on first use and kept. A target of the size of
+  the group would cost less memory.
+
+## LG webOS TV, the run on a TV
+
+`make webos`, the key focus, browser storage, video in a browser and the login from a
+phone landed, see [webos.md](webos.md). None of it ran on a TV yet.
+
+- Current: proven on desktop and in Chrome only. The Back key code 461 is taken from
+  the LG documents. The guard after a lost WebGL context has no reproduced failure.
+  The pack step of `make webos` waited on a RustScript fix. It runs on Python
+  now, a full pack is not checked yet.
+- Needed: an app driven with the remote on an LG C1, a film played there in a
+  `VideoView`, a login with the code, and the UI suite on the TV with the Clipboard
+  test no longer skipped. A lost context made on purpose with `WEBGL_lose_context`
+  and a resize after it.
+- Blocks: calling the TV a supported target.
+
+## Password autofill on iOS
+
+- Current: an edited field on an iPhone is a system text field, see
+  `hilen/src/ui/views/basic/text_field/system_field.rs`. It gets the secure flag, and
+  nothing that says what the field holds. `TextField` has no call for that. iOS offers
+  a saved login only by guessing from the secure flag.
+- Needed: a content type on `TextField`, user name, password, new password, email and
+  one time code, passed to the system field as its `textContentType`. For the
+  passwords of the app's own site also an associated domain in the entitlements of
+  the mobile project. The simulator has no saved logins, so the proof needs a phone.
+- Blocks: a login form that fills itself from the iOS keychain, and a code from an
+  SMS offered over the keyboard.
+
+## Text entry on a TV
+
+- Current: a text field needs a keyboard. A TV has none, and the keyboard of the TV
+  itself opens only for an HTML input, not for a canvas.
+- Needed: an on screen keyboard view driven by the key focus, or a hidden HTML input
+  that raises the keyboard of the TV and feeds the engine text field.
+- Blocks: any screen with a text field on a TV.
+
+## Sound tracks of a video in a browser
+
+- Current: `VideoView` in a browser lists no sound tracks and plays the first one of
+  the file. `set_audio_track` logs a warning.
+- Needed: the `audioTracks` list of the video element where the browser has it. Not
+  checked: whether Chromium 79 on webOS has it for an mkv.
+- Blocks: a film whose first sound track the device cannot play, DTS on an LG C1.
 
 ## 3D scene, remaining deliveries
 
@@ -112,51 +1225,128 @@ with image based lighting, transparency, a tonemap, a first person player,
 distance, distance fog and touch picking, see [scene.md](scene.md). The rest was
 planned with it.
 
-- An embeddable `SceneView` that composites into any view frame instead of the
-  root area, and the offscreen linear pass with real HDR that `colors.md`
-  sketches, if a scene ever needs it.
-- The shadow passes draw every opaque node into every cascade, the GPU clips
-  what lies outside a map. Culling nodes against each cascade's box on the CPU
-  would make a short shadow distance cut the passes' cost on a big level.
+- The offscreen linear pass with real HDR that `colors.md` sketches, if a scene
+  ever needs it.
 
-## Video playback
+## 3D scene on WebGL2
 
-Found by weighing a Jellyfin style media client on hilen, see the research note. No
-driver app needs it yet, so this is parked until one does, but it is the one large
-engine gap that blocks a whole class of app.
+The UI pipelines read their instances from a uniform array on WebGL2, `InstanceBinding`
+in `render/uniform`, the scene does not.
 
-- Current: nothing. There is no video view and no decode path. Audio is short sound
-  effects only, `audio::Sound` over kira with `StaticSoundData` loaded whole into
-  memory, behind the off by default `audio` feature. So there is no streaming audio,
-  no audio to video sync, and no moving picture beyond `AnimatedImage` playing a gif
-  frame list. A media grid, poster wall or detail page is already in reach through
-  `TableView`, remote images and `OnDisk`, but the play screen is not.
-- Needed: a `VideoView` that decodes a stream and draws its frames into the WGPU
-  pipeline, plus streaming audio output and sync. The hard parts are hardware decode
-  per platform, VideoToolbox on Apple, VAAPI on Linux, D3D11VA on Windows, the mobile
-  decoders, and landing frames in a `wgpu::Texture` without a copy back through system
-  memory, which hilen's WGPU base makes possible. Seeking, subtitles and track switch
-  sit on top. The browser target cannot follow this path and would hand the stream to
-  the HTML5 video element instead, a second code path against the one app everywhere
-  rule. Prior art to lean on but not drop in: vk-video wires Vulkan Video into wgpu
-  textures, gpu-video is backend independent over ffmpeg, rs-wgpu-video-player is a
-  full ffmpeg plus wgpu pipeline reference.
-- Blocks: any video or streaming audio app, a media client, a player, a call view.
-  The first thing to prove is a 1080p and a 4K file hardware decoded and played
-  smoothly with sound on desktop, before any such app is worth starting.
+- Current: `MeshPipeline` binds the instances, the joint matrices and the lights
+  as read only storage buffers with no uniform fallback, and WebGL2 has none. On
+  the forced uniform path, `HILEN_UNIFORM_INSTANCES=1`, the first scene frame
+  fails in `create_bind_group` for `mesh_lights_bind`. The web lane runs the scene
+  tests on WebGPU alone, so nothing pins it. The sprite pipelines of `level` no
+  longer panic there, `instances_shader` leaves a source with no storage untouched,
+  but no lane runs the level tests on the uniform path.
+- Needed: `level-test` on `HILEN_UNIFORM_INSTANCES=1` in `make ci`. The scene follows
+  the UI: the lights become a fixed uniform array, the opaque batches draw chunk by
+  chunk through `InstanceChunks` with the `index` attribute chunk relative, and
+  the joints bind a uniform window per batch, 256 matrices, split when the
+  skinned nodes overflow it, shared with the shadow pass. Check first that naga's
+  GLSL output takes `textureLoad` on the depth array shadow map, else that path
+  needs a comparison sampler or a color render of the depth. Then `scene-test` on
+  `HILEN_UNIFORM_INSTANCES=1` in `make ci`, and a `?hilen_webgl` run in the web
+  lane.
+- Blocks: any 3D page in a browser without WebGPU: an iPhone below iOS 26, a page
+  on plain http over a LAN address, WebKit handing out no adapter, a blocklisted
+  GPU.
+
+## Scene tests on the browser lane
+
+The scene tests live in `scene-test-suite`, `demo` links it, and the device
+autorun runs them after the UI tests, so `make ui-ios` and `make ui-web` cover
+them. Nine of them are gated off a lane they fail on, so the lanes run green
+while the causes stay open. Each gate points here, and every fix removes its
+gate.
+
+- Current: `Animations`, `Cascades`, `Shadows` and `Cutout shadows` are off the
+  browser lane. They pass on the iOS simulator and in a real Chrome, and under
+  SwiftShader, the software WebGPU the CI browser lane renders with, their
+  shadow edges land a few pixels off, the depth precision of the shadow map is
+  the lead. `Colliders` is off the browser lane too,
+  SwiftShader draws the green collider lines in another shade, `#00ff60` where
+  a GPU blends `#1fd153`, the lines are not antialiased there. `Wireframe` is off
+  it for the same thin lines. `Collider
+  shapes` and `Player walk` are off the browser lane as well. Both no longer
+  check a picture, see [scene.md](scene.md), so the reason for their gates is
+  gone, and neither was run on SwiftShader since. `Mouse look` is
+  desktop only. `Cursor::capture` does nothing on a phone, and a browser grants
+  pointer lock only after a real click, which no test can inject, so the
+  capture is released at once. The UI test `Cursor capture` is desktop only for
+  the same reason. Chromium on SwiftShader runs on a Mac in docker: an image
+  with `chromium`, `xvfb`, `xauth` and `socat`, the driver started with
+  `--browser none`, `socat` forwarding the container's port 44810 to the host
+  so the page stays on `localhost`, and the Linux flags of `launchChrome`.
+  `Cutout shadows` passed there on arm64, the CI runner is x86_64, so its gate
+  stays until CI ran it.
+- Needed: for `Collider shapes` and `Player walk`, a run on SwiftShader and then
+  their gates removed. For the shadows, a bias or a depth format that reads the same on
+  SwiftShader. For the collider lines, probes off the lines or lines that cover
+  the same pixels without multisampling. For the mouse, a real click from the
+  driver, through the debug protocol of Chrome and its twin in Firefox, else
+  those two tests stay desktop only.
+- Blocks: the gated tests on `make ui-web`, and `Mouse look` on `make ui-ios`.
+
+## Video playback, the other lanes
+
+Desktop macOS, Windows x64 and iOS landed, see [video.md](video.md): `VideoView` behind
+the `video` feature, ffmpeg from prebuilt static archives, VideoToolbox and
+D3D11VA decode, kira for the sound and as the clock. On macOS a 1080p60 and a
+4K30 file play at full rate with sound. The rest of the platforms are open.
+
+- Current: the archive exists for `aarch64-apple-darwin` and for
+  `x86_64-pc-windows-msvc`. `demo` and `ui-test` turn the feature on through
+  a target table for macOS and Windows. On Windows the 8 video UI tests and
+  the video unit tests pass on a real machine, run by hand, no CI lane runs
+  them there. Sound on Windows was checked by the tests only, nobody
+  listened, and no large file was measured for dropped frames. The engine
+  declares VAAPI for Linux, which has no archive and no CI lane. A decoded 4K
+  frame is copied through system memory, 12 MB a frame, and plays at rate.
+  Each `VideoView` keeps one frame image per source size for good, the
+  managed image store never frees.
+- Needed: an archive for Linux and for the Intel Mac from `build/ffmpeg.py`,
+  and for Windows on ARM from `build/ffmpeg-win.py`. Linux needs `libva-dev`
+  and `nasm` in `build/setup.sh` and in the docker containers of the Linux CI
+  job, and its TLS named in the script. Then the target tables widen to
+  `desktop`. A person plays a real film on Windows, with sound, and reads
+  the dropped frames off the stats line.
+  Android needs archives cross built per ABI with MediaCodec, and the feature
+  unlocked there. The browser plays through a
+  video element under the canvas, see video.md. Zero copy on macOS, a `CVPixelBuffer` into a Metal texture
+  through the wgpu hal, only after an A/B shows the copy costs frames.
+- Blocks: video on Linux, the Intel Mac, Windows on ARM and Android.
 
 ## Leftovers inside landed features
 
 Small remainders not worth their own entry.
 
+- Sign in with Apple was never run against the real Apple, which refuses
+  `localhost` as a return address. The exchange, the form post and the revoke are
+  proven against a stand in server only, see [login.md](login.md). The first backend
+  with a real service id proves them.
 - Tab focus traversal does not scroll. Tab selects the next text field even when
   it sits scrolled out of view inside a `ScrollView`, so the editing session
   starts off screen. Needs a scroll-to-view step in `select_next_field`, the way
   a multiline field already follows its caret line while typing.
 - Frame stepped time covers `Animation` and `AnimatedImage` only. `RingSpinner`,
-  the text field caret blink and double click, tooltip and long press delays still
+  the text field caret blink, tooltip and long press delays still
   read `Instant`, so they drift under stepped time and their mid flight frames
   cannot be pinned. Each is a one line move to `Clock::now_ms` plus a test.
+- Sideways scrolling pins nothing in a plain `ScrollView`, its whole content
+  moves. Only a `TableView` cell keeps parts in place, through
+  `set_moves_sideways`.
+- The same text frame still differs by 1 color level between 2 runs of the
+  program after the glyph snap, see [text.md](text.md). The cause is not found.
+- A scene picture, `SceneManager::picture`, is proven on desktop Metal only. The
+  iOS simulator and the browser lanes have not run its 2 scene tests, and
+  WebGL2 draws no scene at all yet.
+- The alpha cutout of a scene material is proven on desktop Metal only. The iOS
+  simulator and the browser lanes have not run `Cutout` and `Cutout shadows`. A
+  `.glb` material's `doubleSided` is not read, back faces are always culled, so a
+  leaf card is seen from one side. The cut edge is hard, alpha to coverage would
+  smooth it under MSAA.
 - Human mode has no frame step key. A stepped test pauses only on checks, an
   animation in flight cannot be walked one frame per key press with the frame
   number in the window title.
@@ -165,6 +1355,11 @@ Small remainders not worth their own entry.
   that changes visible behavior and recorded expectations, so it is its own gated
   decision.
 
+- A COLR sweep gradient draws through tiny-skia's sweep shader with the
+  angles taken as degrees counter clockwise from the font's x axis, the
+  COLR convention is not pinned by any test font. A color glyph ignores the
+  text color's alpha, a translucent emoji needs an opacity in the image
+  instance.
 - SVG premultiplied upload: the convert from tiny-skia's premultiplied pixels to
   straight alpha is a per pixel loop, optimized in `hilen-pixels` but still work.
   Uploading premultiplied and blending svg textures premultiplied in the image
@@ -172,3 +1367,21 @@ Small remainders not worth their own entry.
   change in the shader.
 - DrawingView paths: texture fills for paths, more than 8 gradient stops, and soft
   edges on arbitrary path outlines, a radial alpha ramp only covers circular glows.
+- A rect edge on a fractional pixel row blends differently per GPU under MSAA
+  4x. The SDF alpha and the hardware sample coverage combine, and the 4x
+  sample pattern is the GPU's own, SwiftShader in the CI browser lane reads
+  such a row 30 levels off a Mac. Text underlines snap to whole rows now,
+  anything else laid out at a fraction still varies, so a probe on such a row
+  holds on one GPU only. A sample mask of all ones in the SDF pipelines would
+  make the alpha the only coverage, it moves every fractional edge on every
+  platform, so it needs a re-record of the suite.
+
+## Game consoles
+
+The lowest priority, nothing asks for it yet. The research is in [consoles.md](consoles.md).
+
+- Current: no gamepad input, no console target, and no web shell for an Xbox app. On a
+  console the engine has no window layer and no `wgpu` backend it can use as it is.
+- Needed: gamepad input through the key focus first. Then a UWP shell around the wasm
+  build for an app on Xbox, and a private native layer for a game on Xbox, Switch and PS5.
+- Blocks: any app or game on a console.

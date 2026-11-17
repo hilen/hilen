@@ -1,4 +1,8 @@
-use crate::{deps::refs::Weak, window::image::Image};
+use crate::{
+    deps::refs::Weak,
+    gm::color::Color,
+    image::{Image, tint_svg},
+};
 
 pub struct UIImages;
 
@@ -18,6 +22,54 @@ impl UIImages {
 
     pub fn chevron_down() -> Weak<Image> {
         Image::from_file_data(include_bytes!("images/chevron_down.svg"), "chevron_down.svg")
+    }
+
+    /// The down chevron in a lighter gray that reads on a dark fill.
+    pub(crate) fn chevron_down_dark() -> Weak<Image> {
+        Image::from_file_data(
+            include_bytes!("images/chevron_down_dark.svg"),
+            "chevron_down_dark.svg",
+        )
+    }
+
+    /// The Lucide x, drawn in `tint`.
+    pub(crate) fn x(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/x.svg"), "x.svg", tint)
+    }
+
+    /// The Lucide chevron left, drawn in `tint`. The same file as the one
+    /// of the file browser, so the same name.
+    pub(crate) fn chevron_left(tint: Color) -> Weak<Image> {
+        tint_svg(
+            include_bytes!("images/fb_chevron_left.svg"),
+            "fb_chevron_left.svg",
+            tint,
+        )
+    }
+
+    /// The Lucide chevron right, drawn in `tint`.
+    pub(crate) fn chevron_right(tint: Color) -> Weak<Image> {
+        tint_svg(
+            include_bytes!("images/fb_chevron_right.svg"),
+            "fb_chevron_right.svg",
+            tint,
+        )
+    }
+
+    /// The Lucide copy, drawn in `tint`.
+    pub(crate) fn copy(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/copy.svg"), "copy.svg", tint)
+    }
+
+    /// The Lucide arrow up, drawn in `tint`. The same file as the one of
+    /// the file browser, so the same name.
+    pub(crate) fn arrow_up(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/fb_arrow_up.svg"), "fb_arrow_up.svg", tint)
+    }
+
+    /// The Lucide arrow down, drawn in `tint`.
+    pub(crate) fn arrow_down(tint: Color) -> Weak<Image> {
+        tint_svg(include_bytes!("images/arrow_down.svg"), "arrow_down.svg", tint)
     }
 
     pub fn down() -> Weak<Image> {

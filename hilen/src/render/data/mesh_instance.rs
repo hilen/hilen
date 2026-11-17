@@ -19,28 +19,44 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 pub(crate) struct MeshInstance {
-    pub model:        Mat4,
+    pub model:              Mat4,
     /// The inverse transpose of the model's rotation and scale, what a
     /// normal transforms by when the scale is not uniform. Three vec4
-    /// rows, the fourth component is padding.
-    pub normal:       [Vec4; 3],
-    pub color:        Color,
-    pub metallic:     f32,
-    pub roughness:    f32,
-    pub light_count:  u32,
+    /// rows. The fourth component of the first is 1 for `Material::dust`,
+    /// of the others padding.
+    pub normal:             [Vec4; 3],
+    pub color:              Color,
+    pub metallic:           f32,
+    pub roughness:          f32,
+    pub light_count:        u32,
     /// Where this instance sits in the storage buffer of its draw. The
     /// vertex stage carries it instead of `instance_index`, so a
     /// translucent node drawn alone from the middle of the buffer needs
     /// no base instance, which an A7 cannot draw.
-    pub index:        u32,
+    pub index:              u32,
     /// Indices into the light buffer, two to a word, see `LightPick`.
-    pub lights:       [u32; 4],
-    pub normal_scale: f32,
+    pub lights:             [u32; 4],
+    pub normal_scale:       f32,
     /// Where this instance's joint matrices start in the frame's joint
     /// buffer, what the skinned vertex stage reads. Zero on a static
     /// mesh, whose pipelines never read it.
-    pub joint_base:   u32,
-    pub padding:      [u32; 2],
+    pub joint_base:         u32,
+    pub emissive:           f32,
+    /// The alpha under which a fragment is not drawn, see
+    /// `Material::cutout`. Zero on a node that is not cut out.
+    pub cutout:             f32,
+    pub occlusion_strength: f32,
+    /// 1 for a node drawn with no light, see `Material::unlit`. A float
+    /// so it takes a word of the padding the struct already had.
+    pub unlit:              f32,
+    /// The share of the node drawn, see `Material::fade`. It and the flag
+    /// below fill the padding that rounded the struct up to 16 bytes.
+    pub fade:               f32,
+    /// 1 for a node that keeps the other share of the dither, see
+    /// `Material::fade_flip`.
+    pub fade_flip:          f32,
+    /// See `Material::shallow_color`, `color` when it has none.
+    pub shallow:            Color,
 }
 
 impl MeshInstance {
@@ -49,8 +65,8 @@ impl MeshInstance {
         Self {
             model,
             normal: [
-                normal.x_axis.extend(0.0),
-                normal.y_axis.extend(0.0),
+                normal.x_axis.extend(if material.dust { 1.0 } else { 0.0 }),
+                normal.y_axis.extend(material.triplanar),
                 normal.z_axis.extend(0.0),
             ],
             color: material.color,
@@ -61,7 +77,13 @@ impl MeshInstance {
             lights: lights.packed,
             normal_scale: material.normal_scale,
             joint_base,
-            padding: [0; 2],
+            emissive: material.emissive,
+            cutout: material.cutout.unwrap_or(0.0),
+            occlusion_strength: material.occlusion_strength,
+            unlit: if material.unlit { 1.0 } else { 0.0 },
+            fade: material.fade,
+            fade_flip: if material.fade_flip { 1.0 } else { 0.0 },
+            shallow: material.shallow_color.unwrap_or(material.color),
         }
     }
 }
@@ -122,7 +144,27 @@ mod test {
         assert_eq!(offset_of!(MeshInstance, lights), 144);
         assert_eq!(offset_of!(MeshInstance, normal_scale), 160);
         assert_eq!(offset_of!(MeshInstance, joint_base), 164);
-        assert_eq!(size_of::<MeshInstance>(), 176);
+        assert_eq!(offset_of!(MeshInstance, emissive), 168);
+        assert_eq!(offset_of!(MeshInstance, cutout), 172);
+        assert_eq!(offset_of!(MeshInstance, occlusion_strength), 176);
+        assert_eq!(offset_of!(MeshInstance, unlit), 180);
+        assert_eq!(offset_of!(MeshInstance, fade), 184);
+        assert_eq!(offset_of!(MeshInstance, fade_flip), 188);
+        assert_eq!(offset_of!(MeshInstance, shallow), 192);
+        assert_eq!(size_of::<MeshInstance>(), 208);
+    }
+
+    #[test]
+    fn dust_rides_in_the_padding_of_the_first_normal_row() {
+        let dust = Material {
+            dust: true,
+            ..Material::default()
+        };
+        let instance = MeshInstance::new(Mat4::IDENTITY, dust, LightPick::default(), 0);
+        assert_eq!(instance.normal[0].w, 1.0);
+        assert_eq!(instance.normal[1].w, 0.0);
+        let plain = MeshInstance::new(Mat4::IDENTITY, Material::default(), LightPick::default(), 0);
+        assert_eq!(plain.normal[0].w, 0.0);
         assert_eq!(MeshInstance::ATTRIBS[7].offset, 140);
         assert_eq!(MeshInstance::ATTRIBS[8].offset, 164);
     }

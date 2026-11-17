@@ -1,17 +1,18 @@
 use super::{
-    layout::LayoutMode,
+    layout::{HEADER_RAISE, LayoutMode},
+    row_move::RowMove,
     rows::{Rows, row_offsets},
 };
 use crate::{
     self as hilen,
     deps::{
         netrun::Function,
-        refs::{Own, Weak},
+        refs::{Own, Weak, weak_from_ref},
     },
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
-        CellRegistry, ScrollView, Setup, TableData, UIEvent, View, ViewData, ViewFrame, ViewSubviews,
-        ViewTouch, WeakView, struct_name, view,
+        CellRegistry, ScrollView, Setup, TableData, TextSelection, UIEvent, View, ViewData, ViewFrame,
+        ViewSubviews, ViewTouch, WeakView, struct_name, view, view::depth_order,
     },
 };
 
@@ -40,6 +41,12 @@ pub struct TableView {
     /// Cell indices the data marks sticky, rebuilt on a full layout.
     pub(super) sticky_rows: Vec<usize>,
 
+    /// How many cells the row offsets and the sticky rows were built for.
+    /// None before the first full layout and for a table with no cells.
+    /// `reload_cell` and `load_new_cells` change a part of that layout
+    /// only when it fits the data, else they reload everything.
+    pub(super) laid_cells: Option<usize>,
+
     /// The sticky rows currently on screen: index, y in the table's own
     /// coordinates and height. Taps check them before the row geometry.
     pub(super) pinned: Vec<(usize, f32, f32)>,
@@ -50,9 +57,28 @@ pub struct TableView {
 
     pub(super) header_height: f32,
     pub(super) footer_height: f32,
+    /// The views in the scroll content that are no cells: the header
+    /// views and the footer view.
     pub(super) header_views:  Vec<WeakView>,
 
+    /// The view under the last row, see `add_footer_view`.
+    pub(super) footer_view: Option<WeakView>,
+
+    /// The header view that sticks to the top, with its top in the
+    /// content and its height, see `add_sticky_header_view`.
+    pub(super) sticky_header: Option<(WeakView, f32, f32)>,
+
     pub(super) registry: CellRegistry,
+
+    /// A `scroll_to_row` made before the table had a size, applied on
+    /// the first layout that has one.
+    pending_row: Option<usize>,
+
+    /// The text of the cells can be selected, see `set_text_selectable`.
+    pub(super) text_selectable: bool,
+
+    /// The row a finger holds up, see `set_row_moves`.
+    pub(super) row_move: Option<RowMove>,
 
     #[init]
     pub(super) scroll: ScrollView,
@@ -68,12 +94,25 @@ impl Setup for TableView {
             self.layout_cells(LayoutMode::Scroll);
         });
 
+        self.scroll.on_scroll_x.sub(move || {
+            self.apply_sideways();
+        });
+
         self.size_changed().sub(move || {
             self.layout_cells(LayoutMode::Resize);
+            if self.height() > 0.0
+                && let Some(index) = self.pending_row.take()
+            {
+                self.scroll_to_row(index);
+            }
         });
 
         self.enable_touch_low_priority();
         self.touch().up_inside.val(weak, move |touch| {
+            // The release of a drag that selected text is no tap on a row.
+            if self.text_selectable && !TextSelection::is_empty() {
+                return;
+            }
             self.select_at(touch.position);
         });
     }
@@ -111,21 +150,24 @@ impl TableView {
         self.layout_cells(LayoutMode::Full);
     }
 
-    pub fn set_columns(&mut self, columns: usize) -> &mut Self {
-        self.columns = columns;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_columns(&self, columns: usize) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.columns = columns;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
-    pub fn set_cell_spacing(&mut self, spacing: impl ToF32) -> &mut Self {
-        self.cell_spacing = spacing.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_cell_spacing(&self, spacing: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.cell_spacing = spacing.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
-    pub fn set_cell_margins(&mut self, left: impl ToF32, right: impl ToF32) -> &mut Self {
-        self.cell_margins = (left.to_f32(), right.to_f32());
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_cell_margins(&self, left: impl ToF32, right: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.cell_margins = (left.to_f32(), right.to_f32());
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -140,26 +182,29 @@ impl TableView {
     /// of its first cell. Off by default, where `cell_height(0)` is the
     /// height of every row and the table never walks the data. Turning
     /// it on costs one `cell_height` call per row on every `reload_data`.
-    pub fn set_variable_heights(&mut self, variable: bool) -> &mut Self {
-        self.variable_heights = variable;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_variable_heights(&self, variable: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.variable_heights = variable;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
     /// Reserves space above the first row for header views. The header
     /// scrolls away with the content.
-    pub fn set_header_height(&mut self, height: impl ToF32) -> &mut Self {
-        self.header_height = height.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_header_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.header_height = height.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
-    /// Empty space after the last row, so the content can scroll past it
-    /// by this much. Gives the bottom of a list the same breathing room
-    /// the cell spacing gives every other row.
-    pub fn set_footer_height(&mut self, height: impl ToF32) -> &mut Self {
-        self.footer_height = height.to_f32();
-        self.layout_cells(LayoutMode::Full);
+    /// Space after the last row, so the content can scroll past it by
+    /// this much. Gives the bottom of a list the same breathing room the
+    /// cell spacing gives every other row, and holds the footer view.
+    pub fn set_footer_height(&self, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.footer_height = height.to_f32();
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -170,6 +215,44 @@ impl TableView {
         let view = self.scroll.add_view::<T>();
         self.header_views.push(view.weak_view());
         view
+    }
+
+    /// A view in the footer, right under the last row, as wide as the
+    /// table and as tall as `set_footer_height`. It scrolls with the rows
+    /// and stays under the last one when rows come or go, the columns
+    /// change or a row changes its height. With no rows it sits right
+    /// under the header. The table sets its frame, so it takes no
+    /// `place()` rules, its own subviews do. Call it once per table.
+    pub fn add_footer_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
+        let view = self.add_header_view::<T>();
+        self.footer_view = Some(view.weak_view());
+        self.layout_cells(LayoutMode::Full);
+        view
+    }
+
+    /// A header view that sticks. It rides in the header at the place
+    /// `set_sticky_header_place` gives it, stays at the top of the table
+    /// while the rows scroll under it, and goes back to its place on a
+    /// scroll up. It is as wide as the table, draws in front of the
+    /// cells and takes the touches over them. The table sets its frame,
+    /// so it takes no `place()` rules. Call it once per table.
+    pub fn add_sticky_header_view<T: View + Default + 'static>(&mut self) -> Weak<T> {
+        let view = self.add_header_view::<T>();
+        depth_order::set_raise(&*view, HEADER_RAISE);
+        self.sticky_header = Some((view.weak_view(), 0.0, 0.0));
+        view
+    }
+
+    /// Where the sticky header view rides in the header, its top from
+    /// the content top and its height.
+    pub fn set_sticky_header_place(&self, top: impl ToF32, height: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        if let Some(header) = &mut this.sticky_header {
+            header.1 = top.to_f32();
+            header.2 = height.to_f32();
+        }
+        this.place_sticky_header();
+        self
     }
 
     pub fn bottom_reached(&self) -> &UIEvent {
@@ -184,12 +267,43 @@ impl TableView {
         self.layout_cells(LayoutMode::Scroll);
     }
 
+    /// Scrolls the row holding cell `index` to the top of the viewport,
+    /// the header scrolled away above it. Near the end the offset clamps,
+    /// so the last rows stay flush with the bottom instead. Reads the
+    /// current row geometry, so call it after `reload_data` when the
+    /// rows changed. A table with no size yet scrolls once it gets one.
+    pub fn scroll_to_row(&mut self, index: usize) {
+        if self.data.is_null() {
+            return;
+        }
+
+        let number_of_cells = self.data.number_of_cells();
+        if number_of_cells == 0 {
+            return;
+        }
+
+        let index = index.min(number_of_cells - 1);
+
+        if self.height() <= 0.0 {
+            self.pending_row = Some(index);
+            return;
+        }
+
+        if self.variable_heights && self.row_offsets.is_empty() {
+            self.rebuild_row_offsets(number_of_cells);
+        }
+
+        let top = self.rows(number_of_cells).top(index / self.columns) + self.header_height;
+        self.set_content_offset(-top);
+    }
+
     /// Sets the scroll position: 0 is the top, negative values scroll
     /// down. Clamped to the scrollable range on both ends, so call it
     /// after `reload_data` when the row set changed.
-    pub fn set_content_offset(&mut self, offset: impl ToF32) -> &mut Self {
-        self.scroll.set_content_offset(offset.to_f32().min(0.0));
-        self.layout_cells(LayoutMode::Scroll);
+    pub fn set_content_offset(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_content_offset(offset.to_f32().min(0.0));
+        this.layout_cells(LayoutMode::Scroll);
         self
     }
 
@@ -198,13 +312,61 @@ impl TableView {
         self.scroll.get_scroll_content_offset()
     }
 
+    /// A table that shows its last row goes on showing it when its own
+    /// height or the height of its rows changes, like a chat above a
+    /// compose box. A reload, new cells and a changed cell keep the end
+    /// in the same call, a new frame of the table in the same frame. A
+    /// table scrolled away from the end keeps its offset. A table that
+    /// is filled later starts at its end. Off by default, see
+    /// `ScrollView::set_keeps_end`.
+    pub fn set_keeps_end(&self, keeps: bool) -> &Self {
+        let this = weak_from_ref(self);
+        this.scroll.set_keeps_end(keeps);
+        self
+    }
+
+    /// The table shows the end of its rows now. True also for rows that
+    /// all fit the table.
+    pub fn is_at_end(&self) -> bool {
+        self.scroll.is_at_end()
+    }
+
+    /// Turns sideways scrolling on. `width` is how wide a row would be
+    /// with nothing cut off, the pinned parts plus the longest moving
+    /// part. A wider row than the table scrolls by the difference, with
+    /// a bar on the bottom edge. The cells keep the table width and stay
+    /// in place, only the views a cell marks with `set_moves_sideways`
+    /// move, all by the same offset.
+    pub fn set_content_width(&self, width: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_sideways_width(width.to_f32());
+        this.apply_sideways();
+        self
+    }
+
+    /// Sets the sideways scroll position: 0 is the left edge, negative
+    /// values scroll right. Clamped to the scrollable range.
+    pub fn set_content_offset_x(&self, offset: impl ToF32) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.scroll.set_content_offset_x(offset);
+        this.apply_sideways();
+        self
+    }
+
+    /// The sideways scroll position: 0 at the left edge, negative right
+    /// of it.
+    pub fn content_offset_x(&self) -> f32 {
+        self.scroll.content_offset_x()
+    }
+
     /// Rows the data marks with `TableData::is_sticky` pin to the top of
     /// the viewport while their section scrolls by, and the next sticky
     /// row pushes the pinned one away. Off by default, turning it on
     /// walks `is_sticky` over the data on every `reload_data`.
-    pub fn set_sticky_rows(&mut self, sticky: bool) -> &mut Self {
-        self.sticky_enabled = sticky;
-        self.layout_cells(LayoutMode::Full);
+    pub fn set_sticky_rows(&self, sticky: bool) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.sticky_enabled = sticky;
+        this.layout_cells(LayoutMode::Full);
         self
     }
 
@@ -215,9 +377,9 @@ impl TableView {
 
     /// The cell index at a point in the table's own coordinates, from
     /// the row geometry alone, pinned sticky rows ignored. `None` above
-    /// the first row or past the last.
+    /// the first row, past the last and under a stuck sticky header view.
     pub fn index_at(&self, pos: Point) -> Option<usize> {
-        if self.data.is_null() {
+        if self.data.is_null() || self.sticky_header_covers(pos.y) {
             return None;
         }
 
@@ -252,6 +414,20 @@ impl TableView {
         (index < number_of_cells).then_some(index)
     }
 
+    /// Where the row of cell `index` starts in the content, the header
+    /// included. Add `content_offset()` for its place in the table. None
+    /// for a table with no layout yet and for an index past the end.
+    pub fn row_top(&self, index: usize) -> Option<f32> {
+        if self.data.is_null() {
+            return None;
+        }
+        let number_of_cells = self.data.number_of_cells();
+        if index >= number_of_cells || self.laid_cells != Some(number_of_cells) {
+            return None;
+        }
+        Some(self.rows(number_of_cells).top(index / self.columns) + self.header_height)
+    }
+
     /// The cells on screen right now, each with the index of the row it
     /// currently shows. The views recycle, so hold the pairs only for
     /// the current frame.
@@ -272,8 +448,8 @@ impl TableView {
     // spacing gap selects the nearest cell instead of dying on a
     // pixel gap between touch areas. Taps past the last row are
     // ignored.
-    fn select_at(mut self: Weak<Self>, pos: Point) {
-        if self.data.is_null() {
+    pub(super) fn select_at(mut self: Weak<Self>, pos: Point) {
+        if self.data.is_null() || self.sticky_header_covers(pos.y) {
             return;
         }
 
@@ -324,7 +500,7 @@ impl TableView {
         self.row_offsets = row_offsets(heights, self.cell_spacing);
     }
 
-    fn layout_cells(&mut self, mode: LayoutMode) {
+    pub(super) fn layout_cells(&mut self, mode: LayoutMode) {
         if self.height() <= 0.0 {
             return;
         }
@@ -336,8 +512,16 @@ impl TableView {
 
         let number_of_cells = self.data.number_of_cells();
 
+        // A table that became empty still shows the rows of the reload
+        // before, they have to go too.
         if number_of_cells == 0 {
+            self.clear_cells();
+            self.place_sticky_header();
             return;
+        }
+
+        if matches!(mode, LayoutMode::Full) {
+            self.drop_row_move();
         }
 
         if matches!(mode, LayoutMode::Full) || (self.variable_heights && self.row_offsets.is_empty()) {
@@ -347,9 +531,13 @@ impl TableView {
             } else {
                 Vec::new()
             };
+            self.laid_cells = Some(number_of_cells);
         }
 
         self.layout_fixed_cells(number_of_cells, self.columns, mode);
+        self.apply_row_move();
+        self.apply_sideways();
+        self.place_sticky_header();
     }
 }
 
@@ -414,7 +602,7 @@ mod test {
     }
 
     impl ViewTest for TableView2Test {
-        fn perform_test(mut view: Weak<Self>) -> Result<()> {
+        fn perform_test(view: Weak<Self>) -> Result<()> {
             inject_touches(TOUCHES_1);
 
             assert_eq!(TEST_DATA.lock().deref(), "|0||1||2||3||4||5|");

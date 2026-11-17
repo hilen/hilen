@@ -110,23 +110,33 @@ fn rounded_box_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-// One pixel wide analytic edge coverage. See ui_rect.wgsl. The derivative is
-// passed in, because a `fwidth` inside the border branch below would sit in
-// non uniform control flow, where the result is undefined.
+// One pixel wide analytic edge coverage, see ui_rect.wgsl.
 fn edge_coverage(dist: f32, width: f32) -> f32 {
     return clamp(0.5 - dist / width, 0.0, 1.0);
+}
+
+// The distance change per screen pixel, zero guarded, see ui_rect.wgsl.
+fn pixel_width(derivative: f32, scale: f32) -> f32 {
+    return select(1.0 / scale, derivative, derivative > 0.0);
 }
 
 // How far along the ramp this pixel is, 0 at the start color and 1 at the
 // end. The CSS math is baked into the instance, so a linear gradient costs
 // one dot product and a radial one length.
-fn gradient_ramp(uv: vec2<f32>, instance: UIGradientInstance) -> f32 {
+fn gradient_ramp(
+    uv: vec2<f32>,
+    kind: u32,
+    radial_center: vec2<f32>,
+    radial_radii: vec2<f32>,
+    linear_bias: f32,
+    linear_axis: vec2<f32>,
+) -> f32 {
     var ramp: f32;
 
-    if instance.kind == GRADIENT_RADIAL {
-        ramp = length((uv - instance.radial_center) / instance.radial_radii);
+    if kind == GRADIENT_RADIAL {
+        ramp = length((uv - radial_center) / radial_radii);
     } else {
-        ramp = instance.linear_bias + dot(uv, instance.linear_axis);
+        ramp = linear_bias + dot(uv, linear_axis);
     }
 
     return clamp(ramp, 0.0, 1.0);
@@ -134,9 +144,9 @@ fn gradient_ramp(uv: vec2<f32>, instance: UIGradientInstance) -> f32 {
 
 // CSS interpolates a gradient with premultiplied alpha, so a stop fading to
 // `transparent` keeps its hue instead of sliding towards black.
-fn gradient_color(instance: UIGradientInstance, ramp: f32) -> vec4<f32> {
-    let start = vec4<f32>(instance.start_color.rgb * instance.start_color.a, instance.start_color.a);
-    let end = vec4<f32>(instance.end_color.rgb * instance.end_color.a, instance.end_color.a);
+fn gradient_color(start_color: vec4<f32>, end_color: vec4<f32>, ramp: f32) -> vec4<f32> {
+    let start = vec4<f32>(start_color.rgb * start_color.a, start_color.a);
+    let end = vec4<f32>(end_color.rgb * end_color.a, end_color.a);
 
     let color = mix(start, end, ramp);
 
@@ -145,18 +155,42 @@ fn gradient_color(instance: UIGradientInstance, ramp: f32) -> vec4<f32> {
     return vec4<f32>(color.rgb / max(color.a, 0.0001), color.a);
 }
 
+// The pixel on the inner edge of a border is `fill` parts fill and the
+// rest border. The two mix weighted by their alpha. A straight mix let a
+// clear fill, black at zero alpha, darken a solid border there, and let a
+// faint border outweigh an opaque fill. Returns straight alpha.
+fn border_mix(border: vec4<f32>, inner: vec4<f32>, fill: f32) -> vec4<f32> {
+    let alpha: f32 = mix(border.a, inner.a, fill);
+    if alpha <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let rgb: vec3<f32> = mix(border.rgb * border.a, inner.rgb * inner.a, fill) / alpha;
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let instance: UIGradientInstance = instances[in.index];
+    // A pointer, not a copy. On WebGL the instances are a uniform array, and
+    // ANGLE on Direct3D 11 took over a minute to link a shader that copies a
+    // whole struct out of it by a dynamic index, see docs/web-visit.md.
+    let instance = &instances[in.index];
 
-    let color = gradient_color(instance, gradient_ramp(in.uv, instance));
+    let ramp = gradient_ramp(
+        in.uv,
+        instance.kind,
+        instance.radial_center,
+        instance.radial_radii,
+        instance.linear_bias,
+        instance.linear_axis,
+    );
+    let color = gradient_color(instance.start_color, instance.end_color, ramp);
 
     let local_pos: vec2<f32> = in.uv * instance.size;
     let radius: f32 = pick_radius(local_pos, instance.corner_radii);
     let dist: f32 = rounded_box_sdf(local_pos, instance.size * 0.5, radius);
 
-    // One derivative for the whole shader, see ui_rect.wgsl.
-    let width: f32 = fwidth(dist);
+    // Zero guarded, see ui_rect.wgsl.
+    let width: f32 = pixel_width(fwidth(dist), instance.scale);
 
     var rgb: vec3<f32> = color.rgb;
     var alpha: f32 = color.a;
@@ -165,8 +199,9 @@ fn f_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 1 in the ramp interior, 0 in the border band, one pixel ramp at
         // the boundary between them.
         let fill: f32 = edge_coverage(dist + instance.border_width, width);
-        rgb = mix(instance.border_color.rgb, color.rgb, fill);
-        alpha = mix(instance.border_color.a, color.a, fill);
+        let mixed = border_mix(instance.border_color, color, fill);
+        rgb = mixed.rgb;
+        alpha = mixed.a;
     }
 
     alpha *= edge_coverage(dist, width);

@@ -1,7 +1,6 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use chrono::NaiveDateTime;
-use rust_decimal::Decimal;
 
 use crate::gm::flat::Point;
 
@@ -124,12 +123,6 @@ impl ToLabel for f32 {
 }
 
 impl ToLabel for f64 {
-    fn to_label(&self) -> String {
-        format!("{self:.2}")
-    }
-}
-
-impl ToLabel for Decimal {
     fn to_label(&self) -> String {
         format!("{self:.2}")
     }

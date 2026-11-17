@@ -1,22 +1,69 @@
 //! The process icon from encoded image bytes. macOS draws the Dock image
 //! as is, so the iOS style square gets the Dock shape here first.
+//!
+//! The decode, the resize and the encode run on their own thread. In a
+//! debug build they held the main thread for more than a second at start.
+//! Only the call that hands the finished image to the system runs on main.
+
+use std::{thread, time::Instant};
 
 use anyhow::Result;
 #[cfg(macos)]
 use anyhow::anyhow;
+use log::{debug, error};
 
+use crate::deps::hreads::on_main;
 #[cfg(any(win, linux))]
 use crate::window::Window;
 
+pub(super) fn set_icon(data: &'static [u8]) {
+    let spawned = thread::Builder::new().name("app-icon".into()).spawn(move || {
+        let started = Instant::now();
+        match prepare_icon(data) {
+            Ok(icon) => {
+                debug!("App icon prepared in {} ms", started.elapsed().as_millis());
+                on_main(move || {
+                    if let Err(err) = apply_icon(icon) {
+                        error!("Failed to set the app icon: {err}");
+                    }
+                });
+            }
+            Err(err) => error!("Failed to prepare the app icon: {err}"),
+        }
+    });
+    if let Err(err) = spawned {
+        error!("Failed to start the app icon thread: {err}");
+    }
+}
+
+/// The png of the Dock image.
 #[cfg(macos)]
-pub(super) fn apply_icon(data: &[u8]) -> Result<()> {
+type PreparedIcon = Vec<u8>;
+
+/// The decoded pixels with their width and height.
+#[cfg(any(win, linux))]
+type PreparedIcon = (Vec<u8>, u32, u32);
+
+#[cfg(macos)]
+fn prepare_icon(data: &[u8]) -> Result<PreparedIcon> {
+    mac_icon(data)
+}
+
+#[cfg(any(win, linux))]
+fn prepare_icon(data: &[u8]) -> Result<PreparedIcon> {
+    let image = image::load_from_memory(data)?.into_rgba8();
+    let (width, height) = image.dimensions();
+    Ok((image.into_raw(), width, height))
+}
+
+#[cfg(macos)]
+fn apply_icon(png: PreparedIcon) -> Result<()> {
     use objc2::AllocAnyThread;
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::{MainThreadMarker, NSData};
 
     let mtm = MainThreadMarker::new().ok_or_else(|| anyhow!("not on the main thread"))?;
-    let data = mac_icon(data)?;
-    let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(&data))
+    let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(&png))
         .ok_or_else(|| anyhow!("not a decodable image"))?;
     unsafe {
         NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image));
@@ -25,12 +72,10 @@ pub(super) fn apply_icon(data: &[u8]) -> Result<()> {
 }
 
 #[cfg(any(win, linux))]
-pub(super) fn apply_icon(data: &[u8]) -> Result<()> {
+fn apply_icon((pixels, width, height): PreparedIcon) -> Result<()> {
     use winit::window::Icon;
 
-    let image = image::load_from_memory(data)?.into_rgba8();
-    let (width, height) = image.dimensions();
-    let icon = Icon::from_rgba(image.into_raw(), width, height)?;
+    let icon = Icon::from_rgba(pixels, width, height)?;
     if let Some(window) = Window::winit_window() {
         window.set_window_icon(Some(icon));
     }

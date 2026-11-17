@@ -1,47 +1,86 @@
 //! In-app bug reporting through Sentry. A report is a normal Sentry event
-//! carrying the reporter's description, with the screenshot, the recent
-//! log and the opted in key presses as event attachments. It rides the
-//! DSN the app already returns from `App::sentry_url`, so there is no
-//! separate endpoint and no receiving server. The sentry crate does not
-//! run on wasm, so in the browser every call is a no-op, matching
-//! `system::Router`.
+//! carrying the reporter's description, with the screenshot or another
+//! image, the recent log and the opted in key presses as event
+//! attachments. It rides the DSN the app already returns from
+//! `App::sentry_url`, so there is no separate endpoint and no receiving
+//! server. Native builds send through the sentry crate. It does not run on
+//! wasm, so the browser builds the envelope itself and posts it, see
+//! `web.rs`.
 
-#[cfg(not_wasm)]
+#[cfg(any(wasm, test))]
+mod envelope;
 mod input_ring;
-#[cfg(not_wasm)]
 mod log_ring;
 #[cfg(not_wasm)]
+mod native;
+#[cfg(not_wasm)]
+mod platform;
 mod report_view;
+mod style;
+#[cfg(wasm)]
+mod web;
 
-#[cfg(not_wasm)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    fmt::{Display, Write},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-#[cfg(not_wasm)]
 use anyhow::Result;
-#[cfg(not_wasm)]
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-#[cfg(not_wasm)]
 use log::{error, warn};
-#[cfg(not_wasm)]
-use sentry::protocol::Attachment;
 
 /// Only the dialog UI test builds `KeyPress` values from outside.
-#[cfg(all(not_wasm, feature = "ui-tests"))]
+#[cfg(feature = "ui-tests")]
 pub(crate) use crate::bug_report::input_ring::KeyPress;
 #[cfg(not_wasm)]
+pub(crate) use crate::bug_report::platform::{Platform, sentry_options};
+pub use crate::bug_report::style::BugReportStyle;
+#[cfg(wasm)]
+pub(crate) use crate::bug_report::web::{report_panic, set_dsn};
 pub(crate) use crate::bug_report::{
     input_ring::InputRing,
     report_view::{BugReportData, BugReportInput, BugReportView},
 };
-#[cfg(not_wasm)]
-use crate::gm::flat::Size;
-#[cfg(not_wasm)]
 use crate::{
     bug_report::log_ring::LogRing,
+    deps::hreads::on_main,
+    gm::flat::Size,
     ui::{Alert, ModalView},
+    window::Screenshot,
 };
 
-#[cfg(not_wasm)]
+/// A screenshot of the app for a bug report, from `BugReport::capture`.
+/// `png` is what goes to Sentry. `rgba` and `size` are the same pixels
+/// for a thumbnail, `Image::from_raw_data(rgba, name, size, 4)`. All of
+/// it is empty when the capture failed.
+#[derive(Debug, Clone, Default)]
+pub struct BugReportScreenshot {
+    pub png:  Vec<u8>,
+    pub rgba: Vec<u8>,
+    pub size: Size<u32>,
+}
+
+/// A file a report carries next to its log, the screenshot of the engine
+/// dialog or an image the user picked with `Paths::pick_image`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BugReportAttachment {
+    pub file_name:    String,
+    /// The MIME type, like `image/jpeg`.
+    pub content_type: String,
+    pub bytes:        Vec<u8>,
+}
+
+impl BugReportAttachment {
+    /// The `png` of `BugReport::capture`, as `screenshot.png`.
+    pub fn screenshot(png: Vec<u8>) -> Self {
+        Self {
+            file_name:    "screenshot.png".to_string(),
+            content_type: "image/png".to_string(),
+            bytes:        png,
+        }
+    }
+}
+
 static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
 
 /// The looping gif the report dialog shows between the description and the
@@ -49,13 +88,27 @@ static DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
 /// there, the engine has no opinion on the content.
 static ANIMATION: std::sync::RwLock<Option<&'static [u8]>> = std::sync::RwLock::new(None);
 
+/// The email the report form opens with, set by an app that knows who
+/// is signed in.
+static EMAIL: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// The Sentry release of the app, `<project_name>@<version>`, from what
+/// `register_app!` puts into the crate of the app. Never the engine, a
+/// `sentry::release_name!` inside the engine names `hilen`.
+pub(crate) fn app_release() -> String {
+    release(crate::app::hilen_project_name(), crate::app::hilen_app_version())
+}
+
+fn release(name: &str, version: &str) -> String {
+    format!("{name}@{version}")
+}
+
 pub struct BugReport;
 
 impl BugReport {
     /// Register a looping gif the report dialog shows between the
     /// description and the screenshot. Call once at launch with
     /// `include_bytes!` data. Without one the dialog shows no animation.
-    /// A no-op for the dialog on wasm, where bug reporting is not there yet.
     pub fn set_animation(gif: &'static [u8]) {
         *ANIMATION.write().expect("animation lock") = Some(gif);
     }
@@ -69,22 +122,42 @@ impl BugReport {
     pub(crate) fn restore_animation(gif: Option<&'static [u8]>) {
         *ANIMATION.write().expect("animation lock") = gif;
     }
-}
 
-#[cfg(not_wasm)]
-impl BugReport {
+    /// The email the report form opens with, for an app that knows who is
+    /// signed in. The reporter can still change it. An empty string clears
+    /// it, call that on sign out.
+    pub fn set_email(email: impl Into<String>) {
+        let email = email.into();
+        *EMAIL.write().expect("email lock") = (!email.is_empty()).then_some(email);
+    }
+
+    pub(crate) fn email() -> Option<String> {
+        EMAIL.read().expect("email lock").clone()
+    }
+
+    /// The test harness snapshot hand-back, like `restore_animation`.
+    pub(crate) fn restore_email(email: Option<String>) {
+        *EMAIL.write().expect("email lock") = email;
+    }
+
     /// Bug reporting works only when the app opted into Sentry by
     /// returning a DSN from `App::sentry_url`.
     pub fn enabled() -> bool {
-        sentry::Hub::current().client().is_some()
+        #[cfg(not_wasm)]
+        {
+            native::enabled()
+        }
+        #[cfg(wasm)]
+        {
+            web::enabled()
+        }
     }
 
     /// Captures a screenshot, then presents the report dialog. On
-    /// desktop `Ctrl/Cmd+Shift+R` calls this, on a touch platform the
-    /// app calls it from its own affordance.
+    /// desktop `Ctrl/Cmd+Shift+R` calls this, on a touch platform and in
+    /// the browser the app calls it from its own affordance.
     pub fn open() {
-        if !Self::enabled() {
-            warn!("Bug reporting is disabled, the app returns no Sentry DSN");
+        if Self::disabled() {
             return;
         }
 
@@ -94,120 +167,153 @@ impl BugReport {
 
         let keys = InputRing::snapshot();
 
+        Self::capture(move |screenshot| Self::show(screenshot, keys));
+    }
+
+    /// The first half of `open`, for an app with a report dialog of its
+    /// own. Takes a screenshot of the app as it is now, so call it before
+    /// the dialog shows. `done` runs on the main thread. A failed capture
+    /// logs an error and hands an empty screenshot. It works without a
+    /// DSN too, check `enabled` before offering a report.
+    pub fn capture(done: impl FnOnce(BugReportScreenshot) + Send + 'static) {
         // The screenshot waits for a rendered frame, which the main
         // thread itself drives, so the capture must not block it.
+        #[cfg(not_wasm)]
         std::thread::spawn(move || {
-            let (screenshot_png, screenshot_rgba, screenshot_size) = Self::capture().unwrap_or_else(|err| {
-                error!("Bug report screenshot failed: {err}");
-                (Vec::new(), Vec::new(), Size::default())
-            });
-
-            BugReportView::show_modally_with_input(
-                BugReportInput {
-                    screenshot_png,
-                    screenshot_rgba,
-                    screenshot_size,
-                    log_bytes: LogRing::dump().len(),
-                    keys,
-                },
-                |data: Option<BugReportData>| {
-                    DIALOG_OPEN.store(false, Ordering::Release);
-
-                    if let Some(data) = data {
-                        Self::submit(data);
-                        Alert::show("Bug report sent. Thank you!");
-                    }
-                },
-            );
+            let screenshot = Self::encode_or_empty(crate::AppRunner::take_screenshot());
+            on_main(move || done(screenshot));
+        });
+        #[cfg(wasm)]
+        crate::deps::hreads::spawn(async move {
+            let screenshot = Self::encode_or_empty(web::screenshot().await);
+            on_main(move || done(screenshot));
         });
     }
 
-    /// Sending is non blocking, the sentry client hands the envelope to
-    /// its own transport thread.
+    /// The second half of `open`, for an app with a report dialog of its
+    /// own. Sends a Sentry event with the description as its message, the
+    /// email as its user and the recent log lines attached. The attachment
+    /// goes out under its own name and type when given and not empty, like
+    /// `BugReportAttachment::screenshot` with the `png` of `capture`, or a
+    /// picked image. A send never attaches the recent key presses, their
+    /// opt in is a checkbox of the engine dialog only. Without a DSN it
+    /// logs a warning and sends nothing. It does not block, on native the
+    /// sentry client sends from its own thread, in the browser a task
+    /// posts the event.
+    pub fn send(
+        email: impl Into<String>,
+        description: impl Into<String>,
+        attachment: Option<BugReportAttachment>,
+    ) {
+        Self::submit(BugReportData {
+            email:       email.into(),
+            description: description.into(),
+            attachment:  attachment.filter(|attachment| !attachment.bytes.is_empty()),
+            keys:        None,
+        });
+    }
+
+    /// A silent Sentry event of level warning, for a state of the app that
+    /// should never happen. No dialog, no email and no screenshot. The
+    /// event carries `message` as its message and every pair of `values`
+    /// as an extra value under its key, with the recent log lines
+    /// attached. Sentry groups events by the message, so keep what
+    /// changes from case to case in `values`. The message and the values
+    /// are always logged as a warning. Without a DSN nothing more happens.
+    /// It does not block and works from any thread, on native the sentry
+    /// client sends from its own thread, in the browser a task posts the
+    /// event. It does not limit how often it sends, the caller does.
+    pub fn send_warning(message: impl Into<String>, values: &[(&str, &dyn Display)]) {
+        let message = message.into();
+        let values: Vec<(String, String)> = values
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.to_string()))
+            .collect();
+
+        let mut line = format!("Warning event: {message}");
+        for (key, value) in &values {
+            if let Err(err) = write!(line, ", {key}: {value}") {
+                error!("Warning event log line failed: {err}");
+            }
+        }
+        warn!("{line}");
+
+        if Self::disabled() {
+            return;
+        }
+
+        #[cfg(not_wasm)]
+        native::warning(&message, values);
+        #[cfg(wasm)]
+        web::warning(message, values);
+    }
+
+    fn disabled() -> bool {
+        let disabled = !Self::enabled();
+        if disabled {
+            warn!("Bug reporting is disabled, the app returns no Sentry DSN");
+        }
+        disabled
+    }
+
     fn submit(data: BugReportData) {
-        let BugReportData {
-            email,
-            description,
-            screenshot_png,
-            keys,
-        } = data;
+        if Self::disabled() {
+            return;
+        }
 
-        sentry::with_scope(
-            move |scope| {
-                scope.set_user(Some(sentry::User {
-                    email: Some(email),
-                    ..Default::default()
-                }));
+        #[cfg(not_wasm)]
+        native::submit(data);
+        #[cfg(wasm)]
+        web::submit(data);
+    }
 
-                if !screenshot_png.is_empty() {
-                    scope.add_attachment(Attachment {
-                        buffer:       screenshot_png,
-                        filename:     "screenshot.png".to_string(),
-                        content_type: Some("image/png".to_string()),
-                        ty:           None,
-                    });
-                }
+    fn show(screenshot: BugReportScreenshot, keys: Vec<input_ring::KeyPress>) {
+        BugReportView::show_modally_with_input(
+            BugReportInput {
+                screenshot,
+                log_bytes: LogRing::dump().len(),
+                keys,
+            },
+            |data: Option<BugReportData>| {
+                DIALOG_OPEN.store(false, Ordering::Release);
 
-                let log = LogRing::dump();
-
-                if !log.is_empty() {
-                    scope.add_attachment(Attachment {
-                        buffer:       log.into_bytes(),
-                        filename:     "log.txt".to_string(),
-                        content_type: Some("text/plain".to_string()),
-                        ty:           None,
-                    });
-                }
-
-                if let Some(keys) = &keys {
-                    match serde_json::to_vec_pretty(keys) {
-                        Ok(json) => scope.add_attachment(Attachment {
-                            buffer:       json,
-                            filename:     "key_presses.json".to_string(),
-                            content_type: Some("application/json".to_string()),
-                            ty:           None,
-                        }),
-                        Err(err) => error!("Bug report key presses failed to serialize: {err}"),
-                    }
+                if let Some(data) = data {
+                    Self::submit(data);
+                    Alert::show("Bug report sent. Thank you!");
                 }
             },
-            || sentry::capture_message(&description, sentry::Level::Info),
         );
     }
 
-    /// The PNG goes to Sentry, the raw RGBA feeds the thumbnail texture
-    /// in the dialog.
-    fn capture() -> Result<(Vec<u8>, Vec<u8>, Size<u32>)> {
-        let shot = crate::AppRunner::take_screenshot()?;
+    fn encode_or_empty(shot: Result<Screenshot>) -> BugReportScreenshot {
+        shot.and_then(Self::encode).unwrap_or_else(|err| {
+            error!("Bug report screenshot failed: {err}");
+            BugReportScreenshot::default()
+        })
+    }
 
-        let mut bytes = Vec::with_capacity(shot.data.len() * 4);
+    fn encode(shot: Screenshot) -> Result<BugReportScreenshot> {
+        let mut rgba = Vec::with_capacity(shot.data.len() * 4);
         for color in &shot.data {
-            bytes.extend_from_slice(&[color.r, color.g, color.b, 255]);
+            rgba.extend_from_slice(&[color.r, color.g, color.b, 255]);
         }
 
         let mut png = Vec::new();
         PngEncoder::new(&mut png).write_image(
-            &bytes,
+            &rgba,
             shot.size.width,
             shot.size.height,
             ExtendedColorType::Rgba8,
         )?;
 
-        Ok((png, bytes, shot.size))
+        Ok(BugReportScreenshot {
+            png,
+            rgba,
+            size: shot.size,
+        })
     }
 
     pub(crate) fn push_log_line(line: String) {
         LogRing::push(line);
-    }
-}
-
-#[cfg(wasm)]
-impl BugReport {
-    pub fn enabled() -> bool {
-        false
-    }
-
-    pub fn open() {
-        log::trace!("BugReport::open in the browser is a no-op");
     }
 }

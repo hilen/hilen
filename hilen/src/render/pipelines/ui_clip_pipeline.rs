@@ -25,6 +25,9 @@ use crate::{
 pub(crate) struct UIClipPipeline {
     enter:            RenderPipeline,
     leave:            RenderPipeline,
+    /// Leaves the stencil alone and writes the depth of the shape, see
+    /// `flatten`.
+    flatten:          RenderPipeline,
     vertex_buffer:    Buffer,
     view:             UniformBind<ClipView>,
     instances_layout: BindGroupLayout,
@@ -63,6 +66,7 @@ impl Default for UIClipPipeline {
                 &shader,
                 vertex_layout,
                 StencilOperation::IncrementClamp,
+                false,
             ),
             leave: device.mask_pipeline(
                 "ui_clip_leave",
@@ -70,6 +74,15 @@ impl Default for UIClipPipeline {
                 &shader,
                 vertex_layout,
                 StencilOperation::DecrementClamp,
+                false,
+            ),
+            flatten: device.mask_pipeline(
+                "ui_clip_flatten",
+                &layout,
+                &shader,
+                vertex_layout,
+                StencilOperation::Keep,
+                true,
             ),
             vertex_buffer: PipelineType::Color.vertex_buffer(device),
             view: view_layout.into(),
@@ -79,16 +92,30 @@ impl Default for UIClipPipeline {
     }
 }
 
+enum Mask {
+    Enter,
+    Leave,
+    Flatten,
+}
+
 impl UIClipPipeline {
     pub(crate) fn enter(&mut self, pass: &mut RenderPass, resolution: Size, shape: UIRectInstance) {
-        self.draw(pass, true, resolution, shape);
+        self.draw(pass, Mask::Enter, resolution, shape);
     }
 
     pub(crate) fn leave(&mut self, pass: &mut RenderPass, resolution: Size, shape: UIRectInstance) {
-        self.draw(pass, false, resolution, shape);
+        self.draw(pass, Mask::Leave, resolution, shape);
     }
 
-    fn draw(&mut self, pass: &mut RenderPass, enter: bool, resolution: Size, shape: UIRectInstance) {
+    /// Sets the depth inside the shape to the depth of the shape, over
+    /// whatever was drawn there. Everything drawn inside so far becomes
+    /// one flat layer at that depth, so a view drawn later and nearer
+    /// than the shape covers all of it.
+    pub(crate) fn flatten(&mut self, pass: &mut RenderPass, resolution: Size, shape: UIRectInstance) {
+        self.draw(pass, Mask::Flatten, resolution, shape);
+    }
+
+    fn draw(&mut self, pass: &mut RenderPass, mask: Mask, resolution: Size, shape: UIRectInstance) {
         self.view.update(ClipView {
             resolution,
             threshold: if msaa_sample_count() > 1 { 0.004 } else { 0.5 },
@@ -98,7 +125,11 @@ impl UIClipPipeline {
         self.instances.push(shape);
         self.instances.load();
 
-        pass.set_pipeline(if enter { &self.enter } else { &self.leave });
+        pass.set_pipeline(match mask {
+            Mask::Enter => &self.enter,
+            Mask::Leave => &self.leave,
+            Mask::Flatten => &self.flatten,
+        });
         pass.set_bind_group(0, self.view.bind(), &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 

@@ -19,7 +19,7 @@ struct ScrollBarTheme {
 }
 
 impl Setup for ScrollBarTheme {
-    fn setup(mut self: Weak<Self>) {
+    fn setup(self: Weak<Self>) {
         self.scroll.set_content_size((300, 1200));
         self.scroll.place().tl(0).size(300, 300);
         self.scroll.set_color(WHITE);

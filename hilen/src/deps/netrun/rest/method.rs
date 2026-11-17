@@ -5,6 +5,7 @@ pub enum Method {
     #[default]
     Get,
     Post,
+    Put,
     Patch,
     Delete,
 }
@@ -20,6 +21,7 @@ impl Display for Method {
         let st = match self {
             Self::Get => "GET",
             Self::Post => "POST",
+            Self::Put => "PUT",
             Self::Patch => "PATCH",
             Self::Delete => "DELETE",
         };

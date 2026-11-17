@@ -15,6 +15,9 @@
                 display: block;
                 width: 100vw;
                 height: 100vh;
+                /* A phone counts its browser bars into 100vh, so the bottom of the
+                   page sat under the bar. 100dvh is the height that shows now. */
+                height: 100dvh;
             }
             canvas:focus {
                 outline: none;

@@ -1,16 +1,54 @@
+/// The screen reader layer of a page is a DOM layer, a browser has it only.
+#[cfg(wasm)]
+mod accessibility_late_change;
+mod accessibility_tree;
 mod async_calls;
+mod border_blend;
 mod clipboard;
 mod color_checker;
 mod colors;
 mod corner_radius;
 mod css_colors;
+/// Mouse capture needs a mouse, and a browser grants pointer lock only
+/// after a real click, which no test can inject.
+#[cfg(desktop)]
+mod cursor_capture;
+/// Hiding the pointer needs a mouse, like the capture.
+#[cfg(desktop)]
+mod cursor_hidden;
 mod dispatch;
+/// Only a page gets the bytes of a dropped file.
+#[cfg(wasm)]
+mod file_drop_browser;
+mod file_hover;
 mod global_styles;
+mod image_edges;
+mod inspect_frames;
+/// Inspector hover uses the pointer pipeline, available on desktop and web.
+#[cfg(any(desktop, wasm))]
+mod inspect_hover;
+mod inspect_record;
 // The engine compiles the inspector out on wasm, so its tests go with it.
 #[cfg(not_wasm)]
 mod inspect_keys;
 #[cfg(not_wasm)]
+mod inspect_tap_covered;
+#[cfg(not_wasm)]
 mod inspect_tap_modifiers;
+#[cfg(not_wasm)]
+mod inspect_tool_button;
+/// Only a desktop has a second window, `AppWindow`.
+#[cfg(desktop)]
+mod inspect_window;
+mod key_focus;
+mod key_focus_long_press;
+mod key_focus_menu;
+mod key_focus_modal;
+mod key_focus_pointer;
+mod key_focus_pointer_menu;
+mod key_focus_tab;
+mod key_focus_table;
+mod key_focus_tooltip;
 mod keymap;
 mod keymap_combo;
 mod keymap_named_key;
@@ -18,14 +56,19 @@ mod layout;
 mod level_leak;
 mod modal_test;
 mod navigation;
+mod navigation_escape;
 mod on_tap_add;
+mod opened_link;
 mod out_bounds_test;
 mod present;
 mod present_rich;
+mod quad_diagonal;
+mod rect_over_picture;
 /// Reload shortcuts exist only in a browser, everywhere else the OS owns
 /// them and the engine installs nothing.
 #[cfg(wasm)]
 mod reload_shortcuts;
+mod removed_while_paused;
 mod rest_request;
 mod root_view;
 /// Browser history is the production behavior, everywhere else the
@@ -36,9 +79,15 @@ mod scale;
 mod selection;
 mod styles;
 mod text_occlusion;
+mod touch_high_priority;
 mod touch_order;
 mod touch_stack;
 mod transition;
 mod transition_rich;
+mod translucent_over_text;
 mod transparency;
 mod view_order;
+/// The back swipe of a trackpad is a browser gesture, everywhere else the
+/// OS owns it and the engine installs nothing.
+#[cfg(wasm)]
+mod wheel_swipe_browser;

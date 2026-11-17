@@ -26,6 +26,12 @@ pub struct Placer {
 
     pub(crate) all_margin: RefCell<f32>,
 
+    /// The space a stack keeps inside its edges, see `padding`.
+    pub(crate) padding: RefCell<f32>,
+
+    /// A subview that `all_wrap` keeps out of its rows.
+    pub(crate) wrap_around: RefCell<Option<WeakView>>,
+
     pub(crate) has: RefCell<Size<bool>>,
 
     pub(crate) fit_text: RefCell<Size<bool>>,
@@ -42,6 +48,8 @@ impl Placer {
             view:             Rglica::default(),
             s_content:        Rglica::default(),
             all_margin:       RefCell::new(0.0),
+            padding:          RefCell::new(0.0),
+            wrap_around:      RefCell::new(None),
             has:              RefCell::new(Size::default()),
             fit_text:         RefCell::new(Size::default()),
             custom:           RefCell::new(None),
@@ -61,7 +69,7 @@ impl Placer {
     }
 
     pub(crate) fn init(&mut self, view: WeakView) {
-        let s_content = view.__base_view().superview.content_size();
+        let s_content = view.__base_view().superview.layout_size();
         self.view = unsafe { view.to_rglica() };
         self.s_content = s_content.to_rglica();
     }
@@ -69,8 +77,10 @@ impl Placer {
     pub fn clear(&self) -> &Self {
         self.rules.borrow_mut().clear();
         self.all_tiling_rules.borrow_mut().clear();
+        *self.wrap_around.borrow_mut() = None;
         *self.has.borrow_mut() = Size::default();
         *self.fit_text.borrow_mut() = Size::default();
+        *self.custom.borrow_mut() = None;
         self
     }
 

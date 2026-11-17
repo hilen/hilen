@@ -1,19 +1,28 @@
+use std::mem::replace;
+
+#[cfg(all(any(desktop, wasm), feature = "gpu"))]
+use crate::ui::ViewData;
 #[cfg(any(desktop, wasm))]
-use crate::gm::flat::Point;
-#[cfg(any(desktop, wasm))]
-use crate::ui::{
-    TouchStack, UIManager,
-    view::{ViewData, ViewFrame},
+use crate::{
+    gm::flat::Point,
+    ui::{TouchStack, UIManager},
 };
 use crate::{
-    deps::refs::main_lock::MainLock,
-    ui::{CursorIcon, Tooltip, WeakView},
+    ui::{CursorIcon, Tooltip, ViewSubviews, WeakView},
+    window::slots::WindowLock,
 };
 
-static HOVERED: MainLock<WeakView> = MainLock::new();
-static CURSOR: MainLock<CursorIcon> = MainLock::new();
+static HOVERED: WindowLock<WeakView> = WindowLock::new();
+static CURSOR: WindowLock<CursorIcon> = WindowLock::new();
+/// The hovered view and its ancestors, innermost first, each with
+/// `is_hover_within` set. Kept as a list, since a dead hovered view has
+/// no superview chain left to walk.
+static WITHIN: WindowLock<Vec<WeakView>> = WindowLock::new();
 #[cfg(any(desktop, wasm))]
-static LOCKED: MainLock<WeakView> = MainLock::new();
+static LOCKED: WindowLock<WeakView> = WindowLock::new();
+/// A scroll moved content under the cursor since the last frame.
+#[cfg(all(any(desktop, wasm), feature = "gpu"))]
+static SCROLLED: WindowLock<bool> = WindowLock::new();
 
 /// Tracks the single topmost hovered view. Runs only on mouse move,
 /// scroll and cursor leave. Nothing here runs per frame.
@@ -24,6 +33,11 @@ static LOCKED: MainLock<WeakView> = MainLock::new();
 pub struct Hover;
 
 impl Hover {
+    #[cfg(all(feature = "inspect", any(desktop, wasm)))]
+    pub(crate) fn hovered() -> WeakView {
+        **HOVERED
+    }
+
     #[cfg(any(desktop, wasm))]
     pub(crate) fn update(cursor: Point) {
         if LOCKED.is_ok() {
@@ -59,16 +73,38 @@ impl Hover {
         Self::set_hovered(WeakView::default());
     }
 
-    /// The hovered view can die without a cursor event: a rebuild
-    /// replaces the rows under a stationary cursor. Runs after the
-    /// deleted views drain each frame and re-picks under the last
-    /// cursor position, so the replacement row gets its enter without
-    /// waiting for a mouse move, like CSS hover. A no-op while the
-    /// hovered view is alive or there is none.
-    #[cfg(any(desktop, wasm))]
-    pub(crate) fn refresh_dead() {
-        let old = *HOVERED;
-        if !old.was_initialized() || old.is_ok() {
+    /// A scroll moves content under a still cursor, but the new offset
+    /// lands only at the next layout. A pick now would find the view that
+    /// is leaving, so the pick waits for `after_layout`. A shown tooltip
+    /// belongs to a place that just moved, so it goes at once.
+    #[cfg(all(any(desktop, wasm), feature = "gpu"))]
+    pub(crate) fn scrolled() {
+        *SCROLLED.get_mut() = true;
+        Tooltip::hide();
+    }
+
+    /// Runs each frame after layout: re-picks under the cursor after a
+    /// scroll, else only when the hovered view went away.
+    #[cfg(all(any(desktop, wasm), feature = "gpu"))]
+    pub(crate) fn after_layout() {
+        if replace(SCROLLED.get_mut(), false) {
+            Self::update(UIManager::cursor_position());
+        } else {
+            Self::refresh_gone();
+        }
+    }
+
+    /// The hovered view can die or hide without a cursor event: a
+    /// rebuild replaces the rows under a stationary cursor, a key hides
+    /// the panel the cursor rests on. Runs after the deleted views drain
+    /// each frame and re-picks under the last cursor position, so the
+    /// view now under the cursor gets its enter and the tooltip of the
+    /// gone one goes, without waiting for a mouse move, like CSS hover.
+    /// A no-op while the hovered view is alive and shown or there is none.
+    #[cfg(all(any(desktop, wasm), feature = "gpu"))]
+    fn refresh_gone() {
+        let old = **HOVERED;
+        if !old.was_initialized() || (old.is_ok() && !old.is_hidden_in_tree()) {
             return;
         }
         Self::update(UIManager::cursor_position());
@@ -76,13 +112,11 @@ impl Hover {
 
     #[cfg(any(desktop, wasm))]
     fn view_under(cursor: Point) -> WeakView {
-        TouchStack::hover_views()
-            .find(|view| view.is_ok() && !view.is_hidden_in_tree() && view.absolute_frame().contains(cursor))
-            .unwrap_or_default()
+        TouchStack::hover_view_at(cursor).unwrap_or_default()
     }
 
     fn set_hovered(new: WeakView) {
-        let old = *HOVERED;
+        let old = **HOVERED;
         let old_alive = old.is_ok();
 
         // Raw equality alone is not enough. A freed view and its
@@ -93,12 +127,13 @@ impl Hover {
         }
 
         if !old_alive && !new.is_ok() {
-            // Drop a dead pointer, so `refresh_dead` stops re-picking
+            // Drop a dead pointer, so `refresh_gone` stops re-picking
             // once nothing sits under the cursor. The dead view can be
             // the one whose custom cursor is still applied, so the
             // cursor resets even though no hover event fires.
             *HOVERED.get_mut() = new;
             Self::apply_cursor(CursorIcon::default());
+            Self::update_within(new);
             return;
         }
 
@@ -116,6 +151,8 @@ impl Hover {
             base.events.touch.hovered.trigger(true);
         }
 
+        Self::update_within(new);
+
         let cursor = if new.is_ok() {
             new.__base_view().hover_cursor.unwrap_or_default()
         } else {
@@ -126,20 +163,50 @@ impl Hover {
         Tooltip::hover_changed(new);
     }
 
+    /// Exits for the views hover left, innermost first, then enters for
+    /// the views it reached, outermost first, like DOM mouseleave and
+    /// mouseenter.
+    fn update_within(new: WeakView) {
+        let mut chain = Vec::new();
+        let mut view = new;
+        while view.is_ok() {
+            chain.push(view);
+            view = *view.superview();
+        }
+
+        let old = replace(WITHIN.get_mut(), chain.clone());
+
+        for view in &old {
+            if view.is_ok() && !chain.iter().any(|v| v.raw() == view.raw()) {
+                let base = view.__base_view();
+                base.is_hover_within = false;
+                base.events.touch.hover_within.trigger(false);
+            }
+        }
+
+        for view in chain.iter().rev() {
+            if !view.__base_view().is_hover_within {
+                let base = view.__base_view();
+                base.is_hover_within = true;
+                base.events.touch.hover_within.trigger(true);
+            }
+        }
+    }
+
     /// The cursor icon hover currently asks for, `Default` off any view
     /// with a custom one. Windowless runs track it too, so tests can
     /// assert it.
     pub fn cursor() -> CursorIcon {
-        *CURSOR
+        **CURSOR
     }
 
     fn apply_cursor(cursor: CursorIcon) {
-        if *CURSOR == cursor {
+        if **CURSOR == cursor {
             return;
         }
         *CURSOR.get_mut() = cursor;
 
-        #[cfg(any(desktop, wasm))]
+        #[cfg(all(any(desktop, wasm), feature = "gpu"))]
         if let Some(window) = crate::window::Window::winit_window() {
             window.set_cursor(cursor);
         }

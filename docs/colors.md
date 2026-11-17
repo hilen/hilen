@@ -14,10 +14,12 @@ UI frame, is the upgrade if a scene ever needs it.
 
 - `Color` floats hold encoded sRGB values, the exact 0..1 fractions a CSS
   value means. `Color::hex("#22c55e")` is the canonical constructor, const,
-  usable in a `pub const`. `with_alpha` matches CSS `rgba()`.
+  usable in a `pub const`. 8 digits carry the alpha, `#00000055`, like CSS.
+  Any other length panics. `with_alpha` matches CSS `rgba()`.
 - Render targets are plain Unorm, `Bgra8Unorm` on desktop, `Rgba8Unorm` on
   android, the browser's preferred canvas format on wasm. Never an sRGB
-  format. Fixed function blending then operates on the encoded bytes, which
+  format. WebGL prefers `Rgba8UnormSrgb`, so `plain_format` in `window/state.rs`
+  takes its plain twin there. Fixed function blending then operates on the encoded bytes, which
   is exactly the CSS compositing and gradient math.
 - Image textures are also plain Unorm. Their bytes are already encoded and
   sampling must return them unchanged.
@@ -56,6 +58,21 @@ and follow its corner radii.
   flat fill. The gradient pipeline used to carry no border at all, so setting
   one on a gradient view silently did nothing.
 
+The pixel on the inner edge of a border is part border and part fill. The rect,
+gradient and image shaders mix the two premultiplied in `border_mix`. A straight
+mix let a clear fill, black at zero alpha, darken a solid border there, and let
+a faint border outweigh an opaque fill, so cards got dark or bright corners. The
+blur pipeline draws the border over the blurred backdrop with its own alpha. The
+`Border blend` UI test checks every edge pixel stays inside the colors it can be
+mixed from.
+
+The pixel on the outer edge of a view is part view and part what is behind it.
+A flush draws its rects before its images, gradients and paths, so a rect in
+front of a queued picture used to mix its edge with the page behind the
+picture, then hide the picture there by depth, a light rim around a badge on a
+dark poster. `UIDrawer` now draws the queued pictures first when a rect comes
+that is in front of one and over it. The `Rect over picture` UI test checks it.
+
 Glyphs are separate. A gradient on a `Label` paints its box, not its text. For
 CSS `background-clip: text`, `Label::set_text_gradient(start, end)` fades the
 glyphs themselves from the top of the label frame to its bottom, see
@@ -66,7 +83,7 @@ glyphs themselves from the top of the label frame to its bottom, see
 Correct bytes in the framebuffer are not the end of the story, the OS
 still decides how the window surface is interpreted on the panel. The
 metal backend used to leave the `CAMetalLayer` colorspace nil, which
-disables color matching entirely, so on a wide gamut display every
+disables color matching entirely, so on a P3 display every
 saturated color oversaturated, `#f59e0b` displayed as `#ff9900` while
 grays matched exactly. Since `hilen-wgpu-hal` 30.0.1 the layer is tagged
 with an explicit sRGB colorspace, so the OS matches the content into the

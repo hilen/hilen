@@ -5,8 +5,12 @@ pub mod helpers;
 mod human;
 mod record;
 mod report;
+/// Parses flags and opens windows, which only a desktop runner does.
+#[cfg(all(feature = "ui-tests", desktop))]
+pub mod runner;
 pub mod state;
 mod suite;
+pub mod system_input;
 mod ui_test;
 /// The web driver carries its own stuck handling, and a page cannot spawn
 /// the plain watchdog thread.
@@ -36,7 +40,13 @@ pub(crate) use record::{reset_record_probe_count, set_record_canvas};
 pub use report::failure_report;
 use serde::de::DeserializeOwned;
 pub use state::*;
-pub use suite::{TestRunReport, present_test, run_all_tests, run_test_map};
+pub use suite::{
+    TestRunReport, drop_named, keep_named, present_test, registered_test_maps, run_all_tests, run_test_maps,
+};
+use winit::{
+    dpi::PhysicalPosition,
+    event::{MouseScrollDelta, TouchPhase},
+};
 
 pub use self::ui_test::*;
 use crate::{
@@ -47,10 +57,10 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, drop_on_main, flat::Point},
     ui::{
-        Input, LongPress, ModifiersState, NamedKey, Tooltip, Touch, U8Color, UIEvents, UIManager,
-        input::TouchEvent,
+        Code, Input, LongPress, Modifiers, MouseButton, NamedKey, Tooltip, Touch, U8Color, UIEvents,
+        UIManager, input::TouchEvent, latin_candidate,
     },
-    window::{MouseButton, Window},
+    window::Window,
 };
 
 pub fn test_combinations<const A: usize, Val>(comb: [(&'static str, Val); A]) -> Result<()>
@@ -93,6 +103,39 @@ fn inject_touch(touch: impl Into<Touch> + Send + Copy + 'static) {
 pub fn inject_scroll(scroll: impl ToF32) {
     from_main(move || {
         Input::on_scroll((0, scroll).into());
+    });
+    human_pause();
+}
+
+/// A trackpad scroll of `points`, sent as the physical pixels a window reports
+/// and through the same conversion as a real one. Negative moves the content
+/// up.
+pub fn inject_trackpad_scroll(points: impl ToF32) {
+    inject_trackpad_wheel(points.to_f32(), TouchPhase::Moved);
+}
+
+/// The end of a trackpad scroll that still carries `points`, as macOS sends
+/// it when it merged that end with the start of the next scroll.
+pub fn inject_trackpad_scroll_end(points: impl ToF32) {
+    inject_trackpad_wheel(points.to_f32(), TouchPhase::Ended);
+}
+
+fn inject_trackpad_wheel(points: f32, phase: TouchPhase) {
+    from_main(move || {
+        let pixels = f64::from(points * UIManager::scale());
+        let delta = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, pixels));
+        if let Some(points) = Input::wheel_points(delta, phase) {
+            Input::on_wheel(points);
+        }
+    });
+    human_pause();
+}
+
+/// A sideways wheel or trackpad scroll, negative moves the content left.
+#[allow(dead_code)]
+pub fn inject_scroll_x(scroll: impl ToF32) {
+    from_main(move || {
+        Input::on_scroll((scroll, 0).into());
     });
     human_pause();
 }
@@ -208,24 +251,49 @@ pub fn inject_keys(s: impl ToString) {
 
     from_main(move || {
         for ch in s.chars() {
-            Input::on_char(ch);
+            Input::on_char(ch, None);
         }
     });
 }
 
 pub fn inject_key(key: char) {
-    from_main(move || Input::on_char(key));
+    from_main(move || Input::on_char(key, None));
+    human_pause_key();
+}
+
+/// Presses a physical key on a layout that types `typed` on it, like `'и'`
+/// on `Code::KeyB` for Russian. The Latin letter comes from the US place
+/// of the key, the same on every platform.
+pub fn inject_layout_key(typed: char, code: Code) {
+    from_main(move || Input::on_char(typed, latin_candidate(typed, Some(code), None)));
     human_pause_key();
 }
 
 pub fn inject_named_key(key: NamedKey) {
+    from_main(move || {
+        Input::on_key(key);
+        Input::on_key_up(key);
+    });
+    human_pause_key();
+}
+
+/// Holds a named key down for `seconds` and lets go, with `repeats` more
+/// presses in between, what a keyboard sends for a key that is held.
+pub fn inject_held_key(key: NamedKey, seconds: f32, repeats: usize) {
     from_main(move || Input::on_key(key));
+    for _ in 0..repeats {
+        wait_for_next_frame();
+        from_main(move || Input::on_key(key));
+    }
+    sleep(Duration::from_secs_f32(seconds));
+    wait_for_next_frame();
+    from_main(move || Input::on_key_up(key));
     human_pause_key();
 }
 
 /// Sets the held modifier keys for the injected keys that follow, until
-/// the next call. `ModifiersState::empty()` releases them.
-pub fn inject_modifiers(modifiers: ModifiersState) {
+/// the next call. `Modifiers::empty()` releases them.
+pub fn inject_modifiers(modifiers: Modifiers) {
     from_main(move || Input::set_modifiers(modifiers));
 }
 

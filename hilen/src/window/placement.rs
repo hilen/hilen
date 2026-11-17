@@ -4,7 +4,7 @@ use crate::gm::flat::Size;
 
 /// The share of a display a fresh window may take. The rest is room for
 /// the window frame and the taskbar, which the display size includes.
-const INITIAL_FIT: f64 = 0.9;
+pub(crate) const INITIAL_FIT: f64 = 0.9;
 
 /// Where a desktop window sits and how big it is, in logical points.
 ///
@@ -24,6 +24,35 @@ pub struct WindowPlacement {
     pub monitor:   Option<String>,
 }
 
+impl WindowPlacement {
+    /// The placement the engine kept from the last run of this app,
+    /// `None` on the first start. It is the body of the default
+    /// `App::window_placement`. An app that writes that hook calls this
+    /// for the cases it leaves to the engine. Always `None` off the
+    /// desktop, in a headless run and in a test run.
+    pub fn remembered() -> Option<Self> {
+        #[cfg(desktop)]
+        {
+            super::placement_store::saved()
+        }
+        #[cfg(not(desktop))]
+        {
+            None
+        }
+    }
+
+    /// Hands this placement to the engine to keep for the next start. It
+    /// is the body of the default `App::window_placement_changed`. The
+    /// call is cheap, the file is written a moment later on another
+    /// thread, and many calls in a row end as 1 write.
+    pub fn remember(&self) {
+        #[cfg(desktop)]
+        super::placement_store::save(self);
+        #[cfg(not(desktop))]
+        log::debug!("only a desktop window is kept for the next start, got {self:?}");
+    }
+}
+
 /// One attached display in logical points.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MonitorInfo {
@@ -35,7 +64,7 @@ pub struct MonitorInfo {
 }
 
 impl MonitorInfo {
-    #[cfg(desktop)]
+    #[cfg(all(desktop, feature = "gpu"))]
     fn from_handle(handle: &winit::monitor::MonitorHandle) -> Self {
         let scale = handle.scale_factor();
         let size = handle.size();
@@ -79,9 +108,9 @@ pub fn resolve(
     centered(primary, primary.width * 0.8, primary.height * 0.8)
 }
 
-/// Where a window with nothing saved opens: `size` on the primary
-/// display, shrunk to fit it, and centered there. Left to the window
-/// manager a window taller than the display it picks opens with its
+/// Where a window with nothing saved opens: `size`, in logical points, on
+/// the primary display, shrunk to fit it, and centered there. Left to the
+/// window manager a window taller than the display it picks opens with its
 /// title bar above the screen edge, which `WSLg` does with a 1000 point
 /// window on a 1080 pixel display.
 pub fn initial(size: Size, primary: Option<&MonitorInfo>) -> WindowPlacement {
@@ -121,6 +150,13 @@ pub fn primary_or_largest(monitors: &[MonitorInfo], reported: Option<MonitorInfo
         .cloned()
 }
 
+/// Whether a placement may be saved. Windows moves a minimized window to
+/// -32000 and shrinks it to nothing, restored as is it opens off screen.
+#[cfg(all(desktop, feature = "gpu"))]
+pub(crate) fn savable(placement: &WindowPlacement, minimized: bool) -> bool {
+    !minimized && placement.width > 0.0 && placement.height > 0.0
+}
+
 fn centered(monitor: &MonitorInfo, width: f64, height: f64) -> WindowPlacement {
     WindowPlacement {
         width,
@@ -132,7 +168,7 @@ fn centered(monitor: &MonitorInfo, width: f64, height: f64) -> WindowPlacement {
     }
 }
 
-#[cfg(desktop)]
+#[cfg(all(desktop, feature = "gpu"))]
 impl super::Window {
     /// The current placement of the real window. `None` when headless.
     pub fn placement() -> Option<WindowPlacement> {
@@ -158,15 +194,21 @@ impl super::Window {
 
     /// The launch placement of an app with nothing saved. Headless has no
     /// display to place on and takes the size as is.
+    /// `size` is in physical pixels, the surface the app renders into,
+    /// the unit the headless size shares. A placement is in logical
+    /// points, so the window scale divides it out first, read as points
+    /// a 2x display opens the window twice as big.
     pub(crate) fn apply_initial_size(&mut self, size: Size) {
         use crate::gm::LossyConvert;
 
-        if self.screen.winit_window().is_none() {
+        let Some(scale) = self.screen.winit_window().map(winit::window::Window::scale_factor) else {
             self.set_size(size.lossy_convert());
             return;
-        }
+        };
+        let scale: f32 = scale.lossy_convert();
+        let logical = Size::new(size.width / scale, size.height / scale);
         let (_, primary) = self.monitors();
-        self.place(&initial(size, primary.as_ref()));
+        self.place(&initial(logical, primary.as_ref()));
     }
 
     fn monitors(&self) -> (Vec<MonitorInfo>, Option<MonitorInfo>) {
@@ -194,7 +236,7 @@ impl super::Window {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod tests {
     use super::*;
 
@@ -324,6 +366,19 @@ mod tests {
             Some(monitors[0].clone())
         );
         assert_eq!(primary_or_largest(&[], None), None);
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn minimized_or_empty_window_is_not_saved() {
+        let mut placement = saved(None);
+        assert!(savable(&placement, false));
+        assert!(!savable(&placement, true));
+        placement.x = -32000.0;
+        placement.y = -32000.0;
+        placement.width = 0.0;
+        placement.height = 0.0;
+        assert!(!savable(&placement, false));
     }
 
     #[test]

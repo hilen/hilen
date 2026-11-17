@@ -9,8 +9,12 @@ use rapier2d::{
 
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
-    gm::flat::{Point, Size},
+    gm::{
+        Clock, LossyConvert, ToF32,
+        flat::{Point, Rect},
+    },
     level::{Level, level::LevelPhysics},
+    ui::UIManager,
     window::Window,
 };
 
@@ -23,10 +27,20 @@ pub struct LevelManager {
     scale:      f32,
     camera_pos: Point,
 
-    #[educe(Default = 1.0 / 60.0)]
-    update_interval: f32,
+    #[educe(Default = Self::DEFAULT_STEP)]
+    step:        f32,
+    /// Clock time of the last frame, none until a level runs a frame.
+    last_frame:  Option<f64>,
+    /// Real time not yet simulated, less than one step after a frame.
+    accumulator: f32,
+    /// Simulated seconds since the level was set.
+    time:        f64,
 
     level: Option<Own<dyn Level>>,
+
+    /// Level units per art pixel when the level draws as pixel art, see
+    /// `set_pixel_art`.
+    pixel_size: Option<f32>,
 
     scale_changed: Option<Box<dyn FnMut(f32)>>,
 }
@@ -40,12 +54,49 @@ impl LevelManager {
         0.000_001
     }
 
+    /// The default fixed step. Twice the common 60 Hz frame, so a 120 Hz
+    /// screen gets a new pose every frame too.
+    pub const DEFAULT_STEP: f32 = 1.0 / 120.0;
+
+    /// Steps one frame may run. A longer stall, a breakpoint or a window
+    /// drag, drops the rest, the level slows down instead of running a
+    /// burst of steps that makes the next frame late too.
+    pub const MAX_STEPS_PER_FRAME: usize = 8;
+
+    /// Runs the level for the real time since the last frame, in fixed
+    /// steps, so it moves at the same speed at any frame rate. Real time
+    /// is `Clock` time, a stepped test moves it frame by frame.
     pub(crate) fn update() {
         if Self::no_level() {
             return;
         }
 
-        Self::level().__internal_update(*Self::update_interval());
+        let cursor = Self::level_point(UIManager::cursor_position());
+        unsafe { Self::level_unchecked() }.cursor_position = cursor;
+
+        let now = Clock::now_ms();
+        let state = SELF.get_mut();
+        let elapsed: f32 = state
+            .last_frame
+            .map_or(0.0, |last| ((now - last).max(0.0) / 1000.0).lossy_convert());
+        state.last_frame = Some(now);
+        state.accumulator += elapsed;
+
+        // The level's own update may reach the manager, so its state is
+        // read again after every step.
+        let mut steps = 0;
+        while steps < Self::MAX_STEPS_PER_FRAME && !Self::no_level() {
+            let state = SELF.get_mut();
+            let step = state.step;
+            if state.accumulator < step {
+                return;
+            }
+            state.accumulator -= step;
+            state.time += f64::from(step);
+            steps += 1;
+            Self::level().__internal_update(step);
+        }
+        SELF.get_mut().accumulator = 0.0;
     }
 }
 
@@ -55,12 +106,17 @@ impl LevelManager {
         let level = Own::new(level);
         let weak = level.weak();
         l.level = Some(level);
+        l.last_frame = None;
+        l.accumulator = 0.0;
+        l.time = 0.0;
+        l.pixel_size = None;
         l.level.as_ref().unwrap().__internal_setup();
         weak
     }
 
     pub fn stop_level() {
         SELF.get_mut().level = None;
+        SELF.get_mut().pixel_size = None;
         Self::set_scale(1.0);
         *Self::camera_pos() = (0, 0).into();
     }
@@ -102,12 +158,27 @@ impl LevelManager {
         SELF.level.is_none()
     }
 
+    /// A level runs and uses the arrow keys itself, see
+    /// `LevelSetup::takes_keys`.
+    pub(crate) fn takes_keys() -> bool {
+        SELF.level.as_ref().is_some_and(|level| level.__internal_takes_keys())
+    }
+
     pub fn scale() -> f32 {
         SELF.get_mut().scale
     }
 
+    /// In pixel art the scale snaps so an art pixel covers a whole number
+    /// of screen pixels, see `set_pixel_art`.
     pub fn set_scale(scale: f32) {
         let sf = SELF.get_mut();
+        let scale = match sf.pixel_size {
+            Some(pixel) => {
+                let screen_pixels = (10.0 * scale * pixel).round().max(1.0);
+                screen_pixels / (10.0 * pixel)
+            }
+            None => scale,
+        };
         sf.scale = scale;
         if let Some(cb) = &mut sf.scale_changed {
             cb(scale);
@@ -120,12 +191,58 @@ impl LevelManager {
         cb.replace(Box::new(callb));
     }
 
-    pub(crate) fn update_interval() -> &'static mut f32 {
-        &mut SELF.get_mut().update_interval
+    /// The fixed step the level runs in, in seconds, `DEFAULT_STEP` unless
+    /// set. `LevelSetup::update` gets it split by the physics substeps.
+    pub fn step() -> f32 {
+        SELF.step
+    }
+
+    pub fn set_step(seconds: impl ToF32) {
+        let seconds = seconds.to_f32();
+        assert!(seconds > 0.0, "a level step must be longer than zero");
+        SELF.get_mut().step = seconds;
+    }
+
+    /// Seconds the running level has simulated since it was set.
+    pub fn time() -> f64 {
+        SELF.time
     }
 
     pub fn camera_pos() -> &'static mut Point {
         &mut SELF.get_mut().camera_pos
+    }
+
+    /// Draw the level as pixel art, each `pixel_size` level units one art
+    /// pixel, or smooth again with `None`. The level renders at art
+    /// resolution into a texture that the screen shows with hard square
+    /// pixels, so a slope or a turned sprite breaks into a pixel staircase
+    /// the way pixel art does. The scale snaps to a whole number of screen
+    /// pixels per art pixel and the camera to a whole art pixel. A new
+    /// level starts smooth, so set it in the level setup.
+    pub fn set_pixel_art(pixel_size: Option<f32>) {
+        if let Some(pixel) = pixel_size {
+            assert!(pixel > 0.0, "an art pixel must be bigger than zero");
+        }
+        SELF.get_mut().pixel_size = pixel_size;
+        Self::set_scale(Self::scale());
+    }
+
+    /// Level units per art pixel, none when the level draws smooth.
+    pub fn pixel_size() -> Option<f32> {
+        SELF.pixel_size
+    }
+
+    /// The camera the level is drawn from. In pixel art it sits on a whole
+    /// art pixel, so the art grid never slides under the screen grid.
+    pub(crate) fn view_camera() -> Point {
+        let camera = *Self::camera_pos();
+        match SELF.pixel_size {
+            Some(pixel) => Point::new(
+                (camera.x / pixel).round() * pixel,
+                (camera.y / pixel).round() * pixel,
+            ),
+            None => camera,
+        }
     }
 
     /// Screen points per level unit. The sprite shader draws ten pixels
@@ -149,24 +266,93 @@ impl LevelManager {
         }
     }
 
+    /// The level point under a window position in pixels, what a raw
+    /// touch carries.
     pub fn convert_touch(pos: Point) -> Point {
-        let mut pos = pos;
-        let size = Window::inner_size();
-        let size: Size = (size.width, size.height).into();
+        Self::level_point(pos / UIManager::scale())
+    }
 
-        pos.x -= size.width / 2.0;
-        pos.y -= size.height / 2.0;
-        pos.y = -pos.y;
-        pos /= 10.0;
+    /// Render pixels per level unit, the sprite shaders draw ten per unit
+    /// times the level scale.
+    fn pixels_per_unit() -> f32 {
+        10.0 * Self::scale()
+    }
 
-        pos *= 2;
+    /// The level point under a screen point in UI points, the unit of
+    /// `UIManager::cursor_position` and of view frames.
+    pub fn level_point(screen: Point) -> Point {
+        let center = UIManager::render_area() / 2.0;
+        let pixels = screen * UIManager::scale();
+        let offset = Point::new(pixels.x - center.width, center.height - pixels.y);
+        offset / Self::pixels_per_unit() + Self::view_camera()
+    }
 
-        pos /= Self::touch_screen_scale();
+    /// The screen point in UI points where a level point is drawn, to put
+    /// a view over it, like a damage number over an enemy.
+    pub fn screen_point(level: impl Into<Point>) -> Point {
+        let offset = (level.into() - Self::view_camera()) * Self::pixels_per_unit();
+        let center = UIManager::render_area() / 2.0;
+        Point::new(center.width + offset.x, center.height - offset.y) / UIManager::scale()
+    }
 
-        pos /= Self::scale();
+    /// The level rect the screen shows.
+    pub fn visible_rect() -> Rect {
+        let half = UIManager::render_area() / 2.0 / Self::pixels_per_unit();
+        let camera = Self::view_camera();
+        Rect::new(
+            camera.x - half.width,
+            camera.y - half.height,
+            half.width * 2.0,
+            half.height * 2.0,
+        )
+    }
+}
 
-        pos += *Self::camera_pos();
+#[cfg(test)]
+mod test {
+    use serial_test::serial;
 
-        pos
+    use crate::{
+        deps::hreads::set_current_thread_as_main,
+        gm::flat::Point,
+        level::{LevelManager, LevelSetup, level},
+    };
+
+    #[level]
+    #[derive(Default)]
+    struct Empty {}
+
+    impl LevelSetup for Empty {}
+
+    /// In pixel art an art pixel covers a whole number of screen pixels,
+    /// so the scale snaps, the camera sits on a whole art pixel, and a new
+    /// level starts smooth again.
+    #[test]
+    #[serial]
+    fn pixel_art_snaps_the_scale_and_the_camera() {
+        set_current_thread_as_main();
+        LevelManager::set_level(Empty::default());
+
+        LevelManager::set_pixel_art(Some(0.25));
+        // 10 pixels a unit times 1.3 is 3.25 screen pixels an art pixel, 3.
+        LevelManager::set_scale(1.3);
+        assert!(
+            (LevelManager::scale() - 1.2).abs() < 1e-6,
+            "{}",
+            LevelManager::scale()
+        );
+
+        *LevelManager::camera_pos() = Point::new(1.1, -0.3);
+        let camera = LevelManager::view_camera();
+        assert!(
+            (camera.x - 1.0).abs() < 1e-6 && (camera.y + 0.25).abs() < 1e-6,
+            "{camera}"
+        );
+
+        LevelManager::set_level(Empty::default());
+        assert_eq!(LevelManager::pixel_size(), None);
+        LevelManager::set_scale(1.3);
+        assert!((LevelManager::scale() - 1.3).abs() < 1e-6);
+        LevelManager::stop_level();
     }
 }

@@ -1,9 +1,12 @@
 use std::{
-    collections::BTreeMap,
+    cell::RefCell,
+    collections::{BTreeMap, HashSet},
     f32::consts::{PI, TAU},
+    sync::{Arc, Mutex},
 };
 
-use wgpu::{Buffer, BufferUsages};
+use log::warn;
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, MapMode};
 
 use crate::{
     deps::refs::{Own, Weak, main_lock::MainLock},
@@ -33,6 +36,30 @@ pub struct Mesh {
     pub(crate) skin_buffer:   Option<Buffer>,
     pub(crate) index_buffer:  Buffer,
     pub(crate) index_count:   u32,
+    /// Whether the color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub(crate) smooth_colors: bool,
+    /// Whether its texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub(crate) flowing:       bool,
+    /// Every edge of the triangles once, as pairs of vertex indices, and
+    /// their count, what `SceneBase::show_wireframe` draws as lines. Made
+    /// on the first wireframe draw, at every upload it took a third of the
+    /// main thread of a game that streams its ground. The indices are read
+    /// back from the GPU for it, a copy kept on the CPU for every mesh was
+    /// memory only a debug view used.
+    edges:                    RefCell<Edges>,
+}
+
+/// How far the edges of a mesh are, see `Mesh::edges`.
+#[derive(Debug, Default)]
+enum Edges {
+    /// No wireframe asked for them yet.
+    #[default]
+    Unasked,
+    /// The indices are on their way back from the GPU.
+    Reading(Arc<Mutex<Option<Vec<u16>>>>),
+    Ready(Buffer, u32),
 }
 
 type Geometry = (Vec<Vertex3D>, Vec<u16>);
@@ -69,9 +96,95 @@ impl Mesh {
         Self {
             vertex_buffer: device.buffer(vertices, BufferUsages::VERTEX),
             skin_buffer:   None,
-            index_buffer:  device.buffer(indices, BufferUsages::INDEX),
+            index_buffer:  device.buffer(indices, BufferUsages::INDEX | BufferUsages::COPY_SRC),
             index_count:   checked_usize_to_u32(indices.len()),
+            smooth_colors: false,
+            flowing:       false,
+            edges:         RefCell::default(),
         }
+    }
+
+    /// A mesh whose color fades across a triangle, see
+    /// `Model::from_smooth_mesh`.
+    pub(crate) fn upload_smooth(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+        Self {
+            smooth_colors: true,
+            ..Self::upload(vertices, indices)
+        }
+    }
+
+    /// A mesh whose texture slides along a flow, see
+    /// `Model::from_flowing_mesh`.
+    pub(crate) fn upload_flowing(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+        Self {
+            flowing: true,
+            ..Self::upload(vertices, indices)
+        }
+    }
+
+    /// The edge buffer and its index count, none until the indices came
+    /// back from the GPU. A native GPU is waited for at the first ask, so
+    /// the edges draw that frame. A browser answers on its own time and the
+    /// edges show from the frame they landed.
+    pub(crate) fn edges(&self) -> Option<(Buffer, u32)> {
+        let mut state = self.edges.borrow_mut();
+        if let Edges::Unasked = *state {
+            *state = Edges::Reading(self.read_indices());
+        }
+        if let Edges::Reading(slot) = &*state {
+            let indices = slot.lock().expect("the map callback does not panic").take()?;
+            let edges = edges(&indices);
+            *state = Edges::Ready(
+                Window::device().buffer(edges.as_slice(), BufferUsages::INDEX),
+                checked_usize_to_u32(edges.len()),
+            );
+        }
+        match &*state {
+            Edges::Ready(buffer, count) => Some((buffer.clone(), *count)),
+            _ => None,
+        }
+    }
+
+    /// Copies the index buffer into one the CPU can map, and fills the slot
+    /// with the indices once the map is done.
+    fn read_indices(&self) -> Arc<Mutex<Option<Vec<u16>>>> {
+        let device = Window::device();
+        let size = self.index_buffer.size();
+        let readable = device.create_buffer(&BufferDescriptor {
+            label: Some("mesh_indices_read"),
+            size,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("mesh_indices_read"),
+        });
+        encoder.copy_buffer_to_buffer(&self.index_buffer, 0, &readable, 0, size);
+        Window::queue().submit([encoder.finish()]);
+
+        let slot = Arc::new(Mutex::new(None));
+        let (filled, mapped) = (slot.clone(), readable.clone());
+        let count = self.index_count as usize;
+        readable.slice(..).map_async(MapMode::Read, move |result| {
+            if let Err(err) = result {
+                warn!("the indices of a mesh did not come back for its wireframe: {err}");
+                return;
+            }
+            let indices = match mapped.slice(..).get_mapped_range() {
+                Ok(bytes) => bytemuck::cast_slice::<u8, u16>(&bytes)[..count].to_vec(),
+                Err(err) => {
+                    warn!("the indices of a mesh could not be read for its wireframe: {err}");
+                    return;
+                }
+            };
+            mapped.unmap();
+            *filled.lock().expect("nothing else holds the slot") = Some(indices);
+        });
+        #[cfg(not_wasm)]
+        if let Err(err) = device.poll(wgpu::PollType::wait_indefinitely()) {
+            warn!("the GPU poll for the indices of a mesh failed: {err}");
+        }
+        slot
     }
 
     /// A mesh whose vertices follow the joints of a skin, `skin` is one
@@ -83,6 +196,26 @@ impl Mesh {
             ..Self::upload(vertices, indices)
         }
     }
+}
+
+/// The edges of the triangles of `indices` as a line list, an edge two
+/// triangles share only once. A mesh that has no triangle still gets
+/// one degenerate pair, a buffer of 0 bytes cannot be bound.
+fn edges(indices: &[u16]) -> Vec<u16> {
+    let mut seen = HashSet::new();
+    let mut edges = vec![];
+    for triangle in indices.as_chunks::<3>().0 {
+        for (from, to) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (triangle[from], triangle[to]);
+            if seen.insert((a.min(b), a.max(b))) {
+                edges.extend([a, b]);
+            }
+        }
+    }
+    if edges.is_empty() {
+        edges.extend([0, 0]);
+    }
+    edges
 }
 
 fn index(i: usize) -> u16 {
@@ -101,7 +234,7 @@ fn face(vertices: &mut Vec<Vertex3D>, indices: &mut Vec<u16>, normal: Vec3, u: V
         (center - u * 0.5 + v * 0.5, Point::new(0.0, 0.0)),
     ];
     for (pos, uv) in corners {
-        vertices.push(Vertex3D { pos, normal, uv });
+        vertices.push(Vertex3D::new(pos, normal, uv));
     }
     indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
 }
@@ -139,14 +272,14 @@ fn ball_geometry() -> Geometry {
         for segment in 0..=BALL_SEGMENTS {
             let theta = TAU * segment.lossy_convert() / BALL_SEGMENTS.lossy_convert();
             let normal = Vec3::new(phi.sin() * theta.cos(), phi.cos(), phi.sin() * theta.sin());
-            vertices.push(Vertex3D {
-                pos: normal * 0.5,
+            vertices.push(Vertex3D::new(
+                normal * 0.5,
                 normal,
-                uv: Point::new(
+                Point::new(
                     segment.lossy_convert() / BALL_SEGMENTS.lossy_convert(),
                     ring.lossy_convert() / BALL_RINGS.lossy_convert(),
                 ),
-            });
+            ));
         }
     }
 

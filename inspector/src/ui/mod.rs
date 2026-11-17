@@ -1,4 +1,5 @@
 mod common;
+mod frames;
 mod inspect;
 mod main_screen;
 

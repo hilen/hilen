@@ -3,6 +3,7 @@ use ui_proc::view;
 use crate::{
     deps::{refs::Weak, vents::Event},
     gm::flat::Point,
+    image::ToImage,
     ui::{ImageView, Setup, Touch, UIImages, ViewData, ViewFrame, ViewTouch},
 };
 
@@ -17,6 +18,15 @@ pub struct StickView {
 }
 
 impl StickView {
+    /// The picture of the ring and the picture of the knob, in place of the
+    /// gray ones. The ring picture fills the view, the knob picture half of
+    /// it.
+    pub fn set_images(&self, ring: impl ToImage, knob: impl ToImage) -> &Self {
+        self.background.set_image(ring);
+        self.direction_stick.set_image(knob);
+        self
+    }
+
     fn on_touch_moved(&mut self, touch: Point) {
         let max_length = self.frame().size.height / 2.0;
         let center = self.frame().size.center();

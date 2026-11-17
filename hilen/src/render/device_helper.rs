@@ -8,8 +8,9 @@ use wgpu::{
 };
 
 use crate::{
+    image::Texture,
     render::to_bytes::ToBytes,
-    window::{BufferUsages, PolygonMode, image::Texture, msaa_sample_count, surface_texture_format},
+    window::{BufferUsages, PolygonMode, msaa_sample_count, surface_texture_format},
 };
 
 /// The stencil test of everything drawn into the frame. The stencil
@@ -29,6 +30,85 @@ const CLIP_TEST: StencilFaceState = StencilFaceState {
 /// by texel.
 #[cfg(feature = "scene")]
 pub(crate) const SHADOW_MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+/// How a mesh pipeline puts its fragments into the frame.
+#[cfg(feature = "scene")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum MeshDraw {
+    /// Replaces the target and writes depth.
+    Opaque,
+    /// `Opaque` for a material with no maps, it reads no texture.
+    PlainOpaque,
+    /// `Opaque` for a material with a base color texture and no other map,
+    /// it reads that 1 texture, see `f_base_opaque`.
+    BaseOpaque,
+    /// `Cutout` for a material with a base color texture and no other map.
+    BaseCutout,
+    /// The depth alone of the fragments that stay of a cut out node, see
+    /// `Material::cutout`. Far trees are layers of quads, a fragment only
+    /// pays for its light in `Cutout`, once it is known to be on top.
+    CutoutDepth,
+    /// The light of a cut out node, only on the depth `CutoutDepth` left.
+    Cutout,
+    /// Blends over what is drawn and leaves the depth alone, so the
+    /// nodes behind it stay visible through it.
+    Translucent,
+    /// Like `Opaque`, with the distance from the camera as the color,
+    /// see `SceneManager::depth_photo`.
+    Depth,
+    /// Like `Cutout`, with the distance as the color.
+    DepthCutout,
+    /// The edges of the mesh as lines in one color, drawn from its edge
+    /// buffer over the solid draw, see `SceneBase::show_wireframe`.
+    Wireframe,
+    /// Like `CutoutDepth`, and nothing within 2 units of the camera, see
+    /// `f_grass_depth` in mesh.wgsl. Blades overlap many times over a pixel
+    /// and each would pay for its light without this.
+    GrassDepth,
+    /// The light of the grass, only on the depth `GrassDepth` left.
+    Grass,
+    /// `Opaque`, `Cutout`, `Translucent` and `DepthCutout` for a mesh whose
+    /// colors fade, the fragment entries that take `v_smooth`.
+    SmoothOpaque,
+    SmoothCutout,
+    SmoothTranslucent,
+    SmoothDepthCutout,
+    /// `Opaque` and `Translucent` for a mesh whose texture slides along a
+    /// flow, the fragment entries that take `v_flow`.
+    FlowOpaque,
+    FlowTranslucent,
+}
+
+/// What a mesh pipeline draws and how many samples a pixel of its pass has.
+#[cfg(feature = "scene")]
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct MeshPass {
+    pub(crate) draw:    MeshDraw,
+    pub(crate) samples: u32,
+}
+
+/// How a pipeline tests depth, what it draws, and how many samples a
+/// pixel of its pass has.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct PipelineShape {
+    pub(crate) depth_compare: CompareFunction,
+    pub(crate) topology:      PrimitiveTopology,
+    pub(crate) samples:       u32,
+}
+
+/// A pipeline built for a pass with `samples` samples a pixel. The level
+/// draws into the frame pass with the frame MSAA, or into a single sample
+/// pass at art resolution for pixel art.
+pub(crate) trait WithSamples {
+    fn with_samples(samples: u32) -> Self;
+}
+
+/// A scene draws with its depth reversed, 1 at the near plane and 0 far
+/// away, where 32 bit floats are densest, so a blade of grass 0.1 from
+/// the eye and a moon 300 km off share 1 depth buffer. See
+/// `Camera::projection`. The shadow maps keep their own plain depth.
+#[cfg(feature = "scene")]
+pub(crate) const SCENE_DEPTH_COMPARE: CompareFunction = CompareFunction::Greater;
 
 pub(crate) fn depth_stencil_state() -> DepthStencilState {
     DepthStencilState {
@@ -63,13 +143,58 @@ pub(crate) trait DeviceHelper {
         depth_compare: CompareFunction,
         topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
+    ) -> RenderPipeline {
+        self.pipeline_with(
+            label,
+            layout,
+            shader,
+            vertex_layout,
+            PipelineShape {
+                depth_compare,
+                topology,
+                samples: msaa_sample_count(),
+            },
+        )
+    }
+
+    /// Like `pipeline`, for a pass with its own sample count, like the
+    /// single sample pass a pixel art level draws into.
+    fn pipeline_with(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
+    ) -> RenderPipeline {
+        self.pipeline_blended(
+            label,
+            layout,
+            shader,
+            vertex_layout,
+            shape,
+            BlendState::ALPHA_BLENDING,
+        )
+    }
+
+    /// Like `pipeline_with`, with a blend of its own.
+    fn pipeline_blended(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
+        blend: BlendState,
     ) -> RenderPipeline;
 
     /// A pipeline that writes only the stencil. Where its fragment
     /// survives and the stencil already equals the reference, `op`
     /// moves the stencil one step, so a rounded clip enters by
     /// incrementing inside its shape and leaves by decrementing the
-    /// same shape. No color and no depth is written.
+    /// same shape. No color is written. With `depth_write` the shape
+    /// also writes its own depth over whatever is there, nearer or not,
+    /// which makes everything drawn inside it so far one flat layer.
     fn mask_pipeline(
         &self,
         label: &str,
@@ -77,13 +202,12 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         op: StencilOperation,
+        depth_write: bool,
     ) -> RenderPipeline;
 
-    /// A pipeline for solid geometry. Back faces are culled, the fragment
-    /// replaces the target since a scene is opaque, depth and the stencil
-    /// clip test are the frame's shared ones.
-    /// A translucent one blends over what is drawn and leaves the
-    /// depth alone, so the nodes behind it stay visible through it.
+    /// A pipeline for solid geometry. Back faces are culled, depth and
+    /// the stencil clip test are the frame's shared ones, and `draw`
+    /// says what happens to a fragment.
     #[cfg(feature = "scene")]
     fn mesh_pipeline(
         &self,
@@ -92,16 +216,35 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        transparent: bool,
+        pass: MeshPass,
     ) -> RenderPipeline;
 
     /// The skybox, one triangle over the viewport with no depth test
     /// and no depth write, drawn before the nodes cover it.
     #[cfg(feature = "scene")]
-    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline;
+    fn sky_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        samples: u32,
+    ) -> RenderPipeline;
+
+    /// One triangle over the viewport that writes the depth of
+    /// `vertex_entry` of the depth fill shader and no color.
+    #[cfg(feature = "scene")]
+    fn depth_fill_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_entry: &str,
+        samples: u32,
+    ) -> RenderPipeline;
 
     /// The sun's depth pass into the shadow map, no color target and a
-    /// slope scaled bias against acne.
+    /// slope scaled bias against acne. `fragment_entry` is the stage
+    /// that drops the fragments of a cut out node, a plain one has none.
     #[cfg(feature = "scene")]
     fn shadow_pipeline(
         &self,
@@ -110,6 +253,7 @@ pub(crate) trait DeviceHelper {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
+        fragment_entry: Option<&str>,
     ) -> RenderPipeline;
 }
 
@@ -137,15 +281,20 @@ impl DeviceHelper for Device {
         })
     }
 
-    fn pipeline(
+    fn pipeline_blended(
         &self,
         label: &str,
         layout: &PipelineLayout,
         shader: &ShaderModule,
-        depth_compare: CompareFunction,
-        topology: PrimitiveTopology,
         vertex_layout: &'static [VertexBufferLayout],
+        shape: PipelineShape,
+        blend: BlendState,
     ) -> RenderPipeline {
+        let PipelineShape {
+            depth_compare,
+            topology,
+            samples,
+        } = shape;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -162,7 +311,7 @@ impl DeviceHelper for Device {
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
                     format:     surface_texture_format(),
-                    blend:      BlendState::ALPHA_BLENDING.into(),
+                    blend:      blend.into(),
                     write_mask: ColorWrites::ALL,
                 }
                 .into()],
@@ -184,7 +333,7 @@ impl DeviceHelper for Device {
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -200,6 +349,7 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         op: StencilOperation,
+        depth_write: bool,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         let write = StencilFaceState {
@@ -241,7 +391,7 @@ impl DeviceHelper for Device {
             },
             depth_stencil:  DepthStencilState {
                 format:              Texture::DEPTH_FORMAT,
-                depth_write_enabled: Some(false),
+                depth_write_enabled: Some(depth_write),
                 depth_compare:       Some(CompareFunction::Always),
                 stencil:             StencilState {
                     front:      write,
@@ -275,8 +425,13 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
-        transparent: bool,
+        MeshPass { draw, samples }: MeshPass,
     ) -> RenderPipeline {
+        let transparent = matches!(
+            draw,
+            MeshDraw::Translucent | MeshDraw::SmoothTranslucent | MeshDraw::FlowTranslucent
+        );
+        let wireframe = draw == MeshDraw::Wireframe;
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
@@ -289,7 +444,24 @@ impl DeviceHelper for Device {
             },
             fragment:       FragmentState {
                 module:              shader,
-                entry_point:         "f_main".into(),
+                entry_point:         Some(match draw {
+                    MeshDraw::CutoutDepth => "f_cutout_depth",
+                    MeshDraw::Opaque | MeshDraw::Cutout => "f_opaque",
+                    MeshDraw::PlainOpaque => "f_plain_opaque",
+                    MeshDraw::BaseOpaque | MeshDraw::BaseCutout => "f_base_opaque",
+                    MeshDraw::Translucent => "f_main",
+                    MeshDraw::Depth => "f_depth",
+                    MeshDraw::DepthCutout => "f_depth_cutout",
+                    MeshDraw::Wireframe => "f_wireframe",
+                    MeshDraw::GrassDepth => "f_grass_depth",
+                    MeshDraw::Grass => "f_grass",
+                    MeshDraw::SmoothOpaque => "f_smooth_opaque",
+                    MeshDraw::SmoothCutout => "f_smooth_cutout",
+                    MeshDraw::SmoothTranslucent => "f_smooth_main",
+                    MeshDraw::SmoothDepthCutout => "f_smooth_depth_cutout",
+                    MeshDraw::FlowOpaque => "f_flow_opaque",
+                    MeshDraw::FlowTranslucent => "f_flow_main",
+                }),
                 compilation_options: PipelineCompilationOptions::default(),
                 targets:             &[ColorTargetState {
                     format:     surface_texture_format(),
@@ -298,27 +470,46 @@ impl DeviceHelper for Device {
                     } else {
                         BlendState::REPLACE
                     }),
-                    write_mask: ColorWrites::ALL,
+                    write_mask: if matches!(draw, MeshDraw::CutoutDepth | MeshDraw::GrassDepth) {
+                        ColorWrites::empty()
+                    } else {
+                        ColorWrites::ALL
+                    },
                 }
                 .into()],
             }
             .into(),
             primitive:      PrimitiveState {
-                topology:           PrimitiveTopology::TriangleList,
+                topology:           if wireframe {
+                    PrimitiveTopology::LineList
+                } else {
+                    PrimitiveTopology::TriangleList
+                },
                 strip_index_format: None,
                 front_face:         FrontFace::Ccw,
-                cull_mode:          Some(wgpu::Face::Back),
+                cull_mode:          (!wireframe).then_some(wgpu::Face::Back),
                 polygon_mode:       PolygonMode::Fill,
                 unclipped_depth:    false,
                 conservative:       false,
             },
             depth_stencil:  DepthStencilState {
-                depth_write_enabled: Some(!transparent),
+                depth_write_enabled: Some(
+                    !transparent
+                        && !wireframe
+                        && !matches!(draw, MeshDraw::Cutout | MeshDraw::BaseCutout | MeshDraw::Grass),
+                ),
+                depth_compare: Some(
+                    if matches!(draw, MeshDraw::Cutout | MeshDraw::BaseCutout | MeshDraw::Grass) {
+                        CompareFunction::Equal
+                    } else {
+                        SCENE_DEPTH_COMPARE
+                    },
+                ),
                 ..depth_stencil_state()
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -335,6 +526,7 @@ impl DeviceHelper for Device {
         shader: &ShaderModule,
         vertex_layout: &'static [VertexBufferLayout],
         vertex_entry: &str,
+        fragment_entry: Option<&str>,
     ) -> RenderPipeline {
         let buffers: Vec<Option<VertexBufferLayout>> = vertex_layout.iter().cloned().map(Some).collect();
         self.create_render_pipeline(&RenderPipelineDescriptor {
@@ -346,7 +538,12 @@ impl DeviceHelper for Device {
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers:             &buffers,
             },
-            fragment:       None,
+            fragment:       fragment_entry.map(|entry| FragmentState {
+                module:              shader,
+                entry_point:         Some(entry),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[],
+            }),
             primitive:      PrimitiveState {
                 topology:           PrimitiveTopology::TriangleList,
                 strip_index_format: None,
@@ -379,7 +576,67 @@ impl DeviceHelper for Device {
     }
 
     #[cfg(feature = "scene")]
-    fn sky_pipeline(&self, label: &str, layout: &PipelineLayout, shader: &ShaderModule) -> RenderPipeline {
+    fn depth_fill_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        vertex_entry: &str,
+        samples: u32,
+    ) -> RenderPipeline {
+        self.create_render_pipeline(&RenderPipelineDescriptor {
+            label:          label.into(),
+            layout:         layout.into(),
+            vertex:         VertexState {
+                module:              shader,
+                entry_point:         vertex_entry.into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                buffers:             &[],
+            },
+            fragment:       FragmentState {
+                module:              shader,
+                entry_point:         "f_main".into(),
+                compilation_options: PipelineCompilationOptions::default(),
+                targets:             &[ColorTargetState {
+                    format:     surface_texture_format(),
+                    blend:      None,
+                    write_mask: ColorWrites::empty(),
+                }
+                .into()],
+            }
+            .into(),
+            primitive:      PrimitiveState {
+                topology:           PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face:         FrontFace::Ccw,
+                cull_mode:          None,
+                polygon_mode:       PolygonMode::Fill,
+                unclipped_depth:    false,
+                conservative:       false,
+            },
+            depth_stencil:  DepthStencilState {
+                depth_compare: Some(CompareFunction::Always),
+                ..depth_stencil_state()
+            }
+            .into(),
+            multisample:    MultisampleState {
+                count:                     samples,
+                mask:                      !0,
+                alpha_to_coverage_enabled: false,
+            },
+            cache:          None,
+            multiview_mask: None,
+        })
+    }
+
+    #[cfg(feature = "scene")]
+    fn sky_pipeline(
+        &self,
+        label: &str,
+        layout: &PipelineLayout,
+        shader: &ShaderModule,
+        samples: u32,
+    ) -> RenderPipeline {
         self.create_render_pipeline(&RenderPipelineDescriptor {
             label:          label.into(),
             layout:         layout.into(),
@@ -410,14 +667,15 @@ impl DeviceHelper for Device {
                 unclipped_depth:    false,
                 conservative:       false,
             },
+            // Only where no node drew, the depth still at its far end of 0.
             depth_stencil:  DepthStencilState {
                 depth_write_enabled: Some(false),
-                depth_compare: Some(CompareFunction::Always),
+                depth_compare: Some(CompareFunction::Equal),
                 ..depth_stencil_state()
             }
             .into(),
             multisample:    MultisampleState {
-                count:                     msaa_sample_count(),
+                count:                     samples,
                 mask:                      !0,
                 alpha_to_coverage_enabled: false,
             },

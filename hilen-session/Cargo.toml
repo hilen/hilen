@@ -1,0 +1,62 @@
+[package]
+name        = "hilen-session"
+description = "The sealed login session of a hilen app, without the engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `DeviceKey`, the device half of a hand over a server cannot read.
+device-key = ["dep:base64", "dep:hkdf", "dep:x25519-dalek"]
+# `SecretStore` keeps its secrets in the credential store of a phone, the
+# Keychain on iOS and the Keystore on Android. Desktop and the browser keep
+# them in a sealed file like the session, also with it.
+keychain = [
+  "dep:keyring-core",
+  "dep:keyring-store-android",
+  "dep:keyring-store-apple",
+]
+
+[dependencies]
+aes-gcm      = { workspace = true }
+anyhow       = { workspace = true }
+base64       = { workspace = true, optional = true }
+getrandom    = { workspace = true }
+hkdf         = { workspace = true, optional = true }
+log          = { workspace = true }
+obfstr       = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+sha2         = { workspace = true }
+x25519-dalek = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+keyring-core = { workspace = true, optional = true }
+
+# The sealed files of tvOS are entries of the user defaults. iOS reads the
+# keychain group of a shared secret from its Info.plist.
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+keyring-store-apple = { workspace = true, optional = true, features = ["protected"] }
+objc2               = { workspace = true }
+objc2-foundation    = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+keyring-store-android = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+base64    = { workspace = true }
+getrandom = { workspace = true, features = ["wasm_js"] }
+web-sys   = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
+machine-uid = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+serial_test = { workspace = true }
+
+[build-dependencies]
+plat = { workspace = true }

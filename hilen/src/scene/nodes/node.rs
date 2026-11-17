@@ -18,7 +18,10 @@ use crate::{
         color::Color,
         volume::{Mat4, Quat, Ray, Shape3, Vec3},
     },
-    scene::{Material, NodeData, Playback, SceneManager, ToCollider},
+    scene::{
+        ColliderShape, Contact, Joint, JointPose, Material, NodeData, Playback, SceneManager, ToCollider,
+        fade::FadeRun, model::joints,
+    },
 };
 
 pub trait Node: Deref<Target = NodeData> + DerefMut {
@@ -40,18 +43,27 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
     }
 
     fn position(&self) -> Vec3 {
+        if let Some(parent) = self.parent() {
+            return parent.position() + parent.rotation() * (self.position * parent.world_scale());
+        }
         if let Some(handle) = self.rigid_handle() {
             let translation = SceneManager::get_rigid_body(handle).translation();
             return Vec3::new(translation.x, translation.y, translation.z);
         }
         if let Some(handle) = self.collider_handle() {
-            let translation = SceneManager::get_collider(handle).translation();
-            return Vec3::new(translation.x, translation.y, translation.z) - self.collider_offset();
+            let collider = SceneManager::get_collider(handle);
+            let (translation, rotation) = (collider.translation(), collider.rotation());
+            let rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w);
+            return Vec3::new(translation.x, translation.y, translation.z)
+                - rotation * self.collider_offset();
         }
         self.position
     }
 
     fn rotation(&self) -> Quat {
+        if let Some(parent) = self.parent() {
+            return parent.rotation() * self.rotation;
+        }
         if let Some(handle) = self.rigid_handle() {
             let rotation = SceneManager::get_rigid_body(handle).rotation();
             Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w)
@@ -63,15 +75,31 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
         }
     }
 
+    /// The size the node draws and collides at: its own scale times every
+    /// parent's up the chain, so a grown body grows its parts too.
+    fn world_scale(&self) -> f32 {
+        self.parent().map_or(self.scale, |parent| parent.world_scale() * self.scale)
+    }
+
     /// Half the size of the solid along each axis, at the node's scale.
     fn half_extents(&self) -> Vec3 {
-        self.shape.half_extents() * self.scale
+        self.shape.half_extents() * self.world_scale()
+    }
+
+    /// The solid the node collides with and where it sits from the
+    /// origin, unscaled: the one `set_collider` put on, else the shape's.
+    fn collider_shape(&self) -> (ColliderShape, Vec3) {
+        self.collider.clone().unwrap_or_else(|| ColliderShape::of(self.shape))
     }
 
     /// Where the collider sits relative to the node's origin, at the
     /// node's scale, see `Shape3::collider_offset`.
     fn collider_offset(&self) -> Vec3 {
-        self.shape.collider_offset() * self.scale
+        let offset = self
+            .collider
+            .as_ref()
+            .map_or_else(|| self.shape.collider_offset(), |(_, offset)| *offset);
+        offset * self.world_scale()
     }
 
     fn restitution(&self) -> f32 {
@@ -113,6 +141,15 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
             .insert(weak.collider_handle().unwrap(), weak);
     }
 
+    /// Where this node touches `other` now, `None` when they are apart or
+    /// 1 of them has no collider. Like `on_collision` it follows rapier and
+    /// answers from up to 0.02 before the touch, or sooner for 2 bodies
+    /// that meet within the step. Inside `on_collision` it is the blow that
+    /// started the touch.
+    fn contact_with(&self, other: Weak<dyn Node>) -> Option<Contact> {
+        SceneManager::physics().contact(self.collider_handle()?, other.collider_handle()?)
+    }
+
     fn color(&self) -> &Color {
         &self.material.color
     }
@@ -135,13 +172,13 @@ pub trait Node: Deref<Target = NodeData> + DerefMut {
 
     /// The distance along the ray to this node's solid, see `Shape3::hit`.
     fn hit(&self, ray: Ray) -> Option<f32> {
-        self.shape().hit(ray, self.position(), self.rotation(), self.scale)
+        self.shape().hit(ray, self.position(), self.rotation(), self.world_scale())
     }
 
     /// Unit mesh to world, the instance transform the drawer uploads.
     fn model_matrix(&self) -> Mat4 {
         Mat4::from_scale_rotation_translation(
-            self.shape.mesh_scale() * self.scale,
+            self.shape.mesh_scale() * self.world_scale(),
             self.rotation(),
             self.position(),
         )
@@ -155,13 +192,65 @@ pub trait NodeTemplates {
     fn set_material(&mut self, _: Material) -> &mut Self;
     fn set_metallic(&mut self, _: impl ToF32) -> &mut Self;
     fn set_roughness(&mut self, _: impl ToF32) -> &mut Self;
+    /// How much the node glows by its own color, see `Material::emissive`.
+    fn set_emissive(&mut self, _: impl ToF32) -> &mut Self;
+    /// Draws the node with no light on it, see `Material::unlit`.
+    fn set_unlit(&mut self, unlit: bool) -> &mut Self;
+    /// Reflects like moon dust, see `Material::dust`.
+    fn set_dust(&mut self, dust: bool) -> &mut Self;
+    /// Reads the maps from 3 sides of the node's own space, `repeats`
+    /// times a unit, 0 by the uv, see `Material::triplanar`.
+    fn set_triplanar(&mut self, repeats: impl ToF32) -> &mut Self;
+    /// Cuts the node out by its alpha, fragments under `threshold` are
+    /// not drawn, see `Material::cutout`.
+    fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self;
+    /// How much of the node draws, 1 whole and 0 nothing, in a dither
+    /// pattern, see `Material::fade`. Stops a running fade.
+    fn set_fade(&mut self, fade: impl ToF32) -> &mut Self;
+    /// Runs the fade from where it is to `fade` over `seconds` of scene
+    /// time, like a new tree fading in from 0 to 1. Right away for no
+    /// time.
+    fn fade_to(&mut self, fade: impl ToF32, seconds: impl ToF32) -> &mut Self;
+    /// Keeps the other share of the dither pattern, for the node a cross
+    /// fade takes away, see `Material::fade_flip`.
+    fn set_fade_flip(&mut self, flip: bool) -> &mut Self;
+    /// Whether a fade of `fade_to` still runs.
+    fn is_fading(&self) -> bool;
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self;
     fn set_restitution(&mut self, _: f32, _: CoefficientCombineRule) -> &mut Self;
     fn set_position(&mut self, _: impl Into<Vec3>) -> &mut Self;
     fn set_rotation(&mut self, _: Quat) -> &mut Self;
+    /// `set_position` and `set_rotation` in 1 write to the physics, for a
+    /// world that moves every node each frame.
+    fn set_pose(&mut self, _: impl Into<Vec3>, _: Quat) -> &mut Self;
     /// Sizes the node uniformly on top of its shape, 1 as modeled. A
-    /// model in other units fits a scene this way. The collider follows.
+    /// model in other units fits a scene this way. The collider follows,
+    /// and so does everything attached to the node, see `world_scale`.
     fn set_scale(&mut self, _: impl ToF32) -> &mut Self;
+    /// Stretches the drawn mesh along each of its own axes, on top of
+    /// `set_scale`, so props of 1 shape stretched each its own way share 1
+    /// model and draw in 1 batch. Only the drawing stretches: the collider,
+    /// `node_at` and the nodes attached to it keep the uniform scale, so a
+    /// stretched solid gets its collider from `set_collider`. A ball has no
+    /// stretched twin in the physics, and a child of a node stretched and
+    /// turned would be sheared.
+    fn set_mesh_scale(&mut self, _: Vec3) -> &mut Self;
+    /// Collides as `shape` in place of the drawn shape's own solid, its
+    /// center `offset` from the node's origin, both sized by the node's
+    /// scale. The drawing and touch picking keep the drawn shape. A node
+    /// without a collider, a `Prop`, keeps none.
+    fn set_collider(&mut self, shape: ColliderShape, offset: impl Into<Vec3>) -> &mut Self;
+    /// Hangs the node on `parent`, the way a held axe hangs on a hand or
+    /// a head on a body. From now on its position, rotation and scale are
+    /// in the parent's space: it moves, turns and grows with the parent
+    /// every frame, down any chain of parents. A collider on it moves and
+    /// grows along. A dead parent leaves the node where its local pose
+    /// says in the world. Panics for a `Body`, which its physics moves,
+    /// and for a loop of parents.
+    fn attach_to(&mut self, parent: Weak<dyn Node>) -> &mut Self;
+    /// Lets go of the parent and stays where and as big as it is in the
+    /// world.
+    fn detach(&mut self) -> &mut Self;
     /// Plays the clip of the node's model called `name` from its
     /// start, looped. A node without a model or a model without that
     /// clip logs an error and keeps drawing at rest.
@@ -182,6 +271,28 @@ pub trait NodeTemplates {
     /// Whether a clip is moving the node, false once a clip played once
     /// has reached its end.
     fn is_animating(&self) -> bool;
+    /// The node of the model's tree called `name`, as a handle for the
+    /// joint calls below. The same as `Model::joint`, and it logs an
+    /// error for a node without a rigged model and for an unknown name.
+    /// Look a name up once and keep the handle.
+    fn joint(&self, name: &str) -> Option<Joint>;
+    /// Puts `joint` at `translation` and `rotation` in the space of its
+    /// parent in the model's tree, in place of its rest ones, until
+    /// `clear_joint`. Its scale stays. Every node below it in the tree
+    /// moves with it. It needs no clip, and over a playing clip the set
+    /// joint wins for that joint. A handle of another model logs an error.
+    fn set_joint(&mut self, joint: Joint, translation: impl Into<Vec3>, rotation: Quat) -> &mut Self;
+    /// Gives `joint` back to its rest pose, or to the playing clip.
+    fn clear_joint(&mut self, joint: Joint) -> &mut Self;
+    /// `clear_joint` for every set joint.
+    fn clear_joints(&mut self) -> &mut Self;
+    /// Where `joint` is now in the model's own space, with the playing
+    /// clip and the set joints, the pose the node draws. The node's place,
+    /// turn and scale are not in it: `position() + rotation() * (point *
+    /// world_scale())` takes a point of it into the world. It walks the
+    /// whole tree at each call. `None` with a logged error for a node
+    /// without a rigged model and for a handle of another model.
+    fn joint_transform(&self, joint: Joint) -> Option<Mat4>;
 }
 
 impl<T: ?Sized + Node> NodeTemplates for T {
@@ -205,6 +316,55 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         self
     }
 
+    fn set_emissive(&mut self, emissive: impl ToF32) -> &mut Self {
+        self.material.emissive = emissive.to_f32();
+        self
+    }
+
+    fn set_dust(&mut self, dust: bool) -> &mut Self {
+        self.material.dust = dust;
+        self
+    }
+
+    fn set_triplanar(&mut self, repeats: impl ToF32) -> &mut Self {
+        self.material.triplanar = repeats.to_f32();
+        self
+    }
+
+    fn set_unlit(&mut self, unlit: bool) -> &mut Self {
+        self.material.unlit = unlit;
+        self
+    }
+
+    fn set_cutout(&mut self, threshold: impl ToF32) -> &mut Self {
+        self.material.cutout = Some(threshold.to_f32());
+        self
+    }
+
+    fn set_fade(&mut self, fade: impl ToF32) -> &mut Self {
+        self.material.fade = fade.to_f32();
+        self.fade_run = None;
+        self
+    }
+
+    fn fade_to(&mut self, fade: impl ToF32, seconds: impl ToF32) -> &mut Self {
+        let fade = fade.to_f32();
+        self.fade_run = FadeRun::new(self.material.fade, fade, seconds.to_f32());
+        if self.fade_run.is_none() {
+            self.material.fade = fade;
+        }
+        self
+    }
+
+    fn set_fade_flip(&mut self, flip: bool) -> &mut Self {
+        self.material.fade_flip = flip;
+        self
+    }
+
+    fn is_fading(&self) -> bool {
+        self.fade_run.is_some()
+    }
+
     fn set_friction(&mut self, friction: impl ToF32) -> &mut Self {
         self.collider_mut().set_friction(friction.to_f32());
         self
@@ -221,12 +381,16 @@ impl<T: ?Sized + Node> NodeTemplates for T {
     fn set_position(&mut self, pos: impl Into<Vec3>) -> &mut Self {
         let pos = pos.into();
         if self.rigid_handle().is_some() {
-            self.rigid_body_mut().set_position(Pose3::from_translation(pos), true);
+            // A pose of a place alone has no turn, the body's own goes with it.
+            let rotation = *self.rigid_body_mut().rotation();
+            self.rigid_body_mut().set_position(Pose3::from_parts(pos, rotation), true);
         } else if self.collider_handle().is_some() {
-            let offset = self.collider_offset();
-            self.collider_mut().set_position(Pose3::from_translation(pos + offset));
+            let rotation = self.rotation;
+            let offset = rotation * self.collider_offset();
+            self.collider_mut().set_position(Pose3::from_parts(pos + offset, rotation));
         }
         self.position = pos;
+        follow_parent(self);
         self
     }
 
@@ -234,26 +398,73 @@ impl<T: ?Sized + Node> NodeTemplates for T {
         if self.rigid_handle().is_some() {
             self.rigid_body_mut().set_rotation(rotation, true);
         } else if self.collider_handle().is_some() {
-            self.collider_mut().set_rotation(rotation);
+            // An offset collider, the box around a model's bounds, turns
+            // with the node about its origin, not about its own middle.
+            let offset = rotation * self.collider_offset();
+            let position = self.position;
+            self.collider_mut().set_position(Pose3::from_parts(position + offset, rotation));
         }
         self.rotation = rotation;
+        follow_parent(self);
+        self
+    }
+
+    fn set_pose(&mut self, pos: impl Into<Vec3>, rotation: Quat) -> &mut Self {
+        let pos = pos.into();
+        if self.rigid_handle().is_some() {
+            self.rigid_body_mut().set_position(Pose3::from_parts(pos, rotation), true);
+        } else if self.collider_handle().is_some() {
+            let offset = rotation * self.collider_offset();
+            self.collider_mut().set_position(Pose3::from_parts(pos + offset, rotation));
+        }
+        self.position = pos;
+        self.rotation = rotation;
+        follow_parent(self);
+        self
+    }
+
+    fn set_mesh_scale(&mut self, scale: Vec3) -> &mut Self {
+        self.mesh_scale = scale;
         self
     }
 
     fn set_scale(&mut self, scale: impl ToF32) -> &mut Self {
         self.scale = scale.to_f32();
-        if self.collider_handle().is_some() {
-            let shape = self.shape.make_collider(self.scale).shape;
-            let offset = self.collider_offset();
-            let body = self.rigid_handle().is_some();
-            let position = self.position;
-            let collider = self.collider_mut();
-            collider.set_shape(shape);
-            if body {
-                collider.set_position_wrt_parent(Pose3::from_translation(offset));
-            } else {
-                collider.set_position(Pose3::from_translation(position + offset));
-            }
+        refit_collider(self);
+        follow_parent(self);
+        self
+    }
+
+    fn set_collider(&mut self, shape: ColliderShape, offset: impl Into<Vec3>) -> &mut Self {
+        self.collider = Some((shape, offset.into()));
+        refit_collider(self);
+        follow_parent(self);
+        self
+    }
+
+    fn attach_to(&mut self, parent: Weak<dyn Node>) -> &mut Self {
+        assert!(
+            self.rigid_handle().is_none(),
+            "a body is moved by its physics and cannot hang on a parent"
+        );
+        let mut ancestor = parent;
+        while ancestor.is_ok() {
+            assert!(
+                ancestor != self.weak_node(),
+                "a node cannot hang on itself or on a node that hangs on it"
+            );
+            ancestor = ancestor.parent;
+        }
+        self.parent = parent;
+        follow_parent(self);
+        self
+    }
+
+    fn detach(&mut self) -> &mut Self {
+        if self.parent().is_some() {
+            let (position, rotation, scale) = (self.position(), self.rotation(), self.world_scale());
+            self.parent = Weak::default();
+            self.set_scale(scale).set_position(position).set_rotation(rotation);
         }
         self
     }
@@ -298,6 +509,69 @@ impl<T: ?Sized + Node> NodeTemplates for T {
             _ => false,
         }
     }
+
+    fn joint(&self, name: &str) -> Option<Joint> {
+        joints::find_joint(self.shape, name)
+    }
+
+    fn set_joint(&mut self, joint: Joint, translation: impl Into<Vec3>, rotation: Quat) -> &mut Self {
+        let pose = JointPose {
+            translation: translation.into(),
+            rotation,
+        };
+        let shape = self.shape;
+        joints::set_joint(shape, &mut self.joint_poses, joint, pose);
+        self
+    }
+
+    fn clear_joint(&mut self, joint: Joint) -> &mut Self {
+        joints::clear_joint(&mut self.joint_poses, joint);
+        self
+    }
+
+    fn clear_joints(&mut self) -> &mut Self {
+        self.joint_poses.clear();
+        self
+    }
+
+    fn joint_transform(&self, joint: Joint) -> Option<Mat4> {
+        joints::joint_transform(self.shape, self.playback, &self.joint_poses, joint)
+    }
+}
+
+/// Gives the rapier collider the node's collider shape at its scale and
+/// puts it where it belongs, after either changed.
+fn refit_collider<T: ?Sized + Node>(node: &mut T) {
+    if node.collider_handle().is_none() {
+        return;
+    }
+    node.collider_scale = node.world_scale();
+    let shape = node.collider_shape().0.make_collider(node.collider_scale).shape;
+    let offset = node.collider_offset();
+    let body = node.rigid_handle().is_some();
+    let (position, rotation) = (node.position, node.rotation);
+    let collider = node.collider_mut();
+    collider.set_shape(shape);
+    if body {
+        collider.set_position_wrt_parent(Pose3::from_translation(offset));
+    } else {
+        collider.set_position(Pose3::from_parts(position + rotation * offset, rotation));
+    }
+}
+
+/// Puts the collider of an attached node where its parent carries it. The
+/// scene calls it every step, since the parent moves on its own.
+pub(crate) fn follow_parent<T: ?Sized + Node>(node: &mut T) {
+    if node.parent().is_none() || node.collider_handle().is_none() {
+        return;
+    }
+    // A parent grew or shrank, the collider takes the new size.
+    if node.world_scale().to_bits() != node.collider_scale.to_bits() {
+        refit_collider(node);
+    }
+    let (position, rotation) = (node.position(), node.rotation());
+    let offset = rotation * node.collider_offset();
+    node.collider_mut().set_position(Pose3::from_parts(position + offset, rotation));
 }
 
 /// The length of the clip a node plays, `None` without a model or a clip.

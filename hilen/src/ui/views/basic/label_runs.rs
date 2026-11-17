@@ -1,37 +1,90 @@
 use std::ops::Range;
 
+#[cfg(feature = "gpu")]
+use crate::gm::color::Color;
 use crate::{
     deps::refs::{Weak, weak_from_ref},
-    gm::color::Color,
+    text::{Font, FontRun, Room, runs_with_fallbacks},
     ui::Label,
-    window::{Font, FontRun, runs_with_fallbacks},
 };
 
 /// The look of one byte range of a label's text beyond its color. A
 /// range without a font keeps the label's font.
 #[derive(Clone, Default)]
 pub struct RunStyle {
-    pub font:      Option<Weak<Font>>,
-    pub underline: bool,
+    pub font:          Option<Weak<Font>>,
+    pub underline:     bool,
+    pub strikethrough: bool,
+    /// The range draws as nothing and takes this many points, 1 piece
+    /// that never breaks, for a view the owner places over it, like an
+    /// inline formula. `Label::text_layout_for` says where it is.
+    pub room:          Option<f32>,
+    /// With `room`, the range draws this glyph of the label font in the
+    /// room, picked by its id. For a glyph no char maps to, like a bigger
+    /// variant of a bracket in a math font.
+    pub glyph:         Option<u16>,
+    /// With `room`, how far the view over it reaches above and below the
+    /// baseline, in points, both positive. A line too low for it grows by
+    /// the difference, only that line, so a tall view like a fraction
+    /// never covers the lines next to it.
+    pub reach:         (f32, f32),
 }
 
 impl RunStyle {
     pub fn font(font: Weak<Font>) -> Self {
         Self {
-            font:      Some(font),
-            underline: false,
+            font: Some(font),
+            ..Self::default()
         }
     }
 
     pub fn underline() -> Self {
         Self {
-            font:      None,
             underline: true,
+            ..Self::default()
         }
+    }
+
+    pub fn strikethrough() -> Self {
+        Self {
+            strikethrough: true,
+            ..Self::default()
+        }
+    }
+
+    /// Empty room `width` points wide in place of the text of the range.
+    pub fn room(width: f32) -> Self {
+        Self {
+            room: Some(width),
+            ..Self::default()
+        }
+    }
+
+    /// The glyph `id` of the label font, `width` points wide, in place of
+    /// the text of the range.
+    pub fn glyph(id: u16, width: f32) -> Self {
+        Self {
+            room: Some(width),
+            glyph: Some(id),
+            ..Self::default()
+        }
+    }
+
+    /// The room holds a view that reaches `ascent` points above the
+    /// baseline and `depth` below it, see `reach`.
+    pub fn reaching(mut self, ascent: f32, depth: f32) -> Self {
+        self.reach = (ascent.max(0.0), depth.max(0.0));
+        self
     }
 
     pub fn underlined(mut self) -> Self {
         self.underline = true;
+        self
+    }
+
+    /// Adds a line through the middle of the text.
+    pub fn struck(mut self) -> Self {
+        self.strikethrough = true;
         self
     }
 }
@@ -43,11 +96,11 @@ pub(crate) struct StyleRun {
 }
 
 impl Label {
-    /// Draws byte ranges of the text in their own font, underlined, or
-    /// both, the rest keeps the label's font. The line height and the
-    /// baseline stay the label font's. Shaping, wrapping and measuring
-    /// use the run fonts, so a wider font moves the line breaks. Ranges
-    /// are clamped to the text and to char boundaries, sorted, and a
+    /// Draws byte ranges of the text in their own font, underlined, struck
+    /// through, or any mix of the 3, the rest keeps the label's font. The line
+    /// height and the baseline stay the label font's. Shaping, wrapping and
+    /// measuring use the run fonts, so a wider font moves the line breaks.
+    /// Ranges are clamped to the text and to char boundaries, sorted, and a
     /// later range wins an overlap, like `set_color_runs`.
     pub fn set_font_runs(&self, runs: impl IntoIterator<Item = (Range<usize>, RunStyle)>) -> &Self {
         let mut this = weak_from_ref(self);
@@ -117,7 +170,38 @@ impl Label {
         runs_with_fallbacks(text, self.font(), explicit)
     }
 
+    /// The ranges drawn as empty room, clamped like `shaping_runs`.
+    pub(crate) fn room_runs(&self, text: &str) -> Vec<Room> {
+        self.font_runs
+            .iter()
+            .filter_map(|run| {
+                let width = run.style.room?;
+                let range = Self::clamp_to(text, &run.range);
+                (range.start < range.end).then_some(Room {
+                    range,
+                    width,
+                    glyph: run.style.glyph,
+                    reach: run.style.reach,
+                })
+            })
+            .collect()
+    }
+
+    /// Whether any font this label may draw with has color glyphs, the
+    /// base, an explicit run font or a registered or system fallback. The
+    /// drawer skips the color glyph pass for every other label.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn uses_color_font(&self) -> bool {
+        self.font().has_color()
+            || self
+                .font_runs
+                .iter()
+                .any(|run| run.style.font.is_some_and(|font| font.has_color()))
+            || Font::fallbacks_have_color()
+    }
+
     /// The underlined byte ranges, clamped like `shaping_runs`.
+    #[cfg(feature = "gpu")]
     pub(crate) fn underline_runs(&self, text: &str) -> Vec<Range<usize>> {
         self.font_runs
             .iter()
@@ -127,7 +211,20 @@ impl Label {
             .collect()
     }
 
+    /// The byte ranges with a line through them, clamped like
+    /// `shaping_runs`.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn strikethrough_runs(&self, text: &str) -> Vec<Range<usize>> {
+        self.font_runs
+            .iter()
+            .filter(|run| run.style.strikethrough)
+            .map(|run| Self::clamp_to(text, &run.range))
+            .filter(|range| range.start < range.end)
+            .collect()
+    }
+
     /// The color the text has at `byte`, the run's when one covers it.
+    #[cfg(feature = "gpu")]
     pub(crate) fn color_at(&self, byte: usize) -> Color {
         self.color_runs()
             .iter()
