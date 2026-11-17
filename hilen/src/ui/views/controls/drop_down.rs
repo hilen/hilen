@@ -3,19 +3,21 @@ use crate::ui::Focus;
 use crate::{
     self as hilen,
     deps::{
+        hreads::on_main_later,
         netrun::Function,
         refs::{Own, Weak, weak_from_ref},
     },
     gm::{
         ToF32, Toggle,
         color::{CLEAR, Color, LIGHT_BLUE},
-        flat::{LineCap, LineJoin, Point, StrokeStyle, VectorPath},
+        flat::{LineCap, LineJoin, Point, Size, StrokeStyle, VectorPath},
     },
     image::{Image, Tinted, ToImage, tint_svg},
     ui::{
         Button, CellRegistry, Container, DrawingView, DynamicColor, ImageView, Label, Setup, Shadow,
         TableData, TableView, TextAlignment, Theme, TouchStack, UIColor, UIEvents, UIImages, UIManager, View,
-        ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view, view::depth_order,
+        ViewCallbacks, ViewData, ViewFrame, ViewSubviews, ViewTouch, WeakView, struct_name, view,
+        view::depth_order,
     },
     window::slots::WindowLock,
 };
@@ -164,7 +166,7 @@ pub struct DropDown {
     label:    Label,
     box_icon: ImageView,
     arrow:    ImageView,
-    panel:    Container,
+    panel:    DropPanel,
 }
 
 impl DropDown {
@@ -348,22 +350,25 @@ impl DropDown {
     }
 
     fn open(self: Weak<Self>) {
-        // The panel floats over whatever sits under the box, in front of
-        // all of its layer, and a modal over it stays in front.
-        depth_order::set_floats(&*self, true);
-
         // Without a hover first, like on a phone, the border is still
         // the app's own here. Kept now, or the panel would copy the accent.
         let look = self.look();
         self.keep_idle_look();
 
         look.set_border_color(self.accent);
+
+        // The panel leaves the box for the end of its layer, so no view
+        // in between that clips its subviews, a card or a scroll view,
+        // cuts the list off. It floats in front of all of that layer, and
+        // a modal over it stays in front.
+        move_under(self.panel.weak_view(), layer_root(self.weak_view()));
+        depth_order::set_floats(&*self.panel, true);
         self.layout_panel();
 
         // Drawn in front is not enough, a touch goes to the view that
         // registered last. A sibling under the panel that turned its touch
         // on after this drop down would take the taps meant for the rows.
-        TouchStack::raise_subtree(self.weak_view());
+        TouchStack::raise_subtree(self.panel.weak_view());
         *OPEN.get_mut() = self;
     }
 
@@ -388,6 +393,8 @@ impl DropDown {
         } else {
             -(height + PANEL_GAP)
         };
+        self.panel.offset = Point::new(0.0, y);
+        self.panel.size = (self.width(), height).into();
 
         let fill = self.idle_color.map_or(*look.color(), |color| color.resolve());
         self.panel
@@ -396,7 +403,7 @@ impl DropDown {
             .set_border_width(look.border_width())
             .set_border_color(self.idle_border.unwrap_or(*look.border_color()))
             .set_shadow(Shadow::default());
-        self.panel.set_frame((0.0, y, self.width(), height));
+        self.panel.follow_box();
         self.panel.set_hidden(false);
         self.table.reload_data();
     }
@@ -420,7 +427,8 @@ impl DropDown {
             *OPEN.get_mut() = Weak::default();
         }
         self.panel.set_hidden(true);
-        depth_order::set_floats(&*self, false);
+        depth_order::set_floats(&*self.panel, false);
+        move_under(self.panel.weak_view(), self.weak_view());
         if !self.is_hovered() {
             self.show_idle_look();
         }
@@ -536,6 +544,7 @@ impl Setup for DropDown {
         self.arrow.place().r(INSET - 2.0).center_y().size(ARROW, ARROW);
 
         self.panel.set_hidden(true);
+        self.panel.owner = self;
         self.table = self.panel.add_view::<TableView>();
         self.table.set_color(CLEAR);
         self.table.place().all_sides(PANEL_PADDING);
@@ -559,6 +568,94 @@ impl Setup for DropDown {
             }
         });
     }
+}
+
+impl Drop for DropDown {
+    /// An open list sits in the layer root, out of this drop down, a closed
+    /// one is freed with it. The open one hides now and leaves the tree at
+    /// the next turn of the main loop: a drop runs while the lock of the
+    /// freed views is held, and removing a view takes that lock. The weak
+    /// pointer of a view that is being freed is gone already, so `opened`
+    /// tells where the list is.
+    fn drop(&mut self) {
+        let mut panel = self.panel;
+        if !self.opened || panel.is_null() {
+            return;
+        }
+        panel.set_hidden(true);
+        on_main_later(move || {
+            if panel.is_ok() {
+                panel.remove_from_superview();
+            }
+        });
+    }
+}
+
+/// The open list of a [`DropDown`]. It lives at the end of the layer of its
+/// box while it shows, see `DropDown::open`, and follows the box there, so
+/// it moves with a scroll of the page under it.
+#[view]
+struct DropPanel {
+    owner:  Weak<DropDown>,
+    /// Where the panel sits from the top left of the box, and its size.
+    offset: Point,
+    size:   Size,
+}
+
+impl Setup for DropPanel {
+    fn setup(self: Weak<Self>) {}
+}
+
+impl ViewCallbacks for DropPanel {
+    /// Only an open list is updated, a hidden view is not. A box that left
+    /// the screen, scrolled out or hidden with its page, takes its list
+    /// with it.
+    fn update(&mut self) {
+        let owner = self.owner;
+        if owner.is_null() {
+            return;
+        }
+        if owner.opened && owner.is_visible_on_screen() {
+            weak_from_ref(self).follow_box();
+        } else if owner.opened {
+            owner.close();
+        }
+    }
+}
+
+impl DropPanel {
+    /// Puts the panel under or over the box, in the points of the view it
+    /// sits in.
+    fn follow_box(self: Weak<Self>) {
+        let parent = *self.superview();
+        if parent.is_null() || self.owner.is_null() {
+            return;
+        }
+        let origin = self.owner.absolute_frame().origin - parent.absolute_frame().origin + self.offset;
+        self.set_frame((origin.x, origin.y, self.size.width, self.size.height));
+    }
+}
+
+/// The view a layer starts at for `view`: the nearest one up the tree with a
+/// z of its own, like a modal, or the root.
+fn layer_root(view: WeakView) -> WeakView {
+    let mut layer = *view.superview();
+    while layer.is_ok() && !layer.__base_view().z_position_custom && layer.superview().is_ok() {
+        layer = *layer.superview();
+    }
+    layer
+}
+
+/// Moves `view` to the end of the subviews of `parent` as it is, with no
+/// second setup, which `add_subview` would run for a view from another
+/// parent.
+fn move_under(mut view: WeakView, mut parent: WeakView) {
+    if parent.is_null() || view.superview().raw() == parent.raw() {
+        return;
+    }
+    let own = view.take_from_superview();
+    parent.subviews_mut().push(own);
+    view.__manually_set_superview(parent);
 }
 
 /// The default row of the open panel: a text, and a check mark on the

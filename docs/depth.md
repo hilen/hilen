@@ -42,7 +42,11 @@ later. The engine has 3 marks for its own controls, all in `depth_order`:
   the split handles, a pinned row, the sticky header and a held row use it. A negative
   raise goes behind the siblings, like the selection of a text field under the glyphs.
 - `set_floats(view, true)` puts a view and all it holds in front of everything else of
-  its layer, a modal over it stays in front. The open panel of a drop down uses it.
+  its layer, a modal over it stays in front. The open panel of a drop down uses it. The
+  panel also leaves its box while it shows, for the end of the layer the box is in, the
+  root or a modal, and follows the box there each frame. A float only changes the depth,
+  so a parent that clips, a card or a scroll view, cut the list off where it reached past
+  that parent, and its rows there took no tap. `Drop down clipped` tests it.
 - `set_same_depth(view)` puts a view and all it holds at the depth of its superview,
   like the picture of a label under its glyphs.
 

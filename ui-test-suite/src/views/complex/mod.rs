@@ -20,6 +20,7 @@ mod drop_down;
 #[cfg(any(desktop, wasm))]
 mod drop_down_box_hover;
 mod drop_down_cells;
+mod drop_down_clipped;
 mod drop_down_dark;
 mod drop_down_escape;
 /// Hover needs a pointer, the gate of `drop_down_box_hover` above.
