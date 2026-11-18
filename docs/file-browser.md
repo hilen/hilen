@@ -57,6 +57,12 @@ self.browser.opened.val(move |path| ...);
   picked paths, none for a click on the empty area.
 - Events: `path_changed`, `selection_changed`, `opened`, `chosen`, `cancelled`.
 
+`selection_changed` also fires with no paths when the browser drops the picked entries
+itself: on a folder change, on a mode change, and on a tap or a right click on the empty
+area. With nothing picked none of these fire. A tap counts for the empty area only when
+its press hit no row either, so the release of a double tap that opened a folder is no
+tap in the new one. `File browser selection event` pins it.
+
 Folders always sort above files. A narrow view drops the date column, then the kind,
 then the size, hides the sidebar below 480 points and puts the search on a second
 toolbar row below 560.

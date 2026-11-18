@@ -172,6 +172,8 @@ A multiline `TextField` scrolls its lines to keep the line of the caret in view.
 its owner makes it higher, like a chat box that grows with a pasted text, it scrolls
 back so that no room stays empty under the last line while lines are scrolled out
 above. A field that fits all its text is not scrolled. `Multiline field grows` pins it.
+A caret that moves up onto line 1 scrolls the field back to the very top, so line 1
+keeps the space above it. `Multiline text field` pins it.
 
 `Label::set_line_height(points)` replaces the font's own line pitch with a
 CSS line box: baselines advance by the box, glyphs center in each box with

@@ -98,10 +98,14 @@ impl Setup for HeaderCell {
 /// given and reports taps by row index.
 #[view]
 pub(super) struct FileList {
-    rows:   Vec<Row>,
-    grid:   bool,
-    sort:   FileSort,
-    status: ListStatus,
+    rows:           Vec<Row>,
+    grid:           bool,
+    sort:           FileSort,
+    status:         ListStatus,
+    /// The press of the tap going on hit no row. The release alone cannot
+    /// tell, a tap on a folder opens it before the list sees the release,
+    /// and the new rows may leave the spot empty.
+    press_on_empty: bool,
 
     pub row_tapped:    Event<usize>,
     /// A right click or a long press, on a row or on the empty area.
@@ -326,7 +330,7 @@ impl ViewCallbacks for FileList {
 }
 
 impl Setup for FileList {
-    fn setup(self: Weak<Self>) {
+    fn setup(mut self: Weak<Self>) {
         self.set_color(BACKGROUND);
 
         self.header.set_color(BACKGROUND);
@@ -352,8 +356,11 @@ impl Setup for FileList {
 
         // The table reports a tap on a row itself. A tap under the last
         // row is no row, it clears the selection.
+        self.table.touch().began.val(move |touch| {
+            self.press_on_empty = self.table.index_at(touch.position).is_none();
+        });
         self.table.touch().up_inside.val(self, move |touch| {
-            if self.table.index_at(touch.position).is_none() {
+            if self.press_on_empty && self.table.index_at(touch.position).is_none() {
                 self.empty_tapped.trigger(());
             }
         });

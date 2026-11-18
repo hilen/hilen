@@ -23,8 +23,11 @@ impl FileBrowser {
                 self.selection_moved();
             }
             _ => {
+                let had_picks = !self.selection.is_empty();
                 self.selection.clear();
-                self.selection_moved();
+                if had_picks {
+                    self.selection_moved();
+                }
             }
         }
 

@@ -14,6 +14,7 @@ mod file_browser_path;
 mod file_browser_pick;
 mod file_browser_search;
 mod file_browser_select;
+mod file_browser_selection_event;
 mod file_browser_sort;
 
 use std::sync::Arc;

@@ -107,6 +107,10 @@ pub(super) struct Selection {
 }
 
 impl Selection {
+    pub(super) fn is_empty(&self) -> bool {
+        self.picked.is_empty()
+    }
+
     pub(super) fn contains(&self, index: usize) -> bool {
         self.picked.contains(&index)
     }

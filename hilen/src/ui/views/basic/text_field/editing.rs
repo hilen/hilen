@@ -545,7 +545,9 @@ impl TextField {
         if line_bottom > visible_bottom {
             self.scroll.set_content_offset(field_height - line_bottom);
         } else if y < visible_top {
-            self.scroll.set_content_offset(-y);
+            // Line 1 goes back to the very top, with the space above it.
+            let offset = if line == 0 { 0.0 } else { -y };
+            self.scroll.set_content_offset(offset);
         }
     }
 
