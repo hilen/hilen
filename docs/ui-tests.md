@@ -332,9 +332,9 @@ consistent on every screen, since the canvas is always smaller than the frame.
 
 Global state is reset per test: the root background, the clear color, the string state,
 the drag scrolling platform default, the hover state with its drag lock, the global
-`DialogStyle` and `BugReportStyle`, the bug report email, and any running
-level, since a level is not in the view tree and one left by a test
-would draw under every test after it.
+`DialogStyle`, `BugReportStyle`, `SegmentedStyle` and `DateFieldStyle`, the bug report
+email, and any running level, since a level is not in the view tree and one left by a
+test would draw under every test after it.
 A test that fails part way never reaches its own cleanup, and without the reset every
 later test would probe the leftovers.
 

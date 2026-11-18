@@ -2,8 +2,10 @@ mod chips;
 mod context_menu;
 mod drop_down;
 mod fields;
+mod floating;
 mod radio_group;
 mod segmented;
+mod segmented_style;
 mod stick_view;
 mod text_drop_down;
 
@@ -13,5 +15,6 @@ pub use drop_down::*;
 pub use fields::*;
 pub use radio_group::*;
 pub use segmented::*;
+pub use segmented_style::SegmentedStyle;
 pub use stick_view::*;
 pub use text_drop_down::*;

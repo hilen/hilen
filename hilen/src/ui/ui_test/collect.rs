@@ -120,6 +120,8 @@ pub fn run_test(name: &str, test: impl FnOnce() -> Result<()>) {
         // A test that styles its dialogs must not style the next one's.
         crate::ui::DialogStyle::restore_global(None);
         crate::ui::MarkdownStyle::restore_global(None);
+        crate::ui::SegmentedStyle::restore_global(None);
+        crate::ui::DateFieldStyle::restore_global(None);
         // A test that failed mid drag leaves hover locked to its divider,
         // which would freeze hover for every test after it.
         #[cfg(any(desktop, wasm))]

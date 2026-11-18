@@ -5,7 +5,10 @@ use super::{TestFailure, UITest, UITestEntry, clear_failures, run_test, take_fai
 use crate::level::LevelManager;
 use crate::{
     deps::hreads::from_main,
-    ui::{DialogStyle, Label, MarkdownStyle, Style, UIColor, UIManager, ViewData, style::GlobalStyles},
+    ui::{
+        DateFieldStyle, DialogStyle, Label, MarkdownStyle, SegmentedStyle, Style, UIColor, UIManager,
+        ViewData, style::GlobalStyles,
+    },
 };
 
 pub struct TestRunReport {
@@ -21,20 +24,22 @@ pub struct TestRunReport {
 /// behind and the app carries on wrong: at scale 1 on a phone that is really 2,
 /// boxed into the test canvas, or with no root view at all.
 struct AppState {
-    styles:         GlobalStyles,
-    dialog_style:   Option<DialogStyle>,
-    markdown_style: Option<MarkdownStyle>,
-    text_size:      f32,
-    text_inset:     f32,
-    scale_override: f32,
-    clear_color:    UIColor,
+    styles:          GlobalStyles,
+    dialog_style:    Option<DialogStyle>,
+    markdown_style:  Option<MarkdownStyle>,
+    segmented_style: Option<SegmentedStyle>,
+    date_style:      Option<DateFieldStyle>,
+    text_size:       f32,
+    text_inset:      f32,
+    scale_override:  f32,
+    clear_color:     UIColor,
     #[cfg(feature = "bug-report")]
-    bug_animation:  Option<&'static [u8]>,
+    bug_animation:   Option<&'static [u8]>,
     #[cfg(feature = "bug-report")]
-    bug_style:      Option<crate::BugReportStyle>,
+    bug_style:       Option<crate::BugReportStyle>,
     #[cfg(feature = "bug-report")]
-    bug_email:      Option<String>,
-    system_fonts:   bool,
+    bug_email:       Option<String>,
+    system_fonts:    bool,
 }
 
 /// The tests were recorded when the indent of left and right aligned text
@@ -52,6 +57,8 @@ fn prepare_harness() -> AppState {
         styles:                                       Style::take_globals(),
         dialog_style:                                 DialogStyle::take_global(),
         markdown_style:                               MarkdownStyle::take_global(),
+        segmented_style:                              SegmentedStyle::take_global(),
+        date_style:                                   DateFieldStyle::take_global(),
         text_size:                                    Label::default_text_size(),
         text_inset:                                   Label::default_text_inset(),
         scale_override:                               UIManager::scale_override(),
@@ -90,6 +97,8 @@ fn restore_app(state: AppState) {
         Style::restore_globals(state.styles);
         DialogStyle::restore_global(state.dialog_style.as_ref());
         MarkdownStyle::restore_global(state.markdown_style.as_ref());
+        SegmentedStyle::restore_global(state.segmented_style.as_ref());
+        DateFieldStyle::restore_global(state.date_style.as_ref());
         #[cfg(feature = "bug-report")]
         crate::BugReportStyle::restore_global(state.bug_style.as_ref());
         UIManager::restore_scale_override(state.scale_override);
@@ -204,6 +213,8 @@ pub fn present_test(name: &str) -> anyhow::Result<()> {
     from_main(Style::take_globals);
     from_main(DialogStyle::take_global);
     from_main(MarkdownStyle::take_global);
+    from_main(SegmentedStyle::take_global);
+    from_main(DateFieldStyle::take_global);
     #[cfg(feature = "bug-report")]
     from_main(crate::BugReportStyle::take_global);
     Label::set_default_text_size(32);

@@ -4,19 +4,17 @@ use crate::{
         refs::{Weak, weak_from_ref},
         vents::Event,
     },
-    gm::color::Color,
-    ui::{DynamicColor, Setup, ToolButton, ViewData, ViewSubviews, view},
+    ui::{SegmentedStyle, Setup, ToolButton, ViewData, ViewSubviews, view},
 };
 
-const TRACK: DynamicColor = DynamicColor::new(Color::hex("#EBEBF0"), Color::hex("#2C2C30"));
-const PICKED: DynamicColor = DynamicColor::new(Color::hex("#FFFFFF"), Color::hex("#5A5A60"));
-const PICKED_TEXT: DynamicColor = DynamicColor::new(Color::hex("#1C1C1E"), Color::hex("#FFFFFF"));
 const HEIGHT: f32 = 32.0;
 const INSET: f32 = 2.0;
 
 /// A row of equal segments of which exactly 1 is picked, like the picker of
 /// a period or a view mode. It fills the width it is given and is 32 points
 /// tall. `changed` fires only for a tap of the user, with the picked index.
+/// Its colors come from the global `SegmentedStyle`, read when it is built
+/// and when it gets its texts.
 #[view]
 pub struct SegmentedControl {
     picked:      usize,
@@ -29,6 +27,7 @@ impl SegmentedControl {
     /// Replaces the segments, the first one is picked.
     pub fn set_texts<T: ToString>(&self, texts: impl IntoIterator<Item = T>) -> &Self {
         let mut this = weak_from_ref(self);
+        let style = SegmentedStyle::current();
         for mut segment in this.segments.drain(..) {
             segment.remove_from_superview();
         }
@@ -39,7 +38,10 @@ impl SegmentedControl {
                 .set_fills_width(true)
                 .set_centered(true)
                 .set_corner_radius(HEIGHT / 2.0 - INSET);
-            segment.set_on_color(PICKED).set_on_hover_color(PICKED).set_on_tint(PICKED_TEXT);
+            segment
+                .set_on_color(style.picked)
+                .set_on_hover_color(style.picked)
+                .set_on_tint(style.picked_text);
             segment.on_tap(move || this.tapped(index));
             this.segments.push(segment);
         }
@@ -84,7 +86,7 @@ impl SegmentedControl {
 
 impl Setup for SegmentedControl {
     fn setup(self: Weak<Self>) {
-        self.set_color(TRACK).set_corner_radius(HEIGHT / 2.0);
+        self.set_color(SegmentedStyle::current().track).set_corner_radius(HEIGHT / 2.0);
         self.place().h(HEIGHT).all_hor().all(INSET).padding(INSET);
     }
 }
