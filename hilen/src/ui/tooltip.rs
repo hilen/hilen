@@ -24,8 +24,9 @@ const CORNER_RADIUS: f32 = 4.0;
 /// Below and to the right of the cursor, so the pointer does not cover
 /// the first letters.
 const CURSOR_OFFSET: Point = Point::new(12.0, 18.0);
-/// Under the view of the focus ring, clear of the ring around it.
-const RING_OFFSET: f32 = 8.0;
+/// The gap to the edge of the view, under it for the focus ring and above
+/// it when there is no room below. Clear of the ring around the view.
+const VIEW_GAP: f32 = 8.0;
 
 /// What a view shows as its tooltip, set through `ViewTooltip`.
 pub enum TooltipContent {
@@ -108,20 +109,24 @@ impl Tooltip {
 
         if STATE.of_ring {
             let frame = *pending.absolute_frame();
-            Self::show_at(pending, Point::new(frame.x(), frame.max_y() + RING_OFFSET), true);
+            Self::show_at(pending, Point::new(frame.x(), frame.max_y() + VIEW_GAP), true);
         } else {
             Self::show(pending, UIManager::cursor_position());
         }
     }
 
     /// `at` is an absolute screen position in points, the floating view
-    /// opens a little below and right of it and slides back inside the
-    /// screen when it would not fit.
+    /// opens a little below and right of it. With no room below it goes
+    /// above the source view, see `show_at`, and it slides sideways back
+    /// inside the screen.
     pub(crate) fn show(source: WeakView, at: Point) {
         Self::show_at(source, at + CURSOR_OFFSET, false);
     }
 
     /// `corner` is where the top left corner of the floating view goes.
+    /// When the view would go past the bottom of the screen, it goes above
+    /// the source view instead. Only sliding it up would put it over the
+    /// view the pointer rests on, like a button in the bottom corner.
     fn show_at(source: WeakView, corner: Point, of_ring: bool) {
         Self::hide();
 
@@ -157,11 +162,17 @@ impl Tooltip {
 
         let (width, height) = size;
         let at = corner;
+        let above = source.absolute_frame().y() - VIEW_GAP - height;
 
         view.place().custom(move |rect: &mut Rect| {
             let screen = UIManager::root_view().frame().size;
             let x = at.x.min(screen.width - width).max(0.0);
-            let y = at.y.min(screen.height - height).max(0.0);
+            let y = if at.y + height <= screen.height {
+                at.y
+            } else {
+                above
+            };
+            let y = y.min(screen.height - height).max(0.0);
             *rect = Rect::new(x.round(), y.round(), width, height);
         });
 

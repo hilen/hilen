@@ -49,6 +49,7 @@ mod key_focus_pointer_menu;
 mod key_focus_tab;
 mod key_focus_table;
 mod key_focus_tooltip;
+mod key_focus_tooltip_above;
 mod keymap;
 mod keymap_combo;
 mod keymap_named_key;

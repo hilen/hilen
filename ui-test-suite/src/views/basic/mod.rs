@@ -65,6 +65,8 @@ mod tool_button_on_hover;
 mod tool_button_picture;
 /// Hover tooltips need a pointer, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
+mod tooltip_above_view;
+#[cfg(any(desktop, wasm))]
 mod tooltip_hidden;
 #[cfg(any(desktop, wasm))]
 mod tooltip_hover;

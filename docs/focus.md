@@ -55,6 +55,10 @@ A TV remote and a keyboard drive the UI with the arrow keys. The code is
 - The ring that rests on a view with a tooltip shows it, after the delay of a resting
   cursor, under the view, see `Tooltip::focus_changed`. It goes when the ring moves on
   or hides, a tooltip of the cursor stays. The test is `Key focus tooltip`.
+- A tooltip with no room below goes 8 points above the top edge of its view, for the
+  ring and for the cursor alike. Sliding it up would cover the view, like a small
+  button in the bottom corner of a window. The tests are `Key focus tooltip above`
+  and `Tooltip above view`.
 - `view.set_key_focus(false)` keeps the ring off a view, a backdrop that takes
   touches. `view.set_focus_neighbor(direction, other)` names the next view by hand
   where the nearest one is wrong. `Focus::set(view)` puts the ring somewhere.
