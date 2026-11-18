@@ -1,74 +1,11 @@
-use plat::Platform;
 use ui_proc::view;
 
-#[cfg(any(desktop, wasm))]
-use crate::ui::Hover;
+use super::split_handle::{SplitHandle, grab_width};
 use crate::{
     self as hilen,
     deps::{refs::Weak, vents::Event},
-    gm::color::{CLEAR, LIGHT_BLUE},
-    ui::{
-        Container, CursorIcon, Setup, Touch, TouchStack, UIColor, UIManager, View, ViewData, ViewFrame,
-        ViewTouch, view::depth_order,
-    },
+    ui::{Container, Setup, UIColor, ViewData, ViewFrame, view::depth_order},
 };
-
-/// The visible divider line.
-const LINE_WIDTH: f32 = 2.0;
-
-/// The grab zone around the line. A finger needs more than a cursor.
-fn grab_width() -> f32 {
-    if Platform::MOBILE { 24.0 } else { 10.0 }
-}
-
-/// The invisible strip a divider is dragged by. Wider than the line it
-/// draws, always on top of the panel content it overlaps, and it keeps
-/// the resize cursor and its highlight for the whole drag.
-#[view]
-pub(crate) struct SplitHandle {
-    dragging: bool,
-
-    idle_color:   UIColor,
-    active_color: UIColor,
-
-    #[init]
-    line: Container,
-}
-
-impl Setup for SplitHandle {
-    fn setup(mut self: Weak<Self>) {
-        self.idle_color = CLEAR.into();
-        self.active_color = LIGHT_BLUE.into();
-
-        // The grab zone overlaps both panels, whose content registers
-        // touch and hover later. The high priority tiers keep the divider
-        // winning inside its strip regardless of registration order.
-        self.enable_touch_high_priority();
-        TouchStack::enable_hover_high_priority(self.weak_view());
-        self.__base_view().hover_cursor = Some(CursorIcon::ColResize);
-
-        self.line.place().center_x().w(LINE_WIDTH).tb(0);
-
-        self.touch().hovered.val(self, move |_| self.apply_color());
-        self.apply_color();
-    }
-}
-
-impl SplitHandle {
-    fn set_dragging(mut self: Weak<Self>, dragging: bool) {
-        self.dragging = dragging;
-        self.apply_color();
-    }
-
-    fn apply_color(self: Weak<Self>) {
-        let color = if self.dragging || self.is_hovered() {
-            self.active_color
-        } else {
-            self.idle_color
-        };
-        self.line.set_color(color);
-    }
-}
 
 /// Three panels side by side: a left and a right panel with draggable
 /// dividers and the center taking the rest. Put content into `left`,
@@ -89,7 +26,6 @@ pub struct SplitView {
     left_hidden:  bool,
     right_hidden: bool,
 
-    drag_start_x:     f32,
     drag_start_width: f32,
 
     /// A divider drag ended. Read the widths and persist them.
@@ -182,10 +118,8 @@ impl SplitView {
     ) -> Weak<Self> {
         let idle = idle.into();
         let active = active.into();
-        for mut handle in [self.left_handle, self.right_handle] {
-            handle.idle_color = idle;
-            handle.active_color = active;
-            handle.apply_color();
+        for handle in [self.left_handle, self.right_handle] {
+            handle.set_colors(idle, active);
         }
         self
     }
@@ -233,18 +167,11 @@ impl SplitView {
     }
 
     fn setup_handle(mut self: Weak<Self>, handle: Weak<SplitHandle>, left: bool) {
-        handle.touch().began.sub(move || {
-            self.drag_start_x = UIManager::cursor_position().x;
+        handle.drag_began.sub(move || {
             self.drag_start_width = if left { self.left_width } else { self.right_width };
-            handle.set_dragging(true);
-            #[cfg(any(desktop, wasm))]
-            Hover::lock(handle.weak_view());
         });
 
-        // Deltas from the drag start, not from the handle, so a clamped
-        // drag never jumps when the cursor comes back.
-        handle.touch().moved.sub(move || {
-            let dx = UIManager::cursor_position().x - self.drag_start_x;
+        handle.dragged.val(move |dx| {
             let width = self.width();
             if left {
                 self.left_width = (self.drag_start_width + dx)
@@ -258,16 +185,6 @@ impl SplitView {
             self.layout_panels();
         });
 
-        // The release can land far off the handle after a clamped drag,
-        // so it rides the `all` event, not `up_inside`.
-        handle.touch().all.val(move |touch: Touch| {
-            if !touch.is_ended() {
-                return;
-            }
-            handle.set_dragging(false);
-            #[cfg(any(desktop, wasm))]
-            Hover::unlock();
-            self.resized.trigger(());
-        });
+        handle.drag_ended.sub(move || self.resized.trigger(()));
     }
 }
