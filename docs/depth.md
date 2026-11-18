@@ -27,6 +27,7 @@ inside it the same way. The engine layers, nearest last:
 
 - the root tree from 0.5, room for 250000 views,
 - a modal at 0.4, each modal over it 0.005 nearer, room for 12500 views each,
+- a popover or a sheet at 0.37, see [popover.md](popover.md),
 - the context menu at 0.35, the toast and the tooltip at 0.34, the focus ring at 0.33,
 - debug views at 0.3.
 

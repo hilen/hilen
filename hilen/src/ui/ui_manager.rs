@@ -114,6 +114,9 @@ impl UIManager {
     /// Each stacked modal sits this much closer than the one under it,
     /// so an alert over a modal draws over it instead of interleaving.
     pub(crate) const MODAL_LAYER_Z_STEP: f32 = 0.005;
+    /// A popover or a sheet floats over a modal, and a menu opened from
+    /// inside it is in front of it.
+    pub(crate) const POPOVER_Z_OFFSET: f32 = 0.37;
     /// A context menu floats over a modal, so it sits closer than one.
     pub(crate) const MENU_Z_OFFSET: f32 = 0.35;
     /// A toast and a tooltip are in front of an open menu. The gap holds

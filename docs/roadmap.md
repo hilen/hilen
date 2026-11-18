@@ -121,14 +121,13 @@ original is the acceptance bar. Their ports drove the gaps below.
   outside the window, and edges 1 to 3 points apart.
 - Blocks: measured reviews of the `ux` skill, which judge by eye until it lands.
 
-## A sheet and a popover
+## A sheet that asks before work is lost
 
-- Current: `ModalView` is a box in the center, sized by `modal_size`. `ContextMenu` is
-  the only panel tied to the view that opened it. There is no sheet and no popover.
-- Needed: a sheet that comes from the bottom on a narrow window, closes with a swipe
-  down and asks first when work would be lost. A popover that points at the view that
-  opened it on a wide window and becomes a sheet on a narrow one.
-- Blocks: filters, pickers and short forms on an iPhone and an iPad.
+- Current: `Popover` is a sheet from the bottom on a narrow window, see
+  [popover.md](popover.md). A drag down past a third of its height always closes it.
+- Needed: a sheet with unsaved work in it asks first, before the drag or a press
+  outside closes it.
+- Blocks: short forms in a sheet on an iPhone, like a filter with typed values.
 
 ## Text that grows with the system text size
 

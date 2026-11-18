@@ -52,6 +52,8 @@ mod number_view;
 mod number_view_design;
 mod number_view_value;
 mod point_view;
+mod popover_anchor;
+mod popover_sheet;
 mod question;
 mod radio_group;
 mod tab_shell;

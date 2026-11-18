@@ -210,6 +210,9 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/tab-shell.md](docs/tab-shell.md) — `TabShell`, a tab app with the bar at the
   bottom, how its background reaches past the home bar with `UIManager::system_insets`,
   and its tests. Read before touching `tab_shell/` or `system_insets`.
+- [docs/popover.md](docs/popover.md) — `Popover`, a panel with any view tied to the view
+  that opened it, with an arrow on a wide window and a sheet from the bottom on a narrow
+  one. Read before touching `popover.rs` or opening a panel from a button.
 - [docs/depth.md](docs/depth.md) — which view is in front: the tree order, the layers of
   `set_z_position`, and the raise, float and shared depth marks of the engine. Read before
   touching `depth_order.rs`, a z of a view, or anything that draws over other views.
