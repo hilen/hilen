@@ -435,3 +435,45 @@ fn replace_all_is_1_undo_step() {
     assert_eq!(code.lines()[2], "box(3, 3); cube(4);");
     assert_eq!(code.cursor(), at(2, 9));
 }
+
+#[test]
+fn a_replace_of_the_app_keeps_the_cursor_in_its_text() {
+    let mut code = text("a\nb\nc\nlet x=1;\nend");
+    code.move_to(at(4, 2), false);
+    // 2 lines above the cursor give way to 1.
+    let changed = code.replace_kept(at(0, 0), at(2, 0), "ab\n");
+    assert_eq!(
+        changed,
+        LinesChanged {
+            start:    0,
+            removed:  3,
+            inserted: 2,
+        }
+    );
+    assert_eq!(code.lines().join("\n"), "ab\nc\nlet x=1;\nend");
+    assert_eq!(code.cursor(), at(3, 2));
+
+    // Before the cursor on its line, the cursor moves along.
+    code.move_to(at(2, 8), false);
+    code.replace_kept(at(2, 5), at(2, 6), " = ");
+    assert_eq!(code.lines()[2], "let x = 1;");
+    assert_eq!(code.cursor(), at(2, 10));
+
+    // Each replace is 1 step of the history.
+    code.undo();
+    assert_eq!(code.lines()[2], "let x=1;");
+}
+
+#[test]
+fn a_replace_of_the_app_keeps_the_selection() {
+    let mut code = text("one\ntwo three\n");
+    code.select(at(1, 4), at(1, 9));
+    code.replace_kept(at(0, 0), at(0, 3), "1\n1");
+    assert_eq!(code.selection(), Some((at(2, 4), at(2, 9))));
+
+    // A place inside the replaced text goes to the end of the new text.
+    code.move_to(at(2, 6), false);
+    code.replace_kept(at(2, 4), at(2, 9), "3");
+    assert_eq!(code.lines()[2], "two 3");
+    assert_eq!(code.cursor(), at(2, 5));
+}

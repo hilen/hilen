@@ -3442,6 +3442,8 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite 0.30.0",
+ "toml",
+ "toml_edit",
  "two-face",
  "ui-proc",
  "unicode-linebreak",
@@ -9268,6 +9270,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

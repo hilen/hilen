@@ -263,6 +263,8 @@ syntect = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tiny-skia = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
 two-face = { workspace = true, optional = true }
 url = { workspace = true }
 web-time = { workspace = true }

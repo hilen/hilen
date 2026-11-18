@@ -117,6 +117,42 @@ impl CodeText {
         self.replace(from, to, &clean(text), StepKind::Other)
     }
 
+    /// Puts `text` in place of the text from `from` to `to` as a step of
+    /// its own, the way an app changes the text, like a format. The cursor
+    /// and the other end of the selection keep their place in the text
+    /// around the change. One inside the replaced text goes to the end of
+    /// the new text.
+    pub(crate) fn replace_kept(&mut self, from: CodePos, to: CodePos, text: &str) -> LinesChanged {
+        let text = clean(text);
+        let (from, to) = (self.clamp(from.min(to)), self.clamp(from.max(to)));
+        let breaks = text.matches('\n').count();
+        let tail = text.rsplit('\n').next().unwrap_or_default().len();
+        let end = if breaks == 0 {
+            CodePos::new(from.line, from.byte + tail)
+        } else {
+            CodePos::new(from.line + breaks, tail)
+        };
+        let moved = |pos: CodePos| {
+            if pos <= from {
+                pos
+            } else if pos < to {
+                end
+            } else if pos.line == to.line {
+                CodePos::new(end.line, end.byte + pos.byte - to.byte)
+            } else {
+                CodePos::new(pos.line - (to.line - from.line) + breaks, pos.byte)
+            }
+        };
+        let after = Spot {
+            cursor: moved(self.cursor),
+            anchor: self.anchor.map(moved),
+        };
+        let suffix = &self.lines[to.line][to.byte..];
+        let joined = format!("{}{text}{suffix}", &self.lines[from.line][..from.byte]);
+        let new: Vec<String> = joined.split('\n').map(str::to_string).collect();
+        self.apply(from.line, to.line - from.line + 1, new, after, StepKind::Other)
+    }
+
     /// Puts each text in place of its range, all in 1 step of the
     /// history, the cursor at the start of the first range. The ranges
     /// are in the order of the text, none over a line break and none

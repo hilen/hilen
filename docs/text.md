@@ -143,7 +143,9 @@ ellipsis cut, the selection, the underlines, the caret of a `TextField` and the 
 system field all read `text_inset()`, so they agree with the drawn text. The value is
 in the paint key. A UI test run sets the default to 16, the value its scale 1 had
 before, so recorded tests keep their pixels. `Label text inset` checks the text start
-at scale 1, 2 and 3.
+at scale 1, 2 and 3. A `TextField`, the box and the rows of a drop down and the
+value of a `NumberView` start their text 12 points in, whatever the default, so the
+text of a stack of fields lines up.
 
 ## Line handling
 

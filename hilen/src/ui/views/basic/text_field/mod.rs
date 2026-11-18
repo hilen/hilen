@@ -35,6 +35,8 @@ use crate::{
 /// Space above the first line of a multiline field, so the text does not
 /// touch the top edge the way a text area does not.
 const MULTILINE_TOP_INSET: f32 = 8.0;
+/// Where the text starts, the same 12 points as in a drop down.
+const FIELD_TEXT_INSET: f32 = 12.0;
 
 /// On an iPhone a system text field covers the field while it is edited and
 /// draws the text, the caret and the selection itself, see `system_field`.
@@ -147,6 +149,9 @@ impl Setup for TextField {
 
         self.label.set_text_color(LIGHTER_GRAY);
         self.label.set_color(CLEAR);
+        // The same as the text of a drop down, so the text of a stack of
+        // fields lines up.
+        self.label.set_text_inset(FIELD_TEXT_INSET);
         self.set_color(WHITE);
 
         self.caret_view.set_color(BLACK).set_hidden(true);

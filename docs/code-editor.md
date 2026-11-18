@@ -37,6 +37,10 @@ self.editor.place().back();
   `cursor_moved` fires when the cursor moves.
 - `insert(text)`, `undo()`, `redo()`, `can_undo()`, `can_redo()`, `copy()`, `cut()`
   and `paste()` for the buttons and the menu of an app.
+- `replace(from, to, text)` puts a text in the way an app does, like a format on
+  save. It is 1 step of the undo history, the cursor and the selection keep their
+  place in the text around the change, and the lines on screen stay where they are,
+  also when lines above them came or went. It fires `changed` like `insert`.
 - `set_tab_width(spaces)`, 4 by default. `set_style(CodeEditorStyle { .. })` sets the
   text size, the font, the spacing and the colors. Every default color is a light and
   dark pair. `focus()` gives the editor the keys, `is_editing()` tells if it has them.
@@ -156,12 +160,15 @@ self.editor.close_find();
 ## Tests
 
 `Code editor look`, `Code editor typing`, `Code editor selection`, `Code editor
-clipboard`, `Code editor long file`, `Code editor find`, `Code editor find next` and
-`Code editor replace` in `ui-test-suite/src/views/code_editor/`. The keys are
+clipboard`, `Code editor long file`, `Code editor find`, `Code editor find next`,
+`Code editor replace` and `Code editor app replace` in
+`ui-test-suite/src/views/code_editor/`. The keys are
 injected key events, which the editor reads on every platform, so all run everywhere
 but `Code editor clipboard`, which needs `Clipboard::set_in_process` of a desktop.
 The fields of the find bar are typed into through `system_input`, which types through
 the screen keyboard of a phone. `Code editor find` pins the look of the bar and the
 matches in both themes and the toggles, `Code editor find next` next and back with
 the scroll, Escape and the matches that follow a typed change, `Code editor replace`
-the replace row, Replace, Replace All and its undo as 1 step.
+the replace row, Replace, Replace All and its undo as 1 step. `Code editor app replace`
+pins `replace` in a scrolled file: lines above the screen, a change before a
+selection, a line added while the caret is off screen, and its undo.

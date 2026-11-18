@@ -10,8 +10,14 @@ use crate::{
         color::{CLEAR, Color, LIGHT_GRAY},
     },
     image::NoImage,
-    ui::{Button, Container, Setup, Style, ToLabel, UIColor, UIImages, view::ViewData},
+    ui::{Button, Container, Label, Setup, Style, ToLabel, UIColor, UIImages, ViewSubviews, view::ViewData},
 };
+
+/// The width of the column the arrows take once the value shows.
+const ARROW_COLUMN: f32 = 28.0;
+/// Where the value starts, the same as the text of a text field and a drop
+/// down.
+const VALUE_INSET: f32 = 12.0;
 
 #[view]
 pub struct NumberView {
@@ -21,6 +27,10 @@ pub struct NumberView {
     pub step: f32,
     #[educe(Default = f32::MIN)]
     min:      f32,
+    #[educe(Default = f32::MAX)]
+    max:      f32,
+    /// The value as text left of the arrows, made by `show_value`.
+    shown:    Weak<Label>,
 
     on_change_event: Event<f32>,
 
@@ -107,9 +117,45 @@ impl NumberView {
     }
 
     /// Shows a value. `on_change` fires only for the taps of the user, never
-    /// for this call.
+    /// for this call. A value out of the range of `set_min` and `set_max` is
+    /// shown as it is, like one a person typed into a settings file.
     pub fn set_value(&self, val: impl ToF32) -> &Self {
-        weak_from_ref(self).value = val.to_f32();
+        let mut this = weak_from_ref(self);
+        this.value = val.to_f32();
+        if this.shown.is_ok() {
+            this.shown.set_text(this.value.to_string());
+        }
+        self
+    }
+
+    /// Shows the value as text, with the arrows in a column at the right
+    /// edge. Opt in, without it the arrows fill the view.
+    pub fn show_value(&self) -> &Self {
+        let mut this = weak_from_ref(self);
+        if this.shown.is_ok() {
+            return self;
+        }
+        this.shown = this.add_view::<Label>();
+        this.shown.set_text_inset(VALUE_INSET);
+        this.shown.set_text_color(*this.up.text_color());
+        this.shown.set_text_size(this.up.text_size());
+        this.shown.place().l(0).tb(0).r(ARROW_COLUMN);
+        this.up.place().clear().t(0).r(0).w(ARROW_COLUMN).relative_height(this, 0.5);
+        this.down.place().clear().b(0).r(0).w(ARROW_COLUMN).relative_height(this, 0.5);
+        this.separator
+            .place()
+            .clear()
+            .r(ARROW_COLUMN * 0.125)
+            .w(ARROW_COLUMN * 0.75)
+            .h(2)
+            .center_y();
+        this.shown.set_text(this.value.to_string());
+        self
+    }
+
+    /// The highest value the up arrow reaches.
+    pub fn set_max(&self, max: impl ToF32) -> &Self {
+        weak_from_ref(self).max = max.to_f32();
         self
     }
 
@@ -130,7 +176,7 @@ impl NumberView {
     }
 
     fn up_tap(self: Weak<Self>) {
-        let val = self.value.my_add(&self.step);
+        let val = self.value.my_add(&self.step).min(self.max);
         self.tapped_to(val);
         self.up_event.trigger(());
     }
@@ -166,6 +212,9 @@ impl NumberView {
         let color = color.into();
         self.up.set_text_color(color);
         self.down.set_text_color(color);
+        if self.shown.is_ok() {
+            self.shown.set_text_color(color);
+        }
         self
     }
 
@@ -174,8 +223,12 @@ impl NumberView {
     }
 
     pub fn set_text_size(&self, size: impl ToF32) -> &Self {
+        let size = size.to_f32();
         self.up.set_text_size(size);
         self.down.set_text_size(size);
+        if self.shown.is_ok() {
+            self.shown.set_text_size(size);
+        }
         self
     }
 }

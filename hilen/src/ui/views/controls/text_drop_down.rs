@@ -4,10 +4,7 @@ use crate::{
         refs::{Weak, weak_from_ref},
         vents::Event,
     },
-    gm::{
-        ToF32,
-        color::{CLEAR, Color},
-    },
+    gm::{ToF32, color::CLEAR},
     ui::{DropDown, DropDownData, RowIcon, Setup, UIColor, View, ViewData, view},
 };
 
@@ -95,8 +92,9 @@ impl TextDropDown {
     }
 
     /// The color of the picked row, the check mark, the hover wash and
-    /// the border while hovered or open.
-    pub fn set_accent_color(&self, color: impl Into<Color>) -> &Self {
+    /// the border while hovered or open. A `DynamicColor` follows the
+    /// theme.
+    pub fn set_accent_color(&self, color: impl Into<UIColor>) -> &Self {
         let this = weak_from_ref(self);
         this.drop.set_accent_color(color);
         self

@@ -7,6 +7,7 @@ use std::{
 #[cfg(all(any(feature = "login", feature = "secrets"), not_wasm))]
 use hilen_session::SessionStore;
 use parking_lot::Mutex;
+use toml_edit::{DocumentMut, Item, Table, Value};
 
 use crate::{filesystem::Paths, store::storable::Storable};
 
@@ -24,11 +25,73 @@ fn set_value<T: serde::ser::Serialize>(value: T, path: &Path) {
 }
 
 fn try_set_value<T: serde::ser::Serialize>(value: T, path: &Path) -> Result<(), StoreError> {
-    let json = serde_json::to_string_pretty(&value).expect("Failed to serialize data");
-    backend::write(path, &json).map_err(|reason| StoreError {
+    let refused = |reason| StoreError {
         path: path.to_owned(),
         reason,
-    })
+    };
+    let text = if is_toml(path) {
+        toml_text(&value, backend::read(path).as_deref()).map_err(refused)?
+    } else {
+        serde_json::to_string_pretty(&value).expect("Failed to serialize data")
+    };
+    backend::write(path, &text).map_err(refused)
+}
+
+/// A store whose file name ends in `.toml` is a TOML file a person may edit
+/// by hand. Any other store is JSON.
+fn is_toml(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "toml")
+}
+
+/// The TOML of `value`. Over the text the file has now, only the values
+/// that changed change, so the comments, the order of the keys and the
+/// blank lines a person wrote stay.
+fn toml_text<T: serde::ser::Serialize>(value: &T, old: Option<&str>) -> Result<String, String> {
+    let fresh =
+        toml::to_string(value).map_err(|error| format!("{error}, a TOML store holds a struct or a map"))?;
+    let Some(mut document) = old.and_then(|old| old.parse::<DocumentMut>().ok()) else {
+        return Ok(fresh);
+    };
+    let new = fresh.parse::<DocumentMut>().map_err(|error| error.to_string())?;
+    merge(document.as_table_mut(), new.as_table());
+    Ok(document.to_string())
+}
+
+fn merge(old: &mut Table, new: &Table) {
+    let gone: Vec<String> = old
+        .iter()
+        .map(|(key, _)| key.to_string())
+        .filter(|key| !new.contains_key(key))
+        .collect();
+    for key in gone {
+        old.remove(&key);
+    }
+    for (key, item) in new {
+        match (old.get_mut(key), item) {
+            (Some(Item::Table(old_table)), Item::Table(new_table)) => merge(old_table, new_table),
+            (Some(Item::Value(old_value)), Item::Value(new_value)) => {
+                if !same(old_value, new_value) {
+                    let decor = old_value.decor().clone();
+                    *old_value = new_value.clone();
+                    *old_value.decor_mut() = decor;
+                }
+            }
+            _ => {
+                old.insert(key, item.clone());
+            }
+        }
+    }
+}
+
+/// The 2 values hold the same, whatever the layout of their text, like an
+/// array a person wrote on 1 line with no spaces.
+fn same(old: &Value, new: &Value) -> bool {
+    let held = |value: &Value| {
+        let mut value = value.clone();
+        value.decor_mut().clear();
+        format!("value = {value}").parse::<toml::Table>().ok()
+    };
+    held(old).is_some_and(|old| Some(old) == held(new))
 }
 
 /// A write the platform refused, like a full disk or a browser storage that
@@ -47,18 +110,37 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// A file that does not parse gives nothing, like a hand edit with a typo
+/// or a file of an older version of the app whose type changed since. The
+/// file stays as it is, so the edit can be fixed, and the next `set`
+/// writes over it.
+fn parse<T: Storable>(path: &Path, text: &str) -> Option<T> {
+    let parsed = if is_toml(path) {
+        toml::from_str(text).map_err(|error| error.to_string())
+    } else {
+        serde_json::from_str(text).map_err(|error| error.to_string())
+    };
+    match parsed {
+        Ok(value) => Some(value),
+        Err(error) => {
+            log::warn!("{} does not parse, the default is used: {error}", path.display());
+            None
+        }
+    }
+}
+
 fn get_value<T: Storable>(path: &Path) -> Option<T> {
-    let json = backend::read(path)?;
-    serde_json::from_str(&json).expect("Failet to parse json")
+    let text = backend::read(path)?;
+    parse(path, &text)
 }
 
 fn get_or_init_value<T: Storable + Default>(path: &Path) -> T {
-    let Some(json) = backend::read(path) else {
+    let Some(text) = backend::read(path) else {
         let new = T::default();
         set_value(&new, path);
         return new;
     };
-    serde_json::from_str(&json).expect("Failet to parse json")
+    parse(path, &text).unwrap_or_default()
 }
 
 #[cfg(all(not_wasm, not(tvos)))]
@@ -298,6 +380,12 @@ mod test {
         string: String,
     }
 
+    #[derive(Debug, PartialEq, Default, Serialize, Deserialize, Clone)]
+    struct Words {
+        words: Vec<String>,
+        count: i32,
+    }
+
     static STORED: LazyLock<OnDisk<i32>> = LazyLock::new(|| OnDisk::new("stored_i32_test.json"));
     static STORED_STRUCT: LazyLock<OnDisk<Data>> = LazyLock::new(|| OnDisk::new("stored_struct_test.json"));
     static INITIALIZED: LazyLock<OnDisk<i32>> = LazyLock::new(|| OnDisk::new("initialized_i32_test.json"));
@@ -359,6 +447,89 @@ mod test {
         assert_eq!(fine.get(), Some(5));
 
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    // The failure this prevents: a setting file with a typo from a hand
+    // edit panicked the app at its next read.
+    #[test]
+    #[serial(on_disk_root)]
+    fn a_file_that_does_not_parse_gives_the_default() {
+        use std::{
+            env::temp_dir,
+            fs::{create_dir_all, read_to_string, remove_dir_all, write},
+            process::id,
+        };
+
+        let root = temp_dir().join(format!("hilen_bad_json_{}", id()));
+        create_dir_all(&root).unwrap();
+        write(root.join("bad.json"), "[\"far\", ").unwrap();
+        OnDisk::<()>::set_root_path(&root);
+
+        let store = OnDisk::<Vec<String>>::new("bad.json");
+        assert_eq!(store.get(), None);
+        assert_eq!(store.get_or_init(), Vec::<String>::new());
+        // The file stays for a fix by hand.
+        assert_eq!(read_to_string(root.join("bad.json")).unwrap(), "[\"far\", ");
+
+        remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[serial(on_disk_root)]
+    fn a_toml_store_keeps_what_a_person_wrote() {
+        use std::{
+            env::temp_dir,
+            fs::{create_dir_all, read_to_string, remove_dir_all, write},
+            process::id,
+        };
+
+        let root = temp_dir().join(format!("hilen_toml_store_{}", id()));
+        create_dir_all(&root).unwrap();
+        OnDisk::<()>::set_root_path(&root);
+        let store = OnDisk::<Data>::new("data.toml");
+
+        let data = Data {
+            number: 5,
+            string: "a".to_string(),
+        };
+        store.set(data.clone());
+        assert_eq!(
+            read_to_string(root.join("data.toml")).unwrap(),
+            "number = 5\nstring = \"a\"\n"
+        );
+        assert_eq!(store.get(), Some(data));
+
+        let by_hand = "# how many\nnumber = 5   # five\n\n# the name\nstring = \"a\"\n";
+        write(root.join("data.toml"), by_hand).unwrap();
+        store.set(Data {
+            number: 6,
+            string: "a".to_string(),
+        });
+        assert_eq!(
+            read_to_string(root.join("data.toml")).unwrap(),
+            "# how many\nnumber = 6   # five\n\n# the name\nstring = \"a\"\n"
+        );
+
+        // A list with only another layout than the plain one stays as typed.
+        let words = OnDisk::<Words>::new("words.toml");
+        write(
+            root.join("words.toml"),
+            "words = [\"a\",\"b\"]  # kept\ncount = 1\n",
+        )
+        .unwrap();
+        words.set(Words {
+            words: vec!["a".to_string(), "b".to_string()],
+            count: 2,
+        });
+        assert_eq!(
+            read_to_string(root.join("words.toml")).unwrap(),
+            "words = [\"a\",\"b\"]  # kept\ncount = 2\n"
+        );
+
+        write(root.join("data.toml"), "number = ").unwrap();
+        assert_eq!(store.get(), None);
+
+        remove_dir_all(&root).unwrap();
     }
 
     #[test]

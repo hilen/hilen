@@ -267,6 +267,26 @@ impl CodeEditor {
         self.lines_changed(changed);
     }
 
+    /// Puts `text` in place of the text from `from` to `to` as 1 step of
+    /// the undo history, the way an app changes the text, like a format on
+    /// save. The cursor and the selection keep their place in the text
+    /// around the change, and the lines on screen stay where they are.
+    /// Fires `changed` like `insert`.
+    pub fn replace(&mut self, from: CodePos, to: CodePos, text: &str) {
+        let shown_top = -self.table.content_offset();
+        let row = self.columns.row_height;
+        let changed = self.text.replace_kept(from, to, text);
+        self.follow_lines(changed);
+        // Lines added or taken out above the screen move the text on it,
+        // so the scroll moves by as much.
+        if (changed.start + changed.removed).to_f32() * row <= shown_top {
+            let moved = (changed.inserted.to_f32() - changed.removed.to_f32()) * row;
+            self.table.set_content_offset(-(shown_top + moved));
+        }
+        self.changed.trigger(changed.start);
+        self.cursor_moved.trigger(self.text.cursor());
+    }
+
     pub fn undo(&mut self) {
         if let Some(changed) = self.text.undo() {
             self.lines_changed(changed);
@@ -362,6 +382,15 @@ impl CodeEditor {
     /// The user changed the lines: their decor and widths follow, then
     /// the rows, the scroll and the events.
     pub(super) fn lines_changed(&mut self, changed: LinesChanged) {
+        self.follow_lines(changed);
+        self.scroll_to_cursor();
+        self.changed.trigger(changed.start);
+        self.cursor_moved.trigger(self.text.cursor());
+    }
+
+    /// The decor, the widths, the matches and the rows follow a change of
+    /// the lines.
+    fn follow_lines(&mut self, changed: LinesChanged) {
         let LinesChanged {
             start,
             removed,
@@ -385,11 +414,7 @@ impl CodeEditor {
             self.find.lines_changed(self.text.lines(), changed);
             self.matches_followed();
         }
-
         self.relayout();
-        self.scroll_to_cursor();
-        self.changed.trigger(start);
-        self.cursor_moved.trigger(self.text.cursor());
     }
 
     /// The cursor or the selection moved with no change of the text.

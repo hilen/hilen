@@ -6,6 +6,7 @@
 /// Not a test, what the code editor tests share.
 mod common;
 
+mod code_editor_app_replace;
 /// Copies and pastes. Only a desktop keeps the clipboard of a test inside
 /// the process, `Clipboard::set_in_process`, a phone would read and
 /// replace what the user copied.

@@ -49,6 +49,7 @@ mod modal_scrim;
 mod modal_scrim_picture;
 mod number_view;
 mod number_view_design;
+mod number_view_value;
 mod point_view;
 mod question;
 mod radio_group;

@@ -145,7 +145,9 @@ pub struct DropDown {
     /// Applied to the collapsed label and to every default row.
     text_color: Option<UIColor>,
     text_size:  Option<f32>,
-    accent:     Color,
+    /// A light and dark pair follows the theme, it is resolved each time it
+    /// paints.
+    accent:     UIColor,
 
     /// The border set by the app, put back when the box is idle again.
     idle_border: Option<Color>,
@@ -263,15 +265,17 @@ impl DropDown {
     }
 
     /// The color of the picked default row, its check mark, the hover
-    /// wash and the border while hovered or open.
-    pub fn set_accent_color(&self, color: impl Into<Color>) -> &Self {
+    /// wash and the border while hovered or open. A `DynamicColor` follows
+    /// the theme.
+    pub fn set_accent_color(&self, color: impl Into<UIColor>) -> &Self {
         let mut this = weak_from_ref(self);
         this.accent = color.into();
         self
     }
 
+    /// The accent in the theme of now.
     pub fn accent_color(&self) -> Color {
-        self.accent
+        self.accent.resolve()
     }
 
     /// A view around the drop down draws the box, so its color, border
@@ -355,7 +359,7 @@ impl DropDown {
         let look = self.look();
         self.keep_idle_look();
 
-        look.set_border_color(self.accent);
+        look.set_border_color(self.accent.resolve());
 
         // The panel leaves the box for the end of its layer, so no view
         // in between that clips its subviews, a card or a scroll view,
@@ -461,8 +465,8 @@ impl DropDown {
     fn show_hover_look(self: Weak<Self>) {
         let look = self.look();
         let fill = self.idle_color.map_or(*look.color(), |color| color.resolve());
-        look.set_color(fill.with_wash(self.accent.with_alpha(HOVER_WASH)));
-        look.set_border_color(self.accent);
+        look.set_color(fill.with_wash(self.accent.resolve().with_alpha(HOVER_WASH)));
+        look.set_border_color(self.accent.resolve());
     }
 
     fn tint_arrow(self: Weak<Self>) {
@@ -506,7 +510,7 @@ impl TableData for DropDown {
             data.title(index),
             data.icon(index),
             index == self.selected_index,
-            self.accent,
+            self.accent.resolve(),
             self.text_color,
             self.text_size,
         );
@@ -516,7 +520,7 @@ impl TableData for DropDown {
 
 impl Setup for DropDown {
     fn setup(mut self: Weak<Self>) {
-        self.accent = LIGHT_BLUE;
+        self.accent = LIGHT_BLUE.into();
         self.set_color(FILL);
         self.label.set_text_color(TEXT);
 
@@ -528,7 +532,10 @@ impl Setup for DropDown {
         let holder = self.holder.weak_view();
         self.box_registry.set_parent(holder);
 
-        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
+        // The box itself keeps the text 12 points in, the label adds
+        // nothing, the same as a text field. After the alignment, which
+        // gives a label the default inset.
+        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left).set_text_inset(0);
         self.place_label(false);
         self.box_icon.set_hidden(true);
         self.box_icon.place().l(INSET).center_y().size(ICON, ICON);
@@ -731,7 +738,7 @@ impl Setup for DropDownRow {
         self.set_corner_radius(ROW_RADIUS);
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
-        self.label.set_text_color(TEXT);
+        self.label.set_text_color(TEXT).set_text_inset(0);
         self.label.place().l(INSET - PANEL_PADDING).r(INSET + CHECK).tb(0);
         self.icon.set_hidden(true);
         self.icon.place().l(INSET - PANEL_PADDING).center_y().size(ICON, ICON);
