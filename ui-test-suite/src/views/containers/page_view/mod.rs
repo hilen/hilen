@@ -1,0 +1,10 @@
+mod common;
+mod page_view_catch;
+mod page_view_drag;
+mod page_view_fast_swipes;
+mod page_view_lifecycle;
+mod page_view_rubber;
+mod page_view_taps;
+mod page_view_turn;
+mod page_view_turn_to;
+mod page_view_wheel;

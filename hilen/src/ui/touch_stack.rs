@@ -3,12 +3,12 @@ use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 
 use crate::{
     deps::{
-        hreads::{from_main, is_main_thread},
+        hreads::{after, from_main, is_main_thread},
         refs::{RawPointer, Weak},
     },
     gm::flat::Point,
     ui::{
-        LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView, depth_key,
+        CodeEditor, LongPress, NO_TOUCH_ID, UIManager, View, ViewFrame, WeakView, depth_key,
         touch_layer::{Scrollable, TouchLayer},
         view::{ViewData, ViewSubviews},
     },
@@ -214,6 +214,7 @@ impl TouchStack {
         Self::in_window_of(view, || {
             let mut this = Self::get();
             let mut layer: TouchLayer = view.into();
+            layer.keys = UIManager::selected_view();
             for existing in this.stack.iter_mut() {
                 layer.absorb(existing.extract_under(view));
             }
@@ -227,20 +228,25 @@ impl TouchStack {
 
     /// Removes the top overlay layer. Its surviving registrations go
     /// back to the layer below, so an overlay that merely hides can
-    /// reopen with its views still registered.
+    /// reopen with its views still registered. A code editor that had the
+    /// keys when the layer opened has them again, see `give_keys_back`.
     pub fn pop_layer(view: WeakView) {
         Self::in_window_of(view, || {
-            let mut this = Self::get();
-            let mut pop = this.stack.pop().unwrap();
-            assert_eq!(
-                pop.root.raw(),
-                view.raw(),
-                "Inconsistent pop_touch_view call. Expected: {} got: {}",
-                pop.root_name(),
-                view.label()
-            );
-            let remaining = pop.drain();
-            this.stack.last_mut().absorb(remaining);
+            let keys = {
+                let mut this = Self::get();
+                let mut pop = this.stack.pop().unwrap();
+                assert_eq!(
+                    pop.root.raw(),
+                    view.raw(),
+                    "Inconsistent pop_touch_view call. Expected: {} got: {}",
+                    pop.root_name(),
+                    view.label()
+                );
+                let remaining = pop.drain();
+                this.stack.last_mut().absorb(remaining);
+                pop.keys
+            };
+            give_keys_back(keys);
         });
     }
 
@@ -406,6 +412,38 @@ fn find_view(view: WeakView, target: RawPointer) -> Option<WeakView> {
         return Some(view);
     }
     view.subviews().iter().find_map(|sub| find_view(sub.weak_view(), target))
+}
+
+/// A layer is gone, and `keys` had the keys when it opened. A code editor
+/// gets them back, the way the focus ring goes back to its view. Before,
+/// the text field of a dialog took the keys and nothing gave them back:
+/// after Escape in a dialog the code took no key until a press on it. A
+/// live view that holds the keys by then keeps them, like one the answer
+/// of the dialog gave them to. A text field is left as it was, on a phone
+/// its keys bring the screen keyboard up.
+///
+/// The look comes after the event that closed the layer: a press outside
+/// a dialog closes it and then selects the view it landed on, the scrim,
+/// which is removed a moment later.
+fn give_keys_back(keys: WeakView) {
+    if !keys.is_ok() {
+        return;
+    }
+    let Some(editor) = keys.downcast_view::<CodeEditor>() else {
+        return;
+    };
+    after(0.0, move || {
+        if !keys.is_ok() || keys.is_hidden_in_tree() {
+            return;
+        }
+        TouchStack::in_window_of(keys, || {
+            let selected = UIManager::selected_view();
+            if selected.is_ok() && !selected.is_hidden_in_tree() {
+                return;
+            }
+            editor.focus();
+        });
+    });
 }
 
 /// `view` is `outer` or lies inside it.

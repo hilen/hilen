@@ -256,15 +256,18 @@ impl UIManager {
 
     /// A text field or a code editor has an editing session open. Its
     /// Escape and its arrows belong to it, so nothing else may take them.
+    /// A code editor under another touch layer, like a menu over it, has
+    /// no say: the keys belong to that layer, and the ring walks its rows.
     pub(crate) fn text_editing() -> bool {
         let selected = *Self::get().selected_view.lock();
         selected.is_ok()
             && (selected.downcast_view::<TextField>().is_some_and(|field| field.is_editing())
-                || selected.downcast_view::<CodeEditor>().is_some_and(|editor| editor.is_editing()))
+                || selected
+                    .downcast_view::<CodeEditor>()
+                    .is_some_and(|editor| editor.is_editing() && TouchStack::key_reaches(editor.raw())))
     }
 
     /// The view that has the keys, a null view when none has.
-    #[cfg(feature = "gpu")]
     pub(crate) fn selected_view() -> WeakView {
         *Self::get().selected_view.lock()
     }

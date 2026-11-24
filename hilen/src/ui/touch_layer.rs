@@ -43,6 +43,9 @@ pub(crate) trait Scrollable: View {
 
 pub(crate) struct TouchLayer {
     pub(crate) root: WeakView,
+    /// The view that had the keys when this layer opened, null for the
+    /// layer of the root. See `TouchStack::pop_layer`.
+    pub(crate) keys: WeakView,
     listeners:       Vec<WeakView>,
     /// Checked before every plain listener, whenever registered. A split
     /// divider's grab zone overlaps panel content that registers later,
@@ -326,6 +329,7 @@ impl From<WeakView> for TouchLayer {
     fn from(root: WeakView) -> Self {
         Self {
             root,
+            keys: WeakView::default(),
             listeners: vec![],
             high_priority: vec![],
             backdrop: None,

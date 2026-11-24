@@ -36,10 +36,15 @@ pub enum SideSwipeEvent {
 }
 
 type Callback = Box<dyn FnMut(SideSwipeEvent) + Send>;
+type Held = Box<dyn FnMut(bool) + Send>;
 
 struct Entry {
     view: WeakView,
     on:   Option<Callback>,
+    /// `true` when a finger comes down on the view, `false` when that finger
+    /// went away with no swipe. A `PageView` stops a glide under the finger
+    /// with it, the way a scroll view of iOS does.
+    held: Option<Held>,
 }
 
 #[derive(Default)]
@@ -92,12 +97,33 @@ impl SideSwipe {
         entries.push(Entry {
             view,
             on: Some(Box::new(on)),
+            held: None,
         });
+    }
+
+    /// Like `set`, with `held` told when a finger comes down on the view and
+    /// when it goes away with no swipe.
+    pub(crate) fn set_held<T: View + ?Sized>(
+        view: Weak<T>,
+        on: impl FnMut(SideSwipeEvent) + Send + 'static,
+        held: impl FnMut(bool) + Send + 'static,
+    ) {
+        Self::set(view, on);
+        let view = view.weak_view();
+        if let Some(entry) = ENTRIES.get_mut().iter_mut().find(|entry| entry.view.raw() == view.raw()) {
+            entry.held = Some(Box::new(held));
+        }
     }
 
     /// A new test, or a touch that the swipe back took.
     pub(crate) fn reset() {
-        *PHASE.get_mut() = Phase::Idle;
+        // A view that saw the finger come down, or that follows it, is told
+        // it went, so a page stopped under it does not stay half turned.
+        match take(PHASE.get_mut()) {
+            Phase::Idle => (),
+            Phase::Watching { view, .. } => Self::tell_held(view, false),
+            Phase::Dragging { view, .. } => Self::send(view, SideSwipeEvent::Ended(SideSwipeEnd::Back)),
+        }
     }
 
     /// True when the touch belongs to a swipe and no view may see it.
@@ -112,6 +138,9 @@ impl SideSwipe {
                 },
                 None => Phase::Idle,
             };
+            if let Phase::Watching { view, .. } = *PHASE.get_mut() {
+                Self::tell_held(view, true);
+            }
             return false;
         }
         match *PHASE.get_mut() {
@@ -166,7 +195,33 @@ impl SideSwipe {
                 Self::begin(touch, start, view);
             }
             TouchEvent::Moved if moved.y.abs() < SLOP => (),
-            _ => *PHASE.get_mut() = Phase::Idle,
+            _ => {
+                *PHASE.get_mut() = Phase::Idle;
+                Self::tell_held(view, false);
+            }
+        }
+    }
+
+    fn tell_held(view: WeakView, down: bool) {
+        if !view.is_ok() {
+            return;
+        }
+        // The callback can set a swipe, so the list is not held while it runs.
+        let Some(mut held) = ENTRIES
+            .get_mut()
+            .iter_mut()
+            .find(|entry| entry.view.raw() == view.raw())
+            .and_then(|entry| entry.held.take())
+        else {
+            return;
+        };
+        held(down);
+        if let Some(entry) = ENTRIES
+            .get_mut()
+            .iter_mut()
+            .find(|entry| entry.view.raw() == view.raw() && entry.held.is_none())
+        {
+            entry.held = Some(held);
         }
     }
 

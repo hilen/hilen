@@ -46,6 +46,29 @@ self.editor.place().back();
   dark pair. `focus()` gives the editor the keys, `is_editing()` tells if it has them.
 - `point_of(pos)` is the place of a byte on the screen, for a test.
 
+### What a language server needs
+
+- `set_mark_kind(line, kind, message)` marks a line like `set_mark`, in the 2 colors
+  of a `MarkKind` from `CodeEditorStyle`, so a warning looks other than an error.
+- `set_underlines(line, runs)` draws a line under byte ranges of a line, like the
+  exact place of an error. A change of the line by the user drops them.
+- `set_inlays(line, inlays)` shows texts inside a line that are no part of the file,
+  like a type after a name or a parameter name in front of an argument. An `Inlay`
+  with `leads` belongs to the code after it, the caret stands after its text.
+- `show_completions(at, items)` shows a list of `Completion` rows at a place, each
+  with a name, a dim detail and an icon of its kind. `completion_picked` fires with
+  the index of the row the user took, `hide_completions` and `completions_shown` close
+  and ask.
+- `pointer_rested` fires when the pointer rests on a char of the code, and with `None`
+  once it moved off, for the hover of a name. `pressed` fires for a mouse press that
+  put the cursor at a place, with whether Cmd was held, Ctrl elsewhere, to open a
+  definition.
+- `show_panel(pos, view)` floats a view at a place of the code, under the line or over
+  it when there is no room, and follows it when the code scrolls. A panel shown for a
+  rest of the pointer stays while the pointer is on it. `show_note(pos, view)` floats
+  a view over a line. `hide_panel` and `hide_note` take them away.
+- `set_read_only(true)` keeps the user from changing the text.
+
 ## Find and replace
 
 Every editor has a find bar, the app writes nothing for it. The calls are for an app

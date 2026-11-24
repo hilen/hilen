@@ -26,7 +26,9 @@ mod tab_shell;
 pub use alert::*;
 pub use alert_err::*;
 pub use charts::*;
-pub use code_editor::{CodeEditor, CodeEditorStyle, CodePos, FindError, FindOptions};
+pub use code_editor::{
+    CodeEditor, CodeEditorStyle, CodePos, CodePress, Completion, FindError, FindOptions, Inlay, MarkKind,
+};
 pub use dialog_style::DialogStyle;
 #[cfg(feature = "diff-view")]
 pub use diff_view::{DiffHost, DiffPanel, DiffShown, diff_colors};

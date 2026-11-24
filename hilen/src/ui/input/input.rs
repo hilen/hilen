@@ -144,7 +144,14 @@ impl Input {
         if TextField::offer_key(key) {
             return;
         }
+        // A key that closed a touch layer is done, like the Escape of a
+        // menu. A view under that layer must not take it too, a code
+        // editor would end its editing with it.
+        let layers = TouchStack::overlay_count();
         UIManager::keymap().check(key);
+        if TouchStack::overlay_count() < layers {
+            return;
+        }
         UIEvents::keyboard_key().trigger(key);
     }
 
@@ -243,6 +250,7 @@ impl Input {
         #[cfg(any(desktop, wasm))]
         if touch.is_moved() {
             Hover::update(touch.position);
+            UIEvents::pointer_moved().trigger(touch.position);
         }
 
         if LOG_TOUCHES && !touch.is_moved() {

@@ -1,17 +1,25 @@
 use std::ops::Range;
 
-use super::style::CodeEditorStyle;
+use super::{
+    decor::MarkKind,
+    inlay::{Inlay, Shown},
+    style::CodeEditorStyle,
+};
 use crate::{
     self as hilen,
     deps::refs::Weak,
     gm::color::CLEAR,
-    ui::{Container, Label, Setup, TextAlignment, UIColor, View, ViewData, ViewFrame, view},
+    ui::{Container, Label, Setup, TextAlignment, UIColor, View, ViewData, ViewFrame, ViewSubviews, view},
 };
 
 /// The width of the caret in points.
 const CARET_WIDTH: f32 = 2.0;
 /// The message of a mark starts this many chars after the code.
 const MESSAGE_GAP: f32 = 3.0;
+/// The line under a part of the code: how thick it is and how far over
+/// the bottom of the row it lies.
+const UNDERLINE_HEIGHT: f32 = 2.0;
+const UNDERLINE_GAP: f32 = 1.0;
 
 /// Where the parts of a row stand, the same for every row.
 #[derive(Debug, Clone, Copy, Default)]
@@ -35,7 +43,15 @@ pub(super) struct LineLook<'a> {
     pub selected:    Option<(Range<usize>, bool)>,
     /// The byte of the caret, when the caret is on this line.
     pub caret:       Option<usize>,
-    pub mark:        Option<&'a str>,
+    pub mark:        Option<(&'a str, MarkKind)>,
+    /// The lines under parts of the code, byte ranges with their colors.
+    pub underlines:  &'a [(Range<usize>, UIColor)],
+    /// The colors behind parts of the code, under the matches of the
+    /// find bar.
+    pub backgrounds: &'a [(Range<usize>, UIColor)],
+    /// The texts inside the line that are no part of the file. Every
+    /// byte of the other fields is one of `text`, with none of them.
+    pub inlays:      &'a [Inlay],
     pub highlighted: bool,
     /// The bytes of the matches of the find bar on the line, each with
     /// whether it is the current match.
@@ -54,17 +70,23 @@ pub(super) fn code_label(label: Weak<Label>, style: &CodeEditorStyle) {
 }
 
 /// 1 line of a `CodeEditor`: the selection behind the code, the code, the
-/// caret, the message of a mark and the number in the gutter. The gutter
-/// is added after the code, so code scrolled sideways goes under it.
+/// lines under parts of it, the caret, the message of a mark and the
+/// number in the gutter. The gutter is added after the code, so code
+/// scrolled sideways goes under it.
 #[view]
 pub(super) struct CodeLine {
+    /// The lines under parts of the code, as many as a row ever needed.
+    bars: Vec<Weak<Container>>,
+
     #[init]
-    selection: Container,
-    code:      Label,
-    caret:     Container,
-    message:   Label,
-    gutter:    Container,
-    number:    Label,
+    selection:  Container,
+    code:       Label,
+    /// Holds the `bars`, so they stay under the gutter like the code.
+    underlines: Container,
+    caret:      Container,
+    message:    Label,
+    gutter:     Container,
+    number:     Label,
 }
 
 impl Setup for CodeLine {
@@ -72,6 +94,7 @@ impl Setup for CodeLine {
         let moving = [
             self.selection.weak_view(),
             self.code.weak_view(),
+            self.underlines.weak_view(),
             self.caret.weak_view(),
             self.message.weak_view(),
         ];
@@ -80,6 +103,7 @@ impl Setup for CodeLine {
         }
         self.number.set_alignment(TextAlignment::Right);
         self.code.set_color(CLEAR);
+        self.underlines.set_color(CLEAR);
         self.message.set_color(CLEAR);
         self.number.set_color(CLEAR);
     }
@@ -89,12 +113,11 @@ impl CodeLine {
     pub(super) fn show(self: Weak<Self>, look: &LineLook, columns: &Columns, style: &CodeEditorStyle) {
         let height = columns.row_height;
 
-        let background = if look.mark.is_some() {
-            style.mark_line
-        } else if look.highlighted {
-            style.highlight
-        } else {
-            CLEAR.into()
+        let mark_colors = look.mark.map(|(_, kind)| style.mark_colors(kind));
+        let background = match mark_colors {
+            Some((_, line)) => line,
+            None if look.highlighted => style.highlight,
+            None => CLEAR.into(),
         };
         self.set_color(background);
 
@@ -104,11 +127,7 @@ impl CodeLine {
         code_label(self.number, style);
         self.number.set_cell_grid(false);
         self.number
-            .set_text_color(if look.mark.is_some() {
-                style.mark
-            } else {
-                style.line_number
-            })
+            .set_text_color(mark_colors.map_or(style.line_number, |(text, _)| text))
             .set_text(look.number.to_string());
         // The digits end 1 char before the code, the label keeps a strip
         // beside its text.
@@ -120,24 +139,48 @@ impl CodeLine {
             height,
         ));
 
+        // The label draws the line with its inlays, so every byte of the
+        // line goes through `shown` on its way to the label. A range of
+        // the app can be from before an edit, `shown` puts a byte past the
+        // line on its end.
+        let shown = Shown::of(look.text, look.inlays);
         code_label(self.code, style);
-        self.code.set_text_color(style.text).set_text(look.text);
-        self.code.set_color_runs(look.runs.iter().cloned());
-        self.code.set_background_runs(look.matches.iter().map(|(range, current)| {
+        self.code.set_text_color(style.text).set_text(&*shown.text);
+        let runs = look.runs.iter().map(|(range, color)| (shown.span(range), *color));
+        // An inlay is painted last, over a run of the app that goes on
+        // behind it.
+        self.code
+            .set_color_runs(runs.chain(shown.inlay_ranges().map(|range| (range, style.inlay))));
+        let backgrounds = look.backgrounds.iter().map(|(range, color)| (shown.span(range), *color));
+        let grounds = shown.inlay_ranges().map(|range| (range, style.inlay_ground));
+        let matches = look.matches.iter().map(|(range, current)| {
             let color = if *current {
                 style.find_current
             } else {
                 style.find_match
             };
-            (range.clone(), color)
-        }));
+            (shown.span(range), color)
+        });
+        // A match of the find bar is painted last, over a color of the app.
+        self.code.set_background_runs(backgrounds.chain(grounds).chain(matches));
         let inset = self.code.text_inset();
         self.code
             .set_frame((columns.text_x - inset, 0.0, columns.text_width + inset, height));
 
-        let layout = self.code.text_layout_for(look.text);
-        let x_of = |byte: usize| columns.text_x + layout.x_on_line(0, byte);
-        let line_end = x_of(look.text.len());
+        let layout = self.code.text_layout_for(&shown.text);
+        let shown_x = |byte: usize| columns.text_x + layout.x_on_line(0, byte);
+        // Where the caret of a byte of the line stands.
+        let x_of = |byte: usize| shown_x(shown.caret(byte));
+        let line_end = shown_x(shown.text.len());
+        let spans: Vec<(f32, f32, UIColor)> = look
+            .underlines
+            .iter()
+            .map(|(range, color)| {
+                let span = shown.span(range);
+                (shown_x(span.start), shown_x(span.end), *color)
+            })
+            .collect();
+        self.show_underlines(&spans, columns);
 
         // 1 rect as high as the row, so the selected rows join with no
         // seam. A selection over the line break takes 1 char more.
@@ -160,12 +203,42 @@ impl CodeLine {
         }
 
         self.message.set_hidden(look.mark.is_none());
-        if let Some(message) = look.mark {
+        if let (Some((message, _)), Some((color, _))) = (look.mark, mark_colors) {
             code_label(self.message, style);
-            self.message.set_text_color(style.mark).set_text(message);
+            self.message.set_text_color(color).set_text(message);
             let x = line_end + columns.char_width * MESSAGE_GAP - inset;
             let width = self.message.content_size().width + inset;
             self.message.set_frame((x, 0.0, width, height));
+        }
+    }
+
+    /// 1 thin view per underline, at the bottom of the row. Each one comes
+    /// as the x of its start and of its end.
+    fn show_underlines(mut self: Weak<Self>, underlines: &[(f32, f32, UIColor)], columns: &Columns) {
+        let height = columns.row_height;
+        self.underlines.set_hidden(underlines.is_empty());
+        self.underlines
+            .set_frame((0.0, 0.0, columns.text_x + columns.text_width, height));
+        while self.bars.len() < underlines.len() {
+            let bar = self.underlines.add_view::<Container>();
+            self.bars.push(bar);
+        }
+        for (index, bar) in self.bars.iter().enumerate() {
+            let Some((start, end, color)) = underlines.get(index) else {
+                bar.set_hidden(true);
+                continue;
+            };
+            // A range with no width, like the place of a missing `;` at the
+            // end of a line, still shows as 1 char.
+            let width = (end - start).max(columns.char_width);
+            bar.set_hidden(false);
+            bar.set_color(*color);
+            bar.set_frame((
+                *start,
+                height - UNDERLINE_GAP - UNDERLINE_HEIGHT,
+                width,
+                UNDERLINE_HEIGHT,
+            ));
         }
     }
 }

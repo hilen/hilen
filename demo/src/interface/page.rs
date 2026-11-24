@@ -14,7 +14,7 @@ use crate::interface::{
     landing::Landing,
     noise_view::NoiseView,
     root_layout_view::RootLayoutView,
-    scenes::{EffectsScene, ScrollTables, TextFonts, WidgetGallery},
+    scenes::{EffectsScene, PagesDemo, ScrollTables, TextFonts, WidgetGallery},
 };
 
 /// Every screen the sidebar can open. In place pages render inside the
@@ -28,6 +28,7 @@ pub enum Page {
     Effects,
     Fonts,
     Scrolling,
+    Pages,
     Noise,
     #[cfg(feature = "scene")]
     Scene3D,
@@ -44,7 +45,7 @@ impl Page {
         let mut pages = vec![Page::Landing, Page::Effects, Page::Noise];
         #[cfg(feature = "scene")]
         pages.push(Page::Scene3D);
-        pages.extend([Page::Widgets, Page::Fonts, Page::Scrolling]);
+        pages.extend([Page::Widgets, Page::Fonts, Page::Scrolling, Page::Pages]);
         #[cfg(macos)]
         pages.push(Page::Video);
         pages.extend([Page::Layout, Page::Dev]);
@@ -58,6 +59,7 @@ impl Page {
             Page::Effects => "Effects",
             Page::Fonts => "Fonts",
             Page::Scrolling => "Scrolling",
+            Page::Pages => "Pages",
             Page::Noise => "Noise",
             #[cfg(feature = "scene")]
             Page::Scene3D => "3D Game",
@@ -76,6 +78,7 @@ impl Page {
             Page::Effects => "nav_effects.svg",
             Page::Fonts => "nav_fonts.svg",
             Page::Scrolling => "nav_scrolling.svg",
+            Page::Pages => "nav_pages.svg",
             Page::Noise => "nav_noise.svg",
             #[cfg(feature = "scene")]
             Page::Scene3D => "nav_scene.svg",
@@ -95,6 +98,7 @@ impl Page {
             Page::Effects => "effects",
             Page::Fonts => "fonts",
             Page::Scrolling => "scrolling",
+            Page::Pages => "pages",
             Page::Dev => "dev",
             #[cfg(macos)]
             Page::Video => "video",
@@ -116,7 +120,13 @@ impl Page {
         }
         matches!(
             self,
-            Page::Landing | Page::Widgets | Page::Effects | Page::Fonts | Page::Scrolling | Page::Dev
+            Page::Landing
+                | Page::Widgets
+                | Page::Effects
+                | Page::Fonts
+                | Page::Scrolling
+                | Page::Pages
+                | Page::Dev
         )
     }
 
@@ -127,6 +137,7 @@ impl Page {
             Page::Effects => EffectsScene::new(),
             Page::Fonts => TextFonts::new(),
             Page::Scrolling => ScrollTables::new(),
+            Page::Pages => PagesDemo::new(),
             Page::Dev => MenuView::new(),
             #[cfg(macos)]
             Page::Video => VideoPage::new(),

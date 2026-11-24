@@ -1,12 +1,16 @@
-use std::ops::Range;
+use std::{mem::take, ops::Range};
 
 use unicode_width::UnicodeWidthChar;
 
 use super::{
+    completion::CompletionList,
+    decor::MarkKind,
     edit::LinesChanged,
     find::FindState,
     find_bar::FindBar,
+    inlay::{Inlays, Shown},
     line::{CodeLine, Columns, LineLook, code_label},
+    pointer::{CodePress, Rest},
     style::CodeEditorStyle,
     text::{CodePos, CodeText},
 };
@@ -19,7 +23,7 @@ use crate::{
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
         CellRegistry, Container, Label, Setup, TableData, TableView, ToLabel, UIColor, View, ViewCallbacks,
-        ViewData, ViewFrame, ViewTouch, view, view::DoubleTap,
+        ViewData, ViewFrame, ViewTouch, WeakView, view, view::DoubleTap,
     },
     window::request_frame,
 };
@@ -35,11 +39,16 @@ const END_ROOM: f32 = 2.0;
 /// rows can scroll this far past them, and the cursor stays clear of them.
 const BAR_ROOM: f32 = 12.0;
 
-/// What the app puts on 1 line: its colors and a mark.
+/// What the app puts on 1 line: its colors, a mark, the lines under and
+/// the colors behind parts of it, and the texts inside it that are no
+/// part of the file.
 #[derive(Debug, Default, Clone)]
 pub(super) struct LineDecor {
-    pub runs: Vec<(Range<usize>, UIColor)>,
-    pub mark: Option<String>,
+    pub runs:        Vec<(Range<usize>, UIColor)>,
+    pub mark:        Option<(String, MarkKind)>,
+    pub underlines:  Vec<(Range<usize>, UIColor)>,
+    pub backgrounds: Vec<(Range<usize>, UIColor)>,
+    pub inlays:      Inlays,
 }
 
 /// A view that edits code. The text is kept as lines, and only the lines
@@ -49,21 +58,46 @@ pub(super) struct LineDecor {
 /// Tab and Shift Tab that indent with spaces, and a find bar with replace.
 ///
 /// The app colors the code with `set_color_runs` per line, marks a line
-/// with a message, an error for example, with `set_mark`, and lights a
-/// range of lines with `set_highlight`. After every change the user makes
+/// with a message, an error for example, with `set_mark`, lights a range
+/// of lines with `set_highlight`, and shows a text inside a line that is
+/// no part of the file with `set_inlays`. After every change the user makes
 /// it gets `changed` with the first line that changed.
+/// What the rows of the editor do on the next frame.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Redraw {
+    #[default]
+    Nothing,
+    Rows,
+    /// A line got wider or narrower with no change of the text, so the
+    /// columns are worked out again before the rows draw.
+    Columns,
+}
+
 #[view]
 pub struct CodeEditor {
-    pub(super) text:    CodeText,
-    pub(super) decor:   Vec<LineDecor>,
+    pub(super) text:        CodeText,
+    pub(super) decor:       Vec<LineDecor>,
     /// The width of every line in columns, with the lines.
-    widths:             Vec<usize>,
-    highlight:          Option<Range<usize>>,
-    style:              CodeEditorStyle,
-    columns:            Columns,
-    /// The rows show the text, the cursor and the decor of now.
-    pub(super) stale:   bool,
-    pub(super) editing: bool,
+    widths:                 Vec<usize>,
+    highlight:              Option<Range<usize>>,
+    style:                  CodeEditorStyle,
+    columns:                Columns,
+    /// What the rows do on the next frame to show the text, the cursor and
+    /// the decor of now.
+    redraw:                 Redraw,
+    pub(super) editing:     bool,
+    /// The user can not change the text, see `set_read_only`.
+    pub(super) read_only:   bool,
+    /// Where the pointer is over the code and whether it rests there.
+    pub(super) rest:        Rest,
+    /// The view that floats at a place of the code, see `show_panel`, and
+    /// that place.
+    pub(super) panel:       WeakView,
+    pub(super) panel_at:    CodePos,
+    /// The view that floats over a line of the code, see `show_note`.
+    pub(super) note:        WeakView,
+    /// The list of completions while it shows, the content of the panel.
+    pub(super) completions: Weak<CompletionList>,
 
     pub(super) clicks:      DoubleTap,
     pub(super) click_count: usize,
@@ -78,9 +112,18 @@ pub struct CodeEditor {
     /// The user changed the text, with the first line that changed. The
     /// colors of the changed lines are gone, the app sets them again
     /// here. A change by `set_text` fires nothing.
-    pub changed:      Event<usize>,
+    pub changed:           Event<usize>,
     /// The cursor moved, by the user or by a change.
-    pub cursor_moved: Event<CodePos>,
+    pub cursor_moved:      Event<CodePos>,
+    /// A press with a mouse put the cursor at a place, with whether Cmd
+    /// was held, Ctrl elsewhere. An app opens a definition from it.
+    pub pressed:           Event<CodePress>,
+    /// The pointer rests on a char of the code, `None` once it moved off
+    /// that place again. An app shows what it knows of the name there.
+    pub pointer_rested:    Event<Option<CodePos>>,
+    /// The user picked a row of the list of `show_completions`, with its
+    /// index. The list is closed already.
+    pub completion_picked: Event<usize>,
 
     /// The gutter under the rows, so it goes on below the last line.
     #[init]
@@ -110,9 +153,13 @@ impl Setup for CodeEditor {
 
 impl ViewCallbacks for CodeEditor {
     fn update(&mut self) {
-        if self.stale {
-            self.stale = false;
-            self.table.reload_data();
+        match self.redraw {
+            Redraw::Nothing => (),
+            Redraw::Rows => {
+                self.redraw = Redraw::Nothing;
+                self.table.reload_data();
+            }
+            Redraw::Columns => self.relayout(),
         }
     }
 }
@@ -171,7 +218,7 @@ impl CodeEditor {
     pub fn set_mark(&self, line: usize, message: impl ToLabel) {
         let mut this = weak_from_ref(self);
         if let Some(decor) = this.decor.get_mut(line) {
-            decor.mark = Some(message.to_label());
+            decor.mark = Some((message.to_label(), MarkKind::Error));
             this.refresh();
         }
     }
@@ -192,7 +239,7 @@ impl CodeEditor {
 
     /// The message of the mark on `line`.
     pub fn mark(&self, line: usize) -> Option<&str> {
-        self.decor.get(line)?.mark.as_deref()
+        self.decor.get(line)?.mark.as_ref().map(|(message, _)| message.as_str())
     }
 
     /// Lights the lines of `lines` with the highlight color, like the
@@ -341,7 +388,25 @@ impl CodeEditor {
     /// The rows draw again on the next frame. For the decor, which an app
     /// may set for many lines in a row.
     pub(super) fn refresh(&mut self) {
-        self.stale = true;
+        if self.redraw == Redraw::Nothing {
+            self.redraw = Redraw::Rows;
+        }
+        request_frame();
+    }
+
+    /// `line` as it is drawn, with its inlays.
+    fn shown(&self, line: usize) -> Shown<'_> {
+        let inlays = self.decor.get(line).map_or(&[][..], |decor| decor.inlays.items());
+        Shown::of(self.text.line(line), inlays)
+    }
+
+    /// The inlays of `line` changed, and so the width it is drawn with.
+    pub(super) fn width_changed(&mut self, line: usize) {
+        let width = columns_of(&self.shown(line).text);
+        if let Some(kept) = self.widths.get_mut(line) {
+            *kept = width;
+        }
+        self.redraw = Redraw::Columns;
         request_frame();
     }
 
@@ -376,7 +441,7 @@ impl CodeEditor {
         self.table
             .set_content_width(text_x + self.columns.text_width + self.style.padding);
         self.table.reload_data();
-        self.stale = false;
+        self.redraw = Redraw::Nothing;
     }
 
     /// The user changed the lines: their decor and widths follow, then
@@ -401,13 +466,18 @@ impl CodeEditor {
             .get(start)
             .and_then(|decor| decor.mark.clone())
             .filter(|_| removed > 0);
+        // The inlays of a line that changed inside itself stay on it.
+        let inlays = (removed == 1 && inserted == 1).then(|| take(&mut self.decor[start].inlays));
         self.decor.splice(start..start + removed, vec![LineDecor::default(); inserted]);
         if inserted > 0 {
             self.decor[start].mark = mark;
         }
-        let widths: Vec<usize> = self.text.lines()[start..start + inserted]
-            .iter()
-            .map(|line| columns_of(line))
+        if let Some(mut inlays) = inlays {
+            inlays.follow(self.text.line(start));
+            self.decor[start].inlays = inlays;
+        }
+        let widths: Vec<usize> = (start..start + inserted)
+            .map(|line| columns_of(&self.shown(line).text))
             .collect();
         self.widths.splice(start..start + removed, widths);
         if self.find.open {
@@ -420,7 +490,9 @@ impl CodeEditor {
     /// The cursor or the selection moved with no change of the text.
     pub(super) fn cursor_changed(&mut self) {
         self.table.reload_data();
-        self.stale = false;
+        if self.redraw == Redraw::Rows {
+            self.redraw = Redraw::Nothing;
+        }
         self.scroll_to_cursor();
         self.cursor_moved.trigger(self.text.cursor());
     }
@@ -476,20 +548,48 @@ impl CodeEditor {
 
     /// Where `pos` is on its line, from the start of the code, in points.
     fn x_of(&self, pos: CodePos) -> f32 {
-        let line = self.text.line(pos.line);
-        self.measure.text_layout_for(line).x_on_line(0, pos.byte)
+        let shown = self.shown(pos.line);
+        self.measure.text_layout_for(&shown.text).x_on_line(0, shown.caret(pos.byte))
     }
 
-    /// The place in the text under `point`, in the points of the editor.
-    /// A point above or below the lines lands on the first or the last.
-    pub(super) fn pos_at(&self, point: Point) -> CodePos {
+    /// The place in the text under `point`, in the points of the editor,
+    /// only when a char of the code is there: `None` beside the code, past
+    /// the end of a line, under the last line, on the find bar and on an
+    /// inlay.
+    pub fn text_at(&self, point: Point) -> Option<CodePos> {
+        let y = point.y - self.table.y() - self.table.content_offset();
+        let x = point.x - self.table.content_offset_x() - self.columns.text_x;
+        let inside =
+            point.y >= self.table.y() && point.x >= self.columns.gutter_width && y >= 0.0 && x >= 0.0;
+        if !inside {
+            return None;
+        }
+        let row: usize = (y / self.columns.row_height).floor().lossy_convert();
+        if row >= self.text.line_count() {
+            return None;
+        }
+        let shown = self.shown(row);
+        let layout = self.measure.text_layout_for(&shown.text);
+        if x >= layout.x_on_line(0, shown.text.len()) {
+            return None;
+        }
+        let (byte, on_inlay) = shown.byte_of(layout.nearest_on_line(0, x));
+        (!on_inlay).then(|| CodePos::new(row, byte))
+    }
+
+    /// The place in the text nearest to `point`, in the points of the
+    /// editor. A point above or below the lines lands on the first or the
+    /// last, the way a press puts the cursor. A point on an inlay lands on
+    /// the byte the inlay stands at.
+    pub fn pos_at(&self, point: Point) -> CodePos {
         let y = point.y - self.table.y() - self.table.content_offset();
         let last = self.text.line_count() - 1;
         let row: usize = (y / self.columns.row_height).floor().max(0.0).lossy_convert();
         let line = row.min(last);
         let x = point.x - self.table.content_offset_x() - self.columns.text_x;
-        let byte = self.measure.text_layout_for(self.text.line(line)).nearest_on_line(0, x);
-        CodePos::new(line, byte)
+        let shown = self.shown(line);
+        let nearest = self.measure.text_layout_for(&shown.text).nearest_on_line(0, x);
+        CodePos::new(line, shown.byte_of(nearest).0)
     }
 }
 
@@ -523,7 +623,12 @@ impl TableData for CodeEditor {
             runs:        decor.map_or(&[], |decor| decor.runs.as_slice()),
             selected:    self.text.selected_on(index),
             caret:       (self.editing && cursor.line == index).then_some(cursor.byte),
-            mark:        decor.and_then(|decor| decor.mark.as_deref()),
+            mark:        decor
+                .and_then(|decor| decor.mark.as_ref())
+                .map(|(message, kind)| (message.as_str(), *kind)),
+            underlines:  decor.map_or(&[], |decor| decor.underlines.as_slice()),
+            backgrounds: decor.map_or(&[], |decor| decor.backgrounds.as_slice()),
+            inlays:      decor.map_or(&[][..], |decor| decor.inlays.items()),
             highlighted: self.highlight.as_ref().is_some_and(|lines| lines.contains(&index)),
             matches:     self.find.on_line(index),
         };

@@ -204,6 +204,10 @@ Do not read these upfront. Read the matching file only when the task touches tha
 - [docs/side-swipe.md](docs/side-swipe.md) — `SideSwipe`, a swipe left or right over any
   view, also over a scroll view that moves up and down. Read before touching
   `side_swipe.rs` or the order of the swipes in `input.rs`.
+- [docs/page-view.md](docs/page-view.md) — `PageView`, pages that a finger turns like
+  `UIPageViewController`, its `PageSource`, the 1 strip with the open page nearest the
+  middle, and every move as measured on UIKit. Read before touching
+  `views/containers/page_view` or putting pages that swipe into an app.
 - [docs/drag-drop.md](docs/drag-drop.md) — `Drag`, a view picked up and dropped on
   another, `TouchSource`, and how a mouse and a finger lift it. Read before touching
   `drag_drop.rs` or the touch source.

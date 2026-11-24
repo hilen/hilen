@@ -10,6 +10,7 @@ static UI_EVENTS: MainLock<UIEvents> = MainLock::new();
 pub struct UIEvents {
     on_touch:        Event<Touch>,
     touch_began:     UIEvent<Touch>,
+    pointer_moved:   UIEvent<Point>,
     on_scroll:       UIEvent<Point>,
     on_debug_touch:  Event<Touch>,
     #[cfg(feature = "gpu")]
@@ -32,6 +33,14 @@ impl UIEvents {
     /// selection clears when the user clicks elsewhere.
     pub fn touch_began() -> &'static UIEvent<Touch> {
         &UI_EVENTS.touch_began
+    }
+
+    /// Every move of the pointer over the window, with a button down or
+    /// with none, in the points of the window. Public so a view can follow
+    /// the pointer over itself, a view gets its own `moved` only while it
+    /// is pressed. Only a desktop and a browser have a pointer.
+    pub fn pointer_moved() -> &'static UIEvent<Point> {
+        &UI_EVENTS.pointer_moved
     }
 
     /// Every wheel delta of the app, before the scroll views get it.

@@ -205,6 +205,9 @@ impl CodeEditor {
     /// Replace: the current match gives way to `with`, as 1 step of the
     /// undo history, and the next match is current.
     fn replace_current(&mut self, with: &str) {
+        if self.read_only {
+            return;
+        }
         let Some((from, to, text)) = self.find.current_replacement(self.text.lines(), with) else {
             return;
         };
@@ -216,6 +219,9 @@ impl CodeEditor {
     /// Replace All: every match gives way to `with`, all as 1 step of the
     /// undo history.
     fn replace_all(&mut self, with: &str) {
+        if self.read_only {
+            return;
+        }
         let edits = self.find.replacements(self.text.lines(), with);
         if let Some(changed) = self.text.replace_all(&edits) {
             log::debug!("Replaced {} matches in a code editor", edits.len());

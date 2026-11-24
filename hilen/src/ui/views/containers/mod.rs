@@ -1,9 +1,11 @@
 mod canvas;
+mod page_view;
 mod scrolling;
 mod table_view;
 mod tree_table;
 
 pub use canvas::*;
+pub use page_view::*;
 pub use scrolling::*;
 pub use table_view::*;
 pub use tree_table::*;

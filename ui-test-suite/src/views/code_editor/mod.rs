@@ -12,10 +12,25 @@ mod code_editor_app_replace;
 /// replace what the user copied.
 #[cfg(desktop)]
 mod code_editor_clipboard;
+mod code_editor_completion_kinds;
+mod code_editor_completions;
+mod code_editor_decor;
 mod code_editor_find;
 mod code_editor_find_next;
+mod code_editor_inlays;
+mod code_editor_keys_back;
 mod code_editor_long_file;
 mod code_editor_look;
+mod code_editor_menu;
+mod code_editor_note;
+/// Moves the pointer onto a panel with no button down.
+#[cfg(any(desktop, wasm))]
+mod code_editor_panel_rest;
+/// Follows the pointer with no button down, which only a desktop and a
+/// browser have.
+#[cfg(any(desktop, wasm))]
+mod code_editor_pointer;
+mod code_editor_read_only;
 mod code_editor_replace;
 mod code_editor_selection;
 mod code_editor_typing;

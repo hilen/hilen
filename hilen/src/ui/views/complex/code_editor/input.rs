@@ -3,12 +3,15 @@
 
 use plat::Platform;
 
-use super::{edit::LinesChanged, view::CodeEditor};
+use super::{edit::LinesChanged, pointer::CodePress, view::CodeEditor};
 use crate::{
     deps::refs::Weak,
     gm::{LossyConvert, flat::Point},
     system::Clipboard,
-    ui::{ContextMenu, Focus, Input, MenuItem, NamedKey, UIEvents, UIManager, View, ViewFrame, ViewTouch},
+    ui::{
+        ContextMenu, Focus, Input, MenuItem, NamedKey, TouchStack, UIEvents, UIManager, View, ViewFrame,
+        ViewTouch,
+    },
 };
 
 /// Page Up and Page Down move by the lines on screen less this many, so
@@ -27,6 +30,7 @@ impl CodeEditor {
         });
         self.touch().up_inside.val(self, move |touch| self.tapped(touch.position));
         self.touch().secondary.val(self, move |touch| self.show_menu(touch.position));
+        self.setup_pointer();
     }
 
     pub(super) fn editing_changed(mut self: Weak<Self>, selected: bool) {
@@ -40,6 +44,9 @@ impl CodeEditor {
             UIEvents::keyboard_key().unsubscribe(self);
             Focus::release_keys(self.weak_view());
             self.dragging = false;
+            self.hide_completions();
+            // A note goes with the typing, and the typing ended.
+            self.hide_note();
         }
         // The caret shows only while the editor has the keys.
         self.table.reload_data();
@@ -69,22 +76,29 @@ impl CodeEditor {
     }
 
     fn place(mut self: Weak<Self>, position: Point) {
+        self.hide_completions();
         let at = self.pos_at(position);
         self.click_count = if self.clicks.tap_in_row(position) {
             self.click_count + 1
         } else {
             1
         };
+        let command = Input::command_held();
         match self.click_count {
             1 => {
                 let extend = Input::modifiers().shift();
                 self.text.move_to(at, extend);
-                self.dragging = true;
+                // A press with Cmd is a jump of the app, not the start of
+                // a selection.
+                self.dragging = !command;
             }
             2 => self.text.select_word(at),
             _ => self.text.select_line(at.line),
         }
         self.cursor_changed();
+        if self.click_count == 1 {
+            self.pressed.trigger(CodePress { pos: at, command });
+        }
     }
 
     fn dragged(mut self: Weak<Self>, position: Point) {
@@ -108,8 +122,15 @@ impl CodeEditor {
         }
     }
 
+    /// The editor has the keys and no other touch layer lies over it. A
+    /// menu or a modal over the editor takes the keys, also the ones of
+    /// its own right click menu.
+    fn takes_keys(self: Weak<Self>) -> bool {
+        !self.is_null() && self.is_selected() && TouchStack::key_reaches(self.raw())
+    }
+
     fn on_char(mut self: Weak<Self>, ch: char) {
-        if self.is_null() || !self.is_selected() {
+        if !self.takes_keys() {
             return;
         }
         if Input::command_held() {
@@ -118,7 +139,7 @@ impl CodeEditor {
         }
         // Enter, Tab, Backspace, Delete and Escape come as named keys too,
         // they are handled there.
-        if ch.is_control() {
+        if ch.is_control() || self.read_only {
             return;
         }
         let changed = self.text.type_char(ch);
@@ -139,6 +160,7 @@ impl CodeEditor {
             'c' => self.copy(),
             'x' => self.cut(),
             'v' => self.paste(),
+            'z' | 'y' if self.read_only => {}
             'z' if shift => self.redo(),
             'z' => self.undo(),
             'y' => self.redo(),
@@ -147,7 +169,16 @@ impl CodeEditor {
     }
 
     fn on_key(mut self: Weak<Self>, key: NamedKey) {
-        if self.is_null() || !self.is_selected() {
+        if !self.takes_keys() {
+            return;
+        }
+        if self.completion_key(key) {
+            return;
+        }
+        // Escape closes what floats at the code first: the list above,
+        // then the note, and only then it drops a selection.
+        if key == NamedKey::Escape && self.note.is_ok() {
+            self.hide_note();
             return;
         }
         let modifiers = Input::modifiers();
@@ -161,6 +192,13 @@ impl CodeEditor {
         // Escape closes an open find bar first.
         if key == NamedKey::Escape && self.find.open {
             self.close_find();
+            return;
+        }
+        let edits_text = matches!(
+            key,
+            NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace | NamedKey::Delete
+        );
+        if edits_text && self.read_only {
             return;
         }
         let text = &mut self.text;
@@ -242,6 +280,9 @@ impl CodeEditor {
 
     pub fn cut(mut self: Weak<Self>) {
         self.copy();
+        if self.read_only {
+            return;
+        }
         let changed = self.text.delete_selection();
         self.change(changed);
     }
@@ -249,6 +290,9 @@ impl CodeEditor {
     /// Puts the text of the clipboard in place of the selection.
     #[cfg(not_wasm)]
     pub fn paste(mut self: Weak<Self>) {
+        if self.read_only {
+            return;
+        }
         match Clipboard::get_text() {
             Ok(text) => self.insert(&text),
             Err(err) => log::warn!("Nothing to paste into a code editor: {err}"),
@@ -283,6 +327,7 @@ impl CodeEditor {
         }
 
         let selected = self.text.selection().is_some();
+        let writes = !self.read_only;
         let item = move |title: &str, on: bool, action: fn(Weak<Self>)| {
             let item = MenuItem::new(title, move || {
                 action(self);
@@ -291,12 +336,12 @@ impl CodeEditor {
             if on { item } else { item.disabled() }
         };
         let items = vec![
-            item("Undo", self.can_undo(), |mut editor| editor.undo()),
-            item("Redo", self.can_redo(), |mut editor| editor.redo()),
+            item("Undo", writes && self.can_undo(), |mut editor| editor.undo()),
+            item("Redo", writes && self.can_redo(), |mut editor| editor.redo()),
             MenuItem::separator(),
-            item("Cut", selected, CodeEditor::cut),
+            item("Cut", writes && selected, CodeEditor::cut),
             item("Copy", selected, |editor| editor.copy()),
-            item("Paste", !Platform::WASM, CodeEditor::paste),
+            item("Paste", writes && !Platform::WASM, CodeEditor::paste),
             MenuItem::separator(),
             item("Select All", true, |mut editor| editor.select_all()),
         ];

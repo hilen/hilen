@@ -1,6 +1,7 @@
 use super::{
     edit::LinesChanged,
     find::{FindOptions, FindState, Finder},
+    inlay::{Inlay, Inlays, Shown},
     text::{CodePos, CodeText},
 };
 
@@ -476,4 +477,132 @@ fn a_replace_of_the_app_keeps_the_selection() {
     code.replace_kept(at(2, 4), at(2, 9), "3");
     assert_eq!(code.lines()[2], "two 3");
     assert_eq!(code.cursor(), at(2, 5));
+}
+
+/// `let x = f(2);` with the type behind the name and the name of the
+/// parameter in front of the argument.
+const HINTED: &str = "let x = f(2);";
+
+fn hints() -> Inlays {
+    Inlays::new(HINTED, [Inlay::leading(10, "n: "), Inlay::new(5, ": i32")])
+}
+
+#[test]
+fn a_line_is_drawn_with_its_inlays() {
+    let hints = hints();
+    let shown = Shown::of(HINTED, hints.items());
+    assert_eq!(shown.text, "let x: i32 = f(n: 2);");
+    let ranges: Vec<_> = shown.inlay_ranges().collect();
+    assert_eq!(ranges, [5..10, 15..18]);
+
+    let plain = Shown::of(HINTED, &[]);
+    assert_eq!(plain.text, HINTED);
+    assert_eq!(plain.caret(7), 7);
+    assert_eq!(plain.span(&(4..5)), 4..5);
+    assert_eq!(plain.byte_of(7), (7, false));
+}
+
+#[test]
+fn the_caret_stands_before_a_type_and_after_a_parameter_name() {
+    let hints = hints();
+    let shown = Shown::of(HINTED, hints.items());
+    assert_eq!(shown.caret(4), 4);
+    // At the end of `x`, in front of `: i32`.
+    assert_eq!(shown.caret(5), 5);
+    assert_eq!(shown.caret(6), 11);
+    // In front of `2`, behind `n: `.
+    assert_eq!(shown.caret(10), 18);
+    assert_eq!(shown.caret(HINTED.len()), 21);
+    // A byte past the line lands on its end.
+    assert_eq!(shown.caret(99), 21);
+}
+
+#[test]
+fn a_range_of_the_code_has_no_inlay_at_its_ends() {
+    let hints = hints();
+    let shown = Shown::of(HINTED, hints.items());
+    // `x` ends in front of its type, the code behind it starts after it.
+    assert_eq!(shown.span(&(4..5)), 4..5);
+    assert_eq!(shown.span(&(5..7)), 10..12);
+    // `2` starts behind the name of its parameter.
+    assert_eq!(shown.span(&(10..11)), 18..19);
+    assert_eq!(shown.span(&(9..10)), 14..15);
+    // A range over an inlay holds it.
+    assert_eq!(shown.span(&(0..HINTED.len())), 0..21);
+    // A range with no width at an inlay stays one with no width.
+    assert_eq!(shown.span(&(5..5)), 10..10);
+}
+
+#[test]
+fn a_byte_of_the_drawn_line_goes_back_to_the_line() {
+    let hints = hints();
+    let shown = Shown::of(HINTED, hints.items());
+    assert_eq!(shown.byte_of(3), (3, false));
+    assert_eq!(shown.byte_of(5), (5, false));
+    assert_eq!(shown.byte_of(7), (5, true));
+    assert_eq!(shown.byte_of(10), (5, false));
+    assert_eq!(shown.byte_of(11), (6, false));
+    assert_eq!(shown.byte_of(16), (10, true));
+    assert_eq!(shown.byte_of(18), (10, false));
+    assert_eq!(shown.byte_of(21), (13, false));
+}
+
+#[test]
+fn inlays_are_kept_in_order_on_whole_chars() {
+    // 2 at 1 byte: the leading one first. A byte inside `é` goes to its
+    // start, one past the line to its end, and a text of nothing is left
+    // out.
+    let inlays = Inlays::new(
+        "é = 1",
+        [
+            Inlay::new(99, "end"),
+            Inlay::new(2, "type"),
+            Inlay::leading(2, "name"),
+            Inlay::new(1, "in"),
+            Inlay::new(3, ""),
+        ],
+    );
+    assert_eq!(
+        inlays.items(),
+        [
+            Inlay::new(0, "in"),
+            Inlay::leading(2, "name"),
+            Inlay::new(2, "type"),
+            Inlay::new(6, "end"),
+        ]
+    );
+    assert_eq!(Shown::of("é = 1", inlays.items()).text, "inénametype = 1end");
+}
+
+fn followed(to: &str) -> Vec<Inlay> {
+    let mut hints = hints();
+    hints.follow(to);
+    hints.items().to_vec()
+}
+
+#[test]
+fn inlays_follow_a_change_of_their_line() {
+    let (kind, name) = (
+        |byte| Inlay::new(byte, ": i32"),
+        |byte| Inlay::leading(byte, "n: "),
+    );
+    // Typed at the end of the name: the type moves behind the new char.
+    assert_eq!(followed("let xy = f(2);"), [kind(6), name(11)]);
+    // Typed in front of the argument: the name of the parameter stays in
+    // front of the new char.
+    assert_eq!(followed("let x = f(12);"), [kind(5), name(10)]);
+    // A char taken out in front of both.
+    assert_eq!(followed("et x = f(2);"), [kind(4), name(9)]);
+    // The space behind the name taken out, the type stays at the name.
+    assert_eq!(followed("let x= f(2);"), [kind(5), name(9)]);
+    // The name taken out with Backspace: the type moves back with it.
+    assert_eq!(followed("let  = f(2);"), [kind(4), name(9)]);
+    // The part with the type in it replaced: the type goes.
+    assert_eq!(followed("let abc(2);"), [name(8)]);
+    // Nothing changed.
+    assert_eq!(followed(HINTED), [kind(5), name(10)]);
+    // Chars of many bytes around the change.
+    let mut inlays = Inlays::new("é = ü;", [Inlay::new(2, ": f32")]);
+    inlays.follow("éé = ü;");
+    assert_eq!(inlays.items(), [Inlay::new(4, ": f32")]);
 }

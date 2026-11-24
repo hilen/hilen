@@ -538,6 +538,14 @@ iPhone 8 lands in the status bar and never reaches the app, keep a field that a 
 taps for real below canvas y 40. 2 taps on one point within 250 ms are a
 double click on desktop and select the word, tap a second point a few pixels away.
 
+The same helper drives a running app for an agent, `make sim` of the `build` scripts,
+see the ios-debug chapter of the hilen skill. For that it also takes `double`, `hold`,
+`swipe`, `drag`, `pinch`, `screen`, `dump` and `dump system` for the tree of what the
+app and the system show, and `batch`, requests in a row with no wait for the app to
+stand still, so a swipe can land on a view that still moves. XCTest ends the whole
+test on 1 screen query that fails, so the helper checks that an element is there
+before it taps or reads it.
+
 `screen_keyboard(up, top)` waits until the screen keyboard stands still, up or away.
 A phone moves the real one. Everywhere else the engine is told about a stand in with
 its top edge at `top`, so a test of what the keyboard moves runs on every platform,

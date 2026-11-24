@@ -1,6 +1,7 @@
 mod effects;
 mod frosted_hud;
 mod game_scene;
+mod pages_demo;
 #[cfg(feature = "scene")]
 mod scene_3d;
 mod scroll_tables;
@@ -15,6 +16,7 @@ use hilen::{
     refs::{Weak, manage::DataManager},
     ui::{Button, Font, Label, Setup, TextAlignment, UIManager, View, ViewData, ViewSubviews, WHITE, view},
 };
+pub use pages_demo::PagesDemo;
 #[cfg(feature = "scene")]
 pub use scene_3d::Scene3D;
 pub use scroll_tables::ScrollTables;

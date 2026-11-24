@@ -16,7 +16,10 @@ one with it. The code is `hilen/src/ui/side_swipe.rs`, the test is
   any other release.
 
 A second `set` on the same view replaces the first. The last view set under the finger
-gets the swipe.
+gets the swipe. `set_held` is `set` for the engine, with a second callback that hears
+when a finger comes down on the view and when it goes with no swipe, which `PageView`
+uses to stop its gliding pages. A swipe that another gesture takes, like the swipe back
+of a stack, ends with `Ended(Back)`, so the view never stays half moved.
 
 ## The gesture
 
