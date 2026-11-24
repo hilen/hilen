@@ -193,6 +193,16 @@ impl Hover {
         }
     }
 
+    /// A view set a new hover cursor. When it is the hovered view, the
+    /// cursor changes at once. Else it would wait until the pointer moved
+    /// onto another view.
+    pub(crate) fn cursor_changed(view: WeakView) {
+        let hovered = **HOVERED;
+        if hovered.is_ok() && hovered.raw() == view.raw() {
+            Self::apply_cursor(view.__base_view().hover_cursor.unwrap_or_default());
+        }
+    }
+
     /// The cursor icon hover currently asks for, `Default` off any view
     /// with a custom one. Windowless runs track it too, so tests can
     /// assert it.

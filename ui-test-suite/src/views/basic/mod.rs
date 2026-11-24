@@ -25,6 +25,9 @@ mod hover;
 /// The cursor icon rides on hover, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_cursor;
+/// A cursor that changes under a still pointer, the same gate as `hover`.
+#[cfg(any(desktop, wasm))]
+mod hover_cursor_change;
 /// Front view and scroll clip picking of hover, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]
 mod hover_front;
