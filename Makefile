@@ -156,11 +156,6 @@ serve-release:
 	command -v trunk >/dev/null || cargo install --locked trunk
 	cd ./demo && trunk serve --features webgl --release --address 0.0.0.0 --port 44800
 
-serve-size:
-	rustup target add wasm32-unknown-unknown
-	command -v trunk >/dev/null || cargo install --locked trunk
-	cd ./demo && trunk serve --features webgl --cargo-profile=size --address 0.0.0.0 --port 44800
-
 wasm:
 	rustup target add wasm32-unknown-unknown
 	command -v trunk >/dev/null || cargo install --locked trunk
