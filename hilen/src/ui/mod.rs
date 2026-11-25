@@ -67,7 +67,7 @@ pub mod ui_test;
 pub use ui_proc::*;
 
 #[cfg(feature = "code-colors")]
-pub use self::code_highlighter::CodeHighlighter;
+pub use self::code_highlighter::{CodeHighlighter, CodeRuns};
 #[cfg(feature = "gpu")]
 pub use self::ui_drawer::{DrawsItself, UIDrawer};
 pub use self::{

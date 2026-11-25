@@ -135,6 +135,11 @@ which `find`, `wait` and `scroll-to` already do.
 and the next call types into it with nothing held. Keys go where a real keyboard sends
 them, the focused text field and the app keymap.
 
+`focus lost` and `focus back` play a focus loss and a focus gain of the window, like a
+switch to another app and back, so `AppActivity::changed` fires as with a real window.
+A headless app has no window to lose the focus, this is how a test of what an app does
+then, like a save, runs there.
+
 `hold <keys>... [--ms 500]` holds physical keys down for a while, then releases them, for
 input read every frame through `Keys::held` like a walking player. `keys` presses and
 releases in one frame, so `Keys::held` never sees it. A letter or digit names its key,

@@ -41,6 +41,7 @@ use crate::{
         protocol::{AppCommand, InspectorCommand, TestFailureRepr},
         window,
     },
+    system::app_activity::{self, ActivityChange},
     window::Screenshot,
 };
 #[cfg(sound)]
@@ -224,6 +225,18 @@ impl InspectService {
         result.unwrap_or_else(|err| AppCommand::Error(format!("{err:#}")))
     }
 
+    /// A focus change of the window as the window events give it.
+    fn set_focus(focused: bool) -> AppCommand {
+        crate::deps::hreads::on_main(move || {
+            app_activity::update(ActivityChange::Focused(focused));
+        });
+        log::info!(
+            "The inspector played a focus {} of the window",
+            if focused { "gain" } else { "loss" }
+        );
+        AppCommand::Ok
+    }
+
     pub fn process_command(command: InspectorCommand) -> AppCommand {
         match command {
             #[cfg(sound)]
@@ -260,6 +273,7 @@ impl InspectService {
                 AppCommand::StartTime(*APP_STARTED.get().expect("App start time was not recorded"))
             }
             InspectorCommand::Quit => Self::quit(),
+            InspectorCommand::SetFocus { focused } => Self::set_focus(focused),
             #[cfg(feature = "login")]
             InspectorCommand::DevLogin { email } => Self::dev_login(email),
             #[cfg(not(feature = "login"))]

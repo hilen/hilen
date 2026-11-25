@@ -27,7 +27,8 @@ pub use alert::*;
 pub use alert_err::*;
 pub use charts::*;
 pub use code_editor::{
-    CodeEditor, CodeEditorStyle, CodePos, CodePress, Completion, FindError, FindOptions, Inlay, MarkKind,
+    BracketPair, BracketRules, CodeEditor, CodeEditorStyle, CodePos, CodePress, CodeScope, CommentRules,
+    Completion, FindError, FindOptions, Inlay, MarkKind,
 };
 pub use dialog_style::DialogStyle;
 #[cfg(feature = "diff-view")]

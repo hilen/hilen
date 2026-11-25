@@ -123,6 +123,7 @@ impl ViewTest for CodeEditorNote {
                 .into_iter()
                 .map(|label| Completion {
                     label:  label.to_string(),
+                    note:   String::new(),
                     detail: "module".to_string(),
                     icon:   String::new(),
                 })

@@ -2,11 +2,11 @@ use std::{borrow::Cow, error::Error, ops::Range, str::FromStr, sync::OnceLock};
 
 use log::debug;
 use syntect::{
-    parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet},
+    parsing::{ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxReference, SyntaxSet},
     util::LinesWithEndings,
 };
 
-use crate::ui::{MarkdownStyle, UIColor};
+use crate::ui::{CodeScope, MarkdownStyle, UIColor};
 
 /// What a piece of code is, the style has a color per kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +22,25 @@ pub(crate) enum Token {
     Inserted,
     /// A line a diff removes.
     Deleted,
+}
+
+/// What `CodeHighlighter::runs` gives for some code.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CodeRuns {
+    /// The byte ranges that get a color, in order, like `color_runs`.
+    pub colors: Vec<(Range<usize>, UIColor)>,
+    /// The byte ranges inside a string or a comment, in order. A range
+    /// that goes on over the break at the end of a line holds that break,
+    /// also the break the last line would have, 1 byte past the code. So
+    /// a place at the end of a line comment or of an open string is
+    /// inside, and the place after a closed string is not.
+    pub scopes: Vec<(Range<usize>, CodeScope)>,
+}
+
+/// The tokens and the scopes of some code, see `CodeRuns`.
+struct Parsed {
+    tokens: Vec<(Range<usize>, Token)>,
+    scopes: Vec<(Range<usize>, CodeScope)>,
 }
 
 /// Scope prefixes of the syntax definitions, the first one that fits
@@ -49,6 +68,35 @@ const RULES: [(&str, Token); 17] = [
 fn syntaxes() -> &'static SyntaxSet {
     static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
     SYNTAXES.get_or_init(two_face::syntax::extra_newlines)
+}
+
+fn scope_rules() -> &'static [(Scope, CodeScope)] {
+    static SCOPES_PARSED: OnceLock<Vec<(Scope, CodeScope)>> = OnceLock::new();
+    SCOPES_PARSED.get_or_init(|| {
+        [("comment", CodeScope::Comment), ("string", CodeScope::String)]
+            .iter()
+            .filter_map(|(prefix, scope)| Some((Scope::from_str(prefix).ok()?, *scope)))
+            .collect()
+    })
+}
+
+/// The scope of a comment that ends with its line.
+fn line_comment() -> Option<Scope> {
+    static LINE_COMMENT: OnceLock<Option<Scope>> = OnceLock::new();
+    *LINE_COMMENT.get_or_init(|| Scope::from_str("comment.line").ok())
+}
+
+/// `op` takes a line comment off `stack`.
+fn pops_line_comment(stack: &ScopeStack, op: &ScopeStackOp) -> bool {
+    let (ScopeStackOp::Pop(count), Some(line_comment)) = (op, line_comment()) else {
+        return false;
+    };
+    stack
+        .as_slice()
+        .iter()
+        .rev()
+        .take(*count)
+        .any(|scope| line_comment.is_prefix_of(*scope))
 }
 
 fn rules() -> &'static [(Scope, Token)] {
@@ -141,11 +189,19 @@ impl CodeHighlighter {
     /// line the language definition fails on ends the coloring of this
     /// call there, and the next call starts clean.
     pub fn color_runs(&mut self, code: &str) -> Vec<(Range<usize>, UIColor)> {
+        self.runs(code).colors
+    }
+
+    /// The colors of `code` like `color_runs`, and where its strings and
+    /// comments are, from 1 pass. A code editor skips some pairs there,
+    /// see `CodeEditor::set_scope_runs`.
+    pub fn runs(&mut self, code: &str) -> CodeRuns {
         let style = self.style;
-        self.tokens(code)
-            .into_iter()
-            .map(|(range, token)| (range, style.syntax(token)))
-            .collect()
+        let Parsed { tokens, scopes } = self.parse(code);
+        CodeRuns {
+            colors: tokens.into_iter().map(|(range, token)| (range, style.syntax(token))).collect(),
+            scopes,
+        }
     }
 
     /// Forgets the code so far, the next call starts at the top of a
@@ -155,9 +211,10 @@ impl CodeHighlighter {
         self.stack = ScopeStack::new();
     }
 
-    fn tokens(&mut self, code: &str) -> Vec<(Range<usize>, Token)> {
+    fn parse(&mut self, code: &str) -> Parsed {
         let syntaxes = syntaxes();
         let mut tokens: Vec<(Range<usize>, Token)> = Vec::new();
+        let mut scopes: Vec<(Range<usize>, CodeScope)> = Vec::new();
         let mut line_start = 0;
         for line in LinesWithEndings::from(code) {
             // The definitions end a line comment at the line break, a
@@ -175,24 +232,69 @@ impl CodeHighlighter {
                 }
             };
             let mut at = 0;
+            // The scopes count the break too, also the one put in above.
+            let mut scope_at = 0;
+            let break_at = ended.len() - 1;
+            let mut comment_ended = false;
             for (offset, op) in ops {
+                push_scope(
+                    &mut scopes,
+                    line_start + scope_at..line_start + offset,
+                    &self.stack,
+                );
+                scope_at = offset;
+                comment_ended |= offset == break_at && pops_line_comment(&self.stack, &op);
                 let offset = offset.min(line.len());
                 push(&mut tokens, line_start + at..line_start + offset, &self.stack);
                 at = offset;
                 if let Err(err) = self.stack.apply(&op) {
                     self.failed(line_start, &err);
-                    return tokens;
+                    return Parsed { tokens, scopes };
                 }
             }
             push(&mut tokens, line_start + at..line_start + line.len(), &self.stack);
+            push_scope(
+                &mut scopes,
+                line_start + scope_at..line_start + ended.len(),
+                &self.stack,
+            );
+            // Some definitions end a line comment before the break, like
+            // the `#` of TOML. It holds the break all the same, see
+            // `CodeRuns`.
+            if comment_ended
+                && let Some((range, CodeScope::Comment)) = scopes.last_mut()
+                && range.end == line_start + break_at
+            {
+                range.end = line_start + ended.len();
+            }
             line_start += line.len();
         }
-        tokens
+        Parsed { tokens, scopes }
     }
 
     fn failed(&mut self, at: usize, err: &dyn Error) {
         debug!("{} code not colored past byte {at}: {err}", self.syntax.name);
         self.reset();
+    }
+}
+
+/// The innermost string or comment of the stack wins, so an escape in a
+/// string is still in the string.
+fn push_scope(scopes: &mut Vec<(Range<usize>, CodeScope)>, range: Range<usize>, stack: &ScopeStack) {
+    if range.is_empty() {
+        return;
+    }
+    let Some(scope) = stack.as_slice().iter().rev().find_map(|scope| {
+        scope_rules()
+            .iter()
+            .find(|(prefix, _)| prefix.is_prefix_of(*scope))
+            .map(|(_, kind)| *kind)
+    }) else {
+        return;
+    };
+    match scopes.last_mut() {
+        Some((last, kind)) if last.end == range.start && *kind == scope => last.end = range.end,
+        _ => scopes.push((range, scope)),
     }
 }
 
@@ -218,7 +320,7 @@ fn push(tokens: &mut Vec<(Range<usize>, Token)>, range: Range<usize>, stack: &Sc
 mod tests {
     use std::ops::Range;
 
-    use super::{CodeHighlighter, Token, syntax_for_file, syntaxes};
+    use super::{CodeHighlighter, CodeScope, Token, syntax_for_file, syntaxes};
     use crate::ui::MarkdownStyle;
 
     fn for_language(language: &str) -> Option<CodeHighlighter> {
@@ -233,7 +335,8 @@ mod tests {
 
     fn kinds<'a>(highlighter: &mut CodeHighlighter, code: &'a str) -> Vec<(&'a str, Token)> {
         highlighter
-            .tokens(code)
+            .parse(code)
+            .tokens
             .into_iter()
             .map(|(range, token)| (&code[range], token))
             .collect()
@@ -328,13 +431,13 @@ mod tests {
 fn done() {}
 "#;
 
-        let expected = for_file("a.rs").tokens(code);
+        let expected = for_file("a.rs").parse(code).tokens;
 
         let mut by_line = for_file("a.rs");
         let mut start = 0;
         let mut joined = Vec::new();
         for line in code.lines() {
-            for (range, token) in by_line.tokens(line) {
+            for (range, token) in by_line.parse(line).tokens {
                 joined.push((range.start + start..range.end + start, token));
             }
             start += line.len() + 1;
@@ -357,6 +460,54 @@ fn done() {}
 
         rust.reset();
         assert!(kinds(&mut rust, "let x = 1;").contains(&("let", Token::Keyword)));
+    }
+
+    #[test]
+    fn strings_and_comments_have_their_scopes() {
+        let mut rust = for_file("a.rs");
+        // The comment holds the break the line would have, the closed
+        // string ends at its quote.
+        let code = r#"let s = "ab"; // c"#;
+        assert_eq!(
+            rust.parse(code).scopes,
+            [(8..12, CodeScope::String), (14..19, CodeScope::Comment)]
+        );
+        // An open string goes on over the break and on the next line.
+        rust.reset();
+        assert_eq!(rust.parse(r#"let s = "ab"#).scopes, [(8..12, CodeScope::String)]);
+        assert_eq!(rust.parse(r#"cd";"#).scopes, [(0..3, CodeScope::String)]);
+        // A placeholder in a string is still in the string.
+        rust.reset();
+        assert_eq!(rust.parse(r#"f("{x}");"#).scopes, [(2..7, CodeScope::String)]);
+        // Whole lines count their breaks.
+        rust.reset();
+        assert_eq!(rust.parse("// a\nlet b;\n").scopes, [(0..5, CodeScope::Comment)]);
+    }
+
+    #[test]
+    fn a_line_comment_holds_its_break_a_closed_block_comment_not() {
+        let mut toml = for_file("notes.toml");
+        // The place at the end of the comment is inside it, so a typed
+        // quote there gets no closer.
+        assert_eq!(toml.parse("# say ").scopes, [(0..7, CodeScope::Comment)]);
+        toml.reset();
+        assert_eq!(
+            toml.parse("a = \"x\" # y\n").scopes,
+            [(4..7, CodeScope::String), (8..12, CodeScope::Comment)]
+        );
+        // A block comment closed at the end of its line ends there, like
+        // a closed string.
+        assert_eq!(
+            for_file("a.rs").parse("x /* a */").scopes,
+            [(2..9, CodeScope::Comment)]
+        );
+    }
+
+    #[test]
+    fn the_runs_have_the_colors_of_color_runs() {
+        let code = "fn main() { let s = \"a\"; } // go";
+        let colors = for_file("a.rs").color_runs(code);
+        assert_eq!(for_file("a.rs").runs(code).colors, colors);
     }
 
     #[test]

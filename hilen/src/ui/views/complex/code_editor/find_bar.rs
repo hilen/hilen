@@ -132,7 +132,9 @@ pub(super) struct FindBar {
     syncing:   bool,
     toggle_on: UIColor,
 
-    pub(super) command: Event<FindCommand>,
+    pub(super) command:   Event<FindCommand>,
+    /// A field of the bar lost the keys, they may have left the editor.
+    pub(super) keys_lost: Event,
 
     #[init]
     query:       TextField,
@@ -170,6 +172,9 @@ impl Setup for FindBar {
         self.replacement.take_keys([NamedKey::Enter, NamedKey::Escape]);
         self.query.key_taken.val(move |key| self.query_key(key));
         self.replacement.key_taken.val(move |key| self.replacement_key(key));
+        for field in [self.query, self.replacement] {
+            field.editing_ended.sub(move || self.keys_lost.trigger(()));
+        }
         self.query.changed.val(move |text| {
             if !self.syncing {
                 self.command.trigger(FindCommand::Query(text));

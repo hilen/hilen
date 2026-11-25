@@ -89,6 +89,7 @@ impl CodeEditor {
         self.find_bar = self.add_view::<FindBar>();
         self.find_bar.set_hidden(true);
         self.find_bar.command.val(move |command| self.find_command(command));
+        self.find_bar.keys_lost.sub(move || self.keys_may_have_left());
     }
 
     fn find_command(mut self: Weak<Self>, command: FindCommand) {

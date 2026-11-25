@@ -3,9 +3,12 @@
 
 use plat::Platform;
 
-use super::{edit::LinesChanged, pointer::CodePress, view::CodeEditor};
+use super::{edit::LinesChanged, pairs::Typed, pointer::CodePress, view::CodeEditor};
 use crate::{
-    deps::refs::Weak,
+    deps::{
+        hreads::after,
+        refs::{Weak, main_lock::MainLock},
+    },
     gm::{LossyConvert, flat::Point},
     system::Clipboard,
     ui::{
@@ -17,6 +20,14 @@ use crate::{
 /// Page Up and Page Down move by the lines on screen less this many, so
 /// a line of the page before stays in view.
 const PAGE_OVERLAP: usize = 2;
+
+/// The whole line the last Cmd C or Cmd X with no selection took. A
+/// paste of that same text goes above the line of the cursor, the way
+/// Zed has it.
+static LINE_CLIP: MainLock<String> = MainLock::new();
+
+/// What Ctrl K cut last on a Mac, Ctrl Y puts it back.
+static KILLED: MainLock<String> = MainLock::new();
 
 impl CodeEditor {
     pub(super) fn setup_touch(self: Weak<Self>) {
@@ -47,9 +58,22 @@ impl CodeEditor {
             self.hide_completions();
             // A note goes with the typing, and the typing ended.
             self.hide_note();
+            self.keys_may_have_left();
         }
         // The caret shows only while the editor has the keys.
         self.table.reload_data();
+    }
+
+    /// The editor or a field of its find bar lost the keys. The view that
+    /// took them is selected only after the one that lost them heard of
+    /// it, so the check runs a moment later: keys that went into the find
+    /// bar or came back to the editor fire nothing.
+    pub(super) fn keys_may_have_left(self: Weak<Self>) {
+        after(0.0, move || {
+            if self.is_ok() && !self.editing && !self.find_bar.has_keys() {
+                self.editing_ended.trigger(());
+            }
+        });
     }
 
     /// A press with a mouse puts the cursor there, 2 quick ones take the
@@ -133,6 +157,13 @@ impl CodeEditor {
         if !self.takes_keys() {
             return;
         }
+        // Ctrl is no command key on a Mac, the text views of the system
+        // move and delete with it.
+        let modifiers = Input::modifiers();
+        if Platform::MAC && modifiers.ctrl() && !modifiers.meta() {
+            self.on_control(Input::shortcut_char(ch));
+            return;
+        }
         if Input::command_held() {
             self.on_command(Input::shortcut_char(ch));
             return;
@@ -142,8 +173,12 @@ impl CodeEditor {
         if ch.is_control() || self.read_only {
             return;
         }
-        let changed = self.text.type_char(ch);
-        self.lines_changed(changed);
+        let rules = self.brackets.clone();
+        let scopes = self.scope_runs(self.text.cursor().line).to_vec();
+        match self.text.type_paired(ch, &rules, &scopes) {
+            Typed::Changed(changed) => self.lines_changed(changed),
+            Typed::Moved => self.cursor_changed(),
+        }
     }
 
     fn on_command(mut self: Weak<Self>, ch: char) {
@@ -160,11 +195,74 @@ impl CodeEditor {
             'c' => self.copy(),
             'x' => self.cut(),
             'v' => self.paste(),
-            'z' | 'y' if self.read_only => {}
+            'l' => {
+                self.text.select_lines();
+                self.cursor_changed();
+            }
+            'z' | 'y' | 'k' | '/' if self.read_only => {}
             'z' if shift => self.redo(),
             'z' => self.undo(),
             'y' => self.redo(),
+            'k' if shift => {
+                let changed = self.text.delete_lines();
+                self.change(Some(changed));
+            }
+            '/' => {
+                let comments = self.comments.clone();
+                let changed = self.text.toggle_comment(&comments);
+                self.change(changed);
+            }
             _ => {}
+        }
+    }
+
+    /// Ctrl with a letter on a Mac: the keys of the text views of the
+    /// system that the Zed keymap has, and Ctrl J joins lines. Any other
+    /// letter puts in nothing.
+    fn on_control(mut self: Weak<Self>, ch: char) {
+        let shift = Input::modifiers().shift();
+        let ch = ch.to_ascii_lowercase();
+        let page = self.page();
+        let text = &mut self.text;
+        match ch {
+            'p' => text.move_lines(-1, shift),
+            'n' => text.move_lines(1, shift),
+            'b' => text.move_left(shift),
+            'f' => text.move_right(shift),
+            'a' => text.move_home(shift),
+            'e' => text.move_end(shift),
+            'v' => text.move_lines(page, shift),
+            _ => {
+                if !self.read_only {
+                    let changed = self.control_edit(ch);
+                    self.change(changed);
+                }
+                return;
+            }
+        }
+        self.cursor_changed();
+    }
+
+    /// The Ctrl letters of a Mac that change the text.
+    fn control_edit(mut self: Weak<Self>, ch: char) -> Option<LinesChanged> {
+        let comments = self.comments.clone();
+        let text = &mut self.text;
+        match ch {
+            'h' => text.delete_pair().or_else(|| text.delete_backward()),
+            'd' => text.delete_forward(),
+            'w' => text.delete_word_backward(),
+            't' => text.transpose(),
+            'j' => text.join_lines(&comments),
+            'k' => text.kill_to_line_end().map(|(killed, changed)| {
+                KILLED.set(killed);
+                changed
+            }),
+            'y' => KILLED
+                .try_get()
+                .filter(|killed| !killed.is_empty())
+                .cloned()
+                .map(|killed| text.insert(&killed)),
+            _ => None,
         }
     }
 
@@ -194,41 +292,24 @@ impl CodeEditor {
             self.close_find();
             return;
         }
-        let edits_text = matches!(
-            key,
-            NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace | NamedKey::Delete
-        );
-        if edits_text && self.read_only {
+        let moves_lines =
+            matches!(key, NamedKey::ArrowUp | NamedKey::ArrowDown) && modifiers.alt() && !command;
+        let edits_text = moves_lines
+            || matches!(
+                key,
+                NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace | NamedKey::Delete
+            );
+        if edits_text {
+            if !self.read_only {
+                self.edit_key(key, moves_lines);
+            }
             return;
         }
         let text = &mut self.text;
 
         match key {
-            NamedKey::Enter => {
-                let changed = text.new_line();
-                self.change(Some(changed));
-                return;
-            }
-            NamedKey::Tab => {
-                let changed = if shift {
-                    text.outdent()
-                } else {
-                    Some(text.indent())
-                };
-                self.change(changed);
-                return;
-            }
-            NamedKey::Backspace => {
-                let changed = text.delete_backward();
-                self.change(changed);
-                return;
-            }
-            NamedKey::Delete => {
-                let changed = text.delete_forward();
-                self.change(changed);
-                return;
-            }
             NamedKey::Escape => {
+                text.end_snippet();
                 if text.selection().is_some() {
                     let cursor = text.cursor();
                     text.move_to(cursor, false);
@@ -262,27 +343,87 @@ impl CodeEditor {
         self.cursor_changed();
     }
 
+    /// Enter, Tab, Backspace, Delete and Alt Up or Down, the named keys
+    /// that change the text.
+    fn edit_key(mut self: Weak<Self>, key: NamedKey, moves_lines: bool) {
+        let modifiers = Input::modifiers();
+        let shift = modifiers.shift();
+        let command = Input::command_held();
+        let word = if Platform::MAC {
+            modifiers.alt()
+        } else {
+            modifiers.ctrl()
+        };
+        let rules = self.brackets.clone();
+        let scopes = self.scope_runs(self.text.cursor().line).to_vec();
+        let text = &mut self.text;
+        let changed = match key {
+            NamedKey::Enter if command => Some(if shift {
+                text.new_line_above()
+            } else {
+                text.new_line_below()
+            }),
+            NamedKey::Enter => Some(text.new_line_paired(&rules, &scopes)),
+            NamedKey::Tab if (!shift && text.next_stop()) || (shift && text.previous_stop()) => {
+                self.cursor_changed();
+                return;
+            }
+            NamedKey::Tab if shift => text.outdent(),
+            NamedKey::Tab => Some(text.indent()),
+            NamedKey::Backspace if command && Platform::MAC => text.delete_to_line_start(),
+            NamedKey::Backspace if word => text.delete_word_backward(),
+            NamedKey::Backspace => text.delete_pair().or_else(|| text.delete_backward()),
+            NamedKey::Delete if command && Platform::MAC => text.delete_to_line_end(),
+            NamedKey::Delete if word => text.delete_word_forward(),
+            NamedKey::Delete => text.delete_forward(),
+            NamedKey::ArrowUp | NamedKey::ArrowDown if moves_lines => {
+                let down = key == NamedKey::ArrowDown;
+                if shift {
+                    Some(text.duplicate_lines(!down))
+                } else {
+                    text.move_block(down)
+                }
+            }
+            _ => None,
+        };
+        self.change(changed);
+    }
+
     /// The lines a Page Up or Page Down moves by.
     fn page(&self) -> isize {
         let rows: usize = (self.height() / self.line_height()).floor().max(1.0).lossy_convert();
         isize::try_from(rows.saturating_sub(PAGE_OVERLAP).max(1)).unwrap_or(1)
     }
 
+    /// Copies the selection, or the whole line of the cursor with its
+    /// break when nothing is selected.
     pub fn copy(&self) {
         let selected = self.text.selected_text();
         if selected.is_empty() {
-            return;
-        }
-        if let Err(err) = Clipboard::set_text(&selected) {
-            log::error!("Failed to copy from a code editor: {err}");
+            let line = self.text.line_with_break();
+            put_on_clipboard(&line);
+            LINE_CLIP.set(line);
+        } else {
+            put_on_clipboard(&selected);
+            LINE_CLIP.clear();
         }
     }
 
+    /// Cuts the selection, or the whole line of the cursor with its break
+    /// when nothing is selected. A read only editor copies.
     pub fn cut(mut self: Weak<Self>) {
-        self.copy();
         if self.read_only {
+            self.copy();
             return;
         }
+        if self.text.selection().is_none() {
+            let (line, changed) = self.text.cut_line();
+            put_on_clipboard(&line);
+            LINE_CLIP.set(line);
+            self.lines_changed(changed);
+            return;
+        }
+        self.copy();
         let changed = self.text.delete_selection();
         self.change(changed);
     }
@@ -294,6 +435,10 @@ impl CodeEditor {
             return;
         }
         match Clipboard::get_text() {
+            Ok(text) if self.text.selection().is_none() && LINE_CLIP.try_get() == Some(&text) => {
+                let changed = self.text.paste_line(&text);
+                self.lines_changed(changed);
+            }
             Ok(text) => self.insert(&text),
             Err(err) => log::warn!("Nothing to paste into a code editor: {err}"),
         }
@@ -347,5 +492,11 @@ impl CodeEditor {
         ];
         let frame = self.absolute_frame();
         ContextMenu::show(items, Point::new(frame.x() + position.x, frame.y() + position.y));
+    }
+}
+
+fn put_on_clipboard(text: &str) {
+    if let Err(err) = Clipboard::set_text(text) {
+        log::error!("Failed to copy from a code editor: {err}");
     }
 }

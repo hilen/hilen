@@ -41,6 +41,22 @@ self.editor.place().back();
   save. It is 1 step of the undo history, the cursor and the selection keep their
   place in the text around the change, and the lines on screen stay where they are,
   also when lines above them came or went. It fires `changed` like `insert`.
+- `version()` is a number that grows with every change of the text, an undo and a
+  redo too. `replace_joined(version, from, to, text)` is `replace`, but when the text
+  is still at `version` the change joins the newest step of the undo history, so 1
+  undo takes back both and 1 redo puts both back. A text that changed since gets a
+  step of its own. It is for the late part of 1 change, like the `use` line a language
+  server sends after the name of a completion went in.
+- `insert_snippet(from, to, snippet)` puts a snippet in, in the syntax of LSP and
+  TextMate: `$1`, `${1:default}`, `${1|one,two|}` and `$0` for the end. The lines
+  after the first get the indent of the line, the cursor goes to the first place with
+  its default selected. Tab and Shift Tab go from place to place, `$0`, the end of the
+  text, Escape or a cursor that left the place end it. `snippet_active()` tells if the
+  user is in one. `insert_snippet_joined(version, from, to, snippet)` joins the step
+  before it like `replace_joined`.
+- `editing_ended` fires when the keys leave the editor and its find bar: a press on
+  another view, a field that took them, or Escape with no selection. Keys that go into
+  its own find bar and back fire nothing. An app saves the file there.
 - `set_tab_width(spaces)`, 4 by default. `set_style(CodeEditorStyle { .. })` sets the
   text size, the font, the spacing and the colors. Every default color is a light and
   dark pair. `focus()` gives the editor the keys, `is_editing()` tells if it has them.
@@ -56,9 +72,20 @@ self.editor.place().back();
   like a type after a name or a parameter name in front of an argument. An `Inlay`
   with `leads` belongs to the code after it, the caret stands after its text.
 - `show_completions(at, items)` shows a list of `Completion` rows at a place, each
-  with a name, a dim detail and an icon of its kind. `completion_picked` fires with
-  the index of the row the user took, `hide_completions` and `completions_shown` close
-  and ask.
+  with a name, a dim note right after it, like the module of a name from another
+  module, a dim detail at the right and an icon of its kind. `completion_picked` fires
+  with the index of the row the user took, `hide_completions` and `completions_shown`
+  close and ask. `completion_marked` fires with the index of the marked row when a list
+  shows and when Up or Down moves the mark, so an app can resolve that row while the
+  list is open. `marked_completion()` reads the mark.
+- `set_brackets(rules)` sets the pairs a typed opener closes, `BracketRules::for_file`
+  gives the lists of Zed for Rust, TOML, Markdown and plain text, a new editor has
+  none. `set_scope_runs(line, runs)` says where the strings and comments of a line
+  are, from `CodeHighlighter::runs`, so a pair with `not_in` skips them. A line comment
+  holds the break of its line, so the end of a comment counts as inside it.
+- `set_comments(rules)` sets what Cmd / toggles. `CommentRules::for_file` gives `// `
+  for Rust, `# ` for TOML and the block comment `<!--` `-->` for Markdown, a new editor
+  has none.
 - `pointer_rested` fires when the pointer rests on a char of the code, and with `None`
   once it moved off, for the hover of a name. `pressed` fires for a mouse press that
   put the cursor at a place, with whether Cmd was held, Ctrl elsewhere, to open a
@@ -112,7 +139,22 @@ self.editor.close_find();
   line of it, Shift Tab takes 1 level out. Backspace in an indent goes back to the tab
   stop before.
 - Cmd or Ctrl with A, C, X, V, Z, Shift Z and Y. Typed chars on 1 line are 1 undo step
-  until the cursor moves.
+  until the cursor moves. Cmd C and Cmd X with no selection take the whole line with
+  its break, and a paste of that text puts it above the line of the cursor.
+- The line keys of the Zed keymap. Alt Backspace and Alt Delete delete to the word
+  start and end, Ctrl elsewhere. On a Mac Cmd Backspace and Cmd Delete delete to the
+  line start and end. Cmd Shift K deletes the lines of the selection, Alt Up and Alt
+  Down move them, Alt Shift Up and Alt Shift Down duplicate them. Cmd Enter and Cmd
+  Shift Enter put a new line below and above with the indent. Cmd L selects the line,
+  each press 1 line more. Cmd / puts the comment of `set_comments` in or takes it out.
+- On a Mac the Ctrl letters of the text views of the system: Ctrl A, E, F, B, N, P and
+  V move, Ctrl H, D and W delete, Ctrl K cuts to the line end and Ctrl Y puts it back,
+  Ctrl T swaps 2 chars, Ctrl J joins the next line, which loses its indent and a line
+  comment. Ctrl is no command key on a Mac, any other Ctrl letter puts in nothing.
+- With `set_brackets`, a typed opener puts its closer in when a space, the line end or
+  a closer char follows, a typed closer steps over one the editor put in, Backspace
+  right after such an opener takes out the pair, an opener wraps a selection, and
+  Enter between a pair puts the closer on its own line.
 - Escape drops the selection, a second Escape ends the editing.
 - A right click, or a long press on a touch screen, opens a menu with Undo, Redo, Cut,
   Copy, Paste and Select All. A long press takes the word under the finger first.
@@ -140,7 +182,10 @@ self.editor.close_find();
 - `text.rs` and `edit.rs` hold the lines, the cursor and the history, with no view.
   Every change is 1 step: some lines from a start line gave way to new ones. A step
   keeps the old and the new lines, so the history costs the lines it touched, not
-  copies of the file. It keeps 1000 steps. The unit tests are in `tests.rs`.
+  copies of the file. It keeps 1000 steps. A step can be joined to the one before,
+  an undo then takes back both. The unit tests are in `tests.rs` and `edit_tests.rs`.
+- `pairs.rs` has the pairs and their regions, `snippet.rs` the snippet parser and its
+  session, `line_edit.rs` the line keys and `comments.rs` the comments of a language.
 - The view is a `TableView` with 1 row per line, so only the lines on screen are
   views. A row is `CodeLine` in `line.rs`: the selection, the code label, the caret,
   the message, the gutter and the number, in that order. The code labels use the
@@ -184,10 +229,14 @@ self.editor.close_find();
 
 `Code editor look`, `Code editor typing`, `Code editor selection`, `Code editor
 clipboard`, `Code editor long file`, `Code editor find`, `Code editor find next`,
-`Code editor replace` and `Code editor app replace` in
-`ui-test-suite/src/views/code_editor/`. The keys are
-injected key events, which the editor reads on every platform, so all run everywhere
-but `Code editor clipboard`, which needs `Clipboard::set_in_process` of a desktop.
+`Code editor replace`, `Code editor app replace`, `Code editor editing ended`, `Code
+editor pairs`, `Code editor completion notes`, `Code editor completion marked`, `Code
+editor snippet`, `Code editor joined undo`, `Code editor line keys`, `Code editor line
+clipboard` and `Code editor control keys` in `ui-test-suite/src/views/code_editor/`.
+The keys are injected key events, which the editor reads on every platform, so all
+run everywhere but `Code editor clipboard` and `Code editor line clipboard`, which
+need `Clipboard::set_in_process` of a desktop, and `Code editor control keys`, which
+tests the Ctrl letters of a Mac.
 The fields of the find bar are typed into through `system_input`, which types through
 the screen keyboard of a phone. `Code editor find` pins the look of the bar and the
 matches in both themes and the toggles, `Code editor find next` next and back with

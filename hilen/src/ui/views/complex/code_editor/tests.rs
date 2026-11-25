@@ -2,20 +2,22 @@ use super::{
     edit::LinesChanged,
     find::{FindOptions, FindState, Finder},
     inlay::{Inlay, Inlays, Shown},
+    pairs::{BracketRules, Typed},
     text::{CodePos, CodeText},
 };
+use crate::ui::CodeScope;
 
-fn text(lines: &str) -> CodeText {
+pub(super) fn text(lines: &str) -> CodeText {
     let mut text = CodeText::default();
     text.set_text(lines);
     text
 }
 
-fn at(line: usize, byte: usize) -> CodePos {
+pub(super) fn at(line: usize, byte: usize) -> CodePos {
     CodePos::new(line, byte)
 }
 
-fn typed(text: &mut CodeText, chars: &str) {
+pub(super) fn typed(text: &mut CodeText, chars: &str) {
     for ch in chars.chars() {
         text.type_char(ch);
     }
@@ -605,4 +607,174 @@ fn inlays_follow_a_change_of_their_line() {
     let mut inlays = Inlays::new("é = ü;", [Inlay::new(2, ": f32")]);
     inlays.follow("éé = ü;");
     assert_eq!(inlays.items(), [Inlay::new(4, ": f32")]);
+}
+
+fn paired(text: &mut CodeText, rules: &BracketRules, chars: &str) {
+    for ch in chars.chars() {
+        text.type_paired(ch, rules, &[]);
+        text.drop_far_regions();
+    }
+}
+
+#[test]
+fn an_opener_puts_its_closer_in_and_the_closer_steps_over_it() {
+    let rust = BracketRules::rust();
+    let mut code = text("");
+    paired(&mut code, &rust, "f(");
+    assert_eq!(
+        (code.lines(), code.cursor()),
+        (&["f()".to_string()][..], at(0, 2))
+    );
+    paired(&mut code, &rust, "a");
+    assert_eq!(code.lines(), ["f(a)"]);
+    assert_eq!(code.type_paired(')', &rust, &[]), Typed::Moved);
+    assert_eq!(
+        (code.lines(), code.cursor()),
+        (&["f(a)".to_string()][..], at(0, 4))
+    );
+    // A pair inside a pair, each closer steps over its own.
+    let mut code = text("");
+    paired(&mut code, &rust, "([");
+    assert_eq!(code.lines(), ["([])"]);
+    paired(&mut code, &rust, "])");
+    assert_eq!(
+        (code.lines(), code.cursor()),
+        (&["([])".to_string()][..], at(0, 4))
+    );
+}
+
+#[test]
+fn a_closer_goes_in_only_in_front_of_a_space_or_a_closer_char() {
+    let rust = BracketRules::rust();
+    let mut code = text("name");
+    paired(&mut code, &rust, "(");
+    assert_eq!(code.lines(), ["(name"]);
+    let mut code = text(";");
+    paired(&mut code, &rust, "(");
+    assert_eq!(code.lines(), ["();"]);
+    let mut code = text(" x");
+    paired(&mut code, &rust, "{");
+    assert_eq!(code.lines(), ["{} x"]);
+}
+
+#[test]
+fn a_quote_closes_but_not_after_a_letter_and_not_as_a_closing_quote() {
+    let rust = BracketRules::rust();
+    let mut code = text("let s = ");
+    code.move_end(false);
+    paired(&mut code, &rust, "\"");
+    assert_eq!(code.lines(), ["let s = \"\""]);
+    let mut code = text("ab");
+    code.move_end(false);
+    paired(&mut code, &rust, "\"");
+    assert_eq!(code.lines(), ["ab\""]);
+    let mut code = text("x = \"abc");
+    code.move_end(false);
+    paired(&mut code, &rust, " \"");
+    assert_eq!(code.lines(), ["x = \"abc \""]);
+}
+
+#[test]
+fn backspace_right_after_the_opener_takes_out_the_pair() {
+    let rust = BracketRules::rust();
+    let mut code = text("");
+    paired(&mut code, &rust, "[");
+    assert!(code.delete_pair().is_some());
+    assert_eq!(code.lines(), [""]);
+    // Zed takes out what was typed between too.
+    paired(&mut code, &rust, "(ab");
+    code.move_to(at(0, 1), false);
+    code.drop_far_regions();
+    assert!(code.delete_pair().is_some());
+    assert_eq!(code.lines(), [""]);
+    // A pair typed by hand is no pair of the editor.
+    let mut code = text("[]");
+    code.move_to(at(0, 1), false);
+    assert!(code.delete_pair().is_none());
+}
+
+#[test]
+fn a_pair_ends_when_the_cursor_leaves_it() {
+    let rust = BracketRules::rust();
+    let mut code = text("");
+    paired(&mut code, &rust, "(");
+    code.move_end(false);
+    code.drop_far_regions();
+    code.move_to(at(0, 1), false);
+    code.drop_far_regions();
+    paired(&mut code, &rust, ")");
+    assert_eq!(code.lines(), ["())"]);
+}
+
+#[test]
+fn an_opener_wraps_a_selection() {
+    let rust = BracketRules::rust();
+    let mut code = text("a + b");
+    code.select(at(0, 0), at(0, 5));
+    paired(&mut code, &rust, "(");
+    assert_eq!(code.lines(), ["(a + b)"]);
+    assert_eq!(code.selection(), Some((at(0, 1), at(0, 6))));
+    // `<` closes nothing in Rust, it still wraps.
+    paired(&mut code, &rust, "<");
+    assert_eq!(code.lines(), ["(<a + b>)"]);
+}
+
+#[test]
+fn enter_between_a_pair_puts_the_closer_on_its_own_line() {
+    let rust = BracketRules::rust();
+    let mut code = text("    fn a() ");
+    code.move_end(false);
+    paired(&mut code, &rust, "{");
+    code.new_line_paired(&rust, &[]);
+    assert_eq!(code.lines(), ["    fn a() {", "        ", "    }"]);
+    assert_eq!(code.cursor(), at(1, 8));
+    // A pair with no new line, and no pair, keep the plain Enter.
+    let mut code = text("\"\"");
+    code.move_to(at(0, 1), false);
+    code.new_line_paired(&rust, &[]);
+    assert_eq!(code.lines(), ["\"", "\""]);
+}
+
+#[test]
+fn a_pair_with_not_in_skips_strings_and_comments() {
+    let rust = BracketRules::rust();
+    // In the open string of `x = "a /` the `/*` opens nothing.
+    let mut code = text("x = \"a /");
+    code.move_end(false);
+    code.type_paired('*', &rust, &[(4..9, CodeScope::String)]);
+    assert_eq!(code.lines(), ["x = \"a /*"]);
+    let mut code = text("x /");
+    code.move_end(false);
+    paired(&mut code, &rust, "*");
+    assert_eq!(
+        (code.lines(), code.cursor()),
+        (&["x /* */".to_string()][..], at(0, 4))
+    );
+    // A raw string closes with its own closer.
+    let mut code = text("r#");
+    code.move_end(false);
+    paired(&mut code, &rust, "\"");
+    assert_eq!(code.lines(), ["r#\"\"#"]);
+}
+
+#[test]
+fn the_rules_of_a_file_come_from_its_name() {
+    assert_eq!(BracketRules::for_file("src/main.rs"), BracketRules::rust());
+    assert_eq!(BracketRules::for_file("Cargo.toml"), BracketRules::toml());
+    assert_eq!(BracketRules::for_file("Cargo.lock"), BracketRules::toml());
+    assert_eq!(BracketRules::for_file("docs/app.md"), BracketRules::markdown());
+    assert_eq!(BracketRules::for_file(".gitignore"), BracketRules::plain_text());
+    let mut code = text("");
+    paired(&mut code, &BracketRules::none(), "(\"");
+    assert_eq!(code.lines(), ["(\""]);
+}
+
+#[test]
+fn a_pair_is_1_step_of_the_history() {
+    let rust = BracketRules::rust();
+    let mut code = text("");
+    paired(&mut code, &rust, "x(");
+    assert_eq!(code.lines(), ["x()"]);
+    code.undo();
+    assert_eq!(code.lines(), ["x"]);
 }

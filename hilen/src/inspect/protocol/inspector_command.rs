@@ -38,6 +38,12 @@ pub enum InspectorCommand {
     /// Closes the app the way closing its window does. Desktop only, a
     /// phone or a browser page has no such exit.
     Quit,
+    /// Plays a focus change of the window, like a switch to another app
+    /// and back, so `AppActivity::changed` fires as on a real one. A
+    /// headless app has no window to lose the focus.
+    SetFocus {
+        focused: bool,
+    },
     /// Saves every frame the app draws after an input, `frames` of them,
     /// the first one is the frame that holds what the input did. With an
     /// input, a tap, keys, a hover, a scroll or a drag, the app plays it

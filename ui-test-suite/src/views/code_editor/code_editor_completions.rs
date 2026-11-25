@@ -56,6 +56,7 @@ fn items() -> Vec<Completion> {
     .into_iter()
     .map(|(label, detail)| Completion {
         label:  label.to_string(),
+        note:   String::new(),
         detail: detail.to_string(),
         icon:   String::new(),
     })

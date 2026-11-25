@@ -308,6 +308,12 @@ pub(super) enum Command {
         /// on or off
         state: String,
     },
+    /// Play a focus loss or gain of the window, like a switch to another
+    /// app and back. A headless app has no window to lose the focus
+    Focus {
+        /// lost or back
+        state: String,
+    },
     /// Measure the link to the app: the time of a round trip, then raw
     /// bytes to the app and from it, like iperf
     Speed {
@@ -375,6 +381,7 @@ pub(super) async fn run(client: &Client, command: Command) -> Result<()> {
         Command::BuildTime => build_time(client).await?,
         Command::RenderInfo => render_info(client, InspectorCommand::RenderInfo).await?,
         Command::Damage { state } => damage(client, &state).await?,
+        Command::Focus { state } => focus(client, &state).await?,
         Command::Speed { seconds } => speed(client, seconds).await?,
         Command::Quit { timeout } => quit(client, timeout).await?,
         answer @ (Command::App { .. } | Command::DevLogin { .. } | Command::Edits) => {
@@ -428,6 +435,17 @@ async fn damage(client: &Client, state: &str) -> Result<()> {
         other => anyhow::bail!("damage takes on or off, not {other}"),
     };
     render_info(client, InspectorCommand::SetDamage { on }).await
+}
+
+async fn focus(client: &Client, state: &str) -> Result<()> {
+    let focused = match state {
+        "lost" => false,
+        "back" => true,
+        other => anyhow::bail!("focus takes lost or back, not {other}"),
+    };
+    send(client, InspectorCommand::SetFocus { focused }).await?;
+    println!("ok");
+    Ok(())
 }
 
 /// The commands that print what the app answers, split out of `run` to

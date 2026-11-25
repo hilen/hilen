@@ -1,13 +1,15 @@
 //! What an app puts on the lines of a `CodeEditor` on top of the colors of
 //! the code: a mark of a kind, lines under parts of the code and colors
-//! behind them. And the switch that keeps the user from changing the text.
+//! behind them, where its strings and comments are, and the pairs a typed
+//! opener closes. And the switch that keeps the user from changing the
+//! text.
 
 use std::ops::Range;
 
-use super::view::CodeEditor;
+use super::{comments::CommentRules, pairs::BracketRules, view::CodeEditor};
 use crate::{
     deps::refs::weak_from_ref,
-    ui::{ToLabel, UIColor},
+    ui::{CodeScope, ToLabel, UIColor},
 };
 
 /// How bad the thing is that a mark tells of. Each kind has its 2 colors
@@ -82,6 +84,47 @@ impl CodeEditor {
             decor.backgrounds.clear();
         }
         self.refresh();
+    }
+
+    /// Where the strings and the comments of `line` are, byte ranges of
+    /// that line, the way `CodeHighlighter::runs` gives them. A pair with
+    /// `not_in` neither closes nor wraps there. A change of the line by the
+    /// user drops them, like its colors, the app sets them again with the
+    /// colors.
+    pub fn set_scope_runs(&self, line: usize, runs: impl IntoIterator<Item = (Range<usize>, CodeScope)>) {
+        let mut this = weak_from_ref(self);
+        if let Some(decor) = this.decor.get_mut(line) {
+            decor.scopes = runs.into_iter().collect();
+        }
+    }
+
+    pub fn scope_runs(&self, line: usize) -> &[(Range<usize>, CodeScope)] {
+        self.decor.get(line).map_or(&[], |decor| decor.scopes.as_slice())
+    }
+
+    /// The pairs a typed opener closes, like `BracketRules::for_file`.
+    /// A new editor has none and puts in only what is typed.
+    pub fn set_brackets(&self, rules: BracketRules) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.brackets = rules;
+        self
+    }
+
+    /// The comments Cmd / puts in and takes out, like
+    /// `CommentRules::for_file`. A new editor has none and Cmd / does
+    /// nothing.
+    pub fn set_comments(&self, rules: CommentRules) -> &Self {
+        let mut this = weak_from_ref(self);
+        this.comments = rules;
+        self
+    }
+
+    pub fn comments(&self) -> &CommentRules {
+        &self.comments
+    }
+
+    pub fn brackets(&self) -> &BracketRules {
+        &self.brackets
     }
 
     /// With `true` the user can not change the text: typing, Enter, Tab,

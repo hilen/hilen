@@ -2,7 +2,7 @@
 //! the moves of the cursor. No view, so every rule has a unit test. The
 //! changes and the undo history are in `edit.rs`.
 
-use super::edit::Step;
+use super::{edit::Step, pairs::PairRegion, snippet::SnippetSession};
 
 /// The undo history keeps this many steps, the oldest go first.
 pub(super) const UNDO_STEPS: usize = 1000;
@@ -44,6 +44,13 @@ pub(crate) struct CodeText {
     pub(super) redo:      Vec<Step>,
     /// The last step of the history takes the next typed char into it.
     pub(super) open_step: bool,
+    /// Grows with every change of the lines, an undo and a redo too.
+    pub(super) version:   u64,
+    /// What lies between the openers and the closers the editor put in,
+    /// in the order of their starts, see `pairs.rs`.
+    pub(super) regions:   Vec<PairRegion>,
+    /// The places of the snippet the user fills in, see `snippet.rs`.
+    pub(super) snippet:   Option<SnippetSession>,
 }
 
 impl Default for CodeText {
@@ -57,6 +64,9 @@ impl Default for CodeText {
             undo:      Vec::new(),
             redo:      Vec::new(),
             open_step: false,
+            version:   0,
+            regions:   Vec::new(),
+            snippet:   None,
         }
     }
 }
@@ -74,6 +84,7 @@ impl CodeText {
         *self = Self {
             lines: clean(text).split('\n').map(str::to_string).collect(),
             tab_width: self.tab_width,
+            version: self.version + 1,
             ..Self::default()
         };
     }

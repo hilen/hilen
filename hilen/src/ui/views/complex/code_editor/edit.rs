@@ -31,6 +31,9 @@ pub(crate) struct Step {
     before: Spot,
     after:  Spot,
     kind:   StepKind,
+    /// An undo takes back the step before it too, and a redo of that step
+    /// puts this one back with it, see `replace_joined`.
+    joined: bool,
 }
 
 /// Brackets after which a new line starts 1 level deeper.
@@ -47,7 +50,7 @@ impl CodeText {
 
     /// Puts `new` in place of `removed` lines from `start` and the cursor
     /// at `after`, as 1 step of the history.
-    fn apply(
+    pub(super) fn apply(
         &mut self,
         start: usize,
         removed: usize,
@@ -66,6 +69,7 @@ impl CodeText {
         let after = self.spot();
         self.goal = None;
         self.redo.clear();
+        self.version += 1;
 
         let joins = self.open_step
             && kind != StepKind::Other
@@ -86,9 +90,13 @@ impl CodeText {
                 before,
                 after,
                 kind,
+                joined: false,
             });
             if self.undo.len() > UNDO_STEPS {
                 self.undo.remove(0);
+                if let Some(first) = self.undo.first_mut() {
+                    first.joined = false;
+                }
             }
         }
         self.open_step = kind != StepKind::Other;
@@ -98,6 +106,19 @@ impl CodeText {
     /// Puts `text` in place of the text from `from` to `to`, the cursor
     /// right after it.
     fn replace(&mut self, from: CodePos, to: CodePos, text: &str, kind: StepKind) -> LinesChanged {
+        self.replace_to(from, to, text, kind, None)
+    }
+
+    /// `replace` with the cursor at `cursor`, `None` right after the text.
+    /// The regions of the pairs follow the change.
+    pub(super) fn replace_to(
+        &mut self,
+        from: CodePos,
+        to: CodePos,
+        text: &str,
+        kind: StepKind,
+        cursor: Option<CodePos>,
+    ) -> LinesChanged {
         let (from, to) = (self.clamp(from.min(to)), self.clamp(from.max(to)));
         let suffix = &self.lines[to.line][to.byte..];
         let joined = format!("{}{text}{suffix}", &self.lines[from.line][..from.byte]);
@@ -105,9 +126,14 @@ impl CodeText {
 
         let new: Vec<String> = joined.split('\n').map(str::to_string).collect();
         let last = new.len() - 1;
-        let cursor = CodePos::new(from.line + last, new[last].len() - suffix_len);
+        let end = CodePos::new(from.line + last, new[last].len() - suffix_len);
+        self.follow_regions(from, to, end);
+        self.follow_snippet(from, to, end);
 
-        let after = Spot { cursor, anchor: None };
+        let after = Spot {
+            cursor: cursor.unwrap_or(end),
+            anchor: None,
+        };
         self.apply(from.line, to.line - from.line + 1, new, after, kind)
     }
 
@@ -147,10 +173,42 @@ impl CodeText {
             cursor: moved(self.cursor),
             anchor: self.anchor.map(moved),
         };
+        self.follow_regions(from, to, end);
+        self.follow_snippet(from, to, end);
         let suffix = &self.lines[to.line][to.byte..];
         let joined = format!("{}{text}{suffix}", &self.lines[from.line][..from.byte]);
         let new: Vec<String> = joined.split('\n').map(str::to_string).collect();
         self.apply(from.line, to.line - from.line + 1, new, after, StepKind::Other)
+    }
+
+    /// `replace_kept`, joined to the newest step of the history when the
+    /// lines are still at `version`, so 1 undo takes back both. A late part
+    /// of 1 change, like the `use` line a language server sends after the
+    /// name of a completion went in. Lines that changed since are a step of
+    /// its own.
+    pub(crate) fn replace_joined(
+        &mut self,
+        version: u64,
+        from: CodePos,
+        to: CodePos,
+        text: &str,
+    ) -> LinesChanged {
+        let joins = version == self.version;
+        let changed = self.replace_kept(from, to, text);
+        if joins {
+            self.join_newest();
+        }
+        changed
+    }
+
+    /// The newest step of the history joins the one before it, an undo
+    /// takes back both.
+    pub(super) fn join_newest(&mut self) {
+        if self.undo.len() > 1
+            && let Some(last) = self.undo.last_mut()
+        {
+            last.joined = true;
+        }
     }
 
     /// Puts each text in place of its range, all in 1 step of the
@@ -168,6 +226,8 @@ impl CodeText {
         }
         // A replacement with a line break makes more lines.
         let new: Vec<String> = lines.join("\n").split('\n').map(str::to_string).collect();
+        self.regions.clear();
+        self.snippet = None;
         let after = Spot {
             cursor: edits[0].0,
             anchor: None,
@@ -258,7 +318,7 @@ impl CodeText {
     /// The lines a Tab or Shift Tab changes: those of the selection, a
     /// last line the selection only touches at its start left out, or
     /// the line of the cursor.
-    fn block(&self) -> (usize, usize) {
+    pub(super) fn block(&self) -> (usize, usize) {
         match self.selection() {
             Some((start, end)) if end.line > start.line && end.byte == 0 => (start.line, end.line - 1),
             Some((start, end)) => (start.line, end.line),
@@ -273,6 +333,12 @@ impl CodeText {
             let spaces = self.tab_width - self.column(self.cursor) % self.tab_width;
             return self.replace(self.cursor, self.cursor, &" ".repeat(spaces), StepKind::Other);
         }
+        self.indent_lines()
+    }
+
+    /// Every line of the selection, or the line of the cursor, gets 1
+    /// level more, an empty line stays empty.
+    pub(crate) fn indent_lines(&mut self) -> LinesChanged {
         let (first, last) = self.block();
         let width = self.tab_width;
         let pad = " ".repeat(width);
@@ -295,6 +361,8 @@ impl CodeText {
             cursor: shift(self.cursor),
             anchor: self.anchor.map(shift),
         };
+        self.regions.clear();
+        self.snippet = None;
         self.apply(first, last - first + 1, new, after, StepKind::Other)
     }
 
@@ -331,38 +399,64 @@ impl CodeText {
             cursor: shift(self.cursor),
             anchor: self.anchor.map(shift),
         };
+        self.regions.clear();
+        self.snippet = None;
         Some(self.apply(first, last - first + 1, new, after, StepKind::Other))
     }
 
-    pub(crate) fn undo(&mut self) -> Option<LinesChanged> {
-        let step = self.undo.pop()?;
-        self.lines
-            .splice(step.start..step.start + step.new.len(), step.old.iter().cloned());
-        self.set_spot(step.before);
-        self.goal = None;
-        self.open_step = false;
-        let changed = LinesChanged {
-            start:    step.start,
-            removed:  step.new.len(),
-            inserted: step.old.len(),
-        };
-        self.redo.push(step);
-        Some(changed)
+    /// Takes back the newest step of the history and the steps joined to
+    /// it. The changes in the order they were made, none when the history
+    /// is empty.
+    pub(crate) fn undo(&mut self) -> Vec<LinesChanged> {
+        let mut changes = Vec::new();
+        while let Some(step) = self.undo.pop() {
+            self.lines
+                .splice(step.start..step.start + step.new.len(), step.old.iter().cloned());
+            self.set_spot(step.before);
+            changes.push(LinesChanged {
+                start:    step.start,
+                removed:  step.new.len(),
+                inserted: step.old.len(),
+            });
+            let joined = step.joined;
+            self.redo.push(step);
+            if !joined {
+                break;
+            }
+        }
+        self.history_moved(&changes);
+        changes
     }
 
-    pub(crate) fn redo(&mut self) -> Option<LinesChanged> {
-        let step = self.redo.pop()?;
-        self.lines
-            .splice(step.start..step.start + step.old.len(), step.new.iter().cloned());
-        self.set_spot(step.after);
+    /// Puts back the step the last undo took and the steps joined to it.
+    pub(crate) fn redo(&mut self) -> Vec<LinesChanged> {
+        let mut changes = Vec::new();
+        while let Some(step) = self.redo.pop() {
+            self.lines
+                .splice(step.start..step.start + step.old.len(), step.new.iter().cloned());
+            self.set_spot(step.after);
+            changes.push(LinesChanged {
+                start:    step.start,
+                removed:  step.old.len(),
+                inserted: step.new.len(),
+            });
+            self.undo.push(step);
+            if !self.redo.last().is_some_and(|next| next.joined) {
+                break;
+            }
+        }
+        self.history_moved(&changes);
+        changes
+    }
+
+    fn history_moved(&mut self, changes: &[LinesChanged]) {
+        if changes.is_empty() {
+            return;
+        }
+        self.regions.clear();
+        self.snippet = None;
         self.goal = None;
         self.open_step = false;
-        let changed = LinesChanged {
-            start:    step.start,
-            removed:  step.old.len(),
-            inserted: step.new.len(),
-        };
-        self.undo.push(step);
-        Some(changed)
+        self.version += 1;
     }
 }

@@ -3,6 +3,8 @@
 //! Down move the marked row, Enter and Tab pick it, Escape closes it, and
 //! every other key goes on to the editor, so the typing never stops.
 
+use std::ops::Range;
+
 use super::{line::code_label, style::CodeEditorStyle, text::CodePos, view::CodeEditor};
 use crate::{
     self as hilen,
@@ -39,6 +41,10 @@ const NAME_MOST: f32 = 0.6;
 pub struct Completion {
     /// The name that goes into the code.
     pub label:  String,
+    /// More about the name right after it, in the dim color of the
+    /// detail, like the module it comes from, `(use std::ops::Add)`. The
+    /// `labelDetails` of LSP. Empty for none.
+    pub note:   String,
     /// What the name is, like its type, at the right in a dim color.
     pub detail: String,
     /// A black SVG of `assets/images` for the kind of the name, like a
@@ -97,6 +103,7 @@ pub(super) struct CompletionList {
     columns:  Columns,
 
     pub(super) picked: Event<usize>,
+    pub(super) marked: Event<usize>,
 
     #[init]
     table:   TableView,
@@ -137,7 +144,7 @@ impl CompletionList {
         let mut detail = 0.0_f32;
         let mut icon = false;
         for row in &self.rows {
-            name = name.max(self.width_of(&row.label));
+            name = name.max(self.width_of(&shown_name(row).0));
             detail = detail.max(self.width_of(&row.detail));
             icon |= !row.icon.is_empty();
         }
@@ -160,11 +167,15 @@ impl CompletionList {
         let Some(last) = self.rows.len().checked_sub(1) else {
             return;
         };
+        let was = self.selected;
         self.selected = if down {
             (self.selected + 1).min(last)
         } else {
             self.selected.saturating_sub(1)
         };
+        if self.selected != was {
+            self.marked.trigger(self.selected);
+        }
         let top = if self.selected < self.top {
             self.selected
         } else if self.selected >= self.top + MOST_ROWS {
@@ -244,7 +255,9 @@ impl CompletionCell {
         for label in [self.name, self.detail] {
             row_label(label, style);
         }
-        self.name.set_text_color(style.text).set_text(&row.label);
+        let (name, note) = shown_name(row);
+        self.name.set_text_color(style.text).set_text(&name);
+        self.name.set_color_runs(note.map(|note| (note, style.line_number)));
         self.detail
             .set_alignment(TextAlignment::Right)
             .set_text_color(style.line_number)
@@ -257,10 +270,22 @@ impl CompletionCell {
     }
 }
 
+/// The text of the name of a row and the bytes of its note in it.
+fn shown_name(row: &Completion) -> (String, Option<Range<usize>>) {
+    if row.note.is_empty() {
+        return (row.label.clone(), None);
+    }
+    let start = row.label.len() + 1;
+    let text = format!("{} {}", row.label, row.note);
+    let end = text.len();
+    (text, Some(start..end))
+}
+
 impl CodeEditor {
     /// Shows `items` as a list under the place `at`, like the start of
-    /// the word the user types, with the first one marked. While it
-    /// shows, Up and Down move the mark, Enter and Tab fire
+    /// the word the user types, with the first one marked, which fires
+    /// `completion_marked` with 0. While it shows, Up and Down move the
+    /// mark and fire `completion_marked`, Enter and Tab fire
     /// `completion_picked` with the index of the marked row, a press on a
     /// row does the same, and Escape closes the list. Each of these also
     /// closes the list. Every other key goes to the editor as always, and
@@ -278,7 +303,9 @@ impl CodeEditor {
         let list_ref = list.weak();
         this.show_panel(at, list);
         list_ref.picked.val(move |index| this.pick_completion(index));
+        list_ref.marked.val(move |index| this.completion_marked.trigger(index));
         this.completions = list_ref;
+        this.completion_marked.trigger(0);
     }
 
     /// Closes the list of completions.
@@ -336,6 +363,24 @@ impl CodeEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_note_stands_after_the_name() {
+        let row = Completion {
+            label: "Add".to_string(),
+            note: "(use std::ops::Add)".to_string(),
+            ..Completion::default()
+        };
+        assert_eq!(
+            shown_name(&row),
+            ("Add (use std::ops::Add)".to_string(), Some(4..23))
+        );
+        let plain = Completion {
+            label: "abs".to_string(),
+            ..Completion::default()
+        };
+        assert_eq!(shown_name(&plain), ("abs".to_string(), None));
+    }
 
     #[test]
     fn a_list_is_as_wide_as_its_longest_row_needs() {

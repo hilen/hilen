@@ -3,6 +3,7 @@ use std::{mem::take, ops::Range};
 use unicode_width::UnicodeWidthChar;
 
 use super::{
+    comments::CommentRules,
     completion::CompletionList,
     decor::MarkKind,
     edit::LinesChanged,
@@ -10,6 +11,7 @@ use super::{
     find_bar::FindBar,
     inlay::{Inlays, Shown},
     line::{CodeLine, Columns, LineLook, code_label},
+    pairs::BracketRules,
     pointer::{CodePress, Rest},
     style::CodeEditorStyle,
     text::{CodePos, CodeText},
@@ -22,8 +24,8 @@ use crate::{
     },
     gm::{LossyConvert, ToF32, flat::Point},
     ui::{
-        CellRegistry, Container, Label, Setup, TableData, TableView, ToLabel, UIColor, View, ViewCallbacks,
-        ViewData, ViewFrame, ViewTouch, WeakView, view, view::DoubleTap,
+        CellRegistry, CodeScope, Container, Label, Setup, TableData, TableView, ToLabel, UIColor, View,
+        ViewCallbacks, ViewData, ViewFrame, ViewTouch, WeakView, view, view::DoubleTap,
     },
     window::request_frame,
 };
@@ -40,8 +42,8 @@ const END_ROOM: f32 = 2.0;
 const BAR_ROOM: f32 = 12.0;
 
 /// What the app puts on 1 line: its colors, a mark, the lines under and
-/// the colors behind parts of it, and the texts inside it that are no
-/// part of the file.
+/// the colors behind parts of it, the texts inside it that are no part of
+/// the file, and where its strings and comments are.
 #[derive(Debug, Default, Clone)]
 pub(super) struct LineDecor {
     pub runs:        Vec<(Range<usize>, UIColor)>,
@@ -49,6 +51,7 @@ pub(super) struct LineDecor {
     pub underlines:  Vec<(Range<usize>, UIColor)>,
     pub backgrounds: Vec<(Range<usize>, UIColor)>,
     pub inlays:      Inlays,
+    pub scopes:      Vec<(Range<usize>, CodeScope)>,
 }
 
 /// A view that edits code. The text is kept as lines, and only the lines
@@ -88,6 +91,10 @@ pub struct CodeEditor {
     pub(super) editing:     bool,
     /// The user can not change the text, see `set_read_only`.
     pub(super) read_only:   bool,
+    /// The pairs a typed opener closes, see `set_brackets`.
+    pub(super) brackets:    BracketRules,
+    /// The comments Cmd / toggles, see `set_comments`.
+    pub(super) comments:    CommentRules,
     /// Where the pointer is over the code and whether it rests there.
     pub(super) rest:        Rest,
     /// The view that floats at a place of the code, see `show_panel`, and
@@ -124,6 +131,15 @@ pub struct CodeEditor {
     /// The user picked a row of the list of `show_completions`, with its
     /// index. The list is closed already.
     pub completion_picked: Event<usize>,
+    /// The mark of the list of `show_completions` moved to a row, with
+    /// its index, also to the first row when a list shows. An app asks
+    /// here for more of that row, like the `use` line that a language
+    /// server gives only on a resolve.
+    pub completion_marked: Event<usize>,
+    /// The keys left the editor and its find bar, by a press on another
+    /// view, a field that took them or an unselect. Keys that go into its
+    /// own find bar and back fire nothing. An app saves the file here.
+    pub editing_ended:     Event,
 
     /// The gutter under the rows, so it goes on below the last line.
     #[init]
@@ -314,15 +330,67 @@ impl CodeEditor {
         self.lines_changed(changed);
     }
 
+    /// Puts a snippet in place of the text from `from` to `to` as 1 step
+    /// of the undo history, like a completion of a language server. The
+    /// syntax is the one of LSP and `TextMate`: `$1`, `${1:default}`,
+    /// `${1|one,two|}` and `$0` for the end. The marks go, each line after
+    /// the first gets the indent of the line it goes into, and the cursor
+    /// goes to the first place with its default text selected. Tab and
+    /// Shift Tab go to the next place and the one before, `$0` or the end
+    /// of the text ends it, so does Escape or a cursor that left the place.
+    /// Fires `changed` like `insert`.
+    pub fn insert_snippet(&mut self, from: CodePos, to: CodePos, snippet: &str) {
+        let changed = self.text.insert_snippet(from, to, snippet);
+        self.lines_changed(changed);
+    }
+
+    /// `insert_snippet`, but when the text is still at `version` the
+    /// snippet joins the newest step of the undo history, like
+    /// `replace_joined`. A late part of 1 change that has places to fill
+    /// in, like the items of a trait a language server writes after its
+    /// name went in.
+    pub fn insert_snippet_joined(&mut self, version: u64, from: CodePos, to: CodePos, snippet: &str) {
+        let changed = self.text.insert_snippet_joined(version, from, to, snippet);
+        self.lines_changed(changed);
+    }
+
+    /// The user is filling in the places of a snippet, Tab goes to the
+    /// next one.
+    pub fn snippet_active(&self) -> bool {
+        self.text.snippet_active()
+    }
+
     /// Puts `text` in place of the text from `from` to `to` as 1 step of
     /// the undo history, the way an app changes the text, like a format on
     /// save. The cursor and the selection keep their place in the text
     /// around the change, and the lines on screen stay where they are.
     /// Fires `changed` like `insert`.
     pub fn replace(&mut self, from: CodePos, to: CodePos, text: &str) {
+        let changed = self.text.replace_kept(from, to, text);
+        self.replaced(changed);
+    }
+
+    /// A number that grows with every change of the text, an undo and a
+    /// redo too. An app that waits for something, like a language server,
+    /// tells by it that the text did not change meanwhile.
+    pub fn version(&self) -> u64 {
+        self.text.version
+    }
+
+    /// `replace`, but when the text is still at `version` the change joins
+    /// the newest step of the undo history, so 1 undo takes back both and
+    /// 1 redo puts both back. A late part of 1 change, like the `use` line
+    /// a language server sends after the name of a completion went in.
+    /// A text that changed since `version` gets a step of its own, like
+    /// with `replace`.
+    pub fn replace_joined(&mut self, version: u64, from: CodePos, to: CodePos, text: &str) {
+        let changed = self.text.replace_joined(version, from, to, text);
+        self.replaced(changed);
+    }
+
+    fn replaced(&mut self, changed: LinesChanged) {
         let shown_top = -self.table.content_offset();
         let row = self.columns.row_height;
-        let changed = self.text.replace_kept(from, to, text);
         self.follow_lines(changed);
         // Lines added or taken out above the screen move the text on it,
         // so the scroll moves by as much.
@@ -334,14 +402,16 @@ impl CodeEditor {
         self.cursor_moved.trigger(self.text.cursor());
     }
 
+    /// Takes back the newest step of the undo history, with the steps
+    /// joined to it by `replace_joined` and `insert_snippet_joined`.
     pub fn undo(&mut self) {
-        if let Some(changed) = self.text.undo() {
+        for changed in self.text.undo() {
             self.lines_changed(changed);
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some(changed) = self.text.redo() {
+        for changed in self.text.redo() {
             self.lines_changed(changed);
         }
     }
@@ -447,6 +517,8 @@ impl CodeEditor {
     /// The user changed the lines: their decor and widths follow, then
     /// the rows, the scroll and the events.
     pub(super) fn lines_changed(&mut self, changed: LinesChanged) {
+        self.text.drop_far_regions();
+        self.text.drop_far_snippet();
         self.follow_lines(changed);
         self.scroll_to_cursor();
         self.changed.trigger(changed.start);
@@ -489,6 +561,8 @@ impl CodeEditor {
 
     /// The cursor or the selection moved with no change of the text.
     pub(super) fn cursor_changed(&mut self) {
+        self.text.drop_far_regions();
+        self.text.drop_far_snippet();
         self.table.reload_data();
         if self.redraw == Redraw::Rows {
             self.redraw = Redraw::Nothing;

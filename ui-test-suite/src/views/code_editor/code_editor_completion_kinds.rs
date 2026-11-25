@@ -48,6 +48,7 @@ fn rows(rows: &[(&str, &str, &str)]) -> Vec<Completion> {
     rows.iter()
         .map(|(label, detail, icon)| Completion {
             label:  (*label).to_string(),
+            note:   String::new(),
             detail: (*detail).to_string(),
             icon:   (*icon).to_string(),
         })
