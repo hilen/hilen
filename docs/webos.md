@@ -118,6 +118,14 @@ Every TV page gets a small script first in its head: the `WEBGL_compressed_textu
 of Chromium 79 has no `getSupportedProfiles`, which came later, and wgpu calls it. The
 script adds it with `["ldr"]`, what an extension without it means.
 
+The same script sends `queueMicrotask` through `Promise.then`. webOS 6 drops a
+`queueMicrotask` callback that a hidden app queues, like after Home while the app starts,
+and the callback never runs, also after the app shows again. The task queue of
+wasm-bindgen waits for that 1 callback before it queues another, so no Rust task runs
+again and the app stays with no window until it is closed. A `Promise.then` callback runs
+while the app is hidden. On the LG C1 on 2026-11-26 a start with Home before the Rust
+start hung 4 times of 4 without the fix and 0 times of 3 with it.
+
 The remote debugger of the TV is the console there: `ares-inspect --device tv --app <id>`
 opens the DevTools protocol on port 9998 of the TV, a page and its `console` are read
 over its websocket. With root on the TV the port listens already, `ssh -L
