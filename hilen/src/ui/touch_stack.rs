@@ -206,6 +206,18 @@ impl TouchStack {
         });
     }
 
+    /// Puts `view` in front of every touch view under `root` and no
+    /// further, see `TouchLayer::raise_over`.
+    pub(crate) fn raise_over(view: WeakView, root: WeakView) {
+        Self::in_window_of(view, || {
+            // Only the layer that listens for `view` moves it, so a view
+            // that is in no layer right now changes nothing.
+            for layer in Self::get().stack.iter_mut() {
+                layer.raise_over(view, root);
+            }
+        });
+    }
+
     /// Puts an overlay on top of the touch stack: only views under it
     /// receive touches until the matching `pop_layer`. Registrations
     /// already sitting under the new root migrate into the layer, so a

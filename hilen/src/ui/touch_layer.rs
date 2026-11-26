@@ -168,20 +168,29 @@ impl TouchLayer {
         self.scrolls.retain(|a| a.raw() != raw);
     }
 
+    /// Moves `view` just in front of the frontmost plain listener under
+    /// `root`, so it is asked before every view of `root`. A view outside
+    /// `root` that was added later, like the open panel of a drop down,
+    /// stays in front of it.
+    pub(crate) fn raise_over(&mut self, view: WeakView, root: WeakView) {
+        let Some(from) = self.listeners.iter().position(|a| a.raw() == view.raw()) else {
+            return;
+        };
+        let front = self
+            .listeners
+            .iter()
+            .rposition(|a| a.raw() != view.raw() && sits_under(*a, root));
+        let Some(front) = front.filter(|front| *front > from) else {
+            return;
+        };
+        let moved = self.listeners.remove(from);
+        self.listeners.insert(front, moved);
+    }
+
     /// Moves every registration sitting under `root` out of this layer,
     /// so a pre-built overlay keeps its views when it becomes a layer.
     pub(crate) fn extract_under(&mut self, root: WeakView) -> Extracted {
-        let root_raw = root.raw();
-        let is_under = |view: WeakView| {
-            let mut cur = view;
-            while cur.is_ok() {
-                if cur.raw() == root_raw {
-                    return true;
-                }
-                cur = *cur.superview();
-            }
-            false
-        };
+        let is_under = |view: WeakView| sits_under(view, root);
         let mut extracted = Extracted::default();
         self.listeners.retain(|v| {
             if is_under(*v) {
@@ -323,6 +332,18 @@ impl TouchLayer {
         self.pinched.remove_freed();
         self.scrolls.remove_freed();
     }
+}
+
+/// `view` is `root` or a view inside it.
+fn sits_under(view: WeakView, root: WeakView) -> bool {
+    let mut cur = view;
+    while cur.is_ok() {
+        if cur.raw() == root.raw() {
+            return true;
+        }
+        cur = *cur.superview();
+    }
+    false
 }
 
 impl From<WeakView> for TouchLayer {

@@ -173,6 +173,15 @@ and that a view put over the ring sends it back to the frame, which draws it
 at the right phase. A headless run has no window and checks only the frame
 path. Last it checks the warning of a repeating closure animation.
 
+## The end of a closure animation
+
+A timed `UIAnimation` gets its end value once when it is over, before its `on_finish`,
+`UIAnimation::commit_end`. The last frame before the end only reaches close to it: the
+opening slide of a `Popover` sheet has no finish handler and stayed 16 points under its
+place on 2026-11-25. An animation that ends by a condition, like `keep_frames_while` or
+the fling of a scroll view, has no end value and gets nothing. `Animation ends at end`
+holds this.
+
 ## Warnings
 
 A closure animation is for a short move that ends. Once per view the engine

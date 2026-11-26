@@ -14,6 +14,8 @@ mod context_menu_icons;
 mod context_menu_reopen;
 mod context_menu_style;
 mod dialog_style;
+mod drawer_title_ellipsis;
+mod drawer_title_icon;
 mod drop_down;
 mod drop_down_accent;
 /// Hover needs a pointer, there is none on a touch screen. `Input` only calls
@@ -23,6 +25,7 @@ mod drop_down_box_hover;
 mod drop_down_cells;
 mod drop_down_clipped;
 mod drop_down_dark;
+mod drop_down_ellipsis;
 mod drop_down_escape;
 /// Hover needs a pointer, the gate of `drop_down_box_hover` above.
 #[cfg(any(desktop, wasm))]

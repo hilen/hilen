@@ -208,6 +208,9 @@ impl Input {
     /// the screen. An overlay that closed itself on a press calls this to
     /// let the same press through to what was under it.
     pub(crate) fn offer_to_views(touch: &mut Touch) -> bool {
+        if touch.is_began() {
+            NavigationView::raise_back_buttons();
+        }
         let keeps_selection = press_keeps_selection(touch);
         TouchStack::touch_views().any(|view| {
             let covered = touch.is_began() && TouchStack::covered(view, touch.position);

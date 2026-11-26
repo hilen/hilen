@@ -729,6 +729,9 @@ impl UIManager {
             if retain {
                 a.commit();
             } else {
+                // Before the finish handler, so a handler that puts its view
+                // somewhere else still has the last word.
+                a.commit_end();
                 a.on_finish.trigger(());
             }
 

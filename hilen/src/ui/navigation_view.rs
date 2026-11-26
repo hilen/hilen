@@ -195,6 +195,30 @@ impl NavigationView {
         self.drop_top(to_pop);
     }
 
+    /// A press goes to the views in the order they were added, the last one
+    /// first. A page that builds its content after it asked for its
+    /// `BackButton` would so hand a press on the button to a field that
+    /// scrolled under it. Before a press goes to the views, the button of
+    /// every top page moves in front of the views of its own page.
+    pub(crate) fn raise_back_buttons() {
+        let stacks = STACKS.get_mut();
+        stacks.retain(Weak::is_ok);
+        for nav in stacks.clone() {
+            if nav.subviews().len() < 2 {
+                continue;
+            }
+            let holder = nav.top();
+            let page = holder.page();
+            if !page.is_ok() {
+                continue;
+            }
+            let button = page.subviews().iter().find_map(|sub| sub.weak_view().downcast::<BackButton>());
+            if let Some(button) = button {
+                TouchStack::raise_over(button.weak_view(), holder.weak_view());
+            }
+        }
+    }
+
     /// The back button of the page that holds `view`. A page asks for it
     /// with `back_button()` of `ViewController`.
     pub(crate) fn back_button_of(self: Weak<Self>, view: WeakView) -> Weak<BackButton> {

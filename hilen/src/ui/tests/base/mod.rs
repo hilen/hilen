@@ -1,5 +1,6 @@
 mod animated_gif;
 mod animation_drives_frames;
+mod animation_ends_at_end;
 mod animation_from_finish;
 mod animation_of_removed_view;
 mod app_views_fit_screen;

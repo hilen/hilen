@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use chrono::{Datelike, NaiveDate, NaiveTime};
 
 use super::super::floating::{layer_root, move_under};
@@ -25,6 +27,8 @@ const CALENDAR: f32 = 40.0 + 24.0 + 6.0 * DAY;
 const MIN_CALENDAR: f32 = 300.0;
 /// The space between the field and its open calendar.
 const GAP: f32 = 4.0;
+/// The form a date is typed in and read back from.
+const TYPED: &str = "%Y-%m-%d";
 
 /// A time of day typed as `HH:MM`, 24 hours. A typed time is kept when the
 /// field loses the focus or on Enter, a text that is no time gets a red
@@ -105,10 +109,14 @@ pub(crate) fn parse_time(text: &str) -> Option<NaiveTime> {
 /// outside closes it. A typed date is kept when the field loses the focus or
 /// on Enter, a text that is no date gets a red border. `set_range` keeps the
 /// date between 2 days. `changed` fires only for the user, a typed date or a
-/// tap on a day.
+/// tap on a day. `set_format` gives the date another form while nobody types
+/// in the field.
 #[view]
 pub struct DateField {
     date:        Option<NaiveDate>,
+    /// The form of the date while the field is not edited, none shows the
+    /// typed form always.
+    format:      Option<String>,
     range:       Option<(NaiveDate, NaiveDate)>,
     shown:       Option<NaiveDate>,
     open:        bool,
@@ -130,16 +138,61 @@ impl DateField {
         self.date
     }
 
+    /// The text in the field right now, the shown form of the date or
+    /// what the person types.
+    pub fn text(&self) -> &str {
+        self.field.text()
+    }
+
     /// Shows a date with no `changed`.
     pub fn set_date(&self, date: NaiveDate) -> &Self {
         let date = self.clamp(date);
         let mut this = weak_from_ref(self);
         this.date = Some(date);
         this.shown = Some(date);
-        self.field.set_text(date.format("%Y-%m-%d").to_string());
+        self.field.set_text(self.shown_text(date));
         self.set_border_color(style().border);
         self.show_month();
         self
+    }
+
+    /// The form the date shows in while nobody types in the field, a chrono
+    /// format like `%b %-d` for `Nov 9`. A press into the field turns the
+    /// text into `YYYY-MM-DD`, the only form the field reads, and it turns
+    /// back when the person leaves the field.
+    pub fn set_format(&self, format: impl ToString) -> &Self {
+        weak_from_ref(self).format = Some(format.to_string());
+        if let Some(date) = self.date {
+            self.field.set_text(self.shown_text(date));
+        }
+        self
+    }
+
+    fn shown_text(&self, date: NaiveDate) -> String {
+        let typed = date.format(TYPED).to_string();
+        let Some(format) = &self.format else {
+            return typed;
+        };
+        if self.field.is_editing() {
+            return typed;
+        }
+        let mut text = String::new();
+        // A format chrono cannot read fails here, not at `set_format`.
+        if write!(text, "{}", date.format(format)).is_err() {
+            log::warn!("the date format {format} is not valid, the date shows as {typed}");
+            return typed;
+        }
+        text
+    }
+
+    /// The field opens for typing: a date in another form turns into the
+    /// form the field reads.
+    fn editing_began(self: Weak<Self>) {
+        if self.format.is_some()
+            && let Some(date) = self.date
+        {
+            self.field.set_text(date.format(TYPED).to_string());
+        }
     }
 
     /// The first and the last day the user can pick.
@@ -234,7 +287,7 @@ impl DateField {
     }
 
     fn typed(self: Weak<Self>, text: &str) {
-        match NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d") {
+        match NaiveDate::parse_from_str(text.trim(), TYPED) {
             Ok(date) => self.user_set(date),
             Err(_) => {
                 self.set_border_color(style().bad_border);
@@ -296,6 +349,7 @@ impl Setup for DateField {
             .set_border_width(1)
             .set_border_color(style().border);
         field_box.place().t(0).l(0).h(HEIGHT).anchor(Anchor::Right, self.button, 4);
+        field_box.editing_began.sub(move || self.editing_began());
         field_box.editing_ended.val(move |text| self.typed(&text));
         field_box.submitted.val(move |text| self.typed(&text));
 

@@ -17,8 +17,8 @@ use crate::{
     deps::{refs::Weak, vents::Event},
     gm::{Animation, color::Color},
     ui::{
-        Container, DynamicColor, NamedKey, ScrimView, Setup, TouchStack, UIAnimation, UIManager, View,
-        ViewData, ViewFrame, ViewTouch, view,
+        Container, DynamicColor, NamedKey, ScrimView, Setup, TouchStack, UIAnimation, UIColor, UIManager,
+        View, ViewData, ViewFrame, ViewTouch, view,
     },
 };
 
@@ -144,6 +144,18 @@ impl DrawerShell {
     /// open page.
     pub fn set_title(self: Weak<Self>, title: &str) {
         self.bar.set_title(title);
+    }
+
+    /// An icon left of the title in the bar, like the icon of the open
+    /// project: the name of an SVG in `assets/images` drawn in black, shown
+    /// in `tint`. A `DynamicColor` follows the theme.
+    pub fn set_title_icon(self: Weak<Self>, name: &str, tint: impl Into<UIColor>) {
+        self.bar.set_title_icon(Some((name, tint.into())));
+    }
+
+    /// The title stands alone again, right of the menu button.
+    pub fn clear_title_icon(self: Weak<Self>) {
+        self.bar.set_title_icon(None);
     }
 
     pub fn set_colors(self: Weak<Self>, colors: DrawerColors) {

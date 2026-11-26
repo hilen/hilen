@@ -268,6 +268,50 @@ impl Window {
             .context("Failed to request GPU device")
     }
 
+    /// A device from `picked`, the adapter wgpu chose, or else from the next
+    /// adapter that gives one, every failure logged. On pc wgpu chose the GL
+    /// adapter of a card its driver held for another use, that adapter gave
+    /// no device, and the app did not start while a Vulkan adapter was there.
+    /// A `surface` keeps out the adapters that cannot draw to it. The error
+    /// of `picked` when no adapter gives a device.
+    #[cfg(not_wasm)]
+    async fn device_from_any(
+        instance: &Instance,
+        picked: Adapter,
+        surface: Option<&wgpu::Surface<'_>>,
+    ) -> Result<(Adapter, Device, Queue)> {
+        let picked_info = picked.get_info();
+        let error = match Self::request_device(&picked).await {
+            Ok((device, queue)) => return Ok((picked, device, queue)),
+            Err(error) => error,
+        };
+        warn!("{} gave no device: {error:#}", describe(&picked_info));
+        let others: Vec<Adapter> = instance
+            .enumerate_adapters(Backends::all())
+            .await
+            .into_iter()
+            .filter(|adapter| adapter.get_info() != picked_info)
+            .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+            .collect();
+        let others = &others;
+        let found = first_device(
+            others.len(),
+            |index| describe(&others[index].get_info()),
+            |index| Self::request_device(&others[index]),
+        )
+        .await;
+        match found {
+            Ok((index, (device, queue))) => {
+                info!(
+                    "{} gave a device, the app draws with it",
+                    describe(&others[index].get_info())
+                );
+                Ok((others[index].clone(), device, queue))
+            }
+            Err(_) => Err(error),
+        }
+    }
+
     /// The surface on `window` and an adapter that can present to it.
     async fn adapter_on(
         instance: Instance,
@@ -361,6 +405,9 @@ impl Window {
         #[cfg(all(windows, feature = "xr"))]
         let adapter = crate::xr::adapter_for(&instance, xr.as_ref(), adapter).await;
 
+        #[cfg(not_wasm)]
+        let (adapter, device, queue) = Self::device_from_any(&instance, adapter, Some(&surface)).await?;
+
         let info = adapter.get_info();
         set_adapter(&info);
 
@@ -376,6 +423,7 @@ impl Window {
         #[cfg(wasm)]
         crate::window::state::web_formats::resolve(&surface, &adapter);
 
+        #[cfg(wasm)]
         let (device, queue) = Self::request_device(&adapter).await?;
         #[cfg(wasm)]
         crate::web_visit::step("device");
@@ -476,14 +524,14 @@ impl Window {
             .await
             .context("Could not get a GPU adapter")?;
 
+        Self::set_headless();
+
+        let (adapter, device, queue) = Self::device_from_any(&instance, adapter, None).await?;
+
         let info = adapter.get_info();
         set_adapter(&info);
 
         info!("Backend: {} (headless)", info.backend);
-
-        Self::set_headless();
-
-        let (device, queue) = Self::request_device(&adapter).await?;
 
         Ok(Self {
             state: State::default(),
@@ -722,11 +770,103 @@ pub(crate) fn surface_config_with_size(size: impl Into<Size<u32>>) -> SurfaceCon
     }
 }
 
+/// An adapter for the log, like `the Gl adapter NVIDIA GeForce RTX 4090`.
+#[cfg(not_wasm)]
+fn describe(info: &wgpu::AdapterInfo) -> String {
+    format!("the {:?} adapter {}", info.backend, info.name)
+}
+
+/// Asks the candidates `0..count` for a device in turn and gives the first
+/// one that answers with it, every failure logged. The error of the first
+/// candidate when none answers.
+#[cfg(not_wasm)]
+async fn first_device<D, F>(
+    count: usize,
+    name: impl Fn(usize) -> String,
+    mut open: impl FnMut(usize) -> F,
+) -> Result<(usize, D)>
+where
+    F: std::future::Future<Output = Result<D>>,
+{
+    let mut first_error = None;
+    for index in 0..count {
+        match open(index).await {
+            Ok(device) => return Ok((index, device)),
+            Err(error) => {
+                warn!("{} gave no device: {error:#}", name(index));
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    Err(first_error.unwrap_or_else(|| anyhow::anyhow!("no other GPU adapter to ask for a device")))
+}
+
 #[cfg(test)]
 mod test {
     use wgpu::Limits;
 
     use super::Window;
+
+    #[cfg(not_wasm)]
+    mod first_device {
+        use std::cell::RefCell;
+
+        use anyhow::{Result, anyhow};
+        use pollster::block_on;
+
+        use super::super::first_device;
+
+        /// Runs `first_device` over candidates that fail where `fails` says,
+        /// and gives its answer with the candidates it asked, in order.
+        fn run(fails: &[bool]) -> (Result<(usize, usize)>, Vec<usize>) {
+            let asked = RefCell::new(vec![]);
+            let found = block_on(first_device(
+                fails.len(),
+                |index| format!("candidate {index}"),
+                |index| {
+                    asked.borrow_mut().push(index);
+                    let fails = fails[index];
+                    async move {
+                        if fails {
+                            Err(anyhow!("candidate {index} gave no device"))
+                        } else {
+                            Ok(index * 10)
+                        }
+                    }
+                },
+            ));
+            (found, asked.into_inner())
+        }
+
+        #[test]
+        fn the_first_candidate_that_gives_a_device_wins() {
+            let (found, asked) = run(&[true, false, false]);
+            assert_eq!(found.expect("the second candidate gives a device"), (1, 10));
+            assert_eq!(asked, [0, 1], "no candidate after the one that answered is asked");
+        }
+
+        #[test]
+        fn a_first_candidate_that_works_is_the_only_one_asked() {
+            let (found, asked) = run(&[false, false]);
+            assert_eq!(found.expect("the first candidate gives a device"), (0, 0));
+            assert_eq!(asked, [0]);
+        }
+
+        #[test]
+        fn with_no_device_the_error_of_the_first_candidate_comes_back() {
+            let (found, asked) = run(&[true, true, true]);
+            let error = found.expect_err("no candidate gives a device");
+            assert_eq!(error.to_string(), "candidate 0 gave no device");
+            assert_eq!(asked, [0, 1, 2], "every candidate is asked");
+        }
+
+        #[test]
+        fn with_no_candidate_the_error_says_so() {
+            let (found, asked) = run(&[]);
+            assert!(found.is_err());
+            assert_eq!(asked, Vec::<usize>::new());
+        }
+    }
 
     // Regression: the device request must never exceed what the adapter
     // reports. The iOS Simulator exposes lower Metal limits than

@@ -10,6 +10,7 @@ mod chips_segmented;
 mod command_held;
 mod corner_radii;
 mod date_field_float;
+mod date_field_format;
 mod date_field_style;
 mod dynamic_clear_color;
 mod form_fields;
@@ -60,7 +61,9 @@ mod switch;
 mod switch_colors;
 mod theme_switch;
 mod tool_button;
+mod tool_button_ellipsis;
 mod tool_button_fill;
+mod tool_button_icon_tint;
 mod tool_button_look;
 /// The on fills under the pointer, the same gate as `hover`.
 #[cfg(any(desktop, wasm))]

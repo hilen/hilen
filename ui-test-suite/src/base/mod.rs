@@ -57,6 +57,7 @@ mod layout;
 mod level_leak;
 mod modal_test;
 mod navigation;
+mod navigation_back_over_content;
 mod navigation_escape;
 mod on_tap_add;
 mod opened_link;

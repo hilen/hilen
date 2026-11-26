@@ -71,8 +71,10 @@ pub struct ToolButton {
     /// `set_fills_width`.
     width:   Width,
 
-    tint:    Option<UIColor>,
-    on_tint: Option<UIColor>,
+    tint:      Option<UIColor>,
+    on_tint:   Option<UIColor>,
+    /// The color of the icon alone, none lets it follow the text.
+    icon_tint: Option<UIColor>,
 
     hover_color:    Option<UIColor>,
     pressed_color:  Option<UIColor>,
@@ -172,6 +174,16 @@ impl ToolButton {
         self
     }
 
+    /// A color for the icon alone, like the color of a project in a list
+    /// of projects. The icon keeps it while the button is on, the text
+    /// still follows `set_tint` and `set_on_tint`. A disabled button draws
+    /// both faint. `None` lets the icon follow the text again.
+    pub fn set_icon_tint(&self, tint: Option<UIColor>) -> &Self {
+        weak_from_ref(self).icon_tint = tint;
+        self.refresh();
+        self
+    }
+
     /// A picture in place of the icon, like the avatar of the user, drawn
     /// round and in its own colors, never tinted, 24 points where an icon is
     /// 16. `None` brings the icon back.
@@ -198,8 +210,8 @@ impl ToolButton {
 
     /// A button that takes the width its owner gives it, like a row of a
     /// menu, with its icon and text at the left. Its fill, hover and on look
-    /// cover the whole row. Off by default, the button is as wide as its
-    /// icon and text.
+    /// cover the whole row. A text longer than the room ends with an
+    /// ellipsis. Off by default, the button is as wide as its icon and text.
     pub fn set_fills_width(&self, fills: bool) -> &Self {
         weak_from_ref(self).width = if fills { Width::Fill } else { Width::Fit };
         if fills {
@@ -292,13 +304,17 @@ impl ToolButton {
             self.set_color(self.background());
             return;
         }
+        let icon_tint = match self.icon_tint {
+            Some(icon_tint) if self.enabled => icon_tint,
+            _ => tint,
+        };
         match (self.icon_data, &self.icon_name) {
             (Some(data), Some(name)) => {
-                self.icon.set_image(tint_svg(data, name, tint.resolve()));
+                self.icon.set_image(tint_svg(data, name, icon_tint.resolve()));
             }
             (None, Some(name)) => {
                 self.icon.set_image(Tinted {
-                    tint: tint.resolve(),
+                    tint: icon_tint.resolve(),
                     name: name.clone(),
                 });
             }
@@ -360,7 +376,25 @@ impl ToolButton {
                 .center_x_offset(start + icon + gap + text / 2.0)
                 .tb(0)
                 .w(text);
+        } else if self.width == Width::Fill {
+            self.icon.place().clear().l(left).center_y().size(side, side);
+            // A text longer than the room ends with an ellipsis at the right
+            // padding. Left aligned with no inset it starts where a centered
+            // label of its own width starts, so a cut text keeps the left edge
+            // of the texts next to it.
+            self.label
+                .set_alignment(TextAlignment::Left)
+                .set_text_inset(0)
+                .set_ellipsize(true);
+            self.label
+                .place()
+                .clear()
+                .l(PADDING + icon + gap)
+                .tb(0)
+                .r(PADDING)
+                .max_width(text);
         } else {
+            self.label.set_alignment(TextAlignment::Center).set_ellipsize(false);
             self.icon.place().clear().l(left).center_y().size(side, side);
             self.label.place().clear().l(PADDING + icon + gap).tb(0).w(text);
         }

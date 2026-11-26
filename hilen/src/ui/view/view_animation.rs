@@ -77,6 +77,23 @@ impl UIAnimation {
         }
     }
 
+    /// Gives a timed animation its end value once, when it is over. The last
+    /// frame before the end only reaches close to it, a sheet that slid up
+    /// stayed 16 points under its place. An animation that ends by a
+    /// condition has no end value and gets nothing.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn commit_end(&mut self) {
+        if self.view.is_null()
+            || self.repeats
+            || !self.finish_condition.is_empty()
+            || self.animation.is_empty()
+        {
+            return;
+        }
+        let end = self.animation.end();
+        (self.action)(self.view.deref_mut(), end);
+    }
+
     #[cfg(feature = "gpu")]
     pub(crate) fn commit(&mut self) {
         let value = if self.animation.is_empty() {

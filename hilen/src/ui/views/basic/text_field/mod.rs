@@ -93,6 +93,11 @@ pub struct TextField {
 
     pub changed: Event<String>,
 
+    /// A tap or `focus` opened an editing session. It fires before the
+    /// field counts as edited, so a text the owner sets here, like the
+    /// typed form of a date, is the one the session starts with.
+    pub editing_began: Event,
+
     pub editing_ended: Event<String>,
 
     /// Enter in a single line field. It fires after `editing_ended`, with
@@ -191,6 +196,10 @@ impl Setup for TextField {
         #[cfg(wasm)]
         if !selected {
             browser_field::end();
+        }
+
+        if selected {
+            self.editing_began.trigger(());
         }
 
         self.is_editing = selected;

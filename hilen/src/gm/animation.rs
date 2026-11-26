@@ -56,6 +56,11 @@ impl Animation {
         self.value_at(frame_ms())
     }
 
+    /// The value the animation goes to.
+    pub fn end(&self) -> f32 {
+        (self.start + self.span) / SEC
+    }
+
     #[cfg(feature = "gpu")]
     fn finished_at(&self, now: f64) -> bool {
         now >= self.stamp + f64::from(self.duration)

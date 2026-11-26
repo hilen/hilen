@@ -535,8 +535,13 @@ impl Setup for DropDown {
 
         // The box itself keeps the text 12 points in, the label adds
         // nothing, the same as a text field. After the alignment, which
-        // gives a label the default inset.
-        self.label.set_color(CLEAR).set_alignment(TextAlignment::Left).set_text_inset(0);
+        // gives a label the default inset. A value longer than the box ends
+        // with an ellipsis before the arrow.
+        self.label
+            .set_color(CLEAR)
+            .set_alignment(TextAlignment::Left)
+            .set_text_inset(0)
+            .set_ellipsize(true);
         self.place_label(false);
         self.box_icon.set_hidden(true);
         self.box_icon.place().l(INSET).center_y().size(ICON, ICON);
@@ -717,7 +722,7 @@ impl Setup for DropDownRow {
         self.set_corner_radius(ROW_RADIUS);
 
         self.label.set_color(CLEAR).set_alignment(TextAlignment::Left);
-        self.label.set_text_color(TEXT).set_text_inset(0);
+        self.label.set_text_color(TEXT).set_text_inset(0).set_ellipsize(true);
         self.label.place().l(INSET - PANEL_PADDING).r(INSET + CHECK).tb(0);
         self.icon.set_hidden(true);
         self.icon.place().l(INSET - PANEL_PADDING).center_y().size(ICON, ICON);

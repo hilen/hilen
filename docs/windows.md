@@ -39,3 +39,14 @@ with a working driver.
 This did nothing before. The engine built its instance with `Instance::default()`, which
 hardcodes `Backends::all()` and never reads the environment, so a backend could not be
 chosen by hand at all.
+
+## An adapter that gives no device
+
+`Window::device_from_any` asks the adapter wgpu picked for a device. When that fails it
+asks every other adapter of the instance in turn and logs each one that fails, the window
+start only those that can draw to its surface. On 2026-11-25 on the Linux builder pc,
+whose Nvidia driver holds the 4090 for other jobs, wgpu picked the GL adapter of that
+card, its device request failed with `Parent device is lost`, and the app stopped at its
+start while the Vulkan adapter llvmpipe was there. wgpu still writes its own
+`indirect-validation error` for the failed GL try before the line of the fallback. The
+order is `first_device`, with unit tests in `window.rs`.

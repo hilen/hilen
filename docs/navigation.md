@@ -44,6 +44,12 @@ A tap on it pops the page.
 - A `BackButton` the stack did not make panics in its setup, with the name of the
   call to use.
 - The first page of a stack has nothing to go back to, `back_button()` panics there.
+- A press goes to the views newest first, so a page that builds its content after it
+  asked for its button handed a press on Back to a field that scrolled under it. Before
+  every press the button of each top page moves in front of the views of its own page,
+  `NavigationView::raise_back_buttons`. A view outside the page that came later, like
+  the open list of a drop down, stays in front of it. `Navigation back over content
+  test` holds this.
 
 ## A stack in a shell
 
