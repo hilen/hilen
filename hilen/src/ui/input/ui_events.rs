@@ -30,7 +30,9 @@ impl UIEvents {
 
     /// Every began touch of the app, before view dispatch. Public so a
     /// view can notice a click landing outside itself, the way a
-    /// selection clears when the user clicks elsewhere.
+    /// selection clears when the user clicks elsewhere. It is also the
+    /// only place the Back, Forward and middle buttons of a mouse reach,
+    /// they press no view, so an app goes back on `MouseButton::Back`.
     pub fn touch_began() -> &'static UIEvent<Touch> {
         &UI_EVENTS.touch_began
     }

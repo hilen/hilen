@@ -276,8 +276,10 @@ impl TouchStack {
     /// the top layer, so the Escape of a screen does not leave it under an
     /// open alert. A view that holds the top layer still answers, an app
     /// shell keeps its shortcuts over a pushed screen, and so does a
-    /// subscriber that is not a view in the tree.
-    pub(crate) fn key_reaches(subscriber: RawPointer) -> bool {
+    /// subscriber that is not a view in the tree. Public so an app holds
+    /// an input that is no key to the same rule, like the Back button of a
+    /// mouse heard through `UIEvents::touch_began`.
+    pub fn key_reaches(subscriber: RawPointer) -> bool {
         if !Self::in_key_window(subscriber) {
             return false;
         }

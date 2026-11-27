@@ -53,7 +53,12 @@ self.editor.place().back();
   its default selected. Tab and Shift Tab go from place to place, `$0`, the end of the
   text, Escape or a cursor that left the place end it. `snippet_active()` tells if the
   user is in one. `insert_snippet_joined(version, from, to, snippet)` joins the step
-  before it like `replace_joined`.
+  before it like `replace_joined`. A place used twice, like the `T` of
+  `impl From<${1:T}> for X { fn from(v: ${1:T}) }`, is 1 place. A change inside its
+  first copy, typed, deleted or put in by the app like a picked completion, goes into
+  every copy, and the copies join the undo step of the change. Typing on, the run of
+  typing with its copies stays 1 step. `mirror_snippet` and `link_lines` in
+  `snippet.rs` and `edit.rs` do it, the test is `Code editor linked places`.
 - `editing_ended` fires when the keys leave the editor and its find bar: a press on
   another view, a field that took them, or Escape with no selection. Keys that go into
   its own find bar and back fire nothing. An app saves the file there.

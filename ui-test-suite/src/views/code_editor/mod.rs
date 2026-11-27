@@ -32,6 +32,7 @@ mod code_editor_keys_back;
 #[cfg(desktop)]
 mod code_editor_line_clipboard;
 mod code_editor_line_keys;
+mod code_editor_linked_places;
 mod code_editor_long_file;
 mod code_editor_look;
 mod code_editor_menu;

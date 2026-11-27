@@ -398,8 +398,25 @@ impl CodeEditor {
             let moved = (changed.inserted.to_f32() - changed.removed.to_f32()) * row;
             self.table.set_content_offset(-(shown_top + moved));
         }
-        self.changed.trigger(changed.start);
+        let first = self.follow_mirrored(changed.start);
+        self.changed.trigger(first);
         self.cursor_moved.trigger(self.text.cursor());
+    }
+
+    /// The lines the copies of a snippet place were written on follow,
+    /// each on its own, so the lines between keep their marks and hints.
+    /// The first changed line of them and of `first`.
+    fn follow_mirrored(&mut self, first: usize) -> usize {
+        let mut first = first;
+        for line in self.text.take_mirrored() {
+            self.follow_lines(LinesChanged {
+                start:    line,
+                removed:  1,
+                inserted: 1,
+            });
+            first = first.min(line);
+        }
+        first
     }
 
     /// Takes back the newest step of the undo history, with the steps
@@ -520,8 +537,9 @@ impl CodeEditor {
         self.text.drop_far_regions();
         self.text.drop_far_snippet();
         self.follow_lines(changed);
+        let first = self.follow_mirrored(changed.start);
         self.scroll_to_cursor();
-        self.changed.trigger(changed.start);
+        self.changed.trigger(first);
         self.cursor_moved.trigger(self.text.cursor());
     }
 

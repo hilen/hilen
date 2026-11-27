@@ -51,6 +51,9 @@ pub(crate) struct CodeText {
     pub(super) regions:   Vec<PairRegion>,
     /// The places of the snippet the user fills in, see `snippet.rs`.
     pub(super) snippet:   Option<SnippetSession>,
+    /// The lines the last change wrote the copies of a snippet place on,
+    /// the view takes them with `take_mirrored`.
+    pub(super) mirrored:  Vec<usize>,
 }
 
 impl Default for CodeText {
@@ -67,6 +70,7 @@ impl Default for CodeText {
             version:   0,
             regions:   Vec::new(),
             snippet:   None,
+            mirrored:  Vec::new(),
         }
     }
 }

@@ -4,13 +4,16 @@
 //! the line it goes into. The cursor goes to the first place, with its
 //! default text selected, Tab and Shift Tab go to the next place and the one
 //! before, and `$0` is the last place, where the snippet ends. The session
-//! ends on Escape too, and when the cursor leaves the place it is at. The
-//! rules are the ones of the Zed editor.
+//! ends on Escape too, and when the cursor leaves the place it is at. A
+//! place used twice, like the `T` of `impl From<${1:T}> for X { fn
+//! from(v: ${1:T}) }`, is 1 place: what the user types in its first copy
+//! goes into every copy. The rules are the ones of the Zed editor.
 
 use std::{collections::BTreeMap, iter::Peekable, ops::Range, str::Chars};
 
 use super::{
     edit::{LinesChanged, StepKind},
+    pairs::moved,
     text::{CodePos, CodeText},
 };
 
@@ -196,10 +199,55 @@ impl CodeText {
                     .collect()
             })
             .collect();
+        // A place of a snippet before this one must not copy into it.
+        self.snippet = None;
         let changed = self.replace_to(from, to, &text, StepKind::Other, None);
         self.snippet = Some(SnippetSession { stops, active: 0 });
         self.go_to_stop();
         changed
+    }
+
+    /// A change from `from` to `end` of the new text inside the first copy
+    /// of the place the cursor is at, typed or put in by the app like a
+    /// picked completion, puts the same text into the other copies of that
+    /// place. They join the undo step of the change, see `link_lines`.
+    pub(super) fn mirror_snippet(&mut self, from: CodePos, end: CodePos) {
+        let Some(session) = &self.snippet else {
+            return;
+        };
+        let copies = session.stops[session.active].len();
+        let Some(&(start, place_end)) = session.stops[session.active].first() else {
+            return;
+        };
+        if copies < 2 || start.line != place_end.line || from < start || end > place_end {
+            return;
+        }
+        let text = self.lines[start.line][start.byte..place_end.byte].to_string();
+        let mut before = BTreeMap::new();
+        for copy in 1..copies {
+            let Some(&(from, to)) = self
+                .snippet
+                .as_ref()
+                .and_then(|session| session.stops[session.active].get(copy))
+            else {
+                continue;
+            };
+            if from.line != to.line || self.lines[from.line][from.byte..to.byte] == text {
+                continue;
+            }
+            before.entry(from.line).or_insert_with(|| self.lines[from.line].clone());
+            self.lines[from.line].replace_range(from.byte..to.byte, &text);
+            let end = CodePos::new(from.line, from.byte + text.len());
+            self.follow_regions(from, to, end);
+            self.follow_snippet(from, to, end);
+            self.cursor = moved(self.cursor, from, to, end, false);
+            self.anchor = self.anchor.map(|anchor| moved(anchor, from, to, end, false));
+        }
+        if before.is_empty() {
+            return;
+        }
+        self.link_lines(&before);
+        self.mirrored.extend(before.into_keys());
     }
 
     /// `insert_snippet`, joined to the newest step of the history when
@@ -378,5 +426,93 @@ mod tests {
         code.insert_snippet(CodePos::default(), CodePos::default(), "len()");
         assert_eq!(code.cursor(), CodePos::new(0, 5));
         assert!(!code.snippet_active());
+    }
+
+    fn typed(code: &mut CodeText, chars: &str) {
+        for ch in chars.chars() {
+            code.type_char(ch);
+            code.drop_far_snippet();
+        }
+    }
+
+    const IMPL: &str =
+        "impl From<${1:T}> for ${2:Type} {\n    fn from(value: ${1:T}) -> Self {\n        $0\n    }\n}";
+
+    #[test]
+    fn typing_in_a_place_fills_its_copies() {
+        let mut code = text("");
+        code.insert_snippet(CodePos::default(), CodePos::default(), IMPL);
+        assert_eq!(code.selected_text(), "T");
+        typed(&mut code, "f64");
+        assert_eq!(code.lines()[0], "impl From<f64> for Type {");
+        assert_eq!(code.lines()[1], "    fn from(value: f64) -> Self {");
+        assert_eq!(code.cursor(), CodePos::new(0, 13));
+        assert_eq!(code.take_mirrored(), [1]);
+        code.delete_backward();
+        code.drop_far_snippet();
+        assert_eq!(code.lines()[1], "    fn from(value: f6) -> Self {");
+        // The place after it is not copied.
+        assert!(code.next_stop());
+        assert_eq!(code.selected_text(), "Type");
+        typed(&mut code, "Meters");
+        assert_eq!(code.lines()[0], "impl From<f6> for Meters {");
+        assert_eq!(code.lines()[1], "    fn from(value: f6) -> Self {");
+        assert_eq!(code.take_mirrored(), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn a_picked_completion_in_a_place_fills_its_copies_too() {
+        let mut code = text("");
+        code.insert_snippet(CodePos::default(), CodePos::default(), IMPL);
+        typed(&mut code, "f6");
+        // The app puts the completion f64 in place of the typed f6.
+        code.replace_kept(CodePos::new(0, 10), CodePos::new(0, 12), "f64");
+        assert_eq!(code.lines()[0], "impl From<f64> for Type {");
+        assert_eq!(code.lines()[1], "    fn from(value: f64) -> Self {");
+        assert_eq!(code.take_mirrored(), [1]);
+        // A change of the app outside the place leaves the copies be.
+        code.replace_kept(CodePos::new(1, 4), CodePos::new(1, 6), "pub fn");
+        assert_eq!(code.lines()[1], "    pub fn from(value: f64) -> Self {");
+        assert_eq!(code.take_mirrored(), Vec::<usize>::new());
+        code.undo();
+        code.undo();
+        assert_eq!(code.lines()[0], "impl From<f6> for Type {");
+        assert_eq!(code.lines()[1], "    fn from(value: f6) -> Self {");
+    }
+
+    #[test]
+    fn a_copy_on_the_line_of_the_place_moves_the_cursor_on() {
+        let mut code = text("");
+        code.insert_snippet(
+            CodePos::default(),
+            CodePos::default(),
+            "let ${1:a} = ${1:a} + ${1:a};",
+        );
+        typed(&mut code, "xy");
+        assert_eq!(code.lines(), ["let xy = xy + xy;"]);
+        assert_eq!(code.cursor(), CodePos::new(0, 6));
+        assert!(code.snippet_active());
+    }
+
+    #[test]
+    fn an_undo_takes_back_a_run_of_typing_with_its_copies() {
+        let mut code = text("");
+        code.insert_snippet(CodePos::default(), CodePos::default(), IMPL);
+        // The first char takes the place of the default text, a step of
+        // its own like with no copies, the rest is 1 run of typing.
+        typed(&mut code, "f64");
+        code.undo();
+        assert_eq!(code.lines()[0], "impl From<f> for Type {");
+        assert_eq!(code.lines()[1], "    fn from(value: f) -> Self {");
+        code.undo();
+        assert_eq!(code.lines()[0], "impl From<T> for Type {");
+        assert_eq!(code.lines()[1], "    fn from(value: T) -> Self {");
+        code.redo();
+        code.redo();
+        assert_eq!(code.lines()[1], "    fn from(value: f64) -> Self {");
+        code.undo();
+        code.undo();
+        code.undo();
+        assert_eq!(code.lines(), [""]);
     }
 }

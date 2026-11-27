@@ -22,9 +22,9 @@ use crate::{
 use crate::{
     gm::color::Color,
     ui::{
-        Container, Drag, Focus, LongPress, Mouse, NavigationView, PinchInput, RowDrag, Setup, SideSwipe,
-        TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame, check_touch,
-        press_keeps_selection,
+        Container, Drag, Focus, LongPress, Mouse, MouseButton, NavigationView, PinchInput, RowDrag, Setup,
+        SideSwipe, TextSelection, Tooltip, Touch, TouchStack, UIEvents, UIManager, ViewData, ViewFrame,
+        check_touch, press_keeps_selection,
     },
     window::frame_control,
 };
@@ -243,6 +243,14 @@ impl Input {
         if touch.is_began() {
             UIEvents::touch_began().trigger(touch);
         }
+
+        // A Back, Forward or middle button is no click. A view took it as a
+        // left press, so Back over a button tapped it and over a code editor
+        // moved the cursor. The app hears it through `touch_began` above.
+        if !matches!(touch.button, MouseButton::Left | MouseButton::Right) {
+            return false;
+        }
+
         TextSelection::on_touch(&touch);
 
         // Any press ends a tooltip, a finger or a click is an answer to it.

@@ -72,7 +72,12 @@ pops a pushed `NavigationView` screen. A screen an app swaps in with
 `UIManager::set_view` binds Escape itself. While a modal, a menu or another touch layer
 is open, a key binding answers only when its view is inside the top layer or holds it,
 `TouchStack::key_reaches`, so the Escape of a screen does not leave it under an open
-alert. A binding on the root view or on something that is not a view always answers. A key action may swap the screen, the keys
+alert. `key_reaches` is public, an app holds an input that is no key to the same rule.
+The Back, Forward and middle buttons of a mouse press no view, `Input::process_touch_event`
+stops them after `UIEvents::touch_began`, so Back over a button does not tap it. An app
+that goes back on `MouseButton::Back` hears it there and asks `key_reaches` first, the
+tests are `Side mouse buttons` and `Key reaches layer`.
+A binding on the root view or on something that is not a view always answers. A key action may swap the screen, the keys
 the new screen binds in its `setup` join the keymap after the press, they never see
 the press that added them. `Keymap::check` in `input/keymap/keymap.rs` keeps the key
 list unborrowed while actions run for that.

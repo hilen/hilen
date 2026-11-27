@@ -184,6 +184,15 @@ pub fn inject_mouse_touches(data: impl ToString + Send + 'static) {
 /// context menu. The engine does not gate the right button by platform,
 /// so this drives the same path on a device.
 pub fn inject_right_click(x: impl ToF32, y: impl ToF32) {
+    click(x, y, MouseButton::Right, TouchSource::Unknown);
+}
+
+/// A press and release of a mouse `button` at `x y`, like the Back button.
+pub fn inject_click(x: impl ToF32, y: impl ToF32, button: MouseButton) {
+    click(x, y, button, TouchSource::Mouse);
+}
+
+fn click(x: impl ToF32, y: impl ToF32, button: MouseButton, source: TouchSource) {
     let position = Point::new(x.to_f32(), y.to_f32()) * UIManager::scale();
 
     for event in [TouchEvent::Began, TouchEvent::Ended] {
@@ -192,8 +201,8 @@ pub fn inject_right_click(x: impl ToF32, y: impl ToF32) {
                 id: 1,
                 position,
                 event,
-                button: MouseButton::Right,
-                source: TouchSource::Unknown,
+                button,
+                source,
             });
         });
     }

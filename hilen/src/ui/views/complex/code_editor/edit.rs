@@ -3,6 +3,8 @@
 //! and deleted chars on 1 line join the step before them until the
 //! cursor moves, so an undo takes back a run of typing, not 1 char.
 
+use std::{collections::BTreeMap, mem::take};
+
 use super::text::{CodePos, CodeText, Spot, UNDO_STEPS, clean};
 
 /// Which lines a change replaced: `removed` lines from `start` gave way
@@ -34,6 +36,9 @@ pub(crate) struct Step {
     /// An undo takes back the step before it too, and a redo of that step
     /// puts this one back with it, see `replace_joined`.
     joined: bool,
+    /// The step holds the copies of a snippet place on more lines, see
+    /// `link_lines`. Typing on any of its lines joins it.
+    linked: bool,
 }
 
 /// Brackets after which a new line starts 1 level deeper.
@@ -76,11 +81,16 @@ impl CodeText {
             && removed == 1
             && new.len() == 1
             && self.undo.last().is_some_and(|last| {
-                last.kind == kind && last.start == start && last.new.len() == 1 && last.after == before
+                let on_its_line = if last.linked {
+                    (last.start..last.start + last.new.len()).contains(&start)
+                } else {
+                    last.start == start && last.new.len() == 1
+                };
+                last.kind == kind && on_its_line && last.after == before
             });
 
         if joins && let Some(last) = self.undo.last_mut() {
-            last.new = new;
+            last.new[start - last.start].clone_from(&new[0]);
             last.after = after;
         } else {
             self.undo.push(Step {
@@ -91,6 +101,7 @@ impl CodeText {
                 after,
                 kind,
                 joined: false,
+                linked: false,
             });
             if self.undo.len() > UNDO_STEPS {
                 self.undo.remove(0);
@@ -134,7 +145,42 @@ impl CodeText {
             cursor: cursor.unwrap_or(end),
             anchor: None,
         };
-        self.apply(from.line, to.line - from.line + 1, new, after, kind)
+        self.mirrored.clear();
+        let changed = self.apply(from.line, to.line - from.line + 1, new, after, kind);
+        self.mirror_snippet(from, end);
+        changed
+    }
+
+    /// The lines of the copies of a snippet place the last change wrote,
+    /// see `mirror_snippet`.
+    pub(crate) fn take_mirrored(&mut self) -> Vec<usize> {
+        take(&mut self.mirrored)
+    }
+
+    /// The newest step takes in lines that changed after it, `before`
+    /// holds the text of each before that, the copies of a snippet place.
+    /// From now on typing on any line of the step joins it, so 1 undo
+    /// takes back a run of typing with all its copies.
+    pub(super) fn link_lines(&mut self, before: &BTreeMap<usize, String>) {
+        let after = self.spot();
+        let (Some(&first), Some(&last)) = (before.keys().next(), before.keys().next_back()) else {
+            return;
+        };
+        let lines = &self.lines;
+        let Some(step) = self.undo.last_mut() else {
+            return;
+        };
+        let end = step.start + step.new.len();
+        let (low, high) = (first.min(step.start), (last + 1).max(end));
+        let was = |line: usize| before.get(&line).unwrap_or(&lines[line]).clone();
+        let mut old: Vec<String> = (low..step.start).map(was).collect();
+        old.append(&mut step.old);
+        old.extend((end..high).map(was));
+        step.start = low;
+        step.old = old;
+        step.new = lines[low..high].to_vec();
+        step.after = after;
+        step.linked = true;
     }
 
     /// Puts `text` in place of the text from `from` to `to` as a step of
@@ -178,7 +224,12 @@ impl CodeText {
         let suffix = &self.lines[to.line][to.byte..];
         let joined = format!("{}{text}{suffix}", &self.lines[from.line][..from.byte]);
         let new: Vec<String> = joined.split('\n').map(str::to_string).collect();
-        self.apply(from.line, to.line - from.line + 1, new, after, StepKind::Other)
+        self.mirrored.clear();
+        let changed = self.apply(from.line, to.line - from.line + 1, new, after, StepKind::Other);
+        // A completion the user picked in a place of a snippet goes into
+        // its copies like typed text.
+        self.mirror_snippet(from, end);
+        changed
     }
 
     /// `replace_kept`, joined to the newest step of the history when the
