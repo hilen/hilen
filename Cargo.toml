@@ -183,6 +183,7 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIDocumentPickerViewController", "UIImage", "UIImagePickerController", "UINavigationController", "UIPasteboard", "UIResponder", "UIViewController", "block2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNUserNotificationCenter"] }
 open = "5.4"
+opener = { version = "0.9", features = ["reveal"] }
 # The OpenXR loader built into the exe, a release exe needs no DLL that a
 # clean Windows lacks. The build needs cmake. The fork builds the loader on
 # the static C runtime under `crt-static`, see docs/forks.md.

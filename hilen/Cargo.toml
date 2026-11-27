@@ -435,6 +435,7 @@ objc2-photos-ui = { workspace = true }
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "tvos", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 arboard = { workspace = true }
+opener = { workspace = true }
 # The flags of the UI test runner, which only a desktop runs.
 clap = { workspace = true, optional = true }
 ffmpeg-next = { workspace = true, optional = true }
